@@ -77,10 +77,10 @@ def _isolate_main_state():
     prev_services = main._services
     prev_tools = main._tools
     prev_modules = list(main._modules)
-    prev_listeners = list(main._status_listeners)
+    prev_listeners = list(main.menu_status.listeners)
     prev_err = getattr(main, "_bootstrap_error", None)
-    prev_graphics = dict(main._loaded_icon_graphics)
-    prev_stamp = main._icon_apply_stamp
+    prev_graphics = dict(main.menu_icons._loaded_icon_graphics)
+    prev_stamp = main.menu_icons._icon_apply_stamp
     try:
         yield
     finally:
@@ -88,11 +88,11 @@ def _isolate_main_state():
         main._services = prev_services
         main._tools = prev_tools
         main._modules[:] = prev_modules
-        main._status_listeners[:] = prev_listeners
+        main.menu_status.listeners[:] = prev_listeners
         main._bootstrap_error = prev_err
-        main._loaded_icon_graphics.clear()
-        main._loaded_icon_graphics.update(prev_graphics)
-        main._icon_apply_stamp = prev_stamp
+        main.menu_icons._loaded_icon_graphics.clear()
+        main.menu_icons._loaded_icon_graphics.update(prev_graphics)
+        main.menu_icons._icon_apply_stamp = prev_stamp
 
 
 # --- Bug 1 tests: bootstrap error handling and retry ---
@@ -381,8 +381,8 @@ def test_menu_update_subscriber_runs_in_background(monkeypatch):
 
     bus.emit("menu:update")
 
-    assert main.notify_menu_update in bg_calls
-    assert main.notify_menu_update not in main_calls
+    assert main.menu_status.publish in bg_calls
+    assert main.menu_status.publish not in main_calls
 
 
 # --- Bug 4 tests: handler failures reported safely without raising ---
@@ -490,7 +490,7 @@ def test_remove_status_listener_drops_proxy_with_uno_same():
     u1.Query = ""
 
     handler.addStatusListener(l1, u1)
-    assert len(main._status_listeners) == 1
+    assert len(main.menu_status.listeners) == 1
 
     # Different URL Complete does not drop listener
     u_diff = MagicMock()
@@ -498,11 +498,11 @@ def test_remove_status_listener_drops_proxy_with_uno_same():
     u_diff.Path = "test.action"
     u_diff.Query = ""
     handler.removeStatusListener(l2, u_diff)
-    assert len(main._status_listeners) == 1
+    assert len(main.menu_status.listeners) == 1
 
     # Same Complete with equivalent proxy drops listener
     handler.removeStatusListener(l2, u1)
-    assert len(main._status_listeners) == 0
+    assert len(main.menu_status.listeners) == 0
 
 
 def test_add_status_listener_replaces_same_url():
@@ -527,13 +527,13 @@ def test_add_status_listener_replaces_same_url():
     u1.Query = ""
 
     handler.addStatusListener(l1, u1)
-    assert len(main._status_listeners) == 1
-    assert main._status_listeners[0][0] is l1
+    assert len(main.menu_status.listeners) == 1
+    assert main.menu_status.listeners[0][0] is l1
 
     # Adding equal proxy for same Complete replaces the entry
     handler.addStatusListener(l2, u1)
-    assert len(main._status_listeners) == 1
-    assert main._status_listeners[0][0] is l2
+    assert len(main.menu_status.listeners) == 1
+    assert main.menu_status.listeners[0][0] is l2
 
     # A different Complete appends
     u2 = MagicMock()
@@ -541,7 +541,7 @@ def test_add_status_listener_replaces_same_url():
     u2.Path = "test.action"
     u2.Query = ""
     handler.addStatusListener(l2, u2)
-    assert len(main._status_listeners) == 2
+    assert len(main.menu_status.listeners) == 2
 
 
 def test_notify_menu_update_prune_uses_uno_same(monkeypatch):
@@ -565,16 +565,16 @@ def test_notify_menu_update_prune_uses_uno_same(monkeypatch):
     u1.Complete = ".uno:WriterAgentAction"
     u1.Path = "test.action"
 
-    main._status_listeners.clear()
-    main._status_listeners.append((l1, u1))
-    main._status_listeners.append((l2, u1))
-    assert len(main._status_listeners) == 2
+    main.menu_status.listeners.clear()
+    main.menu_status.listeners.append((l1, u1))
+    main.menu_status.listeners.append((l2, u1))
+    assert len(main.menu_status.listeners) == 2
 
     monkeypatch.setattr(main, "get_menu_text", lambda cmd: "Test Label")
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
 
-    main.notify_menu_update()
-    assert len(main._status_listeners) == 0
+    main.menu_status.publish()
+    assert len(main.menu_status.listeners) == 0
 
 
 def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
@@ -598,11 +598,11 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
     u1.Complete = ".uno:WriterAgentAction"
     u1.Path = "test.action"
 
-    main._status_listeners.clear()
+    main.menu_status.listeners.clear()
     try:
-        main._status_listeners.append((l1, u1))
-        main._status_listeners.append((l2, u1))
-        assert len(main._status_listeners) == 2
+        main.menu_status.listeners.append((l1, u1))
+        main.menu_status.listeners.append((l2, u1))
+        assert len(main.menu_status.listeners) == 2
 
         monkeypatch.setattr(main, "get_menu_text", lambda cmd: "Test Label")
         monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
@@ -622,34 +622,34 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
         monkeypatch.setattr(main_thread, "post", mock_post)
 
         uno_same_threads: list[threading.Thread] = []
-        real_uno_same = main.uno_same
+        from plugin.framework.uno_context import uno_same as real_uno_same
 
         def wrapped_uno_same(a: Any, b: Any) -> bool:
             uno_same_threads.append(threading.current_thread())
             return real_uno_same(a, b)
 
-        monkeypatch.setattr(main, "uno_same", wrapped_uno_same)
+        monkeypatch.setattr("plugin.menu_state.uno_same", wrapped_uno_same)
 
-        worker = threading.Thread(target=main.notify_menu_update)
+        worker = threading.Thread(target=main.menu_status.publish)
         worker.start()
         worker.join()
 
-        assert len(main._status_listeners) == 2
+        assert len(main.menu_status.listeners) == 2
         assert len(uno_same_threads) == 0
         assert len(posted) == 1
-        assert posted[0][0] is main._prune_failed_status_listeners
+        assert posted[0][0] == main.menu_status._prune_failed_status_listeners
         assert posted[0][1] == ([(l1, u1), (l2, u1)],)
         assert posted[0][2].get("bound_scope") is None
-        assert main._update_menu_icons in bg_calls
+        assert main.menu_icons.post_apply in bg_calls
 
         # On the test thread, call that posted function with the posted args.
         posted[0][0](*posted[0][1])
-        assert len(main._status_listeners) == 0
+        assert len(main.menu_status.listeners) == 0
         assert len(uno_same_threads) > 0
         test_thread = threading.current_thread()
         assert all(t == test_thread for t in uno_same_threads)
     finally:
-        main._status_listeners.clear()
+        main.menu_status.listeners.clear()
 
 
 def test_notify_menu_update_text_failure_does_not_prune_or_stop(monkeypatch):
@@ -665,11 +665,11 @@ def test_notify_menu_update_text_failure_does_not_prune_or_stop(monkeypatch):
     u2.Path = "cmd.ok"
     u2.Query = ""
 
-    main._status_listeners.clear()
+    main.menu_status.listeners.clear()
     try:
-        main._status_listeners.append((l1, u1))
-        main._status_listeners.append((l2, u2))
-        assert len(main._status_listeners) == 2
+        main.menu_status.listeners.append((l1, u1))
+        main.menu_status.listeners.append((l2, u2))
+        assert len(main.menu_status.listeners) == 2
 
         def fake_get_menu_text(cmd: str) -> str:
             if cmd == "cmd.fail":
@@ -686,14 +686,14 @@ def test_notify_menu_update_text_failure_does_not_prune_or_stop(monkeypatch):
             lambda fn, *args, **kwargs: bg_calls.append(fn),
         )
 
-        main.notify_menu_update()
+        main.menu_status.publish()
 
         l1.statusChanged.assert_not_called()
         l2.statusChanged.assert_called_once()
-        assert len(main._status_listeners) == 2
-        assert main._update_menu_icons in bg_calls
+        assert len(main.menu_status.listeners) == 2
+        assert main.menu_icons.post_apply in bg_calls
     finally:
-        main._status_listeners.clear()
+        main.menu_status.listeners.clear()
 
 
 def test_update_menu_icons_posts_unscoped(monkeypatch):
@@ -703,10 +703,10 @@ def test_update_menu_icons_posts_unscoped(monkeypatch):
         posted.append((fn, args, kwargs))
 
     monkeypatch.setattr(main_thread, "post", mock_post)
-    main._update_menu_icons()
+    main.menu_icons.post_apply()
 
     assert len(posted) == 1
-    assert posted[0][0] is main._update_menu_icons_impl
+    assert posted[0][0] == main.menu_icons.apply
     assert posted[0][2].get("bound_scope") is None
 
 
@@ -720,19 +720,19 @@ def test_icon_apply_signature_and_icons_unchanged():
         ".uno:Cmd1": ("writer", "prefix_a"),
         ".uno:Cmd2": ("calc", "prefix_b"),
     }
-    stamp = main._icon_apply_signature(cmds, 16)
+    stamp = main.menu_icons._icon_apply_signature(cmds, 16)
 
-    assert (main._icon_apply_signature(cmds, 16) == stamp) is True
+    assert (main.menu_icons._icon_apply_signature(cmds, 16) == stamp) is True
 
     # Changed prefix -> False
     cmds_changed_prefix = {
         ".uno:Cmd1": ("writer", "prefix_c"),
         ".uno:Cmd2": ("calc", "prefix_b"),
     }
-    assert (main._icon_apply_signature(cmds_changed_prefix, 16) == stamp) is False
+    assert (main.menu_icons._icon_apply_signature(cmds_changed_prefix, 16) == stamp) is False
 
     # Changed pixel size -> False
-    assert (main._icon_apply_signature(cmds, 24) == stamp) is False
+    assert (main.menu_icons._icon_apply_signature(cmds, 24) == stamp) is False
 
 
 def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
@@ -744,7 +744,7 @@ def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
         loader_calls.append((filename, 16))
         return fake_graphic
 
-    monkeypatch.setattr(main, "_load_icon_graphic", mock_loader)
+    monkeypatch.setattr(main.menu_icons, "_load_icon_graphic", mock_loader)
 
     mock_img_mgr = MagicMock()
     mock_img_mgr.hasImage.return_value = False
@@ -759,26 +759,26 @@ def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
     mock_ctx.ServiceManager = mock_sm
     monkeypatch.setattr(main, "get_ctx", lambda: mock_ctx)
 
-    monkeypatch.setattr(main, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_1")})
+    monkeypatch.setattr(main.menu_icons, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_1")})
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", lambda doc: 16)
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.menu_icon_filename", lambda prefix, px, ctx=None: f"{prefix}_{px}.png")
     monkeypatch.setattr("plugin.framework.appearance.get_style_window", lambda ctx=None: None)
 
-    main._loaded_icon_graphics.clear()
-    main._icon_apply_stamp = None
+    main.menu_icons._loaded_icon_graphics.clear()
+    main.menu_icons._icon_apply_stamp = None
 
     # First call: loads graphic and sets stamp
-    main._update_menu_icons_impl()
+    main.menu_icons.apply()
     assert len(loader_calls) == 1
-    assert main._icon_apply_stamp is not None
+    assert main.menu_icons._icon_apply_stamp is not None
 
     # Second call: stamp matches -> early return, loader not called again
-    main._update_menu_icons_impl()
+    main.menu_icons.apply()
     assert len(loader_calls) == 1
 
     # Third call: new prefix -> loader called again
-    monkeypatch.setattr(main, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_2")})
-    main._update_menu_icons_impl()
+    monkeypatch.setattr(main.menu_icons, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_2")})
+    main.menu_icons.apply()
     assert len(loader_calls) == 2
 
 
@@ -793,14 +793,14 @@ def test_update_menu_icons_impl_uses_get_ctx_not_get_component_context(monkeypat
     monkeypatch.setattr(main, "get_ctx", lambda: sentinel_ctx)
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", lambda doc: 16)
     monkeypatch.setattr("plugin.framework.appearance.get_style_window", lambda ctx=None: None)
-    monkeypatch.setattr(main, "_collect_icon_commands", lambda: {})
+    monkeypatch.setattr(main.menu_icons, "_collect_icon_commands", lambda: {})
     main._services = None
 
     # patch.object, not monkeypatch: pytest 9.2's undo deletes an auto-created
     # MagicMock attribute, which leaves the shared uno mock without it.
     with patch.object(uno, "getComponentContext", MagicMock(side_effect=AssertionError("uno.getComponentContext must not be called"))):
         # _update_menu_icons_impl should retrieve sentinel_ctx from get_ctx() and not call uno.getComponentContext()
-        main._update_menu_icons_impl()
+        main.menu_icons.apply()
         uno.getComponentContext.assert_not_called()
 
 
@@ -813,7 +813,7 @@ def test_load_icon_graphic_uses_service_manager_attribute():
     ctx.ServiceManager = fake_sm
     ctx.getServiceManager.side_effect = AssertionError("getServiceManager must not be called")
 
-    result = main._load_icon_graphic("test_mod", "test_file.png", ctx)
+    result = main.menu_icons._load_icon_graphic("test_mod", "test_file.png", ctx)
     assert result is None
     ctx.getServiceManager.assert_not_called()
     fake_sm.createInstanceWithContext.assert_called_once_with("com.sun.star.graphic.GraphicProvider", ctx)
