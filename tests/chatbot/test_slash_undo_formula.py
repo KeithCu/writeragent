@@ -16,6 +16,7 @@ from plugin.chatbot.slash_undo_formula import (
     clean_formula_model_reply,
     insert_slash_formula_on_main,
 )
+from plugin.doc import agent_undo as au
 
 
 def test_clean_formula_model_reply():
@@ -109,3 +110,56 @@ def test_insert_slash_formula_reports_cell_error():
                     chunks=["=SUM(A1;A2)"],
                 )
     assert "error" in host.append_output.call_args[0][0].lower()
+
+
+class _InsertUndoManager:
+    def __init__(self) -> None:
+        self._titles: list[str] = []
+        self.undo_calls = 0
+
+    def getAllUndoActionTitles(self) -> list[str]:
+        return list(self._titles)
+
+    def isLocked(self) -> bool:
+        return False
+
+    def isInContext(self) -> bool:
+        return False
+
+    def isUndoEnabled(self) -> bool:
+        return True
+
+    def enterUndoContext(self, title: str) -> None:
+        self._titles.insert(0, title)
+
+    def leaveUndoContext(self) -> None:
+        return None
+
+    def undo(self) -> None:
+        self.undo_calls += 1
+        if self._titles:
+            self._titles.pop(0)
+
+
+def test_insert_slash_formula_records_undo_and_undo_reverts():
+    um = _InsertUndoManager()
+    doc = MagicMock()
+    doc.getUndoManager.return_value = um
+    cell = MagicMock()
+    cell.getError.return_value = 0
+    host = MagicMock()
+    formula = "=SUM(A1;A2)"
+
+    with patch("plugin.doc.agent_undo.compute_doc_key", return_value="uid:formula-test"):
+        au.clear_agent_undo_record(doc)
+        insert_slash_formula_on_main(
+            host,
+            model=doc,
+            cell=cell,
+            target_addr="A1",
+            chunks=[formula],
+        )
+        cell.setFormula.assert_called_once_with(formula)
+        msg = au.undo_last_agent_edit(doc)
+        assert "1 steps" in msg
+        assert um.undo_calls == 1

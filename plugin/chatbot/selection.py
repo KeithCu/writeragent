@@ -73,10 +73,33 @@ def prompt_for_edit_instructions(ctx: Any, title: str) -> tuple[str, str] | None
     return user_input, extra_instructions
 
 
-def stream_completion(ctx: Any, client: LlmClient, prompt: str, system_prompt: str, max_tokens: int, apply_chunk_fn: ApplyChunkFn, on_done_fn: Callable[[], None], on_error_fn: ErrorFn) -> None:
+def stream_completion(
+    ctx: Any,
+    client: LlmClient,
+    prompt: str,
+    system_prompt: str,
+    max_tokens: int,
+    apply_chunk_fn: ApplyChunkFn,
+    on_done_fn: Callable[[], None],
+    on_error_fn: ErrorFn,
+    *,
+    cancel: Any = None,
+    on_stopped_fn: Callable[[], None] | None = None,
+) -> None:
     """Start a simple completion stream and route startup failures like stream errors."""
     try:
-        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn)
+        run_stream_completion_async(
+            ctx,
+            client,
+            prompt,
+            system_prompt,
+            max_tokens,
+            apply_chunk_fn,
+            on_done_fn,
+            on_error_fn,
+            cancel=cancel,
+            on_stopped_fn=on_stopped_fn,
+        )
     except Exception as e:
         on_error_fn(e)
 

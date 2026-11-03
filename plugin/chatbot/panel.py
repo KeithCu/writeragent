@@ -269,8 +269,6 @@ class SendButtonListener(BaseActionListener):
     _acp_backend_id: str | None
     _approval_event: Any
     slash_popup: Any
-    _slash_compact_allowed: bool
-    _slash_formula_allowed: bool
     _skip_agent_undo_after: bool
     clear_listener: Any
     rich_text_widget: Any
@@ -363,8 +361,6 @@ class SendButtonListener(BaseActionListener):
         self._stop_mouse_listener = None
         self._record_mouse_listener = None
         self.slash_popup = None
-        self._slash_compact_allowed = False
-        self._slash_formula_allowed = False
         self._skip_agent_undo_after = False
         self.clear_listener = None
         self.rich_text_widget = None
@@ -573,9 +569,6 @@ class SendButtonListener(BaseActionListener):
         from plugin.framework.doc_type import DocumentType, get_document_type
         from plugin.framework.i18n import _
 
-        if self.slash_agent_edit_in_flight() and not self._slash_formula_allowed:
-            self.append_output("\n" + _("Wait for the current operation to finish before /formula.") + "\n")
-            return
         model = self._get_document_model(log_failure=True)
         if not model:
             self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
@@ -1337,16 +1330,12 @@ class SendButtonListener(BaseActionListener):
             if slash_cmd.needs_turn:
                 self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
                 return
-            if slash_cmd.name == "formula":
+            if slash_cmd.runs_in_send_turn:
                 from plugin.doc.agent_undo import cancel_pending_agent_turn
 
                 cancel_pending_agent_turn(model)
                 self._skip_agent_undo_after = True
-                self._slash_formula_allowed = True
-                try:
-                    run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False)
-                finally:
-                    self._slash_formula_allowed = False
+                self.run_slash_formula(slash_arg)
                 return
             if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)

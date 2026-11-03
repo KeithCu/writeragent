@@ -1292,6 +1292,7 @@ def run_stream_completion_async(
     on_error_fn: Callable[[Any], None] | None,
     on_status_fn: Callable[[str], None] | None = None,
     cancel: SendCancellation | None = None,
+    on_stopped_fn: Callable[[], None] | None = None,
 ) -> None:
     """High-level helper for simple non-tool streams (always chat completions)."""
     # crosshair: off
@@ -1318,6 +1319,7 @@ def run_stream_completion_async(
         on_error_fn=on_error_fn,
         on_status_fn=on_status_fn,
         cancel=cancel,
+        on_stopped_fn=on_stopped_fn,
         name="stream-completion",
         q=batched,
     )

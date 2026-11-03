@@ -34,7 +34,7 @@ def _doc(titles: list[str]) -> MagicMock:
 def _with_doc_key(doc: MagicMock, uid: str):
     from unittest.mock import patch
 
-    return patch("plugin.doc.agent_undo._compute_doc_key", return_value=f"uid:{uid}")
+    return patch("plugin.doc.agent_undo.compute_doc_key", return_value=f"uid:{uid}")
 
 
 def test_record_and_undo_single_step():

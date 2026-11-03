@@ -313,6 +313,7 @@ def test_slash_send_continues_after_begin_uses_kind_and_needs_turn():
     assert slash_send_continues_after_begin(proofread) is False
     formula = next(c for c in SLASH_COMMANDS if c.name == "formula")
     assert slash_send_continues_after_begin(formula) is True
+    assert formula.runs_in_send_turn is True
 
 
 def test_run_translate_writer_no_selection_continues_send():
@@ -544,14 +545,6 @@ def test_run_undo_refuses_while_in_flight():
     host.slash_document_model.assert_not_called()
 
 
-def test_run_formula_delegates_to_host():
-    host = MagicMock()
-    host.run_slash_formula = MagicMock()
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("formula", host, "sum column A") is True
-    host.run_slash_formula.assert_called_once_with("sum column A")
-
-
 def test_popup_accept_runs_undo_immediately():
     host = SimpleNamespace(
         hide_popup=MagicMock(),
@@ -565,11 +558,4 @@ def test_popup_accept_runs_undo_immediately():
             assert run_slash_command("undo", host, from_popup=True) is True
     host.clear_ask.assert_called_once()
     host.append_output.assert_called_once()
-
-
-def test_slash_command_holds_send_turn_for_formula():
-    from plugin.chatbot.slash_commands import slash_command_holds_send_turn, _registry_map
-
-    formula = _registry_map()["formula"]
-    assert slash_command_holds_send_turn(formula) is True
 

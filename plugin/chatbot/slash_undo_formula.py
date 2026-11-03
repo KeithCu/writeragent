@@ -34,10 +34,6 @@ def run_slash_undo(host: Any) -> None:
     host.append_output("\n" + undo_last_agent_edit(model) + "\n")
 
 
-def run_slash_formula_dispatch(host: Any, description: str) -> None:
-    host.run_slash_formula(description.strip())
-
-
 def clean_formula_model_reply(text: str) -> str:
     """Strip fences and whitespace from a one-line formula completion."""
     raw = (text or "").strip()
@@ -161,10 +157,8 @@ def insert_slash_formula_on_main(
 
 def run_slash_formula_worker(host: Any, *, ctx: Any, model: Any, description: str) -> None:
     """LLM stream under send cancellation; formula insert runs on the main thread."""
-    from plugin.chatbot.selection import create_validated_client
-    from plugin.framework.async_stream import run_stream_completion_async
+    from plugin.chatbot.selection import create_validated_client, stream_completion
     from plugin.framework.config import get_config
-    from plugin.framework.llm_lanes import llm_request_lane
     from plugin.framework.send_cancellation import capture_send_stop
 
     title = _(FORMULA_UNDO_TITLE)
@@ -206,22 +200,22 @@ def run_slash_formula_worker(host: Any, *, ctx: Any, model: Any, description: st
     def on_error(exc: Exception) -> None:
         host.append_output("\n" + format_error_message(exc) + "\n")
 
-    def worker() -> None:
-        try:
-            with llm_request_lane(resume_status=_("Thinking...")):
-                run_stream_completion_async(
-                    ctx,
-                    client,
-                    prompt,
-                    system_prompt,
-                    max_tokens,
-                    apply_chunk,
-                    on_done,
-                    on_error,
-                    cancel=cancel,
-                )
-        except Exception:
-            log.exception("slash /formula failed")
-            host.append_output("\n" + _("Formula generation failed.") + "\n")
+    def on_stopped() -> None:
+        host.append_output("\n" + _("Stopped.") + "\n")
 
-    worker()
+    try:
+        stream_completion(
+            ctx,
+            client,
+            prompt,
+            system_prompt,
+            max_tokens,
+            apply_chunk,
+            on_done,
+            on_error,
+            cancel=cancel,
+            on_stopped_fn=on_stopped,
+        )
+    except Exception:
+        log.exception("slash /formula failed")
+        host.append_output("\n" + _("Formula generation failed.") + "\n")

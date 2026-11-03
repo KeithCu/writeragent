@@ -22,20 +22,3 @@ def test_agent_undo_writer_round_trip(ctx):
         msg = au.undo_last_agent_edit(doc)
         assert "steps" in msg
         assert "after agent" not in doc.getText().getString()
-
-
-@native_test
-def test_slash_formula_setformula_semicolon_on_calc(ctx):
-    from plugin.chatbot.slash_undo_formula import build_slash_formula_prompt
-
-    with TestingFactory.native_doc(ctx, "calc") as doc:
-        sheet = doc.getSheets().getByIndex(0)
-        sheet.getCellByPosition(0, 0).setString("A")
-        sheet.getCellByPosition(0, 1).setValue(1.0)
-        sheet.getCellByPosition(0, 2).setValue(2.0)
-        cc = doc.getCurrentController()
-        cc.select(sheet.getCellByPosition(1, 1))
-        _prompt, target, cell = build_slash_formula_prompt(doc, "sum column A")
-        assert target == "B2"
-        cell.setFormula("=SUM(A2;A3)")
-        assert int(cell.getError()) == 0

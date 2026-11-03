@@ -56,6 +56,7 @@ class SlashCommand:
     requires_arg: bool = False
     usage: str = ""
     needs_turn: bool = False
+    runs_in_send_turn: bool = False
 
 
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
@@ -139,6 +140,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         kind=SlashKind.LOCAL,
         requires_arg=True,
         usage="/formula <description>",
+        runs_in_send_turn=True,
     ),
 )
 
@@ -346,14 +348,9 @@ def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
     return instruction
 
 
-def slash_command_holds_send_turn(cmd: SlashCommand) -> bool:
-    """True when the slash handler keeps the Send drain open until async work finishes."""
-    return cmd.name == "formula"
-
-
 def slash_send_continues_after_begin(cmd: SlashCommand, host: Any | None = None) -> bool:
     """True when Send must call ``_begin_send`` before finishing the command."""
-    if cmd.needs_turn or cmd.name == "formula" or cmd.kind == SlashKind.ANSWER:
+    if cmd.needs_turn or cmd.runs_in_send_turn or cmd.kind == SlashKind.ANSWER:
         return True
     if host is not None:
         model = host.slash_document_model()
@@ -429,13 +426,6 @@ def _run_undo(host: Any) -> None:
     run_slash_undo(host)
 
 
-def _run_formula(host: Any, arg: str) -> None:
-    host.clear_ask()
-    from plugin.chatbot.slash_undo_formula import run_slash_formula_dispatch
-
-    run_slash_formula_dispatch(host, arg)
-
-
 _LOCAL_HANDLERS: dict[str, Any] = {
     "help": lambda host, _cmd, _arg: _run_help(host),
     "clear": lambda host, _cmd, _arg: _run_clear(host),
@@ -469,7 +459,8 @@ def run_slash_command(
     """Run a registry command.
 
     Returns ``False`` when ``name`` is unknown, or when Send must continue after
-    ``_begin_send`` (answer presets, ``/compact``, and ``/formula``). Returns ``True`` when the
+    ``_begin_send`` (answer presets, ``/compact``, and commands with ``runs_in_send_turn``).
+    Returns ``True`` when the
     command is fully handled (including usage lines and rewrites).
 
     Mocks echo ``slash: /name`` so the popup can be exercised. ``/help``
@@ -497,12 +488,8 @@ def run_slash_command(
         _run_mock_echo(host, cmd)
         return True
 
-    if cmd.name in _LOCAL_HANDLERS and not cmd.needs_turn:
+    if cmd.name in _LOCAL_HANDLERS and not cmd.needs_turn and not cmd.runs_in_send_turn:
         _LOCAL_HANDLERS[cmd.name](host, cmd, arg)
-        return True
-
-    if cmd.name == "formula":
-        _run_formula(host, arg)
         return True
 
     if cmd.kind == SlashKind.REWRITE:
@@ -512,7 +499,7 @@ def run_slash_command(
         _run_rewrite(host, cmd, arg)
         return True
 
-    if cmd.kind == SlashKind.ANSWER or cmd.needs_turn:
+    if cmd.kind == SlashKind.ANSWER or cmd.needs_turn or cmd.runs_in_send_turn:
         return False
 
     host.clear_ask()
