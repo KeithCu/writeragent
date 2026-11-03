@@ -577,7 +577,7 @@ def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mock_open, mock_close):
+def test_grep_nearby_files_runs_uno_is_current(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
         [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
         False,
@@ -589,7 +589,7 @@ def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mo
         False,
     )
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_execute:
+    with patch("plugin.framework.queue_executor.main.call") as mock_execute:
         def side_effect(func, *args, **kwargs):
             return func(*args, **kwargs)
         mock_execute.side_effect = side_effect
@@ -601,7 +601,7 @@ def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mo
 
 @patch("plugin.doc.document_research.os.listdir")
 @patch("plugin.doc.document_research.resolve_listing_directory")
-@patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
+@patch("plugin.framework.queue_executor.main.is_current", return_value=True)
 def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, mock_rld, mock_listdir):
     mock_rld.return_value = "/tmp"
     # Create enough files to trigger the modulo check at idx % 50 == 0
@@ -684,7 +684,7 @@ def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
             raise TimeoutError("timed out")
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=mock_execute):
         result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "hit")
 
     assert result["status"] == "ok"
@@ -710,7 +710,7 @@ def test_grep_nearby_files_closes_when_search_raises(
     mock_search.side_effect = RuntimeError("boom")
 
     with patch(
-        "plugin.framework.queue_executor.execute_on_main_thread",
+        "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ):
         result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "query")

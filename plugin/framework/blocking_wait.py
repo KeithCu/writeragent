@@ -130,7 +130,7 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
         # Always wait 0.1s, never timeout=None (#1632). With no timeout this thread
         # only wakes when the worker finishes, so it never drains the marshal
         # queue. That deadlocked when pump_idle was True and get_toolkit failed:
-        # the worker sat in execute_on_main_thread waiting for this thread. Do not
+        # the worker sat in main.call waiting for this thread. Do not
         # add a flag that skips the poll in some cases; that flag caused the bug.
         while True:
             # Only the get waits on the queue. A worker that raised queue.Empty

@@ -269,31 +269,30 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                     try:
                         log.info("excel_py lifecycle: geometric on_open event=%s has_doc=%s", name, doc is not None)
                         # VCL OnNew/OnCreate is often not Python's MainThread.
-                        # execute_on_main_thread enqueues and waits for AsyncCallback (30s);
-                        # leftover Shared =PY() then sees session_id=None. run_on_main inlines
-                        # when on_main_thread() is true, including an untagged Dummy thread.
-                        from plugin.framework.queue_executor import run_on_main
+                        # Leftover Shared =PY() then sees session_id=None.
+                        # Inlines when main.is_current() is true, including an untagged Dummy thread.
+                        from plugin.framework.queue_executor import main
 
-                        run_on_main(_geometric_open_job, ctx, doc)
+                        main.run(_geometric_open_job, ctx, doc)
                     except Exception:
                         log.warning("geometric recalc on open failed", exc_info=True)
                 if doc is None:
                     return
                 if name == "OnLoadFinished":
                     maybe_convert_excel_py_document(doc)
-                    from plugin.framework.queue_executor import execute_on_main_thread
+                    from plugin.framework.queue_executor import main
 
                     try:
                         from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
 
                         # First arg is the callable; passing ctx here made
-                        # execute_on_main_thread treat the UNO context as fn
+                        # main.call treat the UNO context as fn
                         # (TypeError: 'pyuno' object is not callable on every
                         # Calc OnLoadFinished, rewrite never ran).
-                        execute_on_main_thread(maybe_rewrite_collabora_py_formulas, doc)
+                        main.call(maybe_rewrite_collabora_py_formulas, doc)
                     except Exception:
                         # FIXME: this swallows marshal/rewrite failures (e.g. TypeError
-                        # from a mis-wired execute_on_main_thread) so UNO tests still
+                        # from a mis-wired main.call) so UNO tests still
                         # pass; only the log shows it. Narrow or re-raise after the
                         # listener is proven not to abort OnLoadFinished.
                         log.warning("collabora PY rewrite on open failed", exc_info=True)

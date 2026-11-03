@@ -28,13 +28,13 @@ import pytest
 
 
 class _FakeMainThread:
-    """Simulates the real single main-thread QueueExecutor: everything marshalled
+    """Simulates the real single main-thread MainThread: everything marshalled
     here runs serialized."""
 
     def __init__(self):
         self._lock = threading.Lock()
 
-    def execute(self, fn, *args, **kwargs):  # ignores timeout=
+    def call(self, fn, *args, **kwargs):  # ignores timeout=
         kwargs.pop("timeout", None)
         kwargs.pop("bound_scope", None)
         with self._lock:
@@ -275,7 +275,7 @@ class _DepthMainThread:
         self.depth = 0
         self.seen = []
 
-    def execute(self, fn, *args, **kwargs):
+    def call(self, fn, *args, **kwargs):
         kwargs.pop("timeout", None)
         kwargs.pop("bound_scope", None)
         name = getattr(fn, "__name__", str(fn))

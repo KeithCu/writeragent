@@ -6,7 +6,7 @@
 
 Runs in-process on LibreOffice's grammar drain thread (not the warm venv worker / trusted
 RPC path used by LanguageTool and Vale). Status UI refresh during progress is best-effort
-(``post_to_main_thread``); a busy main thread must not abort the check.
+(``main.post``); a busy main thread must not abort the check.
 """
 
 from __future__ import annotations
@@ -504,9 +504,9 @@ def _broadcast_proofread_again() -> None:
 
 def _schedule_proofread_again() -> None:
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(_broadcast_proofread_again)
+        main.post(_broadcast_proofread_again)
     except Exception as e:
         log.debug("[harper] Could not schedule PROOFREAD_AGAIN: %s", e)
 
@@ -627,9 +627,9 @@ def _acquire_harper_lock_pumping(ctx: Any, *, timeout: float = _LINT_BUDGET_SEC)
     if ctx is None:
         return _HARPER_LOCK.acquire(timeout=timeout)
     from plugin.framework.vcl_pumping import pump_secondary_idle_tick
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    pump_on_caller = on_main_thread()
+    pump_on_caller = main.is_current()
     deadline = time.monotonic() + timeout
     while True:
         pump_secondary_idle_tick(ctx, on_caller=pump_on_caller)
@@ -943,10 +943,10 @@ def _pump_grammar_status_ui(ctx: Any) -> None:
     """Best-effort drain of grammar status UI on the LO main thread.
 
     Must never block or fail the Harper check: a busy VCL / delayed AsyncCallback
-    used to raise TimeoutError from execute_on_main_thread(timeout=2.0) and abort
+    used to raise TimeoutError from main.call(timeout=2.0) and abort
     linting even though status painting is optional.
     """
-    from plugin.framework.queue_executor import post_to_main_thread, pump_main_thread_work_queue
+    from plugin.framework.queue_executor import main, pump_main_thread_work_queue
     from plugin.framework.uno_context import process_events_to_idle
 
     def _pump() -> None:
@@ -955,7 +955,7 @@ def _pump_grammar_status_ui(ctx: Any) -> None:
         process_events_to_idle(ctx)
 
     try:
-        post_to_main_thread(_pump)
+        main.post(_pump)
     except Exception as e:
         log.warning("[grammar] Harper status UI pump skipped: %s", e)
 

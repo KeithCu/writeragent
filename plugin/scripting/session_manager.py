@@ -476,12 +476,10 @@ def _reset_writer_sessions(ctx: Any, doc: Any) -> None:
 
 def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
     """Menubar handler: reset notebook kernel (Writer) or shared Calc workbook session."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
-        from plugin.framework.queue_executor import execute_on_main_thread
-
-        execute_on_main_thread(_reset_on_main, ctx, doc)
+    if not main.is_current():
+        main.call(_reset_on_main, ctx, doc)
         return
     _reset_on_main(ctx, doc)
 

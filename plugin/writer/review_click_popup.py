@@ -131,14 +131,14 @@ def _make_handler(model: Any) -> Any:
 
             def _deferred(self, gen: int, source: Any, x: int, y: int) -> None:
                 time.sleep(_DOUBLE_CLICK_SEC)
-                from plugin.framework.queue_executor import post_to_main_thread
+                from plugin.framework.queue_executor import main
 
                 def _fire() -> None:
                     if gen != self._click_gen:
                         return
                     _show_popup_and_resolve(self._model, source, x, y)
 
-                post_to_main_thread(_fire)
+                main.post(_fire)
 
             def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO API
                 try:

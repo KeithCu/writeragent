@@ -69,7 +69,7 @@ def test_list_open_documents_execute():
         mock_get_doc_type.return_value = DocumentType.CALC
 
         # Execute on main thread bypass patch
-        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
             result = tool.execute(context)
 
         assert result["status"] == "ok"

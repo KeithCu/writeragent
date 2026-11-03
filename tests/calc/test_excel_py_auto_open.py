@@ -480,7 +480,7 @@ def test_doc_from_event_onnew_controller_throw_still_returns_calc_source():
     assert _doc_from_event(_OnNew()) is source
 
 
-def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
+def test_onload_rewrites_collabora_py_via_call():
     """OnLoadFinished marshals Collabora rewrite (doc only) then geometric open (ctx, doc)."""
     import plugin.calc.excel_py_convert.auto_open as mod
     from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
@@ -502,8 +502,8 @@ def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
     event = _LoadEvent()
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.call") as marshal,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch.object(mod.log, "warning") as warn,
     ):
         listener.on_document_event(event)
@@ -536,8 +536,8 @@ def test_onnew_records_geometric_session_inline_on_uno_thread():
 
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.call") as marshal,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch(
             "plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open"
         ) as open_geo,
@@ -567,8 +567,8 @@ def test_oncreate_without_resolvable_doc_still_runs_geometric_open():
 
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.call") as marshal,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch(
             "plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open"
         ) as open_geo,
@@ -596,7 +596,7 @@ def test_geometric_open_job_wires_unload_listener():
     ensure_unload.assert_called_once_with(ctx, doc)
 
 
-def test_onnew_records_geometric_session_via_execute_on_main_thread():
+def test_onnew_records_geometric_session_via_call():
     """Factory Calc fires OnNew off-main; leftover still needs a marshaled record."""
     import plugin.calc.excel_py_convert.auto_open as mod
 
@@ -616,8 +616,8 @@ def test_onnew_records_geometric_session_via_execute_on_main_thread():
 
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.call") as marshal,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         listener.on_document_event(_NewEvent())
         convert.assert_not_called()

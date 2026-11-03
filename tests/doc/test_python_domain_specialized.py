@@ -425,8 +425,8 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     def _call(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), patch(
+        "plugin.framework.queue_executor.main.call", side_effect=_call
     ) as mock_main:
         result = run_inner_domain_tool_agent(parent, ["shapes"], "Place a ring of circles")
 
@@ -576,8 +576,8 @@ def test_gather_domain_tools_marshals_off_main_thread():
     def _call(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), patch(
+        "plugin.framework.queue_executor.main.call", side_effect=_call
     ) as mock_main:
         tools = gather_domain_tools(parent, ["footnotes"])
     assert mock_main.called

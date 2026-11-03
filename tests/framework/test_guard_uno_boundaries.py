@@ -9,6 +9,8 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.queue_executor import main
+
 
 class TestGuardUnoBoundaries:
     def test_open_document_for_read_new_load_calls_guard_uno(self) -> None:
@@ -68,7 +70,7 @@ class TestGuardUnoBoundaries:
             k.pop("bound_scope", None)
             return fn(*a, **k)
 
-        handler.queue_executor.execute = _exec
+        handler.queue_executor.call = _exec
 
         with (
             patch("plugin.mcp.mcp_protocol._real_active_document", return_value=None),
@@ -86,7 +88,7 @@ class TestGuardUnoBoundaries:
         desktop = MagicMock()
         desktop.getCurrentComponent.return_value = calc_doc
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch.object(main, "is_current", return_value=True),
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
@@ -98,7 +100,7 @@ class TestGuardUnoBoundaries:
 
     def test_get_calc_doc_returns_none_off_main(self) -> None:
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch.object(main, "is_current", return_value=False),
             patch("plugin.framework.uno_context.get_desktop") as mock_desktop,
             patch("plugin.framework.thread_guard.guard_uno") as mock_guard,
         ):
@@ -117,7 +119,7 @@ class TestGuardUnoBoundaries:
         desktop.getCurrentComponent.return_value = _NotCalc()
 
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch.object(main, "is_current", return_value=True),
             patch("plugin.framework.uno_context.get_desktop", return_value=desktop),
             patch("plugin.framework.thread_guard.guard_uno", side_effect=lambda o: o) as mock_guard,
         ):
@@ -166,7 +168,7 @@ class TestGuardUnoBoundaries:
         mock_uno.createUnoStruct.return_value = MagicMock()
 
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch.object(main, "is_current", return_value=True),
             patch("plugin.framework.uno_context.get_ctx", return_value=guarded_ctx) as mock_get_ctx,
             patch.dict(sys.modules, {"uno": mock_uno}),
         ):
@@ -178,7 +180,7 @@ class TestGuardUnoBoundaries:
 
     def test_get_lo_locale_none_ctx_off_main_returns_default(self) -> None:
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch.object(main, "is_current", return_value=False),
             patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx,
         ):
             from plugin.framework.i18n import get_lo_locale
@@ -188,7 +190,7 @@ class TestGuardUnoBoundaries:
         mock_get_ctx.assert_not_called()
 
     def test_get_lo_locale_passed_ctx_off_main_returns_default(self) -> None:
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        with patch.object(main, "is_current", return_value=False):
             from plugin.framework.i18n import get_lo_locale
 
             locale = get_lo_locale(MagicMock())

@@ -751,7 +751,7 @@ def _child_env_without_runner_python(*, uno_thread_guard: bool | None = None) ->
     for key in _SOFFICE_STRIP_ENV:
         env.pop(key, None)
     # URP dispatch of WriterAgentDeck runs getRealInterface off the VCL thread.
-    # Product ChatPanel hops path init / get_extension_url via execute_on_main_thread.
+    # Product ChatPanel hops path init / get_extension_url via main.call.
     # WRITERAGENT_TESTING=1 still inlines that hop, so this child keeps the official
     # opt-out: Dummy-N create would otherwise abort under @main_thread_only.
     if uno_thread_guard is False:
@@ -1846,10 +1846,13 @@ def main() -> int:
     # Suppress MCP server startup in the soffice child process; it inherits
     # this env var and McpModule.start_background() checks it.
     #
-    # WRITERAGENT_TESTING only short-circuits QueueExecutor inline execution; it does
+    # WRITERAGENT_TESTING only short-circuits MainThread inline execution; it does
     # NOT disable Layer A (WRITERAGENT_UNO_THREAD_GUARD). Use make lo-test-threadguard
     # to run this suite with the viral UNO proxy so worker-thread violations fail loudly.
     os.environ["WRITERAGENT_TESTING"] = "1"
+    from plugin.framework.queue_executor import install_from_environ
+
+    install_from_environ()
 
     try:
         ctx = _bootstrap_office()

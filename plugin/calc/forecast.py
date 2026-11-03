@@ -60,7 +60,7 @@ class ForecastDataTool(ToolBaseDummy):
             return self._tool_error("analysis/forecast domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
         # Call run_domain on this worker. It both reads the sheet
-        # and blocks in client_run_forecast, so execute_on_main_thread would
+        # and blocks in client_run_forecast, so main.call would
         # put that IPC on the UI thread and freeze Calc. The helper marshals
         # only the UNO read; the sheet write below stays on the main thread.
         try:
@@ -82,7 +82,7 @@ class ForecastDataTool(ToolBaseDummy):
             if helper == "forecast_time_series" and (auto_plot or task_hint_implies_plot(task_hint)):
                 # Call run_auto_plot_after_forecast on this worker. It
                 # marshals the sheet read itself. Wrapping it in
-                # execute_on_main_thread runs the matplotlib IPC on the UI
+                # main.call runs the matplotlib IPC on the UI
                 # thread. insert_viz_result_into_doc below stays on main.
                 plot_result = run_auto_plot_after_forecast(ctx.ctx, ctx.doc, forecast_helper=helper, forecast_result=result, forecast_params=params, data_range=dr, task_hint=task_hint)
             result = apply_auto_plot_result(result, plot_result, ctx.ctx, ctx.doc)

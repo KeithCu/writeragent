@@ -147,7 +147,7 @@ def test_filter_vision_specialized_tools_removes_tool():
     assert other in filtered
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_happy_path_inserts(
     mock_run,
@@ -180,7 +180,7 @@ def test_extract_structure_happy_path_inserts(
     assert mock_run.call_args.kwargs["insert_into_document"] is True
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_return_only_skips_insert(
     mock_run,
@@ -292,7 +292,7 @@ def test_images_guidance_names_structure_tool():
     assert "text and structure" in WRITER_IMAGES_RULES.lower()
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, tool_ctx):
     mock_run.return_value = {

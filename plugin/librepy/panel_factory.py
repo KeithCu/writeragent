@@ -37,7 +37,7 @@ ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.errors import UnoObjectError, suppress_disposed
 from plugin.framework.logging import init_logging
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 
 if TYPE_CHECKING:
@@ -154,7 +154,7 @@ class PythonPanelElement(unohelper.Base, XUIElement):
                     self.controller = controller
                     self.toolpanel = panel
 
-                run_on_main(_create_panel)
+                main.run(_create_panel)
             except Exception as e:
                 # Publish toolpanel only after the controller finishes. A
                 # failure before that leaves nothing latched, so the next

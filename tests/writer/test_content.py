@@ -68,7 +68,7 @@ def test_dry_run_marshals_to_main_thread(monkeypatch):
         # Mock executing the lambda and returning a tuple with result
         return fn()
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", fake_execute), \
+    with patch("plugin.framework.queue_executor.main.call", fake_execute), \
          patch("plugin.writer.search.find_all_ranges", return_value=[r1]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
@@ -759,10 +759,10 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
             return fn()
         raise TimeoutError("cleanup timed out")
 
-    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=False), \
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
          patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
          patch.object(ApplyDocumentContent, "_execute_edit", side_effect=fake_execute_edit), \
-         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_execute_on_main):
+         patch("plugin.framework.queue_executor.main.call", side_effect=fake_execute_on_main):
         res = ApplyDocumentContent().execute(ctx, content="test", target="end")
 
     assert res["status"] == "ok"
@@ -788,32 +788,32 @@ def test_apply_document_content_releases_session_on_mid_edit_failure():
         mock_release.assert_called_once_with(session_mock)
 
 
-def test_apply_document_content_main_thread_uses_on_main_thread():
+def test_apply_document_content_main_thread_uses_is_current():
     from plugin.writer.apply_document_content import ApplyDocumentContent, _run_on_main_thread
 
     tool = ApplyDocumentContent()
-    # When on_main_thread returns True, is_async returns False (when wait mode is disabled globally)
-    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=True), \
+    # When is_current returns True, is_async returns False (when wait mode is disabled globally)
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
          patch.object(tool, "_wait_enabled_globally", return_value=False):
         assert tool.is_async() is False
 
-    # When on_main_thread returns False, is_async returns True
-    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=False), \
+    # When is_current returns False, is_async returns True
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
          patch.object(tool, "_wait_enabled_globally", return_value=False):
         assert tool.is_async() is True
 
-    # _run_on_main_thread calls fn directly when on_main_thread() is True
+    # _run_on_main_thread calls fn directly when is_current() is True
     called = []
-    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=True), \
-         patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_exec:
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
+         patch("plugin.framework.queue_executor.main.call") as mock_exec:
         result = _run_on_main_thread(lambda: called.append(True) or 42)
         assert result == 42
         assert called == [True]
         mock_exec.assert_not_called()
 
-    # When on_main_thread() is False, _run_on_main_thread marshals to execute_on_main_thread
-    with patch("plugin.writer.apply_document_content.on_main_thread", return_value=False), \
-         patch("plugin.framework.queue_executor.execute_on_main_thread", return_value=99) as mock_exec:
+    # When is_current() is False, _run_on_main_thread marshals to main.call
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
+         patch("plugin.framework.queue_executor.main.call", return_value=99) as mock_exec:
         result = _run_on_main_thread(lambda: 100)
         assert result == 99
         mock_exec.assert_called_once()

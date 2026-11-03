@@ -204,9 +204,9 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
     ) % {"sheet": sheet_name, "cap": _MAX_PYTHON_CELLS_FOUND}
     log.error("Geometric Recalc Order: %s", message)
 
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         # Off-main still logs. Do not persist — a later UI-thread call
         # must still be able to show the first box.
         return False
@@ -229,9 +229,9 @@ def maybe_strip_geometric_eval_args(resolved_code: str, args: list[Any], *, doc:
     """
     if not args:
         return args
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if doc is None or not on_main_thread():
+    if doc is None or not main.is_current():
         return args
     workbook_key = geometric_workbook_key(doc)
     key = EvalIndexKey(workbook_key, resolved_code, len(args))
@@ -468,10 +468,10 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
     if not geometric_flag_enabled() or doc is None:
         return
     if ctx is None:
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.framework.uno_context import get_ctx
 
-        if on_main_thread():
+        if main.is_current():
             ctx = uno_probe(get_ctx, None)
     sheet = _sheet_of_cell(cell, doc)
     if sheet is None:
@@ -494,9 +494,9 @@ def ensure_geometric_strip_index_for_eval(doc: Any, ctx: Any = None) -> None:
     """UI-thread only: rebuild ``_STRIP_SAFE`` from UDProp before packing ``data``."""
     if doc is None:
         return
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return
     workbook_key = geometric_workbook_key(doc)
     if geometric_flag_enabled() and any(key.workbook_key == workbook_key for key in _RUNTIME.strip_safe):

@@ -1,3 +1,4 @@
+from plugin.framework.queue_executor import main
 
 import builtins
 import sys
@@ -127,7 +128,7 @@ def test_resolve_package_extension_id_off_main_skips_package_info(monkeypatch):
     )
 
     reset_package_extension_id_for_tests()
-    monkeypatch.setattr("plugin.framework.uno_context.on_main_thread", lambda: False)
+    monkeypatch.setattr(main, "is_current", lambda: False)
     with patch("plugin.framework.uno_context.get_package_info") as pip:
         assert resolve_package_extension_id() == EXTENSION_ID_WRITERAGENT
         pip.assert_not_called()
@@ -814,12 +815,12 @@ def test_document_id_for_frame():
     frame = MagicMock(name="frame")
 
     # Off main thread returns empty string
-    with patch("plugin.framework.uno_context.on_main_thread", return_value=False):
+    with patch.object(main, "is_current", return_value=False):
         assert document_id_for_frame(frame) == ""
 
     # Model is None returns empty string
     with (
-        patch("plugin.framework.uno_context.on_main_thread", return_value=True),
+        patch.object(main, "is_current", return_value=True),
         patch("plugin.framework.uno_context.get_document_from_frame", return_value=None),
     ):
         assert document_id_for_frame(frame) == ""
@@ -827,7 +828,7 @@ def test_document_id_for_frame():
     # Model resolved returns its runtime uid
     model = MagicMock(name="model")
     with (
-        patch("plugin.framework.uno_context.on_main_thread", return_value=True),
+        patch.object(main, "is_current", return_value=True),
         patch("plugin.framework.uno_context.get_document_from_frame", return_value=model),
         patch("plugin.framework.uno_context.get_runtime_uid", return_value="uid-1234"),
     ):

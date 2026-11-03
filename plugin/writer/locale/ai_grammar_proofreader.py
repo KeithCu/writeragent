@@ -93,7 +93,7 @@ from plugin.writer.locale.grammar_work_queue import (
     grammar_obs,
     grammar_queue,
 )
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background_if_dummy_thread
 
 BIND_RETRY_SEC: float = 1.5
@@ -146,9 +146,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
     fallback. Otherwise use the only open Writer. Several Writers and no id match
     is not a guess.
     """
-    from plugin.framework.thread_guard import on_main_thread
-
-    if not on_main_thread():
+    if not main.is_current():
         return None
     from plugin.framework.uno_context import get_desktop, get_runtime_uid, iter_open_models
 
@@ -499,7 +497,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def _ensure_document_bound_on_main(self, doc_id: str) -> None:
         # Writer's ignoreRule gets the doc id; Draw's gets only the locale. Map the model's
         # RuntimeUID to the doc id so ignore can find it without guessing the focused doc.
-        # get_runtime_uid is main-thread-only, so this runs via run_on_main.
+        # get_runtime_uid is main-thread-only, so this runs via main.call.
         with self._bind_lock:
             if doc_id in self._bound_docs:
                 return
@@ -533,7 +531,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         try:
             # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
             # a failed hop is already backed off by _failed_bind_deadlines.
-            run_on_main(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
+            main.run(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
         except TimeoutError:
             with self._bind_lock:
                 self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
@@ -815,10 +813,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 return a_res
 
     def _resolve_doc_id_for_ignore(self) -> str | None:
-        from plugin.framework.thread_guard import on_main_thread
         from plugin.framework.uno_context import get_desktop, get_runtime_uid
 
-        if not on_main_thread():
+        if not main.is_current():
             return None
 
         try:
@@ -836,7 +833,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def _run_doc_op(self, op: str, action: Any) -> None:
         try:
-            doc_id = run_on_main(self._resolve_doc_id_for_ignore)
+            doc_id = main.run(self._resolve_doc_id_for_ignore)
             if not doc_id:
                 raise RuntimeError(f"{op} failed: no active document found")
             action(doc_id)
@@ -848,12 +845,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del aLocale
         self._run_doc_op(
             "ignoreRule",
-            lambda doc_id: run_on_main(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier),
+            lambda doc_id: main.run(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier),
         )
 
     def resetIgnoreRules(self) -> None:
         def _action(doc_id: str) -> None:
-            run_on_main(_reset_ignore_rules_on_main, self.ctx, doc_id)
+            main.run(_reset_ignore_rules_on_main, self.ctx, doc_id)
             self.broadcast_proofread_again()
 
         self._run_doc_op("resetIgnoreRules", _action)
@@ -903,9 +900,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         self._first_listener_proofread_again_done = True
         self._pending_proofread_again = False
         try:
-            from plugin.framework.queue_executor import post_to_main_thread
-
-            post_to_main_thread(self.broadcast_proofread_again)
+            main.post(self.broadcast_proofread_again)
         except Exception:
             self.broadcast_proofread_again()
 

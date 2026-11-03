@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from typing import Any
 
 from plugin.chatbot.dialogs import load_writeragent_dialog_detail, msgbox
@@ -243,7 +243,7 @@ class SearchDialog:
 
             status_lbl.getModel().Label = _get_status()
 
-        execute_on_main_thread(_apply_cache_status)
+        main.call(_apply_cache_status)
 
     def _run_search(self, dlg: Any) -> None:
         ctx = self._ctx
@@ -280,7 +280,7 @@ class SearchDialog:
                 from plugin.embeddings.embedding_client import get_embedding_model
                 from plugin.embeddings.embeddings_service import hybrid_search, _folder_search_mode
 
-                resolved = execute_on_main_thread(self._resolve_doc_index_context)
+                resolved = main.call(self._resolve_doc_index_context)
                 if resolved is None:
                     self._update_results_ui(_("No active document found."), enable_search_btn=True)
                     return
@@ -306,7 +306,7 @@ class SearchDialog:
                     if mode != "fts" and query_blocked_for_model(meta_path, model):
                         search_path = None
                 if search_path is None:
-                    execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
+                    main.call(ensure_index_wakeup, ctx, None, doc)
                     self._update_results_ui(
                         _("Folder index is building in the background. Please retry search shortly."),
                         enable_search_btn=True,
@@ -323,7 +323,7 @@ class SearchDialog:
                     doc_url_filter=None,
                 )
                 hits = list(result.get("hits") or [])
-                execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
+                main.call(ensure_index_wakeup, ctx, None, doc)
 
                 if not hits:
                     self._update_results_ui(_("No matches found."), enable_search_btn=True)
@@ -346,7 +346,7 @@ class SearchDialog:
                     dlg = self._dlg
                     if dlg:
                         self._refresh_cache_status(dlg)
-                execute_on_main_thread(_do_refresh)
+                main.call(_do_refresh)
             except Exception as e:
                 log.exception("Background search failed")
                 self._update_results_ui(_("Error running search: ") + str(e), enable_search_btn=True)
@@ -368,7 +368,7 @@ class SearchDialog:
                 from plugin.embeddings.embedding_client import get_embedding_model
                 from plugin.embeddings.embeddings_service import _folder_search_mode
 
-                resolved = execute_on_main_thread(self._resolve_doc_index_context)
+                resolved = main.call(self._resolve_doc_index_context)
                 if resolved is None:
                     self._update_rebuild_ui(_("No active document found."), enable_rebuild_btn=True)
                     return
@@ -422,7 +422,7 @@ class SearchDialog:
                             except Exception as exc:
                                 log.debug("search rebuild heartbeat UI update failed (%s)", type(exc).__name__)
 
-                        execute_on_main_thread(ui_update)
+                        main.call(ui_update)
                         del hb_data[file]
 
                 # Use the service function (mocked in tests) to rebuild the cache
@@ -444,7 +444,7 @@ class SearchDialog:
                     d = self._dlg
                     if d:
                         self._refresh_cache_status(d)
-                execute_on_main_thread(_do_refresh)
+                main.call(_do_refresh)
             except Exception as e:
                 log.exception("Cache rebuild failed")
                 self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
@@ -452,7 +452,7 @@ class SearchDialog:
         run_in_background(_do_rebuild, name="search-dialog-rebuild")
 
     def _update_results_ui(self, text: str, enable_search_btn: bool = False) -> None:
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
 
         def _update() -> None:
             try:
@@ -469,10 +469,10 @@ class SearchDialog:
             except Exception as exc:
                 log.debug("search results UI update failed (%s)", type(exc).__name__)
 
-        execute_on_main_thread(_update)
+        main.call(_update)
 
     def _update_rebuild_ui(self, text: str, enable_rebuild_btn: bool = False) -> None:
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
 
         def _update() -> None:
             try:
@@ -489,7 +489,7 @@ class SearchDialog:
             except Exception as exc:
                 log.debug("search rebuild UI update failed (%s)", type(exc).__name__)
 
-        execute_on_main_thread(_update)
+        main.call(_update)
 
 
 def show_search_dialog(ctx: Any) -> None:

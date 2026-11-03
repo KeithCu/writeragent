@@ -23,6 +23,9 @@ if str(REPO_ROOT) not in sys.path:
 
 # Setup environment to prevent popup windows or background processes if possible
 os.environ["WRITERAGENT_TESTING"] = "1"
+from plugin.framework.queue_executor import install_from_environ
+
+install_from_environ()
 
 try:
     import officehelper

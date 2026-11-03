@@ -1,3 +1,4 @@
+from plugin.framework.queue_executor import main
 import os
 import json
 import tempfile
@@ -375,7 +376,7 @@ class TestFetchAvailableImageModels:
 
 class TestHasNativeVision:
     def setup_method(self):
-        self._patch_main_thread = patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False)
+        self._patch_main_thread = patch.object(main, "is_current", return_value=False)
         self._patch_main_thread.start()
         import plugin.framework.client.model_fetcher as mf
         mf._catalog_memos.clear()
@@ -697,7 +698,7 @@ class TestHasNativeVision:
                 return dict(saved)
             return {}
 
-        with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
+        with patch.object(main, "is_current", return_value=True), \
              patch("plugin.framework.client.model_fetcher.run_in_background", side_effect=fake_bg), \
              patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch, \
              patch("plugin.framework.client.model_fetcher.query_ollama_show") as mock_show, \
@@ -722,9 +723,9 @@ class TestHasNativeVision:
             mock_show.assert_not_called()
             assert len(scheduled_jobs) == 2
 
-            # Now run the captured OpenRouter job (with on_main_thread returning False)
+            # Now run the captured OpenRouter job (with is_current returning False)
             openrouter_job = scheduled_jobs[0]
-            with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False):
+            with patch.object(main, "is_current", return_value=False):
                 def fake_fetch(ep, api_key_override=None):
                     memo = model_fetcher._get_catalog_memo("https://openrouter.ai/api", api_key_override)
                     memo.vision_declarations = {"google/gemini-3.8-flash": True}
@@ -744,7 +745,7 @@ class TestHasNativeVision:
         from plugin.framework.client.model_fetcher import has_native_vision
 
         calls = [False, True]
-        with patch("plugin.framework.client.model_fetcher.on_main_thread", side_effect=lambda: calls.pop(0)):
+        with patch.object(main, "is_current", side_effect=lambda: calls.pop(0)):
             with pytest.raises(AssertionError):
                 has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api")
 
@@ -752,7 +753,7 @@ class TestHasNativeVision:
         from plugin.framework.client.model_fetcher import has_native_vision
 
         # 1. Inline path (off UI thread)
-        with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False), \
+        with patch.object(main, "is_current", return_value=False), \
              patch("plugin.framework.client.requests.sync_request") as mock_sync:
             mock_sync.side_effect = OSError("network down")
             assert has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api") is None
@@ -773,13 +774,13 @@ class TestHasNativeVision:
         mf._catalog_memos.clear()
 
         scheduled = []
-        with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True), \
+        with patch.object(main, "is_current", return_value=True), \
              patch("plugin.framework.client.model_fetcher.run_in_background", side_effect=lambda fn, **kw: scheduled.append(fn)):
             assert has_native_vision("google/gemini-uncatalogued-fail", "https://openrouter.ai/api") is None
             assert len(scheduled) == 1
 
             job = scheduled.pop()
-            with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=False), \
+            with patch.object(main, "is_current", return_value=False), \
                  patch("plugin.framework.client.requests.sync_request", side_effect=OSError("fail")):
                 job()
 
@@ -812,11 +813,11 @@ class TestHasNativeVision:
 
             set_native_vision_support("google/gemini-3.8-flash:nitro", "https://openrouter.ai/api", False)
             assert has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api") is False
-            with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True):
+            with patch.object(main, "is_current", return_value=True):
                 assert has_native_vision("google/gemini-3.8-flash", "https://openrouter.ai/api") is False
                 mock_bg.assert_not_called()
 
-            with patch("plugin.framework.client.model_fetcher.on_main_thread", return_value=True):
+            with patch.object(main, "is_current", return_value=True):
                 assert has_native_vision("google/gemini-3.1-flash-lite-preview", "https://openrouter.ai/api") is True
                 mock_bg.assert_not_called()
 

@@ -35,7 +35,7 @@ from typing import Any, ClassVar
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.framework.doc_type import agent_label_for_context
 from plugin.framework.errors import user_stopped_payload
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -203,7 +203,7 @@ def gather_domain_tools(parent_ctx: ToolContext, domains: list[str]) -> list[Too
                     finish.append(tool)
         return body + venv + finish
 
-    return run_on_main(_fetch)
+    return main.run(_fetch)
 
 
 def _inner_context(parent_ctx: ToolContext, domains: list[str]) -> ToolContext:
@@ -254,7 +254,10 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
     if "shapes" in domains:
         from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 
-        canvas = run_on_main(lambda: format_shapes_canvas_context(getattr(parent_ctx, "doc", None)))
+        def _get_canvas() -> str:
+            return format_shapes_canvas_context(getattr(parent_ctx, "doc", None))
+
+        canvas = main.run(_get_canvas)
         if canvas:
             parts.append(canvas if canvas.startswith(" ") else " " + canvas)
     return "".join(parts)

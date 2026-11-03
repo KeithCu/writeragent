@@ -334,14 +334,14 @@ def write_anchor_result(
     insert_fn: Any,
 ) -> dict[str, Any]:
     """Write result to output anchor; record non-disposal write errors on the result."""
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
 
     def _write() -> None:
         sheet, col, row = parse_output_anchor(output_range)
         insert_fn(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
     try:
-        execute_on_main_thread(_write)
+        main.call(_write)
         return result
     except Exception as exc:
         # Propagate document disposal; ordinary write errors are recorded on the result.

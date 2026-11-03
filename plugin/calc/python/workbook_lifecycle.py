@@ -154,9 +154,9 @@ def _lifecycle_key(doc: Any) -> str:
 
 def off_main_spill_lifecycle_key(doc: Any | None) -> str:
     """Workbook key for an off-main spill timer, without UNO off the UI thread."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if doc is not None and on_main_thread():
+    if doc is not None and main.is_current():
         key = best_effort(lambda: _lifecycle_key(doc), "off-main spill lifecycle key")
         if key:
             return key

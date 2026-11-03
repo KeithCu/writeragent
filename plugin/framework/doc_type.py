@@ -74,9 +74,9 @@ def uno_services_for_doc_type_label(doc_type: str | None) -> frozenset[str]:
 
 def uno_services_for_document(model: Any, doc_type: str | None) -> frozenset[str]:
     """Return UNO services for tool filtering: main-thread probe when possible, else doc_type map."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if model is not None and on_main_thread():
+    if model is not None and main.is_current():
         services = get_document_uno_services(model)
         if services:
             return services

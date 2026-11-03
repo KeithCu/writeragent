@@ -304,7 +304,7 @@ class TestEndpointCombinedListener:
         combo.getText.return_value = 'http://localhost:1a'
         listener = EndpointCombinedListener(dialog, ctx, combo)
         with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
-             patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: fn()), \
+             patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
              patch("plugin.chatbot.dialog_views.settings_catalog_is_warm", return_value=False):
             listener._schedule_debounced_models_fetch()
             try:
@@ -514,7 +514,7 @@ class TestSettingsEnhancements:
         dlg.getControl.side_effect = get_control_side_effect
 
         with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, **kwargs: fn()), \
-             patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: fn()), \
+             patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
              patch("plugin.chatbot.dialog_views.get_control_text", side_effect=lambda c: c.getText.return_value):
             ep_listener = MagicMock()
             ep_listener._api_key_override.return_value = "sk-test-key"
@@ -815,7 +815,7 @@ def test_download_audio_listener_appends_and_keeps_title() -> None:
     with (
         patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_audio_download", side_effect=fake_download),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_hop),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_hop),
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=fake_ensure),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=fake_invalidate),
     ):
@@ -853,7 +853,7 @@ def test_download_audio_listener_skips_bind_when_download_returns_false() -> Non
     with (
         patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_audio_download", side_effect=fake_download),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=boom),
+        patch("plugin.framework.queue_executor.main.call", side_effect=boom),
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=boom),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=boom),
     ):
@@ -887,7 +887,7 @@ def test_download_audio_listener_skips_bind_when_download_raises() -> None:
     with (
         patch("plugin.chatbot.dialog_views.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_audio_download", side_effect=boom_download),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=boom_bind),
+        patch("plugin.framework.queue_executor.main.call", side_effect=boom_bind),
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=boom_bind),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=boom_bind),
     ):
@@ -1001,7 +1001,7 @@ def test_sync_api_key_keeps_typed_key_when_url_changes() -> None:
             listener.textChanged(MagicMock())
         finally:
             # textChanged starts the real 1 s debounce Timer; left running, it
-            # posts into default_executor during a later test on this worker.
+            # posts into main during a later test on this worker.
             listener.close()
     mock_set.assert_not_called()
     assert api.getText.return_value == "sk-pasted"
@@ -1268,7 +1268,7 @@ def test_bg_fetch_together_warms_voices() -> None:
          patch("plugin.chatbot.dialog_views.fetch_available_image_models", return_value=[]), \
          patch("plugin.chatbot.dialog_views.fetch_available_tts_models", return_value=None), \
          patch("plugin.chatbot.dialog_views.fetch_available_stt_models", return_value=None), \
-         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None), \
          patch("plugin.chatbot.dialog_views.get_optional", return_value=None), \
          patch("plugin.framework.client.model_fetcher.fetch_together_tts_voices") as mock_voices:
         listener._bg_fetch(1, "https://api.together.xyz")
@@ -1343,7 +1343,7 @@ def test_warm_openrouter_catalog_does_not_http_until_test_connection() -> None:
 
             with patch("plugin.chatbot.quick_setup.check_endpoint_connection", return_value=(True, "ok", [])), \
                  patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
-                 patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None):
+                 patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
                 TestConnectionListener(MagicMock(), MagicMock(), listener).on_action_performed(MagicMock())
 
             assert rechecked == [True]
@@ -1367,7 +1367,7 @@ def test_close_cancels_catalog_fetch_that_has_not_started() -> None:
     listener = EndpointCombinedListener(MagicMock(), MagicMock(), combo)
     with patch("plugin.chatbot.dialog_views.settings_catalog_is_warm", return_value=False), \
          patch("plugin.chatbot.dialog_views.fetch_available_models") as mock_fetch, \
-         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: fn()):
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()):
         listener._schedule_debounced_models_fetch()
         timer = listener._timer
         try:
@@ -1744,7 +1744,7 @@ def test_tts_test_voice_progress_uses_modeless_box_not_msgbox():
     box = MagicMock()
     box._closed = False
 
-    with patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a, **k)), \
+    with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)), \
          patch.object(listener, "_show_progress") as show, \
          patch.object(listener, "_close_progress") as close, \
          patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
@@ -1773,7 +1773,7 @@ def test_tts_test_voice_status_shows_http_body():
          patch("plugin.chatbot.dialog_views.get_checkbox_state", return_value=1), \
          patch("plugin.audio.tts_voices.tts_test_sample", return_value="Hello"), \
          patch("plugin.audio.tts_service.speak_text_async", side_effect=_speak), \
-         patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)), \
          patch("plugin.chatbot.dialog_views.msgbox") as mock_msgbox:
         listener.on_action_performed(None)
 
@@ -2067,7 +2067,7 @@ def test_api_key_keystroke_does_not_write_and_warm_open_does_not_fetch():
                 mock_set.assert_not_called()
 
                 with patch("plugin.chatbot.dialog_views.run_in_background", side_effect=lambda fn, name=None: fn()), \
-                     patch("plugin.chatbot.dialog_views.post_to_main_thread", side_effect=lambda fn: None):
+                     patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: None):
                     listener.force_catalog_refresh()
                 assert fetches
                 mock_sync.assert_not_called()

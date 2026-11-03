@@ -33,9 +33,8 @@ from plugin.framework.doc_type import is_calc, is_draw
 from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
-from plugin.framework import thread_guard
 from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal, reraise_if_disposed
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import uno_same
 
 log = logging.getLogger("writeragent.writer.forms")
@@ -360,7 +359,7 @@ class FormCreateControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(_create_control, ctx, **kwargs)
+        return main.run(_create_control, ctx, **kwargs)
 
 
 def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
@@ -611,7 +610,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         messages = [{"role": "system", "content": instructions}, {"role": "user", "content": f"Generate a {description}"}]
 
         try:
-            if thread_guard.on_main_thread():
+            if main.is_current():
                 return format_error_payload(ToolExecutionError("FormGenerate LLM call must not run on the UI thread"))
 
             # Get the full document from LLM
@@ -623,7 +622,7 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
             )
 
             # Process the content
-            return run_on_main(self._process_form_content, ctx, content)
+            return main.run(self._process_form_content, ctx, content)
 
         except Exception as e:
             if is_real_disposal(e):
@@ -740,7 +739,7 @@ class FormListControls(ToolWriterFormBase):
     parameters: dict[str, Any] | None = _PAGE_ONLY_PARAMETERS
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -817,7 +816,7 @@ class FormEditControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         _unused_dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
@@ -930,7 +929,7 @@ class FormDeleteControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)

@@ -17,7 +17,7 @@ from plugin.chatbot.dialogs import get_optional as get_optional_control, set_con
 from plugin.framework.config import get_config
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
-from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import guard_uno
 from plugin.framework.uno_listeners import BaseActionListener, BaseActivationEventListener, BaseItemListener, BaseWindowListener
 from plugin.framework.doc_type import is_calc
@@ -425,7 +425,7 @@ class PythonSidebarController:
         if self._refresh_pending:
             return
         self._refresh_pending = True
-        post_to_main_thread(self._run_scheduled_refresh)
+        main.post(self._run_scheduled_refresh)
 
     def _run_scheduled_refresh(self) -> None:
         self._refresh_pending = False

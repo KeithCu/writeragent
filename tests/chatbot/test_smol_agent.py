@@ -528,7 +528,7 @@ def test_smol_tool_adapter_unsafe_uses_execute():
     tool = _StubTool()
     tool.execute = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         out = adapter.forward(p="v")
     mock_main.assert_called_once()
@@ -547,7 +547,7 @@ def test_smol_tool_adapter_safe_async_uses_execute_safe():
     tool = AsyncTool()
     tool.execute_safe = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         adapter.forward(p="x")
     mock_main.assert_not_called()
     tool.execute_safe.assert_called_once()
@@ -559,7 +559,7 @@ def test_smol_tool_adapter_handles_positional_arguments():
     tool.execute = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         # Positional string argument should map to the first input key 'p'
         adapter.forward("positional_value")
@@ -603,7 +603,7 @@ def test_smol_tool_adapter_rejects_bad_enum_like_registry():
     tool.execute = MagicMock(return_value={"status": "ok"})
     tool.execute_safe = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         out = adapter.forward(position="start")
     mock_main.assert_not_called()
     tool.execute.assert_not_called()
@@ -622,7 +622,7 @@ def test_smol_tool_adapter_valid_call_runs_with_coerced_args():
     tool = _EnumTool()
     tool.execute_safe = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         out = adapter.forward(position="end", level=2.0, note=None, bogus=1)
     tool.execute_safe.assert_called_once_with(ctx, position="end", level=2)
@@ -646,7 +646,7 @@ def test_smol_tool_adapter_read_only_target_rejects_mutation():
         tool.execute = MagicMock(return_value={"status": "ok"})
         tool.execute_safe = MagicMock(return_value={"status": "ok"})
         adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
-        with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        with patch("plugin.framework.queue_executor.main.call") as mock_main:
             out = adapter.forward(p="v")
         mock_main.assert_not_called()
         tool.execute.assert_not_called()
@@ -668,7 +668,7 @@ def test_smol_tool_adapter_read_only_target_allows_non_mutation():
     tool = FlaggedRead()
     tool.execute = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         out = adapter.forward(p="v")
     tool.execute.assert_called_once()
@@ -920,7 +920,7 @@ class TestLibrarianSmol:
 
         # Verify forward call marshals execute onto the drain thread
         memory_tool.execute = MagicMock(return_value={"status": "ok"})
-        with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        with patch("plugin.framework.queue_executor.main.call") as mock_main:
             mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
             smol_memory.forward(key="favorite_color", content="blue")
         mock_main.assert_called_once()
@@ -1539,9 +1539,9 @@ class TestSmolImplicitFinalAnswerJson:
 
 
 class TestSmolToolMarshaling:
-    @patch("plugin.framework.queue_executor.execute_on_main_thread")
+    @patch("plugin.framework.queue_executor.main.call")
     @patch("plugin.chatbot.memory.user_config_dir")
-    def test_memory_tool_marshalled_to_main_thread(self, mock_user_config_dir, mock_execute_on_main_thread):
+    def test_memory_tool_marshalled_to_main_thread(self, mock_user_config_dir, mock_call):
         """Verify MemoryTool executes via main thread marshalling despite not using UNO directly."""
         import json
         import os
@@ -1552,10 +1552,10 @@ class TestSmolToolMarshaling:
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_user_config_dir.return_value = tmpdir
 
-            def fake_execute_on_main_thread(func, *args, **kwargs):
+            def fake_call(func, *args, **kwargs):
                 return func(*args, **kwargs)
 
-            mock_execute_on_main_thread.side_effect = fake_execute_on_main_thread
+            mock_call.side_effect = fake_call
 
             ctx = MagicMock()
             tool = SmolToolAdapter(MemoryTool(), ctx, safe=False)
@@ -1563,7 +1563,7 @@ class TestSmolToolMarshaling:
             res_write = tool.forward(key="user_memory", content="User likes Python")
 
             assert (res_write.get("status")) == ("ok")
-            assert (mock_execute_on_main_thread.call_count) == (1)
+            assert (mock_call.call_count) == (1)
 
             memory_file = os.path.join(tmpdir, "memories", "USER.md")
             assert (os.path.exists(memory_file))
@@ -1571,8 +1571,8 @@ class TestSmolToolMarshaling:
                 data = json.load(f)
                 assert (data.get("user_memory")) == ("User likes Python")
 
-    @patch("plugin.framework.queue_executor.execute_on_main_thread")
-    def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_execute_on_main_thread):
+    @patch("plugin.framework.queue_executor.main.call")
+    def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_call):
         """Verify StickyReplyToUserTool is async and executes directly on worker without main-thread marshal."""
         from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, require_sidebar_mode
         from plugin.chatbot.smol_agent import SmolToolAdapter
@@ -1587,11 +1587,11 @@ class TestSmolToolMarshaling:
         assert (res.get("status")) == (mode.leave_status)
         assert (res.get("result")) == ("All done")
         assert (res.get("message")) == ("All done")
-        assert (mock_execute_on_main_thread.call_count) == (0)
+        assert (mock_call.call_count) == (0)
 
         res2 = tool.forward(answer="Hello")
         assert res2 == {"status": "ok", "result": "Hello"}
-        assert (mock_execute_on_main_thread.call_count) == (0)
+        assert (mock_call.call_count) == (0)
 
     def test_max_steps_string_with_reply_spec_is_incomplete(self):
         """When agent reaches max steps and returns a string without reply_to_user, status is incomplete."""

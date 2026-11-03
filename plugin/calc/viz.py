@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.scripting.helper_domain import run_domain
 from plugin.scripting.helper_registry import names
 from plugin.scripting.viz import insert_viz_result_into_doc
@@ -74,7 +74,7 @@ class PlotDataTool(ToolBaseDummy):
                 insert_viz_result_into_doc(ctx.ctx, ctx.doc, result)
 
             try:
-                execute_on_main_thread(_insert)
+                main.call(_insert)
             except Exception as exc:
                 # Keep an egress failure as an error. image_egress raises
                 # when the sheet or draw page is missing. Swallowing that

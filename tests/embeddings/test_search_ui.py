@@ -52,7 +52,7 @@ class TestSearchDialog:
 
     @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
     @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
-    @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
+    @patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
@@ -143,7 +143,7 @@ class TestSearchDialog:
 
     @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
     @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
-    @patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
+    @patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs))
     @patch("plugin.framework.uno_context.get_desktop")
     @patch("plugin.embeddings.search_ui.get_active_document")
     @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
@@ -201,7 +201,7 @@ class TestSearchDialog:
 
         with patch("plugin.embeddings.search_ui.run_in_background") as mock_bg:
             with patch(
-                "plugin.embeddings.search_ui.execute_on_main_thread",
+                "plugin.framework.queue_executor.main.call",
                 side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
             ):
                 with patch("plugin.embeddings.search_ui.get_active_document") as mock_doc:
@@ -246,7 +246,7 @@ class TestSearchDialog:
             doc_calls_during_marshal.append(marshal_depth[0] > 0)
             return MagicMock()
 
-        with patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=fake_execute):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=fake_execute):
             with patch("plugin.embeddings.search_ui.get_active_document", side_effect=tracking_get_active_document):
                 with patch(
                     "plugin.embeddings.embeddings_cache.resolve_index_context",
@@ -297,8 +297,8 @@ class TestSearchDialog:
             return fn(*args, **kwargs)
 
         with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
-            with patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=_call):
-                with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call):
+            with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
+                with patch("plugin.framework.queue_executor.main.call", side_effect=_call):
                     with patch("plugin.embeddings.search_ui.get_active_document", return_value=MagicMock()):
                         with patch(
                             "plugin.embeddings.embeddings_cache.resolve_index_context",
@@ -400,7 +400,7 @@ class TestSearchDialog:
 
         two_days_ago = time.time() - (86400 * 2 + 100)
 
-        with patch("plugin.embeddings.search_ui.execute_on_main_thread", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
             with patch("plugin.embeddings.search_ui.get_active_document", return_value=MagicMock()):
                 with patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", Path("/db"), Path("/meta"), "/root")):
                     with patch("plugin.embeddings.embeddings_service._folder_search_mode", return_value="sqlite"):

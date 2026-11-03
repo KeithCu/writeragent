@@ -144,7 +144,7 @@ def _handler(mode, schemas):
         k.pop("timeout", None)
         return fn(*a, **k)
 
-    services.main_thread.execute.side_effect = _inline
+    services.main_thread.call.side_effect = _inline
     services.document.get_active_document.return_value = MagicMock()
     handler = MCPProtocolHandler(services)
     handler._tool_exposure_mode = lambda: mode
@@ -172,7 +172,7 @@ def test_gating_keeps_other_tools():
     assert "insert_footnote" in _list_names("direct_discovery")
 
 
-def test_tools_list_filters_on_main_thread():
+def test_tools_list_filters_is_current():
     # Regression: the doc-type filtering (get_schemas -> supports_doc -> doc.supportsService)
     # touches UNO, so it must run INSIDE the main-thread executor, not on the MCP request
     # thread -- otherwise the UNO thread guard fails tools/list with a 500. Affects every
@@ -193,7 +193,7 @@ def test_tools_list_filters_on_main_thread():
 
     services = MagicMock()
     services.get.side_effect = lambda name: getattr(services, name, None)
-    services.main_thread.execute.side_effect = _exec
+    services.main_thread.call.side_effect = _exec
     services.tools.get_schemas.side_effect = _get_schemas
     services.document.get_active_document.return_value = MagicMock()  # a document is open
 
@@ -204,7 +204,7 @@ def test_tools_list_filters_on_main_thread():
     services.tools.get_schemas.assert_called()  # the thread assertion only fires if get_schemas ran
 
 
-def test_tools_list_direct_flat_filters_sidebar_on_main_thread():
+def test_tools_list_direct_flat_filters_sidebar_is_current():
     # direct_flat runs a second sidebar-only filter; with cached uno_services_supported
     # it no longer probes doc.supportsService, but still must run on the main thread
     # because it shares the _mcp_tools_list UNO resolution block.
@@ -230,7 +230,7 @@ def test_tools_list_direct_flat_filters_sidebar_on_main_thread():
 
     services = MagicMock()
     services.get.side_effect = lambda name: getattr(services, name, None)
-    services.main_thread.execute.side_effect = _exec
+    services.main_thread.call.side_effect = _exec
     services.tools.get_schemas.side_effect = _get_schemas
     services.document.get_active_document.return_value = MagicMock()  # a document is open
 
@@ -367,7 +367,7 @@ def _handler_real(mode, registry):
         k.pop("timeout", None)
         return fn(*a, **k)
 
-    services.main_thread.execute.side_effect = _inline
+    services.main_thread.call.side_effect = _inline
     services.document.get_active_document.return_value = None
     handler = MCPProtocolHandler(services)
     handler._tool_exposure_mode = lambda: mode

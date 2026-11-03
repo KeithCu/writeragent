@@ -91,9 +91,10 @@ def bootstrap(ctx: Any | None = None) -> None:
         set_fallback_ctx(ctx)
         set_package_extension_id(EXTENSION_ID)
         if ctx is not None:
-            from plugin.framework.queue_executor import default_executor
+            from plugin.framework.queue_executor import install_from_environ, main
 
-            default_executor.set_context(ctx)
+            install_from_environ()
+            main.set_context(ctx)
         _register_librepy_framework_hooks()
         from plugin.framework.config import init_config
 

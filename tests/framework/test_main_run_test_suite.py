@@ -49,7 +49,7 @@ _patch_unohelper_implementation_helper()
 import plugin.main as main_mod
 
 
-def test_run_test_suite_invokes_run_module_suite_on_main_thread() -> None:
+def test_run_test_suite_invokes_run_module_suite_on_main() -> None:
     """``run_module_suite`` must run on the UI thread so UNO tools pass ``execute_safe``."""
     threads_seen: list[threading.Thread] = []
     sentinel_module = object()

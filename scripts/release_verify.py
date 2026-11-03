@@ -45,7 +45,7 @@ IGNORED_TESTS = (
 
 DESELECTED_K = (
     "test_sync_tool_marshaled_from_background",
-    "test_execute_on_main_thread_timeout",
+    "test_call_timeout",
     "test_execute_python_addin_from_background_thread",
     # --strip drops log.debug calls, so this caplog check sees nothing.
     "test_best_effort_logs_and_swallows_everything",
@@ -65,7 +65,6 @@ DESELECTED_K = (
     "test_text_updated_without_has_text_raises",
     "test_start_unknown_handler_type_raises",
     "test_spec_validation_asserts",
-    "test_on_main_thread_or_post_asserts_callable",
     "test_aggregate_stubs_and_bools",
     "test_materialize_calc_range_shape_assertion",
     "test_harper_try_lint_reenter_during_wait_asserts",

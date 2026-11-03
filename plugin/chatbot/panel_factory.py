@@ -55,12 +55,12 @@ ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled, set_control_visible
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
 from plugin.chatbot.rich_text_control import _debug_env_active
 
-# debug-only: omitted in release (thread_guard stub has no _designated_main_thread).
+# debug-only: omitted in release (thread_guard stub has no _violation_ui_lock).
 _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
 
 
@@ -207,10 +207,10 @@ def _initialize_extension_paths(ctx: Any) -> None:
             best_effort(lambda: init_logging(ctx), "init_logging failed during extension path setup")
             log.exception("_initialize_extension_paths failed")
 
-    # Hop the body, not this function: WRITERAGENT_TESTING=1 inlines
-    # execute_on_main_thread on Dummy-N, and a self-call would recurse.
+    # Hop the body, not this function: test_inline inlines
+    # main.call on Dummy-N, and a self-call would recurse.
     # get_extension_path → get_extension_url (PIP) is @main_thread_only.
-    run_on_main(_impl)
+    main.run(_impl)
 
 
 # ---------------------------------------------------------------------------
@@ -458,13 +458,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _on_config_changed(self, **kwargs: Any) -> None:
         """Event bus listener for config changes."""
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.queue_executor import post_to_main_thread
-
         if self._released:
             return
-        if not on_main_thread():
-            post_to_main_thread(self._refresh_controls_from_config)
+        if not main.is_current():
+            main.post(self._refresh_controls_from_config)
             return
         self._refresh_controls_from_config()
 
@@ -503,7 +500,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         self.toolpanel = None
                         raise
 
-                run_on_main(_create_panel)
+                main.run(_create_panel)
             except Exception as e:
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e

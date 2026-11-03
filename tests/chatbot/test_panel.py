@@ -30,7 +30,7 @@ from plugin.chatbot.panel import (
 )
 from plugin.chatbot.record_gesture import RecordGesture, hands_free_status_text
 from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEvent, SendEventKind, SendMode
-from plugin.framework.queue_executor import QueueExecutor
+from plugin.framework.queue_executor import MainThread
 from plugin.chatbot.sidebar_state import SidebarCompositeState
 from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
@@ -91,10 +91,10 @@ def _make_send_listener() -> SendButtonListener:
                     session,
                 )
     # Own queue: another test's leftover thread (e.g. the 1 s settings
-    # debounce Timer) can post_to_main_thread into default_executor mid-test,
+    # debounce Timer) can post into main mid-test,
     # adding to ``posted`` or taking process_queue()'s one turn. A mock ctx
-    # gives a mock AsyncCallback, so posts queue as they did on default_executor.
-    listener.queue_executor = QueueExecutor(MagicMock())
+    # gives a mock AsyncCallback, so posts queue as they did on main.
+    listener.queue_executor = MainThread(MagicMock())
     return listener
 
 
@@ -113,24 +113,24 @@ class TestGrammarStatusDocType:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_default_executor():
-    from plugin.framework.queue_executor import default_executor
+def _isolate_main():
+    from plugin.framework.queue_executor import main
 
-    orig_post = default_executor.post
+    orig_post = main.post
     try:
         yield
     finally:
-        default_executor.post = orig_post
-        while not default_executor._work_queue.empty():
+        main.post = orig_post
+        while not main._work_queue.empty():
             try:
-                default_executor._work_queue.get_nowait()
+                main._work_queue.get_nowait()
             except Exception:
                 break
 
 
 @pytest.fixture(autouse=False)
 def _run_posts_inline():
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn, *a, **k: fn(*a)):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a)):
         yield
 
 
@@ -391,7 +391,7 @@ class TestSendDispose:
         with (
             patch("plugin.main.get_tools", get_tools),
             patch.object(PanelEventsController, "_mcp_subscribe_must_defer", return_value=True),
-            patch.object(PanelEventsController, "_post_to_main_thread", side_effect=posted.append),
+            patch.object(PanelEventsController, "_post_to_main", side_effect=posted.append),
             patch("plugin.framework.event_bus.get_event_bus", return_value=grammar_bus),
         ):
             listener = _make_send_listener()
@@ -435,7 +435,7 @@ class TestSendDispose:
         with (
             patch("plugin.main.get_tools", get_tools),
             patch.object(PanelEventsController, "_mcp_subscribe_must_defer", return_value=True),
-            patch.object(PanelEventsController, "_post_to_main_thread", side_effect=posted.append),
+            patch.object(PanelEventsController, "_post_to_main", side_effect=posted.append),
         ):
             listener = _make_send_listener()
             listener.disposing(None)
@@ -457,7 +457,7 @@ class TestSendDispose:
         listener = _make_send_listener()
         listener._panel_teardown = True
         listener._append_response = MagicMock()
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as post:
+        with patch("plugin.framework.queue_executor.main.post") as post:
             listener._events._on_mcp_result(tool="echo", result_snippet="hi")
         post.assert_not_called()
         listener._append_response.assert_not_called()
@@ -485,9 +485,9 @@ class TestSendDispose:
 
         with (
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp"),
-            patch("plugin.framework.queue_executor.default_executor.post", side_effect=_capture),
+            patch("plugin.framework.queue_executor.main.post", side_effect=_capture),
         ):
             listener._events._on_mcp_result(tool="echo", result_snippet="hi")
         assert len(posted) == 1
@@ -507,7 +507,7 @@ class TestSendDispose:
 
         with (
             patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=mock_turn),
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             listener._events._on_mcp_result(tool="echo", result_snippet="hi")
@@ -714,7 +714,7 @@ class TestSendDispose:
 
         listener = _make_send_listener()
         listener._do_send = MagicMock()
-        qe.set_force_marshal_mode(True)
+        qe.main.install(qe.Policy.test_marshal)
         try:
             with patch.object(listener.queue_executor, "_poke_main_thread", lambda: None):
                 listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
@@ -727,7 +727,7 @@ class TestSendDispose:
             listener._do_send.assert_not_called()
             assert not (listener.sidebar_state.send.is_busy)
         finally:
-            qe.set_force_marshal_mode(False)
+            qe.main.install(qe.Policy.production)
             while not listener.queue_executor._work_queue.empty():
                 listener.queue_executor.process_queue()
 
@@ -2114,9 +2114,9 @@ def test_mcp_turn_mutations_hold_the_lock() -> None:
 
     listener._last_mcp_turn = _Guarded({"a": turn})
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch("plugin.framework.thread_guard.get_background_task_name", return_value="mcp"),
-        patch("plugin.framework.queue_executor.default_executor.post", lambda *args, **kwargs: None),
+        patch("plugin.framework.queue_executor.main.post", lambda *args, **kwargs: None),
     ):
         listener._events._on_mcp_result(tool="echo", result_snippet="x", req_id="a")
     assert "a" not in listener._last_mcp_turn

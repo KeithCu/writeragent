@@ -77,11 +77,11 @@ def get_lo_locale(ctx: Any | None = None) -> str:
     try:
         import uno
 
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import main
 
         # Off-main, even with a passed ctx: do not touch configuration UNO.
         # English catalog is fine until the UI thread asks again.
-        if not on_main_thread():
+        if not main.is_current():
             return _DEFAULT_LOCALE
         if ctx is None:
             from plugin.framework.uno_context import get_ctx
@@ -153,10 +153,10 @@ def init_i18n(ctx: Any | None = None) -> None:
         return
 
     if ctx is None:
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import main
 
         # Do not initialize default locale off the main thread.
-        if not on_main_thread():
+        if not main.is_current():
             return
 
     try:

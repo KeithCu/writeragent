@@ -32,7 +32,7 @@ from plugin.chatbot.tool_loop import ToolCallingMixin
 
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
-from plugin.framework.queue_executor import QueueExecutor, default_executor
+from plugin.framework.queue_executor import MainThread, main
 from plugin.chatbot.record_gesture import (
     RecordGesture,
     gesture_action,
@@ -272,7 +272,7 @@ class SendButtonListener(BaseActionListener):
     clear_listener: Any
     rich_text_widget: Any
     _rich_plain_fallback_warned: bool
-    queue_executor: QueueExecutor
+    queue_executor: MainThread
     audio_recorder: Any
     sidebar_state: SidebarCompositeState
     _record_gesture: RecordGesture
@@ -363,7 +363,7 @@ class SendButtonListener(BaseActionListener):
         self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
-        self.queue_executor = default_executor
+        self.queue_executor = main
         self._voice = PanelVoiceController(self)
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
@@ -399,7 +399,7 @@ class SendButtonListener(BaseActionListener):
             # run, and get_tools() raised BOOTSTRAP_OFF_THREAD here. Defer the
             # MCP subscription to the main thread in that case.
             if self._events._mcp_subscribe_must_defer():
-                self._events._post_to_main_thread(self._events._subscribe_mcp_events)
+                self._events._post_to_main(self._events._subscribe_mcp_events)
             else:
                 self._events._subscribe_mcp_events()
             self._subscribe(get_event_bus(), "grammar:status", self._on_grammar_status)
@@ -558,11 +558,9 @@ class SendButtonListener(BaseActionListener):
             self._set_status(text)
 
         try:
-            from plugin.framework.queue_executor import on_main_thread_or_post
-
-            on_main_thread_or_post(_write)
+            main.post_or_run(_write, executor=self.queue_executor)
         except Exception as e:
-            log.debug("_on_grammar_status: on_main_thread_or_post failed: %s", e)
+            log.debug("_on_grammar_status failed: %s", e)
             return
 
     def _scroll_response_to_bottom(self) -> None:
@@ -578,9 +576,7 @@ class SendButtonListener(BaseActionListener):
 
     def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Run rich-control UI work inline on the main thread; post from workers."""
-        from plugin.framework.queue_executor import on_main_thread_or_post
-
-        return on_main_thread_or_post(fn, *args, executor=self.queue_executor, **kwargs)
+        return main.post_or_run(fn, *args, executor=self.queue_executor, **kwargs)
 
     def render_session_messages(self, session: Any) -> None:
         """Draw the sidebar from ``session.messages``."""

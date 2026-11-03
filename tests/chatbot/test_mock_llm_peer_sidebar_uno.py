@@ -78,7 +78,7 @@ def _setup_peer(ctx):
     _session = start_mock_sidebar_session(delay_ms=20, offline=True)
     _session.prompt_research_cleared = True
 
-    # #674 recipe: Writer deck first so OPEN_CALC posts onto that QueueExecutor.
+    # #674 recipe: Writer deck first so OPEN_CALC posts onto that MainThread.
     writer = find_open_writer(ctx)
     if writer is None:
         writer = desktop_from_ctx(ctx).loadComponentFromURL("private:factory/swriter", "_default", 0, ())

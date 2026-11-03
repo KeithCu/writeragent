@@ -23,6 +23,9 @@ from glob import glob
 from pathlib import Path
 
 os.environ.setdefault("WRITERAGENT_TESTING", "1")
+from plugin.framework.queue_executor import install_from_environ
+
+install_from_environ()
 
 # com.sun.star.util.NumberFormat
 NF_DEFINED = 1

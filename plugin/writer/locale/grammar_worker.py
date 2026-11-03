@@ -335,13 +335,12 @@ def apply_language_change(
         return False
 
     try:
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework import queue_executor
+        from plugin.framework.queue_executor import main
 
-        if on_main_thread():
+        if main.is_current():
             return bool(_do_update())
         else:
-            return bool(queue_executor.execute_on_main_thread(_do_update))
+            return bool(main.call(_do_update))
     except Exception as e:
         log.warning("Failed to update language property: %s", e)
         return False

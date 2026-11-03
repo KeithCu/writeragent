@@ -53,7 +53,7 @@ def test_build_viz_request_regression():
 
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.calc.viz_auto_plot.run_auto_plot_after_analysis")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_auto_plot_inserts_chart(
     mock_run_analysis,
@@ -89,7 +89,7 @@ def test_analyze_data_auto_plot_inserts_chart(
 
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
 @patch("plugin.calc.viz_auto_plot.run_auto_plot_after_analysis")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.scripting.helper_domain.run_domain")
 def test_analyze_data_auto_plot_does_not_marshal_viz_read(
     mock_run_analysis,
@@ -98,7 +98,7 @@ def test_analyze_data_auto_plot_does_not_marshal_viz_read(
     mock_insert,
     calc_ctx,
 ):
-    """Regression: auto_plot viz data reads must NOT run via execute_on_main_thread."""
+    """Regression: auto_plot viz data reads must NOT run via main.call."""
     inside_marshal = {"flag": False}
 
     def mock_execute_on_main(fn, *args, **kwargs):
@@ -112,7 +112,7 @@ def test_analyze_data_auto_plot_does_not_marshal_viz_read(
     mock_run_analysis.return_value = {"status": "ok", "helper": "run_regression", "metrics": {}}
 
     def _auto_plot_side_effect(*_args, **_kwargs):
-        assert not inside_marshal["flag"], "run_auto_plot_after_analysis must NOT run inside execute_on_main_thread"
+        assert not inside_marshal["flag"], "run_auto_plot_after_analysis must NOT run inside main.call"
         return {
             "status": "ok",
             "helper": "plot_data",
@@ -146,7 +146,7 @@ def _disposed():
 def test_apply_auto_plot_result_reraises_disposed():
     with (
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=_disposed(),
         ),
         pytest.raises(DocumentDisposedError),
@@ -156,7 +156,7 @@ def test_apply_auto_plot_result_reraises_disposed():
 
 def test_apply_auto_plot_result_records_ordinary_insert_error():
     with patch(
-        "plugin.framework.queue_executor.execute_on_main_thread",
+        "plugin.framework.queue_executor.main.call",
         side_effect=RuntimeError("no draw page"),
     ):
         out = apply_auto_plot_result({"status": "ok"}, {"status": "ok"}, object(), object())

@@ -329,7 +329,7 @@ def test_run_trusted_calc_data_helper_sheet_disposal_propagates():
 
     client_mock = MagicMock()
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):
@@ -360,7 +360,7 @@ def test_run_trusted_calc_data_helper_sheet_name_failure_is_best_effort():
 
     client_mock = MagicMock(return_value={"status": "ok"})
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.calc.calc_addin_data._resolve_python_data", return_value=([[1]], None)),
         patch("plugin.calc.bridge.CalcBridge") as mock_bridge,
     ):

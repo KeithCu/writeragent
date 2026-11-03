@@ -57,7 +57,7 @@ from plugin.framework.client.model_fetcher import (
 )
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
 from plugin.framework.model_lru import _sanitize_model_combobox_value
-from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
 from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control
 from plugin.framework.logging import init_logging
@@ -568,7 +568,7 @@ class TestConnectionListener(BaseActionListener):
                 if lbl_status:
                     set_control_text(lbl_status, _(msg))
 
-            post_to_main_thread(_apply)
+            main.post(_apply)
 
         run_in_background(_worker, name="settings-test-conn")
 
@@ -821,11 +821,11 @@ class _TtsTestStatusSink:
 
     def progress(self, message: str) -> None:
         log.info("TTS test progress: %s", message)
-        post_to_main_thread(self._listener._show_progress, message)
+        main.post(self._listener._show_progress, message)
 
     def clear(self) -> None:
         log.info("TTS test progress: clear")
-        post_to_main_thread(self._listener._close_progress)
+        main.post(self._listener._close_progress)
 
     def __call__(self, message: str) -> None:
         # Fallback / HTTP body: close any progress box, then blocking MessageBox.
@@ -834,7 +834,7 @@ class _TtsTestStatusSink:
             self._listener._close_progress()
             self._listener._status(message)
 
-        post_to_main_thread(_show)
+        main.post(_show)
 
 
 class TtsTestVoiceListener(BaseActionListener):
@@ -928,7 +928,7 @@ class TtsTestVoiceListener(BaseActionListener):
         on_status = _TtsTestStatusSink(self)
 
         def _on_complete() -> None:
-            post_to_main_thread(self._close_progress)
+            main.post(self._close_progress)
 
         speak_text_async(
             sample,
@@ -1218,7 +1218,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             if endpoint_from_selector_text(self._ctrl.getText()) != resolved: return
             self._apply_catalog(resolved, models=models, skip_fetch=(models is None))
 
-        post_to_main_thread(apply_ui)
+        main.post(apply_ui)
 
     def _schedule_debounced_models_fetch(self) -> None:
         resolved = endpoint_from_selector_text(self._ctrl.getText())
@@ -1242,7 +1242,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             if resolved:
                 self._start_bg_fetch(gen, resolved, "settings-fetch")
 
-        self._timer = threading.Timer(1.0, lambda: post_to_main_thread(_fetch))
+        self._timer = threading.Timer(1.0, lambda: main.post(_fetch))
         self._timer.daemon = True
         self._timer.start()
 
@@ -1324,7 +1324,7 @@ class DownloadAudioListener(_CtxDlgActionListener):
     """Settings → Python: download audio binaries and pure Python dependencies from GitHub."""
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.scripting.native_binaries import ensure_native_binaries_on_path, run_audio_download
         from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
 
@@ -1339,14 +1339,14 @@ class DownloadAudioListener(_CtxDlgActionListener):
         def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
             # The download stays on the probe worker. Appending audio_binaries
             # to sys.path and clearing the Cython accelerator must run on the
-            # main thread via execute_on_main_thread. VenvProbeProgressDialog
+            # main thread via main.call. VenvProbeProgressDialog
             # runs probe_fn with run_in_background while execute() pumps VCL;
             # that nested loop already dispatches AsyncCallback for the
             # progress lines, so the bind does not wait on a thread blocked
             # outside the message loop.
             ok = run_audio_download(on_display, on_status)
             if ok:
-                execute_on_main_thread(bind_downloaded_audio_on_main)
+                main.call(bind_downloaded_audio_on_main)
             return ok, ""
 
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(

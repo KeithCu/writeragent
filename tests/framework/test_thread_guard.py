@@ -15,6 +15,7 @@ import pytest
 
 # Import after possible env setup in specific tests; we mutate the module flags for isolation.
 import plugin.framework.thread_guard as tg
+from plugin.framework.queue_executor import Policy, install_from_environ, main
 
 
 @pytest.fixture(autouse=True)
@@ -81,10 +82,10 @@ def test_is_pyuno():
     assert tg._is_pyuno(_make_pyuno_like()) is True
 
 
-def test_on_main_thread_detects(monkeypatch):
+def test_is_current_detects(monkeypatch):
     # Force current == main
     monkeypatch.setattr(threading, "current_thread", lambda: threading.main_thread())
-    assert tg.on_main_thread() is True
+    assert main.is_current() is True
 
 
 def test_assert_main_thread_noop_on_main(monkeypatch, caplog):
@@ -99,7 +100,7 @@ def test_assert_raises_when_guard_on_from_bg(monkeypatch):
     fake_bg = MagicMock()
     fake_bg.name = "worker-foo"
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setattr(main, "is_current", lambda: False)
     # Ensure guard is on for this test
     was = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -126,7 +127,7 @@ def test_assert_logs_warning_when_guard_off_from_bg(monkeypatch):
     fake_bg = MagicMock()
     fake_bg.name = "worker-bar"
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setattr(main, "is_current", lambda: False)
     was = tg.GUARD_ON
     tg.GUARD_ON = False
     tg.set_background_task("run_thing")
@@ -146,8 +147,8 @@ def test_main_thread_only_decorator_raises_from_bg(monkeypatch):
     fake_bg = MagicMock()
     fake_bg.name = "bg-task"
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
-    # Skip violation popup marshal (execute_on_main_thread timeout=5s) — nothing pumps the queue under pytest.
+    monkeypatch.setattr(main, "is_current", lambda: False)
+    # Skip violation popup marshal (main.call timeout=5s) — nothing pumps the queue under pytest.
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
     was = tg.GUARD_ON
     tg.GUARD_ON = True
@@ -158,13 +159,13 @@ def test_main_thread_only_decorator_raises_from_bg(monkeypatch):
         tg.GUARD_ON = was
 
 
-def test_background_decorator_warns_on_main_thread(monkeypatch):
+def test_background_decorator_warns_when_current(monkeypatch):
     @tg.background
     def blue_worker():
         return 1
 
     monkeypatch.setattr(threading, "current_thread", lambda: threading.main_thread())
-    monkeypatch.setattr(tg, "on_main_thread", lambda: True)
+    monkeypatch.setattr(main, "is_current", lambda: True)
     with patch.object(tg.log, "warning") as warn:
         assert blue_worker() == 1
     warn.assert_called_once()
@@ -343,7 +344,7 @@ def test_wrap_uno_one_level_sequences(monkeypatch):
         assert isinstance(wrapped_tup[0], tg._UnoThreadGuardProxy)
         assert isinstance(wrapped_dict["k"], tg._UnoThreadGuardProxy)
         assert list(wrapped_dict.keys()) == ["k"]
-        monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+        monkeypatch.setattr(main, "is_current", lambda: False)
         monkeypatch.setenv("WRITERAGENT_TESTING", "1")
         with pytest.raises(RuntimeError, match="UNO thread violation"):
             _unused = wrapped_list[0].getString
@@ -419,8 +420,10 @@ def test_bypass_thread_guard_still_works_via_registry(monkeypatch):
     assert calls == ["execute"]
 
 
-def test_notify_skipped_under_writeragent_testing(monkeypatch):
-    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+def test_notify_skipped_under_test_inline():
+    from plugin.framework.queue_executor import Policy, main
+
+    main.install(Policy.test_inline)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
     posts = []
@@ -428,7 +431,7 @@ def test_notify_skipped_under_writeragent_testing(monkeypatch):
     def fake_post(fn, *args, **kwargs):
         posts.append(fn)
 
-    with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+    with patch.object(main, "post", fake_post):
         with patch.object(tg.log, "error") as mock_log_err:
             tg._notify_thread_violation("test violation")
             mock_log_err.assert_called_once_with("test violation", stack_info=True)
@@ -438,45 +441,45 @@ def test_notify_skipped_under_writeragent_testing(monkeypatch):
 
 
 def test_notify_skips_when_async_callback_not_ready(monkeypatch):
-    """Do not marshal a violation dialog during QueueExecutor lazy-init (startup deadlock)."""
-    from plugin.framework.queue_executor import default_executor
+    """Do not marshal a violation dialog during MainThread lazy-init (startup deadlock)."""
+    from plugin.framework.queue_executor import main
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    was_init = default_executor._initialized
-    default_executor._initialized = False
+    was_init = main._initialized
+    main._initialized = False
     posts = []
 
     def fake_execute(fn, *args, **kwargs):
         posts.append(fn)
 
     try:
-        with patch("plugin.framework.queue_executor.execute_on_main_thread", fake_execute):
+        with patch("plugin.framework.queue_executor.main.call", fake_execute):
             tg._notify_thread_violation("during async callback init")
         assert posts == []
         with tg._violation_ui_lock:
             assert tg._violation_dialog_open is False
     finally:
-        default_executor._initialized = was_init
+        main._initialized = was_init
         with tg._violation_ui_lock:
             tg._violation_dialog_open = False
 
 
 def test_notify_dedupes_per_thread(monkeypatch):
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    default_executor._initialized = True
-    default_executor._async_callback_service = MagicMock()
+    main._initialized = True
+    main._async_callback_service = MagicMock()
     posts = []
 
     def fake_post(fn, *args, **kwargs):
         posts.append(fn)
 
-    with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+    with patch("plugin.framework.queue_executor.main.post", fake_post):
         tg._notify_thread_violation("first")
         tg._notify_thread_violation("second")
     assert len(posts) == 1
@@ -485,13 +488,13 @@ def test_notify_dedupes_per_thread(monkeypatch):
 
 
 def test_notify_one_dialog_across_threads(monkeypatch):
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    default_executor._initialized = True
-    default_executor._async_callback_service = MagicMock()
+    main._initialized = True
+    main._async_callback_service = MagicMock()
     posts = []
 
     def fake_post(fn, *args, **kwargs):
@@ -501,7 +504,7 @@ def test_notify_one_dialog_across_threads(monkeypatch):
     monkeypatch.setattr(threading, "get_ident", lambda: cur_ident)
 
     try:
-        with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+        with patch("plugin.framework.queue_executor.main.post", fake_post):
             with patch("plugin.chatbot.dialogs.msgbox_with_report"):
                 with patch("plugin.framework.uno_context.get_ctx"):
                     tg._notify_thread_violation("thread 11")
@@ -518,26 +521,27 @@ def test_notify_one_dialog_across_threads(monkeypatch):
 
 
 def test_assert_logs_and_notifies_when_guard_on(monkeypatch):
+    from plugin.framework.queue_executor import main
+
     fake_bg = MagicMock()
     fake_bg.name = "worker-notify"
     monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
-    monkeypatch.setattr(tg, "on_main_thread", lambda: False)
+    monkeypatch.setattr(main, "is_current", lambda: False)
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     was = tg.GUARD_ON
     tg.GUARD_ON = True
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    from plugin.framework.queue_executor import default_executor
 
-    default_executor._initialized = True
-    default_executor._async_callback_service = MagicMock()
+    main._initialized = True
+    main._async_callback_service = MagicMock()
     posts = []
 
     def fake_post(fn, *args, **kwargs):
         posts.append(fn)
 
     try:
-        with patch("plugin.framework.queue_executor.post_to_main_thread", fake_post):
+        with patch("plugin.framework.queue_executor.main.post", fake_post):
             with patch.object(tg.log, "error") as mock_error:
                 with pytest.raises(RuntimeError):
                     tg.assert_main_thread("test.site")
@@ -645,16 +649,16 @@ def test_proxy_dir_raises_off_thread(monkeypatch):
 
 
 def test_violation_popup_is_unscoped(monkeypatch):
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancellation, _current_send_cancellation
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    was_init = default_executor._initialized
-    was_async = default_executor._async_callback_service
-    default_executor._initialized = True
-    default_executor._async_callback_service = MagicMock()
+    was_init = main._initialized
+    was_async = main._async_callback_service
+    main._initialized = True
+    main._async_callback_service = MagicMock()
     token = None
     captured_kwargs: list[dict] = []
 
@@ -663,7 +667,7 @@ def test_violation_popup_is_unscoped(monkeypatch):
 
     try:
         token = _current_send_cancellation.set(SendCancellation())
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=fake_post):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=fake_post):
             tg._notify_thread_violation("test violation")
         assert len(captured_kwargs) == 1
         assert "bound_scope" in captured_kwargs[0]
@@ -671,8 +675,8 @@ def test_violation_popup_is_unscoped(monkeypatch):
     finally:
         if token is not None:
             _current_send_cancellation.reset(token)
-        default_executor._initialized = was_init
-        default_executor._async_callback_service = was_async
+        main._initialized = was_init
+        main._async_callback_service = was_async
         with tg._violation_ui_lock:
             tg._violation_dialog_open = False
 
@@ -680,21 +684,21 @@ def test_violation_popup_is_unscoped(monkeypatch):
 def test_stop_does_not_drop_violation_popup(monkeypatch):
     import queue as queue_mod
 
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancellation, _current_send_cancellation
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     with tg._violation_ui_lock:
         tg._violation_dialog_open = False
-    was_init = default_executor._initialized
-    was_async = default_executor._async_callback_service
+    was_init = main._initialized
+    was_async = main._async_callback_service
 
     # What was wrong: pending_work_count() == 1 failed as assert 2 == 1
     # (PR 1577 ubuntu run 38784025798, gw4). queue_depth was already 1 at
     # post_enqueue, which is logged after _flush_pending_posts and before
     # this popup is put.
     # How it happened: a previous test on this xdist worker left a row in
-    # default_executor._pending_posts. post() flushes that row, then enqueues
+    # main._pending_posts. post() flushes that row, then enqueues
     # _show_popup. --dist=loadgroup schedules unmarked tests as separate work
     # units, so the row is present only on some reruns.
     # Why this change: park the work queue and the pending list first, and
@@ -709,23 +713,23 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
     token = None
 
     try:
-        with default_executor._pending_lock:
-            default_executor._pending_posts.append((decoy, (), {}, None))
+        with main._pending_lock:
+            main._pending_posts.append((decoy, (), {}, None))
 
         while True:
             try:
-                saved_work.append(default_executor._work_queue.get_nowait())
+                saved_work.append(main._work_queue.get_nowait())
             except queue_mod.Empty:
                 break
-        with default_executor._pending_lock:
-            saved_pending = list(default_executor._pending_posts)
-            default_executor._pending_posts = []
-            default_executor._pending_lock.notify_all()
+        with main._pending_lock:
+            saved_pending = list(main._pending_posts)
+            main._pending_posts = []
+            main._pending_lock.notify_all()
         saved_pending = [row for row in saved_pending if row[0] is not decoy]
 
-        default_executor._initialized = True
-        default_executor._async_callback_service = MagicMock()
-        monkeypatch.setattr(default_executor, "_poke_main_thread", lambda: None)
+        main._initialized = True
+        main._async_callback_service = MagicMock()
+        monkeypatch.setattr(main, "_poke_main_thread", lambda: None)
 
         scope = SendCancellation()
         token = _current_send_cancellation.set(scope)
@@ -736,9 +740,9 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
         with patch("plugin.chatbot.dialogs.msgbox_with_report", side_effect=lambda *args, **kwargs: msgbox_calls.append(args)):
             with patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()):
                 tg._notify_thread_violation("test stop violation")
-                assert default_executor.pending_work_count() == 1
-                with default_executor._work_queue.mutex:
-                    queued = default_executor._work_queue.queue[0]
+                assert main.pending_work_count() == 1
+                with main._work_queue.mutex:
+                    queued = main._work_queue.queue[0]
                 assert queued.fn.__qualname__.endswith("._show_popup")
                 assert queued.scope is None
                 assert decoy_ran == []
@@ -746,7 +750,7 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
                     assert tg._violation_dialog_open is True
 
                 scope.cancel()
-                default_executor.process_queue()
+                main.process_queue()
 
                 assert len(msgbox_calls) == 1
                 with tg._violation_ui_lock:
@@ -755,21 +759,21 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
         tg.set_background_task(None)
         if token is not None:
             _current_send_cancellation.reset(token)
-        default_executor._initialized = was_init
-        default_executor._async_callback_service = was_async
+        main._initialized = was_init
+        main._async_callback_service = was_async
         with tg._violation_ui_lock:
             tg._violation_dialog_open = False
         while True:
             try:
-                default_executor._work_queue.get_nowait()
+                main._work_queue.get_nowait()
             except queue_mod.Empty:
                 break
         for item in saved_work:
-            default_executor._work_queue.put_nowait(item)
-        with default_executor._pending_lock:
-            current = [row for row in default_executor._pending_posts if row[0] is not decoy]
-            default_executor._pending_posts = saved_pending + current
-            default_executor._pending_lock.notify_all()
+            main._work_queue.put_nowait(item)
+        with main._pending_lock:
+            current = [row for row in main._pending_posts if row[0] is not decoy]
+            main._pending_posts = saved_pending + current
+            main._pending_lock.notify_all()
 
 
 def test_proxy_setattr_only_target_is_local(monkeypatch):
@@ -844,7 +848,7 @@ def test_pyuno_callable_is_not_proxied(monkeypatch):
     saved_guard = tg.GUARD_ON
     tg.GUARD_ON = True
     try:
-        monkeypatch.setattr(tg, "on_main_thread", lambda: True)
+        monkeypatch.setattr(main, "is_current", lambda: True)
         prox = tg.guard_uno(doc)
         method = prox.getText
         assert type(method).__name__ == "PyUNO_callable"
@@ -879,11 +883,12 @@ def test_untagged_dummy_is_allowed() -> None:
     was_testing = os.environ.get("WRITERAGENT_TESTING")
     tg.GUARD_ON = True
     os.environ["WRITERAGENT_TESTING"] = "1"
+    install_from_environ()
     try:
         def worker() -> None:
             current = threading.current_thread()
             assert isinstance(current, threading._DummyThread)
-            assert tg.on_main_thread() is True
+            assert main.is_current() is True
             tg.assert_main_thread("get_runtime_uid")
 
         _run_in_dummy_thread(worker)
@@ -893,7 +898,8 @@ def test_untagged_dummy_is_allowed() -> None:
             os.environ.pop("WRITERAGENT_TESTING", None)
         else:
             os.environ["WRITERAGENT_TESTING"] = was_testing
-        tg.set_designated_main_thread(None)
+        install_from_environ()
+        main.install(Policy.production, designated=None)
         tg.set_background_task(None)
 
 
@@ -902,12 +908,13 @@ def test_real_worker_still_flagged() -> None:
     was_testing = os.environ.get("WRITERAGENT_TESTING")
     tg.GUARD_ON = True
     os.environ["WRITERAGENT_TESTING"] = "1"
+    install_from_environ()
     try:
         worker_exc: list[BaseException] = []
 
         def worker() -> None:
             try:
-                assert tg.on_main_thread() is False
+                assert main.is_current() is False
                 with pytest.raises(RuntimeError) as exc_info:
                     tg.assert_main_thread("get_runtime_uid")
                 assert "UNO thread violation" in str(exc_info.value)
@@ -926,7 +933,8 @@ def test_real_worker_still_flagged() -> None:
             os.environ.pop("WRITERAGENT_TESTING", None)
         else:
             os.environ["WRITERAGENT_TESTING"] = was_testing
-        tg.set_designated_main_thread(None)
+        install_from_environ()
+        main.install(Policy.production, designated=None)
         tg.set_background_task(None)
 
 
@@ -935,11 +943,12 @@ def test_tagged_dummy_still_flagged() -> None:
     was_testing = os.environ.get("WRITERAGENT_TESTING")
     tg.GUARD_ON = True
     os.environ["WRITERAGENT_TESTING"] = "1"
+    install_from_environ()
     try:
         def worker() -> None:
             try:
                 tg.set_background_task("proofreading")
-                assert tg.on_main_thread() is False
+                assert main.is_current() is False
                 with pytest.raises(RuntimeError) as exc_info:
                     tg.assert_main_thread("get_runtime_uid")
                 assert "UNO thread violation" in str(exc_info.value)
@@ -953,7 +962,8 @@ def test_tagged_dummy_still_flagged() -> None:
             os.environ.pop("WRITERAGENT_TESTING", None)
         else:
             os.environ["WRITERAGENT_TESTING"] = was_testing
-        tg.set_designated_main_thread(None)
+        install_from_environ()
+        main.install(Policy.production, designated=None)
         tg.set_background_task(None)
 
 
@@ -962,12 +972,13 @@ def test_designated_hook_wins() -> None:
     was_testing = os.environ.get("WRITERAGENT_TESTING")
     tg.GUARD_ON = True
     os.environ["WRITERAGENT_TESTING"] = "1"
+    install_from_environ()
     try:
         other_thread = threading.Thread()
-        tg.set_designated_main_thread(other_thread)
+        main.install(Policy.test_inline, designated=other_thread)
 
         def worker() -> None:
-            assert tg.on_main_thread() is False
+            assert main.is_current() is False
 
         _run_in_dummy_thread(worker)
     finally:
@@ -976,7 +987,8 @@ def test_designated_hook_wins() -> None:
             os.environ.pop("WRITERAGENT_TESTING", None)
         else:
             os.environ["WRITERAGENT_TESTING"] = was_testing
-        tg.set_designated_main_thread(None)
+        install_from_environ()
+        main.install(Policy.production, designated=None)
         tg.set_background_task(None)
 
 
@@ -985,14 +997,15 @@ def test_helper_does_not_tag_python_main_thread() -> None:
     was_testing = os.environ.get("WRITERAGENT_TESTING")
     tg.GUARD_ON = True
     os.environ["WRITERAGENT_TESTING"] = "1"
+    install_from_environ()
     try:
         with tg.background_if_dummy_thread("python_addin"):
             assert tg.get_background_task_name() is None
-            assert tg.on_main_thread() is True
+            assert main.is_current() is True
 
         def worker() -> None:
             with tg.background_if_dummy_thread("python_addin"):
-                assert tg.on_main_thread() is False
+                assert main.is_current() is False
             assert tg.get_background_task_name() is None
 
         _run_in_dummy_thread(worker)
@@ -1002,7 +1015,8 @@ def test_helper_does_not_tag_python_main_thread() -> None:
             os.environ.pop("WRITERAGENT_TESTING", None)
         else:
             os.environ["WRITERAGENT_TESTING"] = was_testing
-        tg.set_designated_main_thread(None)
+        install_from_environ()
+        main.install(Policy.production, designated=None)
         tg.set_background_task(None)
 
 
@@ -1011,6 +1025,7 @@ def test_on_python_main_thread() -> None:
     was_testing = os.environ.get("WRITERAGENT_TESTING")
     tg.GUARD_ON = True
     os.environ["WRITERAGENT_TESTING"] = "1"
+    install_from_environ()
     try:
         assert tg.on_python_main_thread() is True
 
@@ -1024,7 +1039,8 @@ def test_on_python_main_thread() -> None:
             os.environ.pop("WRITERAGENT_TESTING", None)
         else:
             os.environ["WRITERAGENT_TESTING"] = was_testing
-        tg.set_designated_main_thread(None)
+        install_from_environ()
+        main.install(Policy.production, designated=None)
         tg.set_background_task(None)
 
 

@@ -59,7 +59,7 @@ class OptimizeDataTool(ToolBaseDummy):
             return self._tool_error("analysis/optimize domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
         # Call run_domain on this worker. It both reads the sheet
-        # and blocks in the optimize client, so execute_on_main_thread would
+        # and blocks in the optimize client, so main.call would
         # put that IPC on the UI thread and freeze Calc. The helper marshals
         # only the UNO read; the sheet write below stays on the main thread.
         result = run_domain("optimize", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)

@@ -232,7 +232,7 @@ def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
     tool = FormGenerate()
     assert tool.is_async() is True
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
 
     ctx = MagicMock()
 
@@ -457,7 +457,7 @@ def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch)
     from plugin.framework.errors import WriterAgentException
 
     tool = FormGenerate()
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     mock_client = MagicMock()
     scope = MagicMock()

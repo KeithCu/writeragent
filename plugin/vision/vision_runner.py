@@ -14,7 +14,7 @@ from plugin.framework.doc_type import is_calc, is_writer
 from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancelled
 from plugin.scripting.client import run_vision
 from plugin.vision.vision_common import (
@@ -131,7 +131,7 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         context: dict[str, Any] = {"source": "graphic_name", "image_name": name_str} if name_str else {"source": "selection"}
         return png_bytes, local_params, context
 
-    png_bytes, params_out, context = execute_on_main_thread(_export_on_main_thread)
+    png_bytes, params_out, context = main.call(_export_on_main_thread)
     if len(png_bytes) > VISION_IMAGE_MAX_BYTES:
         raise ToolExecutionError(
             _("Image is too large to send to the vision worker ({size} bytes; limit {limit}).").format(
@@ -260,7 +260,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
     batch = VisionBatch(helper=name, insert_into_document=insert_into_document)
     try:
-        batch.target_names = execute_on_main_thread(_discover_names)
+        batch.target_names = main.call(_discover_names)
 
         for image_name in batch.target_names:
             if stop_checker is not None and stop_checker():
@@ -289,7 +289,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
                     insert_vision_result(ctx, doc, res, params=per_insert)
 
-                execute_on_main_thread(_insert, bound_scope=None)
+                main.call(_insert, bound_scope=None)
             result["image_name"] = image_name
             if "context" not in result or not isinstance(result["context"], dict):
                 result["context"] = {"image_name": image_name}

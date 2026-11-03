@@ -60,7 +60,7 @@ class SearchNearbyFiles(ToolBase):
         if callable(checker) and checker() is True:
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
 
         if not folder_search_enabled():
             return self._tool_error(
@@ -172,12 +172,10 @@ class SearchNearbyFiles(ToolBase):
                 "allowed_urls": allowed_urls,
             }
 
-        from plugin.framework.thread_guard import on_main_thread
-
-        if on_main_thread():
+        if main.is_current():
             resolved_listing_root, exclude_path, open_paths = _resolve_uno_context()
         else:
-            resolved_listing_root, exclude_path, open_paths = execute_on_main_thread(_resolve_uno_context)
+            resolved_listing_root, exclude_path, open_paths = main.call(_resolve_uno_context)
 
         context_result = _resolve_context(resolved_listing_root, exclude_path, open_paths)
 
@@ -217,10 +215,10 @@ class SearchNearbyFiles(ToolBase):
         def _wakeup() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
 
-        if on_main_thread():
+        if main.is_current():
             _wakeup()
         else:
-            execute_on_main_thread(_wakeup)
+            main.call(_wakeup)
 
         hits = list(result.get("hits") or [])
         if allowed_urls is not None:

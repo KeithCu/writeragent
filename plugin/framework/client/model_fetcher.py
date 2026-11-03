@@ -48,7 +48,7 @@ from plugin.framework.url_utils import normalize_endpoint_url, get_api_version_s
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint, is_openwebui_endpoint
 from plugin.framework.errors import NetworkError, best_effort
 from plugin.framework.openrouter_model_id import openrouter_model_ids_equivalent, resolve_openrouter_catalog_id
-from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.config import get_api_key_for_endpoint, get_config, get_current_endpoint, save, update_config_mapping
 from plugin.framework.config_schema import as_bool
@@ -1150,7 +1150,7 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     4. Warm in-process provider memo (OpenRouter/Together ``input_modalities``,
        Ollama ``/api/show`` capabilities).
     5. Cold memo (OpenRouter, Together, Ollama): on the UI thread
-       (``on_main_thread()``) never fetch; schedule one background lookup and
+       (``main.is_current()``) never fetch; schedule one background lookup and
        fall through. Off the UI thread, fetch inline and re-read the memo.
        Answers live only in those process memos; a failed fetch stores
        nothing, so the next check tries again.
@@ -1180,10 +1180,10 @@ def has_native_vision(model_id: Any, endpoint: Any, *, api_key_override: str | N
     # 4. Warm in-process memo. 5. Cold: the UI thread schedules, a worker fetches.
     warm, answer = _vision_provider_memo(provider, raw_ep, model_id_str, api_key_override)
     if not warm:
-        if on_main_thread():
+        if main.is_current():
             _schedule_vision_lookup(support_key, model_id_str, raw_ep, api_key_override)
         else:
-            assert not on_main_thread()
+            assert not main.is_current()
             if provider == "ollama":
                 query_ollama_show(raw_ep, model_id_str)
             else:

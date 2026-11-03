@@ -104,7 +104,7 @@ def test_modify_uses_owning_document_not_active(monkeypatch):
     other = CalcDocStub(url="file:///other.ods", props={"RuntimeUID": "uid-other"})
     sheet = owner.getSheets().getByName("Sheet1")
     sheet.getParent = lambda: owner
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
     monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
@@ -124,7 +124,7 @@ def test_modify_uses_stored_document_when_source_has_no_parent(monkeypatch):
     owner = CalcDocStub(url="file:///stored.ods", props={"RuntimeUID": "uid-stored"})
     other = CalcDocStub(url="file:///active.ods", props={"RuntimeUID": "uid-active"})
     sheet = owner.getSheets().getByName("Sheet1")
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
     monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
@@ -180,7 +180,7 @@ def test_rename_migrates_spill_registry_and_listener(monkeypatch):
     doc.getSheets()._sheets["SheetRenamed"] = sheet
     doc.getSheets()._sheets.pop("Sheet1", None)
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
     listener.modified(SimpleNamespace(Source=sheet))
 
@@ -226,7 +226,7 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
         scheduled_calls += 1
 
     monkeypatch.setattr("plugin.calc.python.sheet_modify.schedule_sheet_modify_pass", mock_schedule)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
 
     orig_clear = sheet.getCellByPosition(0, 0).clearContents
 
@@ -271,7 +271,7 @@ def test_schedule_timer_callback_clears_pending_timer(monkeypatch):
 
     monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _CaptureTimer)
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: None,
     )
 
@@ -308,7 +308,7 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _CaptureTimer)
     monkeypatch.setattr(
-        "plugin.framework.queue_executor.post_to_main_thread",
+        "plugin.framework.queue_executor.main.post",
         lambda fn, *a, **k: posted_callables.append(fn),
     )
 
@@ -400,7 +400,7 @@ def test_posted_pass_with_unreadable_sheet_name_skips_cleanup(monkeypatch: pytes
     doc = CalcDocStub(url="file:///gone.ods", props={"RuntimeUID": "uid-gone"})
     sheet = doc.getSheets().getByName("Sheet1")
     sheet.getName = lambda: ""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
 
     def fail_cleanup(*args, **kwargs):

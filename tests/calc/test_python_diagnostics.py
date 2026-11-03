@@ -125,7 +125,7 @@ def test_diagnostics_workbook_key_uses_caller_doc_only():
     doc.getURL.return_value = "file:///other.ods"
 
     with (
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.scripting.document_scripts.get_calc_document_from_ctx") as front_window,
     ):
         assert diagnostics_workbook_key(doc) == "calc:file:///other.ods"

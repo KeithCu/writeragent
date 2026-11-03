@@ -65,10 +65,10 @@ class PanelEventsController:
         return not on_python_main_thread()
 
     @staticmethod
-    def _post_to_main_thread(fn: Any) -> None:
-        from plugin.framework.queue_executor import post_to_main_thread
+    def _post_to_main(fn: Any) -> None:
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(fn)
+        main.post(fn)
 
     def _subscribe_mcp_events(self) -> None:
         """Join services.events for mcp:request / mcp:result (may bootstrap; main thread)."""
@@ -210,7 +210,7 @@ class PanelEventsController:
                 return
             self._panel._set_status(text)
 
-        self._post_to_main_thread(_write)
+        self._post_to_main(_write)
 
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
@@ -274,11 +274,11 @@ class PanelEventsController:
                 log.exception("_on_mcp_result UI update error")
 
         try:
-            # The send drain pumps default_executor only. A post on the panel
+            # The send drain pumps main only. A post on an unpumped
             # queue sits until the drain ends, so an MCP result during Send
             # never reaches the sidebar until the turn is over.
-            from plugin.framework.queue_executor import on_main_thread_or_post
+            from plugin.framework.queue_executor import main
 
-            on_main_thread_or_post(_update_ui)
+            main.post_or_run(_update_ui)
         except Exception:
             log.exception("_on_mcp_result post error")

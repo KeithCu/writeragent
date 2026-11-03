@@ -414,11 +414,11 @@ def list_nearby_files(
 
         return res_exclude, res_open, res_root
 
-    from plugin.framework.queue_executor import run_on_main
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancelled
 
     try:
-        exclude_path, open_paths, listing_root = run_on_main(_fetch_uno_state)
+        exclude_path, open_paths, listing_root = main.run(_fetch_uno_state)
     except SendCancelled:
         return user_stopped_payload()
 

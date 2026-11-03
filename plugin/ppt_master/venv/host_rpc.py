@@ -32,7 +32,7 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         stop_checker = None
 
     from plugin.framework.errors import ToolExecutionError
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import send_stopped
 
     # Build the client on the send cancellation scope so sidebar Stop closes
@@ -42,10 +42,10 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     cancellation_scope = payload.get("_cancellation_scope")
     try:
         # get_ctx() is @main_thread_only, so a background worker marshals it
-        # with execute_on_main_thread. Keep that call inside the try: a raise
+        # with main.call. Keep that call inside the try: a raise
         # must go back to the child as an RPC error, or the child waits until
         # timeout with no reply.
-        ctx = execute_on_main_thread(get_ctx)
+        ctx = main.call(get_ctx)
         if max_tokens is None:
             max_tokens = get_config("chat_max_tokens")
 

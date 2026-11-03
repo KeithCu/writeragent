@@ -613,7 +613,7 @@ def test_sidebar_panel_off_thread_wrapper_does_not_call_uno_same(monkeypatch) ->
     writer_frame = object()
     only = SimpleNamespace(xFrame=writer_frame, send_listener="sl")
     monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [only])
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     def uno_same(left: object, right: object) -> bool:
         raise AssertionError("uno_same off the main thread")
@@ -648,7 +648,7 @@ def test_frames_match_does_not_call_uno_same_off_main_thread(monkeypatch) -> Non
         called.append((left, right))
         return left is writer_frame
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.framework.uno_context.uno_same", uno_same)
     assert hooks.sidebar_panel() is None
     assert called == []
@@ -663,7 +663,7 @@ def test_send_listener_for_uid_matches_registered_panel_uid(monkeypatch) -> None
     calc = SimpleNamespace(_live_panel_uid="calc-uid", send_listener=calc_sl)
     monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [calc, writer])
     monkeypatch.setattr("plugin.doc.live_panels.get_live_panel", lambda uid: None)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     assert hooks.send_listener_for_uid("writer-uid") is writer_sl
     writer_sl._panel_teardown = True
     assert hooks.send_listener_for_uid("writer-uid") is None

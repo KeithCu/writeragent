@@ -14,12 +14,12 @@ from scripts.analyze_thread_deadlocks import DeadlockAnalyzer, main
 
 
 def test_direct_hazard(tmp_path: Path) -> None:
-    """A direct call from a sync host entrypoint to execute_on_main_thread is flagged."""
+    """A direct call from a sync host entrypoint to call is flagged."""
     f = tmp_path / "addin.py"
     f.write_text(
         """
 def execute_python_addin():
-    execute_on_main_thread()
+    main.call()
 """,
         encoding="utf-8",
     )
@@ -28,7 +28,7 @@ def execute_python_addin():
     assert len(hazards) == 1
     h = hazards[0]
     assert h.entrypoint == "execute_python_addin"
-    assert h.blocking_op == "execute_on_main_thread"
+    assert h.blocking_op == "main.call"
     assert f.name in h.location
     assert h.location.endswith(f"{f.name}:3")
 
@@ -47,7 +47,7 @@ def execute_python_addin():
     f2.write_text(
         """
 def helper():
-    execute_on_main_thread()
+    main.call()
 """,
         encoding="utf-8",
     )
@@ -55,7 +55,7 @@ def helper():
     hazards = analyzer.find_deadlock_hazards()
     assert len(hazards) == 1
     h = hazards[0]
-    assert h.call_chain == ["execute_python_addin", "helper", "execute_on_main_thread"]
+    assert h.call_chain == ["execute_python_addin", "helper", "main.call"]
 
 
 def test_cycle_terminates_and_reports(tmp_path: Path) -> None:
@@ -68,14 +68,14 @@ def execute_python_addin():
 
 def helper():
     execute_python_addin()
-    execute_on_main_thread()
+    main.call()
 """,
         encoding="utf-8",
     )
     analyzer = DeadlockAnalyzer(tmp_path)
     hazards = analyzer.find_deadlock_hazards()
     assert len(hazards) == 1
-    assert "execute_on_main_thread" in hazards[0].call_chain
+    assert "main.call" in hazards[0].call_chain
 
 
 def test_depth_cap(tmp_path: Path) -> None:
@@ -85,7 +85,7 @@ def test_depth_cap(tmp_path: Path) -> None:
     code5 = ["def execute_python_addin(): step1()"]
     for i in range(1, 4):
         code5.append(f"def step{i}(): step{i+1}()")
-    code5.append("def step4(): execute_on_main_thread()")
+    code5.append("def step4(): main.call()")
     (deep5_dir / "deep5.py").write_text("\n".join(code5), encoding="utf-8")
 
     analyzer5 = DeadlockAnalyzer(deep5_dir)
@@ -97,7 +97,7 @@ def test_depth_cap(tmp_path: Path) -> None:
     code20 = ["def execute_python_addin(): step1()"]
     for i in range(1, 19):
         code20.append(f"def step{i}(): step{i+1}()")
-    code20.append("def step19(): execute_on_main_thread()")
+    code20.append("def step19(): main.call()")
     (deep20_dir / "deep20.py").write_text("\n".join(code20), encoding="utf-8")
 
     analyzer20 = DeadlockAnalyzer(deep20_dir)
@@ -111,7 +111,7 @@ def test_suppression_semantics(tmp_path: Path) -> None:
     p1.write_text(
         """
 def execute_python_addin():  # nodeadlock: reviewed and verified
-    execute_on_main_thread()
+    main.call()
 """,
         encoding="utf-8",
     )
@@ -122,7 +122,7 @@ def execute_python_addin():  # nodeadlock: reviewed and verified
     p2.write_text(
         """
 def execute_python_addin():  # nodeadlock
-    execute_on_main_thread()
+    main.call()
 """,
         encoding="utf-8",
     )
@@ -133,7 +133,7 @@ def execute_python_addin():  # nodeadlock
     p3.write_text(
         """
 def execute_python_addin():  # nosemgrep
-    execute_on_main_thread()
+    main.call()
 """,
         encoding="utf-8",
     )
@@ -144,7 +144,7 @@ def execute_python_addin():  # nosemgrep
     p4.write_text(
         """
 def execute_python_addin():  # see note about "# nodeadlock: fake"
-    execute_on_main_thread()
+    main.call()
 """,
         encoding="utf-8",
     )
@@ -156,7 +156,7 @@ def test_directory_filters(tmp_path: Path) -> None:
     """Directory components matching excluded names are skipped; venv_worker.py is scanned."""
     body = """
 def execute_python_addin():
-    execute_on_main_thread()
+    main.call()
 """
     pkg = tmp_path / "pkg"
     (pkg / "venv").mkdir(parents=True)

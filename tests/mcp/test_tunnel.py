@@ -1597,7 +1597,7 @@ def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
         return "cloudflared binary not found on PATH"
 
     monkeypatch.setattr("plugin.mcp.tunnel.binary_available", _slow)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     try:
         mod._sync_tunnel()
         assert probed.wait(2)
@@ -1822,7 +1822,7 @@ def _sync_tunnel_module(monkeypatch, port, bound_port=18765):
     tunnel.last_error = None
     mod.tunnel = tunnel
     monkeypatch.setattr(mcp_mod, "_current_module", mod)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     return mod, tunnel
 
 

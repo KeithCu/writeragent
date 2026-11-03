@@ -51,8 +51,8 @@ from plugin.framework.errors import (
 )
 from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.thread_guard import assert_main_thread, on_main_thread
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.thread_guard import assert_main_thread
+from plugin.framework.queue_executor import main
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.tool_schema import (
@@ -393,7 +393,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
             doc = getattr(ctx, "doc", None) if ctx is not None else None
             # Off the main thread, check only for real disposal exceptions without probing UNO.
-            if on_main_thread():
+            if main.is_current():
                 disposed = is_tool_document_disposed(e, doc)
             else:
                 disposed = is_real_disposal(e)
@@ -705,14 +705,14 @@ class ToolRegistry:
         # Doc-type probe is main-thread-only because get_document_type accesses UNO.
         # In release builds @main_thread_only logs and continues rather than raising,
         # so off-thread callers must avoid probing UNO directly.
-        if doc_type is None and doc is not None and filter_doc_type and on_main_thread():
+        if doc_type is None and doc is not None and filter_doc_type and main.is_current():
             from plugin.framework import doc_type as _doc_type
 
             doc_type = _doc_type.doc_type_str_from_doc(doc)
         if uno_services_supported is None and doc is not None and filter_doc_type:
             from plugin.framework import doc_type as _doc_type
 
-            if on_main_thread():
+            if main.is_current():
                 uno_services_supported = _doc_type.get_document_uno_services(doc)
 
         tools = [
@@ -783,7 +783,7 @@ class ToolRegistry:
         # so off-thread callers must avoid probing UNO directly.
         doc = kwargs.get("doc")
         doc_type = kwargs.get("doc_type")
-        if doc_type is None and doc is not None and on_main_thread():
+        if doc_type is None and doc is not None and main.is_current():
             from plugin.framework import doc_type as _doc_type
 
             doc_type = _doc_type.doc_type_str_from_doc(doc)
@@ -998,7 +998,7 @@ class ToolRegistry:
             if bypass_thread_guard or tool.is_async():
                 result = self._execute_with_timeout(_run_tool, timeout, tool_name)
             else:
-                result = execute_on_main_thread(_run_tool)
+                result = main.call(_run_tool)
 
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":

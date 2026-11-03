@@ -42,7 +42,7 @@ def _debug_env_active() -> bool:  # pyright: ignore[reportUnusedFunction]
     """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``)."""
     from plugin.framework import thread_guard as tg
 
-    if hasattr(tg, "_designated_main_thread"):
+    if getattr(tg, "DEV_GUARD", False):
         return True
     return os.environ.get("WRITERAGENT_TESTING") == "1"
 
@@ -868,9 +868,9 @@ class RichTextControlListener(BaseWindowListener):
         self.initialized = True
         _CONTROL_INIT_STARTED.add(parent_id)
         log_rich_control_context("deferred_init", action="begin")
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(self._deferred_init)
+        main.post(self._deferred_init)
 
     def _deferred_init(self) -> None:
         if self._disposed:

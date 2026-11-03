@@ -61,7 +61,7 @@ from plugin.framework.errors import (
     resolve_exception_message,
 )
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import capture_send_stop
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
@@ -887,7 +887,7 @@ def build_tool_execute_fn(
             # Async gateways (delegate_to_specialized_draw_toolset) run
             # execute_fn on the worker; hasattr(doc, "getDrawPages") is UNO.
             active_page_idx = best_effort(
-                lambda: execute_on_main_thread(lambda: DrawBridge(doc).get_active_page_index()),
+                lambda: main.call(lambda: DrawBridge(doc).get_active_page_index()),
                 f"execute_fn: failed to get active page index for {doc_type_str}",
             )
 
@@ -1123,13 +1123,13 @@ class ToolLoopEffectInterpreter:
         bound_scope, bound_stop = capture_send_stop(host)
 
         # Bugfix: getText ran for every tool whenever the sidebar combobox
-        # existed, and execute_on_main_thread re-raises, so a disposed or
+        # existed, and main.call re-raises, so a disposed or
         # unwired control left _spawn_tool_worker and the drain treated it as
         # a stream error. Only image_generate uses the override; a widget
         # failure leaves that call's arguments unchanged.
         if effect.func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
             image_model_override = best_effort(
-                lambda: execute_on_main_thread(lambda: host.image_model_selector.getText()),
+                lambda: main.call(lambda: host.image_model_selector.getText()),
                 "image model selector unusable; image_generate keeps its arguments",
             )
             if image_model_override:

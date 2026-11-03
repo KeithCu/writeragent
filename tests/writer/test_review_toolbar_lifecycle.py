@@ -146,7 +146,7 @@ def _reset():
 
 def _capture_posts():
     posted = []
-    return posted, patch("plugin.framework.queue_executor.post_to_main_thread",
+    return posted, patch("plugin.framework.queue_executor.main.post",
                          side_effect=lambda fn, *a, **k: posted.append((fn, a)))
 
 
@@ -226,7 +226,7 @@ def test_closing_the_document_cancels_a_queued_recount():
 def test_a_failed_queue_does_not_block_later_recounts():
     _reset_pending()
     model = FakeModel("uid-fail")
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=RuntimeError("no AsyncCallback")):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=RuntimeError("no AsyncCallback")):
         rt._schedule_refresh(model, "uid-fail")
     assert "uid-fail" not in rt._pending_refresh, "a failed post must not leave the doc marked as queued"
 

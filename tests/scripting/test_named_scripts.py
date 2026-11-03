@@ -563,7 +563,7 @@ def test_host_rpc_named_script_blocked_when_tools_disabled():
 
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_must_not_read),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_must_not_read),
+        patch("plugin.framework.queue_executor.main.call", side_effect=_must_not_read),
     ):
         with pytest.raises(RuntimeError, match=r"=PY\(\)"):
             execute_tool(
@@ -585,7 +585,7 @@ def test_host_rpc_named_script_still_allowed_for_domain_allowlist():
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=MagicMock()),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
@@ -601,20 +601,20 @@ def test_off_main_py_named_script_skips_main_thread_marshal():
     code = "def add(a, b):\n    return a + b\n"
 
     def _must_not_marshal(fn):
-        raise AssertionError("execute_on_main_thread")
+        raise AssertionError("main.call")
 
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
         patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_must_not_marshal),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=_must_not_marshal),
     ):
         out = execute_tool(GET_NAMED_PYTHON_SCRIPT, {"name": "Helpers", "origin": "user"})
     assert out["code"] == code
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
         patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         with pytest.raises(RuntimeError, match="Document scripts"):
             execute_tool(GET_NAMED_PYTHON_SCRIPT, {"name": "Helpers", "origin": "document"})
@@ -922,7 +922,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
         patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out1 = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
@@ -942,7 +942,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_fail_user),
         patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         with pytest.raises(RuntimeError, match="Unknown named-script origin 'nope'"):
             execute_tool(
@@ -959,7 +959,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
         patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out_doc = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
@@ -975,7 +975,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
         patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out_list = execute_tool(
             LIST_NAMED_PYTHON_SCRIPTS,

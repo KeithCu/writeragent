@@ -29,7 +29,7 @@ from typing import IO, Any, Callable, cast
 from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
-from plugin.framework.queue_executor import QueueExecutor, default_executor
+from plugin.framework.queue_executor import MainThread, main
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
 from plugin.scripting.editor_errors import (
     exception_traceback,
@@ -330,7 +330,7 @@ class PersistentEditor:
 
         self.sessions: dict[str, EditorSessionState] = {}
         self.focused_id: str | None = None
-        self.executor: QueueExecutor = default_executor
+        self.executor: MainThread = main
         self.ctx: Any = None
         self.run_script_doc: Any = None
         self.run_script_doc_url: str | None = None
@@ -638,7 +638,7 @@ class PersistentEditor:
     def _run_on_main(self, fn: Callable[[], None], label: str) -> Exception | None:
         """Queue *fn* on the UI thread. Return the marshal failure, else None."""
         try:
-            self.executor.execute(fn, timeout=self._marshal_timeout(), bound_scope=None)
+            self.executor.call(fn, timeout=self._marshal_timeout(), bound_scope=None)
         except Exception as exc:
             log.exception("%s timed out" if isinstance(exc, TimeoutError) else "%s marshal failed", label)
             return exc

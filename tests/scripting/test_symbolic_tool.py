@@ -23,7 +23,7 @@ def writer_ctx():
 
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
-@patch("plugin.calc.symbolic_math.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_happy_path(mock_run, mock_main_thread, mock_insert, writer_ctx):
     mock_run.return_value = {
@@ -65,7 +65,7 @@ def test_symbolic_math_in_python_domain():
     assert "run_venv_python_script" in names
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
-@patch("plugin.calc.symbolic_math.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_keeps_ipc_off_main_thread(mock_run, mock_main_thread, mock_insert, writer_ctx):
     inside = {"flag": False}
@@ -78,7 +78,7 @@ def test_symbolic_math_keeps_ipc_off_main_thread(mock_run, mock_main_thread, moc
             inside["flag"] = False
 
     def run(*_args, **_kwargs):
-        assert not inside["flag"], "symbolic IPC must not run inside execute_on_main_thread"
+        assert not inside["flag"], "symbolic IPC must not run inside main.call"
         return {"status": "ok", "helper": "symbolic_simplify", "latex": "x", "text": "x"}
 
     def write(*_args, **_kwargs):
@@ -138,7 +138,7 @@ def test_run_trusted_symbolic_rejects_draw(doc_type):
     assert "Writer or Calc" in str(exc_info.value)
 
 
-@patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
+@patch("plugin.framework.queue_executor.main.is_current", return_value=True)
 def test_run_trusted_symbolic_rejects_non_writer_calc_without_hint(mock_main_thread):
     from plugin.framework.errors import ToolExecutionError
     from plugin.scripting.helper_domain import run_domain
@@ -250,7 +250,7 @@ def test_symbolic_math_accepts_numeric_zero_param(mock_run, writer_ctx):
 
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
-@patch("plugin.calc.symbolic_math.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thread, mock_insert, writer_ctx):
     mock_run.return_value = {
@@ -271,7 +271,7 @@ def test_symbolic_math_calc_does_not_claim_math_inserted(mock_run, mock_main_thr
 
 
 @patch("plugin.calc.symbolic_math.insert_symbolic_result_into_doc")
-@patch("plugin.calc.symbolic_math.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.symbolic_math.run_domain")
 def test_symbolic_math_calc_refuses_when_target_occupied(mock_run, mock_main_thread, mock_insert, writer_ctx):
     from plugin.framework.errors import CalcError

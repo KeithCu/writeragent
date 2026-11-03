@@ -152,10 +152,10 @@ def test_mcp_subscribe_must_defer():
             assert PanelEventsController._mcp_subscribe_must_defer() is True
 
 
-def test_post_to_main_thread():
+def test_post_to_main():
     cb = MagicMock()
-    with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
-        PanelEventsController._post_to_main_thread(cb)
+    with patch("plugin.framework.queue_executor.main.post") as mock_post:
+        PanelEventsController._post_to_main(cb)
         mock_post.assert_called_once_with(cb)
 
 
@@ -240,7 +240,7 @@ def test_http_server_status():
     controller = PanelEventsController(panel)
     panel._events = controller
 
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()):
         controller._on_http_server_started("http://localhost:8000")
         assert any("MCP server started http://localhost:8000" in s for s in panel._set_status_calls)
 
@@ -263,7 +263,7 @@ def test_mcp_request_and_result():
 
     with (
         patch("plugin.chatbot.tool_loop_actions.current_turn", return_value=turn),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
     ):
         controller._on_mcp_result(tool="calculator", result_snippet="4", req_id="req1")

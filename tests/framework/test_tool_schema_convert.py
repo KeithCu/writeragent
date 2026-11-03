@@ -494,7 +494,7 @@ def test_set_style_schema_omits_number_format_but_scripting_may_pass_it():
     ctx.read_only_target = False
     ctx.uno_services_supported = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
     with patch.object(tool, "execute_safe", return_value={"status": "ok"}) as exe, patch(
-        "plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()
+        "plugin.framework.tool.main.call", side_effect=lambda fn: fn()
     ):
         # Unknown LLM keys still stripped; scripting_only number_format is preserved.
         registry.execute(
@@ -527,7 +527,7 @@ def test_set_style_strips_number_format_for_non_script_callers(caller):
     ctx.read_only_target = False
     ctx.uno_services_supported = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
     with patch.object(tool, "execute_safe", return_value={"status": "ok"}) as exe, patch(
-        "plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()
+        "plugin.framework.tool.main.call", side_effect=lambda fn: fn()
     ):
         registry.execute(
             "set_style",

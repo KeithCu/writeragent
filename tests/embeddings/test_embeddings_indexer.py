@@ -163,7 +163,7 @@ def test_enqueue_skipped_when_inflight():
         ):
             with patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=False):
                 with patch(
-                    "plugin.framework.queue_executor.execute_on_main_thread",
+                    "plugin.framework.queue_executor.main.call",
                     side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
                 ):
                     with patch("plugin.embeddings.embeddings_indexer.run_in_background") as bg_mock:
@@ -191,7 +191,7 @@ def test_enqueue_marshals_resolve_index_context():
         with patch("plugin.embeddings.embeddings_indexer.resolve_index_context", side_effect=tracking_resolve):
             with patch("plugin.embeddings.embeddings_indexer._try_enqueue", return_value=False):
                 with patch(
-                    "plugin.framework.queue_executor.execute_on_main_thread",
+                    "plugin.framework.queue_executor.main.call",
                     side_effect=mock_execute,
                 ):
                     embeddings_indexer.enqueue_folder_index(ctx, MagicMock(), MagicMock())

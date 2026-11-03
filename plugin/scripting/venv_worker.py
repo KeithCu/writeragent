@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, IO, Generator, Literal
 
 from plugin.framework.config import get_config
-from plugin.framework.thread_guard import background, on_main_thread
+from plugin.framework.queue_executor import main
+from plugin.framework.thread_guard import background
 from plugin.framework.constants import (
     EMBEDDINGS_HEARTBEAT_GRACE_S,
     HEARTBEAT_ABSOLUTE_CAP_SEC,
@@ -562,7 +563,7 @@ class PythonWorkerManager:
             return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
         if self._serving_tool_call:
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
-        if on_main_thread() and self._io_lock.locked():
+        if main.is_current() and self._io_lock.locked():
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
 
@@ -575,7 +576,7 @@ class PythonWorkerManager:
         # The locked() check above can pass, then another thread takes the
         # pipe and blocks on the UI thread. A non-blocking acquire closes
         # that race. Other threads wait, but leave if a tool RPC starts.
-        if on_main_thread():
+        if main.is_current():
             if not self._io_lock.acquire(timeout=0):
                 return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
             self._io_owner = threading.get_ident()

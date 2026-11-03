@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.queue_executor import main
+
 import pytest
 
 from plugin.framework.frame_session import (
@@ -624,7 +626,7 @@ def test_restore_focus_skips_when_the_window_probe_fails():
 def test_restore_focus_off_main_thread_makes_no_uno_calls():
     session, frame, query = _active_session()
     frame.getContainerWindow.reset_mock()
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch.object(main, "is_current", return_value=False):
         session.restore_focus()
     frame.getContainerWindow.assert_not_called()
     query.setFocus.assert_not_called()

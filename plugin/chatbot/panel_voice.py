@@ -342,7 +342,7 @@ class PanelVoiceController:
             transcribe,
             uses_local_stt,
         )
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
         # getattr: a duck-typed host (the smol _do_send double) has no field
         # until this call sets it. Missing means nothing is in flight.
@@ -382,7 +382,7 @@ class PanelVoiceController:
                 # How it happened: on_status callback was dropped during cleanup.
                 # Why this change: post status updates to the UI thread so weight
                 # download progress is visible in the sidebar.
-                post_to_main_thread(self._panel._set_status, message)
+                main.post(self._panel._set_status, message)
 
             def _on_spawn(proc: Any) -> None:
                 def _kill() -> None:

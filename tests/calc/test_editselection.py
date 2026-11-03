@@ -10,10 +10,10 @@ from plugin.tests.testing_utils import CalcDocStub
 def _restore_drain_idle_callbacks():
     """Drop the next-task hooks ``stream_completion_tasks`` registers here.
 
-    What was wrong: each test's on_done added a ``post_to_main_thread(run_next_task)``
+    What was wrong: each test's on_done added a ``main.post(run_next_task)``
     lambda to the process-wide drain-idle list, which is never cleared. Every
     later drain on the same xdist worker then queued stale ``run_next_task``
-    items on ``default_executor``, and unrelated drain tests pumped them.
+    items on ``main``, and unrelated drain tests pumped them.
     Why this change: after each test, remove only the hooks that
     ``plugin.chatbot.selection`` added. A blanket restore could drop the
     persistent ``peer_message`` callback if that module first imports here.
@@ -354,7 +354,7 @@ def test_calc_extend_multi_cell_is_one_undo_context():
 
     with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
-         patch("plugin.chatbot.selection.post_to_main_thread", side_effect=lambda fn: fn()), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=False)
         _pump_idle()
@@ -404,7 +404,7 @@ def test_calc_edit_error_closes_undo_after_cell_restore():
          patch("plugin.chatbot.selection.input_box", new=input_box), \
          patch("plugin.chatbot.selection.save"), \
          patch("plugin.chatbot.selection.update_lru_history"), \
-         patch("plugin.chatbot.selection.post_to_main_thread", side_effect=lambda fn: fn()), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()), \
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
         _pump_idle()

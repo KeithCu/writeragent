@@ -24,7 +24,7 @@ import logging
 import re
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -329,10 +329,9 @@ def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
 
 
 def _run_on_main_thread(fn: Any) -> Any:
-    if on_main_thread():
+    if main.is_current():
         return fn()
-    from plugin.framework.queue_executor import execute_on_main_thread
-    return execute_on_main_thread(fn, timeout=60.0)
+    return main.call(fn, timeout=60.0)
 
 
 def _search_options(
@@ -718,7 +717,7 @@ class ApplyDocumentContent(ToolBase):
     def is_async(self) -> bool:
         # When review-wait is on, the chat worker / MCP HTTP thread hosts this call (the
         # main-thread guard in execute_safe is bypassed) and every document touch is
-        # marshalled via execute_on_main_thread.
+        # marshalled via main.call.
         if self._wait_enabled_globally():
             return True
         # Also stay "async" whenever we're ALREADY on a background thread: the chat loop
@@ -727,7 +726,7 @@ class ApplyDocumentContent(ToolBase):
         # worker thread with the live flag False -- returning True keeps execute_safe's
         # main-thread guard from rejecting us; execute() then runs the (now wait-free) edit on
         # the main thread via marshalling, so the toggle is handled safely instead of erroring.
-        return not on_main_thread()
+        return not main.is_current()
 
     @staticmethod
     def _effective_target(target: Any, old_content: Any) -> Any:
@@ -856,7 +855,7 @@ class ApplyDocumentContent(ToolBase):
         return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        on_main = on_main_thread()
+        on_main = main.is_current()
 
         if kwargs.get("dry_run"):
             # The preview reads ranges and text through UNO, so a worker-thread call
@@ -888,8 +887,6 @@ class ApplyDocumentContent(ToolBase):
 
         # Review-wait path, on a background (MCP HTTP / chat worker) thread: run the edit
         # on the main thread, then block HERE until the user reviews the tracked changes.
-        from plugin.framework.queue_executor import execute_on_main_thread
-
         try:
             # 60s edit budget: matches the synchronous MCP path's processing timeout; the
             # default 30s marshalling timeout would reject large full-document replaces that
@@ -930,7 +927,7 @@ class ApplyDocumentContent(ToolBase):
         review = session.wait_for_review(
             timeout=wait_seconds,
             stop_checker=_stop,
-            uno_runner=execute_on_main_thread,
+            uno_runner=main.call,
         )
         result = dict(result)
         result["review"] = review
@@ -945,7 +942,7 @@ class ApplyDocumentContent(ToolBase):
         """Apply the edit and return ``(result_dict, session_or_None)``.
 
         Runs on the MAIN thread always (directly on the sync path; marshalled via
-        execute_on_main_thread on the review-wait path). The caller owns the session's
+        main.call on the review-wait path). The caller owns the session's
         wait/cleanup."""
         from . import format as format_support
         content = kwargs.get("content", "")
