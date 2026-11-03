@@ -57,7 +57,6 @@ def _register_librepy_framework_hooks() -> None:
     from plugin.bootstrap_ui_hooks import register_framework_ui_hooks
 
     register_framework_ui_hooks()
-    import plugin.scripting.sandbox  # noqa: F401  # pyright: ignore[reportUnusedImport] — alias authorizer for writeragent imports
 
 
 def _register_librepy_handlers() -> None:

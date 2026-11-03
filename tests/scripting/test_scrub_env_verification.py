@@ -3,7 +3,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""deal / Hypothesis / CrossHair (FQN) for sandbox.scrub_subprocess_env."""
+"""deal / Hypothesis / CrossHair (FQN) for plugin.framework.subprocess_env.scrub_subprocess_env."""
 
 from __future__ import annotations
 

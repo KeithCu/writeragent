@@ -37,7 +37,9 @@ def register_writeragent_prompt_hooks() -> None:
 
     config_schema.set_endpoint_normalizer(_norm)
 
-    import plugin.scripting.sandbox  # noqa: F401  # pyright: ignore[reportUnusedImport] — alias authorizer
+    from plugin.scripting.sandbox import install_alias_authorizer
+
+    install_alias_authorizer()
 
     from plugin.scripting.import_policy import (
         format_matplotlib_plot_hint,

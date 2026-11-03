@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
-    DEAL_MAX_PATH,
     DEAL_MAX_TOKEN,
     deal,
     inverse_ensure,
@@ -105,18 +104,6 @@ def _deal_scrub_env_ok_pytest(base: object) -> bool:
 
 
 _deal_scrub_env_ok = _deal_scrub_env_ok_pytest
-
-
-def _deal_path_ok_pytest(path: object) -> bool:
-    # Real venv and workspace paths are longer than DEAL_MAX_PATH (256).
-    # The cap raised PreContractError instead of the body's bool/strip.
-    return isinstance(path, str)
-
-
-_deal_path_ok = _deal_path_ok_pytest
-
-# basename: ASCII short under CrossHair.
-_DEAL_BASENAME_LEN = DEAL_MAX_PATH
 
 
 def _env_name_is_credential(name: str) -> bool:

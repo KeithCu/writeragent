@@ -22,9 +22,13 @@ if TYPE_CHECKING:
 from plugin.framework.deal_shim import (
     DEAL_MAX_ARGV,
     DEAL_MAX_CMD_ARGS,
+    DEAL_MAX_PATH,
     deal,
     ascii_bounded, str_bounded,
 )
+
+# CrossHair patches this module attribute to shrink basename preconditions.
+_DEAL_BASENAME_LEN = DEAL_MAX_PATH
 
 # --- Import whitelist (shared by venv_sandbox and import_policy) ---
 
@@ -506,14 +510,6 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
     return frozenset(roots)
 
 
-from plugin.framework import subprocess_env as _subprocess_env
-
-_BLOCKED_ENV_EXACT = _subprocess_env._BLOCKED_ENV_EXACT
-_DEAL_BASENAME_LEN = _subprocess_env._DEAL_BASENAME_LEN
-_deal_path_ok = _subprocess_env._deal_path_ok
-_deal_path_ok_pytest = _subprocess_env._deal_path_ok_pytest
-
-
 @functools.cache
 def detect_sandbox() -> str | None:
     """Return ``'flatpak'``, ``'snap'``, or ``None``.
@@ -838,7 +834,16 @@ def resolve_venv_python(venv_dir: str) -> str | None:
     return _first_executable_python(candidates)
 
 
-from plugin.framework.uno_bootstrap import set_alias_authorizer
+_alias_authorizer_installed = False
 
-set_alias_authorizer(import_authorized, alias_has_authorized_child)
+
+def install_alias_authorizer() -> None:
+    """Register sandbox import checks for ``writeragent`` AliasImporter (explicit entry points only)."""
+    global _alias_authorizer_installed
+    if _alias_authorizer_installed:
+        return
+    _alias_authorizer_installed = True
+    from plugin.framework.uno_bootstrap import set_alias_authorizer
+
+    set_alias_authorizer(import_authorized, alias_has_authorized_child)
 

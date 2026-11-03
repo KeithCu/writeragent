@@ -43,3 +43,7 @@ def register_framework_ui_hooks() -> None:
         )
 
     set_action_error_ui(_action_error_ui)
+
+    from plugin.scripting.sandbox import install_alias_authorizer
+
+    install_alias_authorizer()

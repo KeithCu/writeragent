@@ -63,11 +63,14 @@ from plugin.scripting.sandbox import (
     SANDBOX_EXTRA_MODULES,
     SandboxPolicy,
     build_sandbox_policy,
+    install_alias_authorizer,
     parse_extra_modules,
     policy_allowlist,
     policy_blocked_imports,
     policy_relaxed_roots,
 )
+
+install_alias_authorizer()
 
 # Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session,
 # document OnUnload (workbook_lifecycle), or worker process exit.

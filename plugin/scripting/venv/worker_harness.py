@@ -53,7 +53,10 @@ if __name__ == "__main__":
     claim_ipc_channel()
 
 from plugin.framework.uno_bootstrap import register_alias_importer
+from plugin.scripting.sandbox import install_alias_authorizer
+
 register_alias_importer()
+install_alias_authorizer()
 
 from plugin.scripting.venv.results import error_result
 

@@ -21,8 +21,10 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from plugin.framework.uno_bootstrap import register_alias_importer
+from plugin.scripting.sandbox import install_alias_authorizer
 
 register_alias_importer()
+install_alias_authorizer()
 
 from plugin.scripting.audio_silence_detector import DEFAULT_SILENCE_STOP_MS, SilenceDetectorConfig
 from plugin.scripting.venv.audio_recorder import record_to_wav

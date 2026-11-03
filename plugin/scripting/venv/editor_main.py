@@ -60,7 +60,10 @@ _bootstrap_plugin_import_path()
 
 try:
     from plugin.framework.uno_bootstrap import register_alias_importer
+    from plugin.scripting.sandbox import install_alias_authorizer
+
     register_alias_importer()
+    install_alias_authorizer()
 except Exception as e:
     log.warning("Could not register alias importer in editor child process: %s", e)
 
