@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import pathlib
+import sys
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -1013,8 +1014,9 @@ result = (p.exitcode == 0)
     assert res["status"] == "ok", res
     assert res["result"] is True
 
-    # 7. pty: works
-    code_pty = """
+    if sys.platform != "win32":
+        # 7. pty: works (termios is Unix-only)
+        code_pty = """
 import os
 import pty
 master, slave = pty.openpty()
@@ -1022,9 +1024,9 @@ os.close(master)
 os.close(slave)
 result = (master > 0 and slave > 0)
 """
-    res = run_sandboxed_code(code_pty, sandbox_policy=policy)
-    assert res["status"] == "ok", res
-    assert res["result"] is True
+        res = run_sandboxed_code(code_pty, sandbox_policy=policy)
+        assert res["status"] == "ok", res
+        assert res["result"] is True
 
 
 def test_sandbox_policy_os_harmless_reads_allowed_by_default():
@@ -1244,12 +1246,21 @@ _FILE_WRITES = [
 ]
 
 
+def _assert_src_fixture_unchanged(src: pathlib.Path) -> None:
+    assert src.read_text() == "fixture"
+    if sys.platform != "win32":
+        assert src.stat().st_mode & 0o777 == 0o644
+
+
 def _file_fixture(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[str, str]]:
     p, src, d = tmp_path / "out", tmp_path / "src.txt", tmp_path / "empty"
     target = tmp_path / "target.txt"
     target.write_text("fixture")
     target.chmod(0o644)
-    src.symlink_to(target)
+    if sys.platform == "win32":
+        src.write_text("fixture")
+    else:
+        src.symlink_to(target)
     d.mkdir()
     return p, src, d, {"p": repr(str(p)), "src": repr(str(src)), "d": repr(str(d))}
 
@@ -1261,7 +1272,7 @@ def test_sandbox_runtime_file_writes_blocked_unless_files(code: str, tmp_path: p
     assert res["status"] == "error"
     assert "Forbidden access to function" in res.get("message", "")
     assert not p.exists() and not p.is_symlink()
-    assert src.read_text() == "fixture" and src.stat().st_mode & 0o777 == 0o644
+    _assert_src_fixture_unchanged(src)
     assert d.is_dir()
 
     res_files = run_sandboxed_code(code.format(**names) + "\nresult = True", sandbox_policy={"files": True})

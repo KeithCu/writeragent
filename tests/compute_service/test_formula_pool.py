@@ -30,6 +30,16 @@ import plugin.framework.process_worker as process_worker
 from tests.compute_service.conftest import get_free_port
 
 
+def _wait_until_not_alive(worker: Any, timeout: float = 5.0) -> None:
+    """Windows may lag after taskkill before is_alive() goes false."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not worker.is_alive():
+            return
+        time.sleep(0.05)
+    assert not worker.is_alive()
+
+
 @pytest.fixture(autouse=True)
 def cleanup_formula_pool():
     yield
@@ -1928,7 +1938,7 @@ class TestFormulaHttpEndpoint:
             # Wait for worker idle TTL to elapse, then evict
             time.sleep(0.3)
             pool._evict_idle_workers()
-            assert not worker.is_alive()
+            _wait_until_not_alive(worker)
 
             # Second pass occurs well after eviction but before TTL elapses since eviction
             time.sleep(0.05)
@@ -1963,7 +1973,7 @@ class TestFormulaHttpEndpoint:
             # Idle evict the worker
             time.sleep(0.3)
             pool._evict_idle_workers()
-            assert not worker.is_alive()
+            _wait_until_not_alive(worker)
 
             # Record that it is stale on the first reaper pass
             pool._evict_idle_workers()
