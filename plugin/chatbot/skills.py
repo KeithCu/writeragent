@@ -126,3 +126,20 @@ class SkillStore:
             atomic_write_text(path, content.strip() + "\n", prefix=".skill-", fsync=False)
         except OSError as e:
             log.exception("Failed to write humanizer skill: %s", e)
+
+
+def format_humanizer_guidance_prompt_block() -> str:
+    """Return fenced humanizer guidance if enabled in settings, else empty string."""
+    from plugin.chatbot.memory import _cap_injected_prompt_blob, _profile_data_block
+    from plugin.framework.config import get_config
+
+    try:
+        if get_config("chatbot.humanizer_enabled"):
+            hstore = SkillStore()
+            hguidance = hstore.get_humanizer_guidance()
+            if hguidance:
+                body = _cap_injected_prompt_blob(hguidance)
+                return _profile_data_block("[HUMANIZER GUIDANCE — apply when generating or revising prose]", body)
+    except Exception:
+        log.exception("Failed to inject humanizer guidance")
+    return ""

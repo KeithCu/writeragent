@@ -125,6 +125,7 @@ rules:
         - "**/plugin/contrib/cdp/browser_supervisor.py"
         - "**/plugin/scripting/venv_worker.py"
         - "**/plugin/scripting/ipc.py"
+        - "**/plugin/framework/ipc.py"
         - "**/plugin/scripting/venv/editor_main.py"
         - "**/plugin/scripting/venv/audio_record_main.py"
         - "**/plugin/chatbot/dialog_views.py"

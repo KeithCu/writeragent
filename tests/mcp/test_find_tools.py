@@ -7,7 +7,7 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from plugin.doc.find_tools_tool import FindTools, get_domain_guidance
-from plugin.framework.prompts import get_specialized_domain_catalog
+from plugin.doc.specialized_catalog import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolRegistry
 from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.writer.specialized_base import ToolWriterSpecialBase

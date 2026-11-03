@@ -113,7 +113,7 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
 
     monkeypatch.setattr("plugin.framework.config.init_config", mock_init_config)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
@@ -132,7 +132,7 @@ def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
@@ -168,7 +168,7 @@ def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     core_handlers_mock = MagicMock()
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", core_handlers_mock)
+    monkeypatch.setattr("plugin.main.register_core_handlers", core_handlers_mock)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
@@ -198,7 +198,7 @@ def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     core_handlers_mock = MagicMock()
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", core_handlers_mock)
+    monkeypatch.setattr("plugin.main.register_core_handlers", core_handlers_mock)
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
 
     first_mod = MagicMock()
@@ -233,7 +233,7 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
     monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
@@ -361,7 +361,7 @@ def test_menu_update_subscriber_runs_in_background(monkeypatch):
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
 
     bus = EventBus()
@@ -1008,8 +1008,8 @@ def test_register_core_handlers_continues_after_optional_import_failure(
         )
         monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: MagicMock())
 
-        caplog.set_level(logging.DEBUG, logger="plugin.framework.main_shared")
-        from plugin.framework.main_shared import register_core_handlers
+        caplog.set_level(logging.DEBUG, logger="plugin.main")
+        from plugin.main import register_core_handlers
 
         register_core_handlers()
 
@@ -1043,7 +1043,7 @@ def test_bootstrap_state_enum(monkeypatch):
     monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr("plugin.framework.main_shared.register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
     monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 

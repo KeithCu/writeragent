@@ -26,16 +26,18 @@ from typing import Any, cast, Type, ClassVar
 from plugin.framework.errors import is_real_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
-    _catalog_entries_from_base,
     attach_sheets_create_completion_instruction,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
-    looks_like_peer_work_envelope,
     get_document_research_workflow_hint,
+)
+from plugin.doc.peer_prompt import (
     annotate_outer_peer_delivery_pending,
     annotate_outer_peer_wait,
+    looks_like_peer_work_envelope,
 )
+from plugin.doc.specialized_catalog import _catalog_entries_from_base
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES

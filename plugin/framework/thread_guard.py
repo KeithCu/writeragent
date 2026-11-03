@@ -48,7 +48,10 @@ import os
 import threading
 import logging
 from contextlib import contextmanager
-from typing import Any, Generator, Iterator
+from typing import TYPE_CHECKING, Any, Generator, Iterator
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = logging.getLogger("writeragent.threadguard")
 
@@ -133,6 +136,15 @@ def on_main_thread() -> bool:
 # open at a time; further violations are logged until that dialog returns.
 _violation_dialog_open: bool = False
 _violation_ui_lock = threading.Lock()
+_thread_violation_ui: Callable[[Any, str, str], None] | None = None
+
+
+def set_thread_violation_ui(fn: Callable[[Any, str, str], None] | None) -> None:
+    """Register UI callback for thread violations; ``None`` clears."""
+    global _thread_violation_ui
+    _thread_violation_ui = fn
+
+
 
 
 def set_background_task(name: str | None) -> None:
@@ -200,11 +212,14 @@ def _notify_thread_violation(msg: str) -> None:
     def _show_popup() -> None:
         try:
             from plugin.framework.uno_context import get_ctx
-            from plugin.chatbot.dialogs import msgbox_with_report
             from plugin.framework.i18n import _
 
+            ui = _thread_violation_ui
+            if ui is None:
+                log.error("thread-violation UI is not registered")
+                return
             # nosemgrep: uno-off-main-thread
-            msgbox_with_report(get_ctx(), _("UNO Thread Violation"), full_msg, reportable=True, report_title="UNO thread violation", report_extra=full_msg)
+            ui(get_ctx(), _("UNO Thread Violation"), full_msg)
         except Exception:
             log.exception("Failed to show thread violation message box")
         finally:

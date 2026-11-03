@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
     IpcPartialFrameTimeout,

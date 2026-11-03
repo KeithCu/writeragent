@@ -50,6 +50,7 @@ LIBREPY_PLUGIN_DIRS: dict[str, tuple[str, ...]] = {
 LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/__init__.py",
     "plugin/main_core.py",
+    "plugin/menu_handlers.py",
     "plugin/version.py",
     "plugin/librepy/__init__.py",
     "plugin/librepy/settings.py",
@@ -131,6 +132,9 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/config_schema.py",
     "plugin/framework/constants.py",
     "plugin/framework/deal_shim.py",
+    "plugin/framework/doc_type.py",
+    "plugin/framework/ipc.py",
+    "plugin/framework/subprocess_env.py",
     "plugin/framework/html_stripper.py",
     "plugin/framework/errors.py",
     "plugin/framework/json_utils.py",

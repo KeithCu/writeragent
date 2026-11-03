@@ -57,7 +57,7 @@ def allowed_specialized_domains(agent_label: str, uno_ctx: Any = None) -> frozen
     ``python`` is omitted: the outer agent already has that toolset, and nesting
     it would expose ``delegate_tool_domains`` again.
     """
-    from plugin.framework.prompts import get_specialized_domain_catalog
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
 
     catalog = get_specialized_domain_catalog(agent_label=agent_label, ctx=uno_ctx)
     return frozenset(entry["domain"] for entry in catalog if entry["domain"] != _PYTHON_DOMAIN)

@@ -136,9 +136,9 @@ def test_python_specialized_sub_agent_hint_includes_full_policy(value, value_2, 
 
 
 def test_tool_note_includes_sandbox_prefix():
-    import plugin.framework.prompts as prompts
+    from plugin.scripting.import_policy import python_venv_auto_imports_note
 
-    assert prompts.PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE.startswith("PYTHON VENV SANDBOX:")
+    assert python_venv_auto_imports_note().startswith("PYTHON VENV SANDBOX:")
 
 
 def test_matplotlib_plot_hint_calc():
@@ -175,7 +175,6 @@ def test_venv_policy_has_no_cross_app_plot_branches():
 
 def test_venv_policy_does_not_advertise_duckdb():
     """LLM-facing =PY / Calc policy blurbs must not steer agents toward DuckDB."""
-    import plugin.framework.prompts as prompts
     from plugin.framework.prompts import (
         CALC_WORKFLOW,
         python_specialized_sub_agent_hint,
@@ -183,11 +182,15 @@ def test_venv_policy_does_not_advertise_duckdb():
 
     compact = format_venv_import_policy_for_prompt(compact=True)
     full = format_venv_import_policy_for_prompt(compact=False)
+    from plugin.framework.prompts import CALC_FORMULA_SYNTAX_TEMPLATE
+    from plugin.scripting.import_policy import python_venv_auto_imports_note
+
+    calc_syntax = CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", compact)
     surfaces = (
         compact,
         full,
-        prompts.CALC_FORMULA_SYNTAX,
-        prompts.PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE,
+        calc_syntax,
+        python_venv_auto_imports_note(),
         CALC_WORKFLOW,
         python_specialized_sub_agent_hint("Calc"),
         python_specialized_sub_agent_hint("Writer"),
