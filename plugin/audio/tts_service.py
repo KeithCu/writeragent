@@ -1191,6 +1191,35 @@ def _play_ready_queue(
                 _ready_queue = None
 
 
+def _prefetch(
+    chunks: list[str],
+    synth: Callable[[int, str], _ReadyClip | None],
+    ready: _ReadyQueue,
+    cancel: SendCancellation,
+    *,
+    speak_rest_on_error: bool,
+) -> None:
+    """Fill the ready queue in order from a per-chunk synthesis closure."""
+    done = 0
+    try:
+        for index, chunk in enumerate(chunks):
+            if cancel.is_cancelled():
+                return
+            clip = synth(index, chunk)
+            if clip is None:
+                return
+            if not ready.put(clip, cancel):
+                _release_temp(clip.path)
+                return
+            done = index + 1
+    except Exception:
+        log.exception("Prefetch thread failed")
+        if speak_rest_on_error:
+            rest = chunks[done:]
+            if rest and not cancel.is_cancelled():
+                ready.put(_ReadyClip(None, " ".join(rest), 0), cancel)
+
+
 def _run_ready_playback(
     produce: Callable[[_ReadyQueue], None],
     cancel: SendCancellation,
@@ -1225,41 +1254,28 @@ def _run_sentence_pipeline(
     cancel: SendCancellation,
 ) -> None:
     """Play sentences in order while synthesis keeps running ahead."""
+    if provider == "kokoro" and not resolve_kokoro_python():
+        log.warning(
+            "Local Kokoro TTS requires a configured Python venv. "
+            "Please configure your venv path in Settings -> Python."
+        )
+
+    def _synth(index: int, sentence: str) -> _ReadyClip | None:
+        if provider == "kokoro" and _prepare_kokoro_misaki(
+            sentence, voice, on_status, cancel,
+        ) is None:
+            return None
+        return _synthesize_sentence_clip(
+            sentence,
+            provider,
+            voice,
+            speed,
+            on_status if index == 0 else None,
+            cancel,
+        )
+
     def _produce(ready: _ReadyQueue) -> None:
-        done = 0
-        try:
-            # Warn once per reply when venv is missing; _kokoro_audio_file does not log.
-            if provider == "kokoro" and not resolve_kokoro_python():
-                log.warning(
-                    "Local Kokoro TTS requires a configured Python venv. "
-                    "Please configure your venv path in Settings -> Python."
-                )
-            for index, sentence in enumerate(sentences):
-                if cancel.is_cancelled():
-                    return
-                if provider == "kokoro" and _prepare_kokoro_misaki(
-                    sentence, voice, on_status, cancel,
-                ) is None:
-                    return
-                clip = _synthesize_sentence_clip(
-                    sentence,
-                    provider,
-                    voice,
-                    speed,
-                    on_status if index == 0 else None,
-                    cancel,
-                )
-                if clip is None:
-                    return
-                if not ready.put(clip, cancel):
-                    _release_temp(clip.path)
-                    return
-                done = index + 1
-        except Exception:
-            log.exception("Prefetch thread failed")
-            rest = sentences[done:]
-            if rest and not cancel.is_cancelled():
-                ready.put(_ReadyClip(None, " ".join(rest), 0), cancel)
+        _prefetch(sentences, _synth, ready, cancel, speak_rest_on_error=True)
 
     _run_ready_playback(_produce, cancel, speed, thread_name="tts-prefetch")
 
@@ -1281,8 +1297,13 @@ def _speak_endpoint(
     if not chunks:
         return
 
-    if len(chunks) == 1:
-        chunk = chunks[0]
+    bailed = False
+
+    def _synth(index: int, chunk: str) -> _ReadyClip | None:
+        nonlocal bailed
+        if bailed or cancel.is_cancelled():
+            return None
+
         clip = download_endpoint_speech(
             chunk,
             endpoint_url,
@@ -1294,79 +1315,32 @@ def _speak_endpoint(
             cancel=cancel,
         )
         if cancel.is_cancelled():
-            return
-        played = False
-        if clip:
-            tmp_path = _new_speech_temp(clip.suffix, cancel)
-            if tmp_path is None:
-                if not cancel.is_cancelled():
-                    notify_tts_status(_("Could not save speech audio."), on_status)
-            else:
-                try:
-                    with open(tmp_path, "wb") as f_out:
-                        f_out.write(clip.audio)
-                    played = _play_audio_file(tmp_path, cancel=cancel)
-                except OSError:
-                    log.exception("Could not write TTS audio to %s", tmp_path)
-                    if not cancel.is_cancelled():
-                        notify_tts_status(_("Could not save speech audio."), on_status)
-                finally:
-                    _release_temp(tmp_path)
-        if cancel.is_cancelled():
-            return
-        if played is False:
+            return None
+
+        def _bail(notify: bool = False) -> _ReadyClip:
+            nonlocal bailed
+            bailed = True
             log.warning("Endpoint TTS failed; falling back to OS system speech.")
-            _speak_system(chunk, speed=speed, cancel=cancel)
-        return
+            if notify and not cancel.is_cancelled():
+                notify_tts_status(_("Could not save speech audio."), on_status)
+            return _ReadyClip(None, " ".join(chunks[index:]), 0)
 
-    # Two or more chunks: pipeline prefetching
-    def _produce(ready: _ReadyQueue) -> None:
+        if clip is None:
+            return _bail(notify=False)
+        tmp_path = _new_speech_temp(clip.suffix, cancel)
+        if tmp_path is None:
+            return _bail(notify=True)
         try:
-            for index, chunk in enumerate(chunks):
-                if cancel.is_cancelled():
-                    return
-                clip = download_endpoint_speech(
-                    chunk,
-                    endpoint_url,
-                    api_key,
-                    model,
-                    voice,
-                    speed=speed,
-                    on_status=on_status,
-                    cancel=cancel,
-                )
-                if cancel.is_cancelled():
-                    return
-                def _bail_remaining(index: int, *, notify: bool = False) -> None:
-                    if notify and not cancel.is_cancelled():
-                        notify_tts_status(_("Could not save speech audio."), on_status)
-                    remaining = chunks[index:]
-                    if not cancel.is_cancelled():
-                        ready.put(
-                            _ReadyClip(None, " ".join(remaining), 0),
-                            cancel,
-                        )
+            with open(tmp_path, "wb") as f_out:
+                f_out.write(clip.audio)
+        except OSError:
+            log.exception("Could not write TTS audio to %s", tmp_path)
+            _release_temp(tmp_path)
+            return _bail(notify=True)
+        return _ReadyClip(tmp_path, chunk, len(clip.audio))
 
-                if clip is None:
-                    _bail_remaining(index)
-                    return
-                tmp_path = _new_speech_temp(clip.suffix, cancel)
-                if tmp_path is None:
-                    _bail_remaining(index, notify=True)
-                    return
-                try:
-                    with open(tmp_path, "wb") as f_out:
-                        f_out.write(clip.audio)
-                except OSError:
-                    log.exception("Could not write TTS audio to %s", tmp_path)
-                    _release_temp(tmp_path)
-                    _bail_remaining(index, notify=True)
-                    return
-                if not ready.put(_ReadyClip(tmp_path, chunk, len(clip.audio)), cancel):
-                    _release_temp(tmp_path)
-                    return
-        except Exception:
-            log.exception("TTS endpoint prefetch thread failed")
+    def _produce(ready: _ReadyQueue) -> None:
+        _prefetch(chunks, _synth, ready, cancel, speak_rest_on_error=False)
 
     _run_ready_playback(_produce, cancel, speed, thread_name="tts-endpoint-prefetch")
 
