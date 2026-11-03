@@ -36,7 +36,7 @@ import time
 import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -85,6 +85,9 @@ _WRAPPED_TOOLS_KEY = object()
 
 # Set when thread-pool fallback timeout expires so the worker process exits after writing the response.
 abandoned_timeout: bool = False
+_pending_timeout_future: Future[Any] | None = None
+_pending_timeout_grace_sec: float = 0.0
+_pending_timeout_executor: ThreadPoolExecutor | None = None
 
 
 class _Ops:
@@ -524,6 +527,44 @@ _PATH_METADATA_FUNCTION_NAMES = frozenset(
     {"exists", "isfile", "isdir", "islink", "lexists", "commonpath"}
 )
 
+
+def _is_path_metadata_callable(module_root: str, fn_name: str) -> bool:
+    if module_root not in _PATH_METADATA_MODULE_ROOTS:
+        return False
+    if fn_name in _PATH_METADATA_FUNCTION_NAMES:
+        return True
+    # Windows CPython exposes ntpath helpers as _path_exists, _path_isfile, ...
+    if fn_name.startswith("_path_"):
+        return fn_name[len("_path_") :] in _PATH_METADATA_FUNCTION_NAMES
+    return False
+
+
+def finalize_thread_pool_timeout() -> None:
+    """After a thread-pool timeout, wait briefly for the worker thread to finish.
+
+    Soft timeouts (e.g. ``time.sleep`` still running) must not set ``abandoned_timeout``
+    so the venv worker keeps shared sessions. Stuck C calls get ``abandoned_timeout``
+    after the grace wait so ``worker_harness`` can ``os._exit``.
+    """
+    global abandoned_timeout, _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
+    future = _pending_timeout_future
+    grace = _pending_timeout_grace_sec
+    pool = _pending_timeout_executor
+    _pending_timeout_future = None
+    _pending_timeout_grace_sec = 0.0
+    _pending_timeout_executor = None
+    if future is None:
+        return
+    try:
+        try:
+            future.result(timeout=grace)
+        except FuturesTimeoutError:
+            abandoned_timeout = True
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+
 SANDBOX_POLICY_CONTEXT: ContextVar[tuple[frozenset[str], frozenset[int]]] = ContextVar(
     "sandbox_policy_context", default=(frozenset(), frozenset())
 )
@@ -560,7 +601,7 @@ def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None
             except (ImportError, ModuleNotFoundError):
                 pass
             allowed_file_ids = file_os_ids or _get_default_file_os_ids()
-            if root in _PATH_METADATA_MODULE_ROOTS and fn_name in _PATH_METADATA_FUNCTION_NAMES:
+            if _is_path_metadata_callable(root, fn_name):
                 return
             if root in _DANGEROUS_CALLABLE_MODULES:
                 # os file functions are posix callables, hence the id set.
@@ -752,24 +793,24 @@ def timeout(timeout_seconds: Any):
                 # runs until it returns; host IPC kill remains the stop for a hung worker.
                 executor = ThreadPoolExecutor(max_workers=1)
                 future = executor.submit(func, *args, **kwargs)
+                timed_out = False
                 try:
                     return future.result(timeout=timeout_seconds)
                 except FuturesTimeoutError:
-                    global abandoned_timeout
-                    # Bugfix: on Windows the cell runs on a thread-pool worker. Marking
-                    # abandoned_timeout immediately made worker_harness os._exit after every
-                    # soft timeout and dropped shared venv sessions (CI 41712352052).
-                    # Drain the worker for up to timeout_seconds so a finishing time.sleep
-                    # can complete; only abandon when the C call still has not returned.
-                    try:
-                        future.result(timeout=timeout_seconds)
-                    except FuturesTimeoutError:
-                        abandoned_timeout = True
+                    timed_out = True
+                    global _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
+                    # Bugfix: synchronous drain here delayed every @timeout caller (CI 41727567211)
+                    # and nested timeouts. Raise immediately; finalize_thread_pool_timeout()
+                    # decides abandonment in venv/sandbox paths (CI 41712352052).
+                    _pending_timeout_future = future
+                    _pending_timeout_grace_sec = float(timeout_seconds)
+                    _pending_timeout_executor = executor
                     raise ExecutionTimeoutError(
                         f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
                     )
                 finally:
-                    executor.shutdown(wait=False, cancel_futures=True)
+                    if not timed_out:
+                        executor.shutdown(wait=False, cancel_futures=True)
 
             try:
                 return func(*args, **kwargs)
@@ -2644,7 +2685,11 @@ def evaluate_python_code(
     if timeout_seconds is not None:
         _execute_code = timeout(timeout_seconds)(_execute_code)
 
-    return _execute_code()
+    try:
+        return _execute_code()
+    except ExecutionTimeoutError:
+        finalize_thread_pool_timeout()
+        raise
 
 
 @dataclass

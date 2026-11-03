@@ -331,9 +331,13 @@ def main() -> None:
                 break
 
         lpe = sys.modules.get(_LPE_MODULE)
-        if lpe is not None and getattr(lpe, "abandoned_timeout", False):
-            setattr(lpe, "abandoned_timeout", False)
-            os._exit(1)
+        if lpe is not None:
+            finalize = getattr(lpe, "finalize_thread_pool_timeout", None)
+            if callable(finalize):
+                finalize()
+            if getattr(lpe, "abandoned_timeout", False):
+                setattr(lpe, "abandoned_timeout", False)
+                os._exit(1)
 
 
 if __name__ == "__main__":

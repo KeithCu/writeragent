@@ -43,6 +43,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     InterpreterError,
     LocalPythonExecutor,
     SANDBOX_POLICY_CONTEXT,
+    finalize_thread_pool_timeout,
     get_file_os_proxy,
     print_outputs_from_state,
 )
@@ -1078,9 +1079,17 @@ def _run_on_executor(
         # Wrapping host USER_STOPPED in RuntimeError lets the script keep
         # issuing wa.* calls after Stop.
         return _fail_cell(executor, prior_result, str(e) or "Stopped by user.", code="USER_STOPPED")
-    except (ExecutionTimeoutError, InterpreterError) as e:
+    except ExecutionTimeoutError as e:
         # ExecutionTimeoutError is BaseException; catch it before the broad
         # BaseException handler so timeout errors return without traceback.
+        finalize_thread_pool_timeout()
+        return _fail_cell(
+            executor,
+            prior_result,
+            str(e),
+            stdout=print_outputs_from_state(executor.state),
+        )
+    except InterpreterError as e:
         return _fail_cell(
             executor,
             prior_result,

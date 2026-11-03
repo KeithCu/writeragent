@@ -2031,6 +2031,7 @@ def test_harper_initialize_spawns_through_managed_subprocess() -> None:
             client.close()
 
 
+@pytest.mark.timeout(15)
 def test_harper_reinitialize_uses_a_new_managed_subprocess() -> None:
     from plugin.framework.managed_subprocess import ManagedSubprocess as RealManagedSubprocess
 
@@ -2065,19 +2066,26 @@ def test_harper_reinitialize_uses_a_new_managed_subprocess() -> None:
         return inst
 
     popen_calls: list[Any] = []
-    fake_proc = MagicMock()
-    fake_proc.poll.return_value = None
-    fake_proc.stdout = BytesIO(b"")
-    fake_proc.stdin = BytesIO()
+
+    def fake_read_loop(out_queue: queue.Queue[dict[str, Any] | None], stdout: Any) -> None:
+        del stdout
+        out_queue.put(None)
 
     def fake_popen(*args: Any, **kwargs: Any) -> MagicMock:
         popen_calls.append(args)
-        return fake_proc
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.stdout = BytesIO(b"")
+        proc.stdin = BytesIO()
+        proc.wait.side_effect = lambda timeout=None: 0
+        proc.terminate.return_value = None
+        return proc
 
     try:
         with (
             patch("plugin.writer.locale.harper.ManagedSubprocess", side_effect=spy_managed),
             patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen),
+            patch.object(client, "_read_loop", fake_read_loop),
             patch.object(client, "_send_request", lambda *_a, **_k: {"id": 1, "result": {}}),
             patch.object(client, "_write", lambda _payload: None),
         ):
@@ -2089,6 +2097,8 @@ def test_harper_reinitialize_uses_a_new_managed_subprocess() -> None:
         assert managed_instances[0] is not managed_instances[1]
     finally:
         client.close()
+        if client.stdout_thread is not None and client.stdout_thread.is_alive():
+            client.stdout_thread.join(timeout=1.0)
 
 
 def test_harper_stdout_reader_stays_a_raw_thread() -> None:
