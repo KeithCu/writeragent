@@ -52,12 +52,12 @@ class PanelEventsController:
     @staticmethod
     def _mcp_subscribe_must_defer() -> bool:
         """True when get_tools() could need bootstrap and this is not the Python main thread."""
-        from plugin.framework.thread_guard import on_python_main_thread
+        from plugin.framework.queue_executor import MainThread
         from plugin.main import bootstrap_complete
 
         if bootstrap_complete():
             return False
-        return not on_python_main_thread()
+        return not MainThread.on_python_main_thread()
 
     @staticmethod
     def _post_to_main(fn: Any) -> None:

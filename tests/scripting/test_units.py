@@ -498,7 +498,7 @@ def test_format_units_for_calc_joins_formatted_list_without_values():
 
 
 def test_writer_insert_joins_vector_formatted():
-    with patch("plugin.writer.format.insert_content_at_position") as mock_insert:
+    with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
         insert_units_result_into_writer(
             object(),
             object(),

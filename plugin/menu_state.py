@@ -34,15 +34,32 @@ _IMAGE_MANAGER_MODULES = (
 )
 
 
+def command_from_dispatch_url(url: Any) -> str:
+    """Extract command from a WriterAgent dispatch URL.
+
+    Debug sidebar record URL: ``org.extension.writeragent:chatbot.debug_sidebar?RECORD_CLICKED``.
+    LO may put the debug op in ``Query``, or in ``Path`` as ``chatbot.debug_sidebar?OP``.
+    """
+    from plugin.framework.url_utils import dispatch_command_from_url
+
+    command = dispatch_command_from_url(url)
+    query = getattr(url, "Query", None) or ""
+    if query and "?" not in command:
+        return "%s.%s" % (command, query)
+    return command
+
+
 class MenuStatusPublisher:
     """Manages LibreOffice menu and toolbar status listeners for WriterAgent commands."""
 
     listeners: list[tuple[Any, Any]]
     _lock: threading.Lock
+    _icons: MenuIcons
 
-    def __init__(self) -> None:
+    def __init__(self, icons: MenuIcons) -> None:
         self.listeners = []
         self._lock = threading.Lock()
+        self._icons = icons
 
     def add(self, control: Any, url: Any) -> None:
         """Register a status listener, deduplicating existing entries for the same control and URL."""
@@ -86,9 +103,9 @@ class MenuStatusPublisher:
 
     def _lookup_menu_text(self, url: Any, where: str) -> tuple[str, str | None] | None:
         try:
-            from plugin.main import _command_from_dispatch_url, get_menu_text
+            from plugin.main import get_menu_text
 
-            command = _command_from_dispatch_url(url)
+            command = command_from_dispatch_url(url)
             return command, get_menu_text(command)
         except Exception:
             log.exception("%s: menu text failed for %s", where, getattr(url, "Complete", ""))
@@ -164,11 +181,9 @@ class MenuStatusPublisher:
                     # UNO boundary: notify_menu_update post to main thread
                     log.exception("notify_menu_update: failed to post listener prune")
         if main.policy is Policy.production:
-            # Update icons in a background thread (avoids blocking UI)
             from plugin.framework.worker_pool import run_in_background
-            from plugin.main import menu_icons
 
-            run_in_background(menu_icons.post_apply)
+            run_in_background(self._icons.post_apply)
 
 
 class MenuIcons:
@@ -243,7 +258,7 @@ class MenuIcons:
             # (no VCL, wrong package). get_ctx() is the context bootstrap stored.
             ctx = get_ctx()
             if ctx is None:
-                log.warning("_update_menu_icons_impl: get_ctx() returned None")
+                log.warning("MenuIcons.apply: get_ctx() returned None")
                 return
 
             icon_cmds = self._collect_icon_commands()
@@ -300,7 +315,7 @@ class MenuIcons:
 
             smgr = get_service_manager(ctx)
             if smgr is None:
-                log.warning("_update_menu_icons_impl: get_service_manager returned None")
+                log.warning("MenuIcons.apply: get_service_manager returned None")
                 return
 
             supplier = cast("Any", smgr).createInstanceWithContext("com.sun.star.ui.ModuleUIConfigurationManagerSupplier", ctx)
@@ -326,7 +341,7 @@ class MenuIcons:
                                     # UNO boundary: XImageManager image insertion/replacement
                                     apply_failed = True
                                     log.warning(
-                                        "_update_menu_icons: failed to insert/replace image for %s type=%s: %s",
+                                        "MenuIcons.apply: failed to insert/replace image for %s type=%s: %s",
                                         cmd,
                                         itype,
                                         e,
@@ -334,13 +349,13 @@ class MenuIcons:
                 except Exception as e:
                     # UNO boundary: ModuleUIConfigurationManagerSupplier / getImageManager
                     apply_failed = True
-                    log.warning("_update_menu_icons: failed to process ImageManager for %s: %s", mod_id, e)
+                    log.warning("MenuIcons.apply: failed to process ImageManager for %s: %s", mod_id, e)
 
             if not apply_failed:
                 self._icon_apply_stamp = self._icon_apply_signature(icon_cmds, icon_px)
         except Exception:
             # UNO boundary: outer ImageManager update
-            log.exception("_update_menu_icons: outer exception")
+            log.exception("MenuIcons.apply: outer exception")
 
     @background
     def post_apply(self) -> None:

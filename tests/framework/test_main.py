@@ -102,7 +102,7 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     """Re-entrant bootstrap() call on the same thread returns without deadlocking."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
     fake_ctx = MagicMock()
-    monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: fake_ctx)
 
     called_reentrant = False
 
@@ -116,7 +116,7 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     monkeypatch.setattr("plugin.framework.config.init_config", mock_init_config)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
@@ -131,11 +131,11 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
 def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
     """When load_modules raises, _bootstrap_state resets to UNINITIALIZED so bootstrap can be retried."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._modules = []
@@ -166,12 +166,12 @@ def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
 def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
     """When start_background raises after modules are loaded, _bootstrap_state stays INITIALIZED."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     core_handlers_mock = MagicMock()
     monkeypatch.setattr("plugin.main.register_core_handlers", core_handlers_mock)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._modules = []
@@ -194,11 +194,11 @@ def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
 
 def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
     """When one module's start_background raises, later modules still start their background work."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_python_main_thread", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.framework.queue_executor.MainThread.on_python_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
     core_handlers_mock = MagicMock()
     monkeypatch.setattr("plugin.main.register_core_handlers", core_handlers_mock)
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
@@ -232,11 +232,11 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
     """When WRITERAGENT_EVAL_HARNESS=1, bootstrap skips _install_terminate_listener."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
     fake_ctx = MagicMock()
-    monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: fake_ctx)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
     orig_env = os.environ.get("WRITERAGENT_EVAL_HARNESS")
@@ -359,12 +359,12 @@ def test_get_tools_and_get_services_raise_bootstrap_failed_when_registry_none(mo
 def test_menu_update_subscriber_runs_in_background(monkeypatch):
     """menu:update subscriber must use run_in_background, not main.call."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
 
     bus = EventBus()
     monkeypatch.setattr("plugin.framework.event_bus.get_event_bus", lambda: bus)
@@ -433,12 +433,17 @@ def test_report_action_failure_survives_dialog_exceptions(monkeypatch):
     report_action_failure("test.action", ValueError("original problem"))
 
 
-def test_show_error_report_returns_when_ui_unregistered():
-    """_show_error_report logs and returns cleanly when error UI is not registered."""
-    from plugin.framework.main_shared import _show_error_report, set_action_error_ui
+def test_report_action_failure_survives_unregistered_ui(monkeypatch, caplog):
+    """report_action_failure logs warning with detail and does not raise when action error UI is unregistered."""
+    import plugin.framework.main_shared as main_shared
 
-    set_action_error_ui(None)
-    _show_error_report(None, "detail", "title", RuntimeError("boom"))
+    monkeypatch.setattr(main_shared, "_action_error_ui", None)
+    with caplog.at_level(logging.WARNING):
+        report_action_failure("test.action", ValueError("original problem"))
+    assert any(
+        "action error UI is not registered" in record.message and "original problem" in record.message
+        for record in caplog.records
+    )
 
 
 # --- Bug 5 tests: DispatchHandler.dispatch catches dialog failures ---
@@ -757,7 +762,7 @@ def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
 
     mock_ctx = MagicMock()
     mock_ctx.ServiceManager = mock_sm
-    monkeypatch.setattr(main, "get_ctx", lambda: mock_ctx)
+    monkeypatch.setattr("plugin.menu_state.get_ctx", lambda: mock_ctx)
 
     monkeypatch.setattr(main.menu_icons, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_1")})
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", lambda doc: 16)
@@ -790,7 +795,7 @@ def test_update_menu_icons_impl_uses_get_ctx_not_get_component_context(monkeypat
     import uno
 
     sentinel_ctx = MagicMock()
-    monkeypatch.setattr(main, "get_ctx", lambda: sentinel_ctx)
+    monkeypatch.setattr("plugin.menu_state.get_ctx", lambda: sentinel_ctx)
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", lambda doc: 16)
     monkeypatch.setattr("plugin.framework.appearance.get_style_window", lambda ctx=None: None)
     monkeypatch.setattr(main.menu_icons, "_collect_icon_commands", lambda: {})
@@ -940,32 +945,34 @@ def test_command_from_dispatch_url_and_dispatch(monkeypatch):
     monkeypatch.setattr(main, "init_logging", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda _fn: None)
 
+    from plugin.menu_state import command_from_dispatch_url
+
     handler = main.DispatchHandler(MagicMock())
     u1 = _Url(path="main.settings", query="")
-    assert main._command_from_dispatch_url(u1) == "main.settings"
+    assert command_from_dispatch_url(u1) == "main.settings"
     handler.dispatch(u1, ())
     assert dispatched == ["main.settings"]
 
     # Path="", Protocol="", Complete="org.extension.writeragent:main.settings" -> main.settings. queryDispatch returns the handler.
     u2 = _Url(complete="org.extension.writeragent:main.settings")
-    assert main._command_from_dispatch_url(u2) == "main.settings"
+    assert command_from_dispatch_url(u2) == "main.settings"
     assert handler.queryDispatch(u2, "", 0) is handler
 
     # Path="chatbot.debug_sidebar", Query="RECORD_CLICKED" -> chatbot.debug_sidebar.RECORD_CLICKED
     u3 = _Url(path="chatbot.debug_sidebar", query="RECORD_CLICKED")
-    assert main._command_from_dispatch_url(u3) == "chatbot.debug_sidebar.RECORD_CLICKED"
+    assert command_from_dispatch_url(u3) == "chatbot.debug_sidebar.RECORD_CLICKED"
 
     # Path="chatbot.debug_sidebar?OPEN_CALC", Query="" -> that path unchanged
     u4 = _Url(path="chatbot.debug_sidebar?OPEN_CALC", query="")
-    assert main._command_from_dispatch_url(u4) == "chatbot.debug_sidebar?OPEN_CALC"
+    assert command_from_dispatch_url(u4) == "chatbot.debug_sidebar?OPEN_CALC"
 
     # Path="", Complete="org.extension.writeragent:chatbot.debug_sidebar?OPEN_CALC", Query="OPEN_CALC" -> chatbot.debug_sidebar?OPEN_CALC (no second append)
     u5 = _Url(complete="org.extension.writeragent:chatbot.debug_sidebar?OPEN_CALC", query="OPEN_CALC")
-    assert main._command_from_dispatch_url(u5) == "chatbot.debug_sidebar?OPEN_CALC"
+    assert command_from_dispatch_url(u5) == "chatbot.debug_sidebar?OPEN_CALC"
 
     # Path="", Query="RECORD_CLICKED", Complete="" -> .RECORD_CLICKED
     u6 = _Url(query="RECORD_CLICKED")
-    assert main._command_from_dispatch_url(u6) == ".RECORD_CLICKED"
+    assert command_from_dispatch_url(u6) == ".RECORD_CLICKED"
 
     # queryDispatch with Protocol="org.extension.librepy:" returns the null dispatch
     u7 = _Url(protocol="org.extension.librepy:")
@@ -1050,11 +1057,11 @@ def test_bootstrap_state_enum(monkeypatch):
     assert BootstrapState.INITIALIZED.value == "initialized"
 
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED

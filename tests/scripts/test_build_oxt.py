@@ -364,3 +364,56 @@ def test_audio_voice_catalog_is_included():
     assert "plugin/audio/" in get_always_include_plugin(PROJECT_ROOT)
 
 
+def _writeragent_plugin_paths_from_includes(base_dir: str, includes: list[str]) -> set[str]:
+    paths: set[str] = set()
+    for inc in includes:
+        if inc.endswith("/"):
+            root = os.path.join(base_dir, inc)
+            if not os.path.isdir(root):
+                continue
+            for dirpath, _dirnames, filenames in os.walk(root):
+                for name in filenames:
+                    if name.endswith(".py"):
+                        rel = os.path.relpath(os.path.join(dirpath, name), base_dir)
+                        paths.add(rel.replace(os.sep, "/"))
+        elif os.path.isfile(os.path.join(base_dir, inc)):
+            paths.add(inc.replace(os.sep, "/"))
+    return paths
+
+
+def test_always_include_plugin_ships_top_level_py_modules():
+    from scripts.build_oxt import get_always_include_plugin
+
+    includes = set(get_always_include_plugin(PROJECT_ROOT))
+    for name in ("bootstrap.py", "menu_state.py", "menu_handlers.py", "bootstrap_ui_hooks.py"):
+        assert f"plugin/{name}" in includes
+    assert "plugin/main_core.py" not in includes
+    assert "plugin/testing_runner.py" not in includes
+
+
+def test_writeragent_main_module_level_imports_in_oxt_bundle():
+    import ast
+
+    from scripts.build_oxt import get_always_include_plugin
+    from scripts.plugin_import_graph import (
+        _module_level_import_nodes,
+        _resolved_import_from_module,
+    )
+
+    main_path = os.path.join(PROJECT_ROOT, "plugin", "main.py")
+    tree = ast.parse(open(main_path, encoding="utf-8").read(), filename=main_path)
+    shipped = _writeragent_plugin_paths_from_includes(
+        PROJECT_ROOT, get_always_include_plugin(PROJECT_ROOT)
+    )
+    missing: list[str] = []
+    for node in _module_level_import_nodes(tree):
+        if isinstance(node, ast.ImportFrom):
+            if node.level or not node.module or not node.module.startswith("plugin"):
+                continue
+            resolved = _resolved_import_from_module(main_path, node, PROJECT_ROOT)
+            if resolved:
+                rel = os.path.relpath(resolved, PROJECT_ROOT).replace(os.sep, "/")
+                if rel.startswith("plugin/") and rel not in shipped:
+                    missing.append(rel)
+    assert missing == [], f"main.py imports not covered by get_always_include_plugin: {missing}"
+

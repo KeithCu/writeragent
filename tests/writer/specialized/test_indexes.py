@@ -724,7 +724,6 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
 
     with patch("plugin.writer.html_export._export_xhtml", side_effect=AssertionError("xhtml export")) as export_xhtml, \
          patch("plugin.writer.html_export.document_to_content", side_effect=AssertionError("full export")) as export_doc, \
-         patch("plugin.writer.format.document_to_content", side_effect=AssertionError("format export")) as export_format, \
          patch("plugin.writer.get_document_content.GetDocumentContent.execute", side_effect=AssertionError("get_document_content")) as export_tool:
         listed = tool.execute(ctx)
 
@@ -733,7 +732,6 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
     assert listed["count"] == count + 2
     assert export_xhtml.call_count == 0
     assert export_doc.call_count == 0
-    assert export_format.call_count == 0
     assert export_tool.call_count == 0
     ctx.doc.storeToURL.assert_not_called()
     first = listed["entries"][0]

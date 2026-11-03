@@ -377,8 +377,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         enum = doc_text.createEnumeration()
         elements = []
         idx = 0
-        while enum.hasMoreElements():
-            el = enum.nextElement()
+        for el in iter_elements(enum):
             if para_index <= idx < para_index + total:
                 elements.append(el)
             if idx >= para_index + total - 1:

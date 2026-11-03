@@ -34,6 +34,7 @@ from typing import Any, ClassVar
 
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.framework.doc_type import agent_label_for_context
+from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, normalize_inner_result
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import main
 from plugin.framework.tool import ToolBase, ToolContext
@@ -238,19 +239,13 @@ def _domain_loop_hints(parent_ctx: ToolContext, domains: list[str], agent_label:
     and charts lines match ``DelegateToSpecializedBase.execute`` (static text).
     """
     parts: list[str] = []
-    if "footnotes" in domains:
-        # plugin/doc/specialized_base.py — domain == "footnotes"
-        parts.append(
-            " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence),"
-            " pass that exact string as insert_after so the note is placed after that text;"
-            " the task executor cannot move the view cursor."
-        )
+    if "footnotes" in domains and agent_label in DOMAIN_LOOP_HINTS["footnotes"]:
+        parts.append(" " + DOMAIN_LOOP_HINTS["footnotes"][agent_label])
     if "charts" in domains:
-        # plugin/doc/specialized_base.py — domain == "charts"
         if agent_label == "Calc":
-            parts.append(" When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10').")
+            parts.append(" " + DOMAIN_LOOP_HINTS["charts"]["Calc"])
         elif agent_label in ("Writer", "Draw"):
-            parts.append(" When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters.")
+            parts.append(" " + DOMAIN_LOOP_HINTS["charts"]["Writer"])
     if "shapes" in domains:
         from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
 
@@ -275,36 +270,6 @@ class _InnerToolErrorCapture(SmolToolAdapter):
         if isinstance(result, dict) and result.get("status") == "error":
             self._errors.append(result)
         return result
-
-
-# Bugfix: the inner loop returned status ok for inner tool errors and for
-# max-step prose, because _compact_result never inspected either. Record
-# inner error payloads and treat a run that did not call the finish tool as
-# incomplete (same contract as DelegateToSpecializedBase).
-def _normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: list[dict[str, Any]]) -> dict[str, Any]:
-    if isinstance(final_ans, dict) and final_ans.get("status") == "error":
-        return final_ans
-    payload: dict[str, Any]
-    if isinstance(final_ans, dict) and "status" in final_ans:
-        payload = dict(final_ans)
-    else:
-        payload = {"status": "ok", "result": "" if final_ans is None else str(final_ans)}
-    payload["domains"] = list(domains)
-    if tool_errors:
-        # Discussion #2268: the finish answer stays in answer only, not copied into message and error.
-        messages = [str(err.get("message") or err.get("error") or err) for err in tool_errors]
-        text = "; ".join(messages) or "Specialized tool error."
-        payload.update(status="error", code="SPECIALIZED_TOOL_ERROR", message=text, error=text)
-        return payload
-    if payload.get("finished") is True:
-        return payload
-    # Discussion #2262: a plain-text return sits in result; move it to message instead of copying it.
-    if isinstance(final_ans, dict):
-        text = str(final_ans.get("message") or final_ans.get("answer") or final_ans.get("result") or final_ans)
-    else:
-        text = payload.pop("result")
-    payload.update(status="incomplete", code="SPECIALIZED_WORKFLOW_INCOMPLETE", message=text)
-    return payload
 
 
 def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], task: str) -> dict[str, Any]:
@@ -379,7 +344,7 @@ def run_inner_domain_tool_agent(parent_ctx: ToolContext, domains: list[str], tas
         error_prefix="Domain tool agent failed",
         tool_call_handler=tool_call_handler,
     )
-    return _normalize_inner_result(final_ans, domains, inner_tool_errors)
+    return normalize_inner_result(final_ans, domains, inner_tool_errors)
 
 
 class DelegateToolDomains(ToolBase):
@@ -446,7 +411,7 @@ class DelegateToolDomains(ToolBase):
         if message:
             return self._tool_error(message, code=code or "UNKNOWN_SPECIALIZED_DOMAIN")
 
-        stop_checker = getattr(ctx, "stop_checker", None)
+        stop_checker = ctx.stop_checker
         if stop_checker is not None and stop_checker():
             return user_stopped_payload("Domain tool agent stopped by user.")
 

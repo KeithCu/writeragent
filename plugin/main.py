@@ -71,13 +71,9 @@ from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.uno_context import (
     get_active_document,
     get_ctx,
-    set_fallback_ctx as set_fallback_ctx,
-    set_package_extension_id as set_package_extension_id,
 )
-from plugin.framework.url_utils import dispatch_command_from_url
 
 EXTENSION_ID = EXTENSION_ID_WRITERAGENT
-_DISPATCH_PROTOCOL = EXTENSION_ID + ":"
 
 # ---------------------------------------------------------------------------
 # Bootstrapping (Dynamic discovery from loaded manifest)
@@ -88,7 +84,6 @@ log = logging.getLogger(__name__)
 
 from plugin.bootstrap import (
     BootstrapState,
-    _install_terminate_listener as _install_terminate_listener,
     bootstrap_extension,
     MainBootstrapJob as BaseMainBootstrapJob,
 )
@@ -109,6 +104,138 @@ _modules: list[ModuleBase] = []
 _bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
 _bootstrap_error: BaseException | None = None
 _terminate_listener: Any | None = None
+
+
+def _install_terminate_listener(ctx: Any) -> None:
+    """Register a desktop XTerminateListener to clean up child processes on app exit."""
+    global _terminate_listener
+    # The first successful addTerminateListener is process-lifetime and is not
+    # removed or replaced; a failed install leaves the global None so the next
+    # bootstrap retries.
+    if _terminate_listener is not None:
+        return
+    try:
+        from plugin.framework.uno_context import get_desktop
+
+        desktop = get_desktop(ctx)
+        if desktop is None:
+            return
+
+        from plugin.framework.uno_listeners import BaseTerminateListener
+
+        class _TerminateListener(BaseTerminateListener):
+            def notifyTermination(self, Event: Any) -> None:
+                try:
+                    from plugin.audio.kokoro_pool import shutdown_kokoro_pool
+
+                    shutdown_kokoro_pool()
+                except Exception:
+                    # UNO boundary: XTerminateListener.notifyTermination callback
+                    log.exception("Error shutting down Kokoro pool on desktop termination")
+
+                try:
+                    from plugin.framework.managed_subprocess import shutdown_all
+
+                    shutdown_all()
+                except Exception:
+                    # UNO boundary: XTerminateListener.notifyTermination callback
+                    log.exception("Error shutting down managed subprocesses on desktop termination")
+
+        listener = _TerminateListener()
+        desktop.addTerminateListener(listener)
+        _terminate_listener = listener
+    except Exception:
+        # UNO boundary: desktop.addTerminateListener registration
+        log.exception("Failed to install terminate listener")
+
+
+def _register_writeragent_prompt_hooks() -> None:
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
+
+
+def _writeragent_bootstrap_finish(ctx: Any) -> None:
+    global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
+
+    from plugin.framework.queue_executor import Policy, main
+
+    from plugin.framework.service import ServiceRegistry
+
+    _services = ServiceRegistry()
+    _services.register("uno", ctx)
+
+    # Skip terminate listener when running under the eval harness.
+    # The eval client already has a remote Desktop; this listener would shut down client subprocesses on office teardown.
+    if main.policy is not Policy.eval_harness:
+        _install_terminate_listener(ctx)
+
+    from plugin.doc.document_helpers import DocumentService
+    from plugin.framework.event_bus import get_event_bus
+
+    _services.register("document", DocumentService())
+    _services.register("events", get_event_bus())
+
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writeragent_hooks import register_writeragent_tool_filters
+
+    _tools = ToolRegistry(_services)
+    register_writeragent_tool_filters(_tools)
+    _services.register("tools", _tools)
+    _services.register("main_thread", main)
+
+    _bootstrap_state = BootstrapState.INITIALIZED
+
+    from plugin.framework.module_base import ModuleLoader
+
+    module_phase_failed = False
+    try:
+        _modules.extend(ModuleLoader.load_modules(_services))
+    except Exception as exc:
+        module_phase_failed = True
+        log.exception("bootstrap failed while loading modules")
+        _bootstrap_error = exc
+        if not _modules:
+            _bootstrap_state = BootstrapState.UNINITIALIZED
+            return
+
+    for mod in _modules:
+        try:
+            mod.start_background(_services)
+        except Exception as exc:
+            module_phase_failed = True
+            log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
+            if _bootstrap_error is None:
+                _bootstrap_error = exc
+
+    try:
+        # Subscribe to menu:update for dynamic menu text + icons.
+        # execute runs this @background function on the main thread;
+        # dispatch already queues it with run_in_background.
+        from plugin.framework.worker_pool import run_in_background
+
+        _services.get("events").subscribe(
+            "menu:update", lambda **kw: run_in_background(menu_status.publish)
+        )
+
+        if main.policy is Policy.production:
+            # Pre-load icons into ImageManager so first menu display has them.
+            # Eval harness is headless with no VCL pump — posting icons to "main"
+            # trips the UNO thread guard and can segfault soffice (issue #402 family).
+            run_in_background(menu_icons.post_apply)
+
+        # Headless eval connects via UNO pipe; menu/context-menu install
+        # calls get_desktop() in this process and can segfault soffice.
+        if main.policy is not Policy.eval_harness:
+            register_core_handlers()
+    except Exception as exc:
+        log.exception("bootstrap failed after the init flag was set")
+        if _bootstrap_error is None:
+            _bootstrap_error = exc
+        return
+
+    if not module_phase_failed:
+        _bootstrap_error = None
 
 
 def bootstrap_complete() -> bool:
@@ -330,18 +457,18 @@ def bootstrap(ctx: Any | None = None) -> None:
     bootstrap_extension(
         ctx,
         extension_id=EXTENSION_ID,
-        load_modules=True,
-        register=register_core_handlers,
+        register_prompt_hooks=_register_writeragent_prompt_hooks,
+        finish=_writeragent_bootstrap_finish,
         owner=sys.modules[__name__],
     )
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
 
-from plugin.menu_state import MenuIcons, MenuStatusPublisher
+from plugin.menu_state import MenuIcons, MenuStatusPublisher, command_from_dispatch_url
 
-menu_status = MenuStatusPublisher()
 menu_icons = MenuIcons()
+menu_status = MenuStatusPublisher(menu_icons)
 
 
 def _module_for_command(command: str) -> tuple[ModuleBase | None, str]:
@@ -410,6 +537,8 @@ def get_menu_text(command: str) -> str | None:
 
     text = mod.get_menu_text(action) if mod is not None else None
     if text is None:
+        # Titles are translated at lookup (locale is not ready at import). None keeps
+        # the en-US Addons.xcu string; a raw English literal overwrites the catalog.
         from plugin._manifest import MENU_TITLES, MODULES
 
         if "." in command:
@@ -427,25 +556,6 @@ def get_menu_text(command: str) -> str | None:
     return None
 
 
-def _command_from_dispatch_url(url: Any) -> str:
-    """Extract command from a WriterAgent dispatch URL.
-
-    Debug sidebar record URL: ``org.extension.writeragent:chatbot.debug_sidebar?RECORD_CLICKED``.
-    LO may put the debug op in ``Query``, or in ``Path`` as ``chatbot.debug_sidebar?OP``.
-    """
-    # What was wrong: dispatch command extraction read url.Path directly, ignoring Complete-only URLs and double-appending queries.
-    # How it happened: Path and Query handling was duplicated across dispatch and status listeners without Complete-only fallback.
-    # Why this change: delegate base extraction to dispatch_command_from_url and append Query only when ? is not already in command.
-    command = dispatch_command_from_url(url)
-    query = getattr(url, "Query", None) or ""
-    if query and "?" not in command:
-        return "%s.%s" % (command, query)
-    return command
-
-
-notify_menu_update = menu_status.publish
-
-
 def get_menu_icon(command: str) -> str | None:
     """Get dynamic icon prefix for a command, or None."""
     bootstrap()
@@ -453,11 +563,6 @@ def get_menu_icon(command: str) -> str | None:
     if mod is None:
         return None
     return mod.get_menu_icon(action)
-
-
-_update_menu_icons = menu_icons.post_apply
-_update_menu_icons_impl = menu_icons.apply
-_icon_apply_signature = MenuIcons._icon_apply_signature
 
 
 _LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {
@@ -537,7 +642,7 @@ class DispatchHandler(ExtensionProtocolHandler):
     # ── XDispatch ────────────────────────────────────────────────
 
     def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
-        command = _command_from_dispatch_url(URL)
+        command = command_from_dispatch_url(URL)
         try:
             init_logging(self.ctx)
             log.info(f"Dispatch entered: {command}")

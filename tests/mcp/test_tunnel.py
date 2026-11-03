@@ -1405,10 +1405,10 @@ def test_sync_mcp_config_snippet_reacts_to_checkbox_and_custom_url():
         sync_mcp_config_snippet,
         McpTunnelEnabledListener,
         McpPortTextListener,
-        _standalone_tunnel,
+        _tested_provider_tunnel_urls,
     )
 
-    _standalone_tunnel.tested_provider_tunnel_urls.clear()
+    _tested_provider_tunnel_urls.clear()
 
     mock_dlg = MagicMock()
     mock_snippet = MagicMock()

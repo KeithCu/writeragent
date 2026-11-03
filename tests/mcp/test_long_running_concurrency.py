@@ -122,9 +122,7 @@ class _FakeServices:
     def __init__(self, tools):
         self.tools = tools
         self.document = _FakeDocSvc()
-
-    def get(self, key):
-        return _FakeMainThread() if key == "main_thread" else None
+        self.main_thread = _FakeMainThread()
 
 
 def _run_concurrent(method, doc_urls, *, kwargs_list=None):

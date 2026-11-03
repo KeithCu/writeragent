@@ -67,12 +67,19 @@ def _register_librepy_handlers() -> None:
     register_common_handlers()
 
 
+def _librepy_bootstrap_finish(ctx: Any) -> None:
+    global _bootstrap_state, _bootstrap_error
+
+    _register_librepy_handlers()
+    _bootstrap_state = BootstrapState.INITIALIZED
+    _bootstrap_error = None
+
+
 def bootstrap(ctx: Any | None = None) -> None:
     bootstrap_extension(
         ctx,
         extension_id=EXTENSION_ID,
-        load_modules=False,
-        register=_register_librepy_handlers,
+        finish=_librepy_bootstrap_finish,
         owner=sys.modules[__name__],
     )
 

@@ -85,7 +85,7 @@ def get_action_handler(command: str) -> Callable[..., Any] | None:
 def _show_error_report(ctx: Any, detail: str, report_title: str, exc: BaseException) -> None:
     ui = _action_error_ui
     if ui is None:
-        log.exception("action error UI is not registered (%s)", report_title)
+        log.warning("action error UI is not registered (%s): %s", report_title, detail)
         return
     try:
         ui(ctx, detail, report_title, exc)

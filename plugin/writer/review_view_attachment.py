@@ -12,10 +12,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from plugin.doc.document_helpers import UNKNOWN_DOC_KEY, _compute_doc_key
+from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import uno_same
 from plugin.framework.uno_listeners import BaseModifyListener, _controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
+
+TOOLBAR_RESOURCE_URL = "private:resource/toolbar/addon_org.extension.writeragent.toolbar"
 
 _lock = threading.RLock()
 _doc_listener: Any = None
@@ -29,6 +32,30 @@ def attachment_key(model: Any) -> str:
     if key != UNKNOWN_DOC_KEY:
         return key
     return "id:%d" % id(model)
+
+
+def is_writer(model: Any) -> bool:
+    try:
+        return bool(model is not None and model.supportsService("com.sun.star.text.TextDocument"))
+    except Exception as exc:
+        if is_disposal(exc):
+            raise
+        return False
+
+
+def layout_manager(model: Any) -> Any | None:
+    try:
+        controller = model.getCurrentController()
+        if controller is None:
+            return None
+        frame = controller.getFrame()
+        if frame is None:
+            return None
+        lm = getattr(frame, "LayoutManager", None)
+        return lm
+    except Exception:
+        log.debug("review_view_attachment: layout manager lookup failed", exc_info=True)
+        return None
 
 
 @dataclass
@@ -56,10 +83,8 @@ class ReviewModifyListener(BaseModifyListener):
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
-            from plugin.writer.review_toolbar import TOOLBAR_RESOURCE_URL, _layout_manager
-
             model = aEvent.Source
-            lm = _layout_manager(model)
+            lm = layout_manager(model)
             if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
                 schedule_toolbar_refresh(model, self._key)
         except Exception:
@@ -93,9 +118,9 @@ def _run_deferred_refresh(model: Any, key: str) -> None:
             return
         _pending_refresh.discard(key)
     try:
-        from plugin.writer.review_toolbar import TOOLBAR_RESOURCE_URL, _layout_manager, refresh_review_toolbar
+        from plugin.writer.review_toolbar import refresh_review_toolbar
 
-        lm = _layout_manager(model)
+        lm = layout_manager(model)
         if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
             refresh_review_toolbar(model)
     except Exception:
@@ -184,11 +209,11 @@ def register_controller(controller: Any) -> None:
     cleanup_disposed_controllers()
     try:
         from plugin.framework.uno_context import uno_same
-        from plugin.writer.change_context_menu import _is_writer, _make_interceptor
+        from plugin.writer.change_context_menu import _make_interceptor
         from plugin.writer.review_click_popup import _make_handler
 
         model = controller.getModel()
-        if not _is_writer(model):
+        if not is_writer(model):
             return
         if not hasattr(controller, "registerContextMenuInterceptor"):
             return
@@ -269,6 +294,23 @@ def registered_controllers() -> list[tuple[Any, Any]]:
         return out
 
 
+def registered_click_handlers() -> list[tuple[Any, Any]]:
+    """(controller, click_handler) pairs for tests."""
+    with _lock:
+        return [(c, h) for att in _attachments.values() for c, _i, h in att.controllers]
+
+
+def detach_click_handler(handler: Any) -> Any | None:
+    """Remove *handler* from whichever attachment holds it; return its controller or None."""
+    with _lock:
+        for attachment in _attachments.values():
+            for idx, (c, _i, h) in enumerate(attachment.controllers):
+                if h is handler:
+                    attachment.controllers.pop(idx)
+                    return c
+    return None
+
+
 def modify_listener_map() -> dict[str, Any]:
     """doc attachment key -> modify listener (tests)."""
     with _lock:
@@ -302,9 +344,7 @@ def _on_view_event(controller: Any) -> None:
 
 
 def _on_document_unload(model: Any) -> None:
-    from plugin.writer.change_context_menu import _is_writer
-
-    if not _is_writer(model):
+    if not is_writer(model):
         return
     unregister_controllers_for_model(model)
     release_document(model)
@@ -312,7 +352,6 @@ def _on_document_unload(model: Any) -> None:
 
 def _sweep_open_frames(ctx: Any) -> None:
     from plugin.framework.uno_context import get_desktop
-    from plugin.writer.change_context_menu import _is_writer
 
     desktop = get_desktop(ctx)
     if desktop is None:
@@ -324,7 +363,7 @@ def _sweep_open_frames(ctx: Any) -> None:
                 frame = frames.getByIndex(i)
                 controller = frame.getController() if frame is not None else None
                 model = controller.getModel() if controller is not None else None
-                if _is_writer(model):
+                if is_writer(model):
                     register_controller(controller)
             except Exception:
                 log.debug("review_view_attachment: frame %s skipped", i, exc_info=True)
@@ -333,7 +372,7 @@ def _sweep_open_frames(ctx: Any) -> None:
         if current is not None:
             controller = current.getController()
             model = controller.getModel() if controller is not None else None
-            if _is_writer(model):
+            if is_writer(model):
                 register_controller(controller)
     except Exception:
         log.debug("review_view_attachment: current frame skipped", exc_info=True)
@@ -369,71 +408,3 @@ def reset_all() -> None:
         _doc_listener = None
     with _pending_lock:
         _pending_refresh.clear()
-
-
-def seed_controller_hooks(
-    controller: Any,
-    interceptor: Any,
-    click_handler: Any | None = None,
-) -> None:
-    """Insert a controller triple without UNO registration (unit tests)."""
-    from unittest.mock import MagicMock
-
-    handler = click_handler if click_handler is not None else MagicMock()
-    model = getattr(interceptor, "_model", None)
-    key = attachment_key(model) if model is not None else "test:%d" % id(controller)
-    with _lock:
-        attachment = _attachments.get(key)
-        if attachment is None:
-            attachment = ReviewViewAttachment(key=key, model=model)
-            _attachments[key] = attachment
-        attachment.controllers.append((controller, interceptor, handler))
-
-
-def seed_modify_listener(key: str, listener: Any, model: Any | None = None) -> None:
-    with _lock:
-        attachment = _attachments.get(key)
-        if attachment is None:
-            attachment = ReviewViewAttachment(key=key, model=model or object())
-            _attachments[key] = attachment
-        attachment.modify_listener = listener
-
-
-class _ControllerPairsList:
-    """Mutable view of ``(controller, interceptor)`` pairs for legacy tests."""
-
-    def clear(self) -> None:
-        with _lock:
-            for attachment in _attachments.values():
-                attachment.controllers.clear()
-
-    def __len__(self) -> int:
-        return len(registered_controllers())
-
-    def __getitem__(self, index: int) -> tuple[Any, Any]:
-        return registered_controllers()[index]
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, list):
-            return NotImplemented
-        return registered_controllers() == other
-
-
-class _ClickAttachedList:
-    """``(controller, click_handler)`` pairs for click-popup tests."""
-
-    def clear(self) -> None:
-        _ControllerPairsList().clear()
-
-    def __len__(self) -> int:
-        with _lock:
-            return sum(len(att.controllers) for att in _attachments.values())
-
-    def __getitem__(self, index: int) -> tuple[Any, Any]:
-        with _lock:
-            flat = [(c, h) for att in _attachments.values() for c, _i, h in att.controllers]
-        return flat[index]
-
-
-controller_pairs = _ControllerPairsList()
-click_attached = _ClickAttachedList()

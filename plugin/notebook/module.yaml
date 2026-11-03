@@ -1,6 +1,8 @@
 name: notebook
+title: Notebook
 requires: []
 settings_tab: false
+# Title-only manifest entries; no ModuleBase in this package.
 
 actions:
   run_all:

@@ -18,59 +18,18 @@ log = logging.getLogger("writeragent.grammar")
 from plugin.writer.locale import grammar_settings
 from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_registry
 from .grammar_proofread_locale import (
-    GRAMMAR_CACHE_NORMALIZATION_RE,
     MAX_CACHE_SIZE,
     MAX_RECENT_INCOMPLETE_SCAN,
     fingerprint_for_text,
     looks_complete_sentence,
+    normalize_for_sentence_cache,
+    sentence_identity_fp,
 )
 
 
 def _sanitize_checker_identity(identity: str) -> str:
     """Pipe is the L1 key delimiter; model ids must not split the key."""
     return identity.replace("|", "/")
-
-
-def ignore_rules_clear() -> None:
-    with grammar_registry.lock:
-        grammar_registry.ignored_rules.clear()
-
-
-def ignore_rule_add(rule_id: str) -> None:
-    with grammar_registry.lock:
-        grammar_registry.ignored_rules.add(str(rule_id))
-
-
-def ignored_rules_snapshot() -> set[str]:
-    with grammar_registry.lock:
-        return set(grammar_registry.ignored_rules)
-
-
-def _normalize_for_sentence_cache(text: str) -> str:
-    """Canonical form for cache key that preserves first sentence terminator.
-
-    - rstrip() whitespace (preserves existing "Hello." vs "Hello. " behavior).
-    - Keep everything up to and including the *first* sentence terminator.
-    - Ignore any additional trailing punctuation after the first terminator.
-    - This makes "Hello." and "Hello..." share a cache entry, and
-      "Hello?" and "Hello?..." share one, but "Hello?" and "Hello." remain distinct.
-
-    The regex below matches all sentence terminators in ``grammar_proofread_locale.GRAMMAR_SENTENCE_TERMINATORS``
-    (the full Unicode STerm set). Both ``looks_complete_sentence`` and cache key normalization
-    are fully aligned and use the exact same character set.
-    """
-    s = text.rstrip()
-    if not s:
-        return s
-    match = GRAMMAR_CACHE_NORMALIZATION_RE.search(s)
-    if match:
-        return match.group(1)
-    return s
-
-
-def sentence_identity_fp(sentence: str) -> str:
-    """Stable fingerprint for cache lookup: normalize then hash (same key space as L1 cache keys)."""
-    return fingerprint_for_text(_normalize_for_sentence_cache(sentence))
 
 
 def sentence_cache_key_prefix(locale_key: str, checker_identity: str | None = None) -> str:
@@ -163,7 +122,7 @@ def _populate_memory_cache_only(
     ``SentenceCacheEntry(fp, canon, is_complete, clipped_errors)``. The OrderedDict key is not
     part of that value.
     """
-    canon = _normalize_for_sentence_cache(sentence)
+    canon = normalize_for_sentence_cache(sentence)
     fp = fingerprint_for_text(canon)
     key = _sentence_l1_key(locale_key, checker_identity, fp)
     clipped = _clip_errors_to_canonical_length(errors, len(canon))

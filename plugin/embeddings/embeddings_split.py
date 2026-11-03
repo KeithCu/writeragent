@@ -22,14 +22,11 @@ _DEAL_PASSAGE_LEN = DEAL_MAX_SOURCE
 
 
 # ascii_bounded(locale) admits control chars (e.g. \x01) that ICU SentenceBreaker rejects.
-def _deal_sentence_locale_ok_pytest(locale: object) -> bool:
+def _deal_sentence_locale_ok(locale: object) -> bool:
     return locale == DEFAULT_SENTENCE_LOCALE or ascii_bounded(locale, DEAL_MAX_TOKEN)
 
 
-_deal_sentence_locale_ok = _deal_sentence_locale_ok_pytest
-
-
-def _deal_chunk_base_meta_ok_pytest(base_meta: object) -> bool:
+def _deal_chunk_base_meta_ok(base_meta: object) -> bool:
     """Any plain dict. Paths and titles are not DEAL_MAX_SOURCE-capped.
 
     A long ``doc_url`` or an extra metadata key raised PreContractError
@@ -39,14 +36,8 @@ def _deal_chunk_base_meta_ok_pytest(base_meta: object) -> bool:
     return type(base_meta) is dict and all(type(k) is str for k in base_meta)
 
 
-_deal_chunk_base_meta_ok = _deal_chunk_base_meta_ok_pytest
-
-
-def _deal_run_locale_ok_pytest(locale: object) -> bool:
+def _deal_run_locale_ok(locale: object) -> bool:
     return locale is None or ascii_bounded(locale, DEAL_MAX_TOKEN)
-
-
-_deal_run_locale_ok = _deal_run_locale_ok_pytest
 
 
 def _deal_locale_run_ok(run: object) -> bool:
@@ -55,36 +46,24 @@ def _deal_locale_run_ok(run: object) -> bool:
 
 # NUL/controls are isascii() but ICU SentenceBreaker TypeErrors on them
 # (split_passage_to_sentences('\x00', locale=DEFAULT)).
-def _deal_passage_text_ok_pytest(text: object) -> bool:
+def _deal_passage_text_ok(text: object) -> bool:
     # Documents are longer than DEAL_MAX_SOURCE. The cap raised
     # PreContractError before the sentence splitter ran.
     return isinstance(text, str)
 
 
-_deal_passage_text_ok = _deal_passage_text_ok_pytest
-
-
-def _deal_passage_str_ok_pytest(passage: object) -> bool:
+def _deal_passage_str_ok(passage: object) -> bool:
     return isinstance(passage, str)
 
 
-_deal_passage_str_ok = _deal_passage_str_ok_pytest
-
-
-def _deal_ws_passage_ok_pytest(passage: object) -> bool:
+def _deal_ws_passage_ok(passage: object) -> bool:
     # Unicode prose is valid. ascii_bounded raised PreContractError on the
     # whitespace splitter.
     return isinstance(passage, str)
 
 
-_deal_ws_passage_ok = _deal_ws_passage_ok_pytest
-
-
-def _deal_span_list_ok_pytest(spans: object) -> bool:
+def _deal_span_list_ok(spans: object) -> bool:
     return isinstance(spans, list)
-
-
-_deal_span_list_ok = _deal_span_list_ok_pytest
 
 
 def _embeddings_pip_install_hint() -> str:
@@ -164,22 +143,16 @@ def _meta_chunks_from_spans(
     return chunks
 
 
-def _deal_sentences_spans_pre_pytest(sentences: object) -> bool:
+def _deal_sentences_spans_pre(sentences: object) -> bool:
     # Nested from the merge pre. A long or non-ASCII sentence list must
     # make ``_sentences_spans_ok`` return False, not raise PreContractError.
     return True
 
 
-_deal_sentences_spans_pre = _deal_sentences_spans_pre_pytest
-
-
-def _sentences_spans_shape_ok_pytest(sentences: object) -> bool:
+def _sentences_spans_shape_ok(sentences: object) -> bool:
     # A real passage has more than DEAL_MAX_SHAPE_DIM sentences. The cap
     # raised PreContractError inside the merge. Order checks stay.
     return isinstance(sentences, list)
-
-
-_sentences_spans_shape_ok = _sentences_spans_shape_ok_pytest
 
 
 @deal.pre(lambda sentences: _deal_sentences_spans_pre(sentences))

@@ -125,7 +125,7 @@ class GetDocumentContent(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from . import format as format_support
+        from .html_export import document_to_content
         t0 = time.perf_counter()
         scope = kwargs.get("scope") or "full"
         max_chars = kwargs.get("max_chars")
@@ -150,7 +150,7 @@ class GetDocumentContent(ToolBase):
 
         include_images = bool(kwargs.get("include_images", False))
         walk_warnings: list[str] = []
-        content = format_support.document_to_content(
+        content = document_to_content(
             ctx.doc,
             ctx.ctx,
             max_chars=max_chars,

@@ -141,11 +141,11 @@ def test_relabel_button_preserves_rect():
 
 
 def test_mcp_subscribe_must_defer():
-    with patch("plugin.framework.thread_guard.on_python_main_thread", return_value=True):
+    with patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=True):
         with patch("plugin.main.bootstrap_complete", return_value=True):
             assert PanelEventsController._mcp_subscribe_must_defer() is False
 
-    with patch("plugin.framework.thread_guard.on_python_main_thread", return_value=False):
+    with patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=False):
         with patch("plugin.main.bootstrap_complete", return_value=False):
             assert PanelEventsController._mcp_subscribe_must_defer() is True
 

@@ -249,6 +249,7 @@ class FunnelReset:
         return self._reset_fn(port)
 
     def arm_path(self) -> str | None:
+        """Path to the funnel arm marker file beside writeragent.json (bootstrap resolves config first)."""
         from plugin.framework.config import get_config_file_path
 
         path = get_config_file_path()
@@ -301,10 +302,6 @@ class FunnelReset:
             log.error("Tailscale reset in-flight count already zero")
         else:
             self._resets_in_flight -= 1
-
-    @property
-    def resets_in_flight(self) -> int:
-        return self._resets_in_flight
 
 
 class Provider:
@@ -394,10 +391,6 @@ class TailscaleProvider(Provider):
 
     def __init__(self) -> None:
         self.reset = FunnelReset(self.reset_funnel, self.ARM_FILENAME)
-
-    @property
-    def resets_in_flight(self) -> int:
-        return self.reset.resets_in_flight if self.reset else 0
 
     def build_command(self, port: int, provider_token: str = "") -> list[str]:
         return build_tailscale_command(port, provider_token)
@@ -498,7 +491,6 @@ class TunnelManager:
         self._session = object()
         self._pending_start = None
         self._providers = {cls.name: cls() for cls in PROVIDER_CLASSES}
-        self.tested_provider_tunnel_urls: dict[str, str] = {}
 
     @property
     def public_url(self) -> Optional[str]:

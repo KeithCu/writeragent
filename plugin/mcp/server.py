@@ -103,7 +103,7 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
 def read_json_body(handler: Any, reply: Callable[..., Any] = write_http_json) -> Any:
     """Parse a JSON object body, or return None after calling reply(handler, status, error_payload) when refused.
 
-    The caller writes the error response. A Transfer-Encoding containing
+    On refusal, calls ``reply(handler, status, payload)`` and returns None. A Transfer-Encoding containing
     chunked is HTTP 400 and is not read, including when Content-Length is
     missing, zero, or set. Negative Content-Length stays 400. A length above
     :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read. A socket timeout
@@ -424,10 +424,8 @@ class HttpServer:
                 # wait for them to exit after their sockets are closed. POST handler threads
                 # are daemon threads and are not joined (joining POST threads on the main thread
                 # while they await the main-thread queue causes deadlocks/freezes).
-                sse = getattr(self._server, "sse_registry", None)
-                if sse is not None:
-                    with sse.lock:
-                        threads_to_join = list(sse.threads)
+                with self._server.sse_registry.lock:
+                    threads_to_join = list(self._server.sse_registry.threads)
                 self._server.shutdown()
                 self._server.server_close()
                 log.info("HTTP server stopped")
@@ -435,9 +433,7 @@ class HttpServer:
             # shutdown() does not join request threads. SSE keepalives are
             # still blocked in select until their sockets are closed.
             if self._server:
-                sse = getattr(self._server, "sse_registry", None)
-                if sse is not None:
-                    sse.stop_all()
+                self._server.sse_registry.stop_all()
 
             # Join in-flight SSE keepalive threads within a single 2s deadline.
             deadline = time.monotonic() + 2.0
@@ -476,9 +472,7 @@ class HttpServer:
                 try:
                     server.server_close()
                 finally:
-                    sse = getattr(server, "sse_registry", None)
-                    if sse is not None:
-                        sse.stop_all()
+                    server.sse_registry.stop_all()
 
     def is_running(self) -> bool:
         return self._running
