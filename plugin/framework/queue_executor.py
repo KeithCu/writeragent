@@ -183,10 +183,11 @@ class MainThread:
 
     def is_current(self) -> bool:
         """True on the VCL thread, designated thread, or an untagged LibreOffice upcall holding SolarMutex."""
-        if self.designated is not None:
-            return threading.current_thread() is self.designated
         if MainThread.on_python_main_thread():
             return True
+        # A designated pump owns UNO alone; LO Dummy upcalls are not it (eval harness, test pump).
+        if MainThread.designated is not None:
+            return False
         from plugin.framework.thread_guard import UNTAGGED_DUMMY_IS_CURRENT, get_background_task_name
 
         if not UNTAGGED_DUMMY_IS_CURRENT:

@@ -1018,8 +1018,3 @@ def test_helper_does_not_tag_python_main_thread() -> None:
         install_from_environ()
         main.install(Policy.production, designated=None)
         tg.set_background_task(None)
-
-
-
-
-

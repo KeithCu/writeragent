@@ -1753,7 +1753,7 @@ def _run_in_dummy_thread(fn: Callable[[], None], timeout: float = 5.0) -> None:
 
 def test_on_python_main_thread_is_designated_or_python_main() -> None:
     from plugin.framework.queue_executor import MainThread, Policy, main
-    from plugin.framework.thread_guard import set_background_task
+    from plugin.framework.thread_guard import UNTAGGED_DUMMY_IS_CURRENT, set_background_task
 
     orig_policy = MainThread._policy
     orig_designated = MainThread.designated
@@ -1815,7 +1815,7 @@ def test_on_python_main_thread_is_designated_or_python_main() -> None:
         def dummy_target() -> None:
             try:
                 assert MainThread.on_python_main_thread() is False
-                assert main.is_current() is True
+                assert main.is_current() is UNTAGGED_DUMMY_IS_CURRENT
                 set_background_task("pe2i")
                 assert main.is_current() is False
             finally:
@@ -1825,7 +1825,3 @@ def test_on_python_main_thread_is_designated_or_python_main() -> None:
     finally:
         main.install(orig_policy, designated=orig_designated, poke=orig_poke)
         set_background_task(None)
-
-
-
-
