@@ -74,8 +74,6 @@ _SPEECH_HTML_TAG_RE = re.compile(
 # as italic and deleted the multiplication signs.
 _SPEECH_EMPH_RE = re.compile(r"(?<![\w*])\*{1,3}(\S(?:.*?\S)?)\*{1,3}(?![\w*])")
 _CHUNK_BREAK_RE = re.compile(r"[.!?。！？](?:\s+|$)")
-# Kokoro's CLI takes the utterance as the last argv. Past this, skip it and
-# use the stdin one-shot path so a long reply cannot hit the OS argument limit.
 
 # Playback and synthesis overlap during sentence prefetch. Stop kills every
 # child tracked here. Each object is the Popen from ManagedSubprocess(raw_spawn=True).
@@ -1034,7 +1032,6 @@ def _kokoro_audio_file(
         )
         if wav_path or not allow_fallback:
             return wav_path
-    if os.path.isfile(model_path) and os.path.isfile(voices_path):
         return _kokoro_oneshot_to_file(
             py_exe, text, voice, speed, model_path, voices_path, cancel,
             on_status=on_status,

@@ -41,9 +41,14 @@ def _stub_draw() -> Any:
 
 def ensure_eval_prompt_hooks() -> None:
     """Idempotent WriterAgent prompt catalog/blocks registration for eval harness entry points."""
-    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+    from plugin.main import get_tools
+    from plugin.writeragent_hooks import (
+        register_writeragent_prompt_hooks,
+        register_writeragent_tool_filters,
+    )
 
     register_writeragent_prompt_hooks()
+    register_writeragent_tool_filters(get_tools())
 
 
 def _prompt_for_kind(kind: str, note: str | None = None) -> str:
@@ -86,7 +91,10 @@ def get_draw_eval_chat_system_prompt() -> str:
 
 
 def get_eval_system_prompt(task_id: str = "") -> str:
-    from dataset import task_kind
+    try:
+        from dataset import task_kind
+    except ImportError:
+        from scripts.prompt_optimization.dataset import task_kind
 
     if task_id == "python_shapes_flag":
         return _prompt_for_kind("writer", FLAG_HARNESS_NOTE)

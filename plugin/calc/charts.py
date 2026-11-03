@@ -166,9 +166,7 @@ def _is_chart_host(host: Any, *, is_embed: bool = False) -> bool:
     return False
 
 
-def _is_chart_shape(shape: Any, shape_type: str | None | Exception) -> bool:
-    if isinstance(shape_type, Exception):
-        raise shape_type
+def _is_chart_shape(shape: Any, shape_type: str | None) -> bool:
     return shape_type == _OLE2_SHAPE and _is_chart_host(shape, is_embed=False)
 
 
@@ -795,7 +793,7 @@ def _find_calc_chart_and_sheet(doc: Any, chart_name: str, sheet_name: str | None
     return None, None
 
 
-def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> Iterator[tuple[Any, Any, str | None | Exception]]:
+def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> Iterator[tuple[Any, Any, str | None]]:
     """Yield (shape, parent, shape_type) for shapes in a draw page or group shape, descending into nested groups."""
     # Tip: a disposed shape on a live page is skipped so later shapes still list; on a closed
     # document re-raise, or list_charts would return status ok with a partial list.
@@ -827,11 +825,12 @@ def _iter_page_shapes(container: Any, doc: Any = None, parent: Any = None) -> It
                 if doc is not None and document_is_disposed(doc):
                     raise
                 continue
-            shape_type = exc
+            log.debug("_iter_page_shapes getShapeType failed: %s", exc)
+            shape_type = None
 
         yield shape, current_parent, shape_type
 
-        if shape_type and not isinstance(shape_type, Exception) and "GroupShape" in str(shape_type):
+        if shape_type and "GroupShape" in str(shape_type):
             yield from _iter_page_shapes(shape, doc, parent=shape)
 
 
@@ -856,12 +855,10 @@ def _collect_page_shape_names(page: Any, doc: Any, existing: set[str], skip: Any
 def _named_ole_chart_ref(
     shape: Any,
     parent: Any,
-    shape_type: Any,
+    shape_type: str | None,
     name: str,
     page_index: int | None = None,
 ) -> ChartRef | None:
-    if isinstance(shape_type, Exception):
-        return None
     try:
         if shape_type != _OLE2_SHAPE:
             return None

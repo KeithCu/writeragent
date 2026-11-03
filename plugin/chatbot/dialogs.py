@@ -676,26 +676,18 @@ def set_combo_items(ctrl: Any, items: Sequence[str], selected: str = "") -> None
     if not ctrl:
         return
     labels = tuple(items)
-    model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-    if model is not None and hasattr(model, "StringItemList"):
-        try:
-            model.StringItemList = labels
-        except Exception:  # noqa: S110 - StringItemList attribute assignment failed
-            pass
-    if hasattr(ctrl, "setStringItemList"):
-        try:
-            ctrl.setStringItemList(labels)
-        except Exception:  # noqa: S110 - setStringItemList call failed
-            pass
-    if hasattr(ctrl, "getItemCount") and hasattr(ctrl, "removeItems"):
-        count = ctrl.getItemCount()
+    # ComboBox and ListBox controls support removeItems/addItems.
+    # Controls that only expose model.StringItemList (e.g. settings dialog controls) use the fallback branch.
+    if hasattr(ctrl, "removeItems") and hasattr(ctrl, "addItems"):
+        count = ctrl.getItemCount() if hasattr(ctrl, "getItemCount") else 0
         if count:
             ctrl.removeItems(0, count)
-    if hasattr(ctrl, "addItems") and labels:
-        ctrl.addItems(labels, 0)
-    elif hasattr(ctrl, "addItem") and labels:
-        for label in reversed(labels):
-            ctrl.addItem(label, 0)
+        if labels:
+            ctrl.addItems(labels, 0)
+    else:
+        model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
+        if model is not None and hasattr(model, "StringItemList"):
+            model.StringItemList = labels
 
     if selected:
         set_control_text(ctrl, selected)

@@ -387,30 +387,26 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     try:
         ensure_schema(conn, with_fts=False, with_vec=False)
         indexed_urls = get_all_indexed_urls_in_db(conn)
+
+        coll = None
+        if coll_path in _COLL_CACHE or Path(coll_path).exists():
+            try:
+                coll = _open_for_search(coll_path)
+            except Exception as e:
+                log.warning("zvec open failed for stale purge: %s", e)
+
+        for url in indexed_urls:
+            if url in current_urls:
+                continue
+            if coll is not None:
+                try:
+                    coll.delete_by_filter(f'doc_url == "{url}"')
+                except Exception as e:
+                    log.warning("zvec delete failed for stale %s: %s", url, e)
+                    continue
+            remove_file_from_index_in_db(conn, url)
     finally:
         conn.close()
-
-    coll = None
-    if coll_path in _COLL_CACHE or Path(coll_path).exists():
-        try:
-            coll = _open_for_search(coll_path)
-        except Exception as e:
-            log.warning("zvec open failed for stale purge: %s", e)
-
-    for url in indexed_urls:
-        if url in current_urls:
-            continue
-        if coll is not None:
-            try:
-                coll.delete_by_filter(f'doc_url == "{url}"')
-            except Exception as e:
-                log.warning("zvec delete failed for stale %s: %s", url, e)
-                continue
-        conn_purge = connect_corpus_db(db_path)
-        try:
-            remove_file_from_index_in_db(conn_purge, url)
-        finally:
-            conn_purge.close()
 
     for idx, entry in enumerate(files):
         _hb.emit({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode}, immediate=True)
