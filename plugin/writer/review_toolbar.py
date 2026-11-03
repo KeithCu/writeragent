@@ -10,8 +10,6 @@ main thread).
 
 from __future__ import annotations
 
-# pyright: reportUnusedFunction=false
-
 import logging
 from typing import Any
 
@@ -20,8 +18,6 @@ from plugin.framework.uno_context import get_runtime_uid
 from plugin.writer import review_view_attachment as rva
 
 log = logging.getLogger("writeragent.review_toolbar")
-
-TOOLBAR_RESOURCE_URL = "private:resource/toolbar/addon_org.extension.writeragent.toolbar"
 
 _DOCK_NEW_ROW_Y = 30000
 
@@ -34,7 +30,7 @@ def _dock_top(lm: Any) -> bool:
         pos = Point()
         pos.X = 0
         pos.Y = _DOCK_NEW_ROW_Y
-        lm.dockWindow(TOOLBAR_RESOURCE_URL, area, pos)
+        lm.dockWindow(rva.TOOLBAR_RESOURCE_URL, area, pos)
         return True
     except Exception:
         log.debug("review_toolbar: dock-to-top failed", exc_info=True)
@@ -54,7 +50,7 @@ def refresh_review_toolbar(model: Any) -> None:
         if not reliable:
             return
         if count > 0:
-            lm.showElement(TOOLBAR_RESOURCE_URL)
+            lm.showElement(rva.TOOLBAR_RESOURCE_URL)
             uid = get_runtime_uid(model) or None
             key = rva.attachment_key(model)
             attachment = rva._attachments.get(key)
@@ -63,7 +59,7 @@ def refresh_review_toolbar(model: Any) -> None:
                 if _dock_top(lm):
                     rva.mark_toolbar_docked(model)
         else:
-            lm.hideElement(TOOLBAR_RESOURCE_URL)
+            lm.hideElement(rva.TOOLBAR_RESOURCE_URL)
     except Exception:
         log.debug("review_toolbar: refresh failed", exc_info=True)
 

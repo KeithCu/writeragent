@@ -12,10 +12,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from plugin.doc.document_helpers import UNKNOWN_DOC_KEY, _compute_doc_key
+from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import uno_same
 from plugin.framework.uno_listeners import BaseModifyListener, _controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
+
+TOOLBAR_RESOURCE_URL = "private:resource/toolbar/addon_org.extension.writeragent.toolbar"
 
 _lock = threading.RLock()
 _doc_listener: Any = None
@@ -35,8 +38,6 @@ def is_writer(model: Any) -> bool:
     try:
         return bool(model is not None and model.supportsService("com.sun.star.text.TextDocument"))
     except Exception as exc:
-        from plugin.framework.errors import is_disposal
-
         if is_disposal(exc):
             raise
         return False
@@ -82,8 +83,6 @@ class ReviewModifyListener(BaseModifyListener):
 
     def modified(self, aEvent: Any) -> None:  # noqa: N802, N803 -- UNO signature
         try:
-            from plugin.writer.review_toolbar import TOOLBAR_RESOURCE_URL
-
             model = aEvent.Source
             lm = layout_manager(model)
             if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
@@ -119,7 +118,7 @@ def _run_deferred_refresh(model: Any, key: str) -> None:
             return
         _pending_refresh.discard(key)
     try:
-        from plugin.writer.review_toolbar import TOOLBAR_RESOURCE_URL, refresh_review_toolbar
+        from plugin.writer.review_toolbar import refresh_review_toolbar
 
         lm = layout_manager(model)
         if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):

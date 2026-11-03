@@ -280,14 +280,14 @@ def test_refresh_review_toolbar_show_hide_unreliable():
         # 1 pending change -> show
         with patch("plugin.writer.review_scan.agent_change_presence", return_value=(1, True)):
             rt.refresh_review_toolbar(model)
-            lm.showElement.assert_called_once_with(rt.TOOLBAR_RESOURCE_URL)
+            lm.showElement.assert_called_once_with(rva.TOOLBAR_RESOURCE_URL)
             lm.hideElement.assert_not_called()
 
         lm.reset_mock()
         # 0 pending changes -> hide
         with patch("plugin.writer.review_scan.agent_change_presence", return_value=(0, True)):
             rt.refresh_review_toolbar(model)
-            lm.hideElement.assert_called_once_with(rt.TOOLBAR_RESOURCE_URL)
+            lm.hideElement.assert_called_once_with(rva.TOOLBAR_RESOURCE_URL)
             lm.showElement.assert_not_called()
 
         lm.reset_mock()
