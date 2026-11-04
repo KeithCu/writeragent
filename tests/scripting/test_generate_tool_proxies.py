@@ -650,3 +650,38 @@ def test_scripting_only_extra_in_signature_doc_and_rpc():
     assert "number_format (optional): Scripting-only parameter." in code
     assert 'return call_host_tool("set_style", range_name=range_name, number_format=number_format)' in code
 
+
+def test_proxy_qualifies_list_annotation_when_list_method_present():
+    chart_upsert = MockTool(
+        "chart_upsert",
+        "Upsert chart.",
+        {
+            "type": "object",
+            "properties": {
+                "headers": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        specialized_domain="charts",
+    )
+    chart_list = MockTool(
+        "chart_list",
+        "List charts.",
+        {"type": "object", "properties": {}},
+        specialized_domain="charts",
+    )
+    no_list = MockTool(
+        "bookmark_add",
+        "Add bookmark.",
+        {
+            "type": "object",
+            "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
+            "required": ["tags"],
+        },
+        specialized_domain="bookmarks",
+    )
+    code = generate_module([_as_tool(chart_upsert), _as_tool(chart_list), _as_tool(no_list)])
+    compile(code, "<generated>", "exec")
+    assert "headers: builtins.list[str]" in code
+    assert "def add(self, tags: list[str]" in code
+    assert "tags: builtins.list[str]" not in code
+

@@ -585,7 +585,7 @@ class ToolRegistry:
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
         self.schema_filters: list[Callable[[list[dict[str, Any]], SchemaFilterContext], list[dict[str, Any]]]] = []
         self.tool_filters: list[Callable[[list[Any], Any], list[Any]]] = []
-        # Shared names (shape_upsert / manage_charts) last-wins the instance but
+        # Shared names (shape_upsert / chart_upsert) last-wins the instance but
         # must keep the union of required_core_tools. ClassVar cannot be set on
         # the instance, so store the merge here.
         self._required_core_union: dict[str, frozenset[str]] = {}
