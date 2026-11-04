@@ -10,7 +10,7 @@ import logging
 import re
 from typing import Any, cast
 
-from plugin.framework.errors import is_disposal
+from plugin.framework.errors import ToolExecutionError, is_disposal
 from plugin.writer.table_helpers import (
     _set_cell_string,
     edit_table_band,
@@ -236,15 +236,15 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     columns = cast("int", kwargs.get("columns"))
     # Schema required + type integer already reject null and non-integers. minimum is not checked.
     if rows < 1 or columns < 1:
-        return {"status": "error", "message": "rows and columns must be at least 1.", "code": "TOOL_EXECUTION_ERROR"}
+        raise ToolExecutionError("rows and columns must be at least 1.")
 
     data = kwargs.get("data")
     if data:
         if len(data) > rows:
-            return {"status": "error", "message": "data has %d rows but table only has %d." % (len(data), rows), "code": "TOOL_EXECUTION_ERROR"}
+            raise ToolExecutionError("data has %d rows but table only has %d." % (len(data), rows))
         for r_idx, row in enumerate(data):
             if isinstance(row, (list, tuple)) and len(row) > columns:
-                return {"status": "error", "message": "data row %d has %d columns but table only has %d." % (r_idx, len(row), columns), "code": "TOOL_EXECUTION_ERROR"}
+                raise ToolExecutionError("data row %d has %d columns but table only has %d." % (r_idx, len(row), columns))
 
     page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=getattr(ctx, "active_page_index", None))
 
@@ -298,7 +298,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
                 if is_disposal(remove_exc):
                     raise
                 log.debug("Failed to remove half-built table shape: %s", remove_exc)
-        return {"status": "error", "message": f"Failed to {stage}: {exc}", "code": "TOOL_EXECUTION_ERROR"}
+        raise ToolExecutionError(f"Failed to {stage}: {exc}") from exc
 
     return {
         "status": "ok",

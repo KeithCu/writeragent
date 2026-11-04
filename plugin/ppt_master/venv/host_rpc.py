@@ -9,7 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
+from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import is_cancelled
 
 log = logging.getLogger(__name__)
 
@@ -22,7 +25,7 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
 
     messages = payload.get("messages")
     if not isinstance(messages, list):
-        return {"status": "error", "message": "llm_request requires messages list."}
+        return format_error_payload(ToolExecutionError("llm_request requires messages list."))
 
     tools = payload.get("tools")
     model = payload.get("model")
@@ -30,10 +33,6 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     stop_checker = payload.get("_stop_checker")
     if not callable(stop_checker):
         stop_checker = None
-
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.framework.send_cancellation import is_cancelled
-    from plugin.framework.queue_executor import main
 
     # Build the client on the send cancellation scope so sidebar Stop closes
     # this call too. The scope registers the live client and must not be
@@ -66,7 +65,7 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
             is_stopped = True
 
         if is_stopped:
-            return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
+            return format_error_payload(ToolExecutionError("Stopped by user.", code="USER_STOPPED"))
 
         return {
             "status": "ok",
@@ -83,12 +82,14 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         # Preserve USER_STOPPED. A generic error string lets the child keep
         # the turn going after Stop.
         if getattr(exc, "code", None) == "USER_STOPPED":
-            return {"status": "error", "code": "USER_STOPPED", "message": exc.message}
+            return format_error_payload(exc)
         log.exception("ppt-master llm_request failed")
-        return {"status": "error", "message": str(exc)}
+        text = str(exc).strip() or type(exc).__name__
+        return format_error_payload(ToolExecutionError(text))
     except Exception as exc:
         log.exception("ppt-master llm_request failed")
-        return {"status": "error", "message": str(exc)}
+        text = str(exc).strip() or type(exc).__name__
+        return format_error_payload(ToolExecutionError(text))
 
 
 def dispatch_worker_response(

@@ -803,6 +803,33 @@ def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
         uno_read(boom(KeyboardInterrupt()), None)
 
 
+def test_uno_write_false_on_runtime_and_reraises_original_disposal(caplog):
+    import logging
+
+    from plugin.framework.errors import DocumentDisposedError, uno_write
+
+    class DisposedException(Exception):
+        pass
+
+    assert uno_write(lambda: None) is True
+    with caplog.at_level(logging.DEBUG, logger="writeragent.errors"):
+        assert uno_write(lambda: (_ for _ in ()).throw(RuntimeError("bridge"))) is False
+    assert not caplog.records
+
+    disposed_exc = DisposedException("dead")
+    with pytest.raises(DisposedException) as exc_info:
+        uno_write(lambda: (_ for _ in ()).throw(disposed_exc))
+    assert exc_info.value is disposed_exc
+
+    doc_disposed = DocumentDisposedError("closed")
+    with pytest.raises(DocumentDisposedError) as exc_info:
+        uno_write(lambda: (_ for _ in ()).throw(doc_disposed))
+    assert exc_info.value is doc_disposed
+
+    with pytest.raises(KeyboardInterrupt):
+        uno_write(lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
+
+
 def test_format_error_message_urlerror_ssl_is_tls():
     import ssl
     import urllib.error

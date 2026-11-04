@@ -18,12 +18,41 @@ from typing import Any
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
 from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
-from plugin.framework.errors import best_effort, is_disposal
+from plugin.draw.shape_clone import clone_shape
+from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, is_disposal
 from plugin.framework.uno_context import get_desktop
-from plugin.ppt_master.adapter.uno_shape_postprocess import copy_shapes_to_page
 from plugin.framework.queue_executor import main
 
 log = logging.getLogger(__name__)
+
+
+def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno_ctx: Any | None = None) -> int:
+    """Copy all shapes from *source_page* to *target_page*; return count copied."""
+    copied = 0
+    for i in range(source_page.getCount()):
+        src = source_page.getByIndex(i)
+        try:
+            result = clone_shape(target_doc, target_page, src, uno_ctx=uno_ctx)
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            log.warning("clone_shape failed: %s", exc)
+            continue
+        if result.empty_group_message is not None:
+            try:
+                target_page.remove(result.shape)
+            except Exception as exc:
+                if is_disposal(exc):
+                    raise
+                # Non-disposal remove failure leaves an unplaced clone on the page;
+                # log so it is recorded why removal failed.
+                log.debug("remove empty-group clone failed", exc_info=True)
+            log.warning("clone_shape empty group: %s", result.empty_group_message)
+            continue
+        if result.graphic_shapes > result.graphic_reimports:
+            log.warning("PPTX picture reimport failed; left Graphic unset rather than alias the hidden source pool")
+        copied += 1
+    return copied
 
 
 def _hidden_load_props() -> tuple[Any, ...]:
@@ -118,14 +147,14 @@ def _import_slides_from_source(
     source_pages = source_doc.getDrawPages()
     source_count = int(source_pages.getCount())
     if source_count < 1:
-        return {"status": "error", "message": "PPTX contains no slides."}
+        return format_error_payload(ToolExecutionError("PPTX contains no slides."))
 
     indices = slide_indices if slide_indices is not None else list(range(source_count))
     # Reject a bad index before any slide is replaced. Doing it inside the
     # loop used to commit earlier slides and then fail.
     for src_index in indices:
         if src_index < 0 or src_index >= source_count:
-            return {"status": "error", "message": f"PPTX slide index out of range: {src_index}"}
+            return format_error_payload(ToolExecutionError(f"PPTX slide index out of range: {src_index}"))
 
     bridge = DrawBridge(target_doc)
     pages = bridge.get_pages()
@@ -149,7 +178,9 @@ def _import_slides_from_source(
             else:
                 trim_count = previous_count
                 main.call(lambda: _trim_appended_shapes(target_page, trim_count))
-            return {"status": "error", "message": f"No shapes copied from PPTX slide {src_index + 1}"}
+            return format_error_payload(
+                ToolExecutionError(f"No shapes copied from PPTX slide {src_index + 1}")
+            )
         if replace:
             drop_count = previous_count
             main.call(lambda: _drop_front_shapes(target_page, drop_count))
@@ -173,7 +204,7 @@ def import_pptx_to_doc(
     pptx_path = Path(pptx_path).expanduser().resolve()
     source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
     if source_doc is None:
-        return {"status": "error", "message": f"PPTX import failed: {pptx_path.name}"}
+        return format_error_payload(ToolExecutionError(f"PPTX import failed: {pptx_path.name}"))
     try:
         if save_mirror_odp is not None:
             save_mirror_odp = Path(save_mirror_odp).expanduser().resolve()

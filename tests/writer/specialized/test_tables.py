@@ -1385,6 +1385,7 @@ def test_table_insert_draw_non_numeric_rows_columns():
     """Bug 2: TableInsert schema rejects non-integer rows/columns, and Draw table dims < 1 are rejected."""
     from unittest.mock import MagicMock
     from plugin.draw.tables import insert_draw_table
+    from plugin.framework.errors import ToolExecutionError
 
     doc = MagicMock()
     doc.supportsService.side_effect = lambda s: s in ("com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument")
@@ -1395,13 +1396,15 @@ def test_table_insert_draw_non_numeric_rows_columns():
     assert ok is False
     assert err and "integer" in err
 
-    res_direct = insert_draw_table(ctx, rows=0, columns=2)
-    assert res_direct["status"] == "error"
-    assert "at least 1" in res_direct["message"]
+    with pytest.raises(ToolExecutionError) as exc_info:
+        insert_draw_table(ctx, rows=0, columns=2)
+    assert "at least 1" in exc_info.value.message
+    assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
 
     res_exec = tool.execute(ctx, rows=0, columns=2)
     assert res_exec["status"] == "error"
     assert "at least 1" in res_exec["message"]
+    assert res_exec["code"] == "TOOL_EXECUTION_ERROR"
 
 
 class DisposedException(Exception):

@@ -22,7 +22,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES, apply_character_properties, parse_color_to_uno_int
-from plugin.framework.errors import WriterAgentException, is_disposal
+from plugin.framework.errors import WriterAgentException, is_disposal, uno_write
 from . import layout
 from .base import ToolDrawShapeBase
 
@@ -335,12 +335,9 @@ def _failed_prop(failed: list[str], name: str, exc: BaseException) -> None:
     failed.append(name)
 
 
-def _attempt(failed: list[str], name: str, fn: Any) -> None:
-    """One property set. Disposal still propagates from ``_failed_prop``."""
-    try:
-        fn()
-    except Exception as exc:
-        _failed_prop(failed, name, exc)
+def _try(failed: list[str], name: str, fn: Any) -> None:
+    if not uno_write(fn):
+        failed.append(name)
 
 
 def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
@@ -361,7 +358,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             _failed_prop(failed_props, "text", exc)
 
     if kwargs.get("name") and hasattr(shape, "Name"):
-        _attempt(failed_props, "name", lambda: setattr(shape, "Name", str(kwargs["name"])))
+        _try(failed_props, "name", lambda: setattr(shape, "Name", str(kwargs["name"])))
 
     # Background/Fill Color
     if kwargs.get("fill_color"):
@@ -379,7 +376,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
             if color is None:
                 failed_props.append("fill_color")
             else:
-                _attempt(
+                _try(
                     failed_props,
                     "fill_color",
                     lambda: shape.setPropertyValue(
@@ -407,11 +404,11 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         if color is None:
             failed_props.append("line_color")
         else:
-            _attempt(failed_props, "line_color", lambda: shape.setPropertyValue("LineColor", color))
+            _try(failed_props, "line_color", lambda: shape.setPropertyValue("LineColor", color))
 
     # Line Width
     if kwargs.get("line_width") is not None and hasattr(shape, "LineWidth"):
-        _attempt(failed_props, "line_width", lambda: shape.setPropertyValue("LineWidth", int(kwargs["line_width"])))
+        _try(failed_props, "line_width", lambda: shape.setPropertyValue("LineWidth", int(kwargs["line_width"])))
 
     # Line Style (ensure border is visible when colored or sized)
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
@@ -435,7 +432,7 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
         # Angle is in 100ths of a degree
-        _attempt(failed_props, "rotation_angle", lambda: shape.setPropertyValue("RotateAngle", int(kwargs["rotation_angle"] * 100)))
+        _try(failed_props, "rotation_angle", lambda: shape.setPropertyValue("RotateAngle", int(kwargs["rotation_angle"] * 100)))
 
     return failed_props
 

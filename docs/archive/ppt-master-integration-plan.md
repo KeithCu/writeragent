@@ -202,7 +202,7 @@ SKILL injection at session start: [`skill_context.py`](../plugin/ppt_master/venv
 
 ### Main export path (UNO)
 
-`export_presentation_project` → [`uno_pptx_deck.export_project_to_doc`](../plugin/ppt_master/adapter/uno_pptx_deck.py) → [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_import.py):
+`export_presentation_project` → [`client.export_project_to_doc`](../plugin/ppt_master/client.py) → [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_import.py):
 
 ```text
 svg_final/ or svg_output/  (required for auto-build)
@@ -258,7 +258,7 @@ python scripts/ppt_master_import_fidelity.py path/to/project --threshold 0.08
 python -c "
 import officehelper, uno
 from pathlib import Path
-from plugin.ppt_master.adapter.uno_pptx_deck import export_project_to_doc
+from plugin.ppt_master.client import export_project_to_doc
 p = Path('ppt-master/examples/ppt169_attention_is_all_you_need')
 ctx = officehelper.bootstrap()
 d = ctx.ServiceManager.createInstanceWithContext('com.sun.star.frame.Desktop', ctx)
@@ -300,8 +300,8 @@ Reference PDF is LO’s render of the **PPTX slide**. Imported PDF is the same s
 | [`plugin/ppt_master/tools.py`](../plugin/ppt_master/tools.py) | Specialized tools (`ToolDrawPptMasterBase`) |
 | [`plugin/ppt_master/pptx_build.py`](../plugin/ppt_master/pptx_build.py) | Find/build `exports/*.pptx` via user venv |
 | [`plugin/ppt_master/adapter/uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_import.py) | UNO PPTX load → copy slides to Impress |
-| [`plugin/ppt_master/adapter/uno_pptx_deck.py`](../plugin/ppt_master/adapter/uno_pptx_deck.py) | Project orchestrator (build + import + mirror ODP) |
-| [`plugin/ppt_master/adapter/uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) | Shape clone helpers for slide copy |
+| [`plugin/ppt_master/client.py`](../plugin/ppt_master/client.py) | Host entry points (export orchestrator: build + import + mirror ODP) |
+| [`plugin/ppt_master/adapter/uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_import.py) | PPTX import and `copy_shapes_to_page` slide copy |
 | [`plugin/ppt_master/project_notes.py`](../plugin/ppt_master/project_notes.py) | Speaker notes discovery by slide index |
 | [`plugin/ppt_master/fidelity.py`](../plugin/ppt_master/fidelity.py) | PDF/PNG diff: PPTX reference vs ODP import |
 | [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) | CLI fidelity loop for agents |
@@ -323,7 +323,7 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 
 1. Confirm dev setup: clone upstream beside repo as `ppt-master/` **or** set **Settings → Python → PPT-Master data path** to the clone root (`.../ppt-master`) or inner skill dir (`.../ppt-master/skills/ppt-master`). Run **Test** in Settings.
 2. Read [`plugin/contrib/ppt_master/README.md`](../plugin/contrib/ppt_master/README.md) symbol map (WriterAgent module ↔ upstream equivalent).
-3. Trace the happy path: `export_presentation_project` → [`client.py`](../plugin/ppt_master/client.py) → [`uno_pptx_deck.py`](../plugin/ppt_master/adapter/uno_pptx_deck.py) → [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_import.py).
+3. Trace the happy path: `export_presentation_project` → [`client.py`](../plugin/ppt_master/client.py) (`export_project_to_doc`) → [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_import.py).
 4. Run tests: `pytest tests/ppt_master/`; UNO: `python -m plugin.testing_runner test_ppt_master_pptx_import_uno`; fidelity: `python scripts/ppt_master_import_fidelity.py <project>`.
 5. Pick the next roadmap item below; run fidelity script before/after changes.
 6. Add tests in the matching `test_*` file per [AGENTS.md](../AGENTS.md).
@@ -336,9 +336,9 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 | Sidebar PPT-Master mode (Impress/Draw) | Shipped | [`chat_sidebar_mode.py`](../plugin/chatbot/chat_sidebar_mode.py) |
 | Smol sub-agent session | Shipped | Venv-hosted via [`plugin/ppt_master/venv/`](../plugin/ppt_master/venv/); forked SKILL + host LLM/UNO RPC |
 | Specialized tools | Shipped | [`tools.py`](../plugin/ppt_master/tools.py) — export, validate, template-fill, native-enhance (host UNO) |
-| Main PPTX → ODP export | Shipped | [`uno_pptx_deck.py`](../plugin/ppt_master/adapter/uno_pptx_deck.py) + [`pptx_build.py`](../plugin/ppt_master/pptx_build.py) |
+| Main PPTX → ODP export | Shipped | [`client.py`](../plugin/ppt_master/client.py) (`export_project_to_doc`) + [`pptx_build.py`](../plugin/ppt_master/pptx_build.py) |
 | PPTX auto-build from SVG | Shipped | User venv runs upstream `svg_to_pptx.py` when `exports/*.pptx` missing |
-| Shape copy on import | Shipped | [`uno_shape_postprocess.py`](../plugin/ppt_master/adapter/uno_shape_postprocess.py) — clone + text props; pictures reimported via GraphicProvider (hidden pool is not aliased). A copy that returns no shapes leaves the target slide's previous shapes in place. |
+| Shape copy on import | Shipped | [`uno_pptx_import.copy_shapes_to_page`](../plugin/ppt_master/adapter/uno_pptx_import.py) — clone + text props; pictures reimported via GraphicProvider (hidden pool is not aliased). A copy that returns no shapes leaves the target slide's previous shapes in place. |
 | Impress page size on import | Shipped | Target slide set to 25400×14288 hmm in `uno_pptx_import._apply_target_page_size` after that slide's copy succeeds |
 | Multi-slide UNO tests | Shipped | [`test_ppt_master_pptx_import_uno.py`](../tests/ppt_master/test_ppt_master_pptx_import_uno.py) — 3-slide fixture |
 | Import fidelity script | Shipped | PPTX vs ODP PDF diff per slide |
@@ -402,7 +402,7 @@ Primary files: [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_impo
 2. Run fidelity script; capture `report.json` for the example project.
 3. Fixtures: [`tests/fixtures/ppt_master_minimal/`](../tests/fixtures/ppt_master_minimal/) (3 slides); add realistic snippets from failing real SVGs as needed.
 
-**Files:** [`uno_pptx_deck.py`](../plugin/ppt_master/adapter/uno_pptx_deck.py), [`client.py`](../plugin/ppt_master/client.py), [`fidelity.py`](../plugin/ppt_master/fidelity.py).
+**Files:** [`client.py`](../plugin/ppt_master/client.py), [`fidelity.py`](../plugin/ppt_master/fidelity.py).
 
 ---
 
