@@ -7,8 +7,13 @@
 # (at your option) any later version.
 """Callbacks run on the UI thread from the desktop terminate listener.
 
-Hooks run in registration order. Each hook must return quickly (no unbounded
-waits); a raised hook is logged and skipped; LibreOffice exit continues.
+Cooperative hooks register during module init; the WriterAgent listener calls
+``register_quit_hook_last(get_supervisor().shutdown_all)`` immediately before
+``run_quit_hooks()`` so warm-child retire and the managed sweep run after
+cooperative stop (tunnel funnel reset needs its child alive; ``shutdown_all``
+SIGKILLs registered peers). Other hooks run in list order. Each hook must return
+quickly (no unbounded waits); a raised hook is logged and skipped; LibreOffice
+exit continues.
 """
 
 from __future__ import annotations
@@ -28,7 +33,7 @@ def register_quit_hook(hook: Callable[[], None]) -> None:
 
 def register_quit_hook_last(hook: Callable[[], None]) -> None:
     """Drop hook if present (equality), then append. One entry, at the end."""
-    while hook in _hooks:
+    if hook in _hooks:
         _hooks.remove(hook)
     _hooks.append(hook)
 

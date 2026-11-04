@@ -776,16 +776,6 @@ def get_supervisor() -> Supervisor:
     return _module_supervisor
 
 
-def register_supervisor_quit_hook() -> None:
-    """register_quit_hook_last(get_supervisor().shutdown_all). Idempotent."""
-    try:
-        from plugin.framework.quit_hooks import register_quit_hook_last
-    except ImportError:
-        # LibrePy ships warm_child but not quit_hooks; only WriterAgent calls this.
-        return
-    register_quit_hook_last(get_supervisor().shutdown_all)
-
-
 class _LazySupervisor:
     def __getattr__(self, name: str) -> Any:
         return getattr(get_supervisor(), name)
@@ -806,7 +796,6 @@ __all__ = [
     "error_dict",
     "framed_request_roundtrip",
     "get_supervisor",
-    "register_supervisor_quit_hook",
     "read_ready_frame_during_io",
     "spawn_budget",
     "spawn_managed_child_with_handshake",

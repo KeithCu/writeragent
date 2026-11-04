@@ -107,8 +107,12 @@ def _install_terminate_listener(ctx: Any) -> None:
         class _TerminateListener(BaseTerminateListener):
             def notifyTermination(self, Event: Any) -> None:
                 try:
-                    from plugin.framework.quit_hooks import run_quit_hooks
+                    from plugin.framework.quit_hooks import register_quit_hook_last, run_quit_hooks
+                    from plugin.framework.warm_child import get_supervisor
 
+                    # Last: cooperative hooks (e.g. MCP tunnel stop) need their child alive;
+                    # the managed sweep SIGKILLs registered peers.
+                    register_quit_hook_last(get_supervisor().shutdown_all)
                     run_quit_hooks()
                 except Exception:
                     # UNO boundary: XTerminateListener.notifyTermination callback
@@ -117,9 +121,6 @@ def _install_terminate_listener(ctx: Any) -> None:
         listener = _TerminateListener()
         desktop.addTerminateListener(listener)
         app._terminate_listener = listener
-        from plugin.framework.warm_child import register_supervisor_quit_hook
-
-        register_supervisor_quit_hook()
     except Exception:
         # UNO boundary: desktop.addTerminateListener registration
         log.exception("Failed to install terminate listener")
@@ -178,9 +179,6 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
         # Why this change: reset only when app._modules is still empty so a retry does not
         # build a second registry.
         if not app._modules:
-            from plugin.framework.warm_child import register_supervisor_quit_hook
-
-            register_supervisor_quit_hook()
             bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
             return
 
@@ -192,10 +190,6 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
             log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
             if bootstrap._bootstrap_error is None:
                 bootstrap._bootstrap_error = exc
-
-    from plugin.framework.warm_child import register_supervisor_quit_hook
-
-    register_supervisor_quit_hook()
 
     try:
         # Subscribe to menu:update for dynamic menu text + icons.

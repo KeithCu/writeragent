@@ -68,34 +68,3 @@ def test_register_quit_hook_last_moves_to_end_and_runs_once(monkeypatch):
     quit_hooks.run_quit_hooks()
     assert order == ["tunnel", "supervisor"]
     assert quit_hooks._hooks.count(supervisor_marker) == 1
-
-
-def test_supervisor_quit_hook_orders_after_cooperative_hook(monkeypatch):
-    from plugin.framework import quit_hooks
-    from plugin.framework.warm_child import Supervisor, register_supervisor_quit_hook
-
-    monkeypatch.setattr(quit_hooks, "_hooks", [])
-    local_supervisor = Supervisor()
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.get_supervisor",
-        lambda: local_supervisor,
-    )
-    ms_calls: list[str] = []
-
-    def _ms_shutdown() -> None:
-        ms_calls.append("sweep")
-
-    monkeypatch.setattr(
-        "plugin.framework.managed_subprocess.shutdown_all",
-        _ms_shutdown,
-    )
-
-    def tunnel_marker() -> None:
-        pass
-
-    register_supervisor_quit_hook()
-    quit_hooks.register_quit_hook(tunnel_marker)
-    register_supervisor_quit_hook()
-    quit_hooks.run_quit_hooks()
-    assert quit_hooks._hooks == [tunnel_marker, local_supervisor.shutdown_all]
-    assert ms_calls == ["sweep"]
