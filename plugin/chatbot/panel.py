@@ -558,36 +558,6 @@ class SendButtonListener(BaseActionListener):
             sidebar_notify=lambda msg: self.append_output("\n" + msg + "\n"),
         )
 
-    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
-        from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
-        from plugin.framework.blocking_wait import run_blocking_in_thread
-        from plugin.framework.i18n import _
-
-        if self.sidebar_state.tool_loop is not None:
-            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
-            return
-        if cancel is None:
-            cancel = self._send_cancellation
-        self._set_status(_("Thinking..."))
-        # Resolve UNO here: the caller holds SolarMutex while it waits for the worker
-        # (run_blocking_in_thread with pump_idle), so UNO on the worker can deadlock.
-        client, tools = prepare_slash_compact_on_ui_thread(self, self.ctx, self.session)
-        if client is None:
-            self.append_output("\n" + _("Configure an API key to compact.") + "\n")
-            return
-
-        def worker() -> str:
-            return run_slash_compact_sync(
-                focus=focus,
-                session=self.session,
-                cancel=cancel,
-                client=client,
-                tools=tools,
-            )
-
-        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
-        self.append_output(line)
-
     def slash_agent_edit_in_flight(self) -> bool:
         from plugin.framework.async_drain_guard import get_drain_owner
 
@@ -1323,13 +1293,15 @@ class SendButtonListener(BaseActionListener):
         log.info("=== _do_send START ===")
 
         from plugin.chatbot.slash_commands import (
-            SlashKind,
+            SlashRun,
             build_slash_answer_query,
-            effective_slash_kind,
+            effective_slash_run,
             parse_slash_text,
             run_slash_command,
+            run_slash_compact,
             slash_answer_is_local_only,
-            slash_send_continues_after_begin,
+            slash_continues_send,
+            SlashResult,
         )
 
         peek_text = ""
@@ -1343,8 +1315,8 @@ class SendButtonListener(BaseActionListener):
         slash_arg = ""
         if parsed is not None:
             slash_cmd, slash_arg = parsed
-            if not slash_send_continues_after_begin(slash_cmd, self):
-                if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
+            if not slash_continues_send(slash_cmd, self):
+                if run_slash_command(slash_cmd, self, slash_arg, from_popup=False) is SlashResult.HANDLED:
                     assign_send_outcome(self, "ready")
                     return
 
@@ -1360,17 +1332,18 @@ class SendButtonListener(BaseActionListener):
         slash_transcript_line: str | None = None
         slash_sidebar_only = False
         if slash_cmd is not None:
-            if slash_cmd.needs_turn:
-                self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
+            eff = effective_slash_run(slash_cmd, model)
+            if eff is SlashRun.COMPACT:
+                run_slash_compact(self, slash_arg, cancel=self._send_cancellation)
                 return
-            if slash_cmd.runs_in_send_turn:
+            if eff is SlashRun.FORMULA:
                 from plugin.doc.agent_undo import cancel_pending_agent_turn
 
                 cancel_pending_agent_turn(model)
                 self._skip_agent_undo_after = True
                 self.run_slash_formula(slash_arg)
                 return
-            if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
+            if eff is SlashRun.ANSWER:
                 slash_transcript_line = peek_text.strip()
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
                 if slash_answer_is_local_only(slash_cmd, model):

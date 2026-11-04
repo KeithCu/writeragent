@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot.send_state import SendEventKind
-from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP
+from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP, SlashResult
 from plugin.chatbot.slash_popup import (
     SlashPopupController,
     _POPUP_MAX_ROWS,
@@ -331,10 +331,11 @@ def test_enter_on_exact_explain_runs_not_completes_draft():
     popup._selected = 0
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
-            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=False) as run_cmd:
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND) as run_cmd:
                 with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
                     popup.accept_selected()
-                    run_cmd.assert_called_once_with("explain", send, "", from_popup=False)
+                    assert run_cmd.call_args.args[0].name == "explain"
+                    run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
                     set_text.assert_not_called()
 
 
@@ -354,10 +355,11 @@ def test_enter_on_exact_translate_runs_with_empty_arg():
     popup._selected = 0
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
-            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=False) as run_cmd:
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND) as run_cmd:
                 with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
                     popup.accept_selected()
-                    run_cmd.assert_called_once_with("translate", send, "", from_popup=False)
+                    assert run_cmd.call_args.args[0].name == "translate"
+                    run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
                     set_text.assert_not_called()
 
 

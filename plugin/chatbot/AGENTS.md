@@ -46,6 +46,7 @@ Topic docs: [docs/chat/sidebar-implementation.md](../../docs/chat/sidebar-implem
 
 ## Sharp edges
 
+- Send-turn slash runs (`SlashRun.ANSWER`, `COMPACT`, `FORMULA`, and effective-answer `/translate`) must go through `slash_continues_send` and must **not** call `run_slash_command` on Send (that records LRU and hides the popup). Popup exact-token Enter that returns `CONTINUE_SEND` does not start a send.
 - Resolve the document from the **frame only** (`frame.getController().getModel()` in `panel`).
 - Each open frame has one `FrameSession` (`plugin/framework/frame_session.py`), created when the sidebar factory receives the frame and destroyed when the frame closes. It owns that frame's listeners, focus pin, and sidebar. The panel is constructed with the session's document id. Clicks, stream restore, and focus restore close over that session. Do not use `getCurrentComponent()`, `get_active_document()`, or `panels[0]` when the action already has a frame.
 - For Stop / cancel, workers capture the scope on the send thread at spawn with **`capture_send_stop`** (`cancel_scope = capture_send_stop(host)`). Do not re-read `_send_cancellation` inside the worker body: the drain clears that field and the next send replaces it, and `stop_requested` alone follows the live field and misses Stop after the drain clears it.

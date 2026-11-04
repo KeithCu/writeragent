@@ -2387,7 +2387,10 @@ def _slash_key_in_soffice(sl: Any, key_code: int, modifiers: int) -> None:
     popup.handle_key(int(key_code), int(modifiers))
 
 
-class _UrpSlashHost:
+from plugin.chatbot.slash_commands import SlashHost
+
+
+class _UrpSlashHost(SlashHost):
     """Stand-in SendButtonListener so the popup can run over URP without gc."""
 
     query_control: Any
@@ -2411,10 +2414,10 @@ class _UrpSlashHost:
         )()
         self._stop = stop
 
-    def dispatch(self, _event: Any) -> None:
+    def dispatch(self, event: Any) -> None:
         return
 
-    def _set_status(self, _text: str) -> None:
+    def _set_status(self, text: str) -> None:
         return
 
     def hide_popup(self) -> None:
@@ -2449,35 +2452,6 @@ class _UrpSlashHost:
 
     def slash_run_rewrite(self, instruction: str) -> None:
         self.append_output("\n" + instruction + "\n")
-
-    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
-        from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
-        from plugin.framework.blocking_wait import run_blocking_in_thread
-        from plugin.framework.i18n import _
-
-        if cancel is None:
-            cancel = self._send_cancellation
-        if self.sidebar_state.tool_loop is not None:
-            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
-            return
-        self._set_status(_("Thinking..."))
-        # Same UI-thread prep as SendButtonListener.run_slash_compact (UNO + msgbox).
-        client, tools = prepare_slash_compact_on_ui_thread(self, self.ctx, self.session)
-        if client is None:
-            self.append_output("\n" + _("Configure an API key to compact.") + "\n")
-            return
-
-        def worker() -> str:
-            return run_slash_compact_sync(
-                focus=focus,
-                session=self.session,
-                cancel=cancel,
-                client=client,
-                tools=tools,
-            )
-
-        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
-        self.append_output(line)
 
     def slash_agent_edit_in_flight(self) -> bool:
         return False

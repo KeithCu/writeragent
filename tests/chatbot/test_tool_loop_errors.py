@@ -14,7 +14,7 @@ from plugin.chatbot.tool_loop_actions import (
     send_outcome_terminal_display,
     take_stop_partial,
 )
-from plugin.chatbot.tool_loop import ToolCallingMixin
+from plugin.chatbot.tool_loop import StreamErrorOutcome, ToolCallingMixin, stream_error_keeps_drain
 from plugin.chatbot.tool_loop_state import ToolLoopState
 from plugin.chatbot.send_state import SendButtonState, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
@@ -56,7 +56,7 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.audio_wav_path = None
         self.stop_requested = False
         self._send_cancellation = None
-        self._get_document_model = MagicMock(return_value=None)
+        self._get_document_model = MagicMock(return_value=StreamErrorOutcome.END)
         self.responses = []
         self.statuses = []
         self._orphan_send_outcome = None
@@ -261,10 +261,11 @@ def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
         patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
         patch("plugin.framework.client.model_fetcher.set_native_audio_support") as mock_cache,
         patch("plugin.chatbot.tool_loop.os.remove") as mock_remove,
+        patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
     ):
         recovered = test_instance._handle_stream_error("unsupported modality: audio")
 
-    assert recovered is True
+    assert recovered is StreamErrorOutcome.SPAWNED
     test_instance._voice._transcribe_audio.assert_called_once_with("/fake/path/audio.wav", "stt-model")
     test_instance._spawn_llm_worker.assert_called_once()
     test_instance._do_send_chat_with_tools.assert_not_called()
@@ -308,10 +309,11 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
         patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="stt-model"),
         patch("plugin.framework.client.model_fetcher.set_native_audio_support"),
         patch("plugin.chatbot.tool_loop.os.remove"),
+        patch("plugin.audio.stt_service.uses_local_stt", return_value=False),
     ):
         recovered = test_instance._handle_stream_error("unsupported modality: audio")
 
-    assert recovered is None
+    assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     assert test_instance.audio_wav_path is None
     assert any("No speech detected" in text for text in test_instance.responses)
@@ -329,11 +331,11 @@ def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_g
     test_instance._start_tool_calling_async = MagicMock()
 
     with (
-        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
         patch("plugin.chatbot.tool_loop.get_config", return_value=128),
-        patch("plugin.chatbot.tool_loop.get_toolkit", return_value=None),
+        patch("plugin.chatbot.tool_loop.get_toolkit", return_value=StreamErrorOutcome.END),
         patch("plugin.chatbot.tool_loop.LlmClient") as mock_llm_cls,
-        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=StreamErrorOutcome.NOT_HANDLED),
         agent_session(scope),
     ):
         test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
@@ -352,7 +354,7 @@ def test_handle_stream_error_payload_dict(test_instance):
         "message": "HTTP Error 500 from AI Provider: Internal Server Error. mock LLM soak failure",
     }
     recovered = test_instance._handle_stream_error(payload)
-    assert recovered is None
+    assert recovered is StreamErrorOutcome.END
     joined = "".join(test_instance.responses)
     assert "[API error:" in joined
     assert "500" in joined
@@ -363,7 +365,7 @@ def test_handle_stream_error_payload_dict(test_instance):
 def test_handle_stream_error_payload_dict_missing_message(test_instance):
     payload = {"status": "error", "code": "HTTP_ERROR"}
     recovered = test_instance._handle_stream_error(payload)
-    assert recovered is None
+    assert recovered is StreamErrorOutcome.END
     joined = "".join(test_instance.responses)
     assert "[API error:" in joined
     assert "HTTP_ERROR" in joined
@@ -384,7 +386,7 @@ def test_handle_stream_error_llama_overflow_plain_sentence(test_instance):
         "details": {"url": "/v1/chat/completions", "status": 500},
     }
     recovered = test_instance._handle_stream_error(payload)
-    assert recovered is None
+    assert recovered is StreamErrorOutcome.END
     joined = "".join(test_instance.responses)
     assert local_model_overflow_message() in joined
     assert "[API error:" not in joined
@@ -445,7 +447,7 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
     ):
         recovered = _handle_stream_error(test_instance, _overflow_payload())
 
-    assert recovered is True
+    assert recovered is StreamErrorOutcome.SPAWNED
     mock_bg.assert_called_once()
     mock_compact.assert_not_called()
     from plugin.chatbot.tool_loop_actions import current_turn
@@ -468,7 +470,7 @@ def test_overflow_attempt_3_falls_through(test_instance):
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
 
-    assert recovered is not True
+    assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     assert "[API error:" in "".join(test_instance.responses)
     assert send_outcome_terminal_display(test_instance) == "Error"
@@ -488,7 +490,7 @@ def test_process_death_does_not_retry_overflow(test_instance):
 
     recovered = _handle_stream_error(test_instance, payload)
 
-    assert recovered is not True
+    assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     from plugin.framework.client.errors import local_model_overflow_message
 
@@ -520,7 +522,7 @@ def test_overflow_does_not_retry_after_failed_or_tiny_shrink(
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
 
-    assert recovered is not True
+    assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     assert send_outcome_terminal_display(test_instance) == "Error"
 
@@ -538,7 +540,7 @@ def test_compaction_flag_false_does_not_respawn(test_instance):
         compaction_enabled=False,
     )
 
-    assert recovered is not True
+    assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     from plugin.framework.client.errors import local_model_overflow_message
 
@@ -650,7 +652,7 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
         test_instance._spawn_llm_worker(q, client, 128, [], 1, force_compact=True)
         assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
         test_instance._set_status = MagicMock()
@@ -678,11 +680,11 @@ def test_llm_worker_skips_compact_when_flag_false(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=StreamErrorOutcome.NOT_HANDLED),
         patch("plugin.chatbot.tool_loop.compact_session") as mock_compact,
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
         test_instance._spawn_llm_worker(MagicMock(), client, 64, [], 0)
         captured["fn"]()
 
@@ -715,7 +717,7 @@ def test_final_stream_compacts_then_sends_view(test_instance):
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
         test_instance._spawn_final_stream(MagicMock(), client, 256)
         test_instance._set_status = MagicMock()
         captured["fn"]()
@@ -756,10 +758,10 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=StreamErrorOutcome.NOT_HANDLED),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
         test_instance._spawn_final_stream(b1, client, 256)
         original_set_status = test_instance._set_status
         mock_set_status = MagicMock()
@@ -797,10 +799,10 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=StreamErrorOutcome.NOT_HANDLED),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
         test_instance._spawn_final_stream(b2, client, 256)
         captured["fn"]()
     b2._timer.stop()
@@ -825,7 +827,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=StreamErrorOutcome.NOT_HANDLED),
     ):
         test_instance._spawn_final_stream(b3, client, 256)
         captured["fn"]()
@@ -869,7 +871,7 @@ def test_overflow_does_not_retry_when_stop_requested(test_instance):
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
 
-    assert recovered is not True
+    assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     assert send_outcome_terminal_display(test_instance) == "Error"
 
@@ -881,7 +883,7 @@ def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
 
-    assert recovered is not True
+    assert recovered is StreamErrorOutcome.END
     test_instance._spawn_llm_worker.assert_not_called()
     assert send_outcome_terminal_display(test_instance) == "Error"
 
@@ -895,7 +897,7 @@ def test_stream_error_on_dead_turn_still_deletes_wav(test_instance, tmp_path):
     test_instance.audio_wav_path = str(wav)
     current_turn(test_instance).abort()
 
-    assert _handle_stream_error(test_instance, _overflow_payload("boom")) is None
+    assert _handle_stream_error(test_instance, _overflow_payload("boom")) is StreamErrorOutcome.END
     assert test_instance.audio_wav_path is None
     assert not wav.exists()
 
@@ -919,7 +921,7 @@ def test_stream_error_cleans_failed_image_from_history(test_instance):
         payload = {"message": "No endpoints found that support image input"}
         recovered = test_instance._handle_stream_error(payload)
 
-    assert recovered is None
+    assert recovered is StreamErrorOutcome.END
     mock_set_vision.assert_called_once_with("gpt-oss-20b:nitro", "https://openrouter.ai/api", supported=False)
     # The image block was stripped from user message content in session
     user_msgs = [m for m in test_instance.session.messages if m.get("role") == "user"]
@@ -949,8 +951,8 @@ def test_text_send_without_wav_stamps_turn_model(test_instance, mock_get_tools):
     with (
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
-        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
-        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=StreamErrorOutcome.NOT_HANDLED),
     ):
         test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
 
@@ -976,8 +978,8 @@ def test_text_only_model_does_not_attach_image(test_instance, mock_get_tools):
     with (
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
-        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
-        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=StreamErrorOutcome.NOT_HANDLED),
         patch("plugin.writer.images.image_tools.get_selected_image_base64") as mock_get_img,
     ):
         test_instance._do_send_chat_with_tools("describe the image", MagicMock(), "writer")
@@ -1004,7 +1006,7 @@ def test_ui_thread_send_never_calls_fetch_for_cold_model(test_instance, mock_get
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
-        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
         patch("plugin.framework.client.requests.sync_request") as mock_sync,
         patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch,
         patch("plugin.writer.images.image_tools.get_selected_image_base64", return_value="FAKE_B64") as mock_get_img,
@@ -1063,7 +1065,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
             patch("plugin.framework.client.model_fetcher.run_in_background"),
             patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
             patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
-            patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+            patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
             patch("plugin.writer.images.image_tools.get_selected_image_base64", return_value="FAKE_B64"),
         ):
             test_instance._do_send_chat_with_tools("describe the image", MagicMock(), "writer")
@@ -1075,7 +1077,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
 
         # Send worker, round 0: resolves the cold model before building the request.
         with (
-            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=StreamErrorOutcome.NOT_HANDLED),
             patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
             patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
             patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
@@ -1227,7 +1229,7 @@ def test_native_audio_stt_fallback_replaces_db_row():
     ):
         recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
 
-    assert recovered is True
+    assert recovered is StreamErrorOutcome.SPAWNED
     mock_set_support.assert_called_once_with("chat-model", "https://example", supported=False)
     assert len(host.session.messages) == 1
     assert host.session.messages[0]["content"] == "typed query\nspoken words"
@@ -1272,7 +1274,7 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     ):
         recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
 
-    assert recovered is None
+    assert recovered is StreamErrorOutcome.END
     host._tool_calling._spawn_llm_worker.assert_not_called()
     mock_remove.assert_not_called()
     assert host.audio_wav_path == "/fake/a.wav"
@@ -1316,7 +1318,7 @@ def test_native_audio_stt_fallback_uses_turn_model_on_mid_turn_change():
     ):
         recovered = try_native_audio_stt_fallback(host, "unsupported modality: audio")
 
-    assert recovered is True
+    assert recovered is StreamErrorOutcome.SPAWNED
     mock_set_support.assert_called_once_with("turn-captured-model", "https://captured-endpoint", supported=False)
 
 
@@ -1355,7 +1357,7 @@ def test_native_audio_stt_fallback_does_not_write_after_session_swap(test_instan
     ):
         res = test_instance._handle_stream_error("unsupported modality: audio")
 
-    assert res is None
+    assert res is StreamErrorOutcome.END
     assert new_session.messages == new_snapshot
     assert old_session.messages[-1]["content"] == audio_content
     test_instance._spawn_llm_worker.assert_not_called()
@@ -1396,7 +1398,7 @@ def test_stream_error_image_strip_uses_turn_session(test_instance):
         payload = {"message": "No endpoints found that support image input"}
         recovered = test_instance._handle_stream_error(payload)
 
-    assert recovered is None
+    assert recovered is StreamErrorOutcome.END
     mock_set_vision.assert_called_once_with("gpt-oss-20b:nitro", "https://openrouter.ai/api", supported=False)
     assert old_session.messages[-1]["content"] == "describe the image"
     old_session.db.update_last_user_content.assert_called_once_with("describe the image")
@@ -1433,3 +1435,12 @@ def test_slash_sidebar_only_sends_empty_tool_list(test_instance, mock_get_tools)
 
     mock_get_tools.get_schemas.assert_not_called()
     assert captured == [[]]
+
+
+def test_stream_error_keeps_drain_only_for_spawned():
+    from plugin.chatbot.tool_loop import StreamErrorOutcome
+
+    assert stream_error_keeps_drain(StreamErrorOutcome.SPAWNED) is True
+    assert stream_error_keeps_drain(StreamErrorOutcome.NOT_HANDLED) is False
+    assert stream_error_keeps_drain(StreamErrorOutcome.END) is False
+    assert (StreamErrorOutcome.SPAWNED is True) is False

@@ -7,10 +7,13 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import format_error_message, reraise_if_disposed
 from plugin.framework.i18n import N_, _
+
+if TYPE_CHECKING:
+    from plugin.chatbot.slash_commands import SlashHost
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +24,7 @@ class SlashFormulaPromptError(Exception):
     """User-visible /formula prompt build failure."""
 
 
-def run_slash_undo(host: Any) -> None:
+def run_slash_undo(host: SlashHost) -> None:
     if host.slash_agent_edit_in_flight():
         host.append_output("\n" + _("Wait for the current operation to finish before /undo.") + "\n")
         return
@@ -113,7 +116,7 @@ def build_slash_formula_prompt(model: Any, description: str) -> tuple[str, str, 
 
 
 def insert_slash_formula_on_main(
-    host: Any,
+    host: SlashHost,
     *,
     model: Any,
     cell: Any,
@@ -155,7 +158,7 @@ def insert_slash_formula_on_main(
     host.append_output("\n" + "\n".join(lines) + "\n")
 
 
-def run_slash_formula_worker(host: Any, *, ctx: Any, model: Any, description: str) -> None:
+def run_slash_formula_worker(host: SlashHost, *, ctx: Any, model: Any, description: str) -> None:
     """LLM stream under send cancellation; formula insert runs on the main thread."""
     from plugin.chatbot.selection import create_validated_client, stream_completion
     from plugin.framework.config import get_config
