@@ -1250,6 +1250,49 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
     assert not seen["scope"].is_cancelled()
     assert not new.is_cancelled()
 
+
+def test_spawn_tool_worker_passes_host_scope_to_execute_tool_fn():
+    """_spawn_tool_worker forwards host._send_cancellation as send_cancellation."""
+    host = FakeHost()
+    scope = SendCancellation()
+    host._send_cancellation = scope
+    interpreter = ToolLoopEffectInterpreter(host)
+    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=lambda fn, **kwargs: fn()):
+        interpreter.execute(
+            SpawnToolWorkerEffect(
+                call_id="call_scope",
+                func_name="apply_document_content",
+                func_args_str="{}",
+                func_args={"content": "hi"},
+                is_async=False,
+            )
+        )
+    kwargs = host._active_execute_tool_fn.call_args.kwargs
+    assert kwargs["send_cancellation"] is scope
+    assert isinstance(kwargs["send_cancellation"], SendCancellation)
+
+
+def test_execute_fn_without_send_cancellation_does_not_read_host_scope():
+    """Direct execute_fn callers omit the scope; ToolContext must stay uncancellable."""
+    host = FakeHost()
+    host._send_cancellation = SendCancellation()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    seen: dict[str, object] = {}
+    registry, old_main = _install_fake_main_registry()
+
+    def registry_execute(_name, ctx, **_kwargs):
+        seen["scope"] = ctx.send_cancellation
+        return {"status": "ok"}
+
+    registry.execute.side_effect = registry_execute
+    try:
+        execute_fn("apply_document_content", {"content": "hi"}, MagicMock(), MagicMock())
+    finally:
+        _restore_main(old_main)
+
+    assert seen["scope"] is None
+
+
 def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
     from unittest.mock import MagicMock
     from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, SpawnToolWorkerEffect
