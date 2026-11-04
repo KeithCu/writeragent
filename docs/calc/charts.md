@@ -4,6 +4,8 @@ WriterAgent provides unified chart management through the `manage_charts` tool a
 
 ## Host Kinds and Deletion
 
+Create and delete obtain the chart host adapter from `chart_host`; delete does not branch on `ref.kind` again after lookup.
+
 Charts live in different container structures depending on the host application:
 
 - **Calc sheets (`calc_sheet`)**: Charts are embedded table charts (`ScChartObj`) belonging to an individual sheet's `XTableCharts` collection. Deletion is performed via `sheet.getCharts().removeByName(name)`.
