@@ -575,6 +575,45 @@ def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
     assert seen
 
 
+def _raising_then_false_stop_checker():
+    seen: list[BaseException] = []
+
+    def stop_checker() -> bool:
+        if not seen:
+            err = KeyError("stop_checker blew up")
+            seen.append(err)
+            raise err
+        return False
+
+    return seen, stop_checker
+
+
+def test_read_frame_payload_raising_stop_checker_threaded_path_returns_frame():
+    """A broken stop_checker must not escape or abandon the queued frame (no-fd)."""
+    frame = pack_pickle_frame({"status": "ok", "result": 1})
+    stream = io.BytesIO(frame)
+    seen, stop_checker = _raising_then_false_stop_checker()
+    payload = read_frame_payload(stream, 5.0, stop_checker=stop_checker)
+    assert seen
+    assert unpack_pickle_frame(payload) == {"status": "ok", "result": 1}
+
+
+def test_read_frame_payload_raising_stop_checker_select_path_returns_frame():
+    """A broken stop_checker must not escape or abandon the queued frame (fd path)."""
+    frame = pack_pickle_frame({"status": "ok", "result": 1})
+    r_fd, w_fd = os.pipe()
+    os.write(w_fd, frame)
+    os.close(w_fd)
+    reader = os.fdopen(r_fd, "rb", buffering=0)
+    seen, stop_checker = _raising_then_false_stop_checker()
+    try:
+        payload = read_frame_payload(reader, 5.0, stop_checker=stop_checker)
+    finally:
+        reader.close()
+    assert seen
+    assert unpack_pickle_frame(payload) == {"status": "ok", "result": 1}
+
+
 def test_win32_pickle_read_timeout_clamps_when_peek_crosses_deadline(monkeypatch):
     """PeekNamedPipe can finish after the deadline; sleep(negative) is ValueError."""
     from plugin.framework import ipc

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.scripting.config_limits import (
     DOCLING_WORKER_TIMEOUT_SEC,
@@ -156,7 +156,7 @@ def run_vision(
     image: Any = None,
     *,
     context: dict[str, Any] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv."""
     helper, params = _split_spec(spec)
@@ -171,7 +171,7 @@ def run_vision(
         error_code="VISION_ERROR",
         error_label="Vision",
         additional_data={"image": image},
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
 
 

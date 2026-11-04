@@ -194,7 +194,7 @@ def test_ppt_master_session_delegates_to_venv():
         out = tool.execute(ctx, query="Build a deck")
         mock_run.assert_called_once()
         assert mock_run.call_args.kwargs["model"] is None
-        assert mock_run.call_args.kwargs["cancellation_scope"] is None
+        assert mock_run.call_args.kwargs["cancel"] is None
         assert out["status"] == "ok"
         assert "done" in out["result"]
 
@@ -238,9 +238,9 @@ def test_run_ppt_master_venv_turn_keeps_cancellation_on_the_host():
             topic=None,
             model=None,
             session_id="s",
-            cancellation_scope=scope,
+            cancel=scope,
         )
     payload = manager.execute_ppt_master_turn.call_args.args[0]
-    assert manager.execute_ppt_master_turn.call_args.kwargs["cancellation_scope"] is scope
-    assert "cancellation_scope" not in payload
-    assert "_cancellation_scope" not in payload
+    assert manager.execute_ppt_master_turn.call_args.kwargs["cancel"] is scope
+    assert "cancel" not in payload
+    assert "_cancel" not in payload
