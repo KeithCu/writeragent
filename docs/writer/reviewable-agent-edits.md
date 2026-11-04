@@ -60,6 +60,12 @@ one cell while another cell still has text stays a text edit.
 Blocking wait applies only to **`apply_document_content`** from a **background thread** (sidebar
 chat worker or MCP HTTP thread). The main thread never block-waits so the user can click accept/reject.
 
+The edit runs on the main thread in `_do_edit`. Checks finish before `EditReviewSession` is
+constructed. That object is appended to a one-element list before the target method runs, because
+`MainThread.call` re-raises and drops the return value; the list is how anchor bookmarks are released
+when the edit raises. Wait mode keeps the returned session and `wait_for_review` cleans it up. Every
+other path releases it, including a successful non-wait edit.
+
 ## How a change is tracked
 
 `plugin/writer/review_scan.py` owns fail-closed `getRedlines()` enumeration and `wa-review:` token helpers. `plugin/writer/edit_review.py` owns the session via `EditReviewSession`:
