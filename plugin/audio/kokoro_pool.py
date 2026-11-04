@@ -11,8 +11,9 @@ timeout covers process start only and model load counts against the first job.
 reaper. Stop on an utterance registers ``WarmChild.kill()`` on ``SendCancellation``.
 
 Kokoro and soundfile live in the configured venv, not in LibreOffice's runtime.
-Quit is ``supervisor.shutdown_all()`` (``main.py``); this module does not register
-a separate shutdown hook.
+Desktop quit retires the warm child via the supervisor hook registered in
+``main.py``; this module does not register a hook. ``shutdown_kokoro_pool`` clears
+the module singleton for tests only.
 """
 
 from __future__ import annotations
@@ -205,7 +206,7 @@ def get_kokoro_pool() -> KokoroProcessPool | None:
 
 
 def shutdown_kokoro_pool() -> None:
-    """Tests and interpreter shutdown. Safe to call when the pool was never used."""
+    """Tests only. Safe to call when the pool was never used."""
     global _POOL, _POOL_CONFIG_VENV
     with _POOL_LOCK:
         pool = _POOL

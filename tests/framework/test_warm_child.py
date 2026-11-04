@@ -286,6 +286,40 @@ def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any, supervisor
         pass
 
 
+def test_shutdown_all_sweeps_managed_registry_when_spawner_never_started(monkeypatch) -> None:
+    ms_calls = 0
+
+    def _ms_shutdown() -> None:
+        nonlocal ms_calls
+        ms_calls += 1
+
+    monkeypatch.setattr(
+        "plugin.framework.managed_subprocess.shutdown_all",
+        _ms_shutdown,
+    )
+    sup = Supervisor()
+    assert not sup._threads_started
+    sup.shutdown_all()
+    assert ms_calls == 1
+
+
+def test_shutdown_all_sweeps_managed_registry_once_when_spawner_started(monkeypatch) -> None:
+    ms_calls = 0
+
+    def _ms_shutdown() -> None:
+        nonlocal ms_calls
+        ms_calls += 1
+
+    monkeypatch.setattr(
+        "plugin.framework.managed_subprocess.shutdown_all",
+        _ms_shutdown,
+    )
+    sup = Supervisor()
+    sup._threads_started = True
+    sup.shutdown_all()
+    assert ms_calls == 1
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(sys.platform != "linux", reason="orphan PDEATHSIG check is Linux-only")
 def test_orphan_warm_child_dies_with_parent(tmp_path: Any) -> None:

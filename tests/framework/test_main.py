@@ -263,25 +263,53 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
             os.environ.pop("WRITERAGENT_EVAL_HARNESS", None)
 
 
-def test_terminate_listener_runs_quit_hooks_before_shutdown_all(monkeypatch):
-    order: list[str] = []
+def test_terminate_listener_runs_only_quit_hooks(monkeypatch):
+    from plugin.framework import quit_hooks
+    from plugin.framework.warm_child import Supervisor
+
+    monkeypatch.setattr(quit_hooks, "_hooks", [])
+    local_supervisor = Supervisor()
+    monkeypatch.setattr("plugin.framework.warm_child.supervisor", local_supervisor)
+
+    calls: list[str] = []
+    inside_run: list[bool] = [False]
+
+    real_run = quit_hooks.run_quit_hooks
+
+    def tracked_run() -> None:
+        calls.append("quit_hooks")
+        inside_run[0] = True
+        try:
+            real_run()
+        finally:
+            inside_run[0] = False
+
+    monkeypatch.setattr(quit_hooks, "run_quit_hooks", tracked_run)
 
     monkeypatch.setattr(
-        "plugin.framework.quit_hooks.run_quit_hooks",
-        lambda: order.append("quit_hooks"),
-    )
-    monkeypatch.setattr(
         "plugin.audio.kokoro_pool.shutdown_kokoro_pool",
-        lambda: order.append("kokoro"),
+        lambda: calls.append("kokoro"),
     )
-    monkeypatch.setattr(
-        "plugin.framework.managed_subprocess.shutdown_all",
-        lambda: order.append("shutdown_all"),
-    )
-    monkeypatch.setattr(
-        "plugin.framework.warm_child.supervisor.shutdown_all",
-        lambda: order.append("supervisor_shutdown_all"),
-    )
+
+    real_ms = __import__(
+        "plugin.framework.managed_subprocess", fromlist=["shutdown_all"]
+    ).shutdown_all
+
+    def tracked_ms() -> None:
+        if not inside_run[0]:
+            calls.append("managed_direct")
+        real_ms()
+
+    monkeypatch.setattr("plugin.framework.managed_subprocess.shutdown_all", tracked_ms)
+
+    real_sup_shutdown = local_supervisor.shutdown_all
+
+    def tracked_sup_shutdown() -> None:
+        if not inside_run[0]:
+            calls.append("supervisor_direct")
+        real_sup_shutdown()
+
+    monkeypatch.setattr(local_supervisor, "shutdown_all", tracked_sup_shutdown)
 
     listeners: list = []
     fake_desktop = MagicMock()
@@ -292,9 +320,46 @@ def test_terminate_listener_runs_quit_hooks_before_shutdown_all(monkeypatch):
     main._install_terminate_listener(MagicMock())
     assert len(listeners) == 1
     listeners[0].notifyTermination(MagicMock())
-    assert order.index("quit_hooks") < order.index("shutdown_all")
-    assert order.index("shutdown_all") < order.index("supervisor_shutdown_all")
-    assert order == ["quit_hooks", "kokoro", "shutdown_all", "supervisor_shutdown_all"]
+    assert calls == ["quit_hooks"]
+
+
+def test_terminate_listener_cooperative_hook_before_supervisor_sweep(monkeypatch):
+    from plugin.framework import quit_hooks
+    from plugin.framework.warm_child import Supervisor
+
+    monkeypatch.setattr(quit_hooks, "_hooks", [])
+    local_supervisor = Supervisor()
+    monkeypatch.setattr("plugin.framework.warm_child.supervisor", local_supervisor)
+
+    order: list[str] = []
+
+    def cooperative() -> None:
+        order.append("cooperative")
+
+    quit_hooks.register_quit_hook(cooperative)
+
+    monkeypatch.setattr(
+        "plugin.framework.managed_subprocess.shutdown_all",
+        lambda: order.append("sweep"),
+    )
+
+    real_sup_shutdown = local_supervisor.shutdown_all
+
+    def tracked_sup_shutdown() -> None:
+        order.append("supervisor")
+        real_sup_shutdown()
+
+    monkeypatch.setattr(local_supervisor, "shutdown_all", tracked_sup_shutdown)
+
+    listeners: list = []
+    fake_desktop = MagicMock()
+    fake_desktop.addTerminateListener = listeners.append
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx: fake_desktop)
+
+    app._terminate_listener = None
+    main._install_terminate_listener(MagicMock())
+    listeners[0].notifyTermination(MagicMock())
+    assert order == ["cooperative", "supervisor", "sweep"]
 
 
 def test_dispatch_command_unhandled_raises_when_bootstrap_failed():

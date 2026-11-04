@@ -416,6 +416,7 @@ _.sidebar_deck_names  # function: plugin/chatbot/sidebar_test_hooks.py:1719
 _.slash_popup_state  # function: plugin/chatbot/sidebar_test_hooks.py:2412
 _.stop_label  # variable: plugin/chatbot/sidebar_test_hooks.py:2787
 _.stub_recorder_child  # function: plugin/chatbot/sidebar_test_hooks.py:2738
+_.shutdown_kokoro_pool  # function: plugin/audio/kokoro_pool.py:207
 _.teardown  # function: plugin/testing_runner.py:1397
 _.throwaway_writeragent_json  # function: plugin/testing_runner.py:733
 _.toggle_record_changes  # function: plugin/chatbot/sidebar_test_hooks.py:2930
