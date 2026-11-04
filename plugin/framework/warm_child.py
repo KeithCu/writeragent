@@ -774,8 +774,11 @@ def get_supervisor() -> Supervisor:
 
 def register_supervisor_quit_hook() -> None:
     """register_quit_hook_last(get_supervisor().shutdown_all). Idempotent."""
-    from plugin.framework.quit_hooks import register_quit_hook_last
-
+    try:
+        from plugin.framework.quit_hooks import register_quit_hook_last
+    except ImportError:
+        # LibrePy ships warm_child but not quit_hooks; only WriterAgent calls this.
+        return
     register_quit_hook_last(get_supervisor().shutdown_all)
 
 
