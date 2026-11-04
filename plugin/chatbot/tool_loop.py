@@ -283,7 +283,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 # left the sidebar on Stop. None means this turn is finished
                 # and a second API error should not be shown.
                 host._append_response("\n" + _("[No speech detected.]") + "\n")
-                assign_send_outcome(host, "")
+                assign_send_outcome(host, None)
                 return None
             combined = (turn.active_query_text + "\n" + transcript).strip() if turn.active_query_text else transcript
             if turn_session.messages and turn_session.messages[-1].get("role") == "user":
@@ -460,7 +460,7 @@ class ToolCallingMixin:
         except Exception as e:
             log.exception("_do_send: core modules import FAILED")
             self._panel._append_response("\n[Import error - core: %s]\n" % e)
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             return
 
         # Callback for updating active domain in the session
@@ -503,7 +503,7 @@ class ToolCallingMixin:
         except Exception as e:
             log.exception("_do_send: tool import FAILED")
             self._panel._append_response("\n[Import error - tools: %s]\n" % e)
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             return
 
         synced_model = sync_sidebar_text_model(self._panel.model_selector)
@@ -524,7 +524,7 @@ class ToolCallingMixin:
         ok, err_msg = validate_api_config(api_config)
         if not ok:
             self._panel._append_response("\n[%s]\n" % err_msg)
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             self._panel._set_status("Error")
             return
 
@@ -553,7 +553,7 @@ class ToolCallingMixin:
         except UnoObjectError:
             log.exception("Document unavailable")
             self._panel._append_response("\n[Document closed or unavailable.]\n")
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             self._panel._set_status("Error")
             return
         except Exception as e:
@@ -564,7 +564,7 @@ class ToolCallingMixin:
                 log.exception("Unexpected document error")
                 err_msg = resolve_exception_message(e)
                 self._panel._append_response("\n[Error reading document: %s]\n" % err_msg)
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             self._panel._set_status("Error")
             return
 
@@ -1003,7 +1003,7 @@ class ToolCallingMixin:
         # a retry append a second user row with a hole where the assistant was.
         # Overflow respawn and audio fallback return before this write.
         persist_assistant_on_turn(self._panel, content=banner.strip())
-        assign_send_outcome(self._panel, "Error")
+        assign_send_outcome(self._panel, "error")
         self._panel._set_status("Error")
         clear_pending_audio_wav(self._panel)
         return None

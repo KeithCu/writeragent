@@ -41,7 +41,7 @@ _RELEASE_CHECK_INTERVAL_SEC = 7 * 24 * 3600
 _RELEASE_CACHE_FILENAME = "harper-ls.release.json"
 
 
-def _emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, message: str) -> None:
+def emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, message: str) -> None:
     if heartbeat_fn is not None:
         heartbeat_fn({"message": message})
 
@@ -132,7 +132,7 @@ def _fetch_latest_release_asset(harper_dir: Path, *, heartbeat_fn: Callable[[dic
     if persisted is not None:
         return persisted
 
-    _emit_progress(heartbeat_fn, "Checking Harper release…")
+    emit_progress(heartbeat_fn, "Checking Harper release…")
     try:
         release = _github_api_request(_HARPER_RELEASES_API)
     except Exception as e:
@@ -174,7 +174,7 @@ def _read_installed_version(harper_dir: Path) -> str | None:
 def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> None:
     """Download harper-ls via vendored Pooch retrieve (hash verify, retry, archive extract)."""
     log.info("[harper] Downloading v%s binary (%s) from %s", release.version, release.asset_name, release.download_url)
-    _emit_progress(heartbeat_fn, f"Downloading harper-ls v{release.version}…")
+    emit_progress(heartbeat_fn, f"Downloading harper-ls v{release.version}…")
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     # Extract under TemporaryDirectory so the ~50MB binary is not left twice under harper/.
@@ -197,7 +197,7 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
                 downloader=downloader,
                 retry_if_failed=2,
             )
-            _emit_progress(heartbeat_fn, "Extracting harper-ls…")
+            emit_progress(heartbeat_fn, "Extracting harper-ls…")
             extracted = processor(str(archive_path), "download", None)
             if not isinstance(extracted, list):
                 raise RuntimeError("Harper archive extraction did not return file paths")
@@ -216,12 +216,12 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
         best_effort(lambda: tmp_binary.unlink() if tmp_binary.exists() else None, "[harper] temp binary unlink failed")
 
 
-def _get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> str:  # pyright: ignore[reportUnusedFunction]  # used by harper.py and harper tests
+def get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> str:
     """Resolve path to harper-ls binary, auto-downloading if missing or outdated."""
-    _emit_progress(heartbeat_fn, "Resolving harper-ls binary…")
+    emit_progress(heartbeat_fn, "Resolving harper-ls binary…")
     sys_path = shutil.which("harper-ls")
     if sys_path:
-        _emit_progress(heartbeat_fn, "Using system harper-ls")
+        emit_progress(heartbeat_fn, "Using system harper-ls")
         return sys_path
 
     harper_dir = Path(user_config_dir) / "harper"
@@ -240,6 +240,6 @@ def _get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str
             else:
                 raise
     elif installed:
-        _emit_progress(heartbeat_fn, f"Using installed harper-ls v{installed}")
+        emit_progress(heartbeat_fn, f"Using installed harper-ls v{installed}")
 
     return str(binary_path)

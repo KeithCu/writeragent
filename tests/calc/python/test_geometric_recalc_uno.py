@@ -717,14 +717,14 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag(ctx)
     try:
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
         a3 = sheet.getCellByPosition(0, 2)
         # Same unwrap as ``function._undo_lock`` — a wrapped manager's
         # ``lock()`` is a no-op and ``setFormula`` still records ``Input``.
-        um = _unwrap_uno(doc).getUndoManager()
+        um = unwrap_uno(doc).getUndoManager()
         assert um is not None
 
         # --- Flag-on reconcile with no prior edit is one locked unit ---

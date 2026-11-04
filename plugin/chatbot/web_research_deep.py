@@ -40,7 +40,7 @@ from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.chatbot.web_research import _norm_research_query, _user_stopped_payload
 
-log = logging.getLogger("writeragent.web_research_deep")
+log = logging.getLogger(__name__)
 
 MAX_CONTEXT_WORDS = 25000
 # Stop joins the pool. A worker that sees the captured checker returns and

@@ -31,6 +31,8 @@ Synthesis runs in the venv via ``kokoro_worker.py`` (warm stdio loop, or
 
 from __future__ import annotations
 
+from plugin.framework.send_cancellation import is_cancelled
+
 from dataclasses import dataclass
 from importlib import import_module
 import logging
@@ -296,7 +298,7 @@ def ensure_kokoro_misaki(
     the venv script falls back to espeak-ng. Returns None when speech was
     cancelled so the caller does not start synthesis.
     """
-    if cancel is not None and cancel.is_cancelled():
+    if is_cancelled(cancel):
         return None
     with _probe_ok_lock:
         if (py_exe, lang) in _probe_ok_keys:
@@ -307,11 +309,11 @@ def ensure_kokoro_misaki(
 
     ok = _venv_probe_ok(py_exe, lang, run_cmd=run_cmd)
     if not ok:
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             return None
         _emit(on_status, _("Installing Kokoro phonemizer…"))
         if _pip_install(py_exe, spec.packages, run_cmd=run_cmd):
-            if cancel is not None and cancel.is_cancelled():
+            if is_cancelled(cancel):
                 return None
             ok = _venv_probe_ok(py_exe, lang, run_cmd=run_cmd)
             if not ok and spec.needs_unidic:

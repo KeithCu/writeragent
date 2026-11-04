@@ -17,6 +17,8 @@ a separate shutdown hook.
 
 from __future__ import annotations
 
+from plugin.framework.send_cancellation import is_cancelled
+
 import logging
 import os
 import threading
@@ -94,7 +96,7 @@ class KokoroProcessPool:
             if self._shutdown:
                 return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
 
-            if cancel is not None and cancel.is_cancelled():
+            if is_cancelled(cancel):
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
             with self._state_lock:

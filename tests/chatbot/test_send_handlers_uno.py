@@ -46,7 +46,6 @@ class _DirectImageHost(SendHandlersMixin):
         self._mode_topic = ""
         self.responses = []
         self.status_history = []
-        self._terminal_status = None
         self.session = MagicMock()
         self.response_control = MagicMock()
         self.aspect_ratio_selector = MagicMock()

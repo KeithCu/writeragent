@@ -16,7 +16,7 @@ import unohelper
 from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
-from plugin.framework.uno_listeners import _controller_alive, install_view_doc_listener
+from plugin.framework.uno_listeners import controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
 
@@ -135,7 +135,7 @@ def _register_controller(controller: Any) -> None:
             # We use uno_same to compare UNO identity and prune disposed controllers.
             _registered_controllers[:] = [
                 ctrl for ctrl in _registered_controllers
-                if _controller_alive(ctrl)
+                if controller_alive(ctrl)
             ]
             if any(uno_same(controller, existing) for existing in _registered_controllers):
                 return

@@ -68,13 +68,21 @@ def test_insert_slash_formula_on_main_uses_undo_context():
     formula = "=SUM(A1:A2)"
     recorded: list[str] = []
 
-    def fake_commit(doc: object, title: str, fn: object) -> None:
+    def fake_commit(
+        doc: object,
+        title: str,
+        fn: object,
+        *,
+        session: object | None = None,
+    ):
+        from plugin.doc.compound_undo import UndoOutcome
         from plugin.framework.i18n import _
 
         assert doc is model
         assert title == _(FORMULA_UNDO_TITLE)
+        assert session is None
         fn()
-        return None
+        return UndoOutcome()
 
     with (
         patch("plugin.doc.compound_undo.commit_or_rollback", side_effect=fake_commit),
@@ -99,7 +107,10 @@ def test_insert_slash_formula_reports_cell_error():
     cell = MagicMock()
     cell.getError.return_value = 508
     host = MagicMock()
-    with patch("plugin.doc.compound_undo.commit_or_rollback", return_value=None):
+    with patch("plugin.doc.compound_undo.commit_or_rollback") as mock_commit:
+        from plugin.doc.compound_undo import UndoOutcome
+
+        mock_commit.return_value = UndoOutcome()
         with patch("plugin.doc.agent_undo.record_agent_turn_before"):
             with patch("plugin.doc.agent_undo.record_agent_turn_after"):
                 insert_slash_formula_on_main(

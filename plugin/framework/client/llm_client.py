@@ -1065,7 +1065,7 @@ class LlmClient:
                 err_msg = format_error_message(e)
                 log.exception("stream_request_with_tools failed")
                 raise NetworkError(err_msg, details={"url": path}) from e
-            if last_finish_reason is None and cancel is not None and cancel.is_cancelled():
+            if last_finish_reason is None and is_cancelled(cancel):
                 last_finish_reason = "stop"
             if last_finish_reason is None and self.stopped():
                 last_finish_reason = "stop"
@@ -1086,7 +1086,7 @@ class LlmClient:
         else:
             # Sync path (nested smol / specialized). Same Stop-before-connect latch as stream.
             stopped_result: dict[str, Any] = {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-            if (cancel is not None and cancel.is_cancelled()) or self.stopped():
+            if (is_cancelled(cancel)) or self.stopped():
                 log.debug("request_with_tools sync: Stop already requested before connect")
                 self._close_connection()
                 return stopped_result
@@ -1148,7 +1148,7 @@ class LlmClient:
         # (caller cancel= or this client's owned scope): a Stop that already
         # delivered a partial tool-call delta must not look like a call the UI
         # should run.
-        request_cancelled = (cancel is not None and cancel.is_cancelled()) or self.stopped()
+        request_cancelled = (is_cancelled(cancel)) or self.stopped()
         if last_finish_reason == "stop" and tool_calls:
             if request_cancelled:
                 tool_calls = None

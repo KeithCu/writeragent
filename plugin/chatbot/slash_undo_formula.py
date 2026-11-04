@@ -12,7 +12,7 @@ from typing import Any
 from plugin.framework.errors import format_error_message, reraise_if_disposed
 from plugin.framework.i18n import N_, _
 
-log = logging.getLogger("writeragent.slash_commands")
+log = logging.getLogger(__name__)
 
 FORMULA_UNDO_TITLE = N_("WriterAgent: Formula")
 
@@ -134,12 +134,14 @@ def insert_slash_formula_on_main(
         cell.setFormula(formula)
 
     try:
-        err = commit_or_rollback(model, _(FORMULA_UNDO_TITLE), mutate)
+        outcome = commit_or_rollback(model, _(FORMULA_UNDO_TITLE), mutate)
+        outcome.raise_mutate_error()
     except Exception as exc:
         log.exception("slash /formula insert failed")
         host.append_output("\n" + format_error_message(exc) + "\n")
         record_agent_turn_after(model)
         return
+    err = outcome.error
     if err is not None:
         host.append_output("\n" + str(err.get("message", _("Could not insert the formula."))) + "\n")
         record_agent_turn_after(model)

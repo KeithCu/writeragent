@@ -21,6 +21,7 @@ import pytest
 
 from plugin.chatbot.chat_session import ChatSession
 from plugin.chatbot.panel import SendButtonListener
+from plugin.chatbot.tool_loop_actions import assign_send_outcome
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from plugin.framework.send_cancellation import SendCancellation
@@ -66,7 +67,7 @@ def _reset_drain_and_watchdog():
 
 def _audio_listener() -> SendButtonListener:
     listener = _make_send_listener()
-    listener._terminal_status = ""
+    assign_send_outcome(listener, None)
     text_part = {"type": "text", "text": "hello"}
     audio_part = {"type": "input_audio", "input_audio": {"data": "YmFzZTY0", "format": "wav"}}
     listener.session.messages = [{"role": "user", "content": [text_part, audio_part]}]

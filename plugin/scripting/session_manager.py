@@ -114,7 +114,7 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
     # returns None. Fall back to desktop.getComponents() enumeration so UI commands
     # (session reset) still resolve the document model. =PY() never comes here.
     from plugin.framework.errors import UnoObjectError, reraise_if_disposed
-    from plugin.framework.thread_guard import guard_uno, _unwrap_uno
+    from plugin.framework.thread_guard import guard_uno, unwrap_uno
 
     desktop = get_desktop(ctx)
     doc = desktop.getCurrentComponent() if desktop else None
@@ -122,7 +122,7 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
         try:
             # None check; get_desktop is already @main_thread_only.
             # Unwrap so PropertyBag-style None tests see the real object, then re-wrap on return.
-            if _unwrap_uno(doc) is None:
+            if unwrap_uno(doc) is None:
                 raise UnoObjectError("Object is null", code="UNO_NULL_OBJECT")
             ctrl = getattr(doc, "getCurrentController", lambda: None)()
             # Headless soffice returns None from getCurrentController().
@@ -208,9 +208,9 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
 
 def document_key(doc: Any) -> str | None:
     """URL or already-stored session prop. Does not create a prop."""
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
-    raw_doc = _unwrap_uno(doc)
+    raw_doc = unwrap_uno(doc)
     url = _doc_url(raw_doc)
     if url:
         return url
@@ -218,9 +218,9 @@ def document_key(doc: Any) -> str | None:
 
 
 def document_key_for_reset(doc: Any) -> str | None:
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
-    raw_doc = _unwrap_uno(doc)
+    raw_doc = unwrap_uno(doc)
     url = _doc_url(raw_doc)
     existing = _stored_session_prop(raw_doc)
     _retire_orphaned_unsaved_session(raw_doc, url, existing)
@@ -231,9 +231,9 @@ def mint_document_key(doc: Any) -> str:
     key = document_key_for_reset(doc)
     if key:
         return key
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
-    raw_doc = _unwrap_uno(doc)
+    raw_doc = unwrap_uno(doc)
     new_id = new_unsaved_document_key()
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)

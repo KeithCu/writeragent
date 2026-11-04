@@ -19,7 +19,7 @@ from plugin.scripting.venv.coerce import (
     parse_date_column,
     resolve_df as _resolve_df,
 )
-from plugin.scripting.venv.results import error_result as _error_result
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
@@ -115,7 +115,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
 
     tickers = _flatten_tickers(params.get("tickers", []))
     if not tickers:
-        return _error_result("INVALID_PARAMS", "tickers parameter is required.", helper="fetch_historical_data")
+        return error_result("INVALID_PARAMS", "tickers parameter is required.", helper="fetch_historical_data")
 
     start_date = params.get("start_date")
     end_date = params.get("end_date")
@@ -147,7 +147,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
             download_kwargs.pop("multi_level_index")
             data = yf.download(tickers, **download_kwargs)
         if data is None or getattr(data, "empty", True):
-            return _error_result("NO_DATA", f"No data returned for ticker(s): {', '.join(tickers)}.", helper="fetch_historical_data")
+            return error_result("NO_DATA", f"No data returned for ticker(s): {', '.join(tickers)}.", helper="fetch_historical_data")
 
         data = data.reset_index()
         _stringify_datetimes(data)
@@ -164,7 +164,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
         )
     except Exception as e:
         log.exception("Error in fetch_historical_data")
-        return _error_result("EXECUTION_ERROR", str(e), helper="fetch_historical_data")
+        return error_result("EXECUTION_ERROR", str(e), helper="fetch_historical_data")
 
 
 @helper("quant")
@@ -192,7 +192,7 @@ def technical_analysis(
     elif isinstance(raw_indicators, (list, tuple)):
         indicators = list(raw_indicators)
     else:
-        return _error_result(
+        return error_result(
             "INVALID_PARAMS",
             f"indicators must be a name or a list. Supported: {', '.join(_INDICATOR_NAMES)}.",
             helper="technical_analysis",
@@ -200,7 +200,7 @@ def technical_analysis(
 
     unknown = [str(ind) for ind in indicators if str(ind).strip().lower() not in _INDICATOR_NAMES]
     if unknown:
-        return _error_result(
+        return error_result(
             "INVALID_PARAMS",
             f"Unknown indicator(s): {', '.join(unknown)}. Supported: {', '.join(_INDICATOR_NAMES)}.",
             helper="technical_analysis",
@@ -214,7 +214,7 @@ def technical_analysis(
         # headers=False leaves integer column labels. str() before lower().
         close_col = next((c for c in df.columns if str(c).strip().lower() == "close"), None)
         if not close_col:
-            return _error_result(
+            return error_result(
                 "MISSING_COLUMN",
                 "Could not find 'Close' column for technical analysis.",
                 helper="technical_analysis",
@@ -239,7 +239,7 @@ def technical_analysis(
         )
     except Exception as e:
         log.exception("Error in technical_analysis")
-        return _error_result("EXECUTION_ERROR", str(e), helper="technical_analysis")
+        return error_result("EXECUTION_ERROR", str(e), helper="technical_analysis")
 
 
 @helper("quant")
@@ -262,11 +262,11 @@ def portfolio_tearsheet(
         df = res.df
 
         if df.empty:
-            return _error_result("INVALID_DATA", "Input data is empty.", helper="portfolio_tearsheet")
+            return error_result("INVALID_DATA", "Input data is empty.", helper="portfolio_tearsheet")
 
         numeric_df, dates = _returns_frame_from_df(df)
         if numeric_df.empty:
-            return _error_result("INVALID_DATA", "No numeric data columns found for portfolio tearsheet.", helper="portfolio_tearsheet")
+            return error_result("INVALID_DATA", "No numeric data columns found for portfolio tearsheet.", helper="portfolio_tearsheet")
 
         col_param = params.get("column")
         if col_param is not None and str(col_param).strip() != "":
@@ -276,7 +276,7 @@ def portfolio_tearsheet(
             if col_param not in numeric_df.columns:
                 matches = [col for col in numeric_df.columns if str(col) == str(col_param)]
                 if len(matches) != 1:
-                    return _error_result("INVALID_PARAMS", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
+                    return error_result("INVALID_PARAMS", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
                 col_param = matches[0]
             returns = numeric_df[col_param]
         else:
@@ -289,7 +289,7 @@ def portfolio_tearsheet(
         if dates is not None:
             dates = dates.loc[returns.index]
         if returns.empty:
-            return _error_result("INVALID_DATA", "No valid numeric returns found.", helper="portfolio_tearsheet")
+            return error_result("INVALID_DATA", "No valid numeric returns found.", helper="portfolio_tearsheet")
 
         # Drop NaT rows. A synthetic daily index is reported in the warning.
         warnings: list[str] = []
@@ -327,7 +327,7 @@ def portfolio_tearsheet(
         )
     except Exception as e:
         log.exception("Error in portfolio_tearsheet")
-        return _error_result("EXECUTION_ERROR", str(e), helper="portfolio_tearsheet")
+        return error_result("EXECUTION_ERROR", str(e), helper="portfolio_tearsheet")
 
 
 @helper("quant")
@@ -362,7 +362,7 @@ def efficient_frontier(
         numeric_df = numeric_df.dropna()
         n_dropped_rows = n_rows_before - int(len(numeric_df))
         if numeric_df.empty or numeric_df.shape[1] < 2:
-            return _error_result("INVALID_DATA", "Need at least two numeric assets for efficient frontier.", helper="efficient_frontier")
+            return error_result("INVALID_DATA", "Need at least two numeric assets for efficient frontier.", helper="efficient_frontier")
         notes: list[str] = []
         if n_empty_cols:
             noun = "column" if n_empty_cols == 1 else "columns"
@@ -379,7 +379,7 @@ def efficient_frontier(
             if not math.isfinite(rfr):
                 raise ValueError
         except (TypeError, ValueError):
-            return _error_result(
+            return error_result(
                 "INVALID_PARAMS",
                 "risk_free_rate must be a finite number.",
                 helper="efficient_frontier",
@@ -397,7 +397,7 @@ def efficient_frontier(
                     raise ValueError
                 bounds = (lo, hi)
             except (TypeError, ValueError):
-                return _error_result(
+                return error_result(
                     "INVALID_PARAMS",
                     "weight_bounds must be a pair of finite numbers.",
                     helper="efficient_frontier",
@@ -418,7 +418,7 @@ def efficient_frontier(
         )
     except Exception as e:
         log.exception("Error in efficient_frontier")
-        return _error_result("EXECUTION_ERROR", str(e), helper="efficient_frontier")
+        return error_result("EXECUTION_ERROR", str(e), helper="efficient_frontier")
 
 
 def run_quant(

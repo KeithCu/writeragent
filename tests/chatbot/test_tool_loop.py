@@ -31,6 +31,7 @@ from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind  
 from plugin.chatbot.tool_loop import CHAT_STREAM_BATCH_INTERVAL, ToolCallingMixin  # noqa: E402
 from plugin.chatbot.send_state import SendButtonState, SendMode  # noqa: E402
 from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display  # noqa: E402
 
 class MockSession:
     def __init__(self):
@@ -87,7 +88,6 @@ class FakePanel(ToolCallingMixin):
         self._spawn_llm_worker = Mock()
         self._spawn_final_stream = Mock()
         self._get_document_model = Mock(return_value=None)
-        self._terminal_status = "Ready"
 
 
 def setup_mock_panel():
@@ -568,7 +568,7 @@ def test_final_done_handling(mock_get_config, mock_drain_loop):
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is True # Return true means exit loop
-    assert panel._terminal_status == "Ready"
+    assert send_outcome_terminal_display(panel) == "Ready"
     assert len(session.messages) == 1
     assert session.messages[0]["content"] == "This is the final word."
 
@@ -591,7 +591,7 @@ def test_final_done_empty_content_shows_out_of_tool_rounds_message(mock_get_conf
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is True
-    assert panel._terminal_status == "Ready"
+    assert send_outcome_terminal_display(panel) == "Ready"
     expected = _("Reached the maximum number of tool rounds.")
     panel._append_response.assert_any_call(expected + "\n")
     assert len(session.messages) == 1

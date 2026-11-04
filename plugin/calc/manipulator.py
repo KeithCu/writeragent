@@ -506,12 +506,12 @@ class CellManipulator:
         not auto-unwrapped — hand it the raw UNO supplier or attach fails with
         an often-empty UNO message and ISO writes never run.
         """
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
-        uno_ctx = _unwrap_uno(get_ctx())
+        uno_ctx = unwrap_uno(get_ctx())
         smgr = uno_ctx.getServiceManager()
         formatter = smgr.createInstanceWithContext("com.sun.star.util.NumberFormatter", uno_ctx)
-        formatter.attachNumberFormatsSupplier(_unwrap_uno(doc))
+        formatter.attachNumberFormatsSupplier(unwrap_uno(doc))
         return formatter
 
     def _resolve_elapsed_format_key(self, formats: Any, locale: Any) -> int:

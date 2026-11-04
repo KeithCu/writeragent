@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from plugin.framework.send_cancellation import is_cancelled
+
 import dataclasses
 import logging
 import re
@@ -279,7 +281,7 @@ def download_endpoint_speech(
         remember_tts_response_format,
     )
 
-    if cancel is not None and cancel.is_cancelled():
+    if is_cancelled(cancel):
         return None
 
     is_or = _explicit_openrouter(endpoint_url)
@@ -318,7 +320,7 @@ def download_endpoint_speech(
         audio_bytes, content_type, code, err_body = _post_audio_speech(
             url, headers, payload, cancel=cancel,
         )
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             return None
         if err_body and attempt == 0:
             alt = _alternate_tts_response_format(err_body, response_format, code)
@@ -351,7 +353,7 @@ def download_endpoint_speech(
         "TTS audio received from %s (model=%s, format=%s, bytes=%d, elapsed_ms=%d)",
         public_target(url), model, actual_format, len(audio_bytes), elapsed_ms,
     )
-    if cancel is not None and cancel.is_cancelled():
+    if is_cancelled(cancel):
         log.info("TTS playback cancelled after download")
         return None
     suffix = ".mp3" if actual_format == "mp3" else ".wav"

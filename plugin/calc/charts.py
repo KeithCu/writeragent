@@ -368,11 +368,11 @@ def _process_events(ctx: Any = None, *, deadline: float | None = None) -> bool:
     arrive (testing, headless, no context, past *deadline*, or the pump did
     not run). Callers must stop instead of spinning on the UI thread.
     """
-    import os
-
     if deadline is not None and time.monotonic() >= deadline:
         return False
-    if os.environ.get("WRITERAGENT_TESTING") == "1":
+    from plugin.framework.queue_executor import Policy, main
+
+    if main._policy == Policy.test_inline:
         return False
     try:
         uctx = ctx or get_ctx()

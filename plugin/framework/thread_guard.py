@@ -302,14 +302,15 @@ class _UnoThreadGuardProxy:
             return
         assert_main_thread(f"UNO set .{name}")
         # Unwrap if caller is handing a proxy back into UNO
-        setattr(self._target, name, _unwrap_uno(value))
+        setattr(self._target, name, unwrap_uno(value))
 
     # --- Invocation ---
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         assert_main_thread("UNO() call")
         # Unwrap any proxy args (defensive)
-        clean_args = tuple(_unwrap_uno(a) for a in args)
-        clean_kwargs = {k: _unwrap_uno(v) for k, v in kwargs.items()}
+        clean_args = tuple(unwrap_uno(a) for a in args)
+        clean_kwargs = {k: unwrap_uno(v) for k, v in kwargs.items()}
+        # PyUNO_invoke (pyuno.cxx) unwraps args and returns bare Python values; no uno.Any on results.
         res = self._target(*clean_args, **clean_kwargs)
         return _wrap_uno(res)
 
@@ -389,15 +390,15 @@ class _UnoThreadGuardProxy:
 
     def __setitem__(self, key: Any, value: Any) -> None:
         assert_main_thread("UNO setitem")
-        self._target[_unwrap_uno(key)] = _unwrap_uno(value)
+        self._target[unwrap_uno(key)] = unwrap_uno(value)
 
     def __delitem__(self, key: Any) -> None:
         assert_main_thread("UNO delitem")
-        del self._target[_unwrap_uno(key)]
+        del self._target[unwrap_uno(key)]
 
     def __contains__(self, item: object) -> bool:
         assert_main_thread("UNO contains")
-        return _unwrap_uno(item) in self._target
+        return unwrap_uno(item) in self._target
 
     def __enter__(self) -> Any:
         assert_main_thread("UNO enter")
@@ -416,27 +417,27 @@ class _UnoThreadGuardProxy:
         # Dev-only proxy must not break ``doc is active``-style equality:
         # without this, ``proxy == unwrapped`` is False for the same UNO object.
         assert_main_thread("UNO eq")
-        return self._target == _unwrap_uno(other)
+        return self._target == unwrap_uno(other)
 
     def __ne__(self, other: object) -> bool:
         assert_main_thread("UNO ne")
-        return self._target != _unwrap_uno(other)
+        return self._target != unwrap_uno(other)
 
     def __lt__(self, other: object) -> bool:
         assert_main_thread("UNO lt")
-        return self._target < _unwrap_uno(other)
+        return self._target < unwrap_uno(other)
 
     def __le__(self, other: object) -> bool:
         assert_main_thread("UNO le")
-        return self._target <= _unwrap_uno(other)
+        return self._target <= unwrap_uno(other)
 
     def __gt__(self, other: object) -> bool:
         assert_main_thread("UNO gt")
-        return self._target > _unwrap_uno(other)
+        return self._target > unwrap_uno(other)
 
     def __ge__(self, other: object) -> bool:
         assert_main_thread("UNO ge")
-        return self._target >= _unwrap_uno(other)
+        return self._target >= unwrap_uno(other)
 
     def __hash__(self) -> int:
         # Assert main thread because __eq__ and hash compare UNO objects.
@@ -478,7 +479,7 @@ def _wrap_uno(obj: Any) -> Any:
     return _UnoThreadGuardProxy(obj)
 
 
-def _unwrap_uno(obj: Any) -> Any:
+def unwrap_uno(obj: Any) -> Any:
     """Return the underlying UNO target if obj is one of our proxies.
 
     Tuples/lists of proxies (PropertyValue media descriptors) must unwrap
@@ -487,11 +488,11 @@ def _unwrap_uno(obj: Any) -> Any:
     if isinstance(obj, _UnoThreadGuardProxy):
         return obj._target
     if isinstance(obj, list):
-        return [_unwrap_uno(x) for x in obj]
+        return [unwrap_uno(x) for x in obj]
     if isinstance(obj, tuple):
-        return tuple(_unwrap_uno(x) for x in obj)
+        return tuple(unwrap_uno(x) for x in obj)
     if isinstance(obj, dict):
-        return {k: _unwrap_uno(v) for k, v in obj.items()}
+        return {k: unwrap_uno(v) for k, v in obj.items()}
     return obj
 
 
@@ -508,7 +509,7 @@ __all__ = [
     "set_thread_violation_ui",
     "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
-    "_unwrap_uno",
+    "unwrap_uno",
     "GUARD_ON",
     "THREAD_VIOLATION_MARK",
 ]

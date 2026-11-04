@@ -85,7 +85,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
 
         try:
             # Pass ToolContext (not ctx.ctx) so run_trusted_worker_action reads
-            # stop_checker / send_cancellation; the UNO context has neither.
+            # send_cancellation on the tool context; the UNO context has neither.
             result = run_domain("math", ctx, ctx.doc, helper=helper, params=params, task_hint=task_hint, doc_type=ctx.doc_type)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "SYMBOLIC_ERROR"))

@@ -23,7 +23,7 @@ import logging
 from typing import Any
 from urllib.parse import urlparse
 
-log = logging.getLogger("writeragent.mcp.cors")
+log = logging.getLogger(__name__)
 
 from plugin.framework.deal_shim import (
     deal,
@@ -53,7 +53,7 @@ _HEADER_LIST_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUV
 PREFLIGHT_MAX_AGE = "86400"
 
 
-def _deal_origin_ok_pytest(origin: object) -> bool:
+def deal_origin_ok(origin: object) -> bool:
     # Browser Origin headers are not limited to DEAL_MAX_ORIGIN or the
     # URL-safe alphabet. A junk or huge Origin used to raise
     # PreContractError out of send_cors_headers (HTTP 500). The body
@@ -61,23 +61,21 @@ def _deal_origin_ok_pytest(origin: object) -> bool:
     return isinstance(origin, str)
 
 
-_deal_origin_ok = _deal_origin_ok_pytest
 
 
-def _deal_allow_headers_ok_pytest(value: object) -> bool:
+def deal_allow_headers_ok(value: object) -> bool:
     # Access-Control-Request-Headers from a browser can be long and can
     # contain characters outside the token alphabet. The body unions them.
     return isinstance(value, str)
 
 
-_deal_allow_headers_ok = _deal_allow_headers_ok_pytest
 
 # Raw user config: accept anything; the body drops what it cannot use.
 def _deal_origins_config_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 
 
-@deal.pre(lambda value: value is None or _deal_origin_ok(value))
+@deal.pre(lambda value: value is None or deal_origin_ok(value))
 @deal.post(lambda result: result is None or (isinstance(result, str) and (result.lower().startswith("http://") or result.lower().startswith("https://")) and not result.endswith("/")))
 def normalize_cors_origin(value: str | None) -> str | None:
     # crosshair: off
@@ -133,7 +131,7 @@ def normalize_origins_list(value: Any) -> list[str]:
     return list(dict.fromkeys(origin for origin in normalized if origin))
 
 
-@deal.pre(lambda origin: _deal_origin_ok(origin))
+@deal.pre(lambda origin: deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_private_browser_origin(origin: str) -> bool:
     # crosshair: off
@@ -175,7 +173,7 @@ def set_allow_private_origins(allow: bool) -> None:
     _allow_private_origins = bool(allow)
 
 
-@deal.pre(lambda origin: _deal_origin_ok(origin))
+@deal.pre(lambda origin: deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_extra_allowed_origin(origin: str) -> bool:
     # crosshair: off
@@ -198,7 +196,7 @@ def reload_cors_policy_from_config(services: Any = None) -> None:
     log.debug("MCP CORS allow private/local browser origins: %s", _allow_private_origins)
 
 
-@deal.pre(lambda origin: _deal_origin_ok(origin))
+@deal.pre(lambda origin: deal_origin_ok(origin))
 @deal.post(lambda result: isinstance(result, bool))
 def is_safe_origin(origin: str) -> bool:
     # crosshair: off
@@ -220,18 +218,18 @@ def origin_is_forbidden(handler: Any) -> bool:
     """True when Origin is present and not on the allow list.
 
     Missing Origin is allowed (CLI / curl / most MCP clients). Do not call
-    ``is_safe_origin`` until the value passes ``_deal_origin_ok`` — junk or
+    ``is_safe_origin`` until the value passes ``deal_origin_ok`` — junk or
     huge Origins would raise ``deal.PreContractError`` into a 500.
     """
     origin = handler.headers.get("Origin")
     if not origin:
         return False
-    if not _deal_origin_ok(origin):
+    if not deal_origin_ok(origin):
         return True
     return not is_safe_origin(origin)
 
 
-def _drain_request_body(handler: Any) -> None:
+def drain_request_body(handler: Any) -> None:
     """Drain any pending request body so unread bytes do not cause a TCP RST on close.
 
     On Windows (Winsock), closing a socket with unread incoming data in the
@@ -277,7 +275,7 @@ def reject_forbidden_origin(handler: Any) -> bool:
     from plugin.mcp.http_trace import log_forbidden_origin
 
     log_forbidden_origin(handler)
-    _drain_request_body(handler)
+    drain_request_body(handler)
     # No Access-Control-* — a reflected ACAO would let the browser read the 403.
     _write_forbidden(handler)
     return True
@@ -345,12 +343,12 @@ def reject_forbidden_host(handler: Any) -> bool:
     if is_safe_host(host_header, bind_host=getattr(getattr(handler, "server", None), "bind_host", None)):
         return False
     log.warning("Rejecting request with forbidden Host header: %r", host_header)
-    _drain_request_body(handler)
+    drain_request_body(handler)
     _write_forbidden(handler)
     return True
 
 
-@deal.pre(lambda access_control_request_headers: access_control_request_headers is None or _deal_allow_headers_ok(access_control_request_headers))
+@deal.pre(lambda access_control_request_headers: access_control_request_headers is None or deal_allow_headers_ok(access_control_request_headers))
 @deal.post(lambda result: isinstance(result, str))
 @inverse_ensure(lambda access_control_request_headers, result: "Content-Type" in result)
 def merge_allow_headers(access_control_request_headers: str | None) -> str:

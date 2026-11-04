@@ -41,6 +41,7 @@ sys.path.insert(0, get_plugin_dir())
 # To avoid top-level mock pollution, we import these inside the test or use targeted patches
 # SendButtonListener lives in panel.py; panel_factory no longer re-exports it (lazy import for unopkg).
 from plugin.chatbot.panel import SendButtonListener
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
 from plugin.chatbot.dialogs import set_control_text
 
 class TestChatModelLogic(unittest.TestCase):
@@ -137,7 +138,7 @@ class TestChatModelLogic(unittest.TestCase):
 
         with patch.object(self.listener, '_get_document_model', return_value=MagicMock()):
             self.listener._do_send()
-            self.assertEqual(self.listener._terminal_status, "Error")
+            self.assertEqual(send_outcome_terminal_display(self.listener), "Error")
 
     @patch('plugin.framework.logging.update_activity_state')
     def test_button_lifecycle(self, mock_update_activity):
