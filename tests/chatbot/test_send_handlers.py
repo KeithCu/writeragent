@@ -803,6 +803,7 @@ def test_acp_approval_default_and_dead_turn():
         def __init__(self):
             self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
+            self._send_cancellation = None
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
         def _append_response(self, *args, **kwargs):
@@ -848,6 +849,7 @@ def test_acp_approval_auto_approve_when_configured():
         def __init__(self):
             self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
+            self._send_cancellation = None
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
         def _append_response(self, *args, **kwargs):
