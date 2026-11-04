@@ -810,28 +810,29 @@ def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callabl
     from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     undo_title = next_agent_edit_undo_title()
-    changes_before = len(session.changes)
     result_holder: list[Any] = []
-    err: dict[str, Any] | None = None
 
     def do_mutate() -> None:
         res = session.record_mutation(mutate, **record_kwargs)
         result_holder.append(res)
 
     try:
-        err = commit_or_rollback(
+        outcome = commit_or_rollback(
             doc,
             undo_title,
             do_mutate,
-            on_fail=lambda: session.discard_changes_since(changes_before),
+            session=session,
         )
     except UndoUnavailable:
         raise ToolExecutionError(
             "Cannot apply this content edit atomically (no usable undo context); "
             "refusing rather than risk a half-applied edit.")
 
-    if err is not None and err.get("code") == "ROLLBACK_FAILED":
-        raise ToolExecutionError(err["message"])
+    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
+        raise ToolExecutionError(outcome.error["message"])
+
+    if outcome.mutate_error is not None:
+        raise outcome.mutate_error
 
     return result_holder[0] if result_holder else None
 
@@ -913,7 +914,6 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     def _whole() -> None:
         original = found.getString()
         if split_author:
-            changes_before = len(session.changes)
             whole_exc: list[Exception] = []
 
             def do_mutate() -> None:
@@ -928,11 +928,11 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                     raise
 
             try:
-                err = commit_or_rollback(
+                outcome = commit_or_rollback(
                     doc,
                     next_surgical_undo_title(),
                     do_mutate,
-                    on_fail=lambda: session.discard_changes_since(changes_before),
+                    session=session,
                 )
             except UndoUnavailable:
                 log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
@@ -944,10 +944,12 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                     original_preview=_preview(original), proposed_preview=_preview(new_text))
                 return
 
-            if err is not None and err.get("code") == "ROLLBACK_FAILED":
+            if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
                 if whole_exc:
                     raise whole_exc[0]
-                raise RuntimeError(err.get("message"))
+                raise RuntimeError(outcome.error.get("message"))
+            if outcome.mutate_error is not None:
+                raise outcome.mutate_error
         else:
             session.record_mutation(
                 lambda: replace_preserving_format(
@@ -993,7 +995,6 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
             return
 
     undo_title = next_surgical_undo_title()
-    changes_before = len(session.changes)
     surgical_exc: list[Exception] = []
 
     def do_surgical() -> None:
@@ -1017,11 +1018,11 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 raise
 
     try:
-        err = commit_or_rollback(
+        outcome = commit_or_rollback(
             doc,
             undo_title,
             do_surgical,
-            on_fail=lambda: session.discard_changes_since(changes_before),
+            session=session,
         )
     except UndoUnavailable:
         log.debug("edit_review: no usable/unlocked undo manager; surgical edit falls back to whole-block "
@@ -1029,10 +1030,12 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
         _whole()
         return
 
-    if err is not None and err.get("code") == "ROLLBACK_FAILED":
+    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
         if surgical_exc:
             raise surgical_exc[0]
-        raise RuntimeError(err.get("message"))
+        raise RuntimeError(outcome.error.get("message"))
+    if outcome.mutate_error is not None:
+        raise outcome.mutate_error
 
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:

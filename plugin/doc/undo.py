@@ -41,7 +41,7 @@ def commit_or_rollback_mutation(
     from plugin.framework.errors import is_disposal
 
     try:
-        return commit_or_rollback(doc, undo_title, mutate)
+        outcome = commit_or_rollback(doc, undo_title, mutate)
     except UndoUnavailable:
         return tool._tool_error(
             undo_unavailable_msg,
@@ -57,6 +57,15 @@ def commit_or_rollback_mutation(
         # _tool_error nests kwargs under details; callers also read them top-level.
         err.update(extra_error)
         return err
+    if outcome.mutate_error is not None:
+        mut_exc = outcome.mutate_error
+        err = tool._tool_error(
+            f"{rollback_msg} ({mut_exc}).",
+            **extra_error,
+        )
+        err.update(extra_error)
+        return err
+    return outcome.error
 
 
 def _undo_steps(kwargs: dict[str, Any]) -> int:

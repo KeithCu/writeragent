@@ -1189,10 +1189,6 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
     before = _scan_region_content(doc, text_obj)
     after_box: list[dict[str, Any]] = [before]
     title = next_agent_edit_undo_title()
-    rolled_back: list[bool] = []
-
-    def on_fail() -> None:
-        rolled_back.append(True)
 
     def mutate() -> None:
         for cursor in reversed(cursors):
@@ -1203,7 +1199,7 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
             raise RuntimeError("the replace removed a field or graphic")
 
     try:
-        err = commit_or_rollback(doc, title, mutate, on_fail=on_fail)
+        outcome = commit_or_rollback(doc, title, mutate)
     except UndoUnavailable:
         if len(cursors) > 1:
             return "Cannot replace every match in one undo step. Nothing was changed.", 0, 0
@@ -1213,17 +1209,19 @@ def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: 
             return None, len(after["fields"]), len(after["images"])
         except Exception as exc:
             return "the replacement was written and could not be rolled back: " + str(exc), 0, 0
-    except Exception as exc:
-        err_msg = str(exc)
-        if not rolled_back:
+    if outcome.mutate_error is not None:
+        mut_exc = outcome.mutate_error
+        err_msg = str(mut_exc)
+        if not outcome.rolled_back:
             err_msg = "the replacement was written and could not be rolled back: " + err_msg
         return err_msg, 0, 0
 
+    err = outcome.error
     if err is not None:
         if err.get("code") == "UNDO_CONTEXT_LEAK":
             return "Could not close the header/footer undo context.", 0, 0
         err_msg = str(err.get("message", "undo error"))
-        if not rolled_back:
+        if not outcome.rolled_back:
             err_msg = "the replacement was written and could not be rolled back: " + err_msg
         return err_msg, 0, 0
 

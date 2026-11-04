@@ -70,7 +70,7 @@ def test_redo_huge_steps_clamped():
 
 
 def test_commit_or_rollback_success():
-    from plugin.doc.compound_undo import commit_or_rollback
+    from plugin.doc.compound_undo import UndoOutcome, commit_or_rollback
 
     doc = MagicMock()
     mgr = MagicMock()
@@ -78,8 +78,8 @@ def test_commit_or_rollback_success():
     doc.getUndoManager.return_value = mgr
 
     called = []
-    res = commit_or_rollback(doc, "Title", lambda: called.append(1))
-    assert res is None
+    outcome = commit_or_rollback(doc, "Title", lambda: called.append(1))
+    assert outcome == UndoOutcome()
     assert called == [1]
     mgr.enterUndoContext.assert_called_once_with("Title")
     mgr.leaveUndoContext.assert_called_once()
@@ -107,7 +107,7 @@ def test_commit_or_rollback_locked_or_missing_raises_undo_unavailable():
 
 
 def test_commit_or_rollback_missing_islocked_enters():
-    from plugin.doc.compound_undo import commit_or_rollback
+    from plugin.doc.compound_undo import UndoOutcome, commit_or_rollback
 
     class _MinimalUndoManager:
         def __init__(self):
@@ -128,14 +128,14 @@ def test_commit_or_rollback_missing_islocked_enters():
     doc.getUndoManager.return_value = mgr
 
     called = []
-    res = commit_or_rollback(doc, "Title", lambda: called.append(1))
-    assert res is None
+    outcome = commit_or_rollback(doc, "Title", lambda: called.append(1))
+    assert outcome == UndoOutcome()
     assert called == [1]
     assert mgr.entered is True
 
 
 def test_commit_or_rollback_magicmock_islocked_enters_and_mutates():
-    from plugin.doc.compound_undo import commit_or_rollback
+    from plugin.doc.compound_undo import UndoOutcome, commit_or_rollback
 
     doc = MagicMock()
     mgr = MagicMock()
@@ -144,8 +144,8 @@ def test_commit_or_rollback_magicmock_islocked_enters_and_mutates():
     doc.getUndoManager.return_value = mgr
 
     called = []
-    res = commit_or_rollback(doc, "Title", lambda: called.append(1))
-    assert res is None
+    outcome = commit_or_rollback(doc, "Title", lambda: called.append(1))
+    assert outcome == UndoOutcome()
     assert called == [1]
     mgr.enterUndoContext.assert_called_once_with("Title")
 
@@ -160,14 +160,14 @@ def test_commit_or_rollback_error_dict_rolls_back():
     doc.getUndoManager.return_value = mgr
 
     err = {"status": "error", "message": "boom"}
-    res = commit_or_rollback(doc, "Title", lambda: err)
-    assert res == err
+    outcome = commit_or_rollback(doc, "Title", lambda: err)
+    assert outcome.error is err
+    assert outcome.rolled_back is True
     mgr.leaveUndoContext.assert_called_once()
     mgr.undo.assert_called_once()
 
 
-def test_commit_or_rollback_exception_rolls_back_and_reraises():
-    import pytest
+def test_commit_or_rollback_exception_rolls_back_and_returns_cause():
     from plugin.doc.compound_undo import commit_or_rollback
 
     doc = MagicMock()
@@ -179,8 +179,10 @@ def test_commit_or_rollback_exception_rolls_back_and_reraises():
     def mutate():
         raise ValueError("mutation error")
 
-    with pytest.raises(ValueError, match="mutation error"):
-        commit_or_rollback(doc, "Title", mutate)
+    outcome = commit_or_rollback(doc, "Title", mutate)
+    assert isinstance(outcome.mutate_error, ValueError)
+    assert str(outcome.mutate_error) == "mutation error"
+    assert outcome.rolled_back is True
     mgr.leaveUndoContext.assert_called_once()
     mgr.undo.assert_called_once()
 
@@ -198,15 +200,17 @@ def test_commit_or_rollback_undo_failure_keeps_cause():
     def mutate():
         raise ValueError("original cause")
 
-    res = commit_or_rollback(doc, "Title", mutate)
-    assert res["status"] == "error"
-    assert res["code"] == "ROLLBACK_FAILED"
-    assert "undo failed" in res["message"]
-    assert "original cause" in res["message"]
+    outcome = commit_or_rollback(doc, "Title", mutate)
+    assert outcome.error is not None
+    assert outcome.error["status"] == "error"
+    assert outcome.error["code"] == "ROLLBACK_FAILED"
+    assert "undo failed" in outcome.error["message"]
+    assert "original cause" in outcome.error["message"]
+    assert outcome.mutate_error is None
+    assert outcome.rolled_back is False
 
 
 def test_commit_or_rollback_does_not_undo_previous_same_title_action():
-    import pytest
     from plugin.doc.compound_undo import commit_or_rollback
 
     doc = MagicMock()
@@ -218,8 +222,10 @@ def test_commit_or_rollback_does_not_undo_previous_same_title_action():
     def mutate():
         raise ValueError("failed before write")
 
-    with pytest.raises(ValueError, match="failed before write"):
-        commit_or_rollback(doc, "Title", mutate)
+    outcome = commit_or_rollback(doc, "Title", mutate)
+    assert isinstance(outcome.mutate_error, ValueError)
+    assert str(outcome.mutate_error) == "failed before write"
+    assert outcome.rolled_back is False
     mgr.leaveUndoContext.assert_called_once()
     mgr.undo.assert_not_called()
 
@@ -233,10 +239,10 @@ def test_commit_or_rollback_failed_leave_after_success_is_an_error():
     mgr.leaveUndoContext.side_effect = RuntimeError("leave failed")
     doc.getUndoManager.return_value = mgr
 
-    res = commit_or_rollback(doc, "Title", lambda: None)
-    assert res is not None
-    assert res["status"] == "error"
-    assert res["code"] == "UNDO_CONTEXT_LEAK"
+    outcome = commit_or_rollback(doc, "Title", lambda: None)
+    assert outcome.error is not None
+    assert outcome.error["status"] == "error"
+    assert outcome.error["code"] == "UNDO_CONTEXT_LEAK"
     mgr.undo.assert_not_called()
 
 
@@ -371,8 +377,7 @@ def test_undo_tool_propagates_disposal():
         Undo().execute(ctx)
 
 
-def test_commit_or_rollback_on_fail_runs_after_successful_undo():
-    import pytest
+def test_commit_or_rollback_rolled_back_true_only_when_undo_runs():
     from plugin.doc.compound_undo import commit_or_rollback
 
     doc = MagicMock()
@@ -380,41 +385,54 @@ def test_commit_or_rollback_on_fail_runs_after_successful_undo():
     mgr.isLocked.return_value = False
     mgr.getAllUndoActionTitles.side_effect = [(), ("Title",)]
     doc.getUndoManager.return_value = mgr
-    on_fail_calls: list[int] = []
 
     def mutate():
         raise ValueError("boom")
 
-    with pytest.raises(ValueError, match="boom"):
-        commit_or_rollback(doc, "Title", mutate, on_fail=lambda: on_fail_calls.append(1))
-    assert on_fail_calls == [1]
+    outcome = commit_or_rollback(doc, "Title", mutate)
+    assert outcome.rolled_back is True
+    assert isinstance(outcome.mutate_error, ValueError)
     mgr.undo.assert_called_once()
 
-
-def test_commit_or_rollback_on_fail_skipped_when_undo_is_noop():
-    import pytest
-    from plugin.doc.compound_undo import commit_or_rollback
-
-    doc = MagicMock()
-    mgr = MagicMock()
-    mgr.isLocked.return_value = False
+    mgr.reset_mock()
     mgr.getAllUndoActionTitles.side_effect = [("Title",), ("Title",)]
-    doc.getUndoManager.return_value = mgr
-    on_fail_calls: list[int] = []
 
-    def mutate():
-        raise ValueError("failed before write")
-
-    with pytest.raises(ValueError, match="failed before write"):
-        commit_or_rollback(
-            doc, "Title", mutate, on_fail=lambda: on_fail_calls.append(1),
-        )
-    assert on_fail_calls == []
+    outcome2 = commit_or_rollback(doc, "Title", mutate)
+    assert outcome2.rolled_back is False
     mgr.undo.assert_not_called()
 
 
-def test_commit_or_rollback_on_fail_exception_is_swallowed():
-    import pytest
+def test_commit_or_rollback_session_discard_only_after_undo():
+    from plugin.doc.compound_undo import commit_or_rollback
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
+
+    session = MagicMock()
+    session.changes = [1, 2, 3]
+    discard_calls: list[int] = []
+    session.discard_changes_since.side_effect = lambda n: discard_calls.append(n)
+
+    def mutate():
+        raise ValueError("boom")
+
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Title",)]
+    commit_or_rollback(doc, "Title", mutate, session=session)
+    assert discard_calls == [3]
+    assert session.discard_changes_since.call_count == 1
+
+    discard_calls.clear()
+    mgr.reset_mock()
+    mgr.getAllUndoActionTitles.side_effect = [("Title",), ("Title",)]
+    session.discard_changes_since.reset_mock()
+    commit_or_rollback(doc, "Title", mutate, session=session)
+    assert discard_calls == []
+    session.discard_changes_since.assert_not_called()
+
+
+def test_commit_or_rollback_session_discard_error_is_swallowed():
     from plugin.doc.compound_undo import commit_or_rollback
 
     doc = MagicMock()
@@ -423,13 +441,15 @@ def test_commit_or_rollback_on_fail_exception_is_swallowed():
     mgr.getAllUndoActionTitles.side_effect = [(), ("Title",)]
     doc.getUndoManager.return_value = mgr
 
+    session = MagicMock()
+    session.changes = [1]
+    session.discard_changes_since.side_effect = RuntimeError("discard failed")
+
     def mutate():
-        raise ValueError("boom")
+        raise ValueError("original")
 
-    def bad_on_fail():
-        raise RuntimeError("on_fail blew up")
-
-    with pytest.raises(ValueError, match="boom"):
-        commit_or_rollback(doc, "Title", mutate, on_fail=bad_on_fail)
+    outcome = commit_or_rollback(doc, "Title", mutate, session=session)
+    assert isinstance(outcome.mutate_error, ValueError)
+    assert str(outcome.mutate_error) == "original"
+    assert outcome.rolled_back is True
     mgr.undo.assert_called_once()
-

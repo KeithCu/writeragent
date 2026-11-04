@@ -11,7 +11,8 @@ without depending on ``edit_review.py``.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from dataclasses import dataclass
+from typing import Any
 
 from plugin.framework.errors import is_disposal, reraise_if_disposed
 
@@ -145,26 +146,45 @@ class UndoUnavailable(RuntimeError):
     """Raised when an undo manager cannot be entered or is locked."""
 
 
+@dataclass(frozen=True)
+class UndoOutcome:
+    """Result of :func:`commit_or_rollback`.
+
+    ``rolled_back`` is True only when ``rollback_if_top`` actually ran undo.
+    ``ROLLBACK_FAILED`` in ``error`` means undo itself failed after a failed mutate.
+    ``session`` (optional duck-typed review session) lets callers discard review
+    records after a successful rollback without importing Writer review code here.
+    """
+
+    error: dict[str, Any] | None = None
+    rolled_back: bool = False
+    mutate_error: BaseException | None = None
+
+
 def commit_or_rollback(
     doc: Any,
     title: str,
     mutate: Any,
-    on_fail: Callable[[], None] | None = None,
-) -> dict[str, Any] | None:
+    *,
+    session: Any | None = None,
+) -> UndoOutcome:
     """Run mutate inside an undo context with title.
 
     Missing or locked undo manager raises UndoUnavailable.
-    Rolls back on error dict or exception from mutate, and re-raises real disposal.
-    `mutate` returns an error dict or None; any dict is treated as an error.
-    ``on_fail`` runs only when undo actually ran, so a partial edit that is still in the
-    document keeps its review records.
+    Rolls back on error dict or exception from mutate; re-raises disposal via ``mutate_error``.
+    ``mutate`` returns an error dict or None; any dict is treated as an error.
+    Other mutate exceptions are returned on ``UndoOutcome.mutate_error``, not raised.
     """
     group = WriterCompoundUndo.try_enter(doc, title)
     if group is None:
         raise UndoUnavailable("Undo manager is missing, locked, or could not be entered.")
 
     error: dict[str, Any] | None = None
-    exc_cause: Exception | None = None
+    exc_cause: BaseException | None = None
+    rolled_back = False
+    changes_snapshot: int | None = None
+    if session is not None:
+        changes_snapshot = len(session.changes)
     try:
         res = mutate()
         if isinstance(res, dict):
@@ -187,11 +207,13 @@ def commit_or_rollback(
         failed = error is not None or exc_cause is not None
         if failed and left:
             undone = group.rollback_if_top()
-            if undone and on_fail is not None:
-                try:
-                    on_fail()
-                except Exception:
-                    log.debug("commit_or_rollback: on_fail callback failed", exc_info=True)
+            if undone:
+                rolled_back = True
+                if session is not None and changes_snapshot is not None:
+                    try:
+                        session.discard_changes_since(changes_snapshot)
+                    except Exception:
+                        log.debug("commit_or_rollback: session discard failed", exc_info=True)
             if group.rollback_error is not None:
                 # Keep the original cause and use a code distinct from a clean rollback.
                 cause = str(error.get("message")) if error and error.get("message") else str(exc_cause)
@@ -204,5 +226,5 @@ def commit_or_rollback(
 
     if exc_cause is not None:
         reraise_if_disposed(exc_cause)
-        raise exc_cause
-    return error
+        return UndoOutcome(error=error, rolled_back=rolled_back, mutate_error=exc_cause)
+    return UndoOutcome(error=error, rolled_back=rolled_back)
