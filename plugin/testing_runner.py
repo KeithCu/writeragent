@@ -989,7 +989,7 @@ def _ensure_writeragent_bind() -> None:
 
     if app._finish is not None:
         return
-    import plugin.main  # noqa: F401 — bind_writeragent at module end
+    import plugin.main  # noqa: F401  # pyright: ignore[reportUnusedImport] — bind_writeragent at module end
 
     if app._finish is None:
         from plugin.app import bind_writeragent
