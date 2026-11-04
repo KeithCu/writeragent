@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 from plugin.calc.address_utils import (
+    canonical_key,
     format_range,
     is_cell_token,
     parse_range_string,
@@ -35,7 +36,7 @@ class _XlLiteralCall:
     start: int
     end: int
     address: str
-    key: tuple[str | None, str]
+    key: str
     header_mode: str  # "omit" | "true" | "false"
 
 
@@ -60,10 +61,8 @@ def _header_mode_from_call(node: ast.Call) -> str:
     return mode
 
 
-def _canonical_address_key(ref: str) -> tuple[str | None, str] | None:
-    """Canonical dedup key for an address/range, or None when *ref* is not one."""
-    s = (ref or "").strip()
-    sheet, a1 = split_sheet_prefix(s)
+def _address_key(ref: str) -> str | None:
+    sheet, a1 = split_sheet_prefix((ref or "").strip())
     parts = a1.split(":")
     if len(parts) > 2 or not all(is_cell_token(p) for p in parts):
         return None
@@ -72,7 +71,8 @@ def _canonical_address_key(ref: str) -> tuple[str | None, str] | None:
     except ValueError:
         return None
     body = format_range(start[0], start[1], end[0], end[1], collapse_single=True)
-    return (sheet.casefold() if sheet else None, body)
+    qualified = f"{sheet}.{body}" if sheet else body
+    return canonical_key(qualified)
 
 
 def _binds_name(tree: ast.AST, name: str) -> bool:
@@ -175,7 +175,7 @@ def _find_static_xl_literals(code: str) -> tuple[list[_XlLiteralCall], list[str]
         if _P_TOKEN_RE.match(ref):
             # Already an Excel binding token — leave for excel_xl shim; not sugar.
             continue
-        key = _canonical_address_key(ref)
+        key = _address_key(ref)
         if key is None:
             issues.append(f"xl({ref!r}) is not a static A1/range address")
             continue
@@ -202,9 +202,9 @@ def apply_xl_static_rewrite(code: str, existing_data_args: list[str] | None = No
 
     # Preserve explicit Data: order; append newly seen addresses from xl() calls.
     data_args: list[str] = []
-    key_to_index: dict[tuple[str | None, str], int] = {}
+    key_to_index: dict[str, int] = {}
     for addr in existing:
-        key = _canonical_address_key(addr)
+        key = _address_key(addr)
         if key is not None and key in key_to_index:
             continue
         if key is not None:

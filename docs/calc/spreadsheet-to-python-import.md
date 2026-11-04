@@ -165,7 +165,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 | Bulk read values + formulas | [`CellInspector.read_range`](../../plugin/calc/inspector.py) |
 | Bulk write | [`CellManipulator.write_formula_range`](../../plugin/calc/manipulator.py) |
 | `=PY()` parse/rebuild | [`python_formula_edit.py`](../../plugin/calc/python/formula_edit.py) |
-| `data` / `result` contract | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`python_function.py`](../../plugin/calc/python/function.py) |
+| `data` / `result` contract | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`recalc.py`](../../plugin/calc/python/recalc.py) |
 | Precedents | [`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py), regex in inspector |
 | Function catalog | [`list_calc_functions`](../../plugin/calc/formulas.py) → `FunctionDescriptions` |
 | Formula pre-eval / oracle | [`evaluate_formula`](../../plugin/calc/formulas.py) (sheet-copy pattern) |

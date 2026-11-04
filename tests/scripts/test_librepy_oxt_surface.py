@@ -150,7 +150,7 @@ _iface("com.sun.star.task", "XJobExecutor")
 _iface("com.sun.star.util", "XModifyListener")
 _iface("com.sun.star.util", "XCloseListener")
 
-import plugin.calc.python.function as fn
+import plugin.calc.python.recalc as fn
 import plugin.calc.python.workbook_lifecycle as wl
 import plugin.main_core as mc
 

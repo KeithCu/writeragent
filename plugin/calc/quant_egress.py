@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.calc.python.function import to_calc_compatible
+from plugin.calc.python.addin_values import to_calc_compatible
 from plugin.calc.tabular_egress import (
     append_blank,
     append_flag_lines,

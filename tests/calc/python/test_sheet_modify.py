@@ -9,21 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import plugin.calc.python.function as python_function
-from plugin.calc.python.function import (
-    SHEET_MODIFY_LISTENERS,
-    SPILL_REGISTRY,
-    SpillCell,
-    SpillRecord,
-    clear_in_memory_spill_state,
-    perform_deferred_spill,
-)
 from plugin.calc.python.sheet_modify import (
     SheetModifyDispatcher,
-    _PENDING_TIMERS,
-    _doc_url_of,
     _sheet_name_of,
-    cancel_pending_sheet_timers,
     dispatch_sheet_modified,
     ensure_sheet_modify_listener,
     flush_sheet_modify_pass_for_tests,
@@ -32,33 +20,28 @@ from plugin.calc.python.sheet_modify import (
     run_sheet_modify_pass,
     schedule_sheet_modify_pass,
 )
+from plugin.calc.python.spill import (
+    SpillCell,
+    SpillRecord,
+    clear_in_memory_spill_state,
+    perform_deferred_spill,
+)
+from tests.calc.python.calc_workbook_test_access import (
+    SHEET_MODIFY_LISTENERS,
+    SPILL_REGISTRY,
+    reset_calc_workbook_states,
+)
 from plugin.tests.testing_utils import CalcDocStub
-
-
-class _FakeTimer:
-    def __init__(self, interval, function, *args, **kwargs):
-        self.interval = interval
-        self.function = function
-        self.cancelled = False
-
-    def start(self) -> None:
-        return None
-
-    def cancel(self) -> None:
-        self.cancelled = True
 
 
 @pytest.fixture(autouse=True)
 def _reset_sheet_listeners():
+
     reset_sheet_modify_runtime_for_tests()
-    SHEET_MODIFY_LISTENERS.clear()
-    with python_function._PENDING_SPILL_LOCK:
-        python_function._PENDING_SPILL_TIMERS.clear()
+    reset_calc_workbook_states()
     yield
     reset_sheet_modify_runtime_for_tests()
-    SHEET_MODIFY_LISTENERS.clear()
-    with python_function._PENDING_SPILL_LOCK:
-        python_function._PENDING_SPILL_TIMERS.clear()
+    reset_calc_workbook_states()
 
 
 def test_unsaved_workbooks_get_separate_listeners():
@@ -106,7 +89,7 @@ def test_modify_uses_owning_document_not_active(monkeypatch):
     sheet.getParent = lambda: owner
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: other)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
 
     def _capture(ctx, doc, sheet, **kwargs):
@@ -126,7 +109,7 @@ def test_modify_uses_stored_document_when_source_has_no_parent(monkeypatch):
     sheet = owner.getSheets().getByName("Sheet1")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: other)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
 
     def _capture(ctx, doc, sheet, **kwargs):
@@ -138,8 +121,8 @@ def test_modify_uses_stored_document_when_source_has_no_parent(monkeypatch):
     assert captured["doc"] is owner
 
 
-def test_debounce_keys_differ_for_unsaved_workbooks(monkeypatch):
-    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _FakeTimer)
+def test_debounce_keys_differ_for_unsaved_workbooks():
+    from plugin.calc.python.workbook_state import WorkbookState
 
     doc_a = CalcDocStub(url="", props={"RuntimeUID": "uid-timer-a"})
     doc_b = CalcDocStub(url="", props={"RuntimeUID": "uid-timer-b"})
@@ -147,7 +130,11 @@ def test_debounce_keys_differ_for_unsaved_workbooks(monkeypatch):
     sheet_b = doc_b.getSheets().getByName("Sheet1")
     schedule_sheet_modify_pass("ctx", doc_a, sheet_a)
     schedule_sheet_modify_pass("ctx", doc_b, sheet_b)
-    assert set(_PENDING_TIMERS) == {("uid-timer-a", "Sheet1"), ("uid-timer-b", "Sheet1")}
+    state_a = WorkbookState.for_doc(doc_a)
+    state_b = WorkbookState.for_doc(doc_b)
+    assert state_a is not None and "sheet:Sheet1" in state_a.debounce
+    assert state_b is not None and "sheet:Sheet1" in state_b.debounce
+    assert state_a is not state_b
 
 
 def test_unload_drops_lifecycle_keyed_listener():
@@ -252,83 +239,39 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
     assert scheduled_calls == 0
 
 
-def test_schedule_timer_callback_clears_pending_timer(monkeypatch):
-    """Timer callback removes itself from _PENDING_TIMERS on fire."""
-    captured_callbacks: list = []
-
-    class _CaptureTimer:
-        def __init__(self, interval, function, *args, **kwargs):
-            self.interval = interval
-            self.function = function
-            self.cancelled = False
-            captured_callbacks.append(function)
-
-        def start(self) -> None:
-            pass
-
-        def cancel(self) -> None:
-            self.cancelled = True
-
-    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _CaptureTimer)
-    monkeypatch.setattr(
-        "plugin.framework.queue_executor.main.post",
-        lambda fn, *a, **k: None,
-    )
+def test_schedule_timer_callback_clears_pending_timer() -> None:
+    """Timer callback removes itself on fire."""
+    from plugin.calc.python.workbook_state import WorkbookState
 
     doc = CalcDocStub(url="", props={"RuntimeUID": "uid-fire-timer"})
     sheet = doc.getSheets().getByName("Sheet1")
-    key = ("uid-fire-timer", "Sheet1")
 
     schedule_sheet_modify_pass("ctx", doc, sheet)
-    assert key in _PENDING_TIMERS
-    assert len(captured_callbacks) == 1
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    assert "sheet:Sheet1" in state.debounce
 
-    # Fire the callback
-    captured_callbacks[0]()
-    assert key not in _PENDING_TIMERS
+    # Fire / flush
+    state.debounce.flush("sheet:Sheet1")
+    assert "sheet:Sheet1" not in state.debounce
 
 
 def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Rekeyed pending timer is dropped on fire and posts pass for new sheet name."""
-    captured_callbacks: list = []
-    posted_callables: list = []
-
-    class _CaptureTimer:
-        def __init__(self, interval, function, *args, **kwargs):
-            self.interval = interval
-            self.function = function
-            self.cancelled = False
-            captured_callbacks.append(function)
-
-        def start(self) -> None:
-            pass
-
-        def cancel(self) -> None:
-            self.cancelled = True
-
-    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _CaptureTimer)
-    monkeypatch.setattr(
-        "plugin.framework.queue_executor.main.post",
-        lambda fn, *a, **k: posted_callables.append(fn),
-    )
+    """Rekeyed pending timer is dropped on fire and runs pass for new sheet name."""
+    from plugin.calc.python.workbook_state import WorkbookState
 
     doc = CalcDocStub(url="", props={"RuntimeUID": "uid-rekey-timer"})
     sheet = doc.getSheets().getByName("Sheet1")
-    old_key = ("uid-rekey-timer", "Sheet1")
-    new_key = ("uid-rekey-timer", "SheetNew")
+    ensure_sheet_modify_listener("ctx", doc, sheet)
 
     schedule_sheet_modify_pass("ctx", doc, sheet)
-    assert old_key in _PENDING_TIMERS
-    assert len(captured_callbacks) == 1
+    state = WorkbookState.for_doc(doc)
+    assert state is not None
+    assert "sheet:Sheet1" in state.debounce
 
     migrate_sheet_rename(doc, "Sheet1", "SheetNew")
-    assert old_key not in _PENDING_TIMERS
-    assert new_key in _PENDING_TIMERS
-
-    # Fire the callback
-    captured_callbacks[0]()
-    assert len(_PENDING_TIMERS) == 0
-    assert len(posted_callables) == 1
+    assert "sheet:Sheet1" not in state.debounce
+    assert "sheet:SheetNew" in state.debounce
 
     passed_kwargs: dict[str, object] = {}
 
@@ -340,13 +283,13 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
         "plugin.calc.python.sheet_modify.run_sheet_modify_pass",
         fake_run_sheet_modify_pass,
     )
-    posted_callables[0]()
+    state.debounce.flush("sheet:SheetNew")
+    assert "sheet:SheetNew" not in state.debounce
     assert passed_kwargs.get("sheet_name") == "SheetNew"
 
 
-def test_unload_drops_pending_sheet_timer(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("threading.Timer", _FakeTimer)
-    monkeypatch.setattr("plugin.calc.python.function.threading.Timer", _FakeTimer)
+def test_unload_drops_pending_sheet_timer() -> None:
+    from plugin.calc.python.workbook_state import WorkbookState
 
     doc_unload = CalcDocStub(url="", props={"RuntimeUID": "uid-unload"})
     sheet_unload = doc_unload.getSheets().getByName("Sheet1")
@@ -356,23 +299,15 @@ def test_unload_drops_pending_sheet_timer(monkeypatch: pytest.MonkeyPatch) -> No
     schedule_sheet_modify_pass("ctx", doc_unload, sheet_unload)
     schedule_sheet_modify_pass("ctx", doc_keep, sheet_keep)
 
-    timer_unload = _PENDING_TIMERS.get(("uid-unload", "Sheet1"))
-    timer_keep = _PENDING_TIMERS.get(("uid-keep", "Sheet1"))
-    assert timer_unload is not None
-    assert timer_keep is not None
-    assert not timer_unload.cancelled
-    assert not timer_keep.cancelled
+    state_unload = WorkbookState.for_doc(doc_unload)
+    state_keep = WorkbookState.for_doc(doc_keep)
+    assert state_unload is not None and "sheet:Sheet1" in state_unload.debounce
+    assert state_keep is not None and "sheet:Sheet1" in state_keep.debounce
 
     clear_in_memory_spill_state(lifecycle_key="uid-unload")
 
-    assert ("uid-unload", "Sheet1") not in _PENDING_TIMERS
-    assert timer_unload.cancelled is True
-    assert ("uid-keep", "Sheet1") in _PENDING_TIMERS
-    assert timer_keep.cancelled is False
-
-    cancel_pending_sheet_timers("")
-    assert ("uid-keep", "Sheet1") in _PENDING_TIMERS
-    assert timer_keep.cancelled is False
+    assert "sheet:Sheet1" not in state_unload.debounce
+    assert "sheet:Sheet1" in state_keep.debounce
 
 
 def test_doc_url_and_sheet_name_read_failures_return_empty() -> None:
@@ -384,9 +319,7 @@ def test_doc_url_and_sheet_name_read_failures_return_empty() -> None:
             raise RuntimeError("DisposedException")
 
     obj = FailingUNO()
-    assert _doc_url_of(obj) == ""
     assert _sheet_name_of(obj) == ""
-    assert _doc_url_of(None) == ""
     assert _sheet_name_of(None) == ""
 
     class EmptyName:
@@ -406,7 +339,7 @@ def test_posted_pass_with_unreadable_sheet_name_skips_cleanup(monkeypatch: pytes
     def fail_cleanup(*args, **kwargs):
         raise AssertionError("spill cleanup must not run")
 
-    monkeypatch.setattr("plugin.calc.python.function.CalcSpillModifyListener", fail_cleanup)
+    monkeypatch.setattr("plugin.calc.python.spill.cleanup_orphans", fail_cleanup)
     run_sheet_modify_pass("ctx", doc, sheet)
 
 
