@@ -1754,14 +1754,16 @@ class _TextCtl:
 def test_urp_slash_host_help_appends_output() -> None:
     # CI 40839406030: /help passed role= to the real _UrpSlashHost.append_output
     # (TypeError). MagicMock hosts accept any kwargs, so drive the real class.
-    from plugin.chatbot.slash_commands import run_slash_command
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, SlashResult, run_slash_command
     from plugin.chatbot.sidebar_test_hooks import _UrpSlashHost
+
+    help_cmd = next(c for c in SLASH_COMMANDS if c.name == "help")
 
     query = _TextCtl("/help")
     response = _TextCtl("earlier\n")
     host = _UrpSlashHost(query, response, None, None)
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("help", host) is True
+        assert run_slash_command(help_cmd, host) is SlashResult.HANDLED
     assert query.text == ""
     assert response.text.startswith("earlier\n")
     assert "/help" in response.text and "/clear" in response.text

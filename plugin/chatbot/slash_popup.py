@@ -32,6 +32,7 @@ from plugin.chatbot.slash_commands import (
     classify_slash_key,
     filter_slash_commands,
     format_slash_popup_item,
+    get_slash_command,
     load_slash_lru,
     parse_slash_text,
     run_slash_command,
@@ -631,7 +632,7 @@ class SlashPopupController:
         if parsed is not None:
             cmd, arg = parsed
             if typed.lower() == ("/" + cmd.name) and not slash_ask_past_command_name(raw):
-                _defer_to_next_turn(lambda: run_slash_command(cmd.name, host, arg, from_popup=False))
+                _defer_to_next_turn(lambda: run_slash_command(cmd, host, arg, from_popup=False))
                 return
         name = self.selected_name
         if not name:
@@ -639,9 +640,12 @@ class SlashPopupController:
             return
         _ovlog("accept_selected name=%s", name)
         arg = parsed[1] if parsed is not None and parsed[0].name == name else ""
+        cmd_obj = get_slash_command(name)
+        if cmd_obj is None:
+            return
         # Bugfix (QA B1): from_popup=True completes "/name " for presets instead of
         # running them with an empty argument from the partial filter text.
-        _defer_to_next_turn(lambda: run_slash_command(name, host, arg, from_popup=True))
+        _defer_to_next_turn(lambda: run_slash_command(cmd_obj, host, arg, from_popup=True))
 
     def accept_row_at_y(self, y: int) -> bool:
         """Accept the command under mouse Y. Ignores chrome / off-list clicks."""

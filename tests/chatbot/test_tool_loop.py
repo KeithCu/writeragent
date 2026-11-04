@@ -207,12 +207,13 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_l
 
 
 def test_handle_stream_error_persists_banner():
+    from plugin.chatbot.tool_loop import StreamErrorOutcome
     panel, session = setup_mock_panel()
-    with patch("plugin.chatbot.tool_loop.try_native_audio_stt_fallback", return_value=False), \
+    with patch("plugin.chatbot.tool_loop.try_native_audio_stt_fallback", return_value=StreamErrorOutcome.NOT_HANDLED), \
          patch("plugin.chatbot.tool_loop.get_config", return_value=False), \
          patch("plugin.scripting.audio_recorder_service.clear_pending_audio_wav"):
         result = panel._handle_stream_error({"message": "boom"})
-    assert result is None
+    assert result is StreamErrorOutcome.END
     assert session.messages[-1]["content"] == "[API error: boom]"
 
 

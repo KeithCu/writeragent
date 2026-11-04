@@ -2395,6 +2395,8 @@ class _UrpSlashHost:
     clear_listener: Any
     _stop: Any
     ctx: Any
+    cached_doc_type: str
+    cached_uno_services: Any
 
     def __init__(self, query: Any, response: Any, clear: Any, stop: Any, ctx: Any = None) -> None:
         self.ctx = ctx  # overlay position probe (SlashPopupController)
@@ -2402,7 +2404,12 @@ class _UrpSlashHost:
         self.response_control = response
         self.slash_popup: Any = None
         self._send_cancellation: Any = None
-        self.sidebar_state: Any = SimpleNamespace(tool_loop=None)
+        self.cached_doc_type = "writer"
+        self.cached_uno_services = None
+        self.sidebar_state: Any = SimpleNamespace(
+            tool_loop=None,
+            send=SimpleNamespace(is_busy=False),
+        )
         self.session: Any = None
         self.clear_listener = type(
             "ClearProxy",
@@ -2411,10 +2418,10 @@ class _UrpSlashHost:
         )()
         self._stop = stop
 
-    def dispatch(self, _event: Any) -> None:
+    def dispatch(self, event: Any) -> None:
         return
 
-    def _set_status(self, _text: str) -> None:
+    def _set_status(self, text: str) -> None:
         return
 
     def hide_popup(self) -> None:
@@ -2449,35 +2456,6 @@ class _UrpSlashHost:
 
     def slash_run_rewrite(self, instruction: str) -> None:
         self.append_output("\n" + instruction + "\n")
-
-    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
-        from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
-        from plugin.framework.blocking_wait import run_blocking_in_thread
-        from plugin.framework.i18n import _
-
-        if cancel is None:
-            cancel = self._send_cancellation
-        if self.sidebar_state.tool_loop is not None:
-            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
-            return
-        self._set_status(_("Thinking..."))
-        # Same UI-thread prep as SendButtonListener.run_slash_compact (UNO + msgbox).
-        client, tools = prepare_slash_compact_on_ui_thread(self, self.ctx, self.session)
-        if client is None:
-            self.append_output("\n" + _("Configure an API key to compact.") + "\n")
-            return
-
-        def worker() -> str:
-            return run_slash_compact_sync(
-                focus=focus,
-                session=self.session,
-                cancel=cancel,
-                client=client,
-                tools=tools,
-            )
-
-        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
-        self.append_output(line)
 
     def slash_agent_edit_in_flight(self) -> bool:
         return False
