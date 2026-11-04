@@ -25,7 +25,7 @@ from plugin.scripting.payload_codec import (
     wire_str_key,
 )
 from plugin.scripting.venv import optional_import
-from plugin.scripting.venv.coerce import flat_label
+from plugin.scripting.venv.coerce import _dedupe_column_names, flat_label
 
 _MAX_DEPTH = 64
 
@@ -315,7 +315,7 @@ def to_wire(
         # 6. DataFrame
         if pd_mod is not None and isinstance(val, pd_mod.DataFrame):
             df: Any = val
-            columns = [flat_label(c) for c in df.columns]
+            columns = _dedupe_column_names([flat_label(c) for c in df.columns])
 
             def _dataframe_cell(cell_val: Any) -> Any:
                 return _temporal_cell_to_stdlib(cell_val, pd_mod)

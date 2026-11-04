@@ -481,6 +481,21 @@ def test_serialize_result_blank_multiindex_levels():
     assert unpacked["columns"] == ["value"]
 
 
+def test_serialize_result_flat_label_collisions_are_deduped():
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame([[1, 2]], columns=[("A", ""), "A"])
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["A", "A_1"]
+
+    df2 = pd.DataFrame([[1, 2]], columns=[("", None), "value"])
+    res2 = serialize_result(df2)
+    assert res2["columns"] == ["value", "value_1"]
+
+
 def test_serialize_result_multiindex_columns_and_categorical():
     """MultiIndex columns flatten to 'A / x'; row index is dropped; categoricals are labels."""
     pd = pytest.importorskip("pandas")

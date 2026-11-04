@@ -697,15 +697,8 @@ def auto_numeric(
         if isinstance(resolved, dict):
             raise ValueError(resolved["message"])
         return resolved
-    # What was wrong: auto path used stringified labels, so column 0 became "0"
-    # and df["0"] raised KeyError on a DataFrame passed into the helper. Skipped
-    # date and id columns were also silent, so a scheduling solve could drop a
-    # real cost column and still return status: ok.
-    # How it happened: resolve_df keeps a DataFrame's columns, and the auto path
-    # indexed with the stringified name. dropped_rows already appends to flags;
-    # this path did not.
-    # Why this change: select select_dtypes(include="number") labels as they are,
-    # and append one flag per skipped column when the caller passes a list.
+    # Labels are returned as-is (int column 0 stays int) because df[str(0)] raises KeyError.
+    # Date/id-like columns are skipped unless the caller passes an explicit column list.
     cols = list(df.select_dtypes(include="number").columns)
     kept: list[Any] = []
     for col in cols:

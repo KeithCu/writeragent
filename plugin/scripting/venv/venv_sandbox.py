@@ -208,8 +208,6 @@ def _inject_session_duckdb(
     # would then accept files under that folder. run_sandboxed_code drops a
     # previous execute's scoped_dir before bindings, so this value is only the
     # folder this execute actually bound.
-    if not isinstance(host_scoped_dir, str) or not host_scoped_dir.strip():
-        host_scoped_dir = None
 
     def run_sql_bound(
         sql: str,
@@ -294,14 +292,13 @@ class CellNamespace:
         code: str = "",
         data: Any = None,
         bindings: dict[str, Any] | None = None,
-        host_scoped_dir: str | None = None,
     ) -> None:
         inject_auto_imports(self.executor, code)
         ranges = _inject_data(self.executor, data)
         _inject_excel_xl(self.executor, ranges)
         self.executor.state.pop("scoped_dir", None)
         _inject_bindings(self.executor, bindings)
-        _inject_session_duckdb(self.executor, host_scoped_dir)
+        _inject_session_duckdb(self.executor, _host_scoped_dir(bindings))
 
 
 def _code_says_imported(code: str, module_name: str) -> bool:
@@ -1231,7 +1228,7 @@ def run_sandboxed_code(
             return err
         executor.timeout_seconds = left
 
-        ns.bind(code=code, data=data, bindings=bindings, host_scoped_dir=host_folder)
+        ns.bind(code=code, data=data, bindings=bindings)
         raw = _run_on_executor(executor, code, force=force)
         if session_id:
             raw["namespace_created"] = created
