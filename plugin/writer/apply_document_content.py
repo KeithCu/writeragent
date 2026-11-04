@@ -22,6 +22,7 @@ import functools
 import html as html_mod
 import logging
 import re
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.queue_executor import main
@@ -344,6 +345,26 @@ def _search_options(
     cs = bool(case) if case is not None else False
     rex_err = search_mod.validate_regex_pattern(old_stripped) if regex else None
     return regex, use_opts, cs, pattern, rex_err
+
+
+@dataclass(frozen=True)
+class EditParams:
+    content: str
+    plain: str
+    use_preserve: bool
+    has_table: bool
+    target: str
+    position: str
+    occurrence: int | None
+    all_matches: Any
+    track_reviewable: bool
+    search_string: str = ""
+    pattern: str = ""
+    regex: bool = False
+    use_opts: bool = False
+    case_sensitive: bool = False
+    separator: int = 0
+    override: str | None = None
 
 
 class ApplyDocumentContent(ToolBase):
@@ -890,7 +911,14 @@ class ApplyDocumentContent(ToolBase):
         session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any]:
-            return self._execute_edit(ctx, session_sink=session_box, **kwargs)
+            params, err = self._parse_edit_params(kwargs)
+            if err is not None:
+                return err, None
+            if params is None:
+                return self._tool_error("Internal error: missing edit parameters."), None
+            session = EditReviewSession(ctx.doc, ctx.ctx, enabled=params.track_reviewable)
+            session_box.append(session)
+            return self._dispatch_edit(ctx, session, params), session
 
         if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
@@ -898,9 +926,9 @@ class ApplyDocumentContent(ToolBase):
             # and the user could never click accept/reject). Edit once, don't wait -- but UNO is
             # not thread-safe, so when we're on a worker thread (the toggled-off case) the edit
             # and its cleanup run on the main thread via marshalling rather than here.
-            # The session is registered in session_box the instant _execute_edit creates it (via
-            # session_sink), so its anchor bookmarks are released in `finally` even if the edit
-            # raises mid-way (e.g. the 2nd of 3 replace-all matches fails after the 1st).
+            # The session is appended to session_box in _do_edit before dispatch, so anchor
+            # bookmarks are released in `finally` even if the edit raises mid-way (e.g. the 2nd
+            # of 3 replace-all matches fails after the 1st).
             try:
                 result = _run_on_main_thread(_do_edit)[0]
                 return annotate_review_status(result)
@@ -956,42 +984,37 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
-    def _execute_edit(self, ctx: ToolContext, session_sink: Any = None, **kwargs: Any) -> tuple[dict[str, Any], Any]:
-        """Apply the edit and return ``(result_dict, session_or_None)``.
-
-        Runs on the MAIN thread always (directly on the sync path; marshalled via
-        main.call on the review-wait path). The caller owns the session's
-        wait/cleanup."""
+    def _parse_edit_params(self, kwargs: Any) -> tuple[EditParams | None, dict[str, Any] | None]:
         from . import html_import as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
         target = self._effective_target(kwargs.get("target"), old_content)
         if not target:
-            return self._tool_error("Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') or old_content for find-and-replace."), None
+            return None, self._tool_error(
+                "Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') "
+                "or old_content for find-and-replace.")
 
         if target == "search" and old_content is None:
-            return self._tool_error("target='search' requires old_content."), None
+            return None, self._tool_error("target='search' requires old_content.")
 
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
-            return self._tool_error(occurrence_error, code="INVALID_PARAM"), None
+            return None, self._tool_error(occurrence_error, code="INVALID_PARAM")
 
         # position is a search-only refinement; validate it up front (silently ignoring it on an
         # insert target would teach the model a parameter that "works" by accident).
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
-            return self._tool_error(pos_err), None
+            return None, self._tool_error(pos_err)
         if position != "replace" and target != "search":
-            return self._tool_error(
-                "position='before'/'after' requires target='search' (it inserts next to an old_content match)."), None
+            return None, self._tool_error(
+                "position='before'/'after' requires target='search' "
+                "(it inserts next to an old_content match).")
         if position != "replace" and kwargs.get("all_matches", False):
-            return self._tool_error(
-                "position='before'/'after' inserts at a single match; drop all_matches or use position='replace'."), None
+            return None, self._tool_error(
+                "position='before'/'after' inserts at a single match; drop all_matches "
+                "or use position='replace'.")
 
-        # Normalize content:
-        # - If the model (or caller) serialized a list as a JSON string,
-        #   parse it back to a real list first so commas/brackets do not
-        #   become literal document text.
         if isinstance(content, str):
             stripped = content.strip()
             if stripped.startswith("[") and "<" in stripped:
@@ -1001,14 +1024,14 @@ class ApplyDocumentContent(ToolBase):
 
         if isinstance(content, list):
             if any(not isinstance(x, str) for x in content):
-                return self._tool_error("content list items must be strings."), None
+                return None, self._tool_error("content list items must be strings.")
             content = "\n".join(content)
 
         if not isinstance(content, str):
-            return self._tool_error("content must be a string or a list of strings."), None
+            return None, self._tool_error("content must be a string or a list of strings.")
 
         if target in ("beginning", "end", "selection") and content.strip() == "":
-            return self._tool_error("content is empty; nothing was inserted."), None
+            return None, self._tool_error("content is empty; nothing was inserted.")
 
         # Detect markup BEFORE any HTML wrapping.
         use_preserve = not format_support.content_has_markup(content)
@@ -1032,77 +1055,34 @@ class ApplyDocumentContent(ToolBase):
         # review_recording_enabled tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
 
-        # Invariant: the session registers with session_sink only after param checks pass.
-        def _open_session() -> EditReviewSession:
-            s = EditReviewSession(ctx.doc, ctx.ctx, enabled=track_reviewable)
-            if session_sink is not None:
-                session_sink.append(s)
-            return s
-
         plain = ""
         if target != "search":
             plain = content if use_preserve else self._replacement_plain(content)
 
         has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
-        if target == "full_document":
-            session = _open_session()
-            with session:
-                # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
-                record_html_atomically(
-                    session, ctx.doc,
-                    lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
-                    proposed_preview=plain)
-            err = self._table_insert_error(ctx.doc, has_table, None)
-            if err:
-                return err, session
-            return {"status": "ok", "message": "Replaced entire document."}, session
-        if target in ("end", "beginning"):
-            session = _open_session()
-            tables_before = _doc_table_count(ctx.doc) if has_table else None
-            with session:
-                session.record_mutation(
-                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
-                    proposed_preview=plain)
-            err = self._table_insert_error(ctx.doc, has_table, tables_before)
-            if err:
-                return err, session
-            if target == "end":
-                msg = "Inserted content at end."
-                anchor = collapsed_anchor(ctx.doc.getText().getEnd())
-            else:
-                msg = "Inserted content at beginning."
-                anchor = collapsed_anchor(ctx.doc.getText().getStart())
-            return attach_edited_context(
-                {"status": "ok", "message": msg}, anchor), session
-        if target == "selection":
-            # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
-            # collapsed position (not the selection range itself) survives the replace.
-            anchor = selection_anchor(ctx.doc)
-            tables_before = _doc_table_count(ctx.doc) if has_table else None
-            session = _open_session()
-            with session:
-                # Selection insert clears the selection first, then imports -> atomic (full_document above).
-                record_html_atomically(
-                    session, ctx.doc,
-                    lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
-                    proposed_preview=plain)
-            err = self._table_insert_error(ctx.doc, has_table, tables_before)
-            if err:
-                return err, session
-            return attach_edited_context(
-                {"status": "ok", "message": "Inserted content at selection."}, anchor), session
+        all_matches = kwargs.get("all_matches", False)
 
-        # target == "search" from here on — old_content must be a findable substring, not the full body.
-        # Whole-document replace: target='full_document' (no search, no old_content).
+        if target != "search":
+            return EditParams(
+                content=content,
+                plain=plain,
+                use_preserve=use_preserve,
+                has_table=has_table,
+                target=target,
+                position=position,
+                occurrence=occurrence,
+                all_matches=all_matches,
+                track_reviewable=track_reviewable,
+            ), None
+
         old_stripped = str(old_content).strip()
-
         search_string = format_support.plain_text_if_markup(old_stripped)
         # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
         search_string = search_mod.normalize_search_string_for_find(search_string)
         if not search_string:
             # Parameter error (like old_content=None), not a search no-op: the search never ran,
             # so there's no replaced_count to report — use the standard tool error shape.
-            return self._tool_error("old_content is empty after normalization."), None
+            return None, self._tool_error("old_content is empty after normalization.")
         plain = content if use_preserve else self._replacement_plain(content)
         # The search drops the spaces at old_content's edges. The replacement
         # must drop the same edges, or old_content=" paragrafo" with content=""
@@ -1118,247 +1098,389 @@ class ApplyDocumentContent(ToolBase):
             plain = content
         override, override_error = self._parse_hyperlink_url(kwargs)
         if override_error:
-            return self._tool_error(override_error, code="INVALID_PARAM"), None
+            return None, self._tool_error(override_error, code="INVALID_PARAM")
         override_err = self._override_not_replace(override, position)
         if override_err:
-            return self._tool_error(override_err, code="INVALID_PARAM"), None
+            return None, self._tool_error(override_err, code="INVALID_PARAM")
 
         regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
         if rex_err:
-            return self._invalid_regex(rex_err), None
+            return None, self._invalid_regex(rex_err)
 
-        session = _open_session()
+        return EditParams(
+            content=content,
+            plain=plain,
+            use_preserve=use_preserve,
+            has_table=has_table,
+            target=target,
+            position=position,
+            occurrence=occurrence,
+            all_matches=all_matches,
+            track_reviewable=track_reviewable,
+            search_string=search_string,
+            pattern=pattern,
+            regex=regex,
+            use_opts=use_opts,
+            case_sensitive=cs,
+            separator=separator,
+            override=override,
+        ), None
+
+    def _dispatch_edit(
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+    ) -> dict[str, Any]:
+        if params.target == "full_document":
+            return self._edit_full_document(ctx, session, params)
+        if params.target in ("end", "beginning"):
+            return self._edit_insert_at(ctx, session, params)
+        if params.target == "selection":
+            return self._edit_selection(ctx, session, params)
+        return self._edit_search(ctx, session, params)
+
+    def _edit_full_document(
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+    ) -> dict[str, Any]:
+        from . import html_import as format_support
+        content = params.content
+        plain = params.plain
+        has_table = params.has_table
+        with session:
+            # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
+            record_html_atomically(
+                session, ctx.doc,
+                lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
+                proposed_preview=plain)
+        err = self._table_insert_error(ctx.doc, has_table, None)
+        if err:
+            return err
+        return {"status": "ok", "message": "Replaced entire document."}
+
+    def _edit_insert_at(
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+    ) -> dict[str, Any]:
+        from . import html_import as format_support
+        content = params.content
+        plain = params.plain
+        has_table = params.has_table
+        target = params.target
+        tables_before = _doc_table_count(ctx.doc) if has_table else None
+        with session:
+            session.record_mutation(
+                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
+                proposed_preview=plain)
+        err = self._table_insert_error(ctx.doc, has_table, tables_before)
+        if err:
+            return err
+        if target == "end":
+            msg = "Inserted content at end."
+            anchor = collapsed_anchor(ctx.doc.getText().getEnd())
+        else:
+            msg = "Inserted content at beginning."
+            anchor = collapsed_anchor(ctx.doc.getText().getStart())
+        return attach_edited_context(
+            {"status": "ok", "message": msg}, anchor)
+
+    def _edit_selection(
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+    ) -> dict[str, Any]:
+        from . import html_import as format_support
+        content = params.content
+        plain = params.plain
+        has_table = params.has_table
+        # Anchor BEFORE the edit: the selection insert clears the selection first, so only a
+        # collapsed position (not the selection range itself) survives the replace.
+        anchor = selection_anchor(ctx.doc)
+        tables_before = _doc_table_count(ctx.doc) if has_table else None
+        with session:
+            # Selection insert clears the selection first, then imports -> atomic (full_document above).
+            record_html_atomically(
+                session, ctx.doc,
+                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
+                proposed_preview=plain)
+        err = self._table_insert_error(ctx.doc, has_table, tables_before)
+        if err:
+            return err
+        return attach_edited_context(
+            {"status": "ok", "message": "Inserted content at selection."}, anchor)
+
+
+    def _edit_replace_all(
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+    ) -> dict[str, Any]:
         doc = ctx.doc
+        content = params.content
+        plain = params.plain
+        use_preserve = params.use_preserve
+        track_reviewable = params.track_reviewable
+        override = params.override
+        pattern = params.pattern
+        regex = params.regex
+        cs = params.case_sensitive
+        use_opts = params.use_opts
+        search_string = params.search_string
+        separator = params.separator
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
         # Explicit regex / case control (opt-in): a direct SearchDescriptor find that bypasses the
         # default lenient matcher, so "search with options then replace" agrees with search_in_document.
+        ranges = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=True)
+        if not ranges:
+            return self._finish_search_miss(
+                doc, search_string, pattern, regex, cs,
+                track_reviewable, plain, all_matches=True)
+        max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
+        # Decide before any replace. An empty replacement that is the last text
+        # in a table deletes the table instead of leaving an empty shell; those
+        # matches are not also cleared as text (that would add a second redline).
+        doomed = writer_tables_emptied_by_matches(ranges, content)
+        doomed_names = {name for _table, name in doomed}
+        if doomed_names:
+            anchor_range = next((item for item in ranges if _table_and_name(item)[1] not in doomed_names), None)
+            anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
+        else:
+            anchor = collapsed_anchor(ranges[0])
+        changes_before = len(session.changes)
+        count = 0
+        link_failure_holder: list[dict[str, Any] | None] = [None]
+        link_reports: list[dict[str, Any]] = []
+        tracked_delete_box = [False]
 
-        all_matches = kwargs.get("all_matches", False)
-        if all_matches:
-            ranges = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=True)
-            if not ranges:
-                return self._finish_search_miss(
-                    doc, search_string, pattern, regex, cs,
-                    track_reviewable, plain, all_matches=True), session
-            max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
-            # Decide before any replace. An empty replacement that is the last text
-            # in a table deletes the table instead of leaving an empty shell; those
-            # matches are not also cleared as text (that would add a second redline).
-            doomed = writer_tables_emptied_by_matches(ranges, content)
-            doomed_names = {name for _table, name in doomed}
-            if doomed_names:
-                anchor_range = next((item for item in ranges if _table_and_name(item)[1] not in doomed_names), None)
-                anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
-            else:
-                anchor = collapsed_anchor(ranges[0])
-            changes_before = len(session.changes)
-            count = 0
-            link_failure_holder: list[dict[str, Any] | None] = [None]
-            link_reports: list[dict[str, Any]] = []
-            tracked_delete_box = [False]
-
-            def mutate() -> None:
-                nonlocal count
-                with session:
-                    for found in reversed(ranges):
-                        if doomed_names and _table_and_name(found)[1] in doomed_names:
-                            continue
-                        found = _grow_over_edge_space(found, separator)
-                        # batch=True: this loop already holds the undo context, so the
-                        # outline URL write stays in the same Ctrl+Z as the text.
-                        reports, link_err = self._replace_found(
-                            session, doc, found, use_preserve=use_preserve,
-                            content=content, ctx=ctx,
-                            track_reviewable=track_reviewable, override=override, batch=True,
-                            plain=plain)
-                        if link_err:
-                            link_failure_holder[0] = link_err
-                            raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
-                        if reports:
-                            link_reports.extend(reports)
-                        count += 1
-                    if doomed:
-                        tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
-
-            try:
-                outcome = commit_or_rollback(
-                    doc,
-                    next_agent_edit_undo_title(),
-                    mutate,
-                    session=session,
-                )
-            except UndoUnavailable:
-                return self._tool_error(
-                    "Cannot apply all_matches atomically (no usable undo context); "
-                    "refusing rather than risk a half-applied edit.",
-                    code="UNDO_UNAVAILABLE"), session
-            if outcome.mutate_error is not None:
-                e = outcome.mutate_error
-                log.exception("apply_document_content all_matches failed mid-batch")
-                payload: dict[str, Any]
-                if isinstance(e, ToolExecutionError):
-                    payload = format_error_payload(e)
-                elif link_failure_holder[0] is not None:
-                    payload = dict(link_failure_holder[0])
-                else:
-                    payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR"}
-                is_rolled_back = bool(outcome.rolled_back or len(session.changes) == changes_before)
-                if is_rolled_back:
-                    payload["message"] = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, e)
-                else:
-                    payload["message"] = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, e)
-                payload["replaced_count"] = 0
-                payload["partial_failure"] = True
-                payload["attempted"] = count
-                return payload, session
-
-            err = outcome.error
-            if err is not None and err.get("code") == "ROLLBACK_FAILED":
-                cause_msg = err.get("message", "unknown error")
-                msg = (
-                    "all_matches aborted after %d replacement(s); the document could not be "
-                    "rolled back and may be partially edited (%s)."
-                ) % (count, cause_msg)
-                payload = {
-                    "status": "error",
-                    "code": "TOOL_EXECUTION_ERROR",
-                    "message": msg,
-                    "replaced_count": count,
-                    "partial_failure": True,
-                    "attempted": count,
-                }
-                return payload, session
-
-            tracked_delete = tracked_delete_box[0]
-            if doomed and count == 0:
-                resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
-            else:
-                resp = build_search_replace_response(count, use_preserve=use_preserve)
-                if max_limit_hit:
-                    resp["message"] += f" Note: Replacement stopped at the safety limit of {search_mod.MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
-                if count > 1:
-                    resp["message"] += " edited_context shows the first occurrence's neighborhood."
+        def mutate() -> None:
+            nonlocal count
+            with session:
+                for found in reversed(ranges):
+                    if doomed_names and _table_and_name(found)[1] in doomed_names:
+                        continue
+                    found = _grow_over_edge_space(found, separator)
+                    # batch=True: this loop already holds the undo context, so the
+                    # outline URL write stays in the same Ctrl+Z as the text.
+                    reports, link_err = self._replace_found(
+                        session, doc, found, use_preserve=use_preserve,
+                        content=content, ctx=ctx,
+                        track_reviewable=track_reviewable, override=override, batch=True,
+                        plain=plain)
+                    if link_err:
+                        link_failure_holder[0] = link_err
+                        raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
+                    if reports:
+                        link_reports.extend(reports)
+                    count += 1
                 if doomed:
-                    deletion = _table_deletion_result([name for _table, name in doomed], tracked_delete)
-                    resp["table_deleted"] = deletion["table_deleted"]
-                    if "pending_review" in deletion:
-                        resp["pending_review"] = deletion["pending_review"]
-                    resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
-            self._attach_hyperlink_reports(resp, link_reports)
-            return attach_edited_context(resp, anchor), session
+                    tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
+
+        try:
+            outcome = commit_or_rollback(
+                doc,
+                next_agent_edit_undo_title(),
+                mutate,
+                session=session,
+            )
+        except UndoUnavailable:
+            return self._tool_error(
+                "Cannot apply all_matches atomically (no usable undo context); "
+                "refusing rather than risk a half-applied edit.",
+                code="UNDO_UNAVAILABLE")
+        if outcome.mutate_error is not None:
+            e = outcome.mutate_error
+            log.exception("apply_document_content all_matches failed mid-batch")
+            payload: dict[str, Any]
+            if isinstance(e, ToolExecutionError):
+                payload = format_error_payload(e)
+            elif link_failure_holder[0] is not None:
+                payload = dict(link_failure_holder[0])
+            else:
+                payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR"}
+            is_rolled_back = bool(outcome.rolled_back or len(session.changes) == changes_before)
+            if is_rolled_back:
+                payload["message"] = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, e)
+            else:
+                payload["message"] = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, e)
+            payload["replaced_count"] = 0
+            payload["partial_failure"] = True
+            payload["attempted"] = count
+            return payload
+
+        err = outcome.error
+        if err is not None and err.get("code") == "ROLLBACK_FAILED":
+            cause_msg = err.get("message", "unknown error")
+            msg = (
+                "all_matches aborted after %d replacement(s); the document could not be "
+                "rolled back and may be partially edited (%s)."
+            ) % (count, cause_msg)
+            payload = {
+                "status": "error",
+                "code": "TOOL_EXECUTION_ERROR",
+                "message": msg,
+                "replaced_count": count,
+                "partial_failure": True,
+                "attempted": count,
+            }
+            return payload
+
+        tracked_delete = tracked_delete_box[0]
+        if doomed and count == 0:
+            resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
+        else:
+            resp = build_search_replace_response(count, use_preserve=use_preserve)
+            if max_limit_hit:
+                resp["message"] += f" Note: Replacement stopped at the safety limit of {search_mod.MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
+            if count > 1:
+                resp["message"] += " edited_context shows the first occurrence's neighborhood."
+            if doomed:
+                deletion = _table_deletion_result([name for _table, name in doomed], tracked_delete)
+                resp["table_deleted"] = deletion["table_deleted"]
+                if "pending_review" in deletion:
+                    resp["pending_review"] = deletion["pending_review"]
+                resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
+        self._attach_hyperlink_reports(resp, link_reports)
+        return attach_edited_context(resp, anchor)
+
+    def _edit_search(
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+    ) -> dict[str, Any]:
+        if params.all_matches:
+            return self._edit_replace_all(ctx, session, params)
+        doc = ctx.doc
+        occurrence = params.occurrence
+        pattern = params.pattern
+        regex = params.regex
+        cs = params.case_sensitive
+        use_opts = params.use_opts
+        search_string = params.search_string
+        plain = params.plain
+        track_reviewable = params.track_reviewable
+        position = params.position
         if occurrence is not None:
             # Index the same replaceable list the edit path uses. Empty ranges fall
             # through to the existing miss / drawing-shape path (models often send 0).
             ranges = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=True)
             if ranges and occurrence >= len(ranges):
-                return self._occurrence_oor(occurrence, len(ranges)), session
+                return self._occurrence_oor(occurrence, len(ranges))
             found = ranges[occurrence] if ranges else None
         else:
             found = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=False)
         if found is None:
             return self._finish_search_miss(
                 doc, search_string, pattern, regex, cs,
-                track_reviewable, plain, all_matches=False), session
+                track_reviewable, plain, all_matches=False)
         if position in ("before", "after"):
-            # INSERT next to the match instead of replacing it: the single most common petition
-            # edit ("add a paragraph after clause X") previously forced resending the clause
-            # itself in content — which in record/wait rendered as a tracked delete+reinsert of
-            # text nobody touched. Collapse a cursor at the match edge and run the normal
-            # HTML-import insert there; only the genuinely new text enters the review record.
-            #
-            # Two guarded gaps (clear error beats an opaque failure; the atomic wrapper would
-            # roll back either way): math segments are not wired into the next-to-match insert
-            # below, and the HTML import path is not cell-safe (same nested-XText hazard the
-            # replace path detects).
-            if format_support.html_fragment_contains_mixed_math(str(content)):
-                return self._tool_error(
-                    "position='before'/'after' does not support content with math segments yet; "
-                    "use position='replace' including the math, or target='end'."), session
-            # TextTable is None outside a cell. A throw is a closed document;
-            # do not treat it as "not a cell" and run the cell-unsafe import.
-            in_cell = found.getText().createTextCursorByRange(
-                found.getStart()).getPropertyValue("TextTable") is not None
-            if in_cell:
-                return self._tool_error(
-                    "position='before'/'after' next to a match inside a table cell is not "
-                    "supported yet; use position='replace' with plain text, or rewrite the "
-                    "cell content."), session
-            # Inline content goes in at the exact match edge without a <p>.
-            # Block content (<p>, headings, tables) imported mid-paragraph
-            # splits the host paragraph, and LibreOffice merges the first
-            # imported block into the text before the cursor: anchoring on
-            # the end of "4. CABIMENTO ... EM DOBRO" leaves "4. CABIMENTO
-            # NOVA SECAO A" / "NOVA SECAO B" / "EM DOBRO", and even
-            # position='after' on the last words of a paragraph glues the
-            # new paragraph onto it. Plain text wrapped in <p> first splits
-            # the paragraph too. Block content goes between paragraphs --
-            # before the anchor's paragraph, or into a fresh paragraph
-            # opened right after it. A line break is a paragraph too: plain
-            # "Novo A\n\nNovo B" on the inline path goes in as manual line
-            # breaks glued onto the matched paragraph.
-            # Invariant: only real newlines make plain content a block; literal backslash-n in markup does not.
-            if use_preserve:
-                is_block = "\n" in content
+            return self._edit_insert_next_to_match(ctx, session, params, found)
+        return self._edit_replace_one(ctx, session, params, found)
+
+    def _edit_insert_next_to_match(
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
+    ) -> dict[str, Any]:
+        from . import html_import as format_support
+        doc = ctx.doc
+        content = params.content
+        plain = params.plain
+        use_preserve = params.use_preserve
+        has_table = params.has_table
+        occurrence = params.occurrence
+        position = params.position
+        # INSERT next to the match instead of replacing it: the single most common petition
+        # edit ("add a paragraph after clause X") previously forced resending the clause
+        # itself in content — which in record/wait rendered as a tracked delete+reinsert of
+        # text nobody touched. Collapse a cursor at the match edge and run the normal
+        # HTML-import insert there; only the genuinely new text enters the review record.
+        #
+        # Two guarded gaps (clear error beats an opaque failure; the atomic wrapper would
+        # roll back either way): math segments are not wired into the next-to-match insert
+        # below, and the HTML import path is not cell-safe (same nested-XText hazard the
+        # replace path detects).
+        if format_support.html_fragment_contains_mixed_math(str(content)):
+            return self._tool_error(
+                "position='before'/'after' does not support content with math segments yet; "
+                "use position='replace' including the math, or target='end'.")
+        # TextTable is None outside a cell. A throw is a closed document;
+        # do not treat it as "not a cell" and run the cell-unsafe import.
+        in_cell = found.getText().createTextCursorByRange(
+            found.getStart()).getPropertyValue("TextTable") is not None
+        if in_cell:
+            return self._tool_error(
+                "position='before'/'after' next to a match inside a table cell is not "
+                "supported yet; use position='replace' with plain text, or rewrite the "
+                "cell content.")
+        # Inline content goes in at the exact match edge without a <p>.
+        # Block content (<p>, headings, tables) imported mid-paragraph
+        # splits the host paragraph, and LibreOffice merges the first
+        # imported block into the text before the cursor: anchoring on
+        # the end of "4. CABIMENTO ... EM DOBRO" leaves "4. CABIMENTO
+        # NOVA SECAO A" / "NOVA SECAO B" / "EM DOBRO", and even
+        # position='after' on the last words of a paragraph glues the
+        # new paragraph onto it. Plain text wrapped in <p> first splits
+        # the paragraph too. Block content goes between paragraphs --
+        # before the anchor's paragraph, or into a fresh paragraph
+        # opened right after it. A line break is a paragraph too: plain
+        # "Novo A\n\nNovo B" on the inline path goes in as manual line
+        # breaks glued onto the matched paragraph.
+        # Invariant: only real newlines make plain content a block; literal backslash-n in markup does not.
+        if use_preserve:
+            is_block = "\n" in content
+        else:
+            is_block = format_support._content_has_block_markup(str(content)) or "\n" in str(content)
+        text_obj = found.getText()
+        if is_block:
+            insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
+        else:
+            edge = found.getStart() if position == "before" else found.getEnd()
+            insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
+
+        tables_before = _doc_table_count(doc) if has_table else None
+
+        def _insert_next_to_match() -> None:
+            if not is_block:
+                format_support.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content))
+            elif position != "after":
+                format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
             else:
-                is_block = format_support._content_has_block_markup(str(content)) or "\n" in str(content)
-            text_obj = found.getText()
-            if is_block:
-                insert_cursor, snapped = _paragraph_boundary_cursor(text_obj, found, position)
-            else:
-                edge = found.getStart() if position == "before" else found.getEnd()
-                insert_cursor, snapped = text_obj.createTextCursorByRange(edge), False
+                # Importing at a paragraph END merges the first block into that paragraph; at a
+                # paragraph START it does not. Open an empty paragraph and import at its start.
+                text_obj.insertControlCharacter(insert_cursor, _PARAGRAPH_BREAK, False)
+                # The import puts every block (each with its own break) BEFORE that paragraph,
+                # which is then left over empty. This cursor stays at its start through the
+                # import (checked live, also with a table next and at the end of the text).
+                leftover = text_obj.createTextCursorByRange(insert_cursor.getStart())
+                format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
+                leftover.gotoEndOfParagraph(True)
+                if leftover.getString() == "":
+                    # Delete the last imported block's break; a tracked insertion swallows it.
+                    # Only drop a real break: after a table, goLeft(1) selects the table.
+                    leftover.collapseToStart()
+                    if leftover.goLeft(1, True):
+                        if leftover.getString() == "\n":
+                            leftover.setString("")
+                        else:
+                            leftover.collapseToEnd()
+            if self._table_insert_error(doc, has_table, tables_before):
+                raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
-            tables_before = _doc_table_count(doc) if has_table else None
+        anchor = collapsed_anchor(found)
+        with session:
+            record_html_atomically(
+                session, doc, _insert_next_to_match,
+                proposed_preview=plain)
+        where = ("%s the paragraph that contains the match (block content cannot go mid-paragraph "
+                 "without splitting it)" % position) if snapped else "%s the old_content match" % position
+        insert_resp: dict[str, object] = {
+            "status": "ok",
+            "message": "Inserted content %s (matched text left untouched)." % where,
+            "inserted": True,
+            "position": position,
+        }
+        if snapped:
+            insert_resp["snapped_to_paragraph"] = True
+        if occurrence is not None:
+            insert_resp["occurrence"] = occurrence
+        return attach_edited_context(insert_resp, anchor)
 
-            def _insert_next_to_match() -> None:
-                if not is_block:
-                    format_support.insert_inline_at_cursor(doc, ctx.ctx, insert_cursor, str(content))
-                elif position != "after":
-                    format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
-                else:
-                    # Importing at a paragraph END merges the first block into that paragraph; at a
-                    # paragraph START it does not. Open an empty paragraph and import at its start.
-                    text_obj.insertControlCharacter(insert_cursor, _PARAGRAPH_BREAK, False)
-                    # The import puts every block (each with its own break) BEFORE that paragraph,
-                    # which is then left over empty. This cursor stays at its start through the
-                    # import (checked live, also with a table next and at the end of the text).
-                    leftover = text_obj.createTextCursorByRange(insert_cursor.getStart())
-                    format_support.insert_html_at_cursor(doc, ctx.ctx, insert_cursor, content, apply_styles=False)
-                    leftover.gotoEndOfParagraph(True)
-                    if leftover.getString() == "":
-                        # Delete the last imported block's break; a tracked insertion swallows it.
-                        # Only drop a real break: after a table, goLeft(1) selects the table.
-                        leftover.collapseToStart()
-                        if leftover.goLeft(1, True):
-                            if leftover.getString() == "\n":
-                                leftover.setString("")
-                            else:
-                                leftover.collapseToEnd()
-                if self._table_insert_error(doc, has_table, tables_before):
-                    raise ToolExecutionError(_TABLE_INSERT_FAILED_MSG, code="TABLE_INSERT_FAILED")
 
-            anchor = collapsed_anchor(found)
-            with session:
-                record_html_atomically(
-                    session, doc, _insert_next_to_match,
-                    proposed_preview=plain)
-            where = ("%s the paragraph that contains the match (block content cannot go mid-paragraph "
-                     "without splitting it)" % position) if snapped else "%s the old_content match" % position
-            insert_resp: dict[str, object] = {
-                "status": "ok",
-                "message": "Inserted content %s (matched text left untouched)." % where,
-                "inserted": True,
-                "position": position,
-            }
-            if snapped:
-                insert_resp["snapped_to_paragraph"] = True
-            if occurrence is not None:
-                insert_resp["occurrence"] = occurrence
-            return attach_edited_context(insert_resp, anchor), session
-
-        found = _grow_over_edge_space(found, separator)
+    def _edit_replace_one(
+        self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
+    ) -> dict[str, Any]:
+        doc = ctx.doc
+        found = _grow_over_edge_space(found, params.separator)
         # Anchor BEFORE the mutation: the found range's content is replaced (HTML path even
         # deletes-then-imports). edited_context uses this collapsed start. A preserve-format
         # replace's per-character setString pushes a cursor saved here forward, so the
@@ -1373,24 +1495,24 @@ class ApplyDocumentContent(ToolBase):
         # is only part of its cell) falls through to the text replace
         # below. Same delete path as table_delete, inside this edit's
         # review session.
-        tables_before = _doc_table_count(doc) if has_table else None
-        doomed = writer_tables_emptied_by_matches([found], content)
+        tables_before = _doc_table_count(doc) if params.has_table else None
+        doomed = writer_tables_emptied_by_matches([found], params.content)
         if doomed:
             with session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
-            return _table_deletion_result([name for _table, name in doomed], tracked_delete), session
+            return _table_deletion_result([name for _table, name in doomed], tracked_delete)
         reports, link_err = self._replace_found(
-            session, doc, found, use_preserve=use_preserve,
-            content=content, ctx=ctx,
-            track_reviewable=track_reviewable, override=override, batch=False,
-            plain=plain)
+            session, doc, found, use_preserve=params.use_preserve,
+            content=params.content, ctx=ctx,
+            track_reviewable=params.track_reviewable, override=params.override, batch=False,
+            plain=params.plain)
         if link_err:
-            return link_err, session
-        resp = build_search_replace_response(1, use_preserve=use_preserve)
-        if occurrence is not None:
-            resp["occurrence"] = occurrence
-        err = self._table_insert_error(doc, has_table, tables_before)
+            return link_err
+        resp = build_search_replace_response(1, use_preserve=params.use_preserve)
+        if params.occurrence is not None:
+            resp["occurrence"] = params.occurrence
+        err = self._table_insert_error(doc, params.has_table, tables_before)
         if err:
-            return err, session
+            return err
         self._attach_hyperlink_reports(resp, reports or [])
-        return attach_edited_context(resp, anchor), session
+        return attach_edited_context(resp, anchor)
