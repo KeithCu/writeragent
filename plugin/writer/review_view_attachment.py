@@ -368,22 +368,10 @@ def modify_listener_map() -> dict[str, Any]:
         }
 
 
-def toolbar_docked_keys() -> set[str]:
-    with _lock:
-        return {key for key, att in _attachments.items() if att.toolbar_docked}
-
-
 def mark_toolbar_docked(model: Any) -> None:
     attachment = _get_or_create(model)
     with _lock:
         attachment.toolbar_docked = True
-
-
-def is_toolbar_docked(model: Any) -> bool:
-    key = attachment_key(model)
-    with _lock:
-        attachment = _attachments.get(key)
-        return bool(attachment and attachment.toolbar_docked)
 
 
 def _on_view_event(controller: Any) -> None:

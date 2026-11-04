@@ -580,7 +580,7 @@ def test_document_for_script_session_stops_on_magicmock_enum() -> None:
     enum.nextElement.assert_not_called()
 
 
-def test_document_for_script_session_accepts_has_more_integer_one() -> None:
+def test_document_for_script_session_walks_bool_has_more() -> None:
     from unittest.mock import MagicMock, patch
 
     first = MagicMock()
@@ -588,7 +588,7 @@ def test_document_for_script_session_accepts_has_more_integer_one() -> None:
     second = MagicMock()
     second.getURL.return_value = "file:///other.ods"
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = [1, 1, False]
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [first, second]
     comps = MagicMock()
     comps.createEnumeration.return_value = enum

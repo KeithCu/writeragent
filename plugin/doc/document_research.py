@@ -21,7 +21,7 @@ from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, uno_read, user_stopped_payload
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
-from plugin.framework.uno_context import resolve_document_by_url
+from plugin.framework.uno_context import enum_has_more, resolve_document_by_url
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
 if TYPE_CHECKING:
@@ -663,8 +663,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     # this from list_v1_peers / chat prompts with ctx=MagicMock().
     while enum is not None:
         try:
-            more = enum.hasMoreElements()
-            if more is not True and more != 1:
+            if not enum_has_more(enum):
                 break
             elem = enum.nextElement()
         except Exception as exc:
