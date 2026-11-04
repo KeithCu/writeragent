@@ -16,7 +16,7 @@ import math
 import warnings
 import re
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, cast, overload
 
 from plugin.framework.deal_shim import deal
 from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
@@ -693,8 +693,11 @@ def auto_numeric(
     flags: list[str] | None = None,
 ) -> list[Any]:
     if requested is not None:
-        return numeric_columns(df, requested)
-    # What was wrong: numeric_columns stringifies labels, so column 0 became "0"
+        resolved = resolve_columns(df, requested, numeric=False)
+        if isinstance(resolved, dict):
+            raise ValueError(resolved["message"])
+        return resolved
+    # What was wrong: auto path used stringified labels, so column 0 became "0"
     # and df["0"] raised KeyError on a DataFrame passed into the helper. Skipped
     # date and id columns were also silent, so a scheduling solve could drop a
     # real cost column and still return status: ok.
@@ -733,6 +736,26 @@ def column_by_label(df: Any, name: Any) -> Any:
         if str(col) == name_str:
             return col
     return None
+
+
+@overload
+def resolve_columns(
+    df: Any,
+    requested: None = None,
+    *,
+    numeric: bool = False,
+    helper: str | None = None,
+) -> list[Any]: ...
+
+
+@overload
+def resolve_columns(
+    df: Any,
+    requested: Any,
+    *,
+    numeric: bool = False,
+    helper: str | None = None,
+) -> list[Any] | dict[str, Any]: ...
 
 
 def resolve_columns(
@@ -785,26 +808,6 @@ def resolve_columns(
 
             return error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
 
-    return matched
-
-
-def numeric_columns(df: Any, columns: Any = None) -> list[Any]:
-    """Return *columns* when given (an empty list returns []), else all numeric column names. Unknown names raise."""
-    # Return select_dtypes labels as-is (int columns stay int, not str() "0").
-    if columns is None:
-        return list(df.select_dtypes(include="number").columns)
-    if isinstance(columns, (str, int, float)):
-        columns = [columns]
-    matched: list[Any] = []
-    missing: list[str] = []
-    for c in columns:
-        col = column_by_label(df, c)
-        if col is None:
-            missing.append(str(c))
-        else:
-            matched.append(col)
-    if missing:
-        raise ValueError(f"Unknown columns: {', '.join(missing)}")
     return matched
 
 

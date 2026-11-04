@@ -297,7 +297,7 @@ Returning a DataFrame (or named Series) uses the existing `dataframe` envelope (
 | **0-row** DataFrame | **Header only** (column names, no body) |
 | Named empty Series | Header-only one-column grid |
 | Unnamed empty Series | Empty (`""`) |
-| MultiIndex **columns** | Flattened labels `A / x` (not `"('A', 'x')"`) |
+| MultiIndex **columns** | Flattened labels `A / x` (not `"('A', 'x')"`). Blank and `None` levels are omitted and parts are stripped; a pandas `NaN` level stays the word `nan`; an all-blank tuple name is `value`. |
 | MultiIndex **rows** / index | **Dropped** (`itertuples(index=False)`). Call `reset_index()` in the script if the index should appear as a column. |
 | Categorical columns | Category **labels** (strings or codes already in the Series), not a special dtype on the wire |
 

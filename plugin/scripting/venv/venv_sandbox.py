@@ -20,7 +20,6 @@ import ast
 import copy
 from collections import OrderedDict
 import hashlib
-import importlib
 import logging
 import math
 import os
@@ -59,6 +58,7 @@ from plugin.scripting.payload_codec import (
     is_split_grid,
 )
 from plugin.scripting.venv.to_wire import _figure_to_image_payload, to_wire
+from plugin.scripting.venv import optional_import
 from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.framework.ipc import UserStopped
 from plugin.framework.constants import auto_imports
@@ -178,7 +178,19 @@ def _reset_session_duckdb(session_id: str | None) -> None:
     reset_session_duckdb(session_id)
 
 
-def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
+def _host_scoped_dir(bindings: dict[str, Any] | None) -> str | None:
+    if not isinstance(bindings, dict):
+        return None
+    raw_folder = bindings.get("scoped_dir")
+    if isinstance(raw_folder, str) and raw_folder.strip():
+        return raw_folder
+    return None
+
+
+def _inject_session_duckdb(
+    executor: LocalPythonExecutor,
+    host_scoped_dir: str | None,
+) -> None:
     """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers ship."""
     try:
         from plugin.scripting.venv.duckdb_sql import (
@@ -194,9 +206,8 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     # code — and do not read executor.state["scoped_dir"] again. The cell can
     # assign scoped_dir before calling run_sql, and resolve_flat_file_path
     # would then accept files under that folder. run_sandboxed_code drops a
-    # previous execute's scoped_dir before bindings, so this read is only the
+    # previous execute's scoped_dir before bindings, so this value is only the
     # folder this execute actually bound.
-    host_scoped_dir = executor.state.get("scoped_dir")
     if not isinstance(host_scoped_dir, str) or not host_scoped_dir.strip():
         host_scoped_dir = None
 
@@ -283,13 +294,14 @@ class CellNamespace:
         code: str = "",
         data: Any = None,
         bindings: dict[str, Any] | None = None,
+        host_scoped_dir: str | None = None,
     ) -> None:
         inject_auto_imports(self.executor, code)
         ranges = _inject_data(self.executor, data)
         _inject_excel_xl(self.executor, ranges)
         self.executor.state.pop("scoped_dir", None)
         _inject_bindings(self.executor, bindings)
-        _inject_session_duckdb(self.executor)
+        _inject_session_duckdb(self.executor, host_scoped_dir)
 
 
 def _code_says_imported(code: str, module_name: str) -> bool:
@@ -300,35 +312,6 @@ def _auto_import_alias(module_name: str, import_stmt: str) -> str:
     if " as " in import_stmt:
         return import_stmt.rsplit(" as ", 1)[-1].strip()
     return module_name
-
-
-# RLock: a module that calls optional_module during its own import on this
-# thread must re-enter. A plain Lock deadlocks there. The nested call then
-# takes the "still initializing → None" path inside the lock.
-_OPTIONAL_MODULE_LOCK = threading.RLock()
-
-
-def optional_module(name: str) -> Any | None:
-    if name in sys.modules:
-        mod = sys.modules[name]
-        spec = getattr(mod, "__spec__", None)
-        if spec is None or not getattr(spec, "_initializing", False):
-            return mod
-    with _OPTIONAL_MODULE_LOCK:
-        if name in sys.modules:
-            mod = sys.modules[name]
-            spec = getattr(mod, "__spec__", None)
-            if spec is None or not getattr(spec, "_initializing", False):
-                return mod
-            # import_module returns the partial module already in sys.modules
-            # while spec._initializing is set, so holding the lock does not
-            # mean the import has finished. Another thread still owns it.
-            # None is "not ready", same as the check above the lock.
-            return None
-        try:
-            return importlib.import_module(name)
-        except Exception:
-            return None
 
 
 def apply_auto_imports(code: str) -> tuple[str, int]:
@@ -344,7 +327,7 @@ def apply_auto_imports(code: str) -> tuple[str, int]:
             if scanned is None
             else _code_imports_module(scanned[1], module_name)
         )
-        if not imported_already and optional_module(module_name) is not None:
+        if not imported_already and optional_import.optional_module(module_name) is not None:
             prepended_lines.append(import_stmt)
     if not prepended_lines:
         return code, 0
@@ -428,7 +411,7 @@ def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
             else _code_imports_module(imported, module_name)
         )
         if not already:
-            mod = optional_module(module_name)
+            mod = optional_import.optional_module(module_name)
             if mod is not None:
                 bindings[alias] = mod
     if bindings:
@@ -465,7 +448,7 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
     # here would cost the multi-second font cache load on non-plot cells.
     if "matplotlib.pyplot" not in sys.modules:
         return None, ""
-    plt_mod = optional_module("matplotlib.pyplot")
+    plt_mod = optional_import.optional_module("matplotlib.pyplot")
     if plt_mod is None:
         return None, ""
     fignums = plt_mod.get_fignums()
@@ -855,7 +838,7 @@ def _ensure_mpl_agg() -> None:
     global _MPL_AGG_SET, _MPL_AGG_FAILED
     if _MPL_AGG_SET or _MPL_AGG_FAILED:
         return
-    mpl = optional_module("matplotlib")
+    mpl = optional_import.optional_module("matplotlib")
     if mpl is not None and hasattr(mpl, "use"):
         try:
             mpl.use("Agg")
@@ -922,7 +905,7 @@ def _is_mpl_artist_result(obj: Any) -> bool:
 def _close_open_figures() -> None:
     if "matplotlib.pyplot" not in sys.modules:
         return
-    plt_mod = optional_module("matplotlib.pyplot")
+    plt_mod = optional_import.optional_module("matplotlib.pyplot")
     if plt_mod is None:
         return
     try:
@@ -1195,11 +1178,7 @@ def run_sandboxed_code(
     # session_duckdb().execute does not receive scoped_dir; the jail reads
     # this variable. It is set before _ensure_init_executed and _run_on_executor,
     # so the timeout fallback's copy_context() already carries it.
-    host_folder: str | None = None
-    if isinstance(bindings, dict):
-        raw_folder = bindings.get("scoped_dir")
-        if isinstance(raw_folder, str) and raw_folder.strip():
-            host_folder = raw_folder
+    host_folder = _host_scoped_dir(bindings)
     dir_token = _CURRENT_SANDBOX_SCOPED_DIR.set(host_folder)
 
     relaxed_roots = policy_relaxed_roots(policy)
@@ -1252,7 +1231,7 @@ def run_sandboxed_code(
             return err
         executor.timeout_seconds = left
 
-        ns.bind(code=code, data=data, bindings=bindings)
+        ns.bind(code=code, data=data, bindings=bindings, host_scoped_dir=host_folder)
         raw = _run_on_executor(executor, code, force=force)
         if session_id:
             raw["namespace_created"] = created

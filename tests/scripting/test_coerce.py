@@ -196,10 +196,10 @@ def test_table_from_df_nan_is_none():
 
 def test_numeric_columns_string_is_one_name():
     import pandas as pd
-    from plugin.scripting.venv.coerce import numeric_columns
+    from plugin.scripting.venv.coerce import resolve_columns
 
     df = pd.DataFrame({"AAPL": [1.0, 2.0], "MSFT": [3.0, 4.0]})
-    cols = numeric_columns(df, "AAPL")
+    cols = resolve_columns(df, "AAPL")
     assert cols == ["AAPL"]
 
 
@@ -359,24 +359,43 @@ def test_grid_dataframe_round_trip():
 
 def test_numeric_columns_empty_list_is_empty():
     import pandas as pd
-    from plugin.scripting.venv.coerce import numeric_columns
+    from plugin.scripting.venv.coerce import resolve_columns
 
     df = pd.DataFrame({"AAPL": [1.0, 2.0], "MSFT": [3.0, 4.0]})
-    assert numeric_columns(df, []) == []
-    assert numeric_columns(df, None) == ["AAPL", "MSFT"]
+    assert resolve_columns(df, []) == []
+    assert resolve_columns(df, numeric=True) == ["AAPL", "MSFT"]
+
+
+def test_resolve_columns_mixed_frame_numeric_and_explicit():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import resolve_columns
+
+    df = pd.DataFrame({"num": [1.0], "txt": ["a"]})
+    assert resolve_columns(df, numeric=True) == ["num"]
+    assert resolve_columns(df) == ["num", "txt"]
+    assert resolve_columns(df, ["txt"]) == ["txt"]
 
 
 def test_numeric_columns_integer_labels_keeps_original_type():
     import pandas as pd
-    from plugin.scripting.venv.coerce import numeric_columns
+    from plugin.scripting.venv.coerce import resolve_columns
 
-    # What was wrong: numeric_columns stringified labels on the auto path, so
-    # column 0 became "0" and df["0"] raised KeyError on integer-labelled frames.
+    # What was wrong: auto numeric path stringified labels, so column 0 became "0"
+    # and df["0"] raised KeyError on integer-labelled frames.
     df = pd.DataFrame([[1.0, 2.0], [3.0, 4.0]], columns=[0, 1])
-    cols = numeric_columns(df)
+    cols = resolve_columns(df, numeric=True)
     assert cols == [0, 1]
     assert all(isinstance(c, int) for c in cols)
-    assert numeric_columns(df, [0]) == [0]
+    assert resolve_columns(df, [0]) == [0]
+
+
+def test_auto_numeric_unknown_column_raises():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import auto_numeric
+
+    df = pd.DataFrame({"a": [1.0]})
+    with pytest.raises(ValueError, match="Unknown columns: nope"):
+        auto_numeric(df, ["nope"])
 
 
 def test_resolve_columns_integer_labels_and_flat_label():

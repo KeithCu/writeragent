@@ -21,6 +21,7 @@ PNG_MAGIC = b"\x89PNG"
 
 
 def test_ensure_mpl_agg_does_not_retry_after_use_failure(monkeypatch):
+    from plugin.scripting.venv import optional_import as oi
     from plugin.scripting.venv import venv_sandbox as vs
 
     calls = {"n": 0}
@@ -33,7 +34,7 @@ def test_ensure_mpl_agg_does_not_retry_after_use_failure(monkeypatch):
 
     monkeypatch.setattr(vs, "_MPL_AGG_SET", False)
     monkeypatch.setattr(vs, "_MPL_AGG_FAILED", False)
-    monkeypatch.setattr(vs, "optional_module", lambda name: _Mpl() if name == "matplotlib" else None)
+    monkeypatch.setattr(oi, "optional_module", lambda name: _Mpl() if name == "matplotlib" else None)
     vs._ensure_mpl_agg()
     assert vs._MPL_AGG_SET is False
     assert vs._MPL_AGG_FAILED is True
@@ -459,6 +460,27 @@ def test_serialize_result_small_object_ndarray_is_host_pickleable():
     assert back[-1] == BINARY_MIN_CELLS - 1
 
 
+def test_serialize_result_blank_multiindex_levels():
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.scripting.payload_codec import host_unpack_data, is_dataframe_payload
+
+    df = pd.DataFrame(
+        [[1, 2]],
+        columns=pd.MultiIndex.from_tuples([("Region", ""), ("A", " x ")]),
+    )
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["Region", "A / x"]
+
+    s = pd.Series([1], name=("", None))
+    res2 = serialize_result(s)
+    assert is_dataframe_payload(res2)
+    assert res2["columns"] == ["value"]
+    unpacked = host_unpack_data(res2)
+    assert unpacked["columns"] == ["value"]
+
+
 def test_serialize_result_multiindex_columns_and_categorical():
     """MultiIndex columns flatten to 'A / x'; row index is dropped; categoricals are labels."""
     pd = pytest.importorskip("pandas")
@@ -524,6 +546,7 @@ def test_serialize_set_and_frozenset_coercion():
 
 
 def test_capture_open_figures_closes_when_render_raises(monkeypatch):
+    from plugin.scripting.venv import optional_import as oi
     from plugin.scripting.venv import venv_sandbox as vs
 
     closed = {"n": 0}
@@ -542,7 +565,7 @@ def test_capture_open_figures_closes_when_render_raises(monkeypatch):
             assert what == "all"
             closed["n"] += 1
 
-    monkeypatch.setattr(vs, "optional_module", lambda name: _Plt() if name == "matplotlib.pyplot" else None)
+    monkeypatch.setattr(oi, "optional_module", lambda name: _Plt() if name == "matplotlib.pyplot" else None)
 
     def boom(fig, *, fmt="svg"):
         raise RuntimeError("bad figure")
