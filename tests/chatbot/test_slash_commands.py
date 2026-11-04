@@ -31,6 +31,7 @@ from plugin.chatbot.slash_commands import (
     SlashResult,
     SlashRun,
     effective_slash_run,
+    plan_slash,
     run_slash_command,
     run_slash_compact,
     slash_continues_send,
@@ -46,9 +47,9 @@ def _enable_mock_commands(monkeypatch):
 
 
 def _cmd(name: str):
-    from plugin.chatbot.slash_commands import _registry_map
+    from plugin.chatbot.slash_commands import get_slash_command
 
-    cmd = _registry_map().get(name)
+    cmd = get_slash_command(name)
     assert cmd is not None, name
     return cmd
 
@@ -401,7 +402,18 @@ def test_effective_slash_run_for_send_turn_commands():
 
 def test_slash_continues_send_proofread_without_host_is_false():
     proofread = next(c for c in SLASH_COMMANDS if c.name == "proofread")
-    assert slash_continues_send(proofread, SimpleNamespace(slash_document_model=lambda: object())) is False
+    host = SimpleNamespace(
+        slash_document_model=lambda: object(),
+        sidebar_state=SimpleNamespace(send=SimpleNamespace(is_busy=False)),
+    )
+    assert slash_continues_send(proofread, host) is False
+
+
+def test_plan_slash_matches_effective_slash_run():
+    summarize = next(c for c in SLASH_COMMANDS if c.name == "summarize")
+    model = object()
+    host = SimpleNamespace(slash_document_model=lambda: model)
+    assert plan_slash(summarize, host) == effective_slash_run(summarize, model)
 
 
 def test_run_translate_writer_no_selection_continues_send():
@@ -425,9 +437,12 @@ def test_slash_compact_returns_continue_for_send():
     host = SimpleNamespace(
         hide_popup=MagicMock(),
         clear_ask=MagicMock(),
+        slash_document_model=lambda: None,
     )
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+    with patch("plugin.chatbot.slash_commands.record_slash_lru") as record_lru:
         assert run_slash_command(_cmd("compact"), host, "budget") is SlashResult.CONTINUE_SEND
+    record_lru.assert_not_called()
+    host.hide_popup.assert_not_called()
 
 
 def test_slash_compact_busy_refuses():
@@ -959,11 +974,9 @@ def test_popup_runs_now_names():
             assert not slash_popup_runs_now(cmd), cmd.name
 
 
-def test_every_local_has_handler():
+def test_slash_registry_handler_invariant():
+    from plugin.chatbot.slash_commands import _SEND_TURN_RUNS
+
     for cmd in SLASH_COMMANDS + MOCK_SLASH_COMMANDS:
-        if cmd.run is SlashRun.LOCAL:
-            assert cmd.handler is not None, cmd.name
-    compact = next(c for c in SLASH_COMMANDS if c.name == "compact")
-    formula = next(c for c in SLASH_COMMANDS if c.name == "formula")
-    assert compact.handler is None
-    assert formula.handler is None
+        preset_kind = cmd.run in _SEND_TURN_RUNS or cmd.run is SlashRun.REWRITE
+        assert preset_kind != (cmd.handler is not None), cmd.name

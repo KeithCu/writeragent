@@ -2387,10 +2387,7 @@ def _slash_key_in_soffice(sl: Any, key_code: int, modifiers: int) -> None:
     popup.handle_key(int(key_code), int(modifiers))
 
 
-from plugin.chatbot.slash_commands import SlashHost
-
-
-class _UrpSlashHost(SlashHost):
+class _UrpSlashHost:
     """Stand-in SendButtonListener so the popup can run over URP without gc."""
 
     query_control: Any
@@ -2398,6 +2395,8 @@ class _UrpSlashHost(SlashHost):
     clear_listener: Any
     _stop: Any
     ctx: Any
+    cached_doc_type: str
+    cached_uno_services: Any
 
     def __init__(self, query: Any, response: Any, clear: Any, stop: Any, ctx: Any = None) -> None:
         self.ctx = ctx  # overlay position probe (SlashPopupController)
@@ -2405,7 +2404,12 @@ class _UrpSlashHost(SlashHost):
         self.response_control = response
         self.slash_popup: Any = None
         self._send_cancellation: Any = None
-        self.sidebar_state: Any = SimpleNamespace(tool_loop=None)
+        self.cached_doc_type = "writer"
+        self.cached_uno_services = None
+        self.sidebar_state: Any = SimpleNamespace(
+            tool_loop=None,
+            send=SimpleNamespace(is_busy=False),
+        )
         self.session: Any = None
         self.clear_listener = type(
             "ClearProxy",

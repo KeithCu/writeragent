@@ -1295,8 +1295,8 @@ class SendButtonListener(BaseActionListener):
         from plugin.chatbot.slash_commands import (
             SlashRun,
             build_slash_answer_query,
-            effective_slash_run,
             parse_slash_text,
+            plan_slash,
             run_slash_command,
             run_slash_compact,
             slash_answer_is_local_only,
@@ -1332,7 +1332,7 @@ class SendButtonListener(BaseActionListener):
         slash_transcript_line: str | None = None
         slash_sidebar_only = False
         if slash_cmd is not None:
-            eff = effective_slash_run(slash_cmd, model)
+            eff = plan_slash(slash_cmd, self)
             if eff is SlashRun.COMPACT:
                 run_slash_compact(self, slash_arg, cancel=self._send_cancellation)
                 return

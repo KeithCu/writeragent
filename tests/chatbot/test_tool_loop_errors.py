@@ -1444,3 +1444,10 @@ def test_stream_error_keeps_drain_only_for_spawned():
     assert stream_error_keeps_drain(StreamErrorOutcome.NOT_HANDLED) is False
     assert stream_error_keeps_drain(StreamErrorOutcome.END) is False
     assert (StreamErrorOutcome.SPAWNED is True) is False
+
+
+def test_on_stream_error_keeps_drain_bool_contract(test_instance):
+    with patch.object(test_instance, "_handle_stream_error", return_value=StreamErrorOutcome.SPAWNED):
+        assert test_instance._on_stream_error_keeps_drain({"message": "x"}) is True
+    with patch.object(test_instance, "_handle_stream_error", return_value=StreamErrorOutcome.END):
+        assert test_instance._on_stream_error_keeps_drain({"message": "x"}) is False

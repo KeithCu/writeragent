@@ -215,7 +215,13 @@ def _compact_bound_session(
 
 
 def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
-    """Native ``input_audio`` rejection: transcribe on this drain or decline handling."""
+    """Native ``input_audio`` rejection: transcribe on this drain or decline handling.
+
+    The chat POST already failed, so this must not re-enter
+    ``_do_send_chat_with_tools`` / ``_start_tool_calling_async`` (nested drain).
+    Model-catalog imports stay inside this function so importing ``tool_loop`` to
+    spawn a recording does not load the model fetcher.
+    """
     from plugin.audio.stt_service import uses_local_stt
     from plugin.framework.client.errors import is_400_input_validation, is_audio_unsupported_error
     from plugin.framework.client.model_fetcher import get_stt_model, set_native_audio_support
@@ -1006,6 +1012,10 @@ class ToolCallingMixin:
         clear_pending_audio_wav(self._panel)
         return StreamErrorOutcome.END
 
+    def _on_stream_error_keeps_drain(self, payload: Any) -> bool:
+        """Drain on_error contract: returning True keeps the drain; anything else ends it."""
+        return stream_error_keeps_drain(self._handle_stream_error(payload))
+
     def _on_tool_loop_approval_required(self, item: Any) -> None:
         """Main-thread handler: show inline Accept/Reject and unblock the tool worker."""
         if item[3] is not None:
@@ -1081,9 +1091,7 @@ class ToolCallingMixin:
                 self._panel._append_response,
                 on_stream_done=self._handle_stream_completion,
                 on_stopped=self._handle_stream_stopped,
-                # _handle_stream_error keeps the drain only when the callback is True.
-                # Enum members are not True — use stream_error_keeps_drain.
-                on_error=lambda payload: stream_error_keeps_drain(self._handle_stream_error(payload)),
+                on_error=self._on_stream_error_keeps_drain,
                 on_status_fn=self._panel._set_status,
                 cancel=self._panel._send_cancellation,
                 show_search_thinking=show_search_thinking,

@@ -57,6 +57,8 @@ class SlashHost(Protocol):
     ctx: Any
     session: Any
     sidebar_state: Any
+    cached_doc_type: Any
+    cached_uno_services: Any
     _send_cancellation: Any
     query_control: Any
 
@@ -205,9 +207,9 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "compact",
         N_("Compact older chat history now"),
-        run=SlashRun.COMPACT,
+        run=SlashRun.COMPACT,  # Send after _begin_send; run_slash_compact, not run_slash_command handler
         usage="/compact [focus]",
-        handler=None,
+        handler=None,  # COMPACT: no popup/local handler
     ),
     SlashCommand(
         "undo",
@@ -218,14 +220,12 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "formula",
         N_("Write a Calc formula from a plain-English description"),
-        run=SlashRun.FORMULA,
+        run=SlashRun.FORMULA,  # Send after _begin_send; panel run_slash_formula
         requires_arg=True,
         usage="/formula <description>",
-        handler=None,
+        handler=None,  # FORMULA: no popup/local handler
     ),
 )
-
-# ``/compact`` handler=None: Send after ``_begin_send`` is the only live path (see ``run_slash_compact``).
 
 # Echo-only stubs for the mock-LLM sidebar harness and prefix/LRU tests.
 # Never in the product list: only ``enable_mock_slash_commands()`` (called by
@@ -257,6 +257,14 @@ def registered_slash_commands() -> tuple[SlashCommand, ...]:
 
 def _registry_map() -> dict[str, SlashCommand]:
     return {c.name: c for c in registered_slash_commands()}
+
+
+def get_slash_command(name: str) -> SlashCommand | None:
+    """Lookup a registered command by name (without leading slash)."""
+    clean = (name or "").lstrip("/").strip().lower()
+    if not clean:
+        return None
+    return _registry_map().get(clean)
 
 
 def parse_slash_text(text: str) -> tuple[SlashCommand, str] | None:
@@ -486,18 +494,20 @@ def effective_slash_run(cmd: SlashCommand, model: Any | None) -> SlashRun:
     return cmd.run
 
 
+def plan_slash(cmd: SlashCommand, host: SlashHost) -> SlashRun:
+    """Resolved run for routing (Send turn vs local handler vs rewrite)."""
+    if cmd.run is not SlashRun.REWRITE:
+        return cmd.run
+    return effective_slash_run(cmd, host.slash_document_model())
+
+
 def slash_popup_runs_now(cmd: SlashCommand) -> bool:
     return cmd.run is SlashRun.LOCAL and not cmd.requires_arg
 
 
 def slash_continues_send(cmd: SlashCommand, host: SlashHost) -> bool:
     """True when Send must call ``_begin_send`` before finishing the command."""
-    if cmd.run in _SEND_TURN_RUNS:
-        return True
-    model = host.slash_document_model()
-    if model is not None and effective_slash_run(cmd, model) == SlashRun.ANSWER:
-        return True
-    return False
+    return plan_slash(cmd, host) in _SEND_TURN_RUNS
 
 
 def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
@@ -515,7 +525,7 @@ def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
 
 
 def _peek_slash_from_ask(host: SlashHost) -> tuple[SlashCommand, str] | None:
-    query = getattr(host, "query_control", None)
+    query = host.query_control
     if query is None or not query.getModel():
         return None
     from plugin.chatbot.dialogs import get_control_text
@@ -538,8 +548,7 @@ def try_dispatch_slash_on_send_click(host: SlashHost) -> bool:
     if parsed is None:
         return False
     cmd, arg = parsed
-    send_state = getattr(host, "sidebar_state", None)
-    busy = bool(send_state is not None and send_state.send.is_busy)
+    busy = host.sidebar_state.send.is_busy
     if busy:
         if cmd.name not in _SLASH_SAFE_WHILE_BUSY:
             return False
@@ -554,12 +563,12 @@ def tool_schemas_for_slash_compact(host: SlashHost, ctx: Any, session: Any) -> l
     from plugin.main import get_tools
 
     model = host.slash_document_model()
-    doc_type_str = getattr(host, "cached_doc_type", None) or "writer"
+    doc_type_str = host.cached_doc_type or "writer"
     active_domain = getattr(session, "active_specialized_domain", None)
     return get_tools().get_schemas(
         "openai",
         doc_type=doc_type_str,
-        uno_services_supported=getattr(host, "cached_uno_services", None),
+        uno_services_supported=host.cached_uno_services,
         active_domain=active_domain,
         ctx=ctx,
         doc=model,
@@ -613,6 +622,11 @@ def _compact_result_line(result: Any) -> str:
     return _("Compaction failed.")
 
 
+def _commit_slash_command(cmd: SlashCommand, host: SlashHost) -> None:
+    record_slash_lru(cmd.name)
+    host.hide_popup()
+
+
 def run_slash_command(
     cmd: SlashCommand,
     host: SlashHost,
@@ -623,32 +637,31 @@ def run_slash_command(
     """Run a registry command.
 
     Returns ``CONTINUE_SEND`` when Send must continue after ``_begin_send``
-    (answer presets, ``/compact``, ``/formula``, and effective-answer rewrites).
-    Returns ``HANDLED`` when the command is fully handled (including usage lines
-    and rewrites). Mocks echo ``slash: /name``. ``/stop`` does not clear Ask.
+    (see ``plan_slash`` and ``_SEND_TURN_RUNS``). Returns ``HANDLED`` when the
+    command is fully handled (including usage lines and rewrites).
     """
-    record_slash_lru(cmd.name)
-    host.hide_popup()
-
     if from_popup and not slash_popup_runs_now(cmd):
+        _commit_slash_command(cmd, host)
         _complete_ask_draft(host, cmd.name)
         return SlashResult.HANDLED
 
     if cmd.requires_arg and not (arg or "").strip():
+        _commit_slash_command(cmd, host)
         host.append_output("\n" + format_usage_line(cmd) + "\n")
         return SlashResult.HANDLED
 
-    if cmd.run is SlashRun.REWRITE:
-        model = host.slash_document_model()
-        if effective_slash_run(cmd, model) == SlashRun.ANSWER:
-            return SlashResult.CONTINUE_SEND
+    planned = plan_slash(cmd, host)
+
+    if planned in _SEND_TURN_RUNS:
+        return SlashResult.CONTINUE_SEND
+
+    if planned is SlashRun.REWRITE:
+        _commit_slash_command(cmd, host)
         _run_rewrite(host, cmd, arg)
         return SlashResult.HANDLED
 
-    if cmd.run in _SEND_TURN_RUNS:
-        return SlashResult.CONTINUE_SEND
-
     if cmd.handler is not None:
+        _commit_slash_command(cmd, host)
         cmd.handler(host, cmd, arg)
         return SlashResult.HANDLED
 

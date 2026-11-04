@@ -29,10 +29,10 @@ from typing import Any
 from plugin.chatbot.dialogs import get_control_text, set_control_text, set_control_visible
 from plugin.chatbot.slash_commands import (
     SlashCommand,
-    _registry_map,
     classify_slash_key,
     filter_slash_commands,
     format_slash_popup_item,
+    get_slash_command,
     load_slash_lru,
     parse_slash_text,
     run_slash_command,
@@ -640,9 +640,12 @@ class SlashPopupController:
             return
         _ovlog("accept_selected name=%s", name)
         arg = parsed[1] if parsed is not None and parsed[0].name == name else ""
+        cmd_obj = get_slash_command(name)
+        if cmd_obj is None:
+            return
         # Bugfix (QA B1): from_popup=True completes "/name " for presets instead of
         # running them with an empty argument from the partial filter text.
-        _defer_to_next_turn(lambda: run_slash_command(_registry_map()[name], host, arg, from_popup=True))
+        _defer_to_next_turn(lambda: run_slash_command(cmd_obj, host, arg, from_popup=True))
 
     def accept_row_at_y(self, y: int) -> bool:
         """Accept the command under mouse Y. Ignores chrome / off-list clicks."""
