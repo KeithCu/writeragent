@@ -130,7 +130,7 @@ flowchart TB
   subgraph loHost [LibreOffice host process]
     PY["=PY(code, data?)"]
     RPS[Run Python Script menu]
-    PF[python/recalc.py]
+    PF[python/function.py]
     PR[python_runner.py]
     TR[trusted_rpc.py]
     VW[venv_worker.py]
@@ -152,7 +152,7 @@ flowchart TB
   WH --> TD --> DOM
 ```
 
-**Recalc constraint:** `=PYTHON()` runs **synchronously** during Calc recalc. The implementation deliberately avoids UI event pumping on this path (see comments in [`recalc.py`](../../plugin/calc/python/recalc.py)) so the formula engine is not re-entered.
+**Recalc constraint:** `=PYTHON()` runs **synchronously** during Calc recalc. The implementation deliberately avoids UI event pumping on this path (see comments in [`function.py`](../../plugin/calc/python/function.py)) so the formula engine is not re-entered.
 
 **Config keys** (from [`plugin/scripting/module.yaml`](../../plugin/scripting/module.yaml)):
 
@@ -191,8 +191,8 @@ This closure **does not** call the LLM, chat panel, or MCP.
 
 ### 2. As-shipped module closure — WriterAgent (split complete)
 
-- **`=PY()` (WriterAgent):** register [`addin.py`](../../plugin/calc/python/addin.py) → [`recalc.py`](../../plugin/calc/python/recalc.py) and related spill/value modules (no `LlmClient`).
-- **`=PY()` (LibrePy):** register [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) → same `recalc.py` / `spill.py` modules.
+- **`=PY()` (WriterAgent):** register [`addin.py`](../../plugin/calc/python/addin.py) → [`function.py`](../../plugin/calc/python/function.py) and related spill/value modules (no `LlmClient`).
+- **`=PY()` (LibrePy):** register [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) → same `function.py` / `spill.py` modules.
 - **`=PROMPT()`:** register [`prompt_addin.py`](../../plugin/calc/prompt_addin.py) → loads [`prompt_function.py`](../../plugin/calc/prompt_function.py) (LLM stack). WriterAgent only.
 
 A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [Recommended refactors](#recommended-refactors-for-libreoffice-maintainers).
@@ -229,7 +229,7 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/calc/python/addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) | LibrePy UNO add-in: `python()` (registers as `org.extension.writeragent.PythonFunction`) |
 | [`plugin/calc/python/addin_impl.py`](../../plugin/calc/python/addin_impl.py) | Shared `PythonFunction` class (WriterAgent `addin.py` and LibrePy both register it) |
 | [`plugin/calc/python/addin.py`](../../plugin/calc/python/addin.py) | **WriterAgent only** — same add-in for the full OXT |
-| [`plugin/calc/python/recalc.py`](../../plugin/calc/python/recalc.py) | `execute_python_addin`, matrix session, `finalize_python_return` |
+| [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `execute_python_addin`, matrix session, `finalize_python_return` |
 | [`plugin/calc/python/spill.py`](../../plugin/calc/python/spill.py) | Spill registry, orphan cleanup, deferred spill |
 | [`plugin/calc/python/addin_values.py`](../../plugin/calc/python/addin_values.py) | Value coercion, type conversion |
 | [`plugin/calc/python/undo.py`](../../plugin/calc/python/undo.py) | Undo lock management |
@@ -524,7 +524,7 @@ flowchart TB
 
 ### Done — do not re-propose
 
-1. **Split the add-in** — [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) / [`recalc.py`](../../plugin/calc/python/recalc.py) and helpers have zero `llm_client` imports. `=PY()` uses a local error formatter.
+1. **Split the add-in** — [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) / [`function.py`](../../plugin/calc/python/function.py) and helpers have zero `llm_client` imports. `=PY()` uses a local error formatter.
 2. **Narrow IDL** — core RDB is [`extension-core/idl/XPythonFunction.idl`](../extension-core/idl/XPythonFunction.idl) only (no Prompt).
 3. **Separate extension id** — `org.extension.librepy` in [`extension-core/`](../extension-core/). Add-in implementation name stays `org.extension.writeragent.PythonFunction` so `=PY()` formulas stay portable.
 4. **`doc_type.py` / `udprops.py` / `text_helpers.py` / `compound_undo.py`** — type detection, document properties, Writer text/path helpers, and compound undo context manager. `document_helpers.py` is WriterAgent-only and **must not re-export** those names.
@@ -815,7 +815,7 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 **Framework:** `config.py`, `config_schema.py`, `constants.py`, `errors.py`, `json_utils.py`, `i18n.py`, `event_bus.py`, `service.py`, `url_utils.py`, `thread_guard.py`, `client/errors.py`, `client/requests.py`, `client/http_transport.py`, `client/http_security.py`, `client/request_controls.py`, `client/ssl_helpers.py`, `client/provider_detection.py`, **lazy** `client/__init__.py`, `framework/__init__.py`, `_manifest.py` (LibrePy: `_manifest_librepy.py` at generate time)
 
-**Calc:** `python/addin_librepy.py` (not WriterAgent `addin.py`), `python/addin_values.py`, `python/undo.py`, `python/spill.py`, `python/recalc.py`, `addin_common.py`, `calc_addin_data.py`, `calc/__init__.py`
+**Calc:** `python/addin_librepy.py` (not WriterAgent `addin.py`), `python/addin_values.py`, `python/undo.py`, `python/spill.py`, `python/function.py`, `addin_common.py`, `calc_addin_data.py`, `calc/__init__.py`
 
 **Scripting host:** `venv_worker.py`, `ipc.py`, `payload_codec.py`, `sandbox.py`, `config_limits.py`, `session_manager.py`, `module.yaml`, `scripting/__init__.py`
 

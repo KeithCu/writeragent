@@ -56,7 +56,7 @@ Shipped in WriterAgent / LibrePy (Python Add-In, not in stock LibreOffice):
 - **Spill:** If auto-spill is on, multi-cell returns are written to adjacent cells via a **deferred timer** and a document property registry (`WriterAgentSpillRegistry`). This is **not** Calc dynamic-array spill; dependents of spilled cells do not automatically see engine-owned spill ranges.
 - **Sync on formula thread:** Recalc must not pump the UI event loop (re-entrancy → `#VALUE!`). Long work blocks the formula interpretation of that cell.
 
-Entry points: [`plugin/calc/python/addin.py`](../../plugin/calc/python/addin.py), [`recalc.py`](../../plugin/calc/python/recalc.py), [`venv_worker.py`](../../plugin/scripting/venv_worker.py). Design rationale: [../enabling_numpy_in_libreoffice.md §6–§7](../enabling_numpy_in_libreoffice.md).
+Entry points: [`plugin/calc/python/addin.py`](../../plugin/calc/python/addin.py), [`function.py`](../../plugin/calc/python/function.py), [`venv_worker.py`](../../plugin/scripting/venv_worker.py). Design rationale: [../enabling_numpy_in_libreoffice.md §6–§7](../enabling_numpy_in_libreoffice.md).
 
 ### 3.2 Stock LibreOffice core (tree at `~/Desktop/libreoffice`)
 

@@ -1725,7 +1725,7 @@ class TestingFactory:
         if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
             _NATIVE_DOC_POOL.mark_clean(doc, False)
         try:
-            from plugin.calc.python.recalc import clear_python_addin_cache
+            from plugin.calc.python.function import clear_python_addin_cache
 
             clear_python_addin_cache()
         except Exception:
@@ -1887,7 +1887,7 @@ class TestingFactory:
                     else:
                         _native_teardown_progress("native_doc: teardown reset done")
                         try:
-                            from plugin.calc.python.recalc import clear_python_addin_cache
+                            from plugin.calc.python.function import clear_python_addin_cache
 
                             clear_python_addin_cache()
                         except Exception:

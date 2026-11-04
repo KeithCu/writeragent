@@ -16,21 +16,21 @@ import pytest
 import plugin.calc.python.addin_values as _addin_values
 import plugin.calc.python.formula_locator_cache as _formula_locator_cache
 import plugin.calc.python.image_egress as _image_egress
-import plugin.calc.python.recalc as _recalc
+import plugin.calc.python.function as _function
 import plugin.calc.python.sheet_modify as _sheet_modify
 import plugin.calc.python.spill as _spill
 import plugin.calc.python.undo as _undo
 from plugin.calc.python.addin_values import to_calc_compatible
-from plugin.calc.python.recalc import finalize_python_return
+from plugin.calc.python.function import finalize_python_return
 
 
 class _PythonFunctionProxy:
     def __init__(self) -> None:
-        self.__file__ = _recalc.__file__
+        self.__file__ = _function.__file__
         self.threading = threading
 
     def __getattr__(self, name: str) -> Any:
-        for mod in (_recalc, _spill, _addin_values, _undo, _image_egress, _formula_locator_cache, _sheet_modify):
+        for mod in (_function, _spill, _addin_values, _undo, _image_egress, _formula_locator_cache, _sheet_modify):
             if hasattr(mod, name):
                 return getattr(mod, name)
         raise AttributeError(f"None of split modules has {name}")
@@ -39,11 +39,11 @@ class _PythonFunctionProxy:
         if name in ("__file__", "threading"):
             super().__setattr__(name, value)
             return
-        for mod in (_recalc, _spill, _addin_values, _undo, _image_egress, _formula_locator_cache, _sheet_modify):
+        for mod in (_function, _spill, _addin_values, _undo, _image_egress, _formula_locator_cache, _sheet_modify):
             if hasattr(mod, name):
                 setattr(mod, name, value)
                 return
-        setattr(_recalc, name, value)
+        setattr(_function, name, value)
 
 
 python_function = _PythonFunctionProxy()
@@ -1272,10 +1272,10 @@ def test_to_calc_compatible_duck_typed_numeric() -> None:
 
 
 def test_calc_python_function_zero_event_pumping_invariant() -> None:
-    """Static invariant: recalc.py must not import event loop pumping or UI draining functions."""
+    """Static invariant: function.py must not import event loop pumping or UI draining functions."""
     import inspect
 
-    source = inspect.getsource(_recalc)
+    source = inspect.getsource(_function)
     assert "processEventsToIdle" not in source
     assert "async_stream" not in source
     assert "run_async_worker_with_drain" not in source
@@ -1285,7 +1285,7 @@ def test_function_module_avoids_document_helpers_import() -> None:
     """First =PY() must not load document_helpers → SheetAnalyzer or the dialog stack."""
     import ast
 
-    addin_modules = (_recalc, _spill, _addin_values, _undo)
+    addin_modules = (_function, _spill, _addin_values, _undo)
     forbidden = {
         "plugin.doc.document_helpers",
         "plugin.calc.analyzer",
@@ -2188,7 +2188,7 @@ def test_matrix_sessions_expire() -> None:
         st.matrix[stale_key] = python_function.WorkerResultSession([1], [1], timestamp=old_time)
 
     with patch(
-        "plugin.calc.python.recalc.session_key",
+        "plugin.calc.python.function.session_key",
         return_value=("file:///d.ods", "S", "sid", "c_new", "2,2"),
     ):
         python_function.scalar_for_list_result(ctx, "c_new", [10, 20], doc=doc)
@@ -2818,7 +2818,7 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
     # Repeat off the main thread
     queue_mock = MagicMock()
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.recalc._queue_off_main_auto_spill", queue_mock)
+    monkeypatch.setattr("plugin.calc.python.function._queue_off_main_auto_spill", queue_mock)
     val_off = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
     assert val_off == ""
     queue_mock.assert_not_called()
@@ -2830,7 +2830,7 @@ def test_scalar_for_list_result_uses_supplied_data_token(monkeypatch: pytest.Mon
     python_function.clear_python_addin_cache()
 
     monkeypatch.setattr(
-        "plugin.calc.python.recalc.session_key",
+        "plugin.calc.python.function.session_key",
         lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_token", "0,0"),
     )
     token_calls = []
@@ -2839,7 +2839,7 @@ def test_scalar_for_list_result_uses_supplied_data_token(monkeypatch: pytest.Mon
         token_calls.append(data)
         return "computed"
 
-    monkeypatch.setattr("plugin.calc.python.recalc._worker_data_token", mock_token)
+    monkeypatch.setattr("plugin.calc.python.function._worker_data_token", mock_token)
 
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -2860,7 +2860,7 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
     python_function.clear_python_addin_cache()
 
     monkeypatch.setattr(
-        "plugin.calc.python.recalc.session_key",
+        "plugin.calc.python.function.session_key",
         lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_once", "1,1"),
     )
     monkeypatch.setattr(
@@ -2868,7 +2868,7 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
         lambda key, default=False: False if key == "scripting.python_auto_spill" else default,
     )
     monkeypatch.setattr(
-        "plugin.calc.python.recalc.run_code_in_user_venv",
+        "plugin.calc.python.function.run_code_in_user_venv",
         lambda *args, **kwargs: {"status": "ok", "result": [1, 2, 3]},
     )
     call_count = 0
@@ -2879,7 +2879,7 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
         call_count += 1
         return real_token(data)
 
-    monkeypatch.setattr("plugin.calc.python.recalc._worker_data_token", counting_token)
+    monkeypatch.setattr("plugin.calc.python.function._worker_data_token", counting_token)
 
     python_function.execute_python_addin(ctx, "code_once", data=42, doc=doc)
     assert call_count == 1
@@ -2951,7 +2951,7 @@ def test_execute_python_addin_flag_passes_through_without_gate(monkeypatch: pyte
         captured_calls.append((code, kwargs))
         return {"status": "ok", "result": 123}
 
-    monkeypatch.setattr("plugin.calc.python.recalc.run_code_in_user_venv", fake_run)
+    monkeypatch.setattr("plugin.calc.python.function.run_code_in_user_venv", fake_run)
     monkeypatch.setattr(
         "plugin.framework.config.get_config",
         lambda key, default=False: True if key == "scripting.python_allow_network" else default,

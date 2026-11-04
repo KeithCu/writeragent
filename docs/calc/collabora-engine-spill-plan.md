@@ -12,7 +12,7 @@ To understand where this work fits, it is essential to distinguish between what 
 ### 1.1 What WriterAgent / LibrePy Does Today (Production)
 WriterAgent / LibrePy is already shipped and running in production as a desktop extension for LibreOffice:
 1. **Local Python Execution:** LibrePy runs Python scripts directly in a local virtual environment (venv) on the user's desktop, communicating with Calc over UNO.
-2. **1D List Normalization:** When a Python formula returns a 1D list (e.g. `[1, 2, 3]`), LibrePy’s `_result_as_spill_grid` ([`plugin/calc/python/recalc.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/calc/python/recalc.py)) normalizes it to a column vector `[[1], [2], [3]]`, matching Microsoft Excel's `=PY()` behavior.
+2. **1D List Normalization:** When a Python formula returns a 1D list (e.g. `[1, 2, 3]`), LibrePy’s `_result_as_spill_grid` ([`plugin/calc/python/function.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/calc/python/function.py)) normalizes it to a column vector `[[1], [2], [3]]`, matching Microsoft Excel's `=PY()` behavior.
 3. **Extension-Level Workaround for Spilling:** Because stock LibreOffice Calc did not natively spill external AddIn formulas, LibrePy historically implemented an out-of-engine workaround:
    * When `=PY(...)` returns a multi-cell grid, LibrePy queues a deferred callback on LibreOffice's main UI thread.
    * That callback writes literal values directly into adjacent cells via UNO (`setDataArray`) and records the spilled cell addresses in a custom document property dictionary (`WriterAgentSpillRegistry`).
@@ -136,7 +136,7 @@ The core spill engine changes described in this document operate at **Step 5**. 
 There is a notable difference in how 1D lists are shaped today between LibrePy, Microsoft Excel, and Collabora Online:
 
 * **Microsoft Excel Python (`=PY()`):** When Python code in Excel returns a 1D Python `list` `[1, 2, 3]`, a 1D NumPy array `np.array([1, 2, 3])`, or a Pandas `Series`, **Excel spills it vertically down a column** (rows A1:A3). To spill across a row, Excel requires an explicit 2D structure: `[[1, 2, 3]]` or `arr.reshape(1, -1)`.
-* **WriterAgent / LibrePy:** LibrePy’s desktop extension (`_result_as_spill_grid` in [`plugin/calc/python/recalc.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/calc/python/recalc.py)) also converts a 1D list `[1, 2, 3]` into a column `[[1], [2], [3]]`, matching Excel.
+* **WriterAgent / LibrePy:** LibrePy’s desktop extension (`_result_as_spill_grid` in [`plugin/calc/python/function.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/calc/python/function.py)) also converts a 1D list `[1, 2, 3]` into a column `[[1], [2], [3]]`, matching Excel.
 * **Collabora Online's `anyjson.cxx`:** Today, Online’s C++ AddIn (`promoteFlatNumeric` and `elemsToAny`) converts a flat JSON array `[1, 2, 3]` into a 1×N row matrix (`Sequence<Sequence<double>>` of length 1, containing $N$ elements).
 
 **Conclusion:** LibrePy’s column-oriented design is **not wrong**—it adheres to Microsoft Excel’s `=PY()` behavior and matches standard spreadsheet conventions (data sequences and records populate rows down a column; `=SEQUENCE(5)` defaults to a column).
@@ -340,4 +340,4 @@ The following items are deliberately separated from this engine spill implementa
 | **Volatile AddIn Bridge** | Asynchronous result listener and notify | [`sc/source/core/tool/addinlis.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addinlis.cxx) `ScAddInListener::modified` |
 | **AddIn Matrix Push** | Converts UNO sequences to `ScMatrix` | [`sc/source/core/tool/addincol.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/sc/source/core/tool/addincol.cxx) `SetResult` |
 | **JSON Deserialization** | Converts JSON envelope to UNO Any / Sequence | [`scaddins/source/pythoncompute/anyjson.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/anyjson.cxx) `promoteFlatNumeric`, `elemsToAny` |
-| **LibrePy Column Spill** | Desktop extension spill grid normalization | [`plugin/calc/python/recalc.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/calc/python/recalc.py) `_result_as_spill_grid` |
+| **LibrePy Column Spill** | Desktop extension spill grid normalization | [`plugin/calc/python/function.py`](file:///home/keithcu/Desktop/Python/writeragent/plugin/calc/python/function.py) `_result_as_spill_grid` |

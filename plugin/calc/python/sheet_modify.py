@@ -268,7 +268,7 @@ def dispatch_sheet_modified(
     if owner is None:
         owner = doc
     if owner is None:
-        from plugin.calc.python.recalc import _get_calc_doc
+        from plugin.calc.python.function import _get_calc_doc
 
         owner = _get_calc_doc(ctx)
     live = _sheet_name_of(sheet)
