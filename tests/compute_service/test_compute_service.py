@@ -3628,7 +3628,7 @@ def test_session_id_reserved_namespace_rejected() -> None:
     settings = ComputeSettings()
     app = create_wsgi_app(settings, execute_fn=lambda **kwargs: {"status": "ok"})
 
-    for reserved_sid in ("user-session:init", "isolated:abc123"):
+    for reserved_sid in ("user-session:init", "isolated:abc123", "calc", "notebook"):
         status, headers, parsed = _wsgi_post(
             app,
             b'{"code": "result = 1", "mode": "shared"}',

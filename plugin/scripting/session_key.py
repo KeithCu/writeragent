@@ -18,6 +18,7 @@ class SessionKind(enum.Enum):
     PPT_MASTER = "ppt_master"
     DOC = "doc"
     ISOLATED = "isolated"
+    EMBEDDINGS = "embeddings"
     OTHER = "other"
 
 
@@ -73,7 +74,12 @@ class SessionKey:
 
 
 def is_reserved_caller_id(session_id: str) -> bool:
-    return session_id.endswith(INIT_SUFFIX) or session_id.startswith(SessionKind.ISOLATED.value + ":")
+    sid = session_id.strip()
+    if sid.endswith(INIT_SUFFIX):
+        return True
+    if sid.startswith(f"{SessionKind.ISOLATED.value}:"):
+        return True
+    return sid in _KIND_BY_PREFIX
 
 
 def new_unsaved_document_key() -> str:

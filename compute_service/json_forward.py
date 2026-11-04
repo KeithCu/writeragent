@@ -25,6 +25,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 from compute_service import error_codes as ec
+from plugin.scripting.session_key import is_reserved_caller_id
 
 # HTTP max_body_bytes is 32 MiB; pickle of the envelope needs a little slack.
 COMPUTE_MAX_PAYLOAD_BYTES = 33 * 1024 * 1024
@@ -103,7 +104,7 @@ def validate_session_id(session_id: Any) -> str:
     if not isinstance(session_id, str) or not session_id.strip():
         raise ExecuteRequestError("session_id must be a non-empty string.", code=ec.INVALID_SESSION_ID)
     sid = session_id.strip()
-    if sid.endswith(":init") or sid.startswith("isolated:"):
+    if is_reserved_caller_id(sid):
         raise ExecuteRequestError(f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.", code=ec.INVALID_SESSION_ID)
     return sid
 

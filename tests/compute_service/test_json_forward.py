@@ -1012,7 +1012,7 @@ def test_validate_session_id() -> None:
             validate_session_id(invalid_val)
         assert exc_info.value.code == "INVALID_SESSION_ID"
 
-    for reserved in ("sess:init", "isolated:abc", "foo:init", "isolated:"):
+    for reserved in ("sess:init", "isolated:abc", "foo:init", "isolated:", "calc", "rps"):
         with pytest.raises(ExecuteRequestError) as exc_info:
             validate_session_id(reserved)
         assert exc_info.value.code == "INVALID_SESSION_ID"

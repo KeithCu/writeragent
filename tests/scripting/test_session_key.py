@@ -146,6 +146,9 @@ def test_whitespace_padded_calc_wb_init() -> None:
         "isolated:abc",
         "foo:init",
         "isolated:",
+        "calc",
+        "embeddings",
+        "doc",
     ],
 )
 def test_reserved_caller_ids(sid: str) -> None:
@@ -156,9 +159,8 @@ def test_reserved_caller_ids(sid: str) -> None:
     "sid",
     [
         "my_session",
-        "isolated",
         "ISOLATED:abc",
-        "foo:init ",
+        "calc:wb",
     ],
 )
 def test_not_reserved_caller_ids(sid: str) -> None:
