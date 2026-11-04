@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from plugin.calc.python.spill import perform_deferred_spill, SHEET_MODIFY_LISTENERS
+from plugin.calc.python.spill import perform_deferred_spill
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.sheet_modify import (
     dispatch_sheet_modified,
@@ -17,6 +17,7 @@ from plugin.calc.python.sheet_modify import (
 )
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
+from tests.calc.python.calc_workbook_test_access import SHEET_MODIFY_LISTENERS
 
 
 @native_test

@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from typing import Any, Generator
 
 from plugin.framework.errors import best_effort, uno_read
-from plugin.framework.thread_guard import _unwrap_uno
+from plugin.framework.thread_guard import unwrap_uno
 
 
 @contextmanager
@@ -25,7 +25,7 @@ def _undo_lock(doc: Any) -> Generator[Any, None, None]:
     um = None
     hidden = False
     locked = False
-    raw_doc = _unwrap_uno(doc)
+    raw_doc = unwrap_uno(doc)
     if hasattr(raw_doc, "getUndoManager"):
         um = uno_read(raw_doc.getUndoManager, None)
         if um is not None:

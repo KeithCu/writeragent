@@ -13,7 +13,7 @@ import weakref
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
 from plugin.framework.stream_batch import DeadlineThread
-from plugin.framework.thread_guard import _unwrap_uno
+from plugin.framework.thread_guard import unwrap_uno
 from plugin.framework.uno_context import get_runtime_uid
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ _STATE_BY_DOC_ID: dict[int, tuple[WorkbookState, Any]] = {}
 def _doc_objects(doc: Any) -> list[Any]:
     """*doc* and its unwrapped UNO target, without calling UNO methods."""
     objects = [doc]
-    raw = _unwrap_uno(doc)
+    raw = unwrap_uno(doc)
     if raw is not None and raw is not doc:
         objects.append(raw)
     return objects
