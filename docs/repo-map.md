@@ -44,7 +44,7 @@ Start here by task.
 | Kind | Examples | Quit / `shutdown_all` |
 |------|----------|------------------------|
 | Warm (`WarmChild`, registered) | venv worker, Kokoro, compute (migrating) | `supervisor.shutdown_all()` |
-| Registered peers | ACP, MCP tunnel, CDP browser, STT while transcribing | `managed_subprocess.shutdown_all()` (also at end of supervisor shutdown) |
+| Registered peers | ACP, MCP tunnel, CDP browser, STT while transcribing | `managed_subprocess.shutdown_all()` once via the supervisor quit hook (not a separate listener call) |
 | EOF / host stop, not registered | Monaco editor, mic recorder, harper-ls, TTS clip | stdin EOF or local stop path |
 | One-shot | soffice convert, probes, `ManagedSubprocess.run` | tree kill on timeout only; not in registry |
 | UNO listeners / i18n | UNO listeners; gettext `_` for UI | [`plugin/framework/uno_listeners.py`](../plugin/framework/uno_listeners.py), [`plugin/framework/i18n.py`](../plugin/framework/i18n.py) |

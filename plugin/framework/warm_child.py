@@ -741,19 +741,24 @@ class Supervisor:
 
     def shutdown_all(self) -> None:
         self._shutdown = True
-        if not self._threads_started:
-            return
-        self._reaper_stop.set()
-        self._spawn_queue.put(_SPAWN_SHUTDOWN)
-        with self._registry_lock:
-            children = list(self._registry)
-        for warm in children:
-            try:
-                warm.retire()
-            except Exception:
-                log.exception("Error retiring warm child %s", warm.spec.name)
+        if self._threads_started:
+            self._reaper_stop.set()
+            self._spawn_queue.put(_SPAWN_SHUTDOWN)
+            with self._registry_lock:
+                children = list(self._registry)
+            for warm in children:
+                try:
+                    warm.retire()
+                except Exception:
+                    log.exception("Error retiring warm child %s", warm.spec.name)
         from plugin.framework.managed_subprocess import shutdown_all as ms_shutdown_all
 
+        # What was wrong: early return when the spawner never started skipped the managed sweep.
+        # How it happened: managed_subprocess.shutdown_all lived only inside the threads guard.
+        # Why this change: the terminate listener no longer calls managed_subprocess.shutdown_all;
+        # registered peers (STT, ACP, CDP, tunnel AsyncProcess) must still die when no WarmChild
+        # was ever built. _register starts threads before a child exists, so this unguarded call
+        # is only for those peers when shutdown_all runs on an idle supervisor.
         ms_shutdown_all()
 
 
@@ -765,6 +770,13 @@ def get_supervisor() -> Supervisor:
     if _module_supervisor is None:
         _module_supervisor = Supervisor()
     return _module_supervisor
+
+
+def register_supervisor_quit_hook() -> None:
+    """register_quit_hook_last(get_supervisor().shutdown_all). Idempotent."""
+    from plugin.framework.quit_hooks import register_quit_hook_last
+
+    register_quit_hook_last(get_supervisor().shutdown_all)
 
 
 class _LazySupervisor:
@@ -787,6 +799,7 @@ __all__ = [
     "error_dict",
     "framed_request_roundtrip",
     "get_supervisor",
+    "register_supervisor_quit_hook",
     "read_ready_frame_during_io",
     "spawn_budget",
     "spawn_managed_child_with_handshake",

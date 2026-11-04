@@ -263,24 +263,29 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
             os.environ.pop("WRITERAGENT_EVAL_HARNESS", None)
 
 
-def test_terminate_listener_runs_quit_hooks_before_shutdown_all(monkeypatch):
-    order: list[str] = []
+def test_terminate_listener_runs_only_quit_hooks(monkeypatch):
+    from plugin.framework import quit_hooks
+    from plugin.framework.warm_child import get_supervisor
 
-    monkeypatch.setattr(
-        "plugin.framework.quit_hooks.run_quit_hooks",
-        lambda: order.append("quit_hooks"),
-    )
+    monkeypatch.setattr(quit_hooks, "_hooks", [])
+
+    calls: list[str] = []
+
+    def _record_quit_hooks() -> None:
+        calls.append("quit_hooks")
+
+    monkeypatch.setattr(quit_hooks, "run_quit_hooks", _record_quit_hooks)
     monkeypatch.setattr(
         "plugin.audio.kokoro_pool.shutdown_kokoro_pool",
-        lambda: order.append("kokoro"),
+        lambda: (_ for _ in ()).throw(AssertionError("kokoro must not run")),
     )
     monkeypatch.setattr(
         "plugin.framework.managed_subprocess.shutdown_all",
-        lambda: order.append("shutdown_all"),
+        lambda: (_ for _ in ()).throw(AssertionError("managed shutdown must not run")),
     )
     monkeypatch.setattr(
         "plugin.framework.warm_child.supervisor.shutdown_all",
-        lambda: order.append("supervisor_shutdown_all"),
+        lambda: (_ for _ in ()).throw(AssertionError("supervisor must not run from listener")),
     )
 
     listeners: list = []
@@ -292,9 +297,8 @@ def test_terminate_listener_runs_quit_hooks_before_shutdown_all(monkeypatch):
     main._install_terminate_listener(MagicMock())
     assert len(listeners) == 1
     listeners[0].notifyTermination(MagicMock())
-    assert order.index("quit_hooks") < order.index("shutdown_all")
-    assert order.index("shutdown_all") < order.index("supervisor_shutdown_all")
-    assert order == ["quit_hooks", "kokoro", "shutdown_all", "supervisor_shutdown_all"]
+    assert calls == ["quit_hooks"]
+    assert quit_hooks._hooks[-1] == get_supervisor().shutdown_all
 
 
 def test_dispatch_command_unhandled_raises_when_bootstrap_failed():

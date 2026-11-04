@@ -7,9 +7,8 @@
 # (at your option) any later version.
 """Callbacks run on the UI thread from the desktop terminate listener.
 
-Hooks run before Kokoro shutdown and ``managed_subprocess.shutdown_all``. Each
-hook must finish quickly (no unbounded waits); LibreOffice exit continues even
-when a hook logs an exception.
+Hooks run in registration order. Each hook must return quickly (no unbounded
+waits); a raised hook is logged and skipped; LibreOffice exit continues.
 """
 
 from __future__ import annotations
@@ -25,6 +24,13 @@ _hooks: list[Callable[[], None]] = []
 def register_quit_hook(hook: Callable[[], None]) -> None:
     if hook not in _hooks:
         _hooks.append(hook)
+
+
+def register_quit_hook_last(hook: Callable[[], None]) -> None:
+    """Drop hook if present (equality), then append. One entry, at the end."""
+    while hook in _hooks:
+        _hooks.remove(hook)
+    _hooks.append(hook)
 
 
 def run_quit_hooks() -> None:

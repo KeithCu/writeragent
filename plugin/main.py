@@ -114,33 +114,12 @@ def _install_terminate_listener(ctx: Any) -> None:
                     # UNO boundary: XTerminateListener.notifyTermination callback
                     log.exception("Error running quit hooks on desktop termination")
 
-                try:
-                    from plugin.audio.kokoro_pool import shutdown_kokoro_pool
-
-                    shutdown_kokoro_pool()
-                except Exception:
-                    # UNO boundary: XTerminateListener.notifyTermination callback
-                    log.exception("Error shutting down Kokoro pool on desktop termination")
-
-                try:
-                    from plugin.framework.managed_subprocess import shutdown_all
-
-                    shutdown_all()
-                except Exception:
-                    # UNO boundary: XTerminateListener.notifyTermination callback
-                    log.exception("Error shutting down managed subprocesses on desktop termination")
-
-                try:
-                    from plugin.framework.warm_child import supervisor
-
-                    supervisor.shutdown_all()
-                except Exception:
-                    # UNO boundary: XTerminateListener.notifyTermination callback
-                    log.exception("Error shutting down warm child supervisor on desktop termination")
-
         listener = _TerminateListener()
         desktop.addTerminateListener(listener)
         app._terminate_listener = listener
+        from plugin.framework.warm_child import register_supervisor_quit_hook
+
+        register_supervisor_quit_hook()
     except Exception:
         # UNO boundary: desktop.addTerminateListener registration
         log.exception("Failed to install terminate listener")
@@ -199,6 +178,9 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
         # Why this change: reset only when app._modules is still empty so a retry does not
         # build a second registry.
         if not app._modules:
+            from plugin.framework.warm_child import register_supervisor_quit_hook
+
+            register_supervisor_quit_hook()
             bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
             return
 
@@ -210,6 +192,10 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
             log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
             if bootstrap._bootstrap_error is None:
                 bootstrap._bootstrap_error = exc
+
+    from plugin.framework.warm_child import register_supervisor_quit_hook
+
+    register_supervisor_quit_hook()
 
     try:
         # Subscribe to menu:update for dynamic menu text + icons.
