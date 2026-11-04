@@ -1511,7 +1511,9 @@ class TestRequestBodyLimits:
         }
         body = b"".join(app(environ, start_response))
         assert status_holder[0].startswith("400")
-        assert json.loads(body)["status"] == "error"
+        parsed = json.loads(body)
+        assert parsed["status"] == "error"
+        assert "code" not in parsed
 
     def test_truncated_body_returns_400(self) -> None:
         """wsgi.input.read() returning fewer bytes than CONTENT_LENGTH must yield 400, not a
@@ -1540,6 +1542,7 @@ class TestRequestBodyLimits:
         parsed = json.loads(body)
         assert parsed["status"] == "error"
         assert "truncated" in parsed["error"]
+        assert "code" not in parsed
 
     def test_vision_unhandled_exception_is_json_500(self) -> None:
         fake_pool = MagicMock()
@@ -1588,6 +1591,7 @@ class TestSessionResetHttp:
         status, _headers, body = _wsgi_post(app, b"{}", query="")
         assert status.startswith("400")
         assert body.get("status") == "error"
+        assert body.get("code") == "BAD_REQUEST_BODY"
         assert "session_id" in body.get("error", "")
 
     def test_empty_session_id_is_400(self) -> None:
@@ -1618,6 +1622,7 @@ class TestSessionResetHttp:
         )
         assert status.startswith("400")
         assert body.get("id") == "body-sid"
+        assert body.get("code") == "BAD_REQUEST_BODY"
         assert "query parameter" in body.get("error", "")
         assert reset_calls == []
 
@@ -1672,6 +1677,7 @@ class TestSessionResetHttp:
         )
         assert status.startswith("400")
         assert "chunked" in body.get("error", "").lower()
+        assert "code" not in body
         assert reset_calls == []
 
         exec_status, _exec_headers, exec_body = _wsgi_post(
@@ -1682,6 +1688,7 @@ class TestSessionResetHttp:
         )
         assert exec_status.startswith("400")
         assert "chunked" in exec_body.get("error", "").lower()
+        assert "code" not in exec_body
 
     def test_lease_failure_is_503(self) -> None:
         def busy_reset(_session_id: str, **_kw):
@@ -1844,6 +1851,7 @@ class TestSessionResetHttp:
         )
         assert bad_status.startswith("401")
         assert bad_body.get("error") == "Unauthorized"
+        assert bad_body.get("code") == "UNAUTHORIZED"
         assert ("WWW-Authenticate", "Bearer") in bad_headers
         assert ran == []
 
@@ -1997,6 +2005,7 @@ class TestSessionResetHttp:
         status, _headers, body = _wsgi_post(app, b'{"id":1e9999,"code":"result = 1"}', path="/v1/execute")
         assert status.startswith("400")
         assert body.get("error") == "Invalid JSON"
+        assert body.get("code") == "BAD_REQUEST_BODY"
 
     @pytest.mark.parametrize("raw_id", [b"1e9999", b"NaN", b"Infinity"])
     def test_vision_nonfinite_id_is_400(self, raw_id: bytes) -> None:
@@ -2040,7 +2049,7 @@ class TestSessionResetHttp:
                 assert body.get("code") == "INVALID_REQUEST"
             else:
                 assert body.get("error") == "Invalid multipart vision body"
-                assert "code" not in body
+                assert body.get("code") == "BAD_REQUEST_BODY"
             assert "id" not in body
         finally:
             shutdown_vision_pool()
@@ -2650,6 +2659,7 @@ def test_send_execution_result_drops_unencodable_id() -> None:
     out = _send_execution_result(start_response, {"status": "ok", "result": float("nan")}, float("inf"))
     parsed = json.loads(b"".join(out))
     assert status_holder[0].startswith("500")
+    assert parsed.get("code") == "INTERNAL_ERROR"
     assert "id" not in parsed
     assert "JSON encode failed" in parsed.get("error", "")
 
@@ -3602,6 +3612,7 @@ def test_mapped_status_json_encode_failure_is_500() -> None:
         path="/v1/execute",
     )
     assert status.startswith("500")
+    assert body.get("code") == "INTERNAL_ERROR"
     assert "JSON encode failed" in body.get("error", "")
 
 
@@ -3698,6 +3709,8 @@ def test_slow_body_drip_is_408() -> None:
     assert body is None
     assert err is not None
     assert statuses[0].startswith("408")
+    parsed = json.loads(b"".join(err))
+    assert parsed.get("code") == "READ_TIMEOUT"
 
 
 def test_body_settimeout_failure_is_408() -> None:
@@ -3731,6 +3744,8 @@ def test_body_settimeout_failure_is_408() -> None:
     assert body is None
     assert err is not None
     assert statuses[0].startswith("408")
+    parsed = json.loads(b"".join(err))
+    assert parsed.get("code") == "READ_TIMEOUT"
 
 
 def test_drain_restores_socket_timeout() -> None:
@@ -4215,8 +4230,9 @@ def test_wsgi_chunked_401_closes_connection() -> None:
         "HTTP_HOST": "127.0.0.1",
         "wsgi.input": stream,
     }
-    _ = b"".join(app(environ, start_response))
+    out = b"".join(app(environ, start_response))
     assert status_holder[0].startswith("401")
+    assert json.loads(out).get("code") == "UNAUTHORIZED"
     assert request_conn(environ).close_connection is True
     assert stream.read() == smuggled
 

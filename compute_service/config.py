@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Mapping
 from compute_service import error_codes as ec
+from plugin.framework.warm_child import error_dict
 
 log = logging.getLogger("compute_service.config")
 
@@ -57,11 +58,10 @@ def _as_path_tuple(value: Any) -> tuple[str, ...]:
     raise ConfigError(f"ocr_allow_paths must be a list or {os.pathsep}-separated string")
 
 
-_FILE_PATH_DENIED: dict[str, Any] = {
-    "status": "error",
-    "code": ec.FILE_PATH_DENIED,
-    "error": "file_path is not under ocr.allow_paths (default deny).",
-}
+_FILE_PATH_DENIED: dict[str, Any] = error_dict(
+    ec.FILE_PATH_DENIED,
+    "file_path is not under ocr.allow_paths (default deny).",
+)
 
 
 def _resolved_under_prefixes(resolved: str, prefixes: tuple[str, ...] | list[str]) -> bool:
@@ -128,20 +128,20 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
     ``_post_open_realpath`` applies the allowlist to that opened path.
     """
     if not isinstance(file_path, str) or not file_path.strip():
-        return None, {"status": "error", "code": ec.INVALID_FILE_PATH, "error": "file_path must be a non-empty string path"}
+        return None, error_dict(ec.INVALID_FILE_PATH, "file_path must be a non-empty string path")
     if not ocr_path_is_allowed(file_path, allow_prefixes):
         return None, dict(_FILE_PATH_DENIED)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         fd = os.open(os.path.expanduser(file_path.strip()), flags)
     except FileNotFoundError:
-        return None, {"status": "error", "code": ec.FILE_NOT_FOUND, "error": f"Image file not found: {file_path}"}
+        return None, error_dict(ec.FILE_NOT_FOUND, f"Image file not found: {file_path}")
     except OSError as exc:
-        return None, {"status": "error", "code": ec.FILE_READ_ERROR, "error": f"Failed to read image file {file_path}: {exc}"}
+        return None, error_dict(ec.FILE_READ_ERROR, f"Failed to read image file {file_path}: {exc}")
     try:
         info = os.fstat(fd)
         if not stat.S_ISREG(info.st_mode):
-            return None, {"status": "error", "code": ec.NOT_A_FILE, "error": f"Path is not a regular file: {file_path}"}
+            return None, error_dict(ec.NOT_A_FILE, f"Path is not a regular file: {file_path}")
         try:
             opened = _post_open_realpath(fd, file_path)
         except (OSError, ValueError):
@@ -160,11 +160,11 @@ def read_allowlisted_file(file_path: str, allow_prefixes: tuple[str, ...] | list
             remaining -= len(blob)
         data = b"".join(chunks)
     except OSError as exc:
-        return None, {"status": "error", "code": ec.FILE_READ_ERROR, "error": f"Failed to read image file {file_path}: {exc}"}
+        return None, error_dict(ec.FILE_READ_ERROR, f"Failed to read image file {file_path}: {exc}")
     finally:
         os.close(fd)
     if len(data) > max_bytes:
-        return None, {"status": "error", "code": ec.FILE_TOO_LARGE, "error": f"Image file exceeds {max_bytes} bytes: {file_path}"}
+        return None, error_dict(ec.FILE_TOO_LARGE, f"Image file exceeds {max_bytes} bytes: {file_path}")
     return data, None
 
 

@@ -273,7 +273,7 @@ class FormulaProcessPool(BaseProcessPool):
         try:
             validate_session_id(session_id)
         except ExecuteRequestError as exc:
-            return {"status": "error", "code": ec.INVALID_REQUEST, "error": str(exc)}
+            return error_dict(ec.INVALID_REQUEST, str(exc))
 
         with self._session_gate(session_id):
             with self._cond:
@@ -287,7 +287,7 @@ class FormulaProcessPool(BaseProcessPool):
 
             with self.leased(worker, timeout_sec=timeout_sec) as leased:
                 if leased is None:
-                    return {"status": "error", "code": ec.WORKER_POOL_BUSY, "error": "Could not lease worker to reset session."}
+                    return error_dict(ec.WORKER_POOL_BUSY, "Could not lease worker to reset session.")
                 res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
                 # A non-ok reset can mean the worker still holds the namespace.
                 if res.get("status") == "ok":
