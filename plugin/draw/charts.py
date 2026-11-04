@@ -28,6 +28,8 @@ from plugin.calc.charts import ChartUpsert as CalcChartUpsert
 from plugin.draw.base import ToolDrawChartBase
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 
+# Same MRO issue as Writer charts: Calc's sheet readers must not become this domain's core tools.
+
 
 class ChartList(CalcChartList, ToolDrawChartBase):  # type: ignore[misc]
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]

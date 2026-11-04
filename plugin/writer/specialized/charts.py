@@ -33,27 +33,25 @@ from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 
 # Union services: same names as Calc/Draw chart tools; last registration wins, so include
 # all chart-capable document services (cf. ``plugin.writer.specialized.shapes``).
+# Calc's chart class is the first base, so MRO would find ToolCalcSpecialBase.required_core_tools
+# (sheet readers) and hide Writer's document readers. A class-body assignment wins.
 
 
 class ChartList(CalcChartList, ToolWriterChartBase):  # type: ignore[misc]
-    name: str | None = "chart_list"
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
     required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools
 
 
 class ChartGetInfo(CalcChartGetInfo, ToolWriterChartBase):  # type: ignore[misc]
-    name: str | None = "chart_get_info"
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
     required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools
 
 
 class ChartUpsert(CalcChartUpsert, ToolWriterChartBase):  # type: ignore[misc]
-    name: str | None = "chart_upsert"
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
     required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools
 
 
 class ChartDelete(CalcChartDelete, ToolWriterChartBase):  # type: ignore[misc]
-    name: str | None = "chart_delete"
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
     required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools

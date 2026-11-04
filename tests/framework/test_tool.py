@@ -676,13 +676,19 @@ class TestChartToolsSpecializedTier:
     def test_writer_charts_domain_uses_writer_core_tools_not_sheet_readers(self):
         """Shared chart tool names must not inherit Calc's required_core_tools via MRO."""
         from plugin.calc.shapes import UpsertShape as CalcUpsertShape
-        from plugin.writer.specialized.charts import ChartList as WriterChartList
+        from plugin.writer.specialized.charts import (
+            ChartDelete as WriterChartDelete,
+            ChartGetInfo as WriterChartGetInfo,
+            ChartList as WriterChartList,
+            ChartUpsert as WriterChartUpsert,
+        )
         from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
 
         assert "get_document_content" in (WriterUpsertShape.required_core_tools or ())
         assert "get_sheet_summary" in (CalcUpsertShape.required_core_tools or ())
-        assert WriterChartList.required_core_tools is not None
-        assert "read_cell_range" not in WriterChartList.required_core_tools
+        for chart_cls in (WriterChartList, WriterChartGetInfo, WriterChartUpsert, WriterChartDelete):
+            assert chart_cls.required_core_tools is not None
+            assert "read_cell_range" not in chart_cls.required_core_tools
 
         def _exec(self, ctx, **kwargs):
             return {"status": "ok"}

@@ -567,8 +567,8 @@ class _ChartProxy:
 
         Args:
             name (required): The name of the chart to delete.
-            sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
-            page (optional): Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
+            sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
+            page (optional): Zero-based slide/page index to search (Draw/Impress only).
         """
         return call_host_tool("chart_delete", name=name, sheet=sheet, page=page)
 
@@ -577,8 +577,8 @@ class _ChartProxy:
 
         Args:
             name (required): The name of the chart.
-            sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
-            page (optional): Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
+            sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
+            page (optional): Zero-based slide/page index to search (Draw/Impress only).
         """
         return call_host_tool("chart_get_info", name=name, sheet=sheet, page=page)
 
@@ -586,13 +586,13 @@ class _ChartProxy:
         """List charts in the current document (active sheet, document body, or all slides).
 
         Args:
-            sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
-            page (optional): Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
+            sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
+            page (optional): Zero-based slide/page index to search (Draw/Impress only).
         """
         return call_host_tool("chart_list", sheet=sheet, page=page)
 
     def upsert(self, *, name: str | None = None, sheet: str | None = None, page: int | None = None, data_range: str | None = None, has_header: bool | None = None, headers: builtins.list[str] | None = None, rows: builtins.list[Any] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | None = None, colors: builtins.list[str] | None = None) -> dict[str, Any]:
-        """Create or update a chart. Omit name to create a new chart (requires chart_type and a data source: data_range on Calc, or headers and rows on Writer/Draw/Impress). When name is set, update that chart if it exists. When it does not exist, create a chart with that name if chart_type and a valid data source are provided; otherwise the chart is not found.
+        """Create or update a chart. Omit name to create a new chart (requires chart_type and a data source: data_range on Calc, or headers and rows on Writer/Draw/Impress). When name is set, update that chart if it exists. When it does not exist, create a chart with that name if chart_type and a valid data source are provided; otherwise the chart is not found. If the name is wrong but create fields are present, a new chart is created under that name rather than updating an existing chart — verify the name when editing.
 
         Args:
             name (optional): Chart name for edit, or for create when the chart does not yet exist.

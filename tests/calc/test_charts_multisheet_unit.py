@@ -1101,8 +1101,80 @@ def test_chart_upsert_name_miss_without_create_fields_not_found():
     assert res_nf["status"] == "error"
     assert res_nf["message"] == "Chart 'Sales' not found."
     assert res_no_range["status"] == "error"
-    assert "not found" in res_no_range["message"]
+    assert "to create it also pass data_range" in res_no_range["message"]
     charts.addNewByName.assert_not_called()
+
+
+def test_chart_upsert_create_sets_created_flag():
+    tool, ctx, charts, chart_doc, bridge = _calc_chart_create_parts()
+    ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.sheet.SpreadsheetDocument"
+    with (
+        patch("plugin.calc.charts.CalcBridge", return_value=bridge),
+        patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
+        patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
+        patch("plugin.calc.charts._get_all_calc_chart_names", return_value=set()),
+    ):
+        res = upsert_chart(tool, ctx, chart_type="bar", data_range="A1:B6")
+    assert res["status"] == "ok"
+    assert res.get("created") is True
+
+
+def test_writer_create_requested_name_already_used():
+    from plugin.calc.charts import WriterEmbeds
+
+    tool = ChartUpsert()
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.doc.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
+    rect = MagicMock()
+    host = WriterEmbeds(ctx.doc)
+    with patch.object(WriterEmbeds, "names", return_value={"Sales"}):
+        res = host.create(
+            tool,
+            ctx,
+            rect,
+            "com.sun.star.chart.BarDiagram",
+            name="Sales",
+            chart_type="bar",
+            headers=["Cat", "A"],
+            rows=[["x", 1]],
+        )
+    assert res["status"] == "error"
+    assert res["message"] == "Chart name 'Sales' is already used."
+
+
+def test_draw_create_requested_name_already_used():
+    from plugin.calc.charts import DrawPage
+
+    tool = ChartUpsert()
+    ctx = MagicMock()
+    doc = MagicMock()
+    ctx.doc = doc
+    doc.getDrawPages.return_value.getCount.return_value = 1
+    doc.getDrawPages.return_value.getByIndex.return_value = MagicMock()
+    doc.getCurrentController.return_value = None
+    doc.createInstance.return_value = MagicMock()
+    rect = MagicMock()
+    host = DrawPage(doc)
+    page = doc.getDrawPages.return_value.getByIndex.return_value
+
+    with patch.object(DrawPage, "names", return_value={"Sales"}):
+        with patch("plugin.calc.charts._chart_document_from_host", return_value=MagicMock()):
+            with patch("plugin.calc.charts._apply_chart_data_arrays"):
+                with patch("plugin.calc.charts._apply_chart_styling", return_value=[]):
+                    res = host.create(
+                        tool,
+                        ctx,
+                        rect,
+                        "com.sun.star.chart.BarDiagram",
+                        name="Sales",
+                        chart_type="bar",
+                        headers=["Cat", "A"],
+                        rows=[["x", 1]],
+                    )
+    page.remove.assert_called()
+    assert res["status"] == "error"
+    assert res["message"] == "Chart name 'Sales' is already used."
 
 
 def test_chart_upsert_requested_name_already_used():
