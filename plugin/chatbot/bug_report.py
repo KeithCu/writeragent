@@ -34,7 +34,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from plugin.framework.errors import best_effort
 
-log = logging.getLogger("writeragent.bugreport")
+log = logging.getLogger(__name__)
 
 BUG_REPORT_ISSUES_URL = "https://github.com/KeithCu/writeragent/issues/new"
 

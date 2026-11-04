@@ -128,10 +128,10 @@ def _writer_get_string(doc: Any) -> str:
 
 
 def _same_document(left: Any, right: Any) -> bool:
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
-    raw_left = _unwrap_uno(left)
-    raw_right = _unwrap_uno(right)
+    raw_left = unwrap_uno(left)
+    raw_right = unwrap_uno(right)
     if raw_left is raw_right:
         return True
     try:
@@ -150,12 +150,12 @@ def _insert_named_shape() -> None:
     caller's Writer doc before this runs. This is the venv ``wa.shape``
     lookup without holding ``PythonWorkerManager`` ``_io_lock``.
     """
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
     from plugin.framework.uno_context import get_active_document, get_ctx
     from plugin.scripting.host_rpc import execute_tool
 
     uno_ctx = get_ctx()
-    if _unwrap_uno(uno_ctx) is not tools_lo._lo_ctx:
+    if unwrap_uno(uno_ctx) is not tools_lo._lo_ctx:
         raise RuntimeError("get_ctx() is not the remote LOBackend context")
     active = get_active_document(uno_ctx)
     own = LOBackend.acquire_document("writer")

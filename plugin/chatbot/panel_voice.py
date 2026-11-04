@@ -20,7 +20,7 @@ from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.send_cancellation import capture_send_stop, is_cancelled
 from plugin.chatbot.tool_loop_actions import assign_send_outcome, send_outcome_is_stopped, send_outcome_terminal_display
 
-log = logging.getLogger("plugin.chatbot.panel")
+log = logging.getLogger(__name__)
 
 
 def _stop_tts() -> None:

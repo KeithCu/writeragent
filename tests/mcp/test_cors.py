@@ -679,9 +679,9 @@ def test_get_configured_tunnel_host_reads_shared_tunnel_public_url(monkeypatch):
     assert get_configured_tunnel_host() is None
 
 
-def test_drain_request_body_reads_up_to_content_length():
+def testdrain_request_body_reads_up_to_content_length():
     from io import BytesIO
-    from plugin.mcp.cors import _drain_request_body
+    from plugin.mcp.cors import drain_request_body
 
     class _FakeHandler:
         def __init__(self, content: bytes):
@@ -689,12 +689,12 @@ def test_drain_request_body_reads_up_to_content_length():
             self.rfile = BytesIO(content)
 
     handler = _FakeHandler(b"hello world")
-    _drain_request_body(handler)
+    drain_request_body(handler)
     assert handler.rfile.read() == b""
 
     # 100 KiB body is drained (> 64 KiB cap, <= MCP_HTTP_MAX_BODY_BYTES).
     large_handler = _FakeHandler(b"x" * 102400)
-    _drain_request_body(large_handler)
+    drain_request_body(large_handler)
     assert large_handler.rfile.read() == b""
 
 
@@ -714,14 +714,14 @@ def test_reload_cors_missing_private_key_stays_on():
         assert get_allow_private_origins() is True
 
 
-def test_drain_request_body_swallows_valueerror_and_oserror():
-    from plugin.mcp.cors import _drain_request_body
+def testdrain_request_body_swallows_valueerror_and_oserror():
+    from plugin.mcp.cors import drain_request_body
 
     class _BadLength:
         headers = {"Content-Length": "nope"}
         rfile = None
 
-    _drain_request_body(_BadLength())
+    drain_request_body(_BadLength())
 
     class _Reset:
         headers = {"Content-Length": "4"}
@@ -732,11 +732,11 @@ def test_drain_request_body_swallows_valueerror_and_oserror():
 
         rfile = _R()
 
-    _drain_request_body(_Reset())
+    drain_request_body(_Reset())
 
 
-def test_drain_request_body_other_error_propagates():
-    from plugin.mcp.cors import _drain_request_body
+def testdrain_request_body_other_error_propagates():
+    from plugin.mcp.cors import drain_request_body
 
     class _Bug:
         headers = {"Content-Length": "4"}
@@ -748,7 +748,7 @@ def test_drain_request_body_other_error_propagates():
         rfile = _R()
 
     with pytest.raises(RuntimeError, match="bug"):
-        _drain_request_body(_Bug())
+        drain_request_body(_Bug())
 
 
 def test_tunnel_host_lookup_does_not_swallow(monkeypatch):

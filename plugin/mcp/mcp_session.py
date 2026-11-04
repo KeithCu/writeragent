@@ -28,7 +28,7 @@ from typing import Any
 import uuid
 
 from plugin.mcp import wire_types
-from plugin.mcp.cors import _drain_request_body, send_cors_headers
+from plugin.mcp.cors import drain_request_body, send_cors_headers
 from plugin.mcp.server import write_http_json
 
 log = logging.getLogger("writeragent.mcp.protocol")
@@ -52,7 +52,7 @@ _mcp_session_lock = threading.Lock()
 _SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
 
 
-def _mint_session_id_once() -> str:  # pyright: ignore[reportUnusedFunction]
+def mint_session_id_once() -> str:
     """Assign uuid4 on first successful initialize; later calls keep that id."""
     global _mcp_session_id
     with _mcp_session_lock:
@@ -61,7 +61,7 @@ def _mint_session_id_once() -> str:  # pyright: ignore[reportUnusedFunction]
         return _mcp_session_id
 
 
-def _reject_stale_session(handler: Any, msg: Any = None) -> bool:  # pyright: ignore[reportUnusedFunction]
+def reject_stale_session(handler: Any, msg: Any = None) -> bool:
     """Write HTTP 404 when Mcp-Session-Id is present and not the process id.
 
     Spec clients re-initialize on 404, not 409 or silent success. No header is
@@ -81,7 +81,7 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:  # pyright: ig
     # Drain unread body and send Connection: close so the kernel does
     # not emit TCP RST on close, which manifests as Errno 104 on the client.
     if msg is None:
-        _drain_request_body(handler)
+        drain_request_body(handler)
     handler.close_connection = True
 
     def _headers(h: Any) -> None:

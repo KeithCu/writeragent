@@ -300,8 +300,8 @@ def test_set_background_task_none_does_not_clear_violation_dialog():
 def test_unwrap_roundtrip():
     real = _make_pyuno_like()
     p = tg._UnoThreadGuardProxy(real)
-    assert tg._unwrap_uno(p) is real
-    assert tg._unwrap_uno(real) is real
+    assert tg.unwrap_uno(p) is real
+    assert tg.unwrap_uno(real) is real
 
 
 def test_wrap_uno_skips_pyuno_structs():
@@ -322,10 +322,10 @@ def test_wrap_uno_skips_pyuno_structs():
         tg.GUARD_ON = was
 
 
-def test_unwrap_uno_tuple_of_proxies():
+def testunwrap_uno_tuple_of_proxies():
     real = _make_pyuno_like()
     proxy = tg._UnoThreadGuardProxy(real)
-    out = tg._unwrap_uno((proxy, "x"))
+    out = tg.unwrap_uno((proxy, "x"))
     assert out[0] is real
     assert out[1] == "x"
 

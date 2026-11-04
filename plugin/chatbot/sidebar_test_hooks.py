@@ -41,7 +41,7 @@ from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.worker_pool import run_in_background
 
-log = logging.getLogger("writeragent.sidebar_test_hooks")
+log = logging.getLogger(__name__)
 
 _HOOKS_UNAVAILABLE = "sidebar test hooks are not in release builds"
 _DEBUG_SIDEBAR_PREFIX = "chatbot.debug_sidebar"

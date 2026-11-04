@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from plugin.framework.send_cancellation import is_cancelled
+
 import contextlib
 import enum
 import logging
@@ -117,10 +119,10 @@ def _unlink_temp(path: str | None) -> None:
 def _sleep_cancellable(duration: float, cancel: SendCancellation | None) -> bool:
     end = time.monotonic() + duration
     while time.monotonic() < end:
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             return False
         time.sleep(min(0.2, max(0.0, end - time.monotonic())))
-    return not (cancel is not None and cancel.is_cancelled())
+    return not is_cancelled(cancel)
 
 
 def _check_disk_space(dest: str, min_bytes: int) -> bool:
@@ -154,14 +156,14 @@ def _download_to(
     on_status: Callable[[str], None] | None = None,
 ) -> DownloadOutcome:
     """Download a file from url to dest using chunked reads with cancellation and single-flight lock."""
-    if cancel is not None and cancel.is_cancelled():
+    if is_cancelled(cancel):
         return DownloadOutcome.CANCELLED
 
     deadline = time.monotonic() + deadline_seconds
     canon_dest = os.path.abspath(dest)
 
     while True:
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             return DownloadOutcome.CANCELLED
         if time.monotonic() > deadline:
             return DownloadOutcome.FAILED
@@ -180,7 +182,7 @@ def _download_to(
 
         # Waiter loop: check waiter's own is_cancelled() every 0.2s
         while True:
-            if cancel is not None and cancel.is_cancelled():
+            if is_cancelled(cancel):
                 return DownloadOutcome.CANCELLED
             if time.monotonic() > deadline:
                 return DownloadOutcome.FAILED
@@ -231,7 +233,7 @@ def _download_to_inner(
         os.makedirs(dest_dir, exist_ok=True)
 
     for attempt in range(3):
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             return DownloadOutcome.CANCELLED
         if time.monotonic() > deadline:
             return DownloadOutcome.FAILED
@@ -291,7 +293,7 @@ def _download_to_inner(
                 abort: DownloadOutcome | None = None
                 with open(tmp_path, "wb") as f_out:
                     while True:
-                        if cancel is not None and cancel.is_cancelled():
+                        if is_cancelled(cancel):
                             abort = DownloadOutcome.CANCELLED
                             break
                         if time.monotonic() > deadline:
@@ -301,7 +303,7 @@ def _download_to_inner(
                         try:
                             chunk = resp.read(chunk_size)
                         except (TimeoutError, socket.timeout):
-                            if cancel is not None and cancel.is_cancelled():
+                            if is_cancelled(cancel):
                                 abort = DownloadOutcome.CANCELLED
                                 break
                             if time.monotonic() > deadline:
@@ -317,7 +319,7 @@ def _download_to_inner(
                         now = time.monotonic()
                         if expected_len and expected_len > 0 and (now - last_progress >= 0.25):
                             percent = int(downloaded * 100 / expected_len)
-                            if not (cancel is not None and cancel.is_cancelled()):
+                            if not is_cancelled(cancel):
                                 notify_tts_status(
                                     _("Downloading… {0}%").format(percent),
                                     on_status,
@@ -415,7 +417,7 @@ def resolve_kokoro_model_files(
     if model_ok and voices_ok:
         return model_s, voices_s
 
-    if (utt is not None and utt.download_failed("kokoro")) or (cancel is not None and cancel.is_cancelled()):
+    if (utt is not None and utt.download_failed("kokoro")) or (is_cancelled(cancel)):
         return model_s, voices_s
 
     needs_voices = (not voices_ok and not is_env_v) or kokoro_should_download(voices_path, "KOKORO_VOICES_PATH")
@@ -534,7 +536,7 @@ def _download_piper_pair(
         _unlink_temp(json_tmp)
         return outcome2
 
-    if cancel is not None and cancel.is_cancelled():
+    if is_cancelled(cancel):
         _unlink_temp(onnx_tmp)
         _unlink_temp(json_tmp)
         return DownloadOutcome.CANCELLED
@@ -585,7 +587,7 @@ def resolve_piper_model_file(
     ):
         return voice_s
 
-    if cancel is not None and cancel.is_cancelled():
+    if is_cancelled(cancel):
         return None
 
     download_failed = False
@@ -632,7 +634,7 @@ def resolve_piper_model_file(
         return default_voice_s
 
     if not (utt is not None and utt.download_failed(PIPER_FALLBACK_VOICE)):
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             return None
         if not _check_disk_space(default_voice_s, PIPER_ONNX_MIN_BYTES + PIPER_JSON_MIN_BYTES):
             if utt is not None:

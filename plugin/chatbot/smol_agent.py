@@ -49,10 +49,10 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolBase
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.smol_agent")
+log = logging.getLogger(__name__)
 
 # Match ``writeragent.specialized`` messages when ``safe=True`` (delegation path).
-_spec_log = logging.getLogger("writeragent.specialized")
+_spec_log = logging.getLogger(__name__ + ".specialized")
 
 SmolInputsStyle = Literal["librarian", "specialized"]
 

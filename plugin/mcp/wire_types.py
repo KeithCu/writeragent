@@ -105,16 +105,15 @@ def jsonrpc_success(req_id: RequestId, result: dict[str, Any]) -> dict[str, Any]
     return {"jsonrpc": "2.0", "id": req_id, "result": result}
 
 
-def _deal_jsonrpc_failure_ok_pytest(message: object, code: object) -> bool:
+def deal_jsonrpc_failure_ok(message: object, code: object) -> bool:
     # Tool errors are longer than DEAL_MAX_SOURCE. The body copies the
     # string into the error object.
     return isinstance(message, str) and isinstance(code, int)
 
 
-_deal_jsonrpc_failure_ok = _deal_jsonrpc_failure_ok_pytest
 
 
-@deal.pre(lambda req_id, code, message, data=None: _deal_jsonrpc_failure_ok(message, code))
+@deal.pre(lambda req_id, code, message, data=None: deal_jsonrpc_failure_ok(message, code))
 @deal.post(lambda result: isinstance(result, dict) and result.get("jsonrpc") == "2.0" and "error" in result)
 def jsonrpc_failure(req_id: RequestId, code: int, message: str, data: Any | None = None) -> dict[str, Any]:
     err: dict[str, Any] = {"code": code, "message": message}
@@ -166,16 +165,15 @@ def call_tool_result(text: str, *, is_error: bool = False) -> dict[str, Any]:
     return out
 
 
-def _deal_image_b64_ok_pytest(data_b64: object, mime_type: object = "image/png") -> bool:
+def deal_image_b64_ok(data_b64: object, mime_type: object = "image/png") -> bool:
     # A real image is far longer than DEAL_MAX_SOURCE. The body wraps the
     # string.
     return isinstance(data_b64, str) and isinstance(mime_type, str) and len(mime_type) >= 1
 
 
-_deal_image_b64_ok = _deal_image_b64_ok_pytest
 
 
-@deal.pre(lambda data_b64, mime_type="image/png", is_error=False: _deal_image_b64_ok(data_b64, mime_type))
+@deal.pre(lambda data_b64, mime_type="image/png", is_error=False: deal_image_b64_ok(data_b64, mime_type))
 @deal.post(lambda result: isinstance(result, dict) and "content" in result)
 def call_tool_result_image(data_b64: str, mime_type: str = "image/png", *, is_error: bool = False) -> dict[str, Any]:
     """Tool result carrying an IMAGE content block (MCP image type) instead of text.

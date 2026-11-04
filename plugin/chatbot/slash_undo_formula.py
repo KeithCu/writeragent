@@ -12,7 +12,7 @@ from typing import Any
 from plugin.framework.errors import format_error_message, reraise_if_disposed
 from plugin.framework.i18n import N_, _
 
-log = logging.getLogger("writeragent.slash_commands")
+log = logging.getLogger(__name__)
 
 FORMULA_UNDO_TITLE = N_("WriterAgent: Formula")
 

@@ -31,7 +31,6 @@ from plugin.chatbot.slash_popup import (
 
 @pytest.fixture(autouse=True)
 def _enable_slash_for_unit_tests(monkeypatch):
-    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", True)
     # Most tests drive the [mock] rows, like the mock-LLM sidebar harness.
     monkeypatch.setattr("plugin.chatbot.slash_commands._mock_commands_enabled", True)
 
@@ -581,7 +580,7 @@ def test_query_text_post_timeout_does_not_run_inline(caplog):
     def _timeout(*_args, **_kwargs):
         raise TimeoutError("marshal post timed out")
 
-    with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
         with patch(
             "plugin.framework.queue_executor.main.post",
             side_effect=_timeout,
@@ -623,7 +622,7 @@ def test_fill_failure_logs_warning(caplog):
         raise RuntimeError("addItems")
 
     box.addItems = _boom
-    with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
         popup._fill_visible_list()
     assert any("fill addItems failed" in r.message and r.levelno == logging.WARNING for r in caplog.records)
 
@@ -640,7 +639,7 @@ def test_frame_key_attach_failure_logs_warning(caplog):
         controller = MagicMock()
         controller.addKeyHandler.side_effect = RuntimeError("attach")
         popup.send_listener.frame = SimpleNamespace(getController=lambda: controller)
-        with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+        with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
             popup._attach_frame_keys()
         assert any(
             "frame key handler attach failed" in r.message and r.levelno == logging.WARNING
@@ -651,21 +650,12 @@ def test_frame_key_attach_failure_logs_warning(caplog):
             delattr(awt, "XKeyHandler")
 
 
-def test_slash_disabled_when_flag_false(monkeypatch, caplog):
-    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
-    monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
-    popup, _box = _controller()
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
-        popup.on_query_text("/")
-    assert popup.is_open is False
-    assert not any("[SLASH-OV]" in r.message for r in caplog.records)
-
 
 def test_ovlog_silent_when_verbose_off(caplog, monkeypatch):
     from plugin.chatbot.slash_popup import _ovlog
 
     monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
         _ovlog("query_text entered raw=%r", "/he")
     assert not any("[SLASH-OV]" in r.message for r in caplog.records)
 
@@ -675,7 +665,7 @@ def test_ovlog_emits_debug_when_verbose(caplog, monkeypatch):
     from tests.harness.strip_bundle import module_source_contains
 
     monkeypatch.setattr(slash_popup, "SLASH_OV_VERBOSE_DEBUG", True)
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
         slash_popup._ovlog("query_text entered raw=%r", "/he")
     if not module_source_contains(slash_popup, "log.debug"):
         return
@@ -862,7 +852,6 @@ def test_toolkit_key_handler_registered_at_panel_creation(monkeypatch):
 
 
 def test_toolkit_key_handler_not_registered_when_slash_disabled(monkeypatch):
-    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
     toolkit = MagicMock()
     peer = SimpleNamespace(getToolkit=lambda: toolkit)
     query = SimpleNamespace(getPeer=lambda: peer, getText=lambda: "")

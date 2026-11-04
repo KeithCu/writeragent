@@ -728,6 +728,7 @@ class Supervisor:
                 warm._io_lock.release()
 
     def spawn(self, managed: ManagedSubprocess) -> None:
+        # PDEATHSIG follows the creating thread (see child_runtime.die_with_parent).
         if self._shutdown:
             raise RuntimeError("Supervisor is shut down")
         self._ensure_threads()

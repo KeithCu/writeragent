@@ -14,7 +14,6 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     """Drive SlashPopupController on a live toolkit listbox created on first ``/``."""
     import sys
 
-    from plugin.chatbot import slash_popup
     from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, enable_mock_slash_commands
     from plugin.chatbot.slash_popup import SlashPopupController
     from plugin.tests.testing_utils import skip_windows_awt_top_dialog
@@ -24,7 +23,6 @@ def test_slash_popup_listbox_filter_and_keys(ctx):
     # leftover_open was not required. Linux still runs this path.
     skip_windows_awt_top_dialog("slash_popup createPeer/setVisible")
 
-    slash_popup.ENABLE_SLASH = True
     enable_mock_slash_commands()
 
     smgr = ctx.getServiceManager()

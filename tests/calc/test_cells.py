@@ -914,7 +914,7 @@ def test_make_number_formatter_unwraps_guarded_doc():
     """attachNumberFormatsSupplier must get the raw doc, not a Layer-A proxy.
 
     The stub defines ``_UnoThreadGuardProxy`` and never constructs it
-    (``_wrap_uno`` returns the raw object); patch ``_unwrap_uno`` so the
+    (``_wrap_uno`` returns the raw object); patch ``unwrap_uno`` so the
     test does not depend on which module is loaded.
     """
     from plugin.calc.manipulator import CellManipulator
@@ -937,7 +937,7 @@ def test_make_number_formatter_unwraps_guarded_doc():
 
     manip = CellManipulator(MagicMock())
     with patch("plugin.calc.manipulator.get_ctx", return_value=proxied_ctx):
-        with patch("plugin.framework.thread_guard._unwrap_uno", side_effect=fake_unwrap):
+        with patch("plugin.framework.thread_guard.unwrap_uno", side_effect=fake_unwrap):
             out = manip._make_number_formatter(proxied_doc)
 
     assert out is formatter

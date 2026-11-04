@@ -54,7 +54,7 @@ from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url, process_events_to_idle
 from plugin.framework.i18n import _
 
-log = logging.getLogger("writeragent.dialogs")
+log = logging.getLogger(__name__)
 
 
 # ── Simple message box ──────────────────────────────────────────────
