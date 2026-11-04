@@ -121,7 +121,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
     handler = MCPProtocolHandler(_FakeServices(registry))
 
     with patch("plugin.mcp.mcp_protocol._document_echo_payload", return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo:
-        result = handler._run_tool("any_tool", {}, document_url="file:///doc.odt")
+        result = handler._run_tool("any_tool", {}, document_url="file:///doc.odt", cancel=SendCancellation())
 
     assert result["status"] == "ok"
     assert result["document"] == {"name": "doc.odt", "uid": "uid-1"}
@@ -325,7 +325,7 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
     seen = _watch_execute_safe(handler)
     args = {"bypass_thread_guard": bypass, "note": "keep"}
 
-    direct = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt")
+    direct = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt", cancel=SendCancellation())
     assert direct["code"] == "DOCUMENT_DISPOSED"
     assert direct["status"] == "error"
 
@@ -335,7 +335,7 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
 
     tool.long_running = False
     debug = handler._debug_call_tool("sync_probe", dict(args), document_url="file:///gone.odt")
-    backpressure = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt")
+    backpressure = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt", cancel=SendCancellation())
     assert debug["code"] == "DOCUMENT_DISPOSED"
     assert backpressure["code"] == "DOCUMENT_DISPOSED"
     assert tool.body_calls == []
@@ -348,7 +348,7 @@ def test_tools_call_keeps_real_arguments_when_stripping_bypass():
     tool = _SyncProbe()
     handler = _handler(_LiveDoc(), tool)
     seen = _watch_execute_safe(handler)
-    result = handler._run_tool("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt")
+    result = handler._run_tool("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt", cancel=SendCancellation())
     assert result["status"] == "ok"
     assert result["note"] == "keep"
     assert tool.body_calls == [{"note": "keep"}]
@@ -420,7 +420,7 @@ def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
 
     def worker():
         box["debug"] = handler._debug_call_tool("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt")
-        box["direct"] = handler._run_tool("sync_probe", {"bypass_thread_guard": True}, document_url="file:///live.odt")
+        box["direct"] = handler._run_tool("sync_probe", {"bypass_thread_guard": True}, document_url="file:///live.odt", cancel=SendCancellation())
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
         thread = threading.Thread(target=worker, name="http-worker")
@@ -772,7 +772,7 @@ def test_async_long_running_uses_execute_safe_without_bypass_keyword():
         raise AssertionError("is_async MCP tool must not be marshalled to the main thread")
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=fail_marshal):
-        result = handler._run_tool("async_probe", {"bypass_thread_guard": False, "note": "keep"}, document_url="file:///live.odt")
+        result = handler._run_tool("async_probe", {"bypass_thread_guard": False, "note": "keep"}, document_url="file:///live.odt", cancel=SendCancellation())
 
     assert marshalled == []
     assert result["status"] == "ok"

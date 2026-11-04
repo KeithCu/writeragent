@@ -45,7 +45,7 @@ from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation
 from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate
 import plugin.mcp.mcp_session as mcp_session
@@ -772,7 +772,7 @@ class MCPProtocolHandler:
     def _mcp_prompts_list(self, params: Any) -> Any:
         return {"prompts": []}
 
-    def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None, session: Any = None, *, cancel: SendCancellation | None = None) -> Any:
+    def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None, session: Any = None, *, cancel: SendCancellation) -> Any:
         call_params = wire_types.CallToolRequestParams.from_params(params)
         tool_name = call_params.name
         arguments = dict(call_params.arguments)
@@ -885,8 +885,6 @@ class MCPProtocolHandler:
             if method == "tools/list":
                 result = self._mcp_tools_list(params, document_url=document_url)
             elif method == "tools/call":
-                from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation
-
                 cancel_key = (session, req_id) if req_id is not None else None
                 outer = get_current_send_cancellation()
                 scope = outer if outer is not None else SendCancellation()
@@ -937,11 +935,9 @@ class MCPProtocolHandler:
         document_url: str | None = None,
         req_id: Any = None,
         session: Any = None,
-        cancel: SendCancellation | None = None,
+        cancel: SendCancellation,
     ) -> Any:
         with _permit():
-            if cancel is None:
-                cancel = SendCancellation()
             prepared = self.queue_executor.call(
                 self._prepare_mcp_execution,
                 tool_name,
@@ -1069,7 +1065,6 @@ class MCPProtocolHandler:
 
             active_page_idx = DrawBridge(doc).get_active_page_index()
 
-        scope = cancel
         # MagicMock tools (and any non-bool is_async result) are not async. A
         # non-numeric timeout is not a positive timeout: comparing MagicMock
         # to int raises TypeError and aborts preparation before ToolContext.
@@ -1078,7 +1073,7 @@ class MCPProtocolHandler:
         if _is_async and _timeout is not None and not (isinstance(_timeout, (int, float)) and _timeout > 0):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
-        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=scope)
+        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=cancel)
         return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=tool.requires_document_lock(arguments), echo=_document_echo_payload(doc), is_async=_is_async)
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
@@ -1122,7 +1117,7 @@ class MCPProtocolHandler:
         if document_url is None:
             document_url = args_copy.pop("document_url", None)
 
-        result = self._run_tool(tool_name, args_copy, document_url=document_url)
+        result = self._run_tool(tool_name, args_copy, document_url=document_url, cancel=SendCancellation())
         return result
 
     def _debug_trigger(self, command: str) -> Any:

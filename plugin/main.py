@@ -341,7 +341,7 @@ def register_core_handlers() -> None:
         except Exception:  # UNO boundary: refresh_review_toolbar layout/controller access
             log.debug("review toolbar refresh failed", exc_info=True)
 
-    def _resolve_change_at_cursor(frame: Any = None, accept: bool = False) -> None:
+    def _resolve_change_at_cursor(accept: bool) -> None:
         from plugin.writer.inline_review import resolve_change_at_cursor, show_review_message
 
         c = get_ctx()
@@ -355,10 +355,10 @@ def register_core_handlers() -> None:
         else:
             log.debug("inline review: no current component")
 
-    register_action_handler("writer", "accept_change", lambda frame=None: _resolve_change_at_cursor(frame, True))
-    register_action_handler("writer", "reject_change", lambda frame=None: _resolve_change_at_cursor(frame, False))
+    register_action_handler("writer", "accept_change", lambda frame=None: _resolve_change_at_cursor(True))
+    register_action_handler("writer", "reject_change", lambda frame=None: _resolve_change_at_cursor(False))
 
-    def _resolve_all_agent(frame: Any = None, accept: bool = False) -> None:
+    def _resolve_all_agent(accept: bool) -> None:
         from plugin.writer.inline_review import resolve_all_with_feedback, show_review_message
 
         c = get_ctx()
@@ -369,10 +369,10 @@ def register_core_handlers() -> None:
             show_review_message(c, msg)
             _refresh_review_toolbar(model)
 
-    register_action_handler("writer", "review_accept_all", lambda frame=None: _resolve_all_agent(frame, True))
-    register_action_handler("writer", "review_reject_all", lambda frame=None: _resolve_all_agent(frame, False))
+    register_action_handler("writer", "review_accept_all", lambda frame=None: _resolve_all_agent(True))
+    register_action_handler("writer", "review_reject_all", lambda frame=None: _resolve_all_agent(False))
 
-    def _goto_adjacent_change(frame: Any = None, forward: bool = False) -> None:
+    def _goto_adjacent_change(forward: bool) -> None:
         """Fast-travel (#2): move the cursor to the next/previous pending agent change, in document
         order, cycling. Drives the review toolbar's Next/Previous buttons (and any shortcut)."""
         from plugin.writer.inline_review import goto_adjacent_agent_change
@@ -385,8 +385,8 @@ def register_core_handlers() -> None:
         log.debug("review nav: forward=%s -> token=%s", forward, token)
         _refresh_review_toolbar(model)
 
-    register_action_handler("writer", "review_next", lambda frame=None: _goto_adjacent_change(frame, True))
-    register_action_handler("writer", "review_prev", lambda frame=None: _goto_adjacent_change(frame, False))
+    register_action_handler("writer", "review_next", lambda frame=None: _goto_adjacent_change(True))
+    register_action_handler("writer", "review_prev", lambda frame=None: _goto_adjacent_change(False))
 
     def _install_review_ui() -> None:
         from plugin.writer.review_view_attachment import install

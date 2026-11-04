@@ -2343,7 +2343,6 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
         assert panel._acp_backend_id == "hermes"
         send_kwargs = hermes.send.call_args.kwargs
         assert send_kwargs.get("cancel") is scope
-        hermes.prepare_turn.assert_not_called()
         scope.register_on_cancel.assert_not_called()
         order.clear()
         panel._execute_agent_backend_effect("two", MagicMock(), "writer")

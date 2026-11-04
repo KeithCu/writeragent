@@ -894,13 +894,14 @@ class ACPBackend(AgentBackend):
         """Send one prompt. The CLI stays up for the next message on this sidebar."""
         # Serialize send() calls on the retained CLI. stop() and shutdown() do not take this lock, so session/cancel still runs.
         with self._send_lock:
+            if cancel is None:
+                cancel = SendCancellation()
             with self._state_lock:
                 if self._closed:
                     self._finish_stopped(queue)
                     return
                 self._active_cancel = cancel
-            if cancel is not None:
-                cancel.register_on_cancel(self.stop)
+            cancel.register_on_cancel(self._cancel_wire)
             try:
                 if self._user_stopped():
                     self._finish_stopped(queue)
@@ -991,8 +992,7 @@ class ACPBackend(AgentBackend):
             finally:
                 with self._state_lock:
                     self._active_cancel = None
-                if cancel is not None:
-                    cancel.unregister_on_cancel(self.stop)
+                cancel.unregister_on_cancel(self._cancel_wire)
                 # The process stays. Drop the callback so a late notification
                 # does not write into this turn's queue. The next send installs
                 # its own. shutdown() may already have cleared the connection.
@@ -1029,7 +1029,16 @@ class ACPBackend(AgentBackend):
         queue.put((StreamQueueKind.STREAM_DONE, None))
 
     def stop(self) -> None:
-        """Cancel the in-flight prompt and keep a healthy CLI.
+        """User Stop: cancel this send's scope; the hook runs session/cancel and permission replies."""
+        with self._state_lock:
+            active = self._active_cancel
+        if active is not None and not active.is_cancelled():
+            active.cancel()
+            return
+        self._cancel_wire()
+
+    def _cancel_wire(self) -> None:
+        """ACP wire cancellation: ``session/cancel``, permission replies, optional grace kill.
 
         ACP does not define ``session/interrupt``. Cancellation is the
         ``session/cancel`` notification, and every outstanding permission
@@ -1041,13 +1050,6 @@ class ACPBackend(AgentBackend):
         wait on the success path. Stop waits up to the grace for the prompt
         result. Activity after Stop does not extend that wait.
         """
-        active: SendCancellation | None
-        with self._state_lock:
-            active = self._active_cancel
-        if active is not None and not active.is_cancelled():
-            active.cancel()
-            return
-
         with self._state_lock:
             inflight = self._inflight_token is not None
             token = self._inflight_token

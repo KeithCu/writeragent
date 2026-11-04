@@ -1093,8 +1093,7 @@ class TestStopAndShutdown:
 
         backend._request = request
         q = queue.Queue()
-        scope = SendCancellation()
-        backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
         kinds = [event[0] for event in _drain(q)]
         assert (StreamQueueKind.STOPPED) in (kinds)
         assert (StreamQueueKind.ERROR) not in (kinds)
@@ -1250,11 +1249,7 @@ class TestStopAndShutdown:
         assert scope.is_cancelled() is True
 
     def test_stop_between_unprepared_sends_does_not_stick(self):
-        """A Stop on one unprepared send must not Stop the next one.
-
-        What was wrong: the first send() without prepare_turn left the
-        turn looking prepared, so a later Stop matched every send.
-        """
+        """A Stop on one send must not Stop the next one."""
         backend = _bare_backend()
         conn = _mock_conn()
         conn.send_request.return_value = {"stopReason": "end_turn"}
@@ -1329,7 +1324,7 @@ class TestStopAndShutdown:
         assert ((StreamQueueKind.STREAM_DONE, None)) in (_drain(q))
         conn.stop.assert_not_called()
 
-    def test_stop_checker_true_at_send_entry_does_not_start_cli(self):
+    def test_cancelled_scope_at_send_entry_does_not_start_cli(self):
         backend = _bare_backend()
         scope = SendCancellation()
         scope.cancel()
@@ -1618,7 +1613,7 @@ class TestStartupWait:
         assert (backend._conn) is conn
         assert (backend._ready) is False
 
-    def test_stop_checker_during_spawn_does_not_prompt(self):
+    def test_cancel_during_spawn_does_not_prompt(self):
         backend = self._backend()
         conn = _startup_conn()
         scope = SendCancellation()
