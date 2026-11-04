@@ -1,6 +1,6 @@
 import pytest
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.llm_client import LlmClient
@@ -38,8 +38,7 @@ class TestStreamingFuzz:
             "request_timeout": 60,
         }
 
-    @patch("plugin.framework.client.llm_client.init_logging")
-    def test_malformed_json_sse_payload(self, mock_init_logging):
+    def test_malformed_json_sse_payload(self):
         """Ensure that garbled JSON lines in the SSE stream are gracefully skipped."""
         lines = [
             b"data: {\"choices\": [{\"delta\": {\"content\": \"hello \"}}]}\n",
@@ -59,8 +58,7 @@ class TestStreamingFuzz:
         # The garbled chunk should be skipped, and the rest parsed.
         assert (content_parts) == (["hello ", "world"])
 
-    @patch("plugin.framework.client.llm_client.init_logging")
-    def test_truncated_tool_call_arguments(self, mock_init_logging):
+    def test_truncated_tool_call_arguments(self):
         """Ensure that truncated tool call arguments (due to AI stop mid-stream) are returned as a truncated JSON string."""
         chunks = [
             {
@@ -120,8 +118,7 @@ class TestStreamingFuzz:
         # Proves it recovers gracefully to an empty dict
         assert (func_args) == ({})
 
-    @patch("plugin.framework.client.llm_client.init_logging")
-    def test_unexpected_schema_structures(self, mock_init_logging):
+    def test_unexpected_schema_structures(self):
         """Ensure feeding structurally invalid delta dictionaries raises a clean Exception that doesn't cause a fatal error but gets caught."""
         chunks = [
             {
@@ -161,8 +158,7 @@ class TestStreamingFuzz:
         # The error is formatted by format_error_message, verify it caught the TypeError from accumulate_delta
         assert ("Unexpected, list delta entry `index` value is not an integer" in str(ctx.value))
 
-    @patch("plugin.framework.client.llm_client.init_logging")
-    def test_ui_thread_graceful_recovery(self, mock_init_logging):
+    def test_ui_thread_graceful_recovery(self):
         """Simulate an error in the worker thread to ensure run_stream_drain_loop correctly drains it without breaking processEventsToIdle() loop."""
         from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
         import queue

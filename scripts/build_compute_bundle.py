@@ -31,6 +31,7 @@ COMPUTE_BUNDLE_DIR = "build/bundle-compute"
 COMPUTE_PLUGIN_EXTRAS = (
     "plugin/framework/http_server.py",
     "plugin/framework/process_worker.py",
+    "plugin/framework/warm_child.py",
 )
 
 # Traced closure of import server+formula_pool+vision and execute_code

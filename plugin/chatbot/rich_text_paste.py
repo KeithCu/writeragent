@@ -397,6 +397,20 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: int
 # Streamed tokens live here until the committed assistant message replaces the row.
 # Not a history write. add_assistant_message pops a trailing row with this key.
 OPEN_TRANSCRIPT = "_open_transcript"
+# Sidebar-only slash output (/help, /remember). Kept in session.messages for repaint,
+# omitted from messages_for_llm (see compaction.sanitize_tool_pairs).
+SLASH_LOCAL = "_slash_local"
+
+
+def append_slash_local_message(session: Any, text: str) -> bool:
+    """Persist a closed assistant row for local slash output (not an LLM turn)."""
+    messages = getattr(session, "messages", None)
+    if not isinstance(messages, list):
+        return False
+    if not text or not str(text).strip():
+        return False
+    messages.append({"role": "assistant", "content": text, SLASH_LOCAL: True})
+    return True
 
 
 def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> bool:
@@ -468,7 +482,8 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
         role = msg.get("role", "")
         content = msg.get("content", "")
         if role == "user":
-            items.append(("user", message_text(content)))
+            transcript = msg.get("_transcript_text")
+            items.append(("user", transcript if isinstance(transcript, str) and transcript else message_text(content)))
         elif role == "assistant":
             if content:
                 text = message_text(content)

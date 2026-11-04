@@ -215,40 +215,14 @@ def _init_logging() -> None:
         sys.stderr.write(f"Failed to initialize worker logging: {exc}\n")
 
 
-def _die_with_parent() -> None:
-    """Kill this child if the LibreOffice process dies while we are in native code.
-
-    stdin EOF already exits an idle harness. A C extension that never returns
-    to ``read`` used to keep the venv process (and the microphone, or a BLAS
-    thread) after soffice quit. Linux ``PR_SET_PDEATHSIG`` is the parent-death
-    signal; the ppid check covers the parent dying before prctl runs.
-    ``PR_SET_PDEATHSIG`` follows the thread that created the process;
-    ``PythonWorkerManager`` spawns this harness on ``venv-worker-spawn``,
-    which lives until that manager is retired or ``shutdown_all``.
-    """
-    if sys.platform != "linux":
-        return
-    try:
-        import ctypes
-
-        # Compare against the ppid captured before prctl. After the parent
-        # dies, getppid() is the subreaper (systemd --user), which is not 1.
-        ppid = os.getppid()
-        libc = ctypes.CDLL("libc.so.6", use_errno=True)
-        # PR_SET_PDEATHSIG = 1, SIGKILL = 9. Arguments after the signal are unused.
-        if libc.prctl(1, 9, 0, 0, 0) != 0:
-            return
-        if os.getppid() != ppid:
-            os.kill(os.getpid(), 9)
-    except Exception as exc:
-        log.debug("Failed to configure PR_SET_PDEATHSIG: %s", exc)
+from plugin.framework.child_runtime import die_with_parent
 
 
 def main() -> None:
     from plugin.scripting.host_tool_call import ROLE_WORKER, set_process_role
 
     set_process_role(ROLE_WORKER)
-    _die_with_parent()
+    die_with_parent()
     _init_logging()
     log.info("Worker process %d starting up with python %s", os.getpid(), sys.version)
 
@@ -257,6 +231,7 @@ def main() -> None:
     # Idempotent. The script entry already claimed before later imports. This
     # call is the one in-process tests replace.
     stdout = claim_ipc_channel()
+    write_pickle_frame(stdout, {"status": "ready", "pid": os.getpid()})
 
     while True:
         # Read and handle are separate. IpcFrameError subclasses ValueError,
@@ -356,9 +331,13 @@ def main() -> None:
                 break
 
         lpe = sys.modules.get(_LPE_MODULE)
-        if lpe is not None and getattr(lpe, "abandoned_timeout", False):
-            setattr(lpe, "abandoned_timeout", False)
-            os._exit(1)
+        if lpe is not None:
+            finalize = getattr(lpe, "finalize_thread_pool_timeout", None)
+            if callable(finalize):
+                finalize()
+            if getattr(lpe, "abandoned_timeout", False):
+                setattr(lpe, "abandoned_timeout", False)
+                os._exit(1)
 
 
 if __name__ == "__main__":

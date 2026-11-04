@@ -54,6 +54,7 @@ class GrepNearbyFiles(ToolBase):
 
         file_subset = kwargs.get("file_subset")
 
+        scope = ctx.send_cancellation
         return grep_nearby_files(
             ctx.ctx,
             ctx.doc,
@@ -62,6 +63,6 @@ class GrepNearbyFiles(ToolBase):
             file_subset=str(file_subset) if file_subset else None,
             regex=bool(kwargs.get("regex", False)),
             case_sensitive=bool(kwargs.get("case_sensitive", False)),
-            stop_checker=ctx.stop_checker,
+            stop_checker=scope.is_cancelled if scope is not None else None,
             status_callback=ctx.status_callback,
         )

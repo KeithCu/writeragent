@@ -18,7 +18,7 @@ from typing import Any
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
-from plugin.scripting.venv_worker import PythonWorkerManager
+from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 from tests.scripting.serialization_ab_support import (
     VENV_TRANSFORMS,
     all_codec_ab_cases,
@@ -106,7 +106,10 @@ def main() -> int:
         return 1
     finally:
         if args.subprocess:
-            PythonWorkerManager.shutdown_all()
+            from plugin.framework.warm_child import get_supervisor
+
+            get_supervisor().shutdown_all()
+            shutdown_venv_workers_for_tests()
     return 0
 
 

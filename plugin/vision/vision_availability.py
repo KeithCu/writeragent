@@ -10,7 +10,6 @@ import logging
 from typing import Any
 
 from plugin.framework.config import get_config
-from plugin.framework.errors import ConfigError
 from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
@@ -42,16 +41,10 @@ def vision_venv_configured(ctx: Any = None) -> bool:
     Used for schema/prompt gating on the main-thread Send path. Missing Docling/Paddle
     packages surface at OCR runtime or via Settings → Python → Test.
     """
-    # Config read failures are ConfigError: log them and return False.
-    # get_config takes no ctx, so a missing ctx is not a reason to skip Settings.
-    try:
-        venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
-        if not venv_dir:
-            return False
-        return resolve_venv_python(venv_dir) is not None
-    except ConfigError as exc:
-        log.warning("vision_venv_configured: config error: %s", exc)
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
+    if not venv_dir:
         return False
+    return resolve_venv_python(venv_dir) is not None
 
 
 def filter_vision_specialized_tools(tools: list[Any], ctx: Any = None) -> list[Any]:

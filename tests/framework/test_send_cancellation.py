@@ -11,20 +11,24 @@ from plugin.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.queue_executor import MainThread, main
-from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, send_stopped, wait_for_approval
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, is_cancelled, wait_for_approval
 
 
 def test_wait_for_approval_set_event_wins_over_stop():
     """A signaled approval must not lose to a stop that lands in the same wake."""
     event = threading.Event()
     event.set()
-    assert wait_for_approval(event, lambda: True, timeout=0.01) is True
+    cancel = SendCancellation()
+    cancel.cancel()
+    assert wait_for_approval(event, cancel, timeout=0.01) is True
 
 
 def test_wait_for_approval_stop_while_unset_returns_false():
     """Sidebar close latches stop and never sets the approval event."""
     event = threading.Event()
-    assert wait_for_approval(event, lambda: True, timeout=0.01) is False
+    cancel = SendCancellation()
+    cancel.cancel()
+    assert wait_for_approval(event, cancel, timeout=0.01) is False
     assert event.is_set() is False
 
 
@@ -110,6 +114,19 @@ def test_register_on_cancel_duplicate_after_cancel_does_not_run_again():
     assert adapter.calls == 1
     scope.register_on_cancel(adapter.stop)
     assert adapter.calls == 1
+
+
+def test_unregister_on_cancel_prevents_hook_execution():
+    called = []
+    scope = SendCancellation()
+
+    def hook():
+        called.append(1)
+
+    scope.register_on_cancel(hook)
+    scope.unregister_on_cancel(hook)
+    scope.cancel()
+    assert called == []
 
 
 def test_llm_client_registers_under_agent_session():
@@ -226,7 +243,7 @@ def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open,
     ctx = MagicMock()
     ctx.ctx = MagicMock()
     ctx.doc = MagicMock()
-    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
     result = tool.execute(ctx, path_or_name="budget.ods", task="Q4")
 
     assert result["status"] == "ok"
@@ -349,7 +366,7 @@ def test_smol_executor_aborts_before_next_step_when_cancelled():
 
     scope = SendCancellation()
     ctx = MagicMock()
-    ctx.stop_checker = scope.is_cancelled
+    ctx.send_cancellation = scope
     agent = MagicMock()
     step1 = MagicMock()
     step1.__class__.__name__ = "ActionStep"
@@ -382,7 +399,7 @@ def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
     from plugin.contrib.smolagents.memory import ToolCall
 
     ctx = MagicMock()
-    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
     agent = MagicMock()
     tool_step = ToolCall(name="test_tool", arguments={}, id="call_1")
 
@@ -404,43 +421,22 @@ def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
     assert generator_closed is True
 
 
-def test_stop_checker_stays_true_after_panel_clears_scope_reference():
-    from plugin.framework.send_cancellation import bind_send_stop_checker
-
-    scope = SendCancellation()
-    stop_checker = bind_send_stop_checker(scope, lambda: False)
-    scope.cancel()
-    assert stop_checker() is True
-
-
-def test_bound_checker_ignores_a_replaced_scope_attribute():
-    from plugin.framework.send_cancellation import bind_send_stop_checker, capture_send_stop
+def test_capture_send_stop_returns_scope_and_survives_attribute_replace():
+    from plugin.framework.send_cancellation import capture_send_stop
 
     class Host:
         def __init__(self, scope):
             self._send_cancellation = scope
 
-        def resolve_stop_checker(self):
-            return bind_send_stop_checker(self._send_cancellation, lambda: False)
-
     old = SendCancellation()
     host = Host(old)
-    scope, checker = capture_send_stop(host)
+    scope = capture_send_stop(host)
     assert scope is old
     old.cancel()
     new = SendCancellation()
     host._send_cancellation = new
-    assert checker() is True
-    assert bind_send_stop_checker(new, lambda: False)() is False
-
-
-def test_bind_send_stop_checker_ors_fallback_before_scope_cancel():
-    from plugin.framework.send_cancellation import bind_send_stop_checker
-
-    scope = SendCancellation()
-    checker = bind_send_stop_checker(scope, lambda: True)
-    assert not scope.is_cancelled()
-    assert checker() is True
+    assert scope is not None and scope.is_cancelled() is True
+    assert new.is_cancelled() is False
 
 
 def test_agent_session_reuses_existing_scope():
@@ -508,20 +504,13 @@ class TestSendCancellationHooksLocking:
         )
 
 
-def test_send_stopped_predicates():
-    """send_stopped checks scope cancellation and client stopped latch."""
+def test_is_cancelled_predicate():
+    """is_cancelled checks scope is not None and scope.is_cancelled()."""
+    assert is_cancelled(None) is False
     scope = SendCancellation()
-    client = MagicMock()
-    client.stopped.return_value = False
-
-    assert send_stopped(scope, client) is False
-
+    assert is_cancelled(scope) is False
     scope.cancel()
-    assert send_stopped(scope, client) is True
-
-    fresh_scope = SendCancellation()
-    client.stopped.return_value = True
-    assert send_stopped(fresh_scope, client) is True
+    assert is_cancelled(scope) is True
 
 
 def test_send_cancellation_imports_before_queue_executor():

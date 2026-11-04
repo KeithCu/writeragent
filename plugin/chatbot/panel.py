@@ -177,6 +177,12 @@ class QueryKeyListener(BaseKeyListener):
         if not sc or not sc.getModel():
             return
         if not sc.getModel().Enabled:
+            from plugin.chatbot.slash_commands import try_dispatch_slash_on_send_click
+
+            if try_dispatch_slash_on_send_click(self.send_listener):
+                with suppress_disposed("QueryKeyListener Consume busy slash", logger=log):
+                    if hasattr(e, "Consume"):
+                        setattr(e, "Consume", True)
             return
         # Enter in the query box sends only when the button label is
         # "Send". Enabled alone is not enough: an empty box reads "Record"
@@ -269,6 +275,7 @@ class SendButtonListener(BaseActionListener):
     _acp_backend_id: str | None
     _approval_event: Any
     slash_popup: Any
+    _skip_agent_undo_after: bool
     clear_listener: Any
     rich_text_widget: Any
     _rich_plain_fallback_warned: bool
@@ -360,6 +367,7 @@ class SendButtonListener(BaseActionListener):
         self._stop_mouse_listener = None
         self._record_mouse_listener = None
         self.slash_popup = None
+        self._skip_agent_undo_after = False
         self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
@@ -461,23 +469,6 @@ class SendButtonListener(BaseActionListener):
 
         assign_send_outcome(self, "" if value is None else value)
 
-    def resolve_stop_checker(self) -> Callable[[], bool]:
-        """Stop predicate bound to the scope on this panel right now.
-
-        Call this on the send thread when spawning a worker (``capture_send_stop``)
-        and close over the result. Calling it again inside the worker binds
-        whatever ``_send_cancellation`` is then. The drain clears that field
-        when it exits, and the next send stores a new scope there.
-
-        The returned callable keeps the scope object from this call, so it
-        stays true after the field is cleared. Do not pass
-        ``lambda: self.stop_requested`` alone: that property reads the live field.
-        See ``docs/framework/streaming-and-threading.md`` § Stop / cancellation.
-        """
-        from plugin.framework.send_cancellation import bind_send_stop_checker
-
-        return bind_send_stop_checker(self._send_cancellation, lambda: self._stop_requested_fallback)
-
     def set_session(self, session: Any) -> None:
         """Swap the visible session after the in-flight turn has been aborted.
 
@@ -504,22 +495,49 @@ class SendButtonListener(BaseActionListener):
         self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
-        """Show a UI-only line (slash /help); it is not a chat message.
+        """Show slash /help and similar lines in the transcript (not an LLM turn).
 
-        ``_append_response`` drops text when no turn is live, which is always
-        the case for a slash command, so /help printed nothing.
+        Persists a closed assistant row on ``session.messages`` so repaints and the
+        next chat turn keep the text (QA B8/N2). Local rows use ``_slash_local`` and are
+        omitted from ``messages_for_llm``.
         """
-        widget = self.rich_text_widget
-        if widget is not None:
-            self._run_rich_ui(widget.append_chunk, text)
-            return
-        response = self.response_control
-        if response is None:
-            return
-        from plugin.chatbot.dialogs import get_control_text, set_control_text
+        session = self.session
+        if session is None:
+            log.warning("append_output with no session; falling back to response control")
+            response = self.response_control
+            if response is None:
+                return
+            from plugin.chatbot.dialogs import get_control_text, set_control_text
 
-        current = get_control_text(response) or ""
-        set_control_text(response, current + text)
+            current = get_control_text(response) or ""
+            set_control_text(response, current + text)
+            self._scroll_response_to_bottom()
+            return
+        from plugin.chatbot.rich_text_paste import append_slash_local_message
+        from plugin.chatbot.tool_loop_actions import running_turn
+
+        if not append_slash_local_message(session, text):
+            return
+
+        def _paint() -> None:
+            widget = self.rich_text_widget
+            if widget is not None:
+                turn = running_turn(self)
+                if turn is not None and turn.session is session:
+                    widget.stream_session(session)
+                else:
+                    widget.paint_session(session)
+                return
+            response = self.response_control
+            if response is None:
+                return
+            from plugin.chatbot.dialogs import set_control_text
+            from plugin.chatbot.rich_text_paste import plain_transcript_text
+
+            set_control_text(response, plain_transcript_text(session))
+            self._scroll_response_to_bottom()
+
+        self._run_rich_ui(_paint)
 
     def clear_chat(self) -> None:
         if self.clear_listener is not None:
@@ -529,6 +547,76 @@ class SendButtonListener(BaseActionListener):
 
     def stop_in_flight(self) -> None:
         StopButtonListener(self).on_action_performed(None)
+
+    def slash_document_model(self) -> Any:
+        return self._get_document_model(log_failure=False)
+
+    def slash_run_rewrite(self, instruction: str) -> None:
+        """Edit Selection with a preset instruction (sidebar frame document)."""
+        from plugin.chatbot.selection import do_selection_action_for_document
+        from plugin.framework.i18n import _
+
+        model = self._get_document_model(log_failure=True)
+        if not model:
+            self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
+            return
+        do_selection_action_for_document(
+            self.ctx,
+            model,
+            True,
+            preset_instruction=instruction,
+            allow_whole_document=True,
+            sidebar_notify=lambda msg: self.append_output("\n" + msg + "\n"),
+        )
+
+    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
+        from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
+        from plugin.framework.blocking_wait import run_blocking_in_thread
+        from plugin.framework.i18n import _
+
+        if self.sidebar_state.tool_loop is not None:
+            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
+            return
+        if cancel is None:
+            cancel = self._send_cancellation
+        self._set_status(_("Thinking..."))
+        # Resolve UNO here: the caller holds SolarMutex while it waits for the worker
+        # (run_blocking_in_thread with pump_idle), so UNO on the worker can deadlock.
+        client, tools = prepare_slash_compact_on_ui_thread(self, self.ctx, self.session)
+        if client is None:
+            self.append_output("\n" + _("Configure an API key to compact.") + "\n")
+            return
+
+        def worker() -> str:
+            return run_slash_compact_sync(
+                focus=focus,
+                session=self.session,
+                cancel=cancel,
+                client=client,
+                tools=tools,
+            )
+
+        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
+        self.append_output(line)
+
+    def slash_agent_edit_in_flight(self) -> bool:
+        from plugin.framework.async_drain_guard import get_drain_owner
+
+        return self.sidebar_state.send.is_busy or get_drain_owner() is not None
+
+    def run_slash_formula(self, description: str) -> None:
+        from plugin.chatbot.slash_undo_formula import run_slash_formula_worker
+        from plugin.framework.doc_type import DocumentType, get_document_type
+        from plugin.framework.i18n import _
+
+        model = self._get_document_model(log_failure=True)
+        if not model:
+            self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
+            return
+        if get_document_type(model) != DocumentType.CALC:
+            self.append_output("\n" + _("Only in Calc") + "\n")
+            return
+        run_slash_formula_worker(self, ctx=self.ctx, model=model, description=description)
 
     def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
@@ -954,6 +1042,10 @@ class SendButtonListener(BaseActionListener):
         elif self._button_action == ButtonAction.STOP_REC:
             self.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
         elif self._button_action == ButtonAction.SEND:
+            from plugin.chatbot.slash_commands import try_dispatch_slash_on_send_click
+
+            if try_dispatch_slash_on_send_click(self):
+                return
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
     def _sync_has_text_from_query(self) -> None:
@@ -1095,6 +1187,13 @@ class SendButtonListener(BaseActionListener):
             # exception) skips them and leaks the turn, including Stop
             # with TTS enabled.
             strip_audio_from_last_user_message(self, speak=speak)
+            from plugin.chatbot.tool_loop_actions import current_turn
+            from plugin.doc.agent_undo import record_agent_turn_after
+
+            turn = current_turn(self)
+            if turn is not None and turn.model is not None and not self._skip_agent_undo_after:
+                record_agent_turn_after(turn.model)
+            self._skip_agent_undo_after = False
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
             kick_pending_peer_starts()
@@ -1218,6 +1317,9 @@ class SendButtonListener(BaseActionListener):
         if doc_info is not None:
             if (started := current_turn(self)) is not None:
                 started.model = doc_info[0]
+                from plugin.doc.agent_undo import record_agent_turn_before
+
+                record_agent_turn_before(doc_info[0])
         return doc_info
 
     def _do_send(self) -> None:
@@ -1233,6 +1335,33 @@ class SendButtonListener(BaseActionListener):
             return
 
         log.info("=== _do_send START ===")
+
+        from plugin.chatbot.slash_commands import (
+            SlashKind,
+            build_slash_answer_query,
+            effective_slash_kind,
+            parse_slash_text,
+            run_slash_command,
+            slash_answer_is_local_only,
+            slash_send_continues_after_begin,
+        )
+
+        peek_text = ""
+        if self.query_control and self.query_control.getModel():
+            from plugin.chatbot.dialogs import get_control_text
+
+            peek_text = (get_control_text(self.query_control) or "").strip()
+
+        parsed = parse_slash_text(peek_text)
+        slash_cmd = None
+        slash_arg = ""
+        if parsed is not None:
+            slash_cmd, slash_arg = parsed
+            if not slash_send_continues_after_begin(slash_cmd, self):
+                if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
+                    self._terminal_status = "Ready"
+                    return
+
         doc_info = self._begin_send()
         if not doc_info:
             return
@@ -1241,6 +1370,25 @@ class SendButtonListener(BaseActionListener):
         query_text = self._read_and_clear_query()
         if query_text is None:
             return
+
+        slash_transcript_line: str | None = None
+        slash_sidebar_only = False
+        if slash_cmd is not None:
+            if slash_cmd.needs_turn:
+                self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
+                return
+            if slash_cmd.runs_in_send_turn:
+                from plugin.doc.agent_undo import cancel_pending_agent_turn
+
+                cancel_pending_agent_turn(model)
+                self._skip_agent_undo_after = True
+                self.run_slash_formula(slash_arg)
+                return
+            if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
+                slash_transcript_line = peek_text.strip()
+                query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
+                if slash_answer_is_local_only(slash_cmd, model):
+                    slash_sidebar_only = True
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -1280,7 +1428,13 @@ class SendButtonListener(BaseActionListener):
                 return
 
             # Regular Chat with Tools or Streams
-            self._tool_calling._do_send_chat_with_tools(query_text, model, doc_type_label)
+            self._tool_calling._do_send_chat_with_tools(
+                query_text,
+                model,
+                doc_type_label,
+                user_transcript_text=slash_transcript_line,
+                slash_sidebar_only=slash_sidebar_only,
+            )
 
         except Exception:
             # Bugfix: this except used to put the Ask text back after
@@ -1378,7 +1532,7 @@ class SendButtonListener(BaseActionListener):
         # Dispose can run on a later VCL turn while an event-driven drain
         # session is still open. Set the flag first so _close_turn_ui
         # does not write status or start TTS after ctx is cleared. Cancel the
-        # send scope (same object already captured by resolve_stop_checker) so
+        # send scope (same object already captured by capture_send_stop) so
         # the drain stop checker fires instead of streaming into a dead panel.
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True

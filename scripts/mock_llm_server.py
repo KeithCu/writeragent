@@ -477,7 +477,11 @@ def current_query_text(user_text: str) -> str:
     text = user_text or ""
     idx = text.rfind(_CURRENT_QUERY_MARK)
     if idx >= 0:
-        return text[idx + len(_CURRENT_QUERY_MARK) :].strip()
+        text = text[idx + len(_CURRENT_QUERY_MARK) :]
+    for marker in (SNAPSHOT_HEADER, "[DOCUMENT CONTENT]"):
+        pos = text.find(marker)
+        if pos >= 0:
+            text = text[:pos]
     return text.strip()
 
 

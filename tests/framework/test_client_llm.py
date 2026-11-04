@@ -11,6 +11,7 @@ from plugin.framework.client.llm_client import LlmClient, strip_leaked_chat_temp
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
+from tests.harness.strip_bundle import is_release_build
 
 
 def _cancelled_scope() -> SendCancellation:
@@ -1736,9 +1737,11 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog
     assert usage["completion_tokens"] == 15
     assert usage["cache_read_input_tokens"] == 9
 
-    finished_records = [r for r in caplog.records if "LLM response stream finished" in r.getMessage()]
-    assert len(finished_records) == 1
-    assert "cache_read=9" in finished_records[0].getMessage()
+    # Release strip removes log.info call sites; usage asserts above still run.
+    if not is_release_build():
+        finished_records = [r for r in caplog.records if "LLM response stream finished" in r.getMessage()]
+        assert len(finished_records) == 1
+        assert "cache_read=9" in finished_records[0].getMessage()
 
 
 def test_cache_read_count_helper():
@@ -2052,6 +2055,15 @@ def _sse_content_lines(*parts: str) -> list[bytes]:
     lines = [f'data: {json.dumps({"choices": [{"delta": {"content": p}}]})}'.encode() for p in parts]
     lines.append(b"data: [DONE]")
     return lines
+
+
+def test_stream_completion_returns_finish_reason(client):
+    payload = json.dumps({"choices": [{"finish_reason": "length", "delta": {}}]})
+    resp = create_mock_http_response(sse_lines=[f"data: {payload}".encode(), b"data: [DONE]"])
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        finish = client.stream_completion("prompt", "system", 10, append_callback=lambda _t: None)
+    assert finish == "length"
 
 
 def _https_steps(mock_https, *steps):
@@ -3018,6 +3030,68 @@ def test_stream_abort_during_tool_call_honours_caller_cancel_without_client_stop
     assert result["tool_calls"] is None
     assert client.stopped() is False
     assert scope.is_cancelled() is True
+
+
+def test_stop_on_unregistered_client_cancels_caller_scope_and_prevents_reconnect():
+    """LlmClient.stop() must cancel caller's scope via late hook and abort without connecting."""
+    config = {
+        "endpoint": "https://api.openai.com",
+        "api_key": "sk-test-key",
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "request_timeout": 60,
+    }
+    client = LlmClient(config, MockContext(), register_with_send=False)
+    scope = SendCancellation()
+    client.stop()
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            cancel=scope,
+        )
+
+    assert scope.is_cancelled() is True
+    assert result["finish_reason"] == "stop"
+    assert mock_https.call_count == 0
+
+
+def test_stop_after_request_return_does_not_cancel_caller_scope():
+    """LlmClient.stop() after request returns must not cancel caller's send scope."""
+    config = {
+        "endpoint": "https://api.openai.com",
+        "api_key": "sk-test-key",
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "request_timeout": 60,
+    }
+    client = LlmClient(config, MockContext(), register_with_send=False)
+    scope = SendCancellation()
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conn = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.reason = "OK"
+        mock_resp.getheaders.return_value = [("Content-Type", "application/json")]
+        mock_resp.getheader.return_value = "application/json"
+        mock_resp.__iter__.return_value = iter([b'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n', b"data: [DONE]\n\n"])
+        mock_resp.read.return_value = b""
+        conn.getresponse.return_value = mock_resp
+        mock_https.return_value = conn
+
+        client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            cancel=scope,
+        )
+
+    assert scope.is_cancelled() is False
+    client.stop()
+    # What was wrong: late-cancel hook outlived the request, so worker cleanup stop() cancelled caller scope.
+    # Fix: unregister hook on return; stop() now latches only the client.
+    assert scope.is_cancelled() is False
 
 
 def test_stream_malformed_and_truncated_chunks_are_skipped(client):

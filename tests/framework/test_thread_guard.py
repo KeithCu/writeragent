@@ -1018,31 +1018,3 @@ def test_helper_does_not_tag_python_main_thread() -> None:
         install_from_environ()
         main.install(Policy.production, designated=None)
         tg.set_background_task(None)
-
-
-def test_on_python_main_thread() -> None:
-    was_guard = tg.GUARD_ON
-    was_testing = os.environ.get("WRITERAGENT_TESTING")
-    tg.GUARD_ON = True
-    os.environ["WRITERAGENT_TESTING"] = "1"
-    install_from_environ()
-    try:
-        assert tg.on_python_main_thread() is True
-
-        def worker() -> None:
-            assert tg.on_python_main_thread() is False
-
-        _run_in_dummy_thread(worker)
-    finally:
-        tg.GUARD_ON = was_guard
-        if was_testing is None:
-            os.environ.pop("WRITERAGENT_TESTING", None)
-        else:
-            os.environ["WRITERAGENT_TESTING"] = was_testing
-        install_from_environ()
-        main.install(Policy.production, designated=None)
-        tg.set_background_task(None)
-
-
-
-

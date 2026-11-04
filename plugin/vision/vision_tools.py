@@ -62,7 +62,8 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         if image_name:
             params_dict["image_name"] = image_name
 
-        stop_checker = getattr(ctx, "stop_checker", None)
+        scope = getattr(ctx, "send_cancellation", None)
+        stop_checker = scope.is_cancelled if scope is not None else None
 
         try:
             result = run_and_insert_vision_for_selection(

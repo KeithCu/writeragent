@@ -58,9 +58,12 @@ _AVAILABLE_NAMES: list[str] = []
 
 for _friendly, _auto, _id, _aliases, _blurb in LAYOUT_TABLE:
     _NAME_TO_ID[_auto.lower()] = _id
+    # Rows with no friendly name (e.g. AUTOLAYOUT_NOTES) previously lacked an
+    # _ID_TO_NAME entry, causing layout_name to return "unknown_<id>". Fall back
+    # to the lowercase AUTOLAYOUT_* name so valid ids always have a name.
+    _ID_TO_NAME[_id] = _friendly if _friendly is not None else _auto.lower()
     if _friendly is not None:
         _NAME_TO_ID[_friendly.lower()] = _id
-        _ID_TO_NAME[_id] = _friendly
         _AVAILABLE_NAMES.append(_friendly)
     for _alias in _aliases:
         _NAME_TO_ID[_alias.lower()] = _id
@@ -74,24 +77,24 @@ def layout_id(name_or_id: Any) -> int | None:
     """Return the LibreOffice AutoLayout integer id for a friendly name, alias, AUTOLAYOUT_* name, or id."""
     if isinstance(name_or_id, bool) or name_or_id is None:
         return None
+    val: int | None = None
     if isinstance(name_or_id, int):
-        return name_or_id
-    if isinstance(name_or_id, float):
+        val = name_or_id
+    elif isinstance(name_or_id, float):
         if not math.isnan(name_or_id) and name_or_id.is_integer():
-            return int(name_or_id)
-        return None
-    if isinstance(name_or_id, str):
+            val = int(name_or_id)
+    elif isinstance(name_or_id, str):
         key = name_or_id.strip()
-        if not key:
-            return None
-        lower = key.lower()
-        if lower in _NAME_TO_ID:
-            return _NAME_TO_ID[lower]
-        try:
-            return int(key)
-        except ValueError:
-            return None
-    return None
+        if key:
+            lower = key.lower()
+            if lower in _NAME_TO_ID:
+                val = _NAME_TO_ID[lower]
+            else:
+                try:
+                    val = int(key)
+                except ValueError:
+                    val = None
+    return val if val in VALID_LAYOUT_IDS else None
 
 
 def layout_name(id: int) -> str:

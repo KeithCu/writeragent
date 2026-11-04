@@ -31,9 +31,11 @@ from plugin.chatbot.slash_commands import (
     SlashCommand,
     classify_slash_key,
     filter_slash_commands,
-    format_slash_item,
+    format_slash_popup_item,
     load_slash_lru,
+    parse_slash_text,
     run_slash_command,
+    slash_ask_past_command_name,
     slash_typed_prefix,
 )
 from plugin.framework.errors import best_effort, suppress_disposed, uno_read
@@ -105,6 +107,35 @@ def _list_height(ctrl: Any, rows: int) -> int:
     if isinstance(height, int) and height > 0:
         return height
     return _overlay_height(n)
+
+
+def _hscroll_height(ctrl: Any, rows: int, entries: int, width: int) -> int:
+    """Extra height for the list's horizontal scrollbar, or 0 when none shows.
+
+    The toolkit ``listbox`` is always ``WB_AUTOHSCROLL`` (vclxtoolkit.cxx),
+    and ``CalcBlockSize(0, n)`` sizes n rows with no scrollbar. A row wider
+    than the list makes ImplListBox show an HScroll inside those n rows, so a
+    single match was half hidden (QA B7). ``CalcBlockSize(1, n)`` is one 'X'
+    wide, so it adds VCL's own ScrollBarSize (HiDPI-scaled, native theme) to
+    the height. Call after ``addItems``: the widths come from the entries.
+    Text width is read with lines > entries; with fewer lines CalcBlockSize
+    pads the width by a VScroll (by a scrollbar even at 1 of 1 rows).
+    """
+    fn = getattr(ctrl, "getMinimumSize", None)
+    if not callable(fn):
+        return 0
+    n = min(max(rows, 1), _POPUP_MAX_ROWS)
+    full = uno_read(lambda: fn(0, n), None)
+    narrow = uno_read(lambda: fn(1, n), None)
+    text = uno_read(lambda: fn(0, max(entries, n) + 1), None)
+    sizes = (getattr(text, "Width", None), getattr(full, "Height", None), getattr(narrow, "Height", None))
+    if not all(isinstance(v, int) for v in sizes):
+        return 0
+    full_w, full_h, narrow_h = (int(v or 0) for v in sizes)
+    bar = max(0, narrow_h - full_h)
+    # More matches than rows: the VScroll takes the same width from the rows.
+    avail = int(width) - (bar if entries > n else 0)
+    return bar if full_w > avail else 0
 
 
 def _printable_key_char(key_char: Any) -> str | None:
@@ -460,6 +491,10 @@ class SlashPopupController:
         _ovlog("query_text entered raw=%r", snippet)
         prefix = slash_typed_prefix(text)
         _ovlog("on_query_text prefix=%r text=%r", prefix, snippet)
+        if slash_ask_past_command_name(text):
+            _ovlog("on_query_text hide (command name complete with arg or space)")
+            _defer_to_next_turn(self.hide)
+            return False
         if prefix is None:
             _ovlog("on_query_text hide (not a slash prefix)")
             # Bugfix: main.post raises TimeoutError when the pending
@@ -499,8 +534,10 @@ class SlashPopupController:
         self._matches = matches
         self._selected = 0
         self._open = True
-        self.reposition()
+        # Fill before reposition: the HScroll check measures the entries.
+        # Both run before setVisible (addItems/setPosSize on a mapped host deadlock).
         self._fill_visible_list()
+        self.reposition()
         _ovlog("filled before show")
         host = self._popup_floater
         if host is not None:
@@ -584,16 +621,27 @@ class SlashPopupController:
         self.on_query_text("/" + name)
 
     def accept_selected(self) -> None:
+        from plugin.chatbot.dialogs import get_control_text
+
+        host = self.send_listener
+        raw = get_control_text(self.query_control) or ""
+        parsed = parse_slash_text(raw.strip())
+        typed = raw.strip()
+        # Bugfix (QA N1): exact "/explain" + Enter should run, not complete to "/explain ".
+        if parsed is not None:
+            cmd, arg = parsed
+            if typed.lower() == ("/" + cmd.name) and not slash_ask_past_command_name(raw):
+                _defer_to_next_turn(lambda: run_slash_command(cmd.name, host, arg, from_popup=False))
+                return
         name = self.selected_name
         if not name:
             _ovlog("accept_selected no name selected=%s matches=%s", self._selected, [c.name for c in self._matches])
             return
         _ovlog("accept_selected name=%s", name)
-        # run_slash_command → hide() disposes the list. Post so the key or
-        # mouse callback returns before dispose. hide() is not called again
-        # here; a second hide would TEXT_UPDATED while the window still exists.
-        host = self.send_listener
-        _defer_to_next_turn(run_slash_command, name, host)
+        arg = parsed[1] if parsed is not None and parsed[0].name == name else ""
+        # Bugfix (QA B1): from_popup=True completes "/name " for presets instead of
+        # running them with an empty argument from the partial filter text.
+        _defer_to_next_turn(lambda: run_slash_command(name, host, arg, from_popup=True))
 
     def accept_row_at_y(self, y: int) -> bool:
         """Accept the command under mouse Y. Ignores chrome / off-list clicks."""
@@ -634,6 +682,7 @@ class SlashPopupController:
             height = _list_height(ctrl, rows)
             one = _list_height(ctrl, 1)
             self._row_px = max(1, (height - one) // (rows - 1)) if rows > 1 else one
+            height += _hscroll_height(ctrl, rows, len(self._matches), max(20, int(qr.Width)))
             x, y, w, h = _above_ready_rect(qr, rows, status_top=status_top, height=height)
             _ovlog(
                 "reposition Ask=%sx%s@%s,%s popup_bounds=%s,%s %sx%s rows=%s toolkit=%s origin=%s",
@@ -659,7 +708,7 @@ class SlashPopupController:
         ctrl = self.control
         if ctrl is None:
             return
-        labels = tuple(format_slash_item(cmd) for cmd in self._matches)
+        labels = tuple(format_slash_popup_item(cmd) for cmd in self._matches)
         add = getattr(ctrl, "addItems", None)
         if callable(add):
             try:

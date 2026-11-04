@@ -190,16 +190,19 @@ class TestMemoryWriteConcurrency:
         assert (leftovers) == ([]), "atomic-write temp files must not leak"
 
 
-def test_upsert_rejects_non_json_user_md(tmp_path):
+def test_upsert_migrates_prose_user_md(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        from plugin.chatbot.memory import _LEGACY_PROSE_KEY
+
         store = MemoryStore()
-        store.write("name: Andre\n")
-        before = store.read()
+        store.write("# Test User Profile\n")
         res = tool.execute(ctx, key="favorite_language", content="Python")
-    assert res["status"] != "ok"
-    assert store.read() == before
+    assert res["status"] == "ok", res
+    data = json.loads(store.read())
+    assert data[_LEGACY_PROSE_KEY] == "# Test User Profile"
+    assert data["favorite_language"] == "Python"
 
 
 def test_upsert_dotted_key_does_not_replace_string(tmp_path):

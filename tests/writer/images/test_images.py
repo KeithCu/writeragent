@@ -2511,9 +2511,11 @@ def test_image_get_info_draw_skips_paragraph_lookup():
 
 def test_download_for_tool_stop_returns_user_stopped():
     import plugin.writer.images.images as images_mod
+    from plugin.framework.send_cancellation import SendCancellation
 
-    ctx = TestingFactory.create_context(doc_type="writer")
-    ctx.stop_checker = lambda: True
+    scope = SendCancellation()
+    scope.cancel()
+    ctx = TestingFactory.create_context(doc_type="writer", send_cancellation=scope)
 
     with patch("plugin.writer.images.images._download_image_to_cache", side_effect=images_mod._DownloadStopped):
         res = ImageDownload().execute(ctx, url="https://example.com/pic.png")

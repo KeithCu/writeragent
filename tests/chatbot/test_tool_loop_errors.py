@@ -48,6 +48,7 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.client = MagicMock()
         self.audio_wav_path = None
         self.stop_requested = False
+        self._send_cancellation = None
         self._get_document_model = MagicMock(return_value=None)
         self.responses = []
         self.statuses = []
@@ -64,9 +65,6 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         from plugin.chatbot.tool_loop_actions import assign_send_outcome
 
         assign_send_outcome(self, "" if value is None else value)
-
-    def resolve_stop_checker(self):
-        return lambda: self.stop_requested
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
         self.responses.append(text)
@@ -882,7 +880,7 @@ def test_overflow_does_not_retry_when_stop_requested(test_instance):
 
 def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
     _prime_active_tool_loop(test_instance)
-    test_instance.resolve_stop_checker = MagicMock(return_value=lambda: True)
+    test_instance.stop_requested = True
     test_instance._spawn_llm_worker = MagicMock()
 
     recovered = _handle_stream_error(test_instance, _overflow_payload())
@@ -1425,3 +1423,17 @@ def test_do_send_skip_append_user_does_not_append_audio_row(test_instance, mock_
     assert test_instance.session.messages[-1] == last_msg_before
     assert not any("peer body" in r for r in test_instance.responses)
     assert test_instance.audio_wav_path == "/fake/path/audio.wav"
+
+
+def test_slash_sidebar_only_sends_empty_tool_list(test_instance, mock_get_tools):
+    mock_get_tools.get_schemas.return_value = [{"function": {"name": "apply_document_content"}}]
+    captured: list[list] = []
+
+    def capture_start(_client, _model, _max_tokens, tools, *_args, **_kwargs):
+        captured.append(tools)
+
+    with patch.object(test_instance, "_start_tool_calling_async", side_effect=capture_start):
+        test_instance._do_send_chat_with_tools("translate", MagicMock(), "writer", slash_sidebar_only=True)
+
+    mock_get_tools.get_schemas.assert_not_called()
+    assert captured == [[]]

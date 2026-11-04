@@ -26,22 +26,26 @@ ensure_plugin_on_path(
 )
 
 import unohelper
-from com.sun.star.task import XJob, XJobExecutor
 
 if TYPE_CHECKING:
     from com.sun.star.util import URL as UnoURL
 
 from plugin.framework.logging import init_logging, log as wa_log, log_exception
 from plugin.framework.constants import EXTENSION_ID_LIBREPY
-from plugin.framework.thread_guard import on_python_main_thread
-from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id
 from plugin.framework.url_utils import dispatch_command_from_url
 
 EXTENSION_ID = EXTENSION_ID_LIBREPY
 
 log = logging.getLogger(__name__)
-_initialized = False
-_bootstrapping = False
+
+from plugin.bootstrap import (
+    BootstrapState,
+    bootstrap_extension,
+    MainBootstrapJob as BaseMainBootstrapJob,
+)
+
+_bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
+_bootstrap_error: BaseException | None = None
 
 from plugin.framework.main_shared import (
     ExtensionProtocolHandler,
@@ -51,12 +55,6 @@ from plugin.framework.main_shared import (
     report_action_failure,
 )
 from plugin.menu_handlers import register_common_handlers
-
-
-def _register_librepy_framework_hooks() -> None:
-    from plugin.bootstrap_ui_hooks import register_framework_ui_hooks
-
-    register_framework_ui_hooks()
 
 
 def _register_librepy_handlers() -> None:
@@ -69,70 +67,21 @@ def _register_librepy_handlers() -> None:
     register_common_handlers()
 
 
+def _librepy_bootstrap_finish(ctx: Any) -> None:
+    global _bootstrap_state, _bootstrap_error
+
+    _register_librepy_handlers()
+    _bootstrap_state = BootstrapState.INITIALIZED
+    _bootstrap_error = None
+
+
 def bootstrap(ctx: Any | None = None) -> None:
-    global _initialized, _bootstrapping
-    if _initialized:
-        return
-
-    # A status-listener Dummy upcall is allowed to touch UNO, and it must not enter bootstrap.
-    if not on_python_main_thread():
-        return
-    # What was wrong: a non-reentrant Lock wrapped this whole body.
-    # How it happened: off-thread callers already return, so the lock excluded
-    # nobody, and a nested bootstrap() on this thread deadlocked.
-    # Why this change: the flag returns on reentry; finally clears it so a
-    # failed attempt can run again.
-    if _bootstrapping:
-        return
-    _bootstrapping = True
-    try:
-        if ctx is None:
-            ctx = get_ctx()
-        set_fallback_ctx(ctx)
-        set_package_extension_id(EXTENSION_ID)
-        if ctx is not None:
-            from plugin.framework.queue_executor import install_from_environ, main
-
-            install_from_environ()
-            main.set_context(ctx)
-        _register_librepy_framework_hooks()
-        from plugin.framework.config import init_config
-
-        init_config(ctx)
-        from plugin.scripting.native_binaries import ensure_native_binaries_on_path
-
-        ensure_native_binaries_on_path()
-        from plugin.framework.i18n import init_i18n
-
-        init_i18n(ctx)
-        _register_librepy_handlers()
-        try:
-            from plugin.calc.python.editor_context_menu import install_calc_cell_context_menu
-
-            install_calc_cell_context_menu(ctx)
-        except Exception:
-            log.debug("Calc cell context menu install failed", exc_info=True)
-        try:
-            from plugin.calc.excel_py_convert.auto_open import install_excel_py_auto_convert
-
-            install_excel_py_auto_convert(ctx)
-        except Exception:
-            log.debug("Excel PY auto-convert on open install failed", exc_info=True)
-        try:
-            from plugin.calc.python.geometric_recalc import install_geometric_recalc
-
-            install_geometric_recalc()
-        except Exception:
-            log.debug("Geometric recalc install failed", exc_info=True)
-        try:
-            from plugin.notebook.notebook_controls import install_notebook_run_button_wiring
-
-            install_notebook_run_button_wiring(ctx)
-        except Exception:
-            log.debug("Notebook run button wiring install failed", exc_info=True)
-        _initialized = True
-    finally:
-        _bootstrapping = False
+    bootstrap_extension(
+        ctx,
+        extension_id=EXTENSION_ID,
+        finish=_librepy_bootstrap_finish,
+        state=globals(),
+    )
 
 
 def _run_startup(ctx: Any) -> None:
@@ -161,15 +110,18 @@ def _dispatch_command(command: str, ctx: Any | None = None) -> None:
     log.warning("Unhandled LibrePy command: %s", command)
 
 
-class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
-    ctx: Any
+class MainBootstrapJob(BaseMainBootstrapJob):
+    def init_logging(self, ctx: Any) -> None:
+        init_logging(ctx)
 
-    def __init__(self, ctx: Any) -> None:
-        self.ctx = ctx
+    def on_start(self, ctx: Any) -> None:
+        try:
+            bootstrap(ctx)
+            from plugin.chatbot.extension_update_check import schedule_extension_update_check_once
 
-    def execute(self, Arguments: Any) -> tuple[()]:
-        _run_startup(self.ctx)
-        return ()
+            schedule_extension_update_check_once(ctx, EXTENSION_ID)
+        except Exception as e:
+            log.exception("LibrePy bootstrap failed: %s", e)
 
     def trigger(self, Event: str) -> None:
         _run_startup(self.ctx)

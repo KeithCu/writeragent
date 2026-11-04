@@ -495,7 +495,7 @@ def get_config(key: str) -> Any:
     cached = _load()
     if key in cached:
         return _copy_config_value(cached[key])
-    default = _config_schema._resolve_default(key)
+    default = _config_schema.resolve_default(key)
     return _copy_config_value(default)
 
 
@@ -565,8 +565,8 @@ def save(patch: dict[str, Any], *, event_key: str | None = None) -> None:
                 to_write[k] = v
 
         for k in patch:
-            old_val = loaded[k] if k in loaded else (_config_schema._resolve_default(k) if _config_schema.is_known_config_key(k) else None)
-            new_val = to_write[k] if k in to_write else (_config_schema._resolve_default(k) if _config_schema.is_known_config_key(k) else None)
+            old_val = loaded[k] if k in loaded else (_config_schema.resolve_default(k) if _config_schema.is_known_config_key(k) else None)
+            new_val = to_write[k] if k in to_write else (_config_schema.resolve_default(k) if _config_schema.is_known_config_key(k) else None)
             if old_val != new_val or (k in loaded) != (k in to_write):
                 effective.append((k, new_val, old_val))
 
@@ -654,8 +654,8 @@ def get_api_config() -> dict[str, Any]:
 
     from plugin.framework.client.provider_detection import is_openrouter_endpoint, is_openwebui_endpoint
 
-    is_openwebui = is_openwebui_endpoint(endpoint, explicit_is_openwebui=_config_schema.as_bool(get_config("is_openwebui")))
-    is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=_config_schema.as_bool(get_config("is_openrouter")))
+    is_openwebui = is_openwebui_endpoint(endpoint, explicit_is_openwebui=get_config("is_openwebui"))
+    is_openrouter = is_openrouter_endpoint(endpoint, explicit_is_openrouter=get_config("is_openrouter"))
     api_key = get_api_key_for_endpoint(endpoint)
     effort = get_reasoning_effort_for_endpoint(endpoint)
 

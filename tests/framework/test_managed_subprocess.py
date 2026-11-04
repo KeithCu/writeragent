@@ -1239,7 +1239,7 @@ def test_raw_spawn_drain_stderr_false_starts(monkeypatch: pytest.MonkeyPatch) ->
     assert managed not in ms._instances
 
 
-def test_worker_start_ignores_raw_stdio_arguments(
+def test_worker_start_honours_stdin_ignores_stdout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import plugin.framework.managed_subprocess as ms
@@ -1272,7 +1272,7 @@ def test_worker_start_ignores_raw_stdio_arguments(
         subp.start()
         assert drain_called
         kwargs = captured_kwargs[0]
-        assert kwargs["stdin"] == subprocess.PIPE
+        assert kwargs["stdin"] == subprocess.DEVNULL
         assert kwargs["stdout"] == subprocess.PIPE
         assert kwargs["stderr"] == subprocess.PIPE
         assert kwargs["bufsize"] == 0
@@ -1290,7 +1290,7 @@ def test_managed_subprocess_run_is_subprocess_run(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     import plugin.framework.managed_subprocess as ms
-    from plugin.framework.worker_pool import get_subprocess_creationflags
+    from plugin.framework.subprocess_env import get_subprocess_creationflags
 
     captured_args: list[Any] = []
     captured_kwargs: list[dict[str, Any]] = []
@@ -1312,6 +1312,7 @@ def test_managed_subprocess_run_is_subprocess_run(
     assert res.returncode == 0
     assert captured_args[0] == (["spd-say", "-S"],)
     expected = {
+        "capture_output": False,
         "stdin": None,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
@@ -1664,20 +1665,20 @@ def test_managed_subprocess_run_capture_output(monkeypatch: pytest.MonkeyPatch) 
     assert recorded_kwargs["env"] is env
     assert recorded_kwargs["text"] is True
 
+    assert recorded_kwargs["stdin"] is None
+    assert recorded_kwargs["stdout"] is None
+    assert recorded_kwargs["stderr"] is None
     absent_keys = (
         "input",
         "shell",
         "start_new_session",
         "bufsize",
         "preexec_fn",
-        "stdin",
-        "stdout",
-        "stderr",
     )
     for key in absent_keys:
         assert key not in recorded_kwargs
 
-    from plugin.framework.worker_pool import get_subprocess_creationflags
+    from plugin.framework.subprocess_env import get_subprocess_creationflags
 
     assert recorded_kwargs.get("creationflags") == get_subprocess_creationflags().get("creationflags")
 
@@ -1770,3 +1771,91 @@ def test_managed_subprocess_run_capture_output_rejects_stdout_and_stderr(monkeyp
 
     with pytest.raises(ValueError, match=r"^stdout and stderr arguments may not be used with capture_output\.$"):
         ms.ManagedSubprocess.run(["x"], capture_output=True, stderr=subprocess.PIPE)
+
+
+def _pid_is_alive(pid: int) -> bool:
+    from pathlib import Path
+
+    stat_path = Path(f"/proc/{pid}/stat")
+    if stat_path.is_file():
+        try:
+            stat = stat_path.read_text()
+            close_paren = stat.rfind(")")
+            if close_paren >= 0 and close_paren + 2 < len(stat) and stat[close_paren + 2] == "Z":
+                return False
+        except OSError:
+            pass
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def test_managed_subprocess_run_kill_tree_timeout_calls_kill_process_tree(monkeypatch):
+    import plugin.framework.managed_subprocess as ms
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.__enter__ = MagicMock(return_value=proc)
+    proc.__exit__ = MagicMock(return_value=None)
+    killed: list[object] = []
+    monkeypatch.setattr(ms.subprocess, "Popen", lambda *a, **k: proc)
+    monkeypatch.setattr(ms, "kill_process_tree", lambda p: killed.append(p))
+    proc.communicate.side_effect = [
+        subprocess.TimeoutExpired(cmd=["x"], timeout=1.0),
+        ("", ""),
+    ]
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        ms.ManagedSubprocess.run(["x"], capture_output=True, timeout=1.0, kill_tree=True)
+
+    assert killed == [proc]
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="POSIX process group integration")
+def test_managed_subprocess_run_kill_tree_timeout_reaps_grandchild(tmp_path):
+    """Timeout must not leave a forked grandchild running (soffice.bin pattern)."""
+
+    import plugin.framework.managed_subprocess as ms
+
+    pidfile = tmp_path / "grandchild.pid"
+    code = (
+        "import os, sys, time\n"
+        f"pidfile = {str(pidfile)!r}\n"
+        "pid = os.fork()\n"
+        "if pid == 0:\n"
+        "    time.sleep(300)\n"
+        "    os._exit(0)\n"
+        "with open(pidfile, 'w') as f:\n"
+        "    f.write(str(pid))\n"
+        "sys.stdout.write(str(pid) + '\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(300)\n"
+    )
+    gpid: int | None = None
+    try:
+        with pytest.raises(subprocess.TimeoutExpired) as exc_info:
+            ms.ManagedSubprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                text=True,
+                timeout=3.0,
+                kill_tree=True,
+            )
+        out = exc_info.value.output or ""
+        assert out.strip(), f"expected grandchild pid on stdout before timeout, got {out!r}"
+        gpid = int(out.strip().splitlines()[0])
+        assert pidfile.read_text().strip() == str(gpid)
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and _pid_is_alive(gpid):
+            time.sleep(0.05)
+        assert not _pid_is_alive(gpid), f"grandchild {gpid} survived convert-style timeout"
+    finally:
+        if gpid is not None and _pid_is_alive(gpid):
+            try:
+                os.kill(gpid, signal.SIGKILL)
+            except OSError:
+                pass

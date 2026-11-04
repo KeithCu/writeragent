@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.audio.tts_endpoint import (
     _default_endpoint_format,
-    _download_endpoint_speech,
+    download_endpoint_speech,
     _EndpointClip,
     _pcm_rate_from_content_type,
     _pcm_s16le_to_wav,
@@ -106,13 +106,13 @@ def test_provider_detection_openrouter_isolation():
 
     try:
         with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            _download_endpoint_speech("Hi", "https://notopenrouter.ai/api", "k", model="hexgrad/Kokoro-82M", voice="v")
+            download_endpoint_speech("Hi", "https://notopenrouter.ai/api", "k", model="hexgrad/Kokoro-82M", voice="v")
             assert calls[-1] == "hexgrad/Kokoro-82M"
 
-            _download_endpoint_speech("Hi", "https://evil.example/openrouter.ai", "k", model="hexgrad/Kokoro-82M", voice="v")
+            download_endpoint_speech("Hi", "https://evil.example/openrouter.ai", "k", model="hexgrad/Kokoro-82M", voice="v")
             assert calls[-1] == "hexgrad/Kokoro-82M"
 
-            _download_endpoint_speech("Hi", "https://openrouter.ai/api", "k", model="hexgrad/Kokoro-82M", voice="v")
+            download_endpoint_speech("Hi", "https://openrouter.ai/api", "k", model="hexgrad/Kokoro-82M", voice="v")
             assert calls[-1] == "hexgrad/kokoro-82m"
     finally:
         cfg._catalog_memos.clear()
@@ -126,7 +126,7 @@ def test_caplog_redacts_credentials(caplog):
     url = f"https://user:{secret}@example.test/v1?key={secret}"
 
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake", "audio/mpeg")):
-        _download_endpoint_speech("Hello", url, "k", model="m", voice="v")
+        download_endpoint_speech("Hello", url, "k", model="m", voice="v")
 
     for record in caplog.records:
         assert secret not in record.getMessage()
@@ -161,7 +161,7 @@ def test_download_endpoint_speech_payload_cold_openrouter_empty_voice():
     cfg._tts_response_format.clear()
 
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"ID3fake", "audio/mpeg")) as mock_sync:
-        _download_endpoint_speech(
+        download_endpoint_speech(
             "Hello",
             "https://openrouter.ai/api",
             "k",
@@ -223,7 +223,7 @@ def test_endpoint_pcm_failure_is_remembered_and_wrapped():
 
     try:
         with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = _download_endpoint_speech(
+            clip = download_endpoint_speech(
                 "Hello",
                 "https://openrouter.ai/api",
                 "test-key",
@@ -248,7 +248,7 @@ def test_endpoint_pcm_failure_is_remembered_and_wrapped():
         reject_mp3 = False
         calls.clear()
         with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip2 = _download_endpoint_speech(
+            clip2 = download_endpoint_speech(
                 "Again",
                 "https://openrouter.ai/api",
                 "test-key",
@@ -297,7 +297,7 @@ def test_endpoint_wav_error_retries_wav():
 
     try:
         with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = _download_endpoint_speech(
+            clip = download_endpoint_speech(
                 "Hello",
                 "https://openrouter.ai/api",
                 "k",
@@ -332,7 +332,7 @@ def test_endpoint_mp3_success_does_not_cache_format():
 
     try:
         with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = _download_endpoint_speech(
+            clip = download_endpoint_speech(
                 "Hello",
                 "https://openrouter.ai/api",
                 "test-key",
@@ -371,13 +371,13 @@ def test_two_origins_one_model_learned_format():
     try:
         with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
              patch("plugin.framework.client.requests.sync_request", side_effect=sync_a):
-            _download_endpoint_speech("Hi", "https://host-a.com/v1", "k", model=model, voice="v")
+            download_endpoint_speech("Hi", "https://host-a.com/v1", "k", model=model, voice="v")
         key_a = _tts_format_key("https://host-a.com/v1", model)
         assert cfg.cached_tts_response_format(key_a) == "wav"
 
         with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
              patch("plugin.framework.client.requests.sync_request", side_effect=sync_b):
-            _download_endpoint_speech("Hi", "https://host-b.com/v1", "k", model=model, voice="v")
+            download_endpoint_speech("Hi", "https://host-b.com/v1", "k", model=model, voice="v")
         assert calls_b[0]["response_format"] == "mp3"
     finally:
         cfg._catalog_memos.clear()
@@ -391,7 +391,7 @@ def test_retry_status_gates():
     cfg._tts_response_format.clear()
     # 401 with wav body is one POST and remembers nothing
     with patch("plugin.framework.client.requests.sync_request", side_effect=_speech_http_error(401, "error with wav")):
-        clip = _download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m", voice="v")
+        clip = download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m", voice="v")
         assert clip is None
         assert cfg.cached_tts_response_format(_tts_format_key("https://host.com/v1", "m")) is None
 
@@ -407,7 +407,7 @@ def test_retry_status_gates():
 
     with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
          patch("plugin.framework.client.requests.sync_request", side_effect=fake_400):
-        clip = _download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m", voice="v")
+        clip = download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m", voice="v")
         assert clip is not None
         assert [c["response_format"] for c in calls_400] == ["mp3", "wav"]
 
@@ -423,7 +423,7 @@ def test_retry_status_gates():
 
     with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
          patch("plugin.framework.client.requests.sync_request", side_effect=fake_hint):
-        clip = _download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m2", voice="v")
+        clip = download_endpoint_speech("Hi", "https://host.com/v1", "k", model="m2", voice="v")
         assert clip is not None
         assert [c["response_format"] for c in calls_hint] == ["mp3", "wav"]
 
@@ -432,7 +432,7 @@ def test_sniff_and_pcm_treatments():
     # ID3 with Content-Type: audio/wav -> suffix .mp3, bytes not wrapped
     id3_data = b"ID3\x03\x00\x00\x00\x00\x00#TSSE"
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(id3_data, "audio/wav")):
-        clip = _download_endpoint_speech("H", "https://h.test", "k", model="m", voice="v")
+        clip = download_endpoint_speech("H", "https://h.test", "k", model="m", voice="v")
         assert clip is not None
         assert clip.suffix == ".mp3"
         assert clip.audio == id3_data
@@ -441,7 +441,7 @@ def test_sniff_and_pcm_treatments():
     pcm_data = b"\x01\x00\x02\x00"
     with patch("plugin.audio.tts_endpoint._default_endpoint_format", return_value="mp3"), \
          patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(pcm_data, "audio/L16;rate=22050")):
-        clip = _download_endpoint_speech("H", "https://h.test", "k", model="m_pcm", voice="v")
+        clip = download_endpoint_speech("H", "https://h.test", "k", model="m_pcm", voice="v")
         assert clip is not None
         assert clip.suffix == ".wav"
         assert clip.audio.startswith(b"RIFF")
@@ -450,12 +450,12 @@ def test_sniff_and_pcm_treatments():
 
     # audio/x-pcm and codec=pcm take same wrap
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(pcm_data, "audio/x-pcm")):
-        clip_x = _download_endpoint_speech("H", "https://h.test", "k", model="m_x", voice="v")
+        clip_x = download_endpoint_speech("H", "https://h.test", "k", model="m_x", voice="v")
         assert clip_x is not None
         assert clip_x.audio.startswith(b"RIFF")
 
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(pcm_data, "audio/wave;codec=pcm")):
-        clip_codec = _download_endpoint_speech("H", "https://h.test", "k", model="m_codec", voice="v")
+        clip_codec = download_endpoint_speech("H", "https://h.test", "k", model="m_codec", voice="v")
         assert clip_codec is not None
         assert clip_codec.audio.startswith(b"RIFF")
 
@@ -479,7 +479,7 @@ def test_endpoint_http_error_is_reported_to_status():
 
     try:
         with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = _download_endpoint_speech(
+            clip = download_endpoint_speech(
                 "Hello",
                 "https://api.openai.com",
                 "test-key",
@@ -517,7 +517,7 @@ def test_speech_http_error_redacts_api_key(caplog):
     statuses: list[str] = []
     try:
         with caplog.at_level(logging.DEBUG), patch("http.client.HTTPSConnection", return_value=conn):
-            clip = _download_endpoint_speech(
+            clip = download_endpoint_speech(
                 "Hello",
                 "https://api.openai.com",
                 secret,
@@ -550,7 +550,7 @@ def test_endpoint_audio_suffix_from_content_type():
 
     mp3_data = b"ID3\x03\x00\x00\x00\x00\x00#TSSE\x00\x00\x00fake-mp3-bytes"
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(mp3_data, "audio/mpeg")):
-        clip = _download_endpoint_speech(
+        clip = download_endpoint_speech(
             "Hello", "https://api.test", "key", model=model, voice="v"
         )
         assert clip is not None
@@ -560,7 +560,7 @@ def test_endpoint_audio_suffix_from_content_type():
 
     wav_data = b"RIFF$\x00\x00\x00WAVEfmt \x10\x00\x00\x00\x01\x00\x01\x00"
     with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(wav_data, "audio/wav")):
-        clip2 = _download_endpoint_speech(
+        clip2 = download_endpoint_speech(
             "Hello", "https://api.test", "key", model="wav-model", voice="v"
         )
         assert clip2 is not None
@@ -589,7 +589,7 @@ def test_endpoint_retry_remembers_format_without_content_type():
 
     try:
         with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip = _download_endpoint_speech(
+            clip = download_endpoint_speech(
                 "Hello", "https://api.example", "k", model=model, voice="cedar",
             )
         assert clip is not None
@@ -599,7 +599,7 @@ def test_endpoint_retry_remembers_format_without_content_type():
 
         calls.clear()
         with patch("plugin.framework.client.requests.sync_request", side_effect=fake_sync):
-            clip2 = _download_endpoint_speech(
+            clip2 = download_endpoint_speech(
                 "Again", "https://api.example", "k", model=model, voice="cedar",
             )
         assert clip2 is not None
@@ -619,7 +619,7 @@ def test_speak_endpoint_chunks_long_text():
         return _EndpointClip(b"RIFFfake", ".wav")
 
     cancel = SendCancellation()
-    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
+    with patch("plugin.audio.tts_service.download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system:
@@ -638,7 +638,7 @@ def test_speak_endpoint_short_reply_single_download():
         return _EndpointClip(b"RIFFfake", ".wav")
 
     cancel = SendCancellation()
-    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
+    with patch("plugin.audio.tts_service.download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system:
@@ -659,7 +659,7 @@ def test_speak_endpoint_falls_back_with_unplayed_tail():
         return None
 
     cancel = SendCancellation()
-    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
+    with patch("plugin.audio.tts_service.download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system:
@@ -672,7 +672,7 @@ def test_speak_endpoint_falls_back_with_unplayed_tail():
 
 def test_speak_endpoint_playback_failure_uses_system_speech():
     cancel = SendCancellation()
-    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
+    with patch("plugin.audio.tts_service.download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=False), \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system:
@@ -684,7 +684,8 @@ def test_speak_endpoint_playback_failure_uses_system_speech():
 def test_speak_endpoint_stopped_during_playback_skips_system():
     import plugin.audio.tts_service as tts
 
-    scope = tts._begin_utterance()
+    utt = tts._begin_utterance()
+    scope = utt.scope
 
     def play(path, cancel=None):
         del path, cancel
@@ -692,7 +693,7 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
         return False
 
     try:
-        with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
+        with patch("plugin.audio.tts_service.download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
              patch("plugin.audio.tts_service._play_audio_file", side_effect=play), \
              patch("plugin.audio.tts_service._release_temp"), \
              patch("plugin.audio.tts_service._speak_system") as system:
@@ -708,7 +709,7 @@ def test_speak_endpoint_stopped_during_playback_skips_system():
 def test_speak_endpoint_save_temp_failure():
     statuses: list[str] = []
     cancel = SendCancellation()
-    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
+    with patch("plugin.audio.tts_service.download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._new_speech_temp", return_value=None), \
          patch("plugin.audio.tts_service._speak_system") as system:
         _speak_endpoint("Hello", "https://api.openai.com/v1", "k", on_status=statuses.append, cancel=cancel)
@@ -719,7 +720,7 @@ def test_speak_endpoint_save_temp_failure():
     statuses.clear()
     cancel_blocked = SendCancellation()
     cancel_blocked.cancel()
-    with patch("plugin.audio.tts_service._download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
+    with patch("plugin.audio.tts_service.download_endpoint_speech", return_value=_EndpointClip(b"RIFFfake", ".wav")), \
          patch("plugin.audio.tts_service._new_speech_temp", return_value=None), \
          patch("plugin.audio.tts_service._speak_system") as system_blocked:
         _speak_endpoint("Hello", "https://api.openai.com/v1", "k", on_status=statuses.append, cancel=cancel_blocked)
@@ -745,7 +746,7 @@ def test_speak_endpoint_prefetch_pipeline_overlap():
         return True
 
     cancel = SendCancellation()
-    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
+    with patch("plugin.audio.tts_service.download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", side_effect=fake_play) as play, \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system"):
@@ -763,7 +764,7 @@ def test_endpoint_empty_body_is_failure_not_a_file():
     try:
         with patch("plugin.framework.client.requests.sync_request", return_value=_speech_meta(b"", "audio/pcm;rate=24000")), \
              patch("plugin.audio.tts_service._new_speech_temp") as mock_new_temp:
-            result = _download_endpoint_speech(
+            result = download_endpoint_speech(
                 "Hello",
                 "https://api.example",
                 "k",
@@ -798,7 +799,7 @@ def test_speak_endpoint_later_chunk_failure_still_reports_status():
     text = ("A" * 4000) + " tail stays"
     cancel = SendCancellation()
 
-    with patch("plugin.audio.tts_service._download_endpoint_speech", side_effect=fake_download), \
+    with patch("plugin.audio.tts_service.download_endpoint_speech", side_effect=fake_download), \
          patch("plugin.audio.tts_service._play_audio_file", return_value=True), \
          patch("plugin.audio.tts_service._release_temp"), \
          patch("plugin.audio.tts_service._speak_system") as system:

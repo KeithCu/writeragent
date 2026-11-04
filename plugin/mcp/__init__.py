@@ -21,12 +21,13 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from typing import Any
+from typing import Any, Callable
 
 from plugin.framework.config import get_config, save
 from plugin.framework.http_server import format_bind_failure, is_port_in_use_error
 from plugin.framework.module_base import ModuleBase
 from plugin.mcp.cors import reload_cors_policy_from_config
+from plugin.mcp.routes import json_route
 from plugin.mcp.server import mcp_endpoint_url
 from plugin.mcp.tunnel import DEFAULT_PROVIDER, TunnelManager, provider_label, tunnel_status_line
 from plugin.version import EXTENSION_VERSION
@@ -35,6 +36,10 @@ log = logging.getLogger("writeragent.http")
 
 _current_module: McpModule | None = None
 _srv_lock = threading.Lock()
+
+
+def _as_http(fn: Callable[..., Any]) -> Callable[..., Any]:
+    return fn
 
 
 def current_tunnel() -> TunnelManager | None:
@@ -50,15 +55,15 @@ def is_mcp_server_running() -> bool:
 
 _DEBUG_TOKEN_FILENAME = "writeragent_mcp_debug_token"
 
-MCP_ROUTE_TABLE: tuple[tuple[str, str, str], ...] = (
-    ("POST", "/mcp", "handle_mcp_post"),
-    ("GET", "/mcp", "handle_mcp_sse"),
-    ("DELETE", "/mcp", "handle_mcp_delete"),
-    ("POST", "/sse", "handle_sse_post"),
-    ("POST", "/messages", "handle_sse_post"),
-    ("GET", "/sse", "handle_sse_stream"),
-    ("GET", "/debug", "handle_debug_info"),
-    ("POST", "/debug", "handle_debug_post"),
+MCP_ROUTE_TABLE: tuple[tuple[str, str, str, Callable[[Callable[..., Any]], Callable[..., Any]]], ...] = (
+    ("POST", "/mcp", "handle_mcp_post", _as_http),
+    ("GET", "/mcp", "handle_mcp_sse", _as_http),
+    ("DELETE", "/mcp", "handle_mcp_delete", _as_http),
+    ("POST", "/sse", "handle_sse_post", _as_http),
+    ("POST", "/messages", "handle_sse_post", _as_http),
+    ("GET", "/sse", "handle_sse_stream", _as_http),
+    ("GET", "/debug", "handle_debug_info", json_route),
+    ("POST", "/debug", "handle_debug_post", _as_http),
 )
 
 _LIFECYCLE_SUFFIXES = frozenset({"mcp_enabled", "mcp_port", "tunnel_enabled", "tunnel_provider", "tunnel_provider_token", "cors_allowed_origins", "cors_allow_private_origins"})
@@ -77,7 +82,9 @@ def _debug_token_path() -> str | None:
 
 
 def _write_debug_token_file(token: str) -> None:
-    if os.environ.get("WRITERAGENT_TESTING"):
+    from plugin.framework.queue_executor import Policy, main
+
+    if main.policy is Policy.test_inline:
         return
     token_path = _debug_token_path()
     if not token_path:
@@ -131,6 +138,9 @@ class McpModule(ModuleBase):
 
         self._registry = HttpRouteRegistry()
         self.tunnel = TunnelManager()
+        from plugin.framework.quit_hooks import register_quit_hook
+
+        register_quit_hook(self._quit_stop_tunnel)
         self._services = services
         _current_module = self
 
@@ -219,7 +229,9 @@ class McpModule(ModuleBase):
         msgbox_with_report(ctx, "WriterAgent", message, reportable=self._start_failure_reportable(), report_title="MCP server failed to start", report_extra=detail)
 
     def _start_server(self, services: Any) -> bool:
-        if os.environ.get("WRITERAGENT_TESTING"):
+        from plugin.framework.queue_executor import Policy, main
+
+        if main.policy is Policy.test_inline:
             return True
 
         from plugin.mcp.server import HttpServer
@@ -277,6 +289,11 @@ class McpModule(ModuleBase):
             self.server = None
         self._services.events.emit("http:server_stopped", reason="shutdown")
         self._services.events.emit("menu:update")
+
+    def _quit_stop_tunnel(self) -> None:
+        tunnel = self.tunnel
+        assert tunnel is not None
+        tunnel.stop_for_quit()
 
     def _sync_tunnel(self) -> None:
         """Start or stop the public tunnel to match MCP settings."""
@@ -337,7 +354,6 @@ class McpModule(ModuleBase):
     def _register_mcp_routes(self, services: Any) -> None:
         log.info("Registering MCP routes (SSE, /mcp, /debug)...")
         from plugin.mcp.mcp_protocol import MCPProtocolHandler
-        from plugin.mcp.routes import json_route
 
         p = MCPProtocolHandler(services)
         _write_debug_token_file(p.debug_token)
@@ -346,16 +362,13 @@ class McpModule(ModuleBase):
         # lock, so a toggle cannot expose a half-registered table or raise
         # RuntimeError while iterating it.
         with self._registry.lock:
-            for method, path, handler_name in MCP_ROUTE_TABLE:
-                handler = getattr(p, handler_name)
-                if handler_name == "handle_debug_info":
-                    handler = json_route(handler)
-                self._registry.add(method, path, handler)
+            for method, path, handler_name, wrap in MCP_ROUTE_TABLE:
+                self._registry.add(method, path, wrap(getattr(p, handler_name)))
         log.info("MCP routes registered on HTTP server")
 
     def _unregister_mcp_routes(self) -> None:
         with self._registry.lock:
-            for method, path, _handler_name in MCP_ROUTE_TABLE:
+            for method, path, _handler_name, _wrap in MCP_ROUTE_TABLE:
                 self._registry.remove(method, path)
         _remove_debug_token_file()
         log.info("MCP routes unregistered from HTTP server")

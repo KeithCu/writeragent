@@ -46,7 +46,6 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `parallel_tool_calls` | `boolean` | `false` |  |  |
 | `openrouter_chat_extra` | `dict` | `{}` |  |  |
 | `text_analytics_sentiment_model` | `string` | `"cardiffnlp/twitter-xlm-roberta-base-sentiment"` |  |  |
-| `doc_agent_edit_review_mode` | `string` | `"off"` |  |  |
 
 ## Core services (config, events, logging) (`core`)
 
@@ -157,6 +156,10 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `client_config_snippet` | `string` | `""` |  | Client config (copy into Claude / Hermes-Agent): |
 | `cors_allow_private_origins` | `boolean` | `true` |  | Internal |
 | `cors_allowed_origins` | `list` | `[]` |  | Internal |
+| `host` | `string` | `"localhost"` |  | Internal |
+| `use_ssl` | `boolean` | `false` |  | Internal |
+| `ssl_cert` | `string` | `""` |  | Internal |
+| `ssl_key` | `string` | `""` |  | Internal |
 
 ## Python (`scripting`)
 

@@ -30,7 +30,7 @@ def _handler(body, headers, query):
 def test_mcp_routes_match_production_table() -> None:
     from plugin.mcp import MCP_ROUTE_TABLE
 
-    assert tuple((m, p) for m, p, _h in MCP_ROUTE_TABLE) == _MCP_ROUTES
+    assert tuple((m, p) for m, p, _h, _w in MCP_ROUTE_TABLE) == _MCP_ROUTES
 
 
 def test_list_routes_snapshot_ignores_later_adds() -> None:

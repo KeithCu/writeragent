@@ -104,7 +104,7 @@ class TestWriterMathPreservation:
         # Plain text content (no markup)
         content = "Line 1\\nLine 2"
         
-        with patch('plugin.writer.format.replace_full_document') as mock_replace:
+        with patch('plugin.writer.html_import.replace_full_document') as mock_replace:
             tool.execute(ctx, content=content, target="full_document")
             
             passed_content = mock_replace.call_args[0][2]

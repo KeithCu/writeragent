@@ -154,8 +154,10 @@ class DelegateReadDocument(ToolBase):
         if model is None or doc_type is None:
             return self._tool_error(err or "Open failed", path=path)
         try:
-            stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
-            if stop_checker is not None and stop_checker():
+            from plugin.framework.send_cancellation import is_cancelled
+
+            scope = ctx.send_cancellation
+            if is_cancelled(scope):
                 return user_stopped_payload()
             result = run_inner_read_agent(ctx, model, doc_type, str(task))
         finally:
@@ -191,7 +193,7 @@ class DelegateReadDocument(ToolBase):
         if not isinstance(result, dict):
             # Discussion #2262: a plain-text return means the read agent never called the finish
             # tool (output-limit truncation or max steps); report it with the #2029 incomplete contract.
-            from plugin.doc.python_domain_specialized import _normalize_inner_result
+            from plugin.doc.specialized_catalog import normalize_inner_result
 
-            return {**_normalize_inner_result(result, ["document_research"], []), "path": path, "doc_type": doc_type}
+            return {**normalize_inner_result(result, ["document_research"], []), "path": path, "doc_type": doc_type}
         return {"status": "ok", "path": path, "doc_type": doc_type, "result": str(payload)}

@@ -29,7 +29,7 @@ def test_precomputed_echo_shape_and_absence():
 
     def make_prepared(echo: dict[str, Any] | None) -> _PreparedMcpCall:
         ctx_mock = MagicMock(spec=ToolContext)
-        ctx_mock.stop_checker = None
+        ctx_mock.send_cancellation = None
         return _PreparedMcpCall(
             tool=MagicMock(),
             context=ctx_mock,
@@ -114,9 +114,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
         def __init__(self, registry):
             self.tools = registry
             self.document = _FakeDocSvc()
-
-        def get(self, key):
-            return _FakeMainThread() if key == "main_thread" else None
+            self.main_thread = _FakeMainThread()
 
     registry = _Registry()
     handler = MCPProtocolHandler(_FakeServices(registry))
@@ -180,9 +178,7 @@ class _Services:
         self.document = _DocSvc(doc)
         self.config = MagicMock()
         self.config.get.side_effect = lambda key, default=None: default
-
-    def get(self, key):
-        return _InlineMain() if key == "main_thread" else None
+        self.main_thread = _InlineMain()
 
 
 class _SyncProbe(ToolBase):
@@ -281,11 +277,7 @@ def test_tools_call_rejects_unadvertised_tiers():
                     return default
             self.config = FakeConfig()
             self.document = _DocSvc(_LiveDoc())
-
-        def get(self, key):
-            if key == "main_thread":
-                return _InlineMain()
-            return None
+            self.main_thread = _InlineMain()
 
     registry = ToolRegistry(FakeServices("delegate"))
     registry._tools["secret_tool"] = FakeTool()
@@ -511,7 +503,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
             status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
-            with patch.object(handler, "_read_body", return_value={}):
+            with patch("plugin.mcp.mcp_protocol.read_json_body", return_value={}):
                 handler.handle_debug_post(req)
             assert 403 in req.sent_responses
 
@@ -528,7 +520,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
             status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 200
         else:
-            with patch.object(handler, "_read_body", return_value={}):
+            with patch("plugin.mcp.mcp_protocol.read_json_body", return_value={}):
                 handler.handle_debug_post(req)
             assert 200 in req.sent_responses
 
@@ -539,7 +531,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
             status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
-            with patch.object(handler, "_read_body", return_value={}):
+            with patch("plugin.mcp.mcp_protocol.read_json_body", return_value={}):
                 handler.handle_debug_post(req)
             assert 403 in req.sent_responses
 
@@ -553,7 +545,7 @@ def test_debug_endpoint_auth_matrix(monkeypatch):
             status, _ = handler.handle_debug_info(b"", _get_headers(req), {})
             assert status == 403
         else:
-            with patch.object(handler, "_read_body", return_value={}):
+            with patch("plugin.mcp.mcp_protocol.read_json_body", return_value={}):
                 handler.handle_debug_post(req)
             assert 403 in req.sent_responses
 

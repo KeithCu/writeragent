@@ -13,6 +13,7 @@ import pytest
 
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
+from plugin.framework.send_cancellation import SendCancellation
 from tests.framework.stream_test_helpers import (
     DummyToolkit,
     _RecordingRearm,
@@ -552,7 +553,7 @@ def test_event_drain_stop_drops_control_tail_and_closed_slice_drops_late_chunks(
     applied: list[str] = []
     done: list[object] = []
     stopped: list[bool] = []
-    stop = [False]
+    stop_scope = SendCancellation()
     outcome = DrainOutcome()
     try:
         run_stream_drain_loop(
@@ -563,13 +564,13 @@ def test_event_drain_stop_drops_control_tail_and_closed_slice_drops_late_chunks(
             on_stream_done=lambda item: done.append(item) or True,
             on_stopped=lambda: stopped.append(True),
             on_error=lambda _e: None,
-            stop_checker=lambda: stop[0],
+            cancel=stop_scope,
             rearm=rearm,
         )
         rearm.pump()
         assert rearm.pending[0][0] == "later"
         stale = rearm.pending[0][2]
-        stop[0] = True
+        stop_scope.cancel()
         q.put((StreamQueueKind.CHUNK, "tail"))
         q.put((StreamQueueKind.STREAM_DONE, "nope"))
         rearm.pump()

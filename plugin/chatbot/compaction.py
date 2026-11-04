@@ -34,6 +34,7 @@ from plugin.chatbot.chat_session import message_text, request_tail
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from plugin.framework.send_cancellation import SendCancellation
 
 
 log = logging.getLogger(__name__)
@@ -517,12 +518,18 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     (``context_compressor.py:3846-3884``); not a port of that method.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L3846-L3884
     """
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+
     out = []
     i = 0
     n = len(messages)
     while i < n:
         msg = messages[i]
         if msg.get("_open_transcript"):
+            i += 1
+            continue
+
+        if msg.get(SLASH_LOCAL):
             i += 1
             continue
         if msg.get("role") == "assistant" and (msg.get("tool_calls") or []):
@@ -698,18 +705,28 @@ def _choose_cut(messages: list[dict[str, Any]], keep: int, prev_kept: int) -> tu
     return cut_for(work), stubbed_ids
 
 
-def _summarizer_user_body(conversation_text: str, previous_summary: str) -> str:
+def _summarizer_user_body(
+    conversation_text: str,
+    previous_summary: str,
+    *,
+    focus: str | None = None,
+) -> str:
     temporal = _temporal_anchoring_rule()
     if previous_summary:
-        return (
+        body = (
             "<previous-summary>\n" + previous_summary + "\n</previous-summary>\n\n"
             + "<conversation>\n" + conversation_text + "\n</conversation>\n\n"
             + UPDATE_SUMMARIZATION_PROMPT + temporal
         )
-    return (
-        "<conversation>\n" + conversation_text + "\n</conversation>\n\n"
-        + SUMMARIZATION_PROMPT + temporal
-    )
+    else:
+        body = (
+            "<conversation>\n" + conversation_text + "\n</conversation>\n\n"
+            + SUMMARIZATION_PROMPT + temporal
+        )
+    focus_text = (focus or "").strip()
+    if focus_text:
+        body += "\n\nKeep details about: " + focus_text
+    return body
 
 
 def _next_summary_chunk(
@@ -719,9 +736,10 @@ def _next_summary_chunk(
     window: int,
     max_out: int,
     previous_summary: str,
+    focus: str | None = None,
 ) -> tuple[str, int] | None:
     def fits(text: str) -> bool:
-        body = _summarizer_user_body(text, previous_summary)
+        body = _summarizer_user_body(text, previous_summary, focus=focus)
         tokens = (
             estimate_message_tokens({"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT})
             + estimate_tokens_rough(body)
@@ -766,8 +784,9 @@ def _summarize_bounded(
     window: int,
     max_out: int,
     previous_summary: str,
-    cancel: Any,
+    cancel: SendCancellation | None,
     stale: Callable[[], bool],
+    focus: str | None = None,
 ) -> tuple[str | None, str]:
     lines = _summary_lines(slice_messages)
     if not lines:
@@ -786,12 +805,13 @@ def _summarize_bounded(
             window=window,
             max_out=max_out,
             previous_summary=running,
+            focus=focus,
         )
         if next_chunk is None:
             return None, "failed"
 
         chunk_text, next_idx = next_chunk
-        user_body = _summarizer_user_body(chunk_text, running)
+        user_body = _summarizer_user_body(chunk_text, running, focus=focus)
 
         try:
             result = client.request_with_tools(
@@ -829,9 +849,10 @@ def compact_session(
     window: int | None,
     tools: Any = None,
     max_tokens: int | None = None,
-    cancel: Any = None,
+    cancel: SendCancellation | None = None,
     force: bool = False,
     status_callback: Callable[[str], None] | None = None,
+    focus: str | None = None,
 ) -> CompactResult:
     """May call LlmClient (blocking). Must run off the UI thread.
 
@@ -896,6 +917,7 @@ def compact_session(
         previous_summary=previous,
         cancel=cancel,
         stale=lambda: session.messages is not messages,
+        focus=focus,
     )
     if summary is None:
         return CompactResult(False, reason, before, before)

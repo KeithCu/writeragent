@@ -72,7 +72,8 @@ class RunOptions:
 class HarnessOffice:
     """One soffice child, stderr tail, lifecycle breadcrumb, and recycle flags."""
 
-    def __init__(self) -> None:
+    def __init__(self, options: RunOptions | None = None) -> None:
+        self.options: RunOptions = options or RunOptions()
         self.soffice_proc: Any = None
         self.stderr_lock: threading.Lock = threading.Lock()
         self.stderr_application_error: bool = False
@@ -131,12 +132,13 @@ class HarnessOffice:
         return wanted
 
 
-_run_options = RunOptions()
+# The single HarnessOffice holds the process-wide office lifecycle and options.
 _office = HarnessOffice()
 
-# UNO tests import these names; ``main()`` / ``_parse_cli_args`` refresh them from ``_run_options``.
-show_window: bool = False
-use_user_profile: bool = False
+
+def current_office() -> HarnessOffice:
+    """The active harness office instance."""
+    return _office
 
 
 def _progress(msg: str) -> None:
@@ -272,43 +274,10 @@ _SOAK_PAIRS: Dict[str, List[str]] = {
 }
 
 
-def reset_office_death_signals(*, clear_proc: bool = False) -> None:
-    """Clear SalAbort / stderr flags. Does not drop the live soffice Popen unless asked."""
-    _office.reset_death_signals(clear_proc=clear_proc)
-
-
-def reset_lifecycle_breadcrumb() -> None:
-    """Clear the previous/current TEST trail (start of a run or unit test)."""
-    _office.reset_lifecycle_breadcrumb()
-
-
-def note_office_stderr_line(line: str, *, echo: bool = False) -> None:
-    """Record one office/Python stderr line; set the SalAbort flag if the marker appears.
-
-    ``echo=True`` reprints on the real stderr (soffice PIPE drain). The TEST-call
-    tee already wrote the line, so it only marks.
-    """
-    _office.note_stderr_line(line, echo=echo)
-
-
-def consume_application_error() -> bool:
-    """Return-and-clear whether Unspecified Application Error was seen since last consume."""
-    return _office.consume_application_error()
-
-
-def office_stderr_tail() -> list[str]:
-    return _office.office_stderr_tail()
-
-
-def soffice_exit_code() -> int | None:
-    """``Popen.poll()`` of the harness soffice, or None if still running / no child."""
-    return _office.soffice_exit_code()
-
-
 def _drain_soffice_stderr(stream: Any) -> None:
     try:
         for line in stream:
-            note_office_stderr_line(line, echo=True)
+            _office.note_stderr_line(line, echo=True)
     except Exception:
         log.debug("soffice stderr drain failed", exc_info=True)
     finally:
@@ -332,7 +301,7 @@ class _StderrMarkerTee:
         else:
             text = data if isinstance(data, str) else str(data)
         if text and _APPLICATION_ERROR_MARKER in text:
-            note_office_stderr_line(text, echo=False)
+            _office.note_stderr_line(text, echo=False)
         return self._inner.write(data)
 
     def __getattr__(self, name: str) -> Any:
@@ -346,14 +315,14 @@ def collect_post_test_death(ctx: Any = None) -> str | None:
     the next open saw Binary URP already disposed. getServiceManager can lag
     SalAbort. Treat the stderr marker or a child exit as URP death.
     """
-    app_err = consume_application_error()
-    exit_code = soffice_exit_code()
+    app_err = _office.consume_application_error()
+    exit_code = _office.soffice_exit_code()
     bridge = probe_uno_bridge(ctx)
     if not app_err and exit_code is None and bridge != "disposed":
         return None
     pids = _soffice_pids()
     crumb = format_lifecycle_breadcrumb()
-    tail = office_stderr_tail()
+    tail = _office.office_stderr_tail()
     tail_note = ""
     if tail:
         tail_note = " stderr_tail=%s" % " | ".join(tail[-5:])
@@ -574,14 +543,8 @@ _USER_PROFILE_ONLY_UNO = frozenset(
 _DEMO_ONLY_UNO = frozenset({"test_demo_video_uno.py"})
 
 
-def _sync_cli_module_flags() -> None:
-    global show_window, use_user_profile
-    show_window = _run_options.show_window
-    use_user_profile = _run_options.use_user_profile
-
-
 def _parse_cli_args(argv: Sequence[str]) -> list[str]:
-    """Split runner flags from suite filters. Sets ``show_window`` / ``use_user_profile``.
+    """Split runner flags from suite filters.
 
     Mirror ``--user-profile`` into ``WRITERAGENT_UNO_USER_PROFILE`` as well.
 
@@ -590,10 +553,10 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     / ``dup-move`` expands to the two Draw tests that historically sandwich a
     URP death. See ``docs/framework/uno-test-lifecycle.md``.
     """
-    _run_options.soak_repeat = 1
-    _run_options.exact_function_names = []
-    _run_options.show_window = False
-    _run_options.use_user_profile = False
+    _office.options.soak_repeat = 1
+    _office.options.exact_function_names = []
+    _office.options.show_window = False
+    _office.options.use_user_profile = False
 
     parser = argparse.ArgumentParser(prog="plugin.testing_runner", allow_abbrev=False)
     parser.add_argument("--visible", "--show-window", action="store_true", dest="show_window")
@@ -603,31 +566,30 @@ def _parse_cli_args(argv: Sequence[str]) -> list[str]:
     known, filters = parser.parse_known_args(list(argv))
 
     if known.show_window:
-        _run_options.show_window = True
+        _office.options.show_window = True
     if known.user_profile:
-        _run_options.use_user_profile = True
-        _run_options.show_window = True
+        _office.options.use_user_profile = True
+        _office.options.show_window = True
         os.environ["WRITERAGENT_UNO_USER_PROFILE"] = "1"
     if known.repeat is not None:
-        _run_options.soak_repeat = max(1, known.repeat)
+        _office.options.soak_repeat = max(1, known.repeat)
     else:
         raw = os.environ.get("WRITERAGENT_UNO_SOAK")
         if raw:
             try:
-                _run_options.soak_repeat = max(1, int(raw))
+                _office.options.soak_repeat = max(1, int(raw))
             except ValueError:
                 pass
     if known.pair is not None:
         names = expand_soak_pair(known.pair)
         if names:
             filters.extend(names)
-            _run_options.exact_function_names = list(names)
+            _office.options.exact_function_names = list(names)
         else:
             filters.append(str(known.pair))
     if os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1":
-        _run_options.use_user_profile = True
-        _run_options.show_window = True
-    _sync_cli_module_flags()
+        _office.options.use_user_profile = True
+        _office.options.show_window = True
     return filters
 
 
@@ -912,7 +874,7 @@ def _connect_uno_accept(
                 "BOOTSTRAP path=%s attempt=%s/%s elapsed=%.1fs no_connect=%s pids=%s"
                 % (path_label, i, n, elapsed, exc, _soffice_pids())
             )
-    tail = office_stderr_tail()
+    tail = _office.office_stderr_tail()
     _progress_verbose(
         "BOOTSTRAP path=%s connected=False soffice_exit=%s pids=%s last=%s stderr_tail=%r"
         % (path_label, proc.poll(), _soffice_pids(), last_exc, tail[-30:])
@@ -985,16 +947,6 @@ def _terminate_bootstrap_soffice() -> None:
             proc.kill()
 
 
-def request_office_recycle_after_suite() -> None:
-    """Ask ``run_all_tests`` to kill+rebootstrap soffice after this suite."""
-    _office.request_recycle()
-
-
-def consume_office_recycle_request() -> bool:
-    """Return-and-clear the after-suite recycle flag."""
-    return _office.consume_recycle_request()
-
-
 # Windows: must run on the original soffice, before any suite-end recycle.
 _WINDOWS_FIRST_IN_DIR = frozenset({"test_designs_uno.py"})
 
@@ -1038,7 +990,7 @@ def _rebootstrap_ctx(ctx: Any) -> None:
 
     set_fallback_ctx(ctx)
     init_config(ctx)
-    if not use_user_profile:
+    if not _office.options.use_user_profile:
         from plugin.main import bootstrap
 
         bootstrap(ctx=ctx)
@@ -1071,7 +1023,7 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
     _progress_verbose("LIFECYCLE recycle office after impress start")
     _terminate_bootstrap_soffice()
     time.sleep(0.5)
-    reset_office_death_signals(clear_proc=True)
+    _office.reset_death_signals(clear_proc=True)
     _office.lc.last_end_pids = ""
     from tests.testing_utils import _NATIVE_DOC_POOL
 
@@ -1082,7 +1034,7 @@ def _recycle_harness_office(old_ctx: Any) -> tuple[Any, Any]:
             raise RuntimeError("recycle bootstrap returned None")
         _rebootstrap_ctx(new_ctx)
         new_keeper = None
-        if not use_user_profile:
+        if not _office.options.use_user_profile:
             new_keeper = _open_keeper(new_ctx)
         _progress_verbose(
             "LIFECYCLE recycle office after impress done pids=%s"
@@ -1106,7 +1058,7 @@ def _bootstrap_office() -> Any:
     call ``officehelper.bootstrap(soffice=<command string>)``: current
     LibreOffice treats ``soffice=`` as a path only.
     """
-    if use_user_profile:
+    if _office.options.use_user_profile:
         return _bootstrap_user_profile_gui()
     import officehelper
 
@@ -1159,7 +1111,7 @@ def _bootstrap_office() -> Any:
                     attempt,
                     attempts,
                     _soffice_pids(),
-                    office_stderr_tail()[-30:],
+                    _office.office_stderr_tail()[-30:],
                 )
             )
             _terminate_bootstrap_soffice()
@@ -1242,7 +1194,7 @@ def run_module_suite(
     """
     log.info(f"run_module_suite start: {name}")
     office = office or _office
-    options = options or _run_options
+    options = options or office.options
     total_passed = 0
     total_failed = 0
     suite_log = []
@@ -1351,7 +1303,7 @@ def run_module_suite(
                     dead_exc = RuntimeError(gap_death)
                     msg = (
                         "LIFECYCLE office death before TEST call %s soffice_exit=%s %s"
-                        % (qual, soffice_exit_code(), format_lifecycle_breadcrumb())
+                        % (qual, _office.soffice_exit_code(), format_lifecycle_breadcrumb())
                     )
                     _fail_dead_office(qual, test_line, dead_exc, msg)
                     break
@@ -1376,7 +1328,7 @@ def run_module_suite(
                     if _APPLICATION_ERROR_MARKER in death:
                         msg = (
                             "LIFECYCLE application error after TEST returned %s soffice_exit=%s %s"
-                            % (qual, soffice_exit_code(), format_lifecycle_breadcrumb())
+                            % (qual, _office.soffice_exit_code(), format_lifecycle_breadcrumb())
                         )
                     else:
                         msg = (
@@ -1388,7 +1340,7 @@ def run_module_suite(
                 total_passed += 1
                 suite_log.append(f"{test_line} — OK")
                 record_test_end(qual, "OK")
-                exit_code = soffice_exit_code()
+                exit_code = _office.soffice_exit_code()
                 _progress(f"TEST end {qual} OK")
                 _progress_verbose(
                     "TEST end detail %s soffice=%s exit=%s"
@@ -1474,11 +1426,7 @@ def _native_suite_save(
     original_save(patch, event_key=event_key)
 
 
-def run_all_tests(
-    ctx: Any,
-    office: HarnessOffice | None = None,
-    options: RunOptions | None = None,
-) -> str:
+def run_all_tests(ctx: Any) -> str:
     """Run all in-process WriterAgent tests and return a JSON summary string.
 
     The JSON structure is:
@@ -1499,8 +1447,10 @@ def run_all_tests(
     inside LibreOffice. External callers can parse this JSON, print a report,
     and use total_failed as an exit code condition.
     """
-    office = office or _office
-    options = options or _run_options
+    # Office and options are owned by the singleton _office; reading directly ensures
+    # the harness has a single source of truth without hidden rebinding side effects.
+    office = _office
+    options = office.options
     office.urp_bridge_dead = False
     office.reset_lifecycle_breadcrumb()
     # Mock doc.agent_edit_review_mode during tests to default to "off"
@@ -1545,7 +1495,7 @@ def run_all_tests(
 
     keeper_doc = None
 
-    if not use_user_profile:
+    if not options.use_user_profile:
         try:
             _progress_verbose(
                 "KEEPER load start target=_blank hidden=True "
@@ -1627,8 +1577,10 @@ def run_all_tests(
             for filename in files:
                 if not (filename.startswith("test_") and filename.endswith("_uno.py")):
                     continue
-                user_only = filename in _USER_PROFILE_ONLY_UNO
-                if user_only != use_user_profile:
+                # Demo scenes drive the user's real profile, so they are user-profile-only
+                # too; without this, --user-profile skipped them ("No native test suites matched").
+                user_only = filename in _USER_PROFILE_ONLY_UNO or filename in _DEMO_ONLY_UNO
+                if user_only != options.use_user_profile:
                     continue
                 # Demo scenes only via make demo-video (WRITERAGENT_DEMO=1).
                 if filename in _DEMO_ONLY_UNO and os.environ.get("WRITERAGENT_DEMO") != "1":
@@ -1699,7 +1651,7 @@ def run_all_tests(
                     suites.append(entry)
                     total_passed += p
                     total_failed += f
-                    if consume_office_recycle_request():
+                    if office.consume_recycle_request():
                         more = i + 1 < len(ordered_candidates)
                         if more:
                             ctx, keeper_doc = _recycle_harness_office(ctx)
@@ -1841,7 +1793,7 @@ def main() -> int:
         print("  (%s: %s)" % (type(exc).__name__, exc), flush=True)
         return 1
 
-    _run_options.filters = list(_parse_cli_args(sys.argv[1:]))
+    _office.options.filters = list(_parse_cli_args(sys.argv[1:]))
 
     # Suppress MCP server startup in the soffice child process; it inherits
     # this env var and McpModule.start_background() checks it.

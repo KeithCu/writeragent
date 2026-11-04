@@ -262,7 +262,7 @@ def test_run_cell_missing_code_field():
 
 def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
     """Two PyUNO wrappers of one doc must not both run."""
-    from plugin.notebook.notebook_controls import _doc_key
+    from plugin.notebook.layout import doc_key
 
     ctx = MagicMock()
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
@@ -271,7 +271,7 @@ def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
     doc2 = MagicMock()
     for doc in (doc1, doc2):
         doc.getRuntimeUID.return_value = "uid-same"
-    assert _doc_key(doc1) == _doc_key(doc2) == "uid:uid-same"
+    assert doc_key(doc1) == doc_key(doc2) == "uid:uid-same"
     nested: list[object] = []
 
     def _reenter(*_a: object, **_k: object) -> dict[str, object]:
@@ -696,8 +696,8 @@ def test_apply_run_result_replaces_via_clear_then_insert():
 
 def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
     """When the cursor lands on Cell N: Markdown, stdout must not replace that heading."""
+    from plugin.notebook.layout import PARAGRAPH_BREAK
     from plugin.notebook.notebook_runner import _insert_stdout_paragraph
-    from plugin.notebook.writer_importer import _PARAGRAPH_BREAK
 
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     cursor = MagicMock()
@@ -717,8 +717,8 @@ def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
         _insert_stdout_paragraph(doc, cell, cursor, "hello", "Preformatted Text", "WriterAgent Notebook In")
 
     assert [call.args[1] for call in text.insertControlCharacter.call_args_list] == [
-        _PARAGRAPH_BREAK,
-        _PARAGRAPH_BREAK,
+        PARAGRAPH_BREAK,
+        PARAGRAPH_BREAK,
     ]
     text.insertString.assert_called_once_with(cursor, "hello", False)
     cursor.setString.assert_not_called()

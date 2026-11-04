@@ -22,8 +22,8 @@ from typing import Any
 from plugin.framework.module_base import ModuleBase
 
 # UNO / tool-registration imports: skipped under CrossHair so FQN cover of pure
-# submodules (word_diff_split, xhtml_style_postprocess) does not pull format.py's
-# tempfile.gettempdir() probe (auditwall SideEffectDetected). initialize() loads them.
+# submodules (word_diff_split, xhtml_style_postprocess) does not pull the heavy
+# stack (auditwall SideEffectDetected). initialize() loads them.
 def _import_writer_tools():
     from . import tree, proximity  # noqa: F401  # pyright: ignore[reportUnusedImport]
     from . import apply_document_content, get_document_content, selection, styles, tracking, page, search, structural, outline, navigation, target_resolver, get_image  # noqa: F401  # pyright: ignore[reportUnusedImport]

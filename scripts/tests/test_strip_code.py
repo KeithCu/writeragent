@@ -419,6 +419,8 @@ def test_replace_thread_guard_implementation(tmp_path: Path) -> None:
         assert ns["in_sync_host_dispatch"]() is True
     assert ns["in_sync_host_dispatch"]() is False
     assert ns["THREAD_VIOLATION_MARK"] == tg.THREAD_VIOLATION_MARK
+    assert callable(ns["set_thread_violation_ui"])
+    ns["set_thread_violation_ui"](None)
     assert ns["__all__"] == tg.__all__
 
 

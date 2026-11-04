@@ -321,7 +321,7 @@ def test_apply_document_content_selection_failure_not_silent():
     from plugin.framework.config import save
     save({'doc.agent_edit_review_mode': 'none'})
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = MagicMock()

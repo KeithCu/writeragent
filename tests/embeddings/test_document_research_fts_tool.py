@@ -10,6 +10,7 @@ import json
 from unittest.mock import MagicMock, patch
 
 from plugin.embeddings.document_research_fts_tool import SearchNearbyFiles
+from plugin.framework.send_cancellation import SendCancellation
 
 
 def _ctx():
@@ -17,6 +18,8 @@ def _ctx():
     ctx.ctx = MagicMock()
     ctx.doc = MagicMock()
     ctx.services = MagicMock()
+    ctx.send_cancellation = None
+    ctx.send_cancellation = None
     return ctx
 
 
@@ -132,6 +135,7 @@ def test_search_nearby_files_backend_error_surfaced():
     ctx.ctx = MagicMock()
     ctx.doc = MagicMock()
     ctx.services = MagicMock()
+    ctx.send_cancellation = None
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
         with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
@@ -153,8 +157,8 @@ def test_search_nearby_files_backend_error_surfaced():
 def test_search_nearby_files_passes_stop_checker():
     tool = SearchNearbyFiles()
     ctx = _ctx()
-    ctx.stop_checker = lambda: False
-    ctx.send_cancellation = object()
+    scope = SendCancellation()
+    ctx.send_cancellation = scope
 
     with patch("plugin.framework.constants.folder_search_enabled", return_value=True):
         with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
@@ -175,5 +179,5 @@ def test_search_nearby_files_passes_stop_checker():
 
     assert result.get("status") == "ok"
     rpc_mock.assert_called_once()
-    assert rpc_mock.call_args.kwargs["stop_checker"] is ctx.stop_checker
-    assert rpc_mock.call_args.kwargs["cancellation_scope"] is ctx.send_cancellation
+    assert rpc_mock.call_args.kwargs["stop_checker"] == scope.is_cancelled
+    assert rpc_mock.call_args.kwargs["cancellation_scope"] is scope

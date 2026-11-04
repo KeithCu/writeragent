@@ -185,7 +185,7 @@ def insert_vision_result_into_writer(ctx: Any, doc: Any, result: dict[str, Any],
         if image_name and not _writer_graphic_present(doc, image_name):
             raise ToolExecutionError(_("The image was removed during OCR insert."), code="VISION_ERROR")
 
-    from plugin.writer.format import run_writer_mutation_with_optional_review
+    from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
     run_writer_mutation_with_optional_review(doc, ctx, _apply_insert)
 

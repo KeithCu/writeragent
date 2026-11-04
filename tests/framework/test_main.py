@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import sys
@@ -13,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.queue_executor import main as main_thread
+from tests.harness.strip_bundle import is_release_build
 
 
 def _ensure_main_import_stubs() -> None:
@@ -77,10 +79,10 @@ def _isolate_main_state():
     prev_services = main._services
     prev_tools = main._tools
     prev_modules = list(main._modules)
-    prev_listeners = list(main._status_listeners)
+    prev_listeners = list(main.menu_status.listeners)
     prev_err = getattr(main, "_bootstrap_error", None)
-    prev_graphics = dict(main._loaded_icon_graphics)
-    prev_stamp = main._icon_apply_stamp
+    prev_graphics = dict(main.menu_icons._loaded_icon_graphics)
+    prev_stamp = main.menu_icons._icon_apply_stamp
     try:
         yield
     finally:
@@ -88,11 +90,11 @@ def _isolate_main_state():
         main._services = prev_services
         main._tools = prev_tools
         main._modules[:] = prev_modules
-        main._status_listeners[:] = prev_listeners
+        main.menu_status.listeners[:] = prev_listeners
         main._bootstrap_error = prev_err
-        main._loaded_icon_graphics.clear()
-        main._loaded_icon_graphics.update(prev_graphics)
-        main._icon_apply_stamp = prev_stamp
+        main.menu_icons._loaded_icon_graphics.clear()
+        main.menu_icons._loaded_icon_graphics.update(prev_graphics)
+        main.menu_icons._icon_apply_stamp = prev_stamp
 
 
 # --- Bug 1 tests: bootstrap error handling and retry ---
@@ -102,7 +104,7 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     """Re-entrant bootstrap() call on the same thread returns without deadlocking."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
     fake_ctx = MagicMock()
-    monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: fake_ctx)
 
     called_reentrant = False
 
@@ -116,7 +118,7 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     monkeypatch.setattr("plugin.framework.config.init_config", mock_init_config)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
@@ -126,16 +128,17 @@ def test_bootstrap_same_thread_reentry_returns(monkeypatch):
     main.bootstrap(fake_ctx)
     assert called_reentrant is True
     assert main._bootstrap_state is BootstrapState.INITIALIZED
+    assert gc.isenabled(), "bootstrap tests must not leave gc_policy installed in pytest"
 
 
 def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
     """When load_modules raises, _bootstrap_state resets to UNINITIALIZED so bootstrap can be retried."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._modules = []
@@ -166,12 +169,12 @@ def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
 def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
     """When start_background raises after modules are loaded, _bootstrap_state stays INITIALIZED."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     core_handlers_mock = MagicMock()
     monkeypatch.setattr("plugin.main.register_core_handlers", core_handlers_mock)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED
     main._modules = []
@@ -194,11 +197,11 @@ def test_bootstrap_start_background_failure_keeps_initialized(monkeypatch):
 
 def test_bootstrap_start_background_failure_isolates_modules(monkeypatch):
     """When one module's start_background raises, later modules still start their background work."""
-    monkeypatch.setattr("plugin.framework.thread_guard.on_python_main_thread", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.framework.queue_executor.MainThread.on_python_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
     core_handlers_mock = MagicMock()
     monkeypatch.setattr("plugin.main.register_core_handlers", core_handlers_mock)
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
@@ -232,11 +235,11 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
     """When WRITERAGENT_EVAL_HARNESS=1, bootstrap skips _install_terminate_listener."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
     fake_ctx = MagicMock()
-    monkeypatch.setattr(main, "get_ctx", lambda: fake_ctx)
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: fake_ctx)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
     orig_env = os.environ.get("WRITERAGENT_EVAL_HARNESS")
@@ -268,8 +271,42 @@ def test_bootstrap_eval_harness_skips_terminate_listener(monkeypatch):
             os.environ.pop("WRITERAGENT_EVAL_HARNESS", None)
 
 
+def test_terminate_listener_runs_quit_hooks_before_shutdown_all(monkeypatch):
+    order: list[str] = []
+
+    monkeypatch.setattr(
+        "plugin.framework.quit_hooks.run_quit_hooks",
+        lambda: order.append("quit_hooks"),
+    )
+    monkeypatch.setattr(
+        "plugin.audio.kokoro_pool.shutdown_kokoro_pool",
+        lambda: order.append("kokoro"),
+    )
+    monkeypatch.setattr(
+        "plugin.framework.managed_subprocess.shutdown_all",
+        lambda: order.append("shutdown_all"),
+    )
+    monkeypatch.setattr(
+        "plugin.framework.warm_child.supervisor.shutdown_all",
+        lambda: order.append("supervisor_shutdown_all"),
+    )
+
+    listeners: list = []
+    fake_desktop = MagicMock()
+    fake_desktop.addTerminateListener = listeners.append
+    monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx: fake_desktop)
+
+    main._terminate_listener = None
+    main._install_terminate_listener(MagicMock())
+    assert len(listeners) == 1
+    listeners[0].notifyTermination(MagicMock())
+    assert order.index("quit_hooks") < order.index("shutdown_all")
+    assert order.index("shutdown_all") < order.index("supervisor_shutdown_all")
+    assert order == ["quit_hooks", "kokoro", "shutdown_all", "supervisor_shutdown_all"]
+
+
 def test_dispatch_command_unhandled_raises_when_bootstrap_failed():
-    """_dispatch_command raises BOOTSTRAP_FAILED only when a command is unhandled."""
+    """dispatch_command raises BOOTSTRAP_FAILED only when a command is unhandled."""
     main._bootstrap_state = BootstrapState.INITIALIZED
     main._bootstrap_error = RuntimeError("fatal startup error")
 
@@ -282,12 +319,12 @@ def test_dispatch_command_unhandled_raises_when_bootstrap_failed():
 
     register_action_handler("test", "handled_action", handler)
     try:
-        main._dispatch_command("test.handled_action")
+        main.dispatch_command("test.handled_action")
         assert handled_ran is True
 
         # Unhandled command raises BOOTSTRAP_FAILED
         with pytest.raises(WriterAgentException) as exc_info:
-            main._dispatch_command("test.unhandled_command")
+            main.dispatch_command("test.unhandled_command")
         assert exc_info.value.code == "BOOTSTRAP_FAILED"
     finally:
         _ACTION_HANDLERS.pop("test.handled_action", None)
@@ -359,12 +396,12 @@ def test_get_tools_and_get_services_raise_bootstrap_failed_when_registry_none(mo
 def test_menu_update_subscriber_runs_in_background(monkeypatch):
     """menu:update subscriber must use run_in_background, not main.call."""
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
 
     bus = EventBus()
     monkeypatch.setattr("plugin.framework.event_bus.get_event_bus", lambda: bus)
@@ -381,15 +418,15 @@ def test_menu_update_subscriber_runs_in_background(monkeypatch):
 
     bus.emit("menu:update")
 
-    assert main.notify_menu_update in bg_calls
-    assert main.notify_menu_update not in main_calls
+    assert main.menu_status.publish in bg_calls
+    assert main.menu_status.publish not in main_calls
 
 
 # --- Bug 4 tests: handler failures reported safely without raising ---
 
 
 def test_dispatch_command_handler_exception_reported_safely(monkeypatch):
-    """Handler exceptions in _dispatch_command are caught and reported; command does not raise."""
+    """Handler exceptions in dispatch_command are caught and reported; command does not raise."""
     reported: list[tuple[str, BaseException]] = []
     monkeypatch.setattr("plugin.main.report_action_failure", lambda cmd, exc: reported.append((cmd, exc)))
 
@@ -398,7 +435,7 @@ def test_dispatch_command_handler_exception_reported_safely(monkeypatch):
 
     register_action_handler("test", "failing", faulty_handler)
     try:
-        main._dispatch_command("test.failing")
+        main.dispatch_command("test.failing")
         assert len(reported) == 1
         assert reported[0][0] == "test.failing"
         assert isinstance(reported[0][1], ValueError)
@@ -407,7 +444,7 @@ def test_dispatch_command_handler_exception_reported_safely(monkeypatch):
 
 
 def test_dispatch_command_module_on_action_propagates():
-    """Module on_action exceptions are not caught in _dispatch_command and propagate."""
+    """Module on_action exceptions are not caught in dispatch_command and propagate."""
     main._bootstrap_state = BootstrapState.INITIALIZED
     mock_mod = MagicMock()
     mock_mod.name = "mod_prefix"
@@ -415,7 +452,7 @@ def test_dispatch_command_module_on_action_propagates():
 
     main._modules = [mock_mod]
     with pytest.raises(RuntimeError, match="module on_action exploded"):
-        main._dispatch_command("mod_prefix.run")
+        main.dispatch_command("mod_prefix.run")
 
 
 def test_report_action_failure_survives_dialog_exceptions(monkeypatch):
@@ -433,13 +470,26 @@ def test_report_action_failure_survives_dialog_exceptions(monkeypatch):
     report_action_failure("test.action", ValueError("original problem"))
 
 
+def test_report_action_failure_survives_unregistered_ui(monkeypatch, caplog):
+    """report_action_failure logs warning with detail and does not raise when action error UI is unregistered."""
+    import plugin.framework.main_shared as main_shared
+
+    monkeypatch.setattr(main_shared, "_action_error_ui", None)
+    with caplog.at_level(logging.WARNING):
+        report_action_failure("test.action", ValueError("original problem"))
+    assert any(
+        "action error UI is not registered" in record.message and "original problem" in record.message
+        for record in caplog.records
+    )
+
+
 # --- Bug 5 tests: DispatchHandler.dispatch catches dialog failures ---
 
 
 def test_dispatch_handler_shows_error_report(monkeypatch):
     """DispatchHandler.dispatch shows error report when command fails."""
     monkeypatch.setattr(
-        "plugin.main._dispatch_command",
+        "plugin.main.dispatch_command",
         MagicMock(side_effect=RuntimeError("command dispatch failure")),
     )
     mock_report = MagicMock()
@@ -482,7 +532,7 @@ def test_remove_status_listener_drops_proxy_with_uno_same():
     u1.Query = ""
 
     handler.addStatusListener(l1, u1)
-    assert len(main._status_listeners) == 1
+    assert len(main.menu_status.listeners) == 1
 
     # Different URL Complete does not drop listener
     u_diff = MagicMock()
@@ -490,11 +540,11 @@ def test_remove_status_listener_drops_proxy_with_uno_same():
     u_diff.Path = "test.action"
     u_diff.Query = ""
     handler.removeStatusListener(l2, u_diff)
-    assert len(main._status_listeners) == 1
+    assert len(main.menu_status.listeners) == 1
 
     # Same Complete with equivalent proxy drops listener
     handler.removeStatusListener(l2, u1)
-    assert len(main._status_listeners) == 0
+    assert len(main.menu_status.listeners) == 0
 
 
 def test_add_status_listener_replaces_same_url():
@@ -519,13 +569,13 @@ def test_add_status_listener_replaces_same_url():
     u1.Query = ""
 
     handler.addStatusListener(l1, u1)
-    assert len(main._status_listeners) == 1
-    assert main._status_listeners[0][0] is l1
+    assert len(main.menu_status.listeners) == 1
+    assert main.menu_status.listeners[0][0] is l1
 
     # Adding equal proxy for same Complete replaces the entry
     handler.addStatusListener(l2, u1)
-    assert len(main._status_listeners) == 1
-    assert main._status_listeners[0][0] is l2
+    assert len(main.menu_status.listeners) == 1
+    assert main.menu_status.listeners[0][0] is l2
 
     # A different Complete appends
     u2 = MagicMock()
@@ -533,7 +583,7 @@ def test_add_status_listener_replaces_same_url():
     u2.Path = "test.action"
     u2.Query = ""
     handler.addStatusListener(l2, u2)
-    assert len(main._status_listeners) == 2
+    assert len(main.menu_status.listeners) == 2
 
 
 def test_notify_menu_update_prune_uses_uno_same(monkeypatch):
@@ -557,16 +607,16 @@ def test_notify_menu_update_prune_uses_uno_same(monkeypatch):
     u1.Complete = ".uno:WriterAgentAction"
     u1.Path = "test.action"
 
-    main._status_listeners.clear()
-    main._status_listeners.append((l1, u1))
-    main._status_listeners.append((l2, u1))
-    assert len(main._status_listeners) == 2
+    main.menu_status.listeners.clear()
+    main.menu_status.listeners.append((l1, u1))
+    main.menu_status.listeners.append((l2, u1))
+    assert len(main.menu_status.listeners) == 2
 
     monkeypatch.setattr(main, "get_menu_text", lambda cmd: "Test Label")
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
 
-    main.notify_menu_update()
-    assert len(main._status_listeners) == 0
+    main.menu_status.publish()
+    assert len(main.menu_status.listeners) == 0
 
 
 def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
@@ -590,11 +640,11 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
     u1.Complete = ".uno:WriterAgentAction"
     u1.Path = "test.action"
 
-    main._status_listeners.clear()
+    main.menu_status.listeners.clear()
     try:
-        main._status_listeners.append((l1, u1))
-        main._status_listeners.append((l2, u1))
-        assert len(main._status_listeners) == 2
+        main.menu_status.listeners.append((l1, u1))
+        main.menu_status.listeners.append((l2, u1))
+        assert len(main.menu_status.listeners) == 2
 
         monkeypatch.setattr(main, "get_menu_text", lambda cmd: "Test Label")
         monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
@@ -614,34 +664,34 @@ def test_notify_menu_update_posts_prune_off_main_thread(monkeypatch):
         monkeypatch.setattr(main_thread, "post", mock_post)
 
         uno_same_threads: list[threading.Thread] = []
-        real_uno_same = main.uno_same
+        from plugin.framework.uno_context import uno_same as real_uno_same
 
         def wrapped_uno_same(a: Any, b: Any) -> bool:
             uno_same_threads.append(threading.current_thread())
             return real_uno_same(a, b)
 
-        monkeypatch.setattr(main, "uno_same", wrapped_uno_same)
+        monkeypatch.setattr("plugin.menu_state.uno_same", wrapped_uno_same)
 
-        worker = threading.Thread(target=main.notify_menu_update)
+        worker = threading.Thread(target=main.menu_status.publish)
         worker.start()
         worker.join()
 
-        assert len(main._status_listeners) == 2
+        assert len(main.menu_status.listeners) == 2
         assert len(uno_same_threads) == 0
         assert len(posted) == 1
-        assert posted[0][0] is main._prune_failed_status_listeners
+        assert posted[0][0] == main.menu_status._prune_failed_status_listeners
         assert posted[0][1] == ([(l1, u1), (l2, u1)],)
         assert posted[0][2].get("bound_scope") is None
-        assert main._update_menu_icons in bg_calls
+        assert main.menu_icons.post_apply in bg_calls
 
         # On the test thread, call that posted function with the posted args.
         posted[0][0](*posted[0][1])
-        assert len(main._status_listeners) == 0
+        assert len(main.menu_status.listeners) == 0
         assert len(uno_same_threads) > 0
         test_thread = threading.current_thread()
         assert all(t == test_thread for t in uno_same_threads)
     finally:
-        main._status_listeners.clear()
+        main.menu_status.listeners.clear()
 
 
 def test_notify_menu_update_text_failure_does_not_prune_or_stop(monkeypatch):
@@ -657,11 +707,11 @@ def test_notify_menu_update_text_failure_does_not_prune_or_stop(monkeypatch):
     u2.Path = "cmd.ok"
     u2.Query = ""
 
-    main._status_listeners.clear()
+    main.menu_status.listeners.clear()
     try:
-        main._status_listeners.append((l1, u1))
-        main._status_listeners.append((l2, u2))
-        assert len(main._status_listeners) == 2
+        main.menu_status.listeners.append((l1, u1))
+        main.menu_status.listeners.append((l2, u2))
+        assert len(main.menu_status.listeners) == 2
 
         def fake_get_menu_text(cmd: str) -> str:
             if cmd == "cmd.fail":
@@ -678,14 +728,14 @@ def test_notify_menu_update_text_failure_does_not_prune_or_stop(monkeypatch):
             lambda fn, *args, **kwargs: bg_calls.append(fn),
         )
 
-        main.notify_menu_update()
+        main.menu_status.publish()
 
         l1.statusChanged.assert_not_called()
         l2.statusChanged.assert_called_once()
-        assert len(main._status_listeners) == 2
-        assert main._update_menu_icons in bg_calls
+        assert len(main.menu_status.listeners) == 2
+        assert main.menu_icons.post_apply in bg_calls
     finally:
-        main._status_listeners.clear()
+        main.menu_status.listeners.clear()
 
 
 def test_update_menu_icons_posts_unscoped(monkeypatch):
@@ -695,10 +745,10 @@ def test_update_menu_icons_posts_unscoped(monkeypatch):
         posted.append((fn, args, kwargs))
 
     monkeypatch.setattr(main_thread, "post", mock_post)
-    main._update_menu_icons()
+    main.menu_icons.post_apply()
 
     assert len(posted) == 1
-    assert posted[0][0] is main._update_menu_icons_impl
+    assert posted[0][0] == main.menu_icons.apply
     assert posted[0][2].get("bound_scope") is None
 
 
@@ -712,19 +762,19 @@ def test_icon_apply_signature_and_icons_unchanged():
         ".uno:Cmd1": ("writer", "prefix_a"),
         ".uno:Cmd2": ("calc", "prefix_b"),
     }
-    stamp = main._icon_apply_signature(cmds, 16)
+    stamp = main.menu_icons._icon_apply_signature(cmds, 16)
 
-    assert (main._icon_apply_signature(cmds, 16) == stamp) is True
+    assert (main.menu_icons._icon_apply_signature(cmds, 16) == stamp) is True
 
     # Changed prefix -> False
     cmds_changed_prefix = {
         ".uno:Cmd1": ("writer", "prefix_c"),
         ".uno:Cmd2": ("calc", "prefix_b"),
     }
-    assert (main._icon_apply_signature(cmds_changed_prefix, 16) == stamp) is False
+    assert (main.menu_icons._icon_apply_signature(cmds_changed_prefix, 16) == stamp) is False
 
     # Changed pixel size -> False
-    assert (main._icon_apply_signature(cmds, 24) == stamp) is False
+    assert (main.menu_icons._icon_apply_signature(cmds, 24) == stamp) is False
 
 
 def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
@@ -736,7 +786,7 @@ def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
         loader_calls.append((filename, 16))
         return fake_graphic
 
-    monkeypatch.setattr(main, "_load_icon_graphic", mock_loader)
+    monkeypatch.setattr(main.menu_icons, "_load_icon_graphic", mock_loader)
 
     mock_img_mgr = MagicMock()
     mock_img_mgr.hasImage.return_value = False
@@ -749,28 +799,28 @@ def test_update_menu_icons_impl_caches_and_skips_on_stamp(monkeypatch):
 
     mock_ctx = MagicMock()
     mock_ctx.ServiceManager = mock_sm
-    monkeypatch.setattr(main, "get_ctx", lambda: mock_ctx)
+    monkeypatch.setattr("plugin.menu_state.get_ctx", lambda: mock_ctx)
 
-    monkeypatch.setattr(main, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_1")})
+    monkeypatch.setattr(main.menu_icons, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_1")})
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", lambda doc: 16)
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.menu_icon_filename", lambda prefix, px, ctx=None: f"{prefix}_{px}.png")
     monkeypatch.setattr("plugin.framework.appearance.get_style_window", lambda ctx=None: None)
 
-    main._loaded_icon_graphics.clear()
-    main._icon_apply_stamp = None
+    main.menu_icons._loaded_icon_graphics.clear()
+    main.menu_icons._icon_apply_stamp = None
 
     # First call: loads graphic and sets stamp
-    main._update_menu_icons_impl()
+    main.menu_icons.apply()
     assert len(loader_calls) == 1
-    assert main._icon_apply_stamp is not None
+    assert main.menu_icons._icon_apply_stamp is not None
 
     # Second call: stamp matches -> early return, loader not called again
-    main._update_menu_icons_impl()
+    main.menu_icons.apply()
     assert len(loader_calls) == 1
 
     # Third call: new prefix -> loader called again
-    monkeypatch.setattr(main, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_2")})
-    main._update_menu_icons_impl()
+    monkeypatch.setattr(main.menu_icons, "_collect_icon_commands", lambda: {".uno:CmdA": ("writer", "prefix_2")})
+    main.menu_icons.apply()
     assert len(loader_calls) == 2
 
 
@@ -782,17 +832,17 @@ def test_update_menu_icons_impl_uses_get_ctx_not_get_component_context(monkeypat
     import uno
 
     sentinel_ctx = MagicMock()
-    monkeypatch.setattr(main, "get_ctx", lambda: sentinel_ctx)
+    monkeypatch.setattr("plugin.menu_state.get_ctx", lambda: sentinel_ctx)
     monkeypatch.setattr("plugin.framework.menu_icon_dpi.resolve_menu_icon_pixel_size", lambda doc: 16)
     monkeypatch.setattr("plugin.framework.appearance.get_style_window", lambda ctx=None: None)
-    monkeypatch.setattr(main, "_collect_icon_commands", lambda: {})
+    monkeypatch.setattr(main.menu_icons, "_collect_icon_commands", lambda: {})
     main._services = None
 
     # patch.object, not monkeypatch: pytest 9.2's undo deletes an auto-created
     # MagicMock attribute, which leaves the shared uno mock without it.
     with patch.object(uno, "getComponentContext", MagicMock(side_effect=AssertionError("uno.getComponentContext must not be called"))):
         # _update_menu_icons_impl should retrieve sentinel_ctx from get_ctx() and not call uno.getComponentContext()
-        main._update_menu_icons_impl()
+        main.menu_icons.apply()
         uno.getComponentContext.assert_not_called()
 
 
@@ -805,7 +855,7 @@ def test_load_icon_graphic_uses_service_manager_attribute():
     ctx.ServiceManager = fake_sm
     ctx.getServiceManager.side_effect = AssertionError("getServiceManager must not be called")
 
-    result = main._load_icon_graphic("test_mod", "test_file.png", ctx)
+    result = main.menu_icons._load_icon_graphic("test_mod", "test_file.png", ctx)
     assert result is None
     ctx.getServiceManager.assert_not_called()
     fake_sm.createInstanceWithContext.assert_called_once_with("com.sun.star.graphic.GraphicProvider", ctx)
@@ -833,7 +883,7 @@ def test_main_bootstrap_job_trigger_logging_failure():
     job = main.MainBootstrapJob(MagicMock())
     with (
         patch("plugin.main.init_logging", side_effect=RuntimeError("logging failed")),
-        patch("plugin.main._dispatch_command") as mock_disp,
+        patch("plugin.main.dispatch_command") as mock_disp,
     ):
         job.trigger("main.settings")
         mock_disp.assert_called_once_with("main.settings")
@@ -856,7 +906,7 @@ def test_main_bootstrap_job_trigger_extend_selection_none_model():
 def test_main_bootstrap_job_trigger_test_types_and_noop():
     """TestTypes is ignored and does not dispatch; NoOp still dispatches."""
     job = main.MainBootstrapJob(MagicMock())
-    with patch("plugin.main._dispatch_command") as mock_disp:
+    with patch("plugin.main.dispatch_command") as mock_disp:
         # TestTypes is no longer recognized as framework action
         job.trigger("TestTypes")
         mock_disp.assert_not_called()
@@ -881,7 +931,7 @@ def test_trigger_body_exception_is_reported():
     job = main.MainBootstrapJob(MagicMock())
     err = RuntimeError("dispatch exploded")
     with (
-        patch("plugin.main._dispatch_command", side_effect=err),
+        patch("plugin.main.dispatch_command", side_effect=err),
         patch("plugin.main.report_action_failure") as mock_report,
     ):
         job.trigger("main.settings")
@@ -926,38 +976,40 @@ def test_command_from_dispatch_url_and_dispatch(monkeypatch):
             self.Complete = complete
             self.Protocol = protocol
 
-    # Path="main.settings", Query="" -> main.settings; dispatch passes to _dispatch_command
+    # Path="main.settings", Query="" -> main.settings; dispatch passes to dispatch_command
     dispatched = []
-    monkeypatch.setattr(main, "_dispatch_command", lambda cmd: dispatched.append(cmd))
+    monkeypatch.setattr(main, "dispatch_command", lambda cmd: dispatched.append(cmd))
     monkeypatch.setattr(main, "init_logging", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda _fn: None)
 
+    from plugin.menu_state import command_from_dispatch_url
+
     handler = main.DispatchHandler(MagicMock())
     u1 = _Url(path="main.settings", query="")
-    assert main._command_from_dispatch_url(u1) == "main.settings"
+    assert command_from_dispatch_url(u1) == "main.settings"
     handler.dispatch(u1, ())
     assert dispatched == ["main.settings"]
 
     # Path="", Protocol="", Complete="org.extension.writeragent:main.settings" -> main.settings. queryDispatch returns the handler.
     u2 = _Url(complete="org.extension.writeragent:main.settings")
-    assert main._command_from_dispatch_url(u2) == "main.settings"
+    assert command_from_dispatch_url(u2) == "main.settings"
     assert handler.queryDispatch(u2, "", 0) is handler
 
     # Path="chatbot.debug_sidebar", Query="RECORD_CLICKED" -> chatbot.debug_sidebar.RECORD_CLICKED
     u3 = _Url(path="chatbot.debug_sidebar", query="RECORD_CLICKED")
-    assert main._command_from_dispatch_url(u3) == "chatbot.debug_sidebar.RECORD_CLICKED"
+    assert command_from_dispatch_url(u3) == "chatbot.debug_sidebar.RECORD_CLICKED"
 
     # Path="chatbot.debug_sidebar?OPEN_CALC", Query="" -> that path unchanged
     u4 = _Url(path="chatbot.debug_sidebar?OPEN_CALC", query="")
-    assert main._command_from_dispatch_url(u4) == "chatbot.debug_sidebar?OPEN_CALC"
+    assert command_from_dispatch_url(u4) == "chatbot.debug_sidebar?OPEN_CALC"
 
     # Path="", Complete="org.extension.writeragent:chatbot.debug_sidebar?OPEN_CALC", Query="OPEN_CALC" -> chatbot.debug_sidebar?OPEN_CALC (no second append)
     u5 = _Url(complete="org.extension.writeragent:chatbot.debug_sidebar?OPEN_CALC", query="OPEN_CALC")
-    assert main._command_from_dispatch_url(u5) == "chatbot.debug_sidebar?OPEN_CALC"
+    assert command_from_dispatch_url(u5) == "chatbot.debug_sidebar?OPEN_CALC"
 
     # Path="", Query="RECORD_CLICKED", Complete="" -> .RECORD_CLICKED
     u6 = _Url(query="RECORD_CLICKED")
-    assert main._command_from_dispatch_url(u6) == ".RECORD_CLICKED"
+    assert command_from_dispatch_url(u6) == ".RECORD_CLICKED"
 
     # queryDispatch with Protocol="org.extension.librepy:" returns the null dispatch
     u7 = _Url(protocol="org.extension.librepy:")
@@ -1010,12 +1062,18 @@ def test_register_core_handlers_continues_after_optional_import_failure(
         )
         monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: MagicMock())
 
-        caplog.set_level(logging.DEBUG, logger="plugin.main")
+        # Bugfix: what was wrong: caplog captured logger "plugin.main" which had no records.
+        # How it happened: PR #3112 moved handler registration to plugin/menu_handlers.py,
+        # which logs under "writeragent.menu_handlers".
+        # Why this change fixes it: listening to "writeragent.menu_handlers" captures the debug log.
+        caplog.set_level(logging.DEBUG, logger="writeragent.menu_handlers")
         from plugin.main import register_core_handlers
 
         register_core_handlers()
 
-        assert "Excel PY auto-convert on open install failed" in caplog.text
+        # Release strip removes log.debug; continue asserting handlers still registered.
+        if not is_release_build():
+            assert "Excel PY auto-convert on open install failed" in caplog.text
         assert recorded == ["geo", "writer_menu", "toolbar"]
         assert get_action_handler("embeddings.search_dialog") is not None
         assert get_action_handler("writer.accept_change") is not None
@@ -1042,11 +1100,11 @@ def test_bootstrap_state_enum(monkeypatch):
     assert BootstrapState.INITIALIZED.value == "initialized"
 
     monkeypatch.setattr(main_thread, "is_current", lambda: True)
-    monkeypatch.setattr(main, "get_ctx", lambda: MagicMock())
+    monkeypatch.setattr("plugin.bootstrap.get_ctx", lambda: MagicMock())
     monkeypatch.setattr("plugin.framework.config.init_config", lambda ctx=None: "")
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda ctx: None)
     monkeypatch.setattr("plugin.main.register_core_handlers", lambda: None)
-    monkeypatch.setattr(main, "set_package_extension_id", lambda extension_id: None)
+    monkeypatch.setattr("plugin.bootstrap.set_package_extension_id", lambda extension_id: None)
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
     main._bootstrap_state = BootstrapState.UNINITIALIZED

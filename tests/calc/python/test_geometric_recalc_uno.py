@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 import unittest
 
-from plugin.testing_runner import native_test, on_github_actions, show_window
+from plugin.testing_runner import current_office, native_test, on_github_actions
 from plugin.tests.testing_utils import with_native_doc
 
 # Isolated testing_runner profiles do not inherit user-level unopkg, so sheet
@@ -321,9 +321,9 @@ def _flush(ctx, doc, sheet) -> None:
 def _cold_kernel() -> None:
     """Drop this process's worker. Soffice's worker is a different process."""
     from plugin.calc.python.recalc import clear_python_addin_cache
-    from plugin.scripting.venv_worker import PythonWorkerManager
+    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
     clear_python_addin_cache()
 
 
@@ -552,7 +552,7 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
         _restore_geometric_flag(ctx, previous)
 
 
-@unittest.skipIf(not show_window, "Headless soffice evaluates =PY() off the main thread, so there is no Shared session and A3 cannot see A1's name")
+@unittest.skipIf(not current_office().options.show_window, "Headless soffice evaluates =PY() off the main thread, so there is no Shared session and A3 cannot see A1's name")
 @native_test
 @with_native_doc("calc")
 def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):

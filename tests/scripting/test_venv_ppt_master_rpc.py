@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.ipc import read_pickle_frame
+from plugin.framework.send_cancellation import SendCancellation
 
 
 def test_dispatch_worker_event_only():
@@ -121,7 +122,7 @@ def test_dispatch_llm_request_threads_cancellation_scope_on_the_host():
 def test_handle_llm_request_uses_host_cancellation_scope():
     from plugin.ppt_master.venv.host_rpc import handle_llm_request
 
-    scope = object()
+    scope = SendCancellation()
     client = MagicMock()
     client._stopped = False
     client.request_with_tools.return_value = {"role": "assistant", "content": "ok", "tool_calls": None}
@@ -238,10 +239,15 @@ def test_execute_ppt_master_turn_passes_frame_session_id():
     from plugin.scripting.venv_worker import PythonWorkerManager
 
     manager = PythonWorkerManager("/usr/bin/python3", {})
+    import contextlib
+
+    @contextlib.contextmanager
+    def fake_io(*args: object, **kwargs: object):
+        del args, kwargs
+        yield object()
+
     with (
-        patch.object(manager, "_acquire_io", return_value=None),
-        patch.object(manager, "_release_io"),
-        patch.object(manager, "_ensure_warmed_unlocked", return_value=None),
+        patch.object(manager, "_io_session", fake_io),
         patch.object(manager, "_execute_ipc_unlocked", return_value={"status": "ok", "result": {"status": "ok"}}) as mock_ipc,
     ):
         manager.execute_ppt_master_turn(
@@ -263,10 +269,15 @@ def test_execute_ppt_master_turn_does_not_pickle_cancellation_scope():
 
     scope = object()
     manager = PythonWorkerManager("/usr/bin/python3", {})
+    import contextlib
+
+    @contextlib.contextmanager
+    def fake_io(*args: object, **kwargs: object):
+        del args, kwargs
+        yield object()
+
     with (
-        patch.object(manager, "_acquire_io", return_value=None),
-        patch.object(manager, "_release_io"),
-        patch.object(manager, "_ensure_warmed_unlocked", return_value=None),
+        patch.object(manager, "_io_session", fake_io),
         patch.object(manager, "_execute_ipc_unlocked", return_value={"status": "ok", "result": {"status": "ok"}}) as mock_ipc,
     ):
         manager.execute_ppt_master_turn({"query": "q"}, timeout_sec=5, cancellation_scope=scope)

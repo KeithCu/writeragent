@@ -5,8 +5,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """XHTML/FODT export and image stripping for Writer documents.
 
-Public entries: ``document_to_content`` and ``xtext_to_content``
-(also re-exported from ``plugin.writer.format``).
+Public entries: ``document_to_content`` and ``xtext_to_content``.
 
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
@@ -27,6 +26,7 @@ from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     iter_elements,
+    walk_cap_warning,
     _visible_portions as _shared_visible_portions,
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
@@ -42,6 +42,45 @@ from . import range_copy
 from . import xhtml_style_postprocess as xhtml_post
 
 log = logging.getLogger("writeragent.writer")
+
+HTML_FILTER = "HTML (StarWriter)"
+XHTML_FILTER = "XHTML Writer File"
+XHTML_EXTENSION = ".xhtml"
+FLAT_ODF_FILTER = "OpenDocument Text Flat XML"
+FODT_EXTENSION = ".fodt"
+
+PAGE_NUMBER_NUMBERING_TYPE_NAMES: dict[int, str] = {
+    0: "CHARS_UPPER_LETTER",
+    1: "CHARS_LOWER_LETTER",
+    2: "ROMAN_UPPER",
+    3: "ROMAN_LOWER",
+    4: "ARABIC",
+    5: "NUMBER_NONE",
+    6: "CHAR_SPECIAL",
+    7: "PAGE_DESCRIPTOR",
+    8: "BITMAP",
+    9: "CHARS_UPPER_LETTER_N",
+    10: "CHARS_LOWER_LETTER_N",
+    11: "TRANSLITERATION",
+    12: "NATIVE_NUMBERING",
+    13: "FULLWIDTH_ARABIC",
+    14: "CIRCLE_NUMBER",
+    64: "ARABIC_ZERO",
+}
+
+PAGE_NUMBER_NUMBERING_TYPE_VALS: dict[str, int] = {
+    name: val for val, name in PAGE_NUMBER_NUMBERING_TYPE_NAMES.items()
+}
+
+
+def _strip_html_boilerplate(html_string: str) -> str:
+    """Extract content between ``<body>`` tags if present."""
+    if not html_string or not isinstance(html_string, str):
+        return html_string
+    match = re.search(r"<body[^>]*>(.*?)</body>", html_string, re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return html_string
 
 _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/[^\"'\s);>]+;base64,[A-Za-z0-9+/=\s]+",
@@ -114,14 +153,12 @@ def _read_filter_text(doc: Any, filter_name: str, ext: str = ".html") -> str:
 
 
 def _export_starwriter_html(doc: Any) -> str:
-    from . import format as format_mod
-    return format_mod._strip_html_boilerplate(_read_filter_text(doc, format_mod.HTML_FILTER))
+    return _strip_html_boilerplate(_read_filter_text(doc, HTML_FILTER))
 
 
 def _export_xhtml(doc: Any) -> str:
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
-    from . import format as format_mod
-    return _read_filter_text(doc, format_mod.XHTML_FILTER, ext=format_mod.XHTML_EXTENSION)
+    return _read_filter_text(doc, XHTML_FILTER, ext=XHTML_EXTENSION)
 
 
 
@@ -141,8 +178,7 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
     Both scopes report overrides: the range path copies the source paragraphs' direct formatting
     onto the temp document first (see _paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
-        from . import format as format_mod
-        fodt = _read_filter_text(doc, format_mod.FLAT_ODF_FILTER, ext=format_mod.FODT_EXTENSION)
+        fodt = _read_filter_text(doc, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
         parents, overrides = xhtml_post._parse_fodt_autostyles(fodt)
         return (parents, overrides, "<text:ruby" in fodt)
 
@@ -170,8 +206,7 @@ def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out
         para, abort_on_portion_error=True, limit=limit, truncated_out=hit
     )
     if hit:
-        from . import format as format_mod
-        msg = format_mod.walk_cap_warning("text portions", hit[0], limit)
+        msg = walk_cap_warning("text portions", hit[0], limit)
         log.warning("%s", msg)
         if truncated_out is not None:
             truncated_out.append(msg)
@@ -634,8 +669,7 @@ def _page_number_subtype_to_name(subtype: Any) -> str:
 
 def _page_number_numbering_type_to_name(num_type: Any) -> str:
     """Return a readable NumberingType enum name (e.g. 'ROMAN_UPPER', 'ARABIC')."""
-    from . import format as format_mod
-    return _enum_token(num_type, format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES, format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS, "ARABIC", "PageNumber NumberingType")
+    return _enum_token(num_type, PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS, "ARABIC", "PageNumber NumberingType")
 
 
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:

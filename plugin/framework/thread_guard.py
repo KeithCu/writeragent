@@ -97,20 +97,6 @@ UNTAGGED_DUMMY_IS_CURRENT = True
 DEV_GUARD = True
 
 
-def on_python_main_thread() -> bool:
-    """True only for the Python main thread or the designated test pump.
-
-    A PyUNO ``_DummyThread`` is not this. Bootstrap must use this, not
-    ``main.is_current()``: a status-listener upcall must not enter bootstrap.
-    """
-    from plugin.framework.queue_executor import MainThread
-
-    current = threading.current_thread()
-    if MainThread.designated is not None:
-        return current is MainThread.designated
-    return current is threading.main_thread()
-
-
 # In-flight violation dialog flag. Only one process-wide violation dialog may be
 # open at a time; further violations are logged until that dialog returns.
 _violation_dialog_open: bool = False
@@ -519,7 +505,7 @@ __all__ = [
     "in_sync_host_dispatch",
     "set_background_task",
     "get_background_task_name",
-    "on_python_main_thread",
+    "set_thread_violation_ui",
     "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
     "_unwrap_uno",

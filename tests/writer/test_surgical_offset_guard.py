@@ -197,7 +197,7 @@ def _run(found, old, new, max_runs=10_000, threshold=_THRESHOLD, doc=None, repla
          patch("plugin.writer.edit_review._WORD_DIFF_THRESHOLD", threshold), \
          patch("plugin.writer.edit_review._MAX_SURGICAL_RUNS", max_runs), \
          patch("plugin.writer.edit_review._SPLIT_AUTHOR_COLORS", split_author), \
-         patch("plugin.writer.format.replace_preserving_format",
+         patch("plugin.writer.html_import.replace_preserving_format",
                side_effect=_wire_replace(um, replace_side_effect)) as mock_replace:
         record_preserve_replace(session, doc, found, new, MagicMock(), split=True)
     return session, mock_replace
@@ -662,4 +662,21 @@ def test_html_atomic_closed_document_is_not_a_missing_undo_context():
             session, ClosedDoc(), lambda: calls.__setitem__("n", calls["n"] + 1),
             proposed_preview="x")
     assert calls["n"] == 0
+    assert session.changes == []
+
+
+def test_html_atomic_rollback_failed_raises_tool_error():
+    class FailingUndoManager(FakeUndoManager):
+        def undo(self):
+            raise RuntimeError("undo failed")
+
+    um = FailingUndoManager()
+    session = FakeSession()
+
+    def mutate():
+        um.record_action()
+        raise RuntimeError("import boom")
+
+    with pytest.raises(ToolExecutionError, match="undo failed"):
+        record_html_atomically(session, FakeDoc(um), mutate, proposed_preview="x")
     assert session.changes == []

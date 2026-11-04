@@ -263,14 +263,14 @@ def test_idle_stop_closes_open_thinking():
     q.put((StreamQueueKind.THINKING, "hmm"))
     applied = []
     stopped = []
+    cancel = SendCancellation()
     checks = [0]
 
-    def stop_checker():
-        # While-loop check, then the item check, then the idle check after
-        # the thinking text has been flushed. This stop is the idle path
-        # (no pulled tail), which still has to close [Thinking].
+    def is_cancelled() -> bool:
         checks[0] += 1
         return checks[0] > 2
+
+    cancel.is_cancelled = is_cancelled  # type: ignore
 
     outcome = DrainOutcome()
     run_stream_drain_loop(
@@ -278,7 +278,7 @@ def test_idle_stop_closes_open_thinking():
         on_stream_done=lambda _i: True,
         on_stopped=lambda: stopped.append(True),
         on_error=lambda _e: None,
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
     assert stopped == [True]
     assert outcome.done is True
@@ -338,13 +338,13 @@ def test_async_worker_stop_flushes_batcher_before_worker_returns():
     ctx = MagicMock()
     toolkit = DummyToolkit()
     batched = BatchingStreamQueue(StreamQueue(), batch_interval=30.0)
-    produced = threading.Event()
+    cancel = SendCancellation()
     release = threading.Event()
     applied: list[str] = []
 
     def worker(worker_q):
         worker_q.put((StreamQueueKind.CHUNK, "kept"))
-        produced.set()
+        cancel.cancel()
         release.wait(5)
 
     try:
@@ -355,7 +355,7 @@ def test_async_worker_stop_flushes_batcher_before_worker_returns():
                 lambda text, _is_thinking: applied.append(text),
                 lambda _item: None,
                 lambda _e: None,
-                stop_checker=produced.is_set,
+                cancel=cancel,
                 q=batched,
             )
         assert applied == ["kept"]
@@ -419,13 +419,16 @@ def test_stop_on_first_batch_item_applies_pulled_display_text():
     statuses = []
     done = []
     stopped = []
+    cancel = SendCancellation()
     checks = [0]
 
-    def stop_checker():
+    def is_cancelled() -> bool:
         # First call is the while-loop check, before the batch is pulled.
         # The next call is the first item. The whole batch is then local.
         checks[0] += 1
         return checks[0] > 1
+
+    cancel.is_cancelled = is_cancelled  # type: ignore
 
     def on_stream_done(item):
         done.append(item)
@@ -438,7 +441,7 @@ def test_stop_on_first_batch_item_applies_pulled_display_text():
         on_stopped=lambda: stopped.append(True),
         on_error=lambda _e: None,
         on_status_fn=statuses.append,
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
     assert outcome.done is True
     assert stopped == [True]
@@ -459,11 +462,14 @@ def test_stop_tail_drops_string_kind():
     applied: list[str] = []
     errors: list[object] = []
     stopped: list[bool] = []
+    cancel = SendCancellation()
     checks = [0]
 
-    def stop_checker() -> bool:
+    def is_cancelled() -> bool:
         checks[0] += 1
         return checks[0] > 1
+
+    cancel.is_cancelled = is_cancelled  # type: ignore
 
     outcome = DrainOutcome()
     run_stream_drain_loop(
@@ -474,7 +480,7 @@ def test_stop_tail_drops_string_kind():
         on_stream_done=lambda _item: True,
         on_stopped=lambda: stopped.append(True),
         on_error=errors.append,
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
     assert outcome.done is True
     assert stopped == [True]
@@ -496,7 +502,7 @@ def test_stop_applies_flushed_batcher_text():
         on_stream_done=lambda _i: True,
         on_stopped=lambda: None,
         on_error=lambda _e: None,
-        stop_checker=lambda: _cancelled_scope().is_cancelled(),
+        cancel=_cancelled_scope(),
         flush_pending=flush_pending,
     )
     assert outcome.done is True
@@ -687,11 +693,14 @@ def test_stop_sets_approval_event_without_dialog():
     q.put((StreamQueueKind.STREAM_DONE, "nope"))
     dialogs: list[object] = []
     stopped: list[bool] = []
+    cancel = SendCancellation()
     checks = [0]
 
-    def stop_checker() -> bool:
+    def is_cancelled() -> bool:
         checks[0] += 1
         return checks[0] > 1
+
+    cancel.is_cancelled = is_cancelled  # type: ignore
 
     outcome = DrainOutcome()
     run_stream_drain_loop(
@@ -703,7 +712,7 @@ def test_stop_sets_approval_event_without_dialog():
         on_stopped=lambda: stopped.append(True),
         on_error=lambda _e: None,
         on_approval_required=dialogs.append,
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
     assert outcome.done is True
     assert stopped == [True]

@@ -65,7 +65,7 @@ def test_wire_all_with_registry_off_main_thread_does_not_raise(monkeypatch):
         ):
             result = wire_all_notebook_run_buttons(MagicMock(), doc)
         assert result == 0
-        assert notebook_controls._doc_key(doc) == "uid:uid-dummy-2"
+        assert notebook_controls.doc_key(doc) == "uid:uid-dummy-2"
         assert len(form_run_listeners(doc)) == 0
     finally:
         tg.GUARD_ON = was
@@ -182,7 +182,7 @@ def test_listener_init_when_get_url_raises():
     doc.getURL.side_effect = RuntimeError("broken getURL")
     listener = NotebookFormRunListener(ctx, doc)
     assert listener._doc_key_val == "uid:uid-runtime-works"
-    assert notebook_controls._doc_key(doc) == "uid:uid-runtime-works"
+    assert notebook_controls.doc_key(doc) == "uid:uid-runtime-works"
 
 
 def test_notebook_run_button_listener_calls_runner():
@@ -423,7 +423,7 @@ def test_listener_counts_exclude_leftover_docs():
     current._doc_key_val = "uid:99"
     notebook_controls._listener_refs = [leftover, current]
     doc = MagicMock()
-    with patch("plugin.notebook.notebook_controls._doc_key", return_value="uid:99"):
+    with patch("plugin.notebook.notebook_controls.doc_key", return_value="uid:99"):
         assert len(form_run_listeners(doc)) == 1
         assert len(form_run_listeners()) == 2
 
@@ -678,7 +678,7 @@ def test_doc_event_on_unload_removes_listeners_and_preserves_other_docs():
         event.Source = doc1
         listener.on_document_event(event)
 
-    doc2_key = notebook_controls._doc_key(doc2)
+    doc2_key = notebook_controls.doc_key(doc2)
     assert len(form_run_listeners(doc1)) == 0
     assert len(form_run_listeners(doc2)) == 1
     assert len(notebook_controls._listener_refs) == 2
@@ -874,28 +874,28 @@ def test_doc_event_skips_non_writer_doc():
 
 
 def test_insert_code_input_width_defaults_to_text_area():
-    from plugin.notebook.notebook_controls import _insert_code_input_in_flow
+    from plugin.notebook.layout import insert_code_input_in_flow
 
     doc = MagicMock()
     model = MagicMock()
     shape = MagicMock()
     doc.createInstance.side_effect = [model, shape]
-    with patch("plugin.notebook.notebook_controls._text_area_width_units", return_value=7777):
-        _insert_code_input_in_flow(doc, name="nb_cell_0_code", source="x = 1", controls_before=0, cap=15000)
+    with patch("plugin.notebook.layout.text_area_width_units", return_value=7777):
+        insert_code_input_in_flow(doc, name="nb_cell_0_code", source="x = 1", controls_before=0, cap=15000)
     size = shape.setSize.call_args.args[0]
     assert size.Width == 7777
     assert model.Text == "x = 1"
 
 
 def test_insert_code_input_uses_explicit_field_w():
-    from plugin.notebook.notebook_controls import _height_for_text, _insert_code_input_in_flow
+    from plugin.notebook.layout import height_for_text, insert_code_input_in_flow
 
     doc = MagicMock()
     model = MagicMock()
     shape = MagicMock()
     doc.createInstance.side_effect = [model, shape]
-    _insert_code_input_in_flow(doc, name="nb_cell_1_code", source="x = 1\ny = 2", controls_before=0, field_w=8888, cap=15000)
+    insert_code_input_in_flow(doc, name="nb_cell_1_code", source="x = 1\ny = 2", controls_before=0, field_w=8888, cap=15000)
     size = shape.setSize.call_args.args[0]
     assert size.Width == 8888
-    assert size.Height == _height_for_text("x = 1\ny = 2", field_w=8888, cap=15000)
+    assert size.Height == height_for_text("x = 1\ny = 2", field_w=8888, cap=15000)
 

@@ -309,3 +309,24 @@ def test_pump_idle_true_leaves_gc_alone(gc_enabled_restored):
     with patch("plugin.framework.blocking_wait.pump_ui_idle"):
         assert run_blocking_in_thread(ctx, worker) == "ok"
     assert seen == [True]
+
+
+def test_automatic_gc_suspended_under_active_gc_policy_keeps_gc_disabled(
+    gc_policy_restored,
+):
+    from plugin.framework import gc_policy
+
+    gc.disable()
+    gc_policy._main_ident = threading.get_ident()
+    collect_calls: list[bool] = []
+    original = gc.collect
+
+    def spy_collect(*args, **kwargs):
+        collect_calls.append(True)
+        return original(*args, **kwargs)
+
+    with patch.object(gc, "collect", spy_collect):
+        with automatic_gc_suspended():
+            assert not gc.isenabled()
+    assert not gc.isenabled()
+    assert not collect_calls

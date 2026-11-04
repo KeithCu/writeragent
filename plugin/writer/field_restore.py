@@ -106,7 +106,7 @@ def _matching_span_end(html: str, start_pos: int) -> int | None:
 
 
 def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
-    from . import format as format_mod
+    from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS
 
     props = []
     if title == "page-number":
@@ -130,10 +130,10 @@ def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
         num_raw = attrs.get("data-numbering-type")
         if num_raw is not None:
             nt_raw = num_raw.strip().upper()
-            if nt_raw in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
+            if nt_raw in PAGE_NUMBER_NUMBERING_TYPE_VALS:
                 nt_name = nt_raw
-            elif nt_raw.isdigit() and int(nt_raw) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-                nt_name = format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(nt_raw)]
+            elif nt_raw.isdigit() and int(nt_raw) in PAGE_NUMBER_NUMBERING_TYPE_NAMES:
+                nt_name = PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(nt_raw)]
             else:
                 log.warning("Unknown PageNumber NumberingType attribute %r, defaulting to ARABIC", num_raw)
                 nt_name = "ARABIC"
@@ -187,13 +187,13 @@ def rewrite_exported_field_spans(html: str, nonce: str | None = None) -> str:
 
 
 def _page_number_properties(props: dict[str, str]) -> list[tuple[str, Any]]:
-    from . import format as format_mod
+    from .html_export import PAGE_NUMBER_NUMBERING_TYPE_VALS
     import uno
 
     return [
         ("SubType", uno.Enum("com.sun.star.text.PageNumberType", props.get("subtype", "CURRENT"))),
         ("Offset", int(props.get("offset", "0"))),
-        ("NumberingType", format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS[props.get("numbering_type", "ARABIC")]),
+        ("NumberingType", PAGE_NUMBER_NUMBERING_TYPE_VALS[props.get("numbering_type", "ARABIC")]),
     ]
 
 

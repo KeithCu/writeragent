@@ -3,6 +3,10 @@ title: Calc spreadsheet tools
 requires: [document, config]
 config_inline: doc
 
+actions:
+  convert_spreadsheet_to_python:
+    title: "Convert Sheet to Python..."
+
 config:
   max_rows_display:
     type: int

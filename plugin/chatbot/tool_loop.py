@@ -45,7 +45,7 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import capture_send_stop, get_current_send_cancellation, send_stopped
+from plugin.framework.send_cancellation import SendCancellation, capture_send_stop, get_current_send_cancellation
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 from plugin.doc.peer_message import log_peer_tool_on_wire
@@ -172,7 +172,7 @@ def _compact_bound_session(
     *,
     tools: Any,
     max_tokens: int | None,
-    cancel: Any,
+    cancel: SendCancellation | None,
     force: bool,
     status_cb: Callable[[str], None],
 ) -> bool:
@@ -303,8 +303,8 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
 
 def _ensure_llm_client(panel: Any, api_config: dict[str, Any]) -> LlmClient:
     # contextvars (SendCancellation) do not propagate to worker threads — LlmClient
-    # picks up resolve_stop_checker() via get_current_send_cancellation when created on
-    # the UI thread; spawned workers pass stop_checker= explicitly (_spawn_llm_worker).
+    # picks up the scope via get_current_send_cancellation when created on
+    # the UI thread; spawned workers pass cancel= explicitly (_spawn_llm_worker).
     if not panel.client:
         panel.client = LlmClient(api_config, panel.ctx)
     else:
@@ -327,7 +327,14 @@ def _append_user_message_for_send(
     query_text: str,
     b64_image: str | None,
     panel: Any,
+    *,
+    user_transcript_text: str | None = None,
 ) -> None:
+    display_line = user_transcript_text if user_transcript_text else query_text
+
+    def _tag_transcript(msg: dict[str, Any]) -> None:
+        if user_transcript_text:
+            msg["_transcript_text"] = user_transcript_text
     if b64_image or panel.audio_wav_path:
         content_list: list[dict[str, Any]] = []
         if query_text:
@@ -358,6 +365,8 @@ def _append_user_message_for_send(
             turn_session.add_user_message(_("[Voice message]"))
         else:
             turn_session.add_user_message(content_list)
+            if user_transcript_text and turn_session.messages:
+                _tag_transcript(turn_session.messages[-1])
 
         if audio_content and turn_session.messages:
             # Append audio to the in-memory message so it's sent this turn
@@ -374,13 +383,15 @@ def _append_user_message_for_send(
 
         attach_str = " & ".join(attachments)
         if attach_str:
-            display_text = f"{query_text} [{attach_str} Attached]" if query_text else f"[{attach_str} Message]"
+            display_text = f"{display_line} [{attach_str} Attached]" if display_line else f"[{attach_str} Message]"
         else:
-            display_text = query_text
+            display_text = display_line
         panel._append_response(display_text, role="user")
     else:
         turn_session.add_user_message(query_text)
-        panel._append_response(query_text, role="user")
+        if user_transcript_text and turn_session.messages:
+            _tag_transcript(turn_session.messages[-1])
+        panel._append_response(display_line, role="user")
 
 
 class _PanelDescriptor:
@@ -426,7 +437,16 @@ class ToolCallingMixin:
     def _sm_state(self, value: ToolLoopState | None) -> None:  # pyright: ignore[reportPropertyTypeMismatch]  # clear session with None
         self._panel.sidebar_state = dataclasses.replace(self._panel.sidebar_state, tool_loop=value)
 
-    def _do_send_chat_with_tools(self, query_text: str, model: Any, doc_type_str: str, skip_append_user: bool = False) -> None:
+    def _do_send_chat_with_tools(
+        self,
+        query_text: str,
+        model: Any,
+        doc_type_str: str,
+        skip_append_user: bool = False,
+        *,
+        user_transcript_text: str | None = None,
+        slash_sidebar_only: bool = False,
+    ) -> None:
         # The send already called begin_send_turn. A mode click inside
         # pump_ui_idle aborts that turn and swaps the session. Do not start
         # another turn here: that rebind wrote this reply onto the other chat.
@@ -466,14 +486,17 @@ class ToolCallingMixin:
             toolkit = get_toolkit(self._panel.ctx)
             if toolkit:
                 pump_ui_idle(toolkit, max_queue_items=4)
-            active_tools = get_tools().get_schemas(
-                "openai",
-                doc_type=doc_type_str,
-                uno_services_supported=getattr(self._panel, "cached_uno_services", None),
-                active_domain=active_domain,
-                ctx=self._panel.ctx,
-                doc=model,
-            )
+            if slash_sidebar_only:
+                active_tools: list[Any] = []
+            else:
+                active_tools = get_tools().get_schemas(
+                    "openai",
+                    doc_type=doc_type_str,
+                    uno_services_supported=getattr(self._panel, "cached_uno_services", None),
+                    active_domain=active_domain,
+                    ctx=self._panel.ctx,
+                    doc=model,
+                )
             log_peer_tool_on_wire(active_tools)
             execute_fn = build_tool_execute_fn(self._panel, doc_type_str, active_domain, python_tool_domain, set_active_domain)
 
@@ -571,7 +594,13 @@ class ToolCallingMixin:
                     except Exception:
                         log.exception("Failed to get selected image base64")
 
-            _append_user_message_for_send(turn_session, query_text, b64_image, self._panel)
+            _append_user_message_for_send(
+                turn_session,
+                query_text,
+                b64_image,
+                self._panel,
+                user_transcript_text=user_transcript_text,
+            )
 
         self._panel._append_response("\n[Using chat model.]\n")
         log.info("_do_send: using chat model")
@@ -619,15 +648,15 @@ class ToolCallingMixin:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
-        # Spawn-time scope. The body must not call resolve_stop_checker or
-        # read _send_cancellation: Stop clears the field and the next send replaces it.
-        bound_scope, _unused_checker = capture_send_stop(self._panel)
+        # Spawn-time scope. The body must not re-read _send_cancellation:
+        # Stop clears the field and the next send replaces it.
+        bound_scope = capture_send_stop(self._panel)
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            return send_stopped(bound_scope, client)
+            return (bound_scope is not None and bound_scope.is_cancelled()) or client.stopped() is True
 
         return turn, bound_session, bound_scope, emit, stopped_for_this_send
 
@@ -927,8 +956,7 @@ class ToolCallingMixin:
         # is not overflow — compact-and-retry on a dead llama-server is worse
         # than today's sentence. Kill switch offs this path too.
         if get_config("chat_compaction_enabled"):
-            stop_checker = self._panel.resolve_stop_checker()
-            stopped = bool(self._panel.stop_requested or stop_checker())
+            stopped = bool(self._panel.stop_requested)
             live_turn = running_turn(self._panel)
             retry_q = spawn_queue(live_turn) if live_turn is not None else None
             if (
@@ -1057,7 +1085,7 @@ class ToolCallingMixin:
                 on_stopped=self._handle_stream_stopped,
                 on_error=self._handle_stream_error,
                 on_status_fn=self._panel._set_status,
-                stop_checker=self._panel.resolve_stop_checker(),
+                cancel=self._panel._send_cancellation,
                 show_search_thinking=show_search_thinking,
                 on_approval_required=self._on_tool_loop_approval_required,
                 flush_pending=turn.batcher.flush,

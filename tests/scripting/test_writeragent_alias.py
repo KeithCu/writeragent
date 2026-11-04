@@ -16,7 +16,7 @@ from plugin.framework.uno_bootstrap import (
     _WRITERAGENT_API,
     register_alias_importer,
 )
-from plugin.scripting.venv_worker import PythonWorkerManager
+from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
 
 def _clear_writeragent_modules() -> None:
@@ -188,13 +188,13 @@ def test_venv_worker_bidirectional_tool_call():
         mock_is_writer.return_value = False
         mock_is_draw.return_value = False
 
-        PythonWorkerManager.shutdown_all()
+        shutdown_venv_workers_for_tests()
         try:
             res = run_code_in_user_venv(code)
             assert res.get("status") == "ok", res.get("message")
             assert res.get("result") == "mocked_bookmarks_list"
         finally:
-            PythonWorkerManager.shutdown_all()
+            shutdown_venv_workers_for_tests()
 
 
 def test_writeragent_namespace_fallback_when_api_missing():

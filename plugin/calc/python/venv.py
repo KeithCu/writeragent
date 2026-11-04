@@ -143,6 +143,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         from plugin.scripting.session_manager import pin_script_document, release_script_document
 
         script_session_id = pin_script_document(ctx.doc)
+        scope = ctx.send_cancellation
 
         try:
             res = run_code_in_user_venv(
@@ -150,8 +151,8 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 data=py_data,
                 python_tool_domain=ctx.python_tool_domain,
                 script_session_id=script_session_id,
-                stop_checker=ctx.stop_checker,
-                cancellation_scope=ctx.send_cancellation,
+                stop_checker=scope.is_cancelled if scope is not None else None,
+                cancellation_scope=scope,
             )
         finally:
             release_script_document(script_session_id)

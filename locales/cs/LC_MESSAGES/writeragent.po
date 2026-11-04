@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-10-26 12:14-0400\n"
+"POT-Creation-Date: 2026-11-03 13:09-0500\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: Czech <LL@li.org>\n"
@@ -16,6 +16,23 @@ msgstr ""
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
+
+#: plugin/doc/agent_undo.py
+msgid "There is no agent edit to undo."
+msgstr "Pro poslední úpravu agentem není k dispozici žádné vrácení zpět."
+
+#: plugin/doc/agent_undo.py
+msgid "The document was edited since the last agent edit."
+msgstr "Dokument byl od poslední úpravy agentem změněn."
+
+#: plugin/doc/agent_undo.py
+msgid "Could not undo the last agent edit."
+msgstr "Poslední úpravu agentem se nepodařilo vrátit zpět."
+
+#: plugin/doc/agent_undo.py
+#, python-brace-format
+msgid "Undid the last agent edit ({0} steps)"
+msgstr "Poslední úprava agentem byla vrácena zpět ({0} kroků)"
 
 #: plugin/doc/specialized_base.py
 msgid ""
@@ -33,6 +50,15 @@ msgstr "Spouštím místní OCR na vybraném obrázku (obrázcích)..."
 #, python-brace-format
 msgid "Specialized task ({domain}) completed."
 msgstr "Specializovaná úloha ({domain}) byla dokončena."
+
+#: plugin/bootstrap_ui_hooks.py plugin/calc/python/cell_editor_ui.py
+#: plugin/writer/math/latex_dialog.py plugin/chatbot/panel.py
+#: plugin/chatbot/external_editor.py plugin/chatbot/dialog_views.py
+#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
+#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
+#: plugin/scripting/python_runner.py
+msgid "Error"
+msgstr "Chyba"
 
 #: plugin/notebook/notebook_runner.py
 msgid "Cell execution failed."
@@ -55,6 +81,14 @@ msgid "Code cell is empty."
 msgstr "Buňka kódu je prázdná."
 
 #: plugin/notebook/notebook_runner.py
+msgid "Could not find notebook cell for this control."
+msgstr "Pro tento ovládací prvek nebyla nalezena buňka poznámkového bloku."
+
+#: plugin/notebook/notebook_runner.py
+msgid "Open a Writer document first."
+msgstr "Nejprve otevřete dokument Writeru."
+
+#: plugin/notebook/notebook_runner.py
 msgid "Notebook run is only supported in LibreOffice Writer."
 msgstr ""
 "Spuštění poznámkového bloku je podporováno pouze v LibreOffice Writer."
@@ -67,19 +101,11 @@ msgstr ""
 "Tento dokument neobsahuje žádný importovaný poznámkový blok. Nejprve zvolte "
 "Soubor → Otevřít poznámkový blok Jupyter (.ipynb)."
 
-#: plugin/notebook/notebook_runner.py
-msgid "Could not find notebook cell for this control."
-msgstr "Pro tento ovládací prvek nebyla nalezena buňka poznámkového bloku."
-
-#: plugin/notebook/notebook_runner.py
-msgid "Open a Writer document first."
-msgstr "Nejprve otevřete dokument Writeru."
-
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Run code cell"
 msgstr "Spustit buňku kódu"
 
-#: plugin/notebook/notebook_controls.py
+#: plugin/notebook/layout.py
 msgid "Code"
 msgstr "Kód"
 
@@ -246,30 +272,6 @@ msgid "No API key configured. Open Settings and add a key."
 msgstr "Není nastaven žádný klíč API. Otevřete Nastavení a přidejte klíč."
 
 #: plugin/framework/errors.py
-msgid ""
-"Python venv not found. Open Settings → Python, set the venv path, then Test."
-msgstr ""
-"Virtuální prostředí Python nebylo nalezeno. Otevřete Nastavení → Python, "
-"nastavte cestu k venv a poté proveďte Test."
-
-#: plugin/framework/errors.py
-msgid ""
-"Python execution timed out. Open Settings → Python to raise the timeout."
-msgstr ""
-"Časový limit spuštění Pythonu vypršel. Otevřete Nastavení → Python a zvyšte "
-"časový limit."
-
-#: plugin/framework/errors.py
-msgid "Formula spill collision: destination range contains non-empty cells."
-msgstr "Kolize přetečení vzorce: cílová oblast obsahuje neprázdné buňky."
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "Script execution blocked by sandbox policy: {0}"
-msgstr ""
-"Spuštění skriptu blokováno politikou izolovaného prostoru (sandbox): {0}"
-
-#: plugin/framework/errors.py
 msgid "Request Timed Out. Try increasing 'Request Timeout' in Settings."
 msgstr ""
 "Vypršel časový limit požadavku. Zkuste zvýšit „Časový limit požadavku“ v "
@@ -292,6 +294,24 @@ msgid "Connection Error: {0}"
 msgstr "Chyba připojení: {0}"
 
 #: plugin/framework/errors.py
+msgid ""
+"Python venv not found. Open Settings → Python, set the venv path, then Test."
+msgstr ""
+"Virtuální prostředí Python nebylo nalezeno. Otevřete Nastavení → Python, "
+"nastavte cestu k venv a poté proveďte Test."
+
+#: plugin/framework/errors.py
+msgid ""
+"Python execution timed out. Open Settings → Python to raise the timeout."
+msgstr ""
+"Časový limit spuštění Pythonu vypršel. Otevřete Nastavení → Python a zvyšte "
+"časový limit."
+
+#: plugin/framework/errors.py
+msgid "Formula spill collision: destination range contains non-empty cells."
+msgstr "Kolize přetečení vzorce: cílová oblast obsahuje neprázdné buňky."
+
+#: plugin/framework/errors.py
 msgid "The AI provider reported an error. Try again."
 msgstr "Poskytovatel AI nahlásil chybu. Zkuste to znovu."
 
@@ -300,11 +320,6 @@ msgstr "Poskytovatel AI nahlásil chybu. Zkuste to znovu."
 #, python-brace-format
 msgid "Error: {0}"
 msgstr "Chyba: {0}"
-
-#: plugin/framework/errors.py
-#, python-brace-format
-msgid "{resource_type} not found: {identifier}"
-msgstr "{resource_type} nebyl nalezen: {identifier}"
 
 #: plugin/framework/thread_guard.py
 msgid "UNO Thread Violation"
@@ -407,25 +422,6 @@ msgstr "Prodleva mezi požadavky volného modelu, další odeslání za {0} s…
 #: plugin/framework/client/anthropic_shim.py
 msgid "Anthropic model is not set. Choose a model in Settings."
 msgstr "Model Anthropic není nastaven. Vyberte model v Nastavení."
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "{0}: {1} passed, {2} failed."
-msgstr "{0}: {1} úspěšných, {2} neúspěšných."
-
-#: plugin/framework/main_shared.py
-#, python-brace-format
-msgid "Tests failed to run: {0}"
-msgstr "Testy se nepodařilo spustit: {0}"
-
-#: plugin/framework/main_shared.py plugin/calc/python/cell_editor_ui.py
-#: plugin/writer/math/latex_dialog.py plugin/chatbot/external_editor.py
-#: plugin/chatbot/send_handlers.py plugin/chatbot/dialog_views.py
-#: plugin/chatbot/panel_voice.py plugin/scripting/script_dialogs.py
-#: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner_ui.py
-#: plugin/scripting/python_runner.py
-msgid "Error"
-msgstr "Chyba"
 
 #: plugin/framework/config.py
 msgid "Please set Endpoint in Settings."
@@ -591,6 +587,10 @@ msgid "Installing Kokoro phonemizer…"
 msgstr "Instaluje se fonemizátor Kokoro…"
 
 #: plugin/audio/kokoro_g2p.py
+msgid "Downloading Japanese phonemizer dictionary…"
+msgstr "Stahuje se japonský slovník pro fonemizátor…"
+
+#: plugin/audio/kokoro_g2p.py
 #, python-brace-format
 msgid ""
 "Couldn't install the Kokoro phonemizer; this language may be misread. "
@@ -599,12 +599,9 @@ msgstr ""
 "Nepodařilo se nainstalovat fonemizátor Kokoro; tento jazyk může být chybně "
 "přečten. Nainstalujte jej pomocí: {0}"
 
-#: plugin/audio/kokoro_g2p.py
-msgid "Downloading Japanese phonemizer dictionary…"
-msgstr "Stahuje se japonský slovník pro fonemizátor…"
-
 #: plugin/calc/python/editor_context_menu.py plugin/librepy/sidebar_menus.py
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Edit Python in Cell..."
 msgstr "Upravit Python v buňce..."
 
@@ -648,10 +645,6 @@ msgstr "Inicializační skript byl uložen."
 msgid "Save initialization script"
 msgstr "Uložit inicializační skript"
 
-#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
-msgid "Status:"
-msgstr "Stav:"
-
 #: plugin/calc/python/cell_editor_ui.py plugin/chatbot/panel_wiring.py
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "Ready"
@@ -666,12 +659,12 @@ msgid "Calc injects `data` and `ranges` from these range(s) at runtime."
 msgstr "Calc za běhu vkládá `data` a `ranges` z těchto oblastí."
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
+msgid "Status:"
+msgstr "Stav:"
+
+#: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saving…"
 msgstr "Ukládání…"
-
-#: plugin/calc/python/cell_editor_ui.py plugin/calc/python/editor.py
-msgid "Saved without =PY()."
-msgstr "Uloženo bez =PY()."
 
 #: plugin/calc/python/cell_editor_ui.py plugin/scripting/editor_ui_strings.py
 msgid "Saved."
@@ -715,6 +708,10 @@ msgstr "Kód uložen v {0}."
 msgid "WriterAgent: Save Python cell"
 msgstr "WriterAgent: Uložit buňku Pythonu"
 
+#: plugin/calc/python/editor.py
+msgid "Saved without =PY()."
+msgstr "Uloženo bez =PY()."
+
 #: plugin/calc/python/editor.py plugin/xdl_strings.py
 msgid "Python cell editor"
 msgstr "Editor buněk Python"
@@ -742,16 +739,6 @@ msgstr "Pro úpravu Pythonu vyberte buňku v tabulkovém dokumentu Calc."
 #, python-brace-format
 msgid "Could not open the code cell {0}."
 msgstr "Nelze otevřít buňku kódu {0}."
-
-#: plugin/calc/python/editor.py
-msgid ""
-"This PY formula uses a form the editor cannot safely rewrite (e.g. code in "
-"another cell). Edit it in the formula bar, or use =PY(\"code\"; range) with "
-"quoted code."
-msgstr ""
-"Tento vzorec PY používá formu, kterou editor nemůže bezpečně přepsat (např. "
-"kód v jiné buňce). Upravte jej na řádku vzorců nebo použijte =PY(\"kód\"; "
-"oblast) s kódem v uvozovkách."
 
 #: plugin/calc/python/editor.py
 msgid "Could not open the built-in Python cell editor."
@@ -791,7 +778,7 @@ msgstr "Obrázek vložen"
 msgid "Images inserted"
 msgstr "Vložené obrázky"
 
-#: plugin/calc/python/geometric_recalc_core.py
+#: plugin/calc/python/geometric_recalc.py
 #, python-format
 msgid ""
 "Geometric Recalc Order skipped sheet '%(sheet)s': found %(cap)s or more "
@@ -801,16 +788,6 @@ msgstr ""
 "Pořadí geometrického přepočtu přeskočilo list „%(sheet)s“: nalezeno %(cap)s "
 "nebo více buněk Pythonu (limit zjišťování). List byl ponechán bez změn, aby "
 "částečný seznam nebyl považován za úplný."
-
-#: plugin/calc/python/formula_edit.py
-msgid ""
-"Could not preserve this cell's PY formula arguments (e.g. data ranges). Edit"
-" the formula in Calc, or use a quoted code string like =PY(\"code\"; "
-"A1:B10)."
-msgstr ""
-"Nepodařilo se zachovat argumenty vzorce PY této buňky (např. datové "
-"oblasti). Upravte vzorec v aplikaci Calc nebo použijte řetězec s kódem v "
-"uvozovkách, např. =PY(\"kód\"; A1:B10)."
 
 #: plugin/calc/excel_py_convert/auto_open.py
 #, python-brace-format
@@ -934,48 +911,53 @@ msgid "(no =PY() cells on active sheet)"
 msgstr "(žádné buňky =PY() na aktivním listu)"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Run Python Script..."
 msgstr "Spustit skript Python..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/chatbot/panel_factory.py
+#: plugin/chatbot/panel_factory.py plugin/_manifest.py
 msgid "Insert LaTeX Math..."
 msgstr "Vložit matematický vzorec LaTeX..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Text Analytics..."
 msgstr "Textová analýza…"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
 #: plugin/chatbot/dialog_views.py plugin/chatbot/panel_factory.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Settings"
 msgstr "Nastavení"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Vision OCR Settings..."
 msgstr "Nastavení Vision OCR..."
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Reset Python Session"
 msgstr "Resetovat relaci Pythonu"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run All"
 msgstr "Spustit vše"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
+#: plugin/_manifest.py
 msgid "Run From Here"
 msgstr "Spustit odsud"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/hamburger_menu.py
-#: plugin/xdl_strings.py
+#: plugin/_manifest.py plugin/xdl_strings.py
 msgid "Stop"
 msgstr "Zastavit"
 
 #: plugin/librepy/sidebar_menus.py plugin/chatbot/dialogs.py
-#: plugin/chatbot/hamburger_menu.py plugin/xdl_strings.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py plugin/xdl_strings.py
 msgid "Report bug..."
 msgstr "Nahlásit chybu..."
 
@@ -990,10 +972,6 @@ msgstr "Přijmout celou změnu (agent)"
 #: plugin/writer/change_context_menu.py
 msgid "Reject whole change (agent)"
 msgstr "Odmítnout celou změnu (agent)"
-
-#: plugin/writer/inline_review.py
-msgid "No agent changes to review in this document."
-msgstr "V tomto dokumentu nejsou žádné změny agenta ke kontrole."
 
 #: plugin/writer/inline_review.py
 #, python-format
@@ -1041,6 +1019,20 @@ msgstr ""
 
 #: plugin/writer/inline_review.py
 msgid ""
+"Could not resolve this change here -- it may share a paragraph with one of "
+"your tracked changes or another agent change. Resolve it from Edit > Track "
+"Changes > Manage."
+msgstr ""
+"Tuto změnu zde nebylo možné vyřešit – možná sdílí odstavec s jednou z vašich"
+" sledovaných změn nebo jinou změnou agenta. Vyřešte ji v nabídce Úpravy > "
+"Sledovat změny > Spravovat."
+
+#: plugin/writer/inline_review.py
+msgid "No agent changes to review in this document."
+msgstr "V tomto dokumentu nejsou žádné změny agenta ke kontrole."
+
+#: plugin/writer/inline_review.py
+msgid ""
 "None could be resolved here -- each overlaps with one of your own tracked "
 "changes. Resolve them from Edit > Track Changes > Manage."
 msgstr ""
@@ -1057,16 +1049,6 @@ msgstr ""
 "Vyřešeno %(resolved)d z %(total)d. Ostatní se překrývají s vašimi vlastními "
 "sledovanými změnami – ty vyřešte v nabídce Úpravy > Sledovat změny > "
 "Spravovat."
-
-#: plugin/writer/inline_review.py
-msgid ""
-"Could not resolve this change here -- it may share a paragraph with one of "
-"your tracked changes or another agent change. Resolve it from Edit > Track "
-"Changes > Manage."
-msgstr ""
-"Tuto změnu zde nebylo možné vyřešit – možná sdílí odstavec s jednou z vašich"
-" sledovaných změn nebo jinou změnou agenta. Vyřešte ji v nabídce Úpravy > "
-"Sledovat změny > Spravovat."
 
 #: plugin/writer/inline_review.py
 msgid "Put the cursor on a highlighted agent change first."
@@ -1143,6 +1125,10 @@ msgid "WriterAgent: Extend Selection"
 msgstr "WriterAgent: Rozšířit výběr"
 
 #: plugin/writer/editselection.py
+msgid "The document is empty."
+msgstr "Dokument je prázdný."
+
+#: plugin/writer/editselection.py
 msgid "WriterAgent: Edit Selection"
 msgstr "WriterAgent: Upravit výběr"
 
@@ -1168,10 +1154,6 @@ msgid "AI Grammar"
 msgstr "AI gramatika"
 
 #: plugin/writer/math/latex_dialog.py
-msgid "Could not open the LaTeX input dialog."
-msgstr "Dialogové okno pro vstup LaTeXu se nepodařilo otevřít."
-
-#: plugin/writer/math/latex_dialog.py
 msgid "Update"
 msgstr "Aktualizovat"
 
@@ -1179,6 +1161,10 @@ msgstr "Aktualizovat"
 #: plugin/xdl_strings.py
 msgid "Insert"
 msgstr "Vložit"
+
+#: plugin/writer/math/latex_dialog.py
+msgid "Could not open the LaTeX input dialog."
+msgstr "Dialogové okno pro vstup LaTeXu se nepodařilo otevřít."
 
 #: plugin/writer/math/latex_dialog.py
 msgid "Edit LaTeX Math"
@@ -1539,23 +1525,24 @@ msgstr "Zkopírováno!"
 msgid "Copy URL"
 msgstr "Kopírovat URL"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Extend Selection"
 msgstr "Rozšířit výběr"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Edit Selection"
 msgstr "Upravit výběr"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Convert Sheet to Python..."
 msgstr "Převést list na Python..."
 
 #: plugin/chatbot/hamburger_menu.py plugin/chatbot/panel_factory.py
+#: plugin/_manifest.py
 msgid "Search Nearby Files..."
 msgstr "Prohledat okolní soubory..."
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Toggle MCP Server"
 msgstr "Přepnout server MCP"
 
@@ -1567,27 +1554,27 @@ msgstr "Server MCP (spuštěn)"
 msgid "MCP Server (Stopped)"
 msgstr "Server MCP (zastaven)"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run format tests"
 msgstr "Spustit testy formátování"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run calc tests"
 msgstr "Spustit testy Calc"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run Calc API integration tests"
 msgstr "Spustit integrační testy API Calc"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Run draw tests"
 msgstr "Spustit testy Draw"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Evaluation Dashboard"
 msgstr "Informační panel hodnocení"
 
-#: plugin/chatbot/hamburger_menu.py
+#: plugin/chatbot/hamburger_menu.py plugin/_manifest.py
 msgid "Debug"
 msgstr "Ladění"
 
@@ -1595,9 +1582,89 @@ msgstr "Ladění"
 msgid "[No speech detected.]"
 msgstr "[Nebyla detekována žádná řeč.]"
 
-#: plugin/chatbot/tool_loop.py plugin/chatbot/panel.py
+#: plugin/chatbot/tool_loop.py plugin/chatbot/panel_voice.py
 msgid "[Voice message]"
 msgstr "[Hlasová zpráva]"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "WriterAgent: Formula"
+msgstr "WriterAgent: Vzorec"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Wait for the current operation to finish before /undo."
+msgstr "Před použitím /undo počkejte na dokončení aktuální operace."
+
+#: plugin/chatbot/slash_undo_formula.py plugin/scripting/document_scripts.py
+#: plugin/scripting/python_runner_ui.py
+msgid "No document is open."
+msgstr "Není otevřen žádný dokument."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Select a cell first."
+msgstr "Nejprve vyberte buňku."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Write exactly one LibreOffice Calc formula for this request: {0}"
+msgstr "Napište přesně jeden vzorec LibreOffice Calc pro tento požadavek: {0}"
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Target cell: {0} on sheet \"{1}\"."
+msgstr "Cílová buňka: {0} na listu „{1}“."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Used range: {0}."
+msgstr "Použitá oblast: {0}."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Header row: {0}."
+msgstr "Záhlaví: {0}."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "(empty)"
+msgstr "(prázdné)"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"Reply with the formula only. It must start with =. Use English function "
+"names. Use semicolon (;) between function arguments (Calc setFormula API "
+"grammar). No prose or markdown."
+msgstr ""
+"Odpovězte pouze vzorcem. Musí začínat znakem =. Používejte anglické názvy "
+"funkcí. Mezi argumenty funkcí používejte středník (;) (gramatika API Calc "
+"setFormula). Žádný text ani markdown."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Could not insert the formula."
+msgstr "Vzorec se nepodařilo vložit."
+
+#: plugin/chatbot/slash_undo_formula.py
+#, python-brace-format
+msgid "Formula for {0}: {1}"
+msgstr "Vzorec pro {0}: {1}"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "The cell shows an error"
+msgstr "Buňka obsahuje chybu"
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid ""
+"You write LibreOffice Calc formulas. Output a single formula starting with "
+"=, nothing else."
+msgstr ""
+"Píšete vzorce pro LibreOffice Calc. Vypište pouze jeden vzorec začínající "
+"znakem =, nic jiného."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Stopped."
+msgstr "Zastaveno."
+
+#: plugin/chatbot/slash_undo_formula.py
+msgid "Formula generation failed."
+msgstr "Generování vzorce selhalo."
 
 #: plugin/chatbot/chat_sidebar_mode.py plugin/xdl_strings.py
 msgid "Chat"
@@ -1612,26 +1679,6 @@ msgid "Web Research"
 msgstr "Webový průzkum"
 
 #: plugin/chatbot/chat_sidebar_mode.py
-msgid "Deep Research"
-msgstr "Hloubkový průzkum"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Brainstorming"
-msgstr "Brainstorming"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Writing Plan"
-msgstr "Plán psaní"
-
-#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
-msgid "PPT-Master"
-msgstr "PPT-Master"
-
-#: plugin/chatbot/chat_sidebar_mode.py
-msgid "Librarian"
-msgstr "Knihovník"
-
-#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I can do web research to answer any question, or summarize a web page, "
 "without seeing or changing your document. Let's chat."
@@ -1639,6 +1686,14 @@ msgstr ""
 "AI: Mohu provést průzkum na webu a odpovědět na jakoukoli otázku nebo "
 "shrnout webovou stránku, aniž bych viděl nebo měnil váš dokument. Pojďme si "
 "popovídat."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown research error."
+msgstr "Neznámá chyba výzkumu."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Deep Research"
+msgstr "Hloubkový průzkum"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1652,6 +1707,14 @@ msgstr ""
 "důkladnější výsledky."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown deep research error."
+msgstr "Neznámá chyba hloubkového průzkumu."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming"
+msgstr "Brainstorming"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: Let's explore and design your idea together. I'll ask questions, suggest"
 " approaches, and help you build an approved spec in your document when "
@@ -1662,6 +1725,18 @@ msgstr ""
 "dokumentu, až budete připraveni."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown brainstorming error."
+msgstr "Neznámá chyba brainstormingu."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Brainstorming complete."
+msgstr "Brainstorming dokončen."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing Plan"
+msgstr "Plán psaní"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: Let's draft your document section-by-section. I'll help you create a "
 "writing plan outline, and then implement it incrementally with your "
@@ -1669,6 +1744,18 @@ msgid ""
 msgstr ""
 "AI: Pojďme vytvořit váš dokument sekci po sekci. Pomohu vám vytvořit osnovu "
 "plánu psaní a poté ji postupně realizovat s vaším schválením."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown writing plan error."
+msgstr "Neznámá chyba plánu psaní."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Writing plan complete."
+msgstr "Plán psaní dokončen."
+
+#: plugin/chatbot/chat_sidebar_mode.py plugin/chatbot/dialog_views.py
+msgid "PPT-Master"
+msgstr "PPT-Master"
 
 #: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
@@ -1681,6 +1768,18 @@ msgstr ""
 " nebo mě nasměrujte na složku projektu."
 
 #: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown PPT-Master error."
+msgstr "Neznámá chyba PPT-Master."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "PPT-Master session complete."
+msgstr "Relace PPT-Master dokončena."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Librarian"
+msgstr "Knihovník"
+
+#: plugin/chatbot/chat_sidebar_mode.py
 msgid ""
 "AI: I'm the WriterAgent Librarian — a host who can learn your name, favorite"
 " colors, and give a short tour. Pick Chat in the dropdown whenever you want "
@@ -1689,6 +1788,14 @@ msgstr ""
 "AI: Jsem knihovník WriterAgent — hostitel, který se může naučit vaše jméno, "
 "oblíbené barvy a provést vás krátkou prohlídkou. Kdykoli budete chtít "
 "pracovat na dokumentu, vyberte v rozbalovací nabídce Chat."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Unknown librarian error."
+msgstr "Neznámá chyba knihovníka."
+
+#: plugin/chatbot/chat_sidebar_mode.py
+msgid "Perfect! I'm switching you to the main assistant now."
+msgstr "Perfektní! Nyní vás přepínám na hlavního asistenta."
 
 #: plugin/chatbot/slash_commands.py
 msgid "Print the command list"
@@ -1701,6 +1808,85 @@ msgstr "Zahájit nový chat"
 #: plugin/chatbot/slash_commands.py
 msgid "Cancel the in-flight send"
 msgstr "Zrušit probíhající odesílání"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Summarize the selection or document in the sidebar"
+msgstr "Shrnutí výběru nebo dokumentu v postranním panelu"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Summarize the selected text, or the whole document if nothing is selected."
+msgstr "Shrnout vybraný text nebo celý dokument, pokud není vybráno nic."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Fix spelling, grammar, and punctuation without restyling"
+msgstr "Opravit pravopis, gramatiku a interpunkci bez změny stylu"
+
+#: plugin/chatbot/slash_commands.py
+msgid ""
+"Fix spelling, grammar, and punctuation only. Do not change style, tone, or "
+"meaning."
+msgstr ""
+"Opravit pouze pravopis, gramatiku a interpunkci. Neměnit styl, tón ani "
+"význam."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Shorten the selection"
+msgstr "Zkrátit výběr"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Make the text shorter while preserving the meaning."
+msgstr "Zkrátit text při zachování významu."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the selection with more detail"
+msgstr "Rozšířit výběr o další podrobnosti"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Expand the text with more detail and clarity."
+msgstr "Rozšířit text o další podrobnosti a srozumitelnost."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Rewrite the selection to match a described tone"
+msgstr "Přepsat výběr podle popsaného tónu"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Rewrite the text to match this tone or style: {arg}"
+msgstr "Přepsat text tak, aby odpovídal tomuto tónu nebo stylu: {arg}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Translate the selection (sidebar when nothing is selected in Writer)"
+msgstr "Přeložit výběr (postranní panel, pokud ve Writeru není nic vybráno)"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Translate the text into {arg}. Keep formatting and structure."
+msgstr "Přeložit text do {arg}. Zachovat formátování a strukturu."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the selection or active Calc formula"
+msgstr "Vysvětlit výběr nebo aktivní vzorec v Calcu"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Explain the following in plain language."
+msgstr "Vysvětlit následující prostým jazykem."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Save a fact to persistent memory"
+msgstr "Uložit fakt do trvalé paměti"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compact older chat history now"
+msgstr "Zkomprimovat starší historii chatu"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Undo the last agent edit as one step"
+msgstr "Vrátit poslední úpravu agenta jako jeden krok"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Write a Calc formula from a plain-English description"
+msgstr "Napsat vzorec pro Calc z popisu v prosté angličtině"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Mock command (echo only)"
@@ -1722,6 +1908,83 @@ msgstr "Přepnout model (mock)"
 msgid "Slash commands:"
 msgstr "Příkazy lomítka:"
 
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Usage: {0}"
+msgstr "Použití: {0}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} formula: {1}"
+msgstr "Vzorec buňky {0}: {1}"
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Cell {0} value: {1}"
+msgstr "Hodnota buňky {0}: {1}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Failed to save memory."
+msgstr "Uložení do paměti se nezdařilo."
+
+#: plugin/chatbot/slash_commands.py
+#, python-brace-format
+msgid "Saved to memory: {0}"
+msgstr "Uloženo do paměti: {0}"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Conversation compacted."
+msgstr "Konverzace byla zhuštěna."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact."
+msgstr "Není co zhušťovat."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Nothing to compact yet (history is still small)."
+msgstr "Zatím není co zhušťovat (historie je stále malá)."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction is not available for this model."
+msgstr "Zhuštění není pro tento model dostupné."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction failed."
+msgstr "Zhuštění se nezdařilo."
+
+#: plugin/chatbot/slash_commands.py
+msgid "WriterAgent"
+msgstr "WriterAgent"
+
+#: plugin/chatbot/slash_commands.py
+msgid "Configure an API key to compact."
+msgstr "Pro zhuštění nastavte klíč API."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Chat compaction is disabled in settings."
+msgstr "Kompakce chatu je v nastavení zakázána."
+
+#: plugin/chatbot/slash_commands.py
+msgid "Compaction cancelled."
+msgstr "Kompakce zrušena."
+
+#: plugin/chatbot/slash_commands.py plugin/chatbot/panel.py
+#: plugin/chatbot/sidebar_test_hooks.py plugin/chatbot/send_handlers.py
+msgid "Thinking..."
+msgstr "Přemýšlím..."
+
+#: plugin/chatbot/panel.py
+msgid "[No compatible LibreOffice document found.]"
+msgstr "[Nebyly nalezeny žádné kompatibilní dokumenty LibreOffice.]"
+
+#: plugin/chatbot/panel.py plugin/chatbot/sidebar_test_hooks.py
+msgid "Wait for the current reply to finish before /compact."
+msgstr "Před použitím /compact počkejte na dokončení aktuální odpovědi."
+
+#: plugin/chatbot/panel.py
+msgid "Only in Calc"
+msgstr "Pouze v Calc"
+
 #: plugin/chatbot/panel.py
 msgid "Getting document..."
 msgstr "Získávám dokument..."
@@ -1733,15 +1996,6 @@ msgid ""
 msgstr ""
 "[V aktivním okně nebyl nalezen žádný kompatibilní dokument LibreOffice "
 "(Writer, Calc nebo Draw).]"
-
-#: plugin/chatbot/panel.py
-#, python-brace-format
-msgid ""
-"[Internal Error: Could not identify document type for {0}. Please report "
-"this!]"
-msgstr ""
-"[Interní chyba: Nelze identifikovat typ dokumentu pro {0}. Prosím, nahlaste "
-"to!]"
 
 #: plugin/chatbot/panel.py
 msgid "[Audio error: recording stopped without a sound file.]"
@@ -1772,6 +2026,10 @@ msgstr "Nahrávání hands-free..."
 #, python-format
 msgid "Hands-free… (%d ms silence)"
 msgstr "Hands-free… (%d ms ticha)"
+
+#: plugin/chatbot/tool_loop_state.py
+msgid "Reached the maximum number of tool rounds."
+msgstr "Dosažen maximální počet kol nástroje."
 
 #: plugin/chatbot/settings_dialog.py plugin/xdl_strings.py
 msgid "Square"
@@ -1888,46 +2146,6 @@ msgid "MCP server stopped"
 msgstr "Server MCP zastaven"
 
 #: plugin/chatbot/send_handlers.py
-msgid "Unknown librarian error."
-msgstr "Neznámá chyba knihovníka."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Perfect! I'm switching you to the main assistant now."
-msgstr "Perfektní! Nyní vás přepínám na hlavního asistenta."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown brainstorming error."
-msgstr "Neznámá chyba brainstormingu."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Brainstorming complete."
-msgstr "Brainstorming dokončen."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown writing plan error."
-msgstr "Neznámá chyba plánu psaní."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Writing plan complete."
-msgstr "Plán psaní dokončen."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown PPT-Master error."
-msgstr "Neznámá chyba PPT-Master."
-
-#: plugin/chatbot/send_handlers.py
-msgid "PPT-Master session complete."
-msgstr "Relace PPT-Master dokončena."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown deep research error."
-msgstr "Neznámá chyba hloubkového průzkumu."
-
-#: plugin/chatbot/send_handlers.py
-msgid "Unknown research error."
-msgstr "Neznámá chyba výzkumu."
-
-#: plugin/chatbot/send_handlers.py
 #, python-brace-format
 msgid "[Document context error: {0}]"
 msgstr "[Chyba kontextu dokumentu: {0}]"
@@ -1939,10 +2157,6 @@ msgid ""
 msgstr ""
 "[Backend agenta „{0}“ není dostupný. Zkontrolujte nastavení (cesta, "
 "instalace).]"
-
-#: plugin/chatbot/send_handlers.py
-msgid "Thinking..."
-msgstr "Přemýšlím..."
 
 #: plugin/chatbot/send_handlers.py
 #, python-brace-format
@@ -2132,21 +2346,13 @@ msgstr "Nový skript Python"
 msgid "Script name:"
 msgstr "Název skriptu:"
 
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (no document is open)"
-msgstr "Připojit k tomuto dokumentu (není otevřen žádný dokument)"
-
-#: plugin/scripting/script_dialogs.py plugin/scripting/editor_ui_strings.py
-msgid "Attach to this document (this document is read-only)"
-msgstr "Připojit k tomuto dokumentu (tento dokument je pouze pro čtení)"
-
 #: plugin/scripting/editor_ui_strings.py
 msgid "Running…"
 msgstr "Spouštění…"
 
 #: plugin/scripting/editor_ui_strings.py
-msgid "Monaco loader missing."
-msgstr "Chybí zavaděč Monaco."
+msgid "Editor loader missing."
+msgstr "Chybí zavaděč editoru."
 
 #: plugin/scripting/editor_ui_strings.py
 msgid "Install jedi in the Python venv for completions."
@@ -2169,6 +2375,14 @@ msgstr "Data:"
 #: plugin/scripting/editor_ui_strings.py
 msgid "A1:C1  or  A1:C1, C1:C5"
 msgstr "A1:C1 nebo A1:C1, C1:C5"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (no document is open)"
+msgstr "Připojit k tomuto dokumentu (není otevřen žádný dokument)"
+
+#: plugin/scripting/editor_ui_strings.py
+msgid "Attach to this document (this document is read-only)"
+msgstr "Připojit k tomuto dokumentu (tento dokument je pouze pro čtení)"
 
 #: plugin/scripting/editor_ui_strings.py plugin/xdl_strings.py
 msgid "New"
@@ -2263,6 +2477,10 @@ msgstr "Skript s názvem „{0}“ již v Mých skriptech existuje. Přepsat?"
 msgid "Are you sure you want to delete script '{0}'?"
 msgstr "Opravdu chcete odstranit skript „{0}“?"
 
+#: plugin/scripting/editor_ui_strings.py
+msgid "this script"
+msgstr "tento skript"
+
 #: plugin/scripting/editor_ui_strings.py plugin/scripting/python_runner.py
 msgid "Select data range or enter A1 address (injected as data)."
 msgstr "Vyberte datový rozsah nebo zadejte adresu A1 (vloženo jako data)."
@@ -2270,6 +2488,10 @@ msgstr "Vyberte datový rozsah nebo zadejte adresu A1 (vloženo jako data)."
 #: plugin/scripting/document_scripts.py
 msgid "Stored document scripts are unreadable, so they were left unchanged."
 msgstr "Uložené skripty dokumentu jsou nečitelné, proto zůstaly beze změny."
+
+#: plugin/scripting/document_scripts.py
+msgid "Document is read-only or properties cannot be written."
+msgstr "Dokument je pouze pro čtení nebo nelze zapsat jeho vlastnosti."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2280,19 +2502,15 @@ msgstr ""
 "Uložené skripty dokumentu jsou v nepodporovaném formátu (verze {0}), proto "
 "zůstaly beze změny."
 
-#: plugin/scripting/document_scripts.py
-msgid "Document is read-only or properties cannot be written."
-msgstr "Dokument je pouze pro čtení nebo nelze zapsat jeho vlastnosti."
+#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
+msgid "No document is open to save scripts."
+msgstr "Pro uložení skriptů není otevřen žádný dokument."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
 msgid "Document scripts are too large to store in the document ({0} bytes)."
 msgstr ""
 "Skripty dokumentu jsou příliš velké pro uložení do dokumentu ({0} bajtů)."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open to save scripts."
-msgstr "Pro uložení skriptů není otevřen žádný dokument."
 
 #: plugin/scripting/document_scripts.py
 msgid ""
@@ -2354,10 +2572,6 @@ msgid ""
 "Script '{0}' is not in My Scripts or this document, so it was not saved."
 msgstr ""
 "Skript „{0}“ není v Moje skripty ani v tomto dokumentu, proto nebyl uložen."
-
-#: plugin/scripting/document_scripts.py plugin/scripting/python_runner_ui.py
-msgid "No document is open."
-msgstr "Není otevřen žádný dokument."
 
 #: plugin/scripting/document_scripts.py
 #, python-brace-format
@@ -2486,11 +2700,11 @@ msgstr "Kontrola virtuálního prostředí (venv) selhala"
 msgid ""
 "Set the Python venv path in Settings → Python (same venv where you ran 'uv "
 "pip install pywebview rocher'). LibreOffice's built-in Python cannot run the"
-" Monaco editor."
+" editor."
 msgstr ""
-"Nastavte cestu k virtuálnímu prostředí Pythonu v Nastavení → Python (stejné "
-"venv, kde jste spustili 'uv pip install pywebview rocher'). Vestavěný Python"
-" v LibreOffice nemůže spustit editor Monaco."
+"Nastavte cestu k Python venv v Nastavení → Python (stejné venv, ve kterém "
+"jste spustili 'uv pip install pywebview rocher'). Vestavěný Python v "
+"LibreOffice nemůže editor spustit."
 
 #: plugin/scripting/editor_host.py
 #, python-brace-format
@@ -2578,6 +2792,14 @@ msgid "Audio probe failed (see writeragent_debug.log)."
 msgstr "Zvuková sonda selhala (viz writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe timed out."
+msgstr "UI / Monaco: test vypršel."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "UI / Monaco probe failed (see writeragent_debug.log)."
+msgstr "UI / Monaco: test selhal (viz writeragent_debug.log)."
+
+#: plugin/scripting/venv_diagnostics.py
 msgid ""
 "Text/NLP probe timed out (spaCy or transformers cold import can take 10–30s "
 "on first check)."
@@ -2613,68 +2835,12 @@ msgid "Vector Search probe failed (see writeragent_debug.log)."
 msgstr "Sonda vektorového vyhledávání selhala (viz writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe failed (see writeragent_debug.log)."
-msgstr "UI / Monaco: test selhal (viz writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco probe timed out."
-msgstr "UI / Monaco: test vypršel."
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "DuckDB probe failed (see writeragent_debug.log)."
-msgstr "DuckDB: test selhal (viz writeragent_debug.log)."
-
-#: plugin/scripting/venv_diagnostics.py
 msgid "DuckDB probe timed out."
 msgstr "DuckDB: test vypršel."
 
 #: plugin/scripting/venv_diagnostics.py
-msgid "Audio Recording & Speech"
-msgstr "Záznam zvuku a řeč"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Scientific Libraries"
-msgstr "Vědecké knihovny"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Analysis / EDA Libraries"
-msgstr "Knihovny pro analýzu dat / EDA"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "UI / Monaco Libraries"
-msgstr "Knihovny uživatelského rozhraní / Monaco"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Visualization Libraries"
-msgstr "Vizualizační knihovny"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Computer Algebra"
-msgstr "Počítačová algebra"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Quantitative Finance Libraries"
-msgstr "Knihovny pro kvantitativní finance"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Data Engineering Libraries"
-msgstr "Knihovny datového inženýrství"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Text / NLP Libraries"
-msgstr "Knihovny pro text / NLP"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vision Libraries"
-msgstr "Vizuální knihovny"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "Vector Search Libraries"
-msgstr "Knihovny vektorového vyhledávání"
-
-#: plugin/scripting/venv_diagnostics.py
-msgid "To install remaining packages:"
-msgstr "Pro instalaci zbývajících balíčků:"
+msgid "DuckDB probe failed (see writeragent_debug.log)."
+msgstr "DuckDB: test selhal (viz writeragent_debug.log)."
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "No microphone input devices detected."
@@ -2689,6 +2855,10 @@ msgid "Local Whisper (optional):"
 msgstr "Místní Whisper (volitelné):"
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "To install remaining packages:"
+msgstr "Pro instalaci zbývajících balíčků:"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Starting Python worker..."
 msgstr "Spouští se pracovní proces Pythonu..."
 
@@ -2701,6 +2871,10 @@ msgid "Audio & Speech: checking sounddevice, TTS, and local Whisper..."
 msgstr "Zvuk a řeč: kontroluji sounddevice, TTS a místní Whisper..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Audio Recording & Speech"
+msgstr "Záznam zvuku a řeč"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "UI / Monaco Libraries: checking outside the script worker..."
 msgstr "UI / Knihovny Monaco: kontroluji mimo skript worker..."
 
@@ -2709,14 +2883,26 @@ msgid "Text / NLP Libraries: loading (first run may take a while)..."
 msgstr "Knihovny Text / NLP: načítání (první spuštění může chvíli trvat)..."
 
 #: plugin/scripting/venv_diagnostics.py
+msgid "Text / NLP Libraries"
+msgstr "Knihovny pro text / NLP"
+
+#: plugin/scripting/venv_diagnostics.py
 msgid "Vision Libraries: loading (first run may take a while)..."
 msgstr "Knihovny Vision: načítání (první spuštění může chvíli trvat)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vision Libraries"
+msgstr "Vizuální knihovny"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Vector Search Libraries: loading (first run may take a while)..."
 msgstr ""
 "Knihovny vektorového vyhledávání: načítání (první spuštění může chvíli "
 "trvat)..."
+
+#: plugin/scripting/venv_diagnostics.py
+msgid "Vector Search Libraries"
+msgstr "Knihovny vektorového vyhledávání"
 
 #: plugin/scripting/venv_diagnostics.py
 msgid "Using LibreOffice process Python..."
@@ -2773,6 +2959,10 @@ msgid "Could not read the scope checkbox."
 msgstr "Nepodařilo se přečíst zaškrtávací pole rozsahu."
 
 #: plugin/scripting/text_analytics_ui.py
+msgid "Checking spaCy / textdescriptives / transformers installation..."
+msgstr "Kontrola instalace spaCy / textdescriptives / transformers..."
+
+#: plugin/scripting/text_analytics_ui.py
 msgid "Open a Writer document to analyze."
 msgstr "Pro analýzu otevřete dokument Writeru."
 
@@ -2783,10 +2973,6 @@ msgstr "Není vybráno nic."
 #: plugin/scripting/text_analytics_ui.py
 msgid "Not enough text in the chosen scope."
 msgstr "Ve zvoleném rozsahu není dostatek textu."
-
-#: plugin/scripting/text_analytics_ui.py
-msgid "Checking spaCy / textdescriptives / transformers installation..."
-msgstr "Kontrola instalace spaCy / textdescriptives / transformers..."
 
 #: plugin/scripting/text_analytics_ui.py
 msgid "Analyzing..."
@@ -2959,12 +3145,12 @@ msgstr ""
 "spuštění bylo vynulováno."
 
 #: plugin/scripting/session_manager.py
-msgid "Notebook Python session reset for this document."
-msgstr "Relace Pythonu poznámkového bloku byla pro tento dokument resetována."
-
-#: plugin/scripting/session_manager.py
 msgid "Could not reset Python session."
 msgstr "Relaci Pythonu se nepodařilo resetovat."
+
+#: plugin/scripting/session_manager.py
+msgid "Notebook Python session reset for this document."
+msgstr "Relace Pythonu poznámkového bloku byla pro tento dokument resetována."
 
 #: plugin/scripting/session_manager.py
 msgid ""
@@ -3014,11 +3200,6 @@ msgid "Python session reset for this document."
 msgstr "Relace Pythonu pro tento dokument byla resetována."
 
 #: plugin/scripting/session_manager.py
-msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
-msgstr ""
-"Resetování relace Pythonu se vztahuje na dokumenty Writer, Calc a Draw."
-
-#: plugin/scripting/session_manager.py
 msgid ""
 "Several Calc spreadsheets are open and none is focused. Switch to the "
 "spreadsheet to reset and try again."
@@ -3041,6 +3222,11 @@ msgid ""
 msgstr ""
 "Je otevřeno několik dokumentů Draw a žádný není aktivní. Přepněte na "
 "dokument, který chcete resetovat, a zkuste to znovu."
+
+#: plugin/scripting/session_manager.py
+msgid "Reset Python Session applies to Writer, Calc, and Draw documents."
+msgstr ""
+"Resetování relace Pythonu se vztahuje na dokumenty Writer, Calc a Draw."
 
 #: plugin/scripting/session_manager.py
 msgid "Open a Writer, Calc, or Draw document and try again."
@@ -3079,16 +3265,6 @@ msgid "Viz '{helper}' completed. {msg}"
 msgstr "Viz '{helper}' dokončeno. {msg}"
 
 #: plugin/scripting/python_runner.py
-msgid "Info"
-msgstr "Informace"
-
-#: plugin/scripting/python_runner.py
-msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
-msgstr ""
-"Vkládání výsledků do aplikací Draw/Impress zatím není podporováno. Příspěvky"
-" (PR) jsou vítány!"
-
-#: plugin/scripting/python_runner.py
 msgid "Vision helpers require a Writer or Calc document."
 msgstr "Pomocníci pro vidění vyžadují dokument Writer nebo Calc."
 
@@ -3115,6 +3291,16 @@ msgstr ""
 " {time})"
 
 #: plugin/scripting/python_runner.py
+msgid "Info"
+msgstr "Informace"
+
+#: plugin/scripting/python_runner.py
+msgid "Result insertion into Draw/Impress is not yet supported. PRs welcome!"
+msgstr ""
+"Vkládání výsledků do aplikací Draw/Impress zatím není podporováno. Příspěvky"
+" (PR) jsou vítány!"
+
+#: plugin/scripting/python_runner.py
 #, python-brace-format
 msgid "Unsupported document type for result insertion. (took {time})"
 msgstr "Nepodporovaný typ dokumentu pro vložení výsledku. (trvalo {time})"
@@ -3123,10 +3309,6 @@ msgstr "Nepodporovaný typ dokumentu pro vložení výsledku. (trvalo {time})"
 #, python-brace-format
 msgid "Script executed successfully. (took {time})"
 msgstr "Skript byl úspěšně proveden. (trvalo {time})"
-
-#: plugin/scripting/python_runner.py
-msgid "Script preparation failed."
-msgstr "Příprava skriptu selhala."
 
 #: plugin/scripting/python_runner.py
 #, python-brace-format
@@ -3152,8 +3334,8 @@ msgid "Run Python Script"
 msgstr "Spustit skript v Pythonu"
 
 #: plugin/scripting/python_runner.py
-msgid "Run Python Script failed to open the Monaco editor."
-msgstr "Spuštění skriptu Python selhalo při otevírání editoru Monaco."
+msgid "Run Python Script failed to open the editor."
+msgstr "Spuštění skriptu Python selhalo při otevírání editoru."
 
 #: plugin/scripting/python_runner.py
 msgid "Could not open the built-in script dialog."
@@ -3162,6 +3344,26 @@ msgstr "Nepodařilo se otevřít vestavěný dialog pro skripty."
 #: plugin/scripting/python_runner.py
 msgid "An unexpected error occurred while opening Run Python Script."
 msgstr "Při otevírání funkce Spustit skript Python došlo k neočekávané chybě."
+
+#: plugin/_manifest.py plugin/xdl_strings.py
+msgid "MCP Server Status"
+msgstr "Stav serveru MCP"
+
+#: plugin/_manifest.py
+msgid "◀ Prev"
+msgstr "◀ Předchozí"
+
+#: plugin/_manifest.py
+msgid "Next ▶"
+msgstr "Další ▶"
+
+#: plugin/_manifest.py
+msgid "Accept all"
+msgstr "Přijmout vše"
+
+#: plugin/_manifest.py
+msgid "Reject all"
+msgstr "Odmítnout vše"
 
 #: plugin/vision/vision_runner.py
 #, python-brace-format
@@ -3215,7 +3417,7 @@ msgstr "Zastaveno po {count} z {total} obrázků."
 msgid "OCR complete ({count} images)."
 msgstr "OCR dokončeno ({count} obrázků)."
 
-#: plugin/vision/vision_runner.py plugin/vision/vision_tools.py
+#: plugin/vision/vision_runner.py
 msgid "OCR complete."
 msgstr "OCR dokončeno."
 
@@ -3249,14 +3451,14 @@ msgid "The image was removed during OCR insert."
 msgstr "Obrázek byl během vkládání OCR odstraněn."
 
 #: plugin/mcp/__init__.py
-msgid "MCP server failed to start"
-msgstr "Server MCP se nepodařilo spustit"
-
-#: plugin/mcp/__init__.py
 msgid "Check writeragent_debug.log in your LibreOffice user config folder"
 msgstr ""
 "Zkontrolujte soubor writeragent_debug.log ve složce uživatelského profilu "
 "LibreOffice"
+
+#: plugin/mcp/__init__.py
+msgid "MCP server failed to start"
+msgstr "Server MCP se nepodařilo spustit"
 
 #: plugin/mcp/__init__.py
 msgid "Stop MCP Server"
@@ -3468,6 +3670,16 @@ msgstr ""
 "Poznámka: Server MCP aktuálně neběží na portu {3}."
 
 #: plugin/main.py
+#, python-brace-format
+msgid "{0}: {1} passed, {2} failed."
+msgstr "{0}: {1} úspěšných, {2} neúspěšných."
+
+#: plugin/main.py
+#, python-brace-format
+msgid "Tests failed to run: {0}"
+msgstr "Testy se nepodařilo spustit: {0}"
+
+#: plugin/main.py
 msgid "Dispatch Error"
 msgstr "Chyba odeslání"
 
@@ -3652,10 +3864,6 @@ msgstr "Vložit zprávu sem"
 #: plugin/xdl_strings.py
 msgid "Key Phrases"
 msgstr "Klíčové fráze"
-
-#: plugin/xdl_strings.py
-msgid "MCP Server Status"
-msgstr "Stav serveru MCP"
 
 #: plugin/xdl_strings.py
 msgid "Max Tokens:"
@@ -4153,6 +4361,17 @@ msgstr "Postranní panel ovládacího prvku Rich Text"
 msgid "Formatted chat via RichTextControl. Requires restart."
 msgstr "Formátovaný chat přes RichTextControl. Vyžaduje restart."
 
+msgid "Enter sends message"
+msgstr "Enter odešle zprávu"
+
+msgid ""
+"When on, Enter in the sidebar query runs the same action as Send; "
+"Shift+Enter inserts a newline. When off, Enter inserts a newline."
+msgstr ""
+"Je-li zapnuto, stisknutí klávesy Enter v dotazu v postranním panelu provede "
+"stejnou akci jako Odeslat; Shift+Enter vloží nový řádek. Je-li vypnuto, "
+"Enter vloží nový řádek."
+
 msgid "Humanizer skill (natural prose)"
 msgstr "Dovednost polidštění (přirozený text)"
 
@@ -4282,17 +4501,6 @@ msgstr ""
 
 msgid "Local (langdetect)"
 msgstr "Místní (langdetect)"
-
-msgid "Enter key sends sidebar chat message"
-msgstr "Klávesa Enter odešle zprávu v postranním panelu"
-
-msgid ""
-"When on, Enter in the sidebar query runs the same action as Send; "
-"Shift+Enter inserts a newline. When off, Enter inserts a newline."
-msgstr ""
-"Je-li zapnuto, stisknutí klávesy Enter v dotazu v postranním panelu provede "
-"stejnou akci jako Odeslat; Shift+Enter vloží nový řádek. Je-li vypnuto, "
-"Enter vloží nový řádek."
 
 msgid "Agent edit review"
 msgstr "Revize úprav agentem"
@@ -4476,6 +4684,9 @@ msgstr "Konfigurace klienta (zkopírujte do Claude / Hermes-Agent):"
 msgid "Copy Config"
 msgstr "Kopírovat konfiguraci"
 
+msgid "Notebook"
+msgstr "Poznámkový blok"
+
 msgid "Python"
 msgstr "Python"
 
@@ -4569,45 +4780,68 @@ msgid "Allow network access"
 msgstr "Povolit přístup k síti"
 
 msgid ""
-"Blocks network imports (socket, requests, http, urllib, ssl, …) unless "
-"checked."
+"When checked, Python may open network connections (socket, requests, http, "
+"urllib, ssl, and the other network imports). When unchecked, those imports "
+"are blocked."
 msgstr ""
-"Blokuje síťové importy (socket, requests, http, urllib, ssl, …), pokud není "
-"zaškrtnuto."
+"Je-li zaškrtnuto, Python může otevírat síťová připojení (socket, requests, "
+"http, urllib, ssl a další síťové moduly). Pokud není zaškrtnuto, jsou tyto "
+"moduly blokovány."
 
 msgid "Allow file access"
 msgstr "Povolit přístup k souborům"
 
 msgid ""
-"Blocks file writes (os write calls, shutil, tempfile, sqlite3, and the "
-"open() builtin) unless checked. Reads through pathlib, glob, io, and logging"
-" stay allowed."
+"When checked, Python may read and write files anywhere (open, io, pathlib, "
+"shutil, tempfile, sqlite3, glob, and os file calls such as listdir and "
+"stat). When unchecked, those reads and writes are blocked. In-memory buffers"
+" (io.BytesIO, io.StringIO) stay available."
 msgstr ""
-"Pokud není zaškrtnuto, blokuje zápis do souborů (volání os write, shutil, "
-"tempfile, sqlite3 a vestavěná funkce open()). Čtení přes pathlib, glob, io a"
-" logging zůstává povoleno."
+"Je-li zaškrtnuto, Python může číst a zapisovat soubory kdekoli (open, io, "
+"pathlib, shutil, tempfile, sqlite3, glob a souborové operace modulu os, jako"
+" jsou listdir a stat). Pokud není zaškrtnuto, je toto čtení a zápis "
+"blokováno. Paměťové buffery (io.BytesIO, io.StringIO) zůstávají dostupné."
 
 msgid "Allow OS access"
 msgstr "Povolit přístup k operačnímu systému"
 
 msgid ""
-"Allows raw os, subprocess, multiprocessing, and pty (run other programs and "
-"processes); includes file access."
+"When checked, Python gets the real os module and may run other programs "
+"(subprocess, multiprocessing, pty, os.system). Includes file read and write."
+" When unchecked, process spawning is blocked."
 msgstr ""
-"Povoluje surové os, subprocess, multiprocessing a pty (spouštění jiných "
-"programů a procesů); zahrnuje přístup k souborům."
+"Je-li zaškrtnuto, Python získá přístup ke skutečnému modulu os a může "
+"spouštět další programy (subprocess, multiprocessing, pty, os.system). "
+"Zahrnuje čtení a zápis souborů. Pokud není zaškrtnuto, je spouštění procesů "
+"blokováno."
 
 msgid "Extra allowed modules"
 msgstr "Další povolené moduly"
 
 msgid ""
 "Comma-separated extra modules Python may import (each name also allows "
-"name.*). Overrides the built-in blocklist, including os, socket and "
-"subprocess."
+"name.*). Overrides the sandbox blocklist, including the file, network, and "
+"process lists (os, socket, subprocess)."
 msgstr ""
 "Čárkou oddělený seznam dalších modulů, které může Python importovat (každý "
-"název povoluje i name.*). Přepisuje vestavěný seznam blokovaných modulů, "
-"včetně os, socket a subprocess."
+"název povoluje i name.*). Přepisuje blokovací seznam sandboxu, včetně "
+"seznamů souborů, sítě a procesů (os, socket, subprocess)."
+
+msgid "Python editor"
+msgstr "Editor Python"
+
+msgid ""
+"Editor window for Edit Python in Cell, Run Python Script, the init script "
+"and LaTeX."
+msgstr ""
+"Okno editoru pro Úpravu Pythonu v buňce, Spuštění skriptu Python, "
+"inicializační skript a LaTeX."
+
+msgid "Monaco (default)"
+msgstr "Monaco (výchozí)"
+
+msgid "CodeMirror"
+msgstr "CodeMirror"
 
 msgid "Vision / OCR"
 msgstr "Vize / OCR"

@@ -45,10 +45,10 @@ def _wait_cell_value(doc, cell, expected: float, timeout: float = 2.0) -> bool:
 @with_native_doc("calc")
 def test_py_data_arg_dag_chain_uno(ctx, doc):
     from plugin.calc.python.addin import PythonFunction
-    from plugin.scripting.venv_worker import PythonWorkerManager
+    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
     # Ensure worker subprocess is fresh with current code
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
 
     # 1. Direct PythonFunction add-in calls with single-cell values & tuples
     func = PythonFunction(ctx)

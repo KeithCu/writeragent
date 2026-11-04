@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import uuid
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Optional
@@ -25,9 +24,6 @@ log = logging.getLogger("writeragent.notebook")
 NOTEBOOK_REGISTRY_UDPROP = "WriterAgentNotebookJson"
 NOTEBOOK_SOURCE_PATH_UDPROP = "WriterAgentNotebookSourcePath"
 _REGISTRY_VERSION = 1
-_IN_PROMPT_RE = re.compile(r"^In \[[0-9 ]*\]:")
-_MAX_IMPORT_TEXT_CHARS = 50_000
-_TRUNCATION_SUFFIX = "\n\n[… truncated for import …]"
 
 # Module-level alias is evaluated at import. PEP 604 ``X | None`` needs 3.10+;
 # LibreOffice's embedded Python is often older. ``from __future__ import annotations``
@@ -99,38 +95,6 @@ class NotebookDocState:
             code_cells=cells,
             next_execution_count=next_ec,
         )
-
-
-# ---------------------------------------------------------------------------
-# Cell Text & Prompt Formatting
-# ---------------------------------------------------------------------------
-
-
-def _coerce_notebook_text(value: Any) -> str:  # pyright: ignore[reportUnusedFunction]
-    """Normalize nbformat text field (str or list of lines) to a single string."""
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    if isinstance(value, list):
-        return "".join(str(line) for line in value)
-    return str(value)
-
-
-def _prepare_display_text(text: str) -> str:  # pyright: ignore[reportUnusedFunction]
-    """Display text only (markdown, raw, output), not code form fields."""
-    display = text or ""
-    if len(display) <= _MAX_IMPORT_TEXT_CHARS:
-        return display
-    keep = max(0, _MAX_IMPORT_TEXT_CHARS - len(_TRUNCATION_SUFFIX))
-    return display[:keep] + _TRUNCATION_SUFFIX
-
-
-def _format_in_prompt(execution_count: Any | None) -> str:  # pyright: ignore[reportUnusedFunction]
-    """Format Jupyter-style In [n]: gutter label for a code cell."""
-    if execution_count is None:
-        return "In [ ]:"
-    return f"In [{execution_count}]:"
 
 
 # ---------------------------------------------------------------------------

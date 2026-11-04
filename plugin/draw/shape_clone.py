@@ -11,6 +11,7 @@ import os
 import tempfile
 from typing import Any, NamedTuple
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import create_property_value, get_service_manager
 from plugin.framework.url_utils import path_to_file_url
@@ -254,7 +255,7 @@ def clone_shape(
             shape_type = ""
     shape_type = str(shape_type)
     if not shape_type.startswith("com.sun.star."):
-        raise RuntimeError("Unsupported master shape type: %s" % shape_type)
+        raise RuntimeError("Unsupported shape type: %s" % shape_type)
 
     clone = dest_doc.createInstance(shape_type)
     if clone is None:
@@ -328,12 +329,7 @@ def clone_shape(
                 raise
             src_child_count = 0
         for child_idx in range(src_child_count):
-            try:
-                src_child = src_shape.getByIndex(child_idx)
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                raise
+            src_child = src_shape.getByIndex(child_idx)
             child_result = clone_shape(
                 dest_doc,
                 clone,
@@ -346,6 +342,8 @@ def clone_shape(
             graphic_shapes += child_result.graphic_shapes
             graphic_reimports += child_result.graphic_reimports
             if child_result.empty_group_message is not None:
+                copy_prop(clone, src_shape, "Position")
+                copy_prop(clone, src_shape, "Size")
                 return ClonedShape(
                     shape=clone,
                     shape_type=shape_type,
@@ -378,22 +376,10 @@ def clone_shape(
                     copy_prop(clone, src_shape, prop)
                 src_portions: list[Any] = []
                 if hasattr(src_text, "createEnumeration"):
-                    src_enum: Any = src_text.createEnumeration()
-                    if src_enum is not None and hasattr(src_enum, "hasMoreElements"):
-                        while True:
-                            has_more = src_enum.hasMoreElements()
-                            if not (has_more is True or has_more == 1):
-                                break
-                            src_portions.append(src_enum.nextElement())
+                    src_portions = list(iter_elements(src_text.createEnumeration()))
                 dst_portions: list[Any] = []
                 if hasattr(dst_text, "createEnumeration"):
-                    dst_enum: Any = dst_text.createEnumeration()
-                    if dst_enum is not None and hasattr(dst_enum, "hasMoreElements"):
-                        while True:
-                            has_more = dst_enum.hasMoreElements()
-                            if not (has_more is True or has_more == 1):
-                                break
-                            dst_portions.append(dst_enum.nextElement())
+                    dst_portions = list(iter_elements(dst_text.createEnumeration()))
                 fallback = src_portions[-1] if src_portions else None
                 for idx, dst_portion in enumerate(dst_portions):
                     src_portion = src_portions[idx] if idx < len(src_portions) else fallback

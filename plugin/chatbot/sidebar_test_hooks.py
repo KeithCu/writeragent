@@ -25,6 +25,7 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any, Callable
 from weakref import WeakKeyDictionary
 
@@ -34,7 +35,7 @@ from plugin.chatbot.panel import (
     notify_record_mouse_released,
     notify_stop_mouse_pressed,
 )
-from plugin.chatbot.rich_text_control import _debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import best_effort, uno_read
@@ -87,7 +88,7 @@ def iter_live_chat_panels() -> list[Any]:
 
 
 def _require_debug() -> None:
-    if not _debug_env_active():
+    if not debug_env_active():
         raise RuntimeError(_HOOKS_UNAVAILABLE)
 
 
@@ -963,16 +964,16 @@ def _apply_fake_tts(mode: str) -> None:
 
             setattr(fake_popen, "_writeragent_fake_tts", True)
 
-            def fake_end_utterance(cancel: Any) -> bool:
+            def fake_end_utterance(utt: Any) -> bool:
                 # Paired with fake_stop_speech: the check must not run until the scope restore is published.
                 with _FAKE_TTS_LOCK:
-                    return orig_end_utterance(cancel)
+                    return orig_end_utterance(utt)
 
             setattr(fake_end_utterance, "_writeragent_fake_tts", True)
 
             def fake_stop_speech(*args: Any, **kwargs: Any) -> None:
                 # What was wrong: on_complete was skipped after a fake hold/stop even though the child was reaped.
-                # How it happened: stop_speech cancels _speech_cancel and SIGKILLs before it returns.
+                # How it happened: stop_speech cancels Utterance.scope and SIGKILLs before it returns.
                 # The tts-speak thread wakes from communicate/wait, _end_utterance sees the cancelled scope,
                 # returns False, and never calls on_complete. The restore below that call ran too late. A slow
                 # tts-cleanup thread start (CI xdist) makes the window likely. The 2s wait cannot help.
@@ -980,10 +981,10 @@ def _apply_fake_tts(mode: str) -> None:
                 # fake_end_utterance takes the same lock, so the worker observes the restored scope.
                 with _FAKE_TTS_LOCK:
                     try:
-                        cur_cancel = getattr(tts_service, "_speech_cancel", None)
+                        cur_utt = getattr(tts_service, "_current", None)
                         orig_stop_speech(*args, **kwargs)
-                        if cur_cancel is not None:
-                            tts_service._speech_cancel = cur_cancel
+                        if cur_utt is not None:
+                            tts_service._current = cur_utt
                     finally:
                         for p in _FAKE_TTS_PROCS.values():
                             if p.poll() is None:
@@ -1261,9 +1262,9 @@ def handle_debug_sidebar_command(command: str) -> None:
         with venv_worker._registry_lock:
             managers = list(venv_worker._instances.values())
         for mgr in managers:
-            proc = mgr._proc
-            if proc is not None and proc.poll() is None:
-                proc.kill()
+            warm = mgr._warm
+            if warm is not None and warm.is_alive():
+                warm.kill()
                 _VENV_WORKER_KILLS += 1
         _write_debug_snapshot(sl)
         return
@@ -2400,12 +2401,21 @@ class _UrpSlashHost:
         self.query_control = query
         self.response_control = response
         self.slash_popup: Any = None
+        self._send_cancellation: Any = None
+        self.sidebar_state: Any = SimpleNamespace(tool_loop=None)
+        self.session: Any = None
         self.clear_listener = type(
             "ClearProxy",
             (),
             {"on_action_performed": staticmethod(lambda _ev: uno_click(clear) if clear is not None else None)},
         )()
         self._stop = stop
+
+    def dispatch(self, _event: Any) -> None:
+        return
+
+    def _set_status(self, _text: str) -> None:
+        return
 
     def hide_popup(self) -> None:
         popup = getattr(self, "slash_popup", None)
@@ -2416,9 +2426,7 @@ class _UrpSlashHost:
     def clear_ask(self) -> None:
         from plugin.chatbot.dialogs import set_control_text
         set_control_text(self.query_control, "")
-        dispatch = getattr(self, "dispatch", None)
-        if callable(dispatch):
-            dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
         from plugin.chatbot.dialogs import get_control_text, set_control_text
@@ -2435,6 +2443,53 @@ class _UrpSlashHost:
     def stop_in_flight(self) -> None:
         if self._stop is not None:
             uno_click(self._stop)
+
+    def slash_document_model(self) -> Any:
+        return None
+
+    def slash_run_rewrite(self, instruction: str) -> None:
+        self.append_output("\n" + instruction + "\n")
+
+    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
+        from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
+        from plugin.framework.blocking_wait import run_blocking_in_thread
+        from plugin.framework.i18n import _
+
+        if cancel is None:
+            cancel = self._send_cancellation
+        if self.sidebar_state.tool_loop is not None:
+            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
+            return
+        self._set_status(_("Thinking..."))
+        # Same UI-thread prep as SendButtonListener.run_slash_compact (UNO + msgbox).
+        client, tools = prepare_slash_compact_on_ui_thread(self, self.ctx, self.session)
+        if client is None:
+            self.append_output("\n" + _("Configure an API key to compact.") + "\n")
+            return
+
+        def worker() -> str:
+            return run_slash_compact_sync(
+                focus=focus,
+                session=self.session,
+                cancel=cancel,
+                client=client,
+                tools=tools,
+            )
+
+        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
+        self.append_output(line)
+
+    def slash_agent_edit_in_flight(self) -> bool:
+        return False
+
+    def run_slash_formula(self, description: str) -> None:
+        from plugin.chatbot.slash_undo_formula import run_slash_formula_worker
+
+        model = self.slash_document_model()
+        if model is None:
+            self.append_output("\n" + "No document\n")
+            return
+        run_slash_formula_worker(self, ctx=self.ctx, model=model, description=description)
 
 
 def _urp_slash_controller() -> Any:

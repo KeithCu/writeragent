@@ -17,7 +17,7 @@ from typing import Any, Callable
 
 from plugin.framework.send_cancellation import SendCancellation
 
-from plugin.audio.tts_models import _notify_tts_status
+from plugin.audio.tts_models import notify_tts_status
 from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
 from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
 from plugin.framework.client.http_security import public_target
@@ -258,7 +258,7 @@ def _resolve_tts_voice(model: str, voice: str, endpoint_url: str | None = None) 
     return canonical_voice_id(family, voice)
 
 
-def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
+def download_endpoint_speech(
     text: str,
     endpoint_url: str,
     api_key: str,
@@ -332,12 +332,12 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
         break
 
     if err_body or audio_bytes is None:
-        _notify_tts_status(_speech_failure_message(code, err_body), on_status)
+        notify_tts_status(_speech_failure_message(code, err_body), on_status)
         return None
 
     if not audio_bytes:
         log.warning("TTS endpoint %s returned empty audio body", public_target(url))
-        _notify_tts_status(_("Speech endpoint returned no audio."), on_status)
+        notify_tts_status(_("Speech endpoint returned no audio."), on_status)
         return None
 
     actual_format = _sniff_audio_format(audio_bytes, content_type)

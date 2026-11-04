@@ -5,7 +5,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """HTML/StarWriter import, replace, and markup routing for Writer documents.
 
-Public entries are re-exported from ``plugin.writer.format``.
 Header/footer apply uses ``replace_xtext_with_html`` (same StarWriter
 insert as the body path, pointed at a region ``XText``).
 
@@ -79,8 +78,8 @@ def _ensure_html_linebreaks(content: str) -> str:
     content = escape_prose_angle_brackets(_normalize(content))
     # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
-        from . import format as format_mod
-        content = format_mod._strip_html_boilerplate(content)
+        from .html_export import _strip_html_boilerplate
+        content = _strip_html_boilerplate(content)
     # A block tag or <br> means the content has its own paragraphs; wrapping it in <p> is invalid.
     if _LINEBREAK_MARKUP_RE.search(content):
         return _wrap_html_fragment(content)
@@ -156,9 +155,9 @@ def insert_html_fragment_at_cursor(
     tail = _parked_cursor(cursor) if model is not None else None
     from plugin.doc.temp_files import with_temp_buffer
     from plugin.framework.uno_context import create_property_value
-    from . import format as format_mod
+    from .html_export import HTML_FILTER
     with with_temp_buffer(prepared) as (_path, file_url):
-        filter_name = format_mod.HTML_FILTER
+        filter_name = HTML_FILTER
         filter_props = (create_property_value("FilterName", filter_name),)
         try:
             cursor.insertDocumentFromURL(file_url, filter_props)
@@ -722,14 +721,11 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
     cursor.gotoEnd(True)
 
     from .edit_review import next_agent_edit_undo_title
-    from plugin.doc.compound_undo import WriterCompoundUndo
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     title = next_agent_edit_undo_title()
-    group = WriterCompoundUndo.try_enter(model, title)
-    if group is None:
-        raise ToolExecutionError("Could not enter undo context for header/footer import.")
 
-    try:
+    def mutate() -> None:
         cursor.setString("")
         cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
@@ -756,10 +752,10 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
                         try:
                             # To actually remove the trailing break, select from the end of the previous paragraph
                             # to the end of the document, and set String to empty.
-                            cursor = text_obj.createTextCursorByRange(prev)
-                            cursor.gotoEndOfParagraph(False)
-                            cursor.gotoRange(last.getEnd(), True)
-                            cursor.setString("")
+                            c = text_obj.createTextCursorByRange(prev)
+                            c.gotoEndOfParagraph(False)
+                            c.gotoRange(last.getEnd(), True)
+                            c.setString("")
                         except Exception as e:
                             reraise_if_disposed(e)
                             log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
@@ -772,15 +768,16 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
         except Exception as e:
             reraise_if_disposed(e)
             log.debug("Failed to inspect trailing paragraph: %s", e)
-    except Exception as exc:
-        left = group.close()
-        if not (left and group.rollback_if_top()):
-            raise ToolExecutionError(
-                f"the header/footer was written and could not be rolled back: {exc}"
-            ) from exc
-        raise
 
-    group.close()
+    try:
+        err = commit_or_rollback(model, title, mutate)
+    except UndoUnavailable:
+        raise ToolExecutionError("Could not enter undo context for header/footer import.")
+
+    if err is not None and err.get("code") == "ROLLBACK_FAILED":
+        raise ToolExecutionError(
+            f"the header/footer was written and could not be rolled back: {err.get('message')}"
+        )
 
 
 def content_has_markup(content: str | None) -> bool:
@@ -1035,6 +1032,25 @@ def replace_preserving_format(
         del_cursor = text.createTextCursorByRange(main_cursor)
         _advance(del_cursor, old_len - new_len, True)
         del_cursor.setString("")
+
+
+def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) -> Any:
+    """Run a Writer document mutation, optionally wrapped in EditReviewSession.
+
+    LibrePy omits ``plugin.writer.edit_review``; when that module is absent we apply
+    directly. Full WriterAgent (or co-install) imports it and honors review mode.
+    """
+    try:
+        from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
+    except ImportError:
+        return apply_fn()
+    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
+    try:
+        with review:
+            return review.record_mutation(apply_fn)
+    finally:
+        review.cleanup()
+
 
 
 

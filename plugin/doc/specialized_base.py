@@ -37,7 +37,7 @@ from plugin.doc.peer_prompt import (
     annotate_outer_peer_wait,
     looks_like_peer_work_envelope,
 )
-from plugin.doc.specialized_catalog import _catalog_entries_from_base
+from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, _catalog_entries_from_base
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
@@ -316,9 +316,7 @@ class DelegateToSpecializedBase(ToolBase):
 
             hints: list[str] = []
             if domain == "footnotes":
-                hints.append(
-                    " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after so the note is placed after that text; the task executor cannot move the view cursor."
-                )
+                hints.append(" " + (DOMAIN_LOOP_HINTS["footnotes"].get(self._agent_label) or DOMAIN_LOOP_HINTS["footnotes"]["Writer"]))
             # Page size stays on the shapes loop (and the inner domain agent when
             # shapes is requested). The outer python agent passes layout in task.
             if domain == "shapes":
@@ -331,9 +329,12 @@ class DelegateToSpecializedBase(ToolBase):
 
             if domain == "charts":
                 hints.append(
-                    " When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
-                    if self._agent_label == "Calc"
-                    else " When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters."
+                    " "
+                    + (
+                        DOMAIN_LOOP_HINTS["charts"]["Calc"]
+                        if self._agent_label == "Calc"
+                        else DOMAIN_LOOP_HINTS["charts"]["Writer"]
+                    )
                 )
 
             # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running

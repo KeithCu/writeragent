@@ -405,7 +405,9 @@ def test_kokoro_worker_once_subprocess(tmp_path):
     )
     out_wav = tmp_path / "out.wav"
     env = dict(os.environ)
-    env["PYTHONPATH"] = f"{tmp_path}:{repo_root}:{env.get('PYTHONPATH', '')}"
+    env["PYTHONPATH"] = os.pathsep.join(
+        [str(tmp_path), repo_root, env.get("PYTHONPATH", "")]
+    ).strip(os.pathsep)
 
     cmd = [
         sys.executable,

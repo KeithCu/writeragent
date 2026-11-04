@@ -409,7 +409,7 @@ def is_cacheable_doc_key(key: str) -> bool:
     return bool(key) and key != UNKNOWN_DOC_KEY
 
 
-def _compute_doc_key(doc: Any) -> str:
+def compute_doc_key(doc: Any) -> str:
     """uid:<RuntimeUID> then url:<normalized>; never id(doc)."""
     if doc is None:
         return UNKNOWN_DOC_KEY
@@ -424,6 +424,9 @@ def _compute_doc_key(doc: Any) -> str:
     if url:
         return "url:%s" % url
     return UNKNOWN_DOC_KEY
+
+
+_compute_doc_key = compute_doc_key
 
 
 def _emit_cache_invalidated(*, doc: Any | None = None, key: str | None = None) -> None:
@@ -510,7 +513,7 @@ def _teardown_cache_listener(key: str, owner_modify: Any | None = None, owner_un
     if pair is None:
         return
     # Recycled RuntimeUID: a late disposing() from the old listener must not
-    # evict the newer pair (review_toolbar._ReviewModifyListener).
+    # evict the newer pair (review_view_attachment.ReviewModifyListener).
     if owner_modify is not None and pair.modify is not owner_modify:
         return
     if owner_unload is not None and pair.unload is not owner_unload:
@@ -704,7 +707,7 @@ class DocumentService(ServiceBase):
         ``_resolve_mcp_doc_key``. Empty both → ``UNKNOWN_DOC_KEY`` (do not
         cache). First call lazily attaches one modify + OnUnload listener.
         """
-        key = _compute_doc_key(doc)
+        key = compute_doc_key(doc)
         if is_cacheable_doc_key(key):
             _ensure_cache_listener(doc, key)
         return key

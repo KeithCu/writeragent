@@ -2305,10 +2305,10 @@ def test_g5_stt_fallback_whisper(ctx):
     sl = _g_prep()
     endpoint = get_current_endpoint()
     model = get_text_model()
-    saved_stt = get_config("stt_model")
+    saved_stt = get_config("audio.stt_model")
     try:
         set_native_audio_support(model, endpoint, False)
-        save({"stt_model": MOCK_STT_MODEL_ID})
+        save({"audio.stt_model": MOCK_STT_MODEL_ID})
         time.sleep(2.1)
         _g_record_and_stop(sl, _WAV_1S)
         snaps = _captures()
@@ -2321,7 +2321,7 @@ def test_g5_stt_fallback_whisper(ctx):
         )
     finally:
         set_native_audio_support(model, endpoint, True)
-        save({"stt_model": saved_stt})
+        save({"audio.stt_model": saved_stt})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2599,11 +2599,11 @@ def test_g27_stt_empty_no_chat_send(ctx):
     assert _session is not None
     endpoint = get_current_endpoint()
     model = get_text_model()
-    saved_stt = get_config("stt_model")
+    saved_stt = get_config("audio.stt_model")
     saved_transcript = _session.config.transcript
     try:
         set_native_audio_support(model, endpoint, False)
-        save({"stt_model": MOCK_STT_MODEL_ID})
+        save({"audio.stt_model": MOCK_STT_MODEL_ID})
         _session.config.transcript = ""
         # If the audio_support_map poll misses, native POST 400s and STT still returns "".
         _session.config.fail_native_audio = True
@@ -2628,7 +2628,7 @@ def test_g27_stt_empty_no_chat_send(ctx):
         _session.config.transcript = saved_transcript
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
-        save({"stt_model": saved_stt})
+        save({"audio.stt_model": saved_stt})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2644,14 +2644,14 @@ def test_g28_stt_error_json(ctx):
     assert _session is not None
     endpoint = get_current_endpoint()
     model = get_text_model()
-    saved_stt = get_config("stt_model")
+    saved_stt = get_config("audio.stt_model")
     _session.config.fail_stt = True
     # Native chat must not swallow this case: fail native audio so STT runs even
     # if audio_support_map still says the mock model is multimodal.
     _session.config.fail_native_audio = True
     try:
         set_native_audio_support(model, endpoint, False)
-        save({"stt_model": MOCK_STT_MODEL_ID})
+        save({"audio.stt_model": MOCK_STT_MODEL_ID})
         time.sleep(2.1)
         before = _transcript()
         _g_record_and_stop(sl, _WAV_1S)
@@ -2668,7 +2668,7 @@ def test_g28_stt_error_json(ctx):
         _session.config.fail_stt = False
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
-        save({"stt_model": saved_stt})
+        save({"audio.stt_model": saved_stt})
         time.sleep(2.1)
     _hello_ok()
 
@@ -2684,12 +2684,12 @@ def test_g29_native_400_then_stt_same_drain(ctx):
     assert _session is not None
     endpoint = get_current_endpoint()
     model = get_text_model()
-    saved_stt = get_config("stt_model")
+    saved_stt = get_config("audio.stt_model")
     _session.config.fail_stt = False
     _session.config.fail_native_audio = True
     try:
         set_native_audio_support(model, endpoint, True)
-        save({"stt_model": MOCK_STT_MODEL_ID})
+        save({"audio.stt_model": MOCK_STT_MODEL_ID})
         time.sleep(2.1)
         _g_record_and_stop(sl, _WAV_1S, timeout=90.0)
         body = _transcript()
@@ -2710,7 +2710,7 @@ def test_g29_native_400_then_stt_same_drain(ctx):
     finally:
         _session.config.fail_native_audio = False
         set_native_audio_support(model, endpoint, True)
-        save({"stt_model": saved_stt})
+        save({"audio.stt_model": saved_stt})
         time.sleep(2.1)
     _hello_ok()
 
@@ -4443,9 +4443,9 @@ def _s_install(mode: str, *, native_audio: bool = False) -> None:
     endpoint = get_current_endpoint()
     model = get_text_model()
     _S_SAVED.clear()
-    _S_SAVED.update(model=model, endpoint=endpoint, stt_model=get_config("stt_model"), transcript=_session.config.transcript)
+    _S_SAVED.update(model=model, endpoint=endpoint, stt_model=get_config("audio.stt_model"), transcript=_session.config.transcript)
     set_native_audio_support(model, endpoint, native_audio)
-    save({"stt_model": MOCK_STT_MODEL_ID})
+    save({"audio.stt_model": MOCK_STT_MODEL_ID})
     # Silence: STT hears nothing. Otherwise the mock transcribes the take.
     _session.config.transcript = "" if mode == "silence" else "Fake STT transcript."
     time.sleep(2.1)
@@ -4459,7 +4459,7 @@ def _s_clear() -> None:
     clear_fake_stt()
     if _S_SAVED:
         set_native_audio_support(_S_SAVED["model"], _S_SAVED["endpoint"], True)
-        save({"stt_model": _S_SAVED["stt_model"]})
+        save({"audio.stt_model": _S_SAVED["stt_model"]})
         if _session is not None:
             _session.config.transcript = _S_SAVED["transcript"]
         _S_SAVED.clear()

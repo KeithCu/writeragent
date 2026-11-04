@@ -239,11 +239,9 @@ class TestSendDispose:
         listener = _make_send_listener()
         scope = SendCancellation()
         listener._send_cancellation = scope
-        checker = listener.resolve_stop_checker()
-        assert not (checker())
+        assert not (scope.is_cancelled())
         listener.disposing(None)
         assert (scope.is_cancelled())
-        assert (checker())
         assert (listener._stop_requested_fallback)
         assert (listener.ctx) is None
         assert (listener.panel) is None
@@ -419,11 +417,9 @@ class TestSendDispose:
     ) -> None:
         from plugin.chatbot.panel_events import PanelEventsController
 
-        fake_main = MagicMock()
-        fake_main._bootstrap_state = bootstrap_state
         with (
-            patch.dict(sys.modules, {"plugin.main": fake_main}),
-            patch("plugin.framework.thread_guard.on_python_main_thread", return_value=py_main),
+            patch("plugin.main.bootstrap_complete", return_value=(bootstrap_state is BootstrapState.INITIALIZED)),
+            patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=py_main),
         ):
             assert PanelEventsController._mcp_subscribe_must_defer() is expected
 
@@ -2189,6 +2185,53 @@ def test_do_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None
     assert listener._terminal_status == "Error"
 
 
+def test_do_send_missing_document_keeps_ask_text() -> None:
+    listener = _make_send_listener()
+    listener.frame = None
+    listener.query_control = MagicMock()
+    listener.query_control.getModel.return_value = MagicMock()
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value="keep this"), patch.object(
+        listener, "_read_and_clear_query"
+    ) as mock_read_clear:
+        listener._do_send()
+    mock_read_clear.assert_not_called()
+
+
+def test_do_send_local_slash_skips_begin_send() -> None:
+    listener = _make_send_listener()
+    listener.query_control = MagicMock()
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value="/help"), patch.object(
+        listener, "_begin_send"
+    ) as mock_begin, patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        listener._do_send()
+    mock_begin.assert_not_called()
+
+
+def test_do_send_answer_slash_calls_begin_send_then_chat() -> None:
+    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT
+
+    listener = _make_send_listener()
+    listener.query_control = MagicMock()
+    listener._require_send_document = MagicMock(return_value=(MagicMock(), "writer"))
+    listener._tool_calling = MagicMock()
+    listener._voice.resolve_voice_query = MagicMock(side_effect=lambda q: (q, False))
+    real_begin = listener._begin_send
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value="/summarize budget"), patch(
+        "plugin.chatbot.dialogs.set_control_text"
+    ), patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model"), patch(
+        "plugin.chatbot.send_handlers.dispatch_sidebar_send", return_value=False
+    ), patch(
+        "plugin.chatbot.chat_sidebar_mode.mode_from_selector_with_flags", return_value=CHAT_MODE_CHAT
+    ), patch("plugin.framework.config.get_config", return_value=None), patch(
+        "plugin.acp.registry.normalize_backend_id", return_value="builtin"
+    ), patch.object(listener, "_begin_send", wraps=real_begin) as mock_begin:
+        listener._do_send()
+    mock_begin.assert_called_once()
+    listener._tool_calling._do_send_chat_with_tools.assert_called_once()
+    sent_query = listener._tool_calling._do_send_chat_with_tools.call_args[0][0]
+    assert "budget" in sent_query
+
+
 def test_extracted_peer_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None:
     listener = _make_send_listener()
     listener.frame = None
@@ -2433,8 +2476,17 @@ class TestPanelR14Fixes:
         listener.query_control = MagicMock()
         listener.query_control.getModel.return_value = MagicMock()
 
-        def _fake_chat_with_tools(query: str, model: Any, doc_type: str) -> None:
-            listener.session.messages.append({"role": "user", "content": query})
+        def _fake_chat_with_tools(
+            query: str,
+            model: Any,
+            doc_type: str,
+            skip_append_user: bool = False,
+            *,
+            user_transcript_text: str | None = None,
+            slash_sidebar_only: bool = False,
+        ) -> None:
+            display = user_transcript_text if user_transcript_text else query
+            listener.session.messages.append({"role": "user", "content": display})
             raise RuntimeError("after commit")
 
         with (
@@ -2637,17 +2689,49 @@ class TestJ02Regression:
 
 
 
-def test_append_output_shows_help_without_live_turn() -> None:
-    # Live qt6 box 2026-10-29: /help went through _append_response, which
-    # drops text with no live turn, so the transcript showed nothing.
+def test_append_output_persists_slash_local_on_session():
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+    from unittest.mock import MagicMock, patch
+
+    session = SimpleNamespace(messages=[])
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener.session = session
+    widget = MagicMock()
+    listener.rich_text_widget = widget
+    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=None):
+        listener.append_output("\nSlash commands:\n")
+    assert session.messages[-1][SLASH_LOCAL] is True
+    widget.paint_session.assert_called_once_with(session)
+
+
+def test_append_output_during_tool_loop_streams_slash_local_row():
+    from plugin.chatbot.panel import SendButtonListener
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+    from unittest.mock import MagicMock, patch
+
+    session = SimpleNamespace(messages=[])
+    turn = SimpleNamespace(session=session)
+    with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
+        listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
+    listener.session = session
+    listener.rich_text_widget = MagicMock()
+    with patch("plugin.chatbot.tool_loop_actions.running_turn", return_value=turn), patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)):
+        listener.append_output("\nSlash commands:\n")
+    assert session.messages[-1][SLASH_LOCAL] is True
+    listener.rich_text_widget.stream_session.assert_called_once_with(session)
+
+
+def test_append_output_falls_back_to_response_control_without_session():
     from plugin.chatbot.panel import SendButtonListener
     from unittest.mock import MagicMock, patch
 
     with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
         listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
-    widget = MagicMock()
-    listener.rich_text_widget = widget
-    with patch.object(listener, "_run_rich_ui", side_effect=lambda fn, *a, **k: fn(*a, **k)), patch.object(listener, "_append_response") as append_response:
-        listener.append_output("\n/help — Print the command list\n")
-    widget.append_chunk.assert_called_once_with("\n/help — Print the command list\n")
-    append_response.assert_not_called()
+    listener.session = None
+    response = MagicMock()
+    listener.response_control = response
+    with patch("plugin.chatbot.dialogs.get_control_text", return_value=""), patch("plugin.chatbot.dialogs.set_control_text") as set_text, patch.object(listener, "_scroll_response_to_bottom"):
+        listener.append_output("\n/help line\n")
+    set_text.assert_called_once_with(response, "\n/help line\n")

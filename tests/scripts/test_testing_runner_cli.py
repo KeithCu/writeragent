@@ -27,7 +27,7 @@ def _touch_soffice_next_to_helper(tmp_path: Path, *, name: str | None = None) ->
 
 def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) -> None:
     seeded: list[Path] = []
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     soffice = _touch_soffice_next_to_helper(tmp_path)
     import types
@@ -52,7 +52,7 @@ def test_soffice_bootstrap_command_seeds_throwaway(monkeypatch, tmp_path: Path) 
 def test_soffice_bootstrap_command_github_actions_requires_user_oxt(
     monkeypatch, tmp_path: Path
 ) -> None:
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setenv("GITHUB_ACTIONS", "true")
     monkeypatch.setattr(tr, "_libreoffice_user_lock_path", lambda: tmp_path / ".lock")
     _touch_soffice_next_to_helper(tmp_path)
@@ -74,7 +74,7 @@ def test_soffice_bootstrap_command_seeds_throwaway_win32_exe(
 ) -> None:
     """GHA 33749075233: Windows lookup is soffice.exe; a bare ``soffice`` is ignored."""
     seeded: list[Path] = []
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     monkeypatch.setattr(tr.sys, "platform", "win32")
     soffice = _touch_soffice_next_to_helper(tmp_path, name="soffice.exe")
@@ -100,7 +100,7 @@ def test_soffice_bootstrap_command_uses_resolve_when_not_beside_helper(
     found = tmp_path / "MacOS" / "soffice"
     found.parent.mkdir()
     found.write_text("", encoding="utf-8")
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", seeded.append)
     monkeypatch.setattr(tr, "_resolve_soffice_bin", lambda: found)
     cmd, accept = tr._soffice_bootstrap_command()
@@ -114,7 +114,7 @@ def test_soffice_bootstrap_command_uses_resolve_when_not_beside_helper(
 
 def test_soffice_bootstrap_command_argv0_is_bare_path(monkeypatch, tmp_path: Path) -> None:
     """Current officehelper Popen([sOffice, ...]) — argv[0] must be path-only."""
-    monkeypatch.setattr(tr, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
     monkeypatch.setattr(tr, "_seed_throwaway_profile_with_user_oxt", lambda _p: None)
     soffice = _touch_soffice_next_to_helper(tmp_path)
     import types
@@ -213,12 +213,12 @@ def test_seed_throwaway_missing_oxt_is_noop_locally(monkeypatch, tmp_path: Path)
 
 
 def test_parse_cli_user_profile_sets_flags(monkeypatch) -> None:
-    monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "show_window", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "show_window", False)
     monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
     rest = tr._parse_cli_args(["--user-profile", "tests/chatbot/test_mock_llm_sidebar_uno.py"])
-    assert tr.use_user_profile is True
-    assert tr.show_window is True
+    assert tr.current_office().options.use_user_profile is True
+    assert tr.current_office().options.show_window is True
     assert rest == ["tests/chatbot/test_mock_llm_sidebar_uno.py"]
     assert os.environ.get("WRITERAGENT_UNO_USER_PROFILE") == "1"
 
@@ -275,25 +275,25 @@ def test_is_uno_bridge_disposed() -> None:
 
 
 def test_parse_cli_repeat_and_soak_env(monkeypatch) -> None:
-    monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "show_window", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "show_window", False)
     monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
     monkeypatch.delenv("WRITERAGENT_UNO_SOAK", raising=False)
     rest = tr._parse_cli_args(["--repeat", "7", "test_draw_uno"])
     assert rest == ["test_draw_uno"]
-    assert tr._run_options.soak_repeat == 7
+    assert tr.current_office().options.soak_repeat == 7
 
     rest = tr._parse_cli_args(["--repeat=3", "test_get_draw_tree"])
     assert rest == ["test_get_draw_tree"]
-    assert tr._run_options.soak_repeat == 3
+    assert tr.current_office().options.soak_repeat == 3
 
     monkeypatch.setenv("WRITERAGENT_UNO_SOAK", "11")
     rest = tr._parse_cli_args(["test_draw_uno"])
     assert rest == ["test_draw_uno"]
-    assert tr._run_options.soak_repeat == 11
+    assert tr.current_office().options.soak_repeat == 11
 
     rest = tr._parse_cli_args(["--repeat", "2", "test_draw_uno"])
-    assert tr._run_options.soak_repeat == 2
+    assert tr.current_office().options.soak_repeat == 2
 
     # K160 moved CLI parsing to argparse: a non-integer --repeat is a usage error.
     with pytest.raises(SystemExit):
@@ -301,29 +301,29 @@ def test_parse_cli_repeat_and_soak_env(monkeypatch) -> None:
 
     rest = tr._parse_cli_args(["--pair", "tree-math", "--repeat", "4"])
     assert rest == ["test_get_draw_tree", "test_insert_math_draw"]
-    assert tr._run_options.soak_repeat == 4
+    assert tr.current_office().options.soak_repeat == 4
     rest = tr._parse_cli_args(["--pair=dup-move"])
     assert rest == [
         "test_duplicate_slide_copies_shapes",
         "test_duplicate_rename_move_slide",
     ]
-    assert tr._run_options.exact_function_names == [
+    assert tr.current_office().options.exact_function_names == [
         "test_duplicate_slide_copies_shapes",
         "test_duplicate_rename_move_slide",
     ]
     rest = tr._parse_cli_args(["--pair", "tree-math"])
     assert rest == ["test_get_draw_tree", "test_insert_math_draw"]
-    assert tr._run_options.exact_function_names == ["test_get_draw_tree", "test_insert_math_draw"]
-    assert "test_get_draw_tree_marks_blank_and_label_hint" not in tr._run_options.exact_function_names
-    tr._run_options.filters = []
-    tr._run_options.exact_function_names = []
+    assert tr.current_office().options.exact_function_names == ["test_get_draw_tree", "test_insert_math_draw"]
+    assert "test_get_draw_tree_marks_blank_and_label_hint" not in tr.current_office().options.exact_function_names
+    tr.current_office().options.filters = []
+    tr.current_office().options.exact_function_names = []
 
 
 def test_run_module_suite_pair_exact_skips_draw_tree_prefix_bleed() -> None:
     """--pair tree-math must not run test_get_draw_tree_marks_blank_and_label_hint."""
-    tr.reset_lifecycle_breadcrumb()
-    tr._run_options.filters = []
-    tr._run_options.exact_function_names = ["test_get_draw_tree", "test_insert_math_draw"]
+    tr.current_office().reset_lifecycle_breadcrumb()
+    tr.current_office().options.filters = []
+    tr.current_office().options.exact_function_names = ["test_get_draw_tree", "test_insert_math_draw"]
     ran: list[str] = []
 
     def test_get_draw_tree(ctx=None):
@@ -352,19 +352,18 @@ def test_run_module_suite_pair_exact_skips_draw_tree_prefix_bleed() -> None:
     assert ran == ["tree", "math"]
     assert passed == 2
     assert failed == 0
-    tr._run_options.filters = []
-    tr._run_options.exact_function_names = []
+    tr.current_office().options.filters = []
+    tr.current_office().options.exact_function_names = []
     tr._office.urp_bridge_dead = False
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     """Harness attribution: TEST returned OK but SalAbort already printed."""
-    tr.reset_lifecycle_breadcrumb()
-    tr.reset_office_death_signals(clear_proc=True)
-    tr._run_options.filters = []
-    tr._run_options.filters = []
-    tr._run_options.exact_function_names = []
+    tr.current_office().reset_lifecycle_breadcrumb()
+    tr.current_office().reset_death_signals(clear_proc=True)
+    tr.current_office().options.filters = []
+    tr.current_office().options.exact_function_names = []
     ran: list[str] = []
 
     def test_ok(ctx=None):
@@ -394,14 +393,14 @@ def test_run_module_suite_fails_ok_test_on_application_error(capsys) -> None:
     assert "LIFECYCLE application error after TEST returned draw.salabort.test_ok" in err
     assert any("Unspecified Application Error" in line for line in suite_log)
     tr._office.urp_bridge_dead = False
-    tr.reset_office_death_signals(clear_proc=True)
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_death_signals(clear_proc=True)
+    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     """URP dispose on the second test must print previous=<first> result=OK."""
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "99")
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
 
     def test_ok(ctx=None):
         return None
@@ -420,8 +419,8 @@ def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     module.test_victim = test_victim
 
     tr._office.urp_bridge_dead = False
-    tr._run_options.filters = []
-    tr._run_options.exact_function_names = []
+    tr.current_office().options.filters = []
+    tr.current_office().options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(object(), module, "draw.crumb")
     assert passed == 1
     assert failed == 1
@@ -432,12 +431,12 @@ def test_run_module_suite_fail_names_previous_test(capsys, monkeypatch) -> None:
     assert "LIFECYCLE URP dispose at draw.crumb.test_victim" in err
     assert any("LIFECYCLE" in line and "previous=draw.crumb.test_ok" in line for line in suite_log)
     tr._office.urp_bridge_dead = False
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) -> None:
     """Harness attribution: TEST returned OK but getServiceManager is already disposed."""
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
     ran: list[str] = []
 
     class _Ctx:
@@ -467,8 +466,8 @@ def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) ->
 
     ctx = _Ctx()
     tr._office.urp_bridge_dead = False
-    tr._run_options.filters = []
-    tr._run_options.exact_function_names = []
+    tr.current_office().options.filters = []
+    tr.current_office().options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(ctx, module, "draw.teardown")
     assert ran == ["ok"]
     assert passed == 0
@@ -478,7 +477,7 @@ def test_run_module_suite_fails_ok_test_when_bridge_dies_after_return(capsys) ->
     assert "LIFECYCLE office dead after TEST returned draw.teardown.test_ok" in err
     assert any("office dead after TEST returned" in line for line in suite_log)
     tr._office.urp_bridge_dead = False
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_run_module_suite_stops_after_urp_dispose() -> None:
@@ -502,8 +501,8 @@ def test_run_module_suite_stops_after_urp_dispose() -> None:
     module.test_second = test_second
 
     tr._office.urp_bridge_dead = False
-    tr._run_options.filters = []
-    tr._run_options.exact_function_names = []
+    tr.current_office().options.filters = []
+    tr.current_office().options.exact_function_names = []
     passed, failed, suite_log = tr.run_module_suite(object(), module, "fake.urp")
     assert ran == ["first"]
     assert passed == 0
@@ -521,12 +520,12 @@ def test_user_profile_child_env_disables_uno_thread_guard(monkeypatch) -> None:
 
 
 def test_parse_cli_default_is_headless_suite(monkeypatch) -> None:
-    monkeypatch.setattr(tr, "use_user_profile", False)
-    monkeypatch.setattr(tr, "show_window", False)
+    monkeypatch.setattr(tr.current_office().options, "use_user_profile", False)
+    monkeypatch.setattr(tr.current_office().options, "show_window", False)
     monkeypatch.delenv("WRITERAGENT_UNO_USER_PROFILE", raising=False)
     rest = tr._parse_cli_args(["--visible", "test_charts_uno"])
-    assert tr.use_user_profile is False
-    assert tr.show_window is True
+    assert tr.current_office().options.use_user_profile is False
+    assert tr.current_office().options.show_window is True
     assert rest == ["test_charts_uno"]
 
 
@@ -579,7 +578,7 @@ def test_run_module_suite_verbose_pids_only_with_ci_debug(capsys, monkeypatch) -
     """WRITERAGENT_CI_DEBUG=1 restores TEST start, pid dumps, and SUITE selected."""
     monkeypatch.setenv("WRITERAGENT_CI_DEBUG", "1")
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "42")
-    tr._run_options.filters = ["test_ok"]
+    tr.current_office().options.filters = ["test_ok"]
 
     def test_ok(ctx=None):
         return None
@@ -599,7 +598,7 @@ def test_run_module_suite_verbose_pids_only_with_ci_debug(capsys, monkeypatch) -
     try:
         passed, failed, _suite_log = tr.run_module_suite(object(), module, "fake.verbose")
     finally:
-        tr._run_options.filters = []
+        tr.current_office().options.filters = []
     assert passed == 1
     assert failed == 0
     err = capsys.readouterr().err
@@ -918,7 +917,7 @@ def test_connect_uno_accept_logs_stderr_tail_on_miss(monkeypatch) -> None:
         resolve=lambda url: (_ for _ in ()).throw(conn.NoConnectException("pipe miss"))
     ))
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "1,2")
-    monkeypatch.setattr(tr, "office_stderr_tail", lambda: ["prefix warn", "still starting"])
+    monkeypatch.setattr(tr.current_office(), "office_stderr_tail", lambda: ["prefix warn", "still starting"])
     monkeypatch.setattr(tr.time, "sleep", lambda _d: None)
 
     try:

@@ -64,7 +64,7 @@ def test_calc_extend_streams_each_non_empty_cell():
     model, sheet = _model_for_data((("=1+1", ""),))
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         stream_calls.append((prompt, system_prompt, max_tokens))
         apply_chunk_fn("+2", False)
         on_done_fn()
@@ -86,7 +86,7 @@ def test_calc_edit_skips_empty_cells():
     input_box = MagicMock(return_value=("shorten", "extra system"))
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         stream_calls.append((prompt, system_prompt, max_tokens))
         apply_chunk_fn("Edited", False)
         on_done_fn()
@@ -106,14 +106,14 @@ def test_calc_edit_skips_empty_cells():
 def test_calc_edit_uses_extra_prompt_and_restores_original_on_error():
     from plugin.calc.editselection import do_calc_extend_edit
 
-    model, sheet = _model_for_data((("=1+1",),))
+    model, sheet = _model_for_data((("hello",),))
     input_box = MagicMock(return_value=("shorten", "extra system"))
     error = RuntimeError("provider failed")
     stream_calls = []
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         stream_calls.append((prompt, system_prompt, max_tokens))
-        apply_chunk_fn("=2", False)
+        apply_chunk_fn("world", False)
         on_error_fn(error)
 
     with patch("plugin.calc.editselection.get_config", side_effect=_config), \
@@ -126,9 +126,10 @@ def test_calc_edit_uses_extra_prompt_and_restores_original_on_error():
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
 
     assert stream_calls[0][1] == "extra system"
-    assert stream_calls[0][2] == len("=1+1") + 7
-    assert "ORIGINAL VERSION:\n=1+1" in stream_calls[0][0]
-    assert sheet.getCellByPosition(0, 0).getFormula() == "=1+1"
+    assert stream_calls[0][2] == len("hello") + 7
+    assert "Text to rewrite:\nhello" in stream_calls[0][0]
+    assert "ORIGINAL VERSION" not in stream_calls[0][0]
+    assert sheet.getCellByPosition(0, 0).getString() == "hello"
     msgbox.assert_called_once()
 
 
@@ -137,7 +138,7 @@ def test_calc_extend_text_cell():
 
     model, sheet = _model_for_data((("Hello",),))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn(" world", False)
         on_done_fn()
 
@@ -157,7 +158,7 @@ def test_calc_edit_text_cell_with_formula_looking_output():
     model, sheet = _model_for_data((("Original",),))
     input_box = MagicMock(return_value=("change", "extra system"))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("=2", False)
         on_done_fn()
 
@@ -174,15 +175,18 @@ def test_calc_edit_text_cell_with_formula_looking_output():
     assert cell.getFormula() == ""
 
 
-def test_calc_edit_formula_cell():
+def test_calc_edit_formula_cell_is_left_unchanged():
+    from plugin.calc.calc_utils import FORMULA
     from plugin.calc.editselection import do_calc_extend_edit
 
     model, sheet = _model_for_data((("=1+1",),))
     input_box = MagicMock(return_value=("change", "extra system"))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
-        apply_chunk_fn("=1+2", False)
-        on_done_fn()
+    def fake_run_stream(*_args, **_kwargs):
+        pytest.fail("formula cells must not be edited")
+
+    formula_cell = sheet.getCellByPosition(0, 0)
+    formula_cell.getType = MagicMock(return_value=FORMULA)
 
     with patch("plugin.calc.editselection.get_config", side_effect=_config), \
          patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
@@ -192,8 +196,7 @@ def test_calc_edit_formula_cell():
          patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
         do_calc_extend_edit(MagicMock(), model, is_edit=True)
 
-    cell = sheet.getCellByPosition(0, 0)
-    assert cell.getFormula() == "=1+2"
+    assert formula_cell.getFormula() == "=1+1"
 
 
 def test_calc_edit_number_cell_stays_numeric():
@@ -204,7 +207,7 @@ def test_calc_edit_number_cell_stays_numeric():
     sheet.getCellRangeByPosition = MagicMock(return_value=MagicMock(getFormulaArray=MagicMock(return_value=(("42",),))))
     input_box = MagicMock(return_value=("change", "extra system"))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("43", False)
         on_done_fn()
 
@@ -227,7 +230,7 @@ def test_calc_edit_text_cell_restores_original_on_error():
     model, sheet = _model_for_data((("123",),))
     input_box = MagicMock(return_value=("change", "extra system"))
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("x", False)
         on_error_fn(RuntimeError("provider failed"))
 
@@ -251,7 +254,8 @@ def test_calc_edit_selection_caps_at_max_cells():
     rows = tuple(("x",) for _ in range(251))
     model, sheet = _model_for_data(rows)
 
-    with patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
          patch("plugin.calc.editselection.stream_completion_tasks", new=MagicMock()) as run, \
          patch("plugin.calc.editselection.msgbox") as msgbox:
         do_calc_extend_edit(MagicMock(), model, is_edit=False)
@@ -266,7 +270,8 @@ def test_calc_empty_selection_shows_message():
 
     model, sheet = _model_for_data((("", ""),))
 
-    with patch("plugin.calc.editselection.msgbox") as msgbox, \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.msgbox") as msgbox, \
          patch("plugin.calc.editselection.stream_completion_tasks") as run:
         do_calc_extend_edit(MagicMock(), model, is_edit=False)
 
@@ -280,7 +285,8 @@ def test_calc_selection_outside_used_area_shows_message():
     model, sheet = _model_for_data((("x",),))
     model.CurrentController.Selection = sheet.getCellRangeByPosition(5, 5, 5, 5)
 
-    with patch("plugin.calc.editselection.msgbox") as msgbox, \
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.msgbox") as msgbox, \
          patch("plugin.calc.editselection.stream_completion_tasks") as run:
         do_calc_extend_edit(MagicMock(), model, is_edit=False)
 
@@ -294,6 +300,10 @@ class _UndoManager:
         self.enters: list[str] = []
         self.leaves = 0
         self.events = events
+        self._titles: list[str] = []
+
+    def getAllUndoActionTitles(self) -> list[str]:
+        return list(self._titles)
 
     def isLocked(self) -> bool:
         return False
@@ -308,6 +318,7 @@ class _UndoManager:
         assert not self.open
         self.open = True
         self.enters.append(title)
+        self._titles.insert(0, title)
         if self.events is not None:
             self.events.append(("enter", title))
 
@@ -347,7 +358,7 @@ def test_calc_extend_multi_cell_is_one_undo_context():
     events = []
     um = _attach_undo(model, events)
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         apply_chunk_fn("+1", False)
         apply_chunk_fn("+2", False)
         on_done_fn()
@@ -380,20 +391,20 @@ def test_calc_extend_multi_cell_is_one_undo_context():
 def test_calc_edit_error_closes_undo_after_cell_restore():
     from plugin.calc.editselection import do_calc_extend_edit
 
-    model, sheet = _model_for_data((("=1+1",), ("=2+2",), ("=3+3",)))
+    model, sheet = _model_for_data((("one",), ("two",), ("three",)))
     input_box = MagicMock(return_value=("change", "extra system"))
     events = []
     um = _attach_undo(model, events)
     stream_calls = [0]
 
-    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None):
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
         idx = stream_calls[0]
         stream_calls[0] += 1
         if idx == 0:
-            apply_chunk_fn("=9", False)
+            apply_chunk_fn("ONE", False)
             on_done_fn()
         elif idx == 1:
-            apply_chunk_fn("=8", False)
+            apply_chunk_fn("TWO", False)
             on_error_fn(RuntimeError("provider failed"))
         else:
             pytest.fail("third stream should not start")
@@ -411,8 +422,71 @@ def test_calc_edit_error_closes_undo_after_cell_restore():
 
     assert um.enters == [_("WriterAgent: Edit Selection (Calc)")]
     assert um.leaves == 1
-    assert sheet.getCellByPosition(0, 0).getFormula() == "=9"
-    assert sheet.getCellByPosition(0, 1).getFormula() == "=2+2"
-    assert sheet.getCellByPosition(0, 2).getFormula() == "=3+3"
-    assert events.index(("setFormula", 1, "=2+2", True)) < events.index(("leave",))
+    assert sheet.getCellByPosition(0, 0).getString() == "ONE"
+    assert sheet.getCellByPosition(0, 1).getString() == "two"
+    assert sheet.getCellByPosition(0, 2).getString() == "three"
     msgbox.assert_called_once()
+
+
+def test_calc_edit_skips_formula_cells():
+    from plugin.calc.calc_utils import FORMULA
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("=1+1", "note"),))
+    formula_cell = sheet.getCellByPosition(0, 0)
+    formula_cell.getType = MagicMock(return_value=FORMULA)
+    stream_calls = []
+
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
+        stream_calls.append(prompt)
+        apply_chunk_fn("Edited note", False)
+        on_done_fn()
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
+        do_calc_extend_edit(MagicMock(), model, is_edit=True, preset_instruction="proofread")
+
+    assert len(stream_calls) == 1
+    assert "note" in stream_calls[0]
+    assert formula_cell.getFormula() == "=1+1"
+
+
+def test_calc_slash_preset_formula_only_notifies_sidebar():
+    from plugin.calc.calc_utils import FORMULA
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("=1+1",),))
+    sheet.getCellByPosition(0, 0).getType = MagicMock(return_value=FORMULA)
+    sidebar_lines: list[str] = []
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.msgbox") as msgbox:
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=True,
+            preset_instruction="tone casual",
+            sidebar_notify=sidebar_lines.append,
+        )
+
+    assert sidebar_lines == ["Formula cells are skipped."]
+    msgbox.assert_not_called()
+
+
+def test_calc_edit_strips_echoed_scaffolding_from_cell():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("Original line",),))
+
+    def fake_run_stream(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn, stop_checker=None, **_unused):
+        apply_chunk_fn("Fixed line\nEND OF DOCUMENT", False)
+        on_done_fn()
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=fake_run_stream):
+        do_calc_extend_edit(MagicMock(), model, is_edit=True, preset_instruction="proofread")
+
+    assert sheet.getCellByPosition(0, 0).getString() == "Fixed line"

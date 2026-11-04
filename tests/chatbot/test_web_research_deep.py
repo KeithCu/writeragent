@@ -736,7 +736,6 @@ class TestWebResearchExecuteDeepKwarg:
         ctx.append_thinking_callback = None
         ctx.approval_callback = None
         ctx.chat_append_callback = None
-        ctx.stop_checker = None
         ctx.send_cancellation = None
 
         with (
@@ -767,7 +766,6 @@ class TestWebResearchExecuteDeepKwarg:
         ctx.append_thinking_callback = None
         ctx.approval_callback = None
         ctx.chat_append_callback = None
-        ctx.stop_checker = None
         ctx.send_cancellation = None
 
         with (
@@ -797,7 +795,6 @@ def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
     ctx.append_thinking_callback = None
     ctx.approval_callback = None
     ctx.chat_append_callback = None
-    ctx.stop_checker = None
     ctx.send_cancellation = None
     edited = "edited paris bistro"
     written: dict[str, str] = {}
@@ -1065,8 +1062,9 @@ def _execute_deep_with_recording_client(tmp_path, *, extract_raises: bool, synth
     ctx.append_thinking_callback = None
     ctx.approval_callback = None
     ctx.chat_append_callback = None
-    ctx.stop_checker = lambda: False
-    scope = object()
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
     ctx.send_cancellation = scope
 
     def _cfg_int(key):

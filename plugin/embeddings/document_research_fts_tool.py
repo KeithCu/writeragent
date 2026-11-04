@@ -56,8 +56,9 @@ class SearchNearbyFiles(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        checker = getattr(ctx, "stop_checker", None)
-        if callable(checker) and checker() is True:
+        from plugin.framework.send_cancellation import is_cancelled
+
+        if is_cancelled(getattr(ctx, "send_cancellation", None)):
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import main
@@ -82,18 +83,12 @@ class SearchNearbyFiles(ToolBase):
 
         from plugin.doc.document_research_grep import resolve_grep_candidates
         from plugin.embeddings.embeddings_cache import (
-            index_is_empty,
-            query_blocked_for_model,
+            folder_store,
             resolve_index_context,
-            zvec_collection_looks_populated,
-            zvec_collection_path,
-            lancedb_collection_looks_populated,
-            lancedb_collection_path,
         )
         from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
         from plugin.embeddings.embedding_client import get_embedding_model
         from plugin.embeddings.embeddings_service import hybrid_search
-        from plugin.framework.config import get_config
         import pathlib
 
         def _resolve_uno_context() -> tuple[str | None, str | None, dict[str, str]]:
@@ -117,20 +112,12 @@ class SearchNearbyFiles(ToolBase):
             if folder_key is None or db_path is None or meta_path is None:
                 return {"error": listing_root or "No folder context"}
 
-            mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-            looks_empty = False
-            if mode == "zvec":
-                zpath = zvec_collection_path(listing_root, create_parent=False)
-                looks_empty = not zvec_collection_looks_populated(zpath)
-            elif mode == "lancedb":
-                lpath = lancedb_collection_path(listing_root, create_parent=False)
-                looks_empty = not lancedb_collection_looks_populated(lpath)
-            else:
-                looks_empty = index_is_empty(meta_path, db_path)
+            store = folder_store(listing_root, meta_path, db_path)
+            looks_empty = store.is_empty
 
             # Hybrid search always queries vec0. A model change must not read
             # the previous table (empty, partial, or the wrong dimension).
-            if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
+            if not looks_empty and store.mode != "fts" and store.meta.query_blocked_for_model(get_embedding_model()):
                 looks_empty = True
 
             if looks_empty:
@@ -159,12 +146,7 @@ class SearchNearbyFiles(ToolBase):
                     if url:
                         allowed_urls.add(url)
 
-            if mode == "zvec":
-                search_path = str(zvec_collection_path(listing_root, create_parent=True))
-            elif mode == "lancedb":
-                search_path = str(lancedb_collection_path(listing_root, create_parent=True))
-            else:
-                search_path = str(db_path)
+            search_path = store.search_path
 
             return {
                 "search_path": search_path,
@@ -195,6 +177,7 @@ class SearchNearbyFiles(ToolBase):
         allowed_urls = context_result["allowed_urls"]
         model = get_embedding_model()
 
+        scope = ctx.send_cancellation
         try:
             result = hybrid_search(
                 ctx.ctx,
@@ -203,8 +186,8 @@ class SearchNearbyFiles(ToolBase):
                 k,
                 model=model,
                 near_slop=near_slop,
-                stop_checker=ctx.stop_checker,
-                cancellation_scope=ctx.send_cancellation,
+                stop_checker=scope.is_cancelled if scope is not None else None,
+                cancellation_scope=scope,
             )
             if result.get("error"):
                 return self._tool_error(result["error"], code="FOLDER_HYBRID_SEARCH_ERROR")

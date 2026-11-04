@@ -7,6 +7,7 @@
 # (at your option) any later version.
 
 import ast
+import sys
 from typing import Any
 
 import pytest
@@ -26,16 +27,64 @@ _MIXED_GRID = [
 ]
 
 
+def _norm_path_for_compare(path: str) -> str:
+    """Compare paths on Windows where readlink may return a ``\\\\?\\`` prefix."""
+    import os
+
+    normalized = path
+    if normalized.startswith("\\\\?\\UNC\\"):
+        normalized = "\\\\" + normalized[len("\\\\?\\UNC\\") :]
+    elif normalized.startswith("\\\\?\\"):
+        normalized = normalized[4:]
+    return os.path.normcase(os.path.normpath(normalized))
+
+
+def test_is_path_metadata_callable_accepts_windows_ntpath_names():
+    from plugin.contrib.smolagents.local_python_executor import _is_path_metadata_callable
+
+    assert _is_path_metadata_callable("ntpath", "_path_exists")
+    assert _is_path_metadata_callable("ntpath", "_path_isfile")
+    assert not _is_path_metadata_callable("ntpath", "_path_open")
+    assert _is_path_metadata_callable("genericpath", "exists")
+
+
+def test_os_path_metadata_allowed_without_files_sandbox_flag():
+    import os.path
+    from plugin.contrib.smolagents.local_python_executor import (
+        SANDBOX_POLICY_CONTEXT,
+        _check_dangerous_value,
+        _get_os_path_metadata_ids,
+    )
+
+    assert id(os.path.exists) in _get_os_path_metadata_ids()
+    token = SANDBOX_POLICY_CONTEXT.set((frozenset(), frozenset()))
+    try:
+        _check_dangerous_value(os.path.exists, authorized_imports=[])
+        _check_dangerous_value(os.path.isfile, authorized_imports=[])
+        try:
+            import ntpath
+
+            exists_impl = getattr(ntpath, "_path_exists", None)
+            if exists_impl is not None:
+                _check_dangerous_value(exists_impl, authorized_imports=[])
+        except ImportError:
+            pass
+    finally:
+        SANDBOX_POLICY_CONTEXT.reset(token)
+
+
 @pytest.fixture(autouse=True)
 def _reset_abandoned_timeout() -> Any:
     # Tip: reset abandoned_timeout before and after each test so thread fallback timeouts do not leak.
     import plugin.contrib.smolagents.local_python_executor as lpe
 
     lpe.abandoned_timeout = False
+    lpe.discard_thread_pool_timeout()
     try:
         yield
     finally:
         lpe.abandoned_timeout = False
+        lpe.discard_thread_pool_timeout()
 
 
 def test_nested_generatorexp_via_evaluate_generatorexp():
@@ -1231,7 +1280,8 @@ def test_slice9_timeout_validation_and_unwinding():
         with TPE(max_workers=1) as pool:
             future = pool.submit(worker)
             elapsed = future.result()
-        assert elapsed < 2.0  # Returned well under 2.5s!
+        # Thread fallback raises at timeout_seconds without waiting for the 2.5s sleep.
+        assert elapsed < 2.35
     finally:
         lpe.abandoned_timeout = False
 
@@ -1279,6 +1329,7 @@ def test_slice9_timeout_validation_and_unwinding():
     assert val_at_timeout == val_after_wait
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGALRM timeout path is Unix-only")
 def test_timeout_restores_handler_when_alarm_arming_fails(monkeypatch):
     import signal
 
@@ -1845,8 +1896,8 @@ except Exception as result:
     assert r["result"] is None
 
 
-def test_timeout_fallback_sets_abandoned_timeout(monkeypatch: pytest.MonkeyPatch):
-    # Tip: thread-pool fallback timeout sets abandoned_timeout so the worker process will exit.
+def test_timeout_fallback_drains_short_sleep_without_abandon(monkeypatch: pytest.MonkeyPatch):
+    # Tip: thread-pool fallback waits for the worker thread to finish before abandoning.
     import signal
     import time
     from typing import Any
@@ -1875,13 +1926,46 @@ def test_timeout_fallback_sets_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
         with pytest.raises(ExecutionTimeoutError):
             executor("x = slow_call()")
 
-        assert lpe.abandoned_timeout is True
-        time.sleep(0.4)
+        assert lpe.abandoned_timeout is False
         assert executor.state["x"] == 1
     finally:
         lpe.abandoned_timeout = False
 
 
+def test_timeout_fallback_sets_abandoned_timeout_when_thread_stuck(monkeypatch: pytest.MonkeyPatch):
+    import signal
+    import time
+    from typing import Any
+    import plugin.contrib.smolagents.local_python_executor as lpe
+    from plugin.contrib.smolagents.local_python_executor import ExecutionTimeoutError
+
+    lpe.abandoned_timeout = False
+
+    def refuse_sigalrm(signum: Any, handler: Any) -> Any:
+        if signum == signal.SIGALRM:
+            raise ValueError("SIGALRM unavailable")
+        return signal.SIG_DFL
+
+    monkeypatch.setattr(signal, "signal", refuse_sigalrm)
+
+    executor = LocalPythonExecutor(additional_authorized_imports=["time"], timeout_seconds=1)
+    executor.send_tools({})
+
+    def slow_call() -> int:
+        time.sleep(5.0)
+        return 1
+
+    try:
+        executor.send_variables({"slow_call": slow_call})
+        with pytest.raises(ExecutionTimeoutError):
+            executor("x = slow_call()")
+
+        assert lpe.abandoned_timeout is True
+    finally:
+        lpe.abandoned_timeout = False
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="SIGALRM timeout path is Unix-only")
 def test_sigalrm_timeout_leaves_abandoned_flag_clear():
     # Tip: normal SIGALRM path unwinds on the same thread without setting abandoned_timeout.
     import time
@@ -2452,25 +2536,31 @@ def test_local_python_executor_files_relax(tmp_path):
         with open(target_file, "w") as f:
             f.write("target")
         import os as _real_os
-        _real_os.symlink(target_file, link_file)
+        link_is_symlink = False
+        try:
+            _real_os.symlink(target_file, link_file)
+            link_is_symlink = True
+        except OSError:
+            pass
 
         executor.state["test_dir"] = test_dir
         executor.state["target_file"] = target_file
         executor.state["link_file"] = link_file
 
-        code_allowed = """
+        readlink_line = "link_dest = os.readlink(link_file)\n" if link_is_symlink else ""
+        code_allowed = f"""
 import os
 from os import scandir
 os.makedirs(test_dir, exist_ok=True)
 items = os.listdir(test_dir)
 st = os.stat(target_file)
 os.chmod(target_file, 0o644)
-link_dest = os.readlink(link_file)
-p = os.path.join("a", "b")
+{readlink_line}p = os.path.join("a", "b")
 scandir_type = type(scandir)
 """
         executor(code_allowed)
-        assert executor.state["link_dest"] == target_file
+        if link_is_symlink:
+            assert _norm_path_for_compare(executor.state["link_dest"]) == _norm_path_for_compare(target_file)
         assert executor.state["p"] in ("a/b", "a\\b")
 
         for op in (
@@ -2514,6 +2604,7 @@ scandir_type = type(scandir)
         SANDBOX_POLICY_CONTEXT.reset(token)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os relax uses /dev/null and pty (Unix-only)")
 def test_local_python_executor_os_relax():
     from plugin.contrib.smolagents.local_python_executor import (
         SANDBOX_POLICY_CONTEXT,
@@ -2660,6 +2751,7 @@ def test_process_callables_blocked_when_os_false():
     assert "Import of pty is not allowed" in str(exc_pty.value)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="pty requires termios (Unix-only)")
 def test_process_callables_allowed_when_os_true():
     from plugin.contrib.smolagents.local_python_executor import SANDBOX_POLICY_CONTEXT
     from plugin.scripting.sandbox import (

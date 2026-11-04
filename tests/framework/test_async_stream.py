@@ -494,15 +494,17 @@ def test_run_stream_drain_loop_stop_checker_mid_batch():
     outcome = DrainOutcome()
     stopped_called = [False]
     applied = []
+    cancel = SendCancellation()
+    items_seen = [0]
+
+    def is_cancelled() -> bool:
+        items_seen[0] += 1
+        return items_seen[0] > 2
+
+    cancel.is_cancelled = is_cancelled  # type: ignore
 
     def apply_chunk(t, is_thinking):
         applied.append(t)
-
-    items_seen = [0]
-    def stop_checker():
-        # Stop on the second call (first item in the for loop)
-        items_seen[0] += 1
-        return items_seen[0] > 2
 
     def on_stopped():
         stopped_called[0] = True
@@ -515,7 +517,7 @@ def test_run_stream_drain_loop_stop_checker_mid_batch():
 
     run_stream_drain_loop(
         q, toolkit, outcome, apply_chunk,
-        on_stream_done=lambda i: True, on_stopped=on_stopped, on_error=lambda e: None, stop_checker=stop_checker
+        on_stream_done=lambda i: True, on_stopped=on_stopped, on_error=lambda e: None, cancel=cancel
     )
 
     assert stopped_called[0] is True
@@ -953,7 +955,7 @@ def test_stop_checker_on_stopped_raise_is_not_an_error():
         on_stream_done=lambda _item: True,
         on_stopped=on_stopped,
         on_error=errors.append,
-        stop_checker=lambda: _cancelled_scope().is_cancelled(),
+        cancel=_cancelled_scope(),
     )
     assert outcome.done is True
     assert stopped == [True]

@@ -562,9 +562,7 @@ class CellManipulator:
         if value.startswith("="):
             return _CellWrite("", value, "formula", None, None)
 
-        # Leading apostrophe stores the text and leaves the @ text format.
-        # The snapshot restore at 950–951 must not run for this cell; putting
-        # the old number format back would undo @.
+        # Leading apostrophe forces literal text and leaves @ — the @ text format is what we want; restoring the snapshot would undo it.
         if value.startswith("'"):
             return _CellWrite(value[1:], "", "forced_text", None, None)
 

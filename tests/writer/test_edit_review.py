@@ -1048,7 +1048,7 @@ def test_empty_append_finish_closes_undo():
 
     undo = MagicMock()
     doc = MagicMock()
-    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False)):
+    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)):
         session = WriterStreamedAppendSession(doc, MagicMock(), "orig")
     undo.reset_mock()
     session.finish()
@@ -1060,10 +1060,47 @@ def test_empty_rewrite_finish_closes_undo():
 
     undo = MagicMock()
     doc = MagicMock()
-    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False)):
+    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)):
         session = WriterStreamedRewriteSession(doc, MagicMock(), "orig")
     undo.reset_mock()
     session.finish()
     undo.close.assert_called()
 
+
+def test_strip_echoed_edit_scaffolding_removes_completion_markers():
+    from plugin.writer.edit_review import strip_echoed_edit_scaffolding
+
+    raw = "Fixed text\nEND OF DOCUMENT"
+    assert strip_echoed_edit_scaffolding(raw) == "Fixed text"
+    assert strip_echoed_edit_scaffolding("EDITED VERSION:\nHello") == "Hello"
+
+
+def test_rewrite_session_preserves_paragraph_breaks_on_finish():
+    from plugin.writer.edit_review import _replace_range_with_paragraph_text
+
+    text_obj = MagicMock()
+    text_range = MagicMock()
+    text_range.getText.return_value = text_obj
+    cursor = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+
+    _replace_range_with_paragraph_text(text_range, "Alpha\nBeta\nGamma")
+
+    assert cursor.setString.call_args_list[0].args[0] == ""
+    assert cursor.setString.call_args_list[1].args[0] == "Alpha"
+    assert text_obj.insertControlCharacter.call_count == 2
+
+
+def test_replace_range_collapses_doubled_newlines_between_paragraphs():
+    from plugin.writer.edit_review import _replace_range_with_paragraph_text
+
+    text_obj = MagicMock()
+    text_range = MagicMock()
+    text_range.getText.return_value = text_obj
+    cursor = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+
+    _replace_range_with_paragraph_text(text_range, "Alpha\n\nBeta\n\nGamma", collapse_blank_paragraph_lines=True)
+
+    assert text_obj.insertControlCharacter.call_count == 2
 

@@ -25,10 +25,10 @@ from typing import Any
 
 from plugin.framework.errors import ToolExecutionError, best_effort
 from plugin.framework.scratch_writer import clear_writer_body
-from plugin.framework.uno_context import get_desktop, get_service_manager
+from plugin.framework.uno_context import create_property_value, get_desktop, get_service_manager
 from plugin.calc.address_utils import parse_address
 from plugin.calc.bridge import CalcBridge
-import plugin.writer.format as format_support
+import plugin.writer.html_import as html_import
 
 log = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     cell = sheet.getCellByPosition(col, row)
 
     content = html_std.unescape(html)
-    prepared = format_support._ensure_html_linebreaks(content)
+    prepared = html_import._ensure_html_linebreaks(content)
 
     step = "start"
     reused = _keeper_loaded
@@ -114,7 +114,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     pasted = False
     try:
         desktop = get_desktop(uno_ctx)
-        hidden = format_support.create_property_value("Hidden", True)
+        hidden = create_property_value("Hidden", True)
         # Do not import chatbot.create_hidden_html_writer — this module ships
         # in LibrePy without chatbot.
         step = _step("load hidden Writer")
@@ -140,7 +140,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
         cursor = text.createTextCursor()
         cursor.gotoStart(False)
         step = _step("insert HTML into hidden Writer")
-        format_support._insert_starwriter_html_at_cursor(temp_doc, cursor, prepared)
+        html_import._insert_starwriter_html_at_cursor(temp_doc, cursor, prepared)
 
         # Hidden Writer docs must not use getViewCursor() — it can crash the
         # process (no real view). Select the whole body with a text cursor and

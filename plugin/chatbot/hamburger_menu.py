@@ -102,12 +102,12 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         pos = add_item(popup, _("Settings"), "main.settings", pos, menu_icon_filename("gear", ctx=ctx))
         pos = add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
 
-        from plugin.main import _get_menu_icon, get_menu_text, tests_bundled
+        from plugin.main import get_menu_icon, get_menu_text, tests_bundled
 
         mcp_toggle_text = best_effort(lambda: get_menu_text("mcp.toggle_server"), "mcp toggle menu text") or _("Toggle MCP Server")
         pos = add_item(popup, mcp_toggle_text, "mcp.toggle_server", pos)
 
-        mcp_running = best_effort(lambda: _get_menu_icon("mcp.server_status"), "mcp status menu icon") == "running"
+        mcp_running = best_effort(lambda: get_menu_icon("mcp.server_status"), "mcp status menu icon") == "running"
         mcp_status_icon = menu_icon_filename(
             "running" if mcp_running else "stopped", ctx=ctx
         )
@@ -164,11 +164,11 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
                 # Toggle MCP Server and MCP Server Status are built here and
                 # never registered (mcp.toggle_server, mcp.server_status), so
                 # get_action_handler is None. The toolbar reaches
-                # McpModule.on_action through _dispatch_command; use that path
+                # McpModule.on_action through dispatch_command; use that path
                 # when the registry has no handler. Registered items still
                 # get the sidebar frame.
-                from plugin.main import _dispatch_command
+                from plugin.main import dispatch_command
 
-                _dispatch_command(action_name)
+                dispatch_command(action_name)
     except Exception as e:
         log.exception("show_hamburger_menu failed: %s", e)

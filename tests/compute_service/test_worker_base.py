@@ -581,14 +581,14 @@ def test_execute_respawn_respects_request_deadline() -> None:
     assert 1.0 <= respawn_left[0] <= 2.0
 
 
-def test_set_pdeathsig() -> None:
+def test_die_with_parent() -> None:
     import sys
-    from compute_service.worker_base import set_pdeathsig
+    from plugin.framework.child_runtime import die_with_parent
 
     if sys.platform != "linux":
-        assert set_pdeathsig() is False
+        assert die_with_parent() is False
     else:
-        assert set_pdeathsig() is True
+        assert die_with_parent() is True
 
 
 def test_run_worker_stdio_loop_oversized_result_recovers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1325,10 +1325,9 @@ def test_reap_past_deadline_does_not_spawn(monkeypatch: pytest.MonkeyPatch) -> N
     ``_reap_previous_process``, and that wait can block for a second.
     A longer request still called Popen after its deadline was gone.
     """
-    from plugin.framework import process_worker as worker_base
 
     clock = {"t": 1000.0}
-    monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr("plugin.framework.warm_child.time.monotonic", lambda: clock["t"])
     popen_calls: list[object] = []
 
     def _popen(*_args: object, **_kwargs: object) -> object:
@@ -1354,7 +1353,7 @@ def test_handshake_budget_is_time_left_after_reap(monkeypatch: pytest.MonkeyPatc
     from compute_service.worker_base import Deadline
 
     clock = {"t": 1000.0}
-    monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr("plugin.framework.warm_child.time.monotonic", lambda: clock["t"])
     seen: list[float] = []
 
     class _Proc:
@@ -1429,7 +1428,7 @@ def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) ->
     from plugin.framework import process_worker as worker_base
 
     clock = {"t": 1000.0}
-    monkeypatch.setattr(worker_base.time, "monotonic", lambda: clock["t"])
+    monkeypatch.setattr("plugin.framework.warm_child.time.monotonic", lambda: clock["t"])
     reads: list[float] = []
 
     class _Proc:
@@ -1806,7 +1805,7 @@ def test_short_one_second_remainder_does_not_spawn(monkeypatch: pytest.MonkeyPat
     """
     from plugin.framework import process_worker as worker_mod
 
-    monkeypatch.setattr(worker_mod.time, "monotonic", lambda: 1000.0)
+    monkeypatch.setattr("plugin.framework.warm_child.time.monotonic", lambda: 1000.0)
     popen_calls: list[object] = []
 
     def _popen(*_args: object, **_kwargs: object) -> object:
@@ -1828,7 +1827,7 @@ def test_short_one_second_remainder_does_not_spawn(monkeypatch: pytest.MonkeyPat
             return 1000.0
         return 1000.98
 
-    monkeypatch.setattr(worker_mod.time, "monotonic", _moved)
+    monkeypatch.setattr("plugin.framework.warm_child.time.monotonic", _moved)
     res = worker.execute({"code": "result = 1"}, timeout_sec=1.0)
     assert res.get("code") == "EXECUTION_TIMEOUT"
     assert popen_calls == []
@@ -1837,7 +1836,6 @@ def test_short_one_second_remainder_does_not_spawn(monkeypatch: pytest.MonkeyPat
 
 def test_one_second_budget_above_spawn_floor_still_spawns(monkeypatch: pytest.MonkeyPatch) -> None:
     """A 1s budget with 0.5s left still reaches Popen. That case stays usable."""
-    from plugin.framework import process_worker as worker_mod
 
     calls = {"n": 0}
 
@@ -1847,7 +1845,7 @@ def test_one_second_budget_above_spawn_floor_still_spawns(monkeypatch: pytest.Mo
             return 1000.0
         return 1000.5
 
-    monkeypatch.setattr(worker_mod.time, "monotonic", _moved)
+    monkeypatch.setattr("plugin.framework.warm_child.time.monotonic", _moved)
     popen_calls: list[object] = []
 
     def _popen(*_args: object, **_kwargs: object) -> object:
@@ -2532,7 +2530,7 @@ def test_usable_budget_truth_table(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.framework import process_worker as worker_mod
 
     now = 1000.0
-    monkeypatch.setattr(worker_mod.time, "monotonic", lambda: now)
+    monkeypatch.setattr("plugin.framework.warm_child.time.monotonic", lambda: now)
     cases = (
         (1.0, 0.5, 0.5),
         (2.0, 0.5, None),
@@ -2726,7 +2724,7 @@ def test_deadline_budget_table(
     from compute_service.worker_base import Deadline
 
     now = 1_000.0
-    monkeypatch.setattr("plugin.framework.process_worker.time.monotonic", lambda: now)
+    monkeypatch.setattr("plugin.framework.warm_child.time.monotonic", lambda: now)
     clock = Deadline.__new__(Deadline)
     clock.budget_sec = budget
     clock._end = now + remaining

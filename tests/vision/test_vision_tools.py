@@ -41,8 +41,6 @@ def tool_ctx():
     ctx.doc.supportsService.return_value = True
     ctx.ctx = MagicMock()
     ctx.doc_type = "writer"
-    ctx.stop_checker = None
-    ctx.stop_checker = None
     return ctx
 
 
@@ -168,7 +166,6 @@ def test_extract_structure_happy_path_inserts(
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     tool = ExtractStructureFromImage()
-    tool_ctx.stop_checker = None
     result = tool.execute(tool_ctx, insert_into_document=True)
 
     assert result["status"] == "ok"
@@ -201,7 +198,6 @@ def test_extract_structure_return_only_skips_insert(
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     tool = ExtractStructureFromImage()
-    tool_ctx.stop_checker = None
     result = tool.execute(tool_ctx, insert_into_document=False)
 
     assert result["status"] == "ok"
@@ -307,7 +303,6 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
         "failed_image": "Img2",
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-    tool_ctx.stop_checker = None
     result = ExtractStructureFromImage().execute(tool_ctx)
     assert result["status"] == "error"
     assert result["code"] == "VISION_ERROR"
@@ -322,7 +317,6 @@ def test_extract_structure_reraises_document_disposed(tool_ctx):
     from plugin.framework.errors import DocumentDisposedError
 
     with patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection", side_effect=DocumentDisposedError("gone", object_type="vision")):
-        tool_ctx.stop_checker = None
         with pytest.raises(DocumentDisposedError):
             ExtractStructureFromImage().execute(tool_ctx)
 
@@ -337,7 +331,6 @@ def test_extract_structure_preserves_zero_images_processed(mock_run, tool_ctx):
         "inserted": False,
         "message": "None found",
     }
-    tool_ctx.stop_checker = None
     result = ExtractStructureFromImage().execute(tool_ctx)
     assert result["status"] == "ok"
     assert result["images_processed"] == 0
@@ -361,6 +354,5 @@ def test_extract_structure_preserves_zero_images_processed(mock_run, tool_ctx):
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_coerces_insert_into_document(mock_run, tool_ctx, raw_val, expected):
     mock_run.return_value = {"status": "ok", "images_processed": 1}
-    tool_ctx.stop_checker = None
     ExtractStructureFromImage().execute(tool_ctx, insert_into_document=raw_val)
     assert mock_run.call_args.kwargs["insert_into_document"] is expected

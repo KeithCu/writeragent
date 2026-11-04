@@ -293,6 +293,140 @@ def test_edit_selection_empty_text_shows_message_before_prompt(mock_get_str, moc
 
 
 @patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_preset_skips_prompt_and_validates_client_first(
+    mock_create_client, mock_stream,
+):
+    save({"edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection.prompt_for_edit_instructions") as mock_prompt:
+        do_edit_selection(ctx, model, preset_instruction="Fix typos")
+
+    mock_prompt.assert_not_called()
+    assert mock_create_client.called
+    assert mock_stream.called
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+@patch("plugin.writer.editselection.msgbox")
+def test_edit_selection_preset_whole_body_without_select_first_msgbox(
+    mock_msgbox, mock_create_client, mock_stream,
+):
+    save({"edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    body = MagicMock()
+    cursor = MagicMock()
+    body.createTextCursor.return_value = cursor
+    model.getText.return_value = body
+    model.CurrentController.getSelection.return_value = None
+
+    with patch("plugin.writer.editselection.selected_text_range", return_value=None), \
+         patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="Para one\nPara two"), \
+         patch("plugin.doc.text_helpers.normalize_linebreaks", return_value="Para one\nPara two"), \
+         patch("plugin.writer.edit_review.refuse_tracked_insert_or_delete"), \
+         patch("plugin.writer.editselection.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.editselection.get_config", return_value=100), \
+         patch("plugin.writer.editselection.WriterStreamedRewriteSession") as session_cls:
+        do_edit_selection(
+            ctx,
+            model,
+            preset_instruction="Proofread",
+            allow_whole_document=True,
+        )
+
+    mock_msgbox.assert_not_called()
+    assert mock_stream.called
+    prompt = mock_stream.call_args.args[2]
+    assert "Para one\nPara two" in prompt
+    assert "Preserve paragraph breaks" in prompt
+    assert session_cls.call_args.kwargs.get("preserve_paragraph_breaks") is True
+
+
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_preset_length_empty_notifies_sidebar(mock_create_client):
+    import json
+
+    from plugin.framework.client.llm_client import LlmClient
+    from plugin.tests.testing_utils import MockContext, create_mock_http_response
+
+    save({"chatbot.edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    ctx = MockContext()
+    client = LlmClient({"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "gpt-4"}, ctx)
+    mock_create_client.return_value = client
+    model = MagicMock()
+    text_range = MagicMock()
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+    sidebar_lines: list[str] = []
+    session_inst = MagicMock()
+    session_inst.generated_text = ""
+    session_inst.finish.return_value = None
+    session_inst.doc = model
+
+    sse_lines = [
+        f'data: {json.dumps({"choices": [{"finish_reason": "length", "delta": {}}]})}'.encode(),
+        b"data: [DONE]\n\n",
+    ]
+    resp = create_mock_http_response(sse_lines=sse_lines)
+
+    def sync_run_stream(
+        ctx_arg,
+        client_arg,
+        prompt,
+        system_prompt,
+        max_tokens,
+        apply_chunk_fn,
+        on_done_fn,
+        on_error_fn,
+        **kwargs,
+    ):
+        completion_out = kwargs.get("completion_out")
+        finish = client_arg.stream_completion(
+            prompt,
+            system_prompt,
+            max_tokens,
+            append_callback=lambda t: apply_chunk_fn(t, False),
+            cancel=kwargs.get("cancel"),
+        )
+        if completion_out is not None:
+            completion_out["finish_reason"] = finish
+        on_done_fn()
+
+    with (
+        patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"),
+        patch("plugin.writer.editselection.WriterStreamedRewriteSession", return_value=session_inst),
+        patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=sync_run_stream),
+        patch("http.client.HTTPSConnection") as mock_https,
+    ):
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_conn.getresponse.return_value = resp
+        do_edit_selection(
+            ctx,
+            model,
+            preset_instruction="shorten",
+            sidebar_notify=sidebar_lines.append,
+        )
+
+    assert sidebar_lines
+    assert "tokens" in sidebar_lines[0].lower()
+
+
+@patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.prompt_for_edit_instructions")
 @patch("plugin.writer.editselection.create_validated_client", return_value=None)
 def test_edit_selection_no_client_skips_prompt(mock_create_client, mock_prompt, mock_stream):

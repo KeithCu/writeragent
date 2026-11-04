@@ -166,6 +166,7 @@ class ChatSession:
         role = last.get("role") if isinstance(last, dict) else None
 
         if role == "user":
+            # Strict-alternation templates reject two adjacent user turns; the tail folds into the last user message.
             content = last.get("content")
             if isinstance(content, str):
                 parts = [{"type": "text", "text": content}]
@@ -179,13 +180,7 @@ class ChatSession:
             return view[:-1] + [new_last]
 
         if role == "tool" and tail:
-            # Bugfix: in #3080/#3085, tool rounds ended with an instruction-less
-            # user message holding the snapshot appended after the tool result.
-            # Models (e.g. gpt-oss-20b) treated that trailing user turn as a new
-            # request to re-edit the document, causing a runaway edit loop.
-            # Folding the snapshot into the last tool result message leaves the
-            # conversation in a proper tool-response state so the model produces
-            # its final textual answer instead of re-invoking tools.
+            # A user turn after a tool result reads as a new request (gpt-oss-20b re-edited in a loop); folding the snapshot into the tool result keeps the model in tool-response state.
             content = last.get("content")
             new_content: Any
             if isinstance(content, str):

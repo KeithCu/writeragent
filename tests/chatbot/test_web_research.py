@@ -389,6 +389,16 @@ def test_format_delegate_result_includes_research_cache():
     assert "[delegate (web_research): done]" in line
 
 
+def test_format_delegate_result_shows_vision_message():
+    from plugin.chatbot.tool_loop_actions import format_delegate_result_chat_line
+
+    line = format_delegate_result_chat_line(
+        {"domain": "vision", "task": "OCR image"},
+        {"status": "ok", "message": "OCR complete."},
+    )
+    assert line == "[delegate (vision): OCR complete.]\n"
+
+
 def test_web_research_cache_chat_text_hit_and_saved():
     hit = web_research_cache_chat_text({
         "research_cache_event": "hit",

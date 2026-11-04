@@ -195,15 +195,9 @@ class SearchDialog:
             def _get_status() -> str:
                 try:
                     from plugin.embeddings.embeddings_cache import (
-                        index_is_empty,
-                        read_corpus_meta,
+                        folder_store,
                         resolve_index_context,
-                        zvec_collection_looks_populated,
-                        zvec_collection_path,
-                        lancedb_collection_looks_populated,
-                        lancedb_collection_path,
                     )
-                    from plugin.embeddings.embeddings_service import _folder_search_mode
 
                     doc = get_active_document(ctx)
                     if not doc:
@@ -213,21 +207,15 @@ class SearchDialog:
                     if folder_key is None or db_path is None or meta_path is None:
                         return _("Cache Status: Folder not resolved")
 
-                    # Mode-aware for zvec/lancedb side-by-side store
-                    mode = _folder_search_mode()
-                    if mode == "zvec":
-                        zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
-                        if not zpath or not zvec_collection_looks_populated(zpath):
+                    store = folder_store(listing_root, meta_path, db_path)
+                    if store.is_empty:
+                        if store.mode == "zvec":
                             return _("Cache Status: Not built (zvec)")
-                    elif mode == "lancedb":
-                        lpath = lancedb_collection_path(listing_root, create_parent=False) if listing_root else None
-                        if not lpath or not lancedb_collection_looks_populated(lpath):
+                        if store.mode == "lancedb":
                             return _("Cache Status: Not built (lancedb)")
-                    elif index_is_empty(meta_path, db_path):
                         return _("Cache Status: Not built")
 
-                    meta = read_corpus_meta(meta_path)
-                    updated_at_str = meta.get("updated_at")
+                    updated_at_str = store.meta.data.get("updated_at")
                     if updated_at_str:
                         try:
                             updated_at = float(updated_at_str)
@@ -275,10 +263,10 @@ class SearchDialog:
         def _do_background_search() -> None:
             try:
                 from plugin.framework.constants import folder_search_enabled
-                from plugin.embeddings.embeddings_cache import query_blocked_for_model, ready_search_path
+                from plugin.embeddings.embeddings_cache import folder_store
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
                 from plugin.embeddings.embedding_client import get_embedding_model
-                from plugin.embeddings.embeddings_service import hybrid_search, _folder_search_mode
+                from plugin.embeddings.embeddings_service import hybrid_search
 
                 resolved = main.call(self._resolve_doc_index_context)
                 if resolved is None:
@@ -297,13 +285,13 @@ class SearchDialog:
                     self._update_results_ui(_("Error: ") + str(listing_root), enable_search_btn=True)
                     return
 
-                mode = _folder_search_mode()
-                search_path = ready_search_path(mode, listing_root, meta_path, db_path)
+                store = folder_store(listing_root, meta_path, db_path)
+                search_path = store.search_path
                 model = ""
                 if search_path is not None:
                     model = get_embedding_model()
                     # Do not query a vec store built for a different model.
-                    if mode != "fts" and query_blocked_for_model(meta_path, model):
+                    if store.mode != "fts" and store.meta.query_blocked_for_model(model):
                         search_path = None
                 if search_path is None:
                     main.call(ensure_index_wakeup, ctx, None, doc)
@@ -365,8 +353,8 @@ class SearchDialog:
         def _do_rebuild() -> None:
             try:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache
+                from plugin.framework.constants import configured_folder_search_mode
                 from plugin.embeddings.embedding_client import get_embedding_model
-                from plugin.embeddings.embeddings_service import _folder_search_mode
 
                 resolved = main.call(self._resolve_doc_index_context)
                 if resolved is None:
@@ -432,7 +420,7 @@ class SearchDialog:
                         listing_root,
                         model=model,
                         mode="cold",
-                        search_mode=_folder_search_mode(),
+                        search_mode=configured_folder_search_mode(),
                         heartbeat_fn=heartbeat_fn,
                     )
                     self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)

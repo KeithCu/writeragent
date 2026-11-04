@@ -731,7 +731,7 @@ test-mock-sidebar: _check-lo-python
 # Scripted product-video scenes (visible soffice, your profile). SCENE=scene3 re-runs one.
 demo-video: _check-lo-python
 	@$(MAKE) -C "$(PROJECT_ROOT)" lo-kill
-	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_DEMO=1 --set WRITERAGENT_UNO_TEST_TIMEOUT=600 -- -u -m plugin.testing_runner --user-profile tests/demo/test_demo_video_uno.py $(SCENE); EXIT_CODE=$$?; exit $$EXIT_CODE
+	"$(PYTHON)" "$(SCRIPTS)/lo_paths.py" run-lo-python --python "$(LO_PYTHON)" --set WRITERAGENT_DEMO=1 --set WRITERAGENT_UNO_TEST_TIMEOUT=600 -- -u -m plugin.testing_runner --user-profile tests/demo/test_demo_video_uno.py $(if $(SCENE),test_$(SCENE)); EXIT_CODE=$$?; exit $$EXIT_CODE
 
 # Cap xdist at 6 so subprocess-heavy compute_service / venv worker tests
 # do not starve handshake timeouts on an 8-core box (PYTEST_WORKERS=auto).
