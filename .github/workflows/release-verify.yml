@@ -58,7 +58,7 @@ jobs:
 
       - name: Cache apt — LibreOffice (Ubuntu)
         if: runner.os == 'Linux'
-        timeout-minutes: 5
+        timeout-minutes: 10
         env:
           DEBIAN_FRONTEND: noninteractive
         uses: awalsh128/cache-apt-pkgs-action@v1.6.1
