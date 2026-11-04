@@ -582,6 +582,7 @@ class ApplyDocumentContent(ToolBase):
             )
         if outcome.mutate_error is not None:
             exc = outcome.mutate_error
+            reraise_if_disposed(exc)
             log.exception("apply_document_content: outline hyperlink update failed")
             if outcome.rolled_back or len(session.changes) == changes_before:
                 msg = f"Outline hyperlink update failed; the text change was rolled back ({exc})."
@@ -911,14 +912,12 @@ class ApplyDocumentContent(ToolBase):
         session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any]:
-            params, err = self._parse_edit_params(kwargs)
-            if err is not None:
-                return err, None
-            if params is None:
-                return self._tool_error("Internal error: missing edit parameters."), None
-            session = EditReviewSession(ctx.doc, ctx.ctx, enabled=params.track_reviewable)
+            parsed = self._parse_edit_params(kwargs)
+            if isinstance(parsed, dict):
+                return parsed, None
+            session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
             session_box.append(session)
-            return self._dispatch_edit(ctx, session, params), session
+            return self._dispatch_edit(ctx, session, parsed), session
 
         if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
@@ -984,37 +983,39 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
-    def _parse_edit_params(self, kwargs: Any) -> tuple[EditParams | None, dict[str, Any] | None]:
+    def _parse_edit_params(self, kwargs: Any) -> EditParams | dict[str, Any]:
         from . import html_import as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
         target = self._effective_target(kwargs.get("target"), old_content)
         if not target:
-            return None, self._tool_error(
+            return self._tool_error(
                 "Provide a target ('beginning', 'end', 'selection', 'full_document', 'search') "
                 "or old_content for find-and-replace.")
 
         if target == "search" and old_content is None:
-            return None, self._tool_error("target='search' requires old_content.")
+            return self._tool_error("target='search' requires old_content.")
 
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
-            return None, self._tool_error(occurrence_error, code="INVALID_PARAM")
+            return self._tool_error(occurrence_error, code="INVALID_PARAM")
 
         # position is a search-only refinement; validate it up front (silently ignoring it on an
         # insert target would teach the model a parameter that "works" by accident).
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
-            return None, self._tool_error(pos_err)
+            return self._tool_error(pos_err)
         if position != "replace" and target != "search":
-            return None, self._tool_error(
+            return self._tool_error(
                 "position='before'/'after' requires target='search' "
                 "(it inserts next to an old_content match).")
         if position != "replace" and kwargs.get("all_matches", False):
-            return None, self._tool_error(
+            return self._tool_error(
                 "position='before'/'after' inserts at a single match; drop all_matches "
                 "or use position='replace'.")
 
+        # If the model serialized a list as a JSON string, parse it back so commas/brackets
+        # do not become literal document text.
         if isinstance(content, str):
             stripped = content.strip()
             if stripped.startswith("[") and "<" in stripped:
@@ -1024,14 +1025,14 @@ class ApplyDocumentContent(ToolBase):
 
         if isinstance(content, list):
             if any(not isinstance(x, str) for x in content):
-                return None, self._tool_error("content list items must be strings.")
+                return self._tool_error("content list items must be strings.")
             content = "\n".join(content)
 
         if not isinstance(content, str):
-            return None, self._tool_error("content must be a string or a list of strings.")
+            return self._tool_error("content must be a string or a list of strings.")
 
         if target in ("beginning", "end", "selection") and content.strip() == "":
-            return None, self._tool_error("content is empty; nothing was inserted.")
+            return self._tool_error("content is empty; nothing was inserted.")
 
         # Detect markup BEFORE any HTML wrapping.
         use_preserve = not format_support.content_has_markup(content)
@@ -1062,50 +1063,45 @@ class ApplyDocumentContent(ToolBase):
         has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
         all_matches = kwargs.get("all_matches", False)
 
-        if target != "search":
-            return EditParams(
-                content=content,
-                plain=plain,
-                use_preserve=use_preserve,
-                has_table=has_table,
-                target=target,
-                position=position,
-                occurrence=occurrence,
-                all_matches=all_matches,
-                track_reviewable=track_reviewable,
-            ), None
-
-        old_stripped = str(old_content).strip()
-        search_string = format_support.plain_text_if_markup(old_stripped)
-        # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
-        search_string = search_mod.normalize_search_string_for_find(search_string)
-        if not search_string:
-            # Parameter error (like old_content=None), not a search no-op: the search never ran,
-            # so there's no replaced_count to report — use the standard tool error shape.
-            return None, self._tool_error("old_content is empty after normalization.")
-        plain = content if use_preserve else self._replacement_plain(content)
-        # The search drops the spaces at old_content's edges. The replacement
-        # must drop the same edges, or old_content=" paragrafo" with content=""
-        # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
-        # double space (same for " paragrafo inteiro" -> " inteiro"). A
-        # deletion takes the space on one side along with the word.
+        search_string = ""
+        pattern = ""
+        regex = False
+        use_opts = False
+        cs = False
         separator = 0
-        # Invariant: branch on use_preserve, not on the decoded content (an entity may decode to markup).
-        if (position == "replace" and not kwargs.get("regex")
-                and use_preserve
-                and not format_support.content_has_markup(str(old_content))):
-            content, separator = _match_stripped_edges(str(old_content), content)
-            plain = content
-        override, override_error = self._parse_hyperlink_url(kwargs)
-        if override_error:
-            return None, self._tool_error(override_error, code="INVALID_PARAM")
-        override_err = self._override_not_replace(override, position)
-        if override_err:
-            return None, self._tool_error(override_err, code="INVALID_PARAM")
+        override: str | None = None
 
-        regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
-        if rex_err:
-            return None, self._invalid_regex(rex_err)
+        if target == "search":
+            old_stripped = str(old_content).strip()
+            search_string = format_support.plain_text_if_markup(old_stripped)
+            # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
+            search_string = search_mod.normalize_search_string_for_find(search_string)
+            if not search_string:
+                # Parameter error (like old_content=None), not a search no-op: the search never ran,
+                # so there's no replaced_count to report — use the standard tool error shape.
+                return self._tool_error("old_content is empty after normalization.")
+            plain = content if use_preserve else self._replacement_plain(content)
+            # The search drops the spaces at old_content's edges. The replacement
+            # must drop the same edges, or old_content=" paragrafo" with content=""
+            # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
+            # double space (same for " paragrafo inteiro" -> " inteiro"). A
+            # deletion takes the space on one side along with the word.
+            # Invariant: branch on use_preserve, not on the decoded content (an entity may decode to markup).
+            if (position == "replace" and not kwargs.get("regex")
+                    and use_preserve
+                    and not format_support.content_has_markup(str(old_content))):
+                content, separator = _match_stripped_edges(str(old_content), content)
+                plain = content
+            override, override_error = self._parse_hyperlink_url(kwargs)
+            if override_error:
+                return self._tool_error(override_error, code="INVALID_PARAM")
+            override_err = self._override_not_replace(override, position)
+            if override_err:
+                return self._tool_error(override_err, code="INVALID_PARAM")
+
+            regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
+            if rex_err:
+                return self._invalid_regex(rex_err)
 
         return EditParams(
             content=content,
@@ -1124,7 +1120,7 @@ class ApplyDocumentContent(ToolBase):
             case_sensitive=cs,
             separator=separator,
             override=override,
-        ), None
+        )
 
     def _dispatch_edit(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1208,32 +1204,22 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         doc = ctx.doc
-        content = params.content
-        plain = params.plain
-        use_preserve = params.use_preserve
-        track_reviewable = params.track_reviewable
-        override = params.override
-        pattern = params.pattern
-        regex = params.regex
-        cs = params.case_sensitive
-        use_opts = params.use_opts
-        search_string = params.search_string
-        separator = params.separator
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
         # Explicit regex / case control (opt-in): a direct SearchDescriptor find that bypasses the
         # default lenient matcher, so "search with options then replace" agrees with search_in_document.
-        ranges = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=True)
+        ranges = _find_ranges(
+            doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
         if not ranges:
             return self._finish_search_miss(
-                doc, search_string, pattern, regex, cs,
-                track_reviewable, plain, all_matches=True)
+                doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
+                params.track_reviewable, params.plain, all_matches=True)
         max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
         # Decide before any replace. An empty replacement that is the last text
         # in a table deletes the table instead of leaving an empty shell; those
         # matches are not also cleared as text (that would add a second redline).
-        doomed = writer_tables_emptied_by_matches(ranges, content)
+        doomed = writer_tables_emptied_by_matches(ranges, params.content)
         doomed_names = {name for _table, name in doomed}
         if doomed_names:
             anchor_range = next((item for item in ranges if _table_and_name(item)[1] not in doomed_names), None)
@@ -1252,14 +1238,14 @@ class ApplyDocumentContent(ToolBase):
                 for found in reversed(ranges):
                     if doomed_names and _table_and_name(found)[1] in doomed_names:
                         continue
-                    found = _grow_over_edge_space(found, separator)
+                    found = _grow_over_edge_space(found, params.separator)
                     # batch=True: this loop already holds the undo context, so the
                     # outline URL write stays in the same Ctrl+Z as the text.
                     reports, link_err = self._replace_found(
-                        session, doc, found, use_preserve=use_preserve,
-                        content=content, ctx=ctx,
-                        track_reviewable=track_reviewable, override=override, batch=True,
-                        plain=plain)
+                        session, doc, found, use_preserve=params.use_preserve,
+                        content=params.content, ctx=ctx,
+                        track_reviewable=params.track_reviewable, override=params.override, batch=True,
+                        plain=params.plain)
                     if link_err:
                         link_failure_holder[0] = link_err
                         raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
@@ -1322,7 +1308,7 @@ class ApplyDocumentContent(ToolBase):
         if doomed and count == 0:
             resp = _table_deletion_result([name for _table, name in doomed], tracked_delete)
         else:
-            resp = build_search_replace_response(count, use_preserve=use_preserve)
+            resp = build_search_replace_response(count, use_preserve=params.use_preserve)
             if max_limit_hit:
                 resp["message"] += f" Note: Replacement stopped at the safety limit of {search_mod.MAX_SEARCH_REPLACEMENTS} to avoid excessive document changes. The document is not fully updated."
             if count > 1:
@@ -1342,29 +1328,22 @@ class ApplyDocumentContent(ToolBase):
         if params.all_matches:
             return self._edit_replace_all(ctx, session, params)
         doc = ctx.doc
-        occurrence = params.occurrence
-        pattern = params.pattern
-        regex = params.regex
-        cs = params.case_sensitive
-        use_opts = params.use_opts
-        search_string = params.search_string
-        plain = params.plain
-        track_reviewable = params.track_reviewable
-        position = params.position
-        if occurrence is not None:
+        if params.occurrence is not None:
             # Index the same replaceable list the edit path uses. Empty ranges fall
             # through to the existing miss / drawing-shape path (models often send 0).
-            ranges = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=True)
-            if ranges and occurrence >= len(ranges):
-                return self._occurrence_oor(occurrence, len(ranges))
-            found = ranges[occurrence] if ranges else None
+            ranges = _find_ranges(
+                doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
+            if ranges and params.occurrence >= len(ranges):
+                return self._occurrence_oor(params.occurrence, len(ranges))
+            found = ranges[params.occurrence] if ranges else None
         else:
-            found = _find_ranges(doc, pattern, regex, cs, use_opts, all_matches=False)
+            found = _find_ranges(
+                doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
         if found is None:
             return self._finish_search_miss(
-                doc, search_string, pattern, regex, cs,
-                track_reviewable, plain, all_matches=False)
-        if position in ("before", "after"):
+                doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
+                params.track_reviewable, params.plain, all_matches=False)
+        if params.position in ("before", "after"):
             return self._edit_insert_next_to_match(ctx, session, params, found)
         return self._edit_replace_one(ctx, session, params, found)
 
