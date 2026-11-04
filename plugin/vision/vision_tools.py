@@ -63,7 +63,6 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
             params_dict["image_name"] = image_name
 
         scope = getattr(ctx, "send_cancellation", None)
-        stop_checker = scope.is_cancelled if scope is not None else None
 
         try:
             result = run_and_insert_vision_for_selection(
@@ -72,7 +71,7 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
                 helper="extract_structure",
                 params=params_dict or None,
                 insert_into_document=insert_into_document,
-                stop_checker=stop_checker,
+                cancel=scope,
             )
         except DocumentDisposedError:
             raise

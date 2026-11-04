@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from plugin.framework.send_cancellation import SendCancellation
+
 from plugin.framework.constants import WORKER_POOL_DEFAULT
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, DEAL_MAX_TOKEN, str_bounded, deal
 from plugin.framework.errors import ToolExecutionError
@@ -59,16 +61,13 @@ def run_trusted_worker_action(
     additional_data: dict[str, Any] | None = None,
     allow_heartbeat: bool = False,
     heartbeat_fn: Callable[[dict[str, Any]], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
     error_code: str = "TRUSTED_ACTION_ERROR",
     error_label: str = "Trusted action",
-    cancellation_scope: Any | None = None,
+    cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted action in the warm venv worker without user code strings."""
-    if cancellation_scope is None and ctx is not None:
-        cancellation_scope = getattr(ctx, "send_cancellation", None)
-    if stop_checker is None and cancellation_scope is not None:
-        stop_checker = cancellation_scope.is_cancelled
+    if cancel is None and ctx is not None:
+        cancel = getattr(ctx, "send_cancellation", None)
 
     payload: dict[str, Any] = {
         **(additional_data or {}),
@@ -88,7 +87,6 @@ def run_trusted_worker_action(
         action="run_trusted_action",
         allow_heartbeat=allow_heartbeat,
         on_heartbeat=heartbeat_fn if allow_heartbeat else None,
-        stop_checker=stop_checker,
-        cancellation_scope=cancellation_scope,
+        cancel=cancel,
     )
     return parse_worker_dict_result(response, error_code=error_code, error_label=error_label)

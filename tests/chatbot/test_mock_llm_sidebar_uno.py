@@ -3181,7 +3181,7 @@ def test_o5_stop_during_ocr(ctx):
         _stop_and_wait_idle(before)
         time.sleep(6.5)  # past the fake OCR: a late result must not insert
         calls = _o_calls()
-    # Stop reaches the running OCR (its stop_checker), which ends as USER_STOPPED.
+    # Stop reaches the running OCR (its cancel scope), which ends as USER_STOPPED.
     assert len(calls) == 1 and calls[0]["status"] == "error", f"O5 Stop did not cancel the running OCR: {calls}"
     assert fake_ocr_text("") not in _o_text(ctx), f"O5 OCR text inserted after Stop: {_o_text(ctx)!r}"
     _hello_ok()

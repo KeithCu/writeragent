@@ -39,8 +39,8 @@ from plugin.scripting.config_limits import (
     python_exec_timeout_default,
     resolve_python_exec_timeout,
 )
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.ipc import (
-    _stop_requested,
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
     IpcFrameError,
@@ -160,6 +160,13 @@ def host_script_session_id(request_session_id: Any, script_session_id: str | Non
     return None
 
 
+def _ipc_stop_checker(cancel: SendCancellation | None) -> Callable[[], bool] | None:
+    """Map a turn's cancel scope to ipc's wait predicate, or None to leave select uncapped."""
+    if cancel is None:
+        return None
+    return cancel.is_cancelled
+
+
 def _maybe_dispatch_intermediate_response(
     response: dict[str, Any],
     *,
@@ -167,8 +174,7 @@ def _maybe_dispatch_intermediate_response(
     allowed_tools: frozenset[str] | None = None,
     caller: str = "script",
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    cancellation_scope: Any | None = None,
+    cancel: SendCancellation | None = None,
     script_session_id: str | None = None,
 ) -> bool:
     """Handle tool_call (any build). ppt-master llm_request / worker_event only for that caller."""
@@ -182,9 +188,7 @@ def _maybe_dispatch_intermediate_response(
         allowed_tools=allowed_tools,
         caller=caller,
         script_session_id=script_session_id,
-        stop_checker=stop_checker,
-        # This is the chat SendCancellation; ToolContext.send_cancellation is what registers the HTTP call.
-        send_cancellation=cancellation_scope,
+        cancel=cancel,
     ):
         return True
     # Only the ppt-master worker may emit llm_request. Every other caller
@@ -206,8 +210,7 @@ def _maybe_dispatch_intermediate_response(
         response,
         stdin_write=stdin_write,
         on_worker_event=on_worker_event,
-        stop_checker=stop_checker,
-        cancellation_scope=cancellation_scope,
+        cancel=cancel,
     )
 
 
@@ -331,8 +334,7 @@ class _ExecRequest:
     allow_heartbeat: bool = False
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None
     on_worker_event: Callable[[dict[str, Any]], None] | None = None
-    stop_checker: Callable[[], bool] | None = None
-    cancellation_scope: Any | None = None
+    cancel: SendCancellation | None = None
     python_tool_domain: str | None = None
     caller: str = "script"
     pin: str | None = None
@@ -451,7 +453,7 @@ class PythonWorkerManager:
     @contextlib.contextmanager
     def _io_session(
         self,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
         *,
         spawn_deadline: Deadline | None = None,
     ) -> Generator[Lease, None, None]:
@@ -459,7 +461,7 @@ class PythonWorkerManager:
         acquire_end = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
         spawn_deadline = spawn_deadline or Deadline(float(WARM_WORKER_TIMEOUT_SEC))
         while True:
-            if _stop_requested(stop_checker):
+            if is_cancelled(cancel):
                 raise _IoSessionUnavailable(_worker_error("CANCELLED", "Python worker stopped by user"))
             reentry = self._reentry_error()
             if reentry is not None:
@@ -483,7 +485,7 @@ class PythonWorkerManager:
                     lease_acquired = True
                     self._io_owner = threading.get_ident()
                     try:
-                        if _stop_requested(stop_checker):
+                        if is_cancelled(cancel):
                             raise _IoSessionUnavailable(_worker_error("CANCELLED", "Python worker stopped by user"))
                         warm_err = self._ensure_warmed_unlocked(leased)
                         if warm_err is not None:
@@ -513,14 +515,14 @@ class PythonWorkerManager:
         self,
         body: Callable[[Any], dict[str, Any]],
         *,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
         timeout_sec: int | None = None,
     ) -> dict[str, Any]:
         """Run *body* while this manager holds the pipe, or return the session error."""
         spawn_deadline = Deadline(float(timeout_sec if timeout_sec is not None else WARM_WORKER_TIMEOUT_SEC))
         for attempt in range(2):
             try:
-                with self._io_session(stop_checker, spawn_deadline=spawn_deadline) as leased:
+                with self._io_session(cancel, spawn_deadline=spawn_deadline) as leased:
                     return body(leased)
             except _RetryWithNewLease as retry:
                 if attempt == 1:
@@ -699,7 +701,7 @@ class PythonWorkerManager:
                         host_read_timeout_sec,
                         EMBEDDINGS_HEARTBEAT_GRACE_S,
                         req.on_heartbeat,
-                        stop_checker=req.stop_checker,
+                        cancel=req.cancel,
                     )
                     if isinstance(response, FailedAfterStart):
                         return response
@@ -707,7 +709,7 @@ class PythonWorkerManager:
                         return _closed_without_response()
                 else:
                     response_bytes = self._read_response_bytes(
-                        stdout, host_read_timeout_sec, stop_checker=req.stop_checker
+                        stdout, host_read_timeout_sec, cancel=req.cancel
                     )
                     if isinstance(response_bytes, FailedAfterStart):
                         return response_bytes
@@ -736,8 +738,7 @@ class PythonWorkerManager:
                         allowed_tools=allowed_tools,
                         caller=req.caller,
                         on_worker_event=req.on_worker_event,
-                        stop_checker=req.stop_checker,
-                        cancellation_scope=req.cancellation_scope,
+                        cancel=req.cancel,
                         script_session_id=resolved_script_session_id,
                     )
                 finally:
@@ -919,8 +920,7 @@ class PythonWorkerManager:
         on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
         python_tool_domain: str | None = None,
         script_session_id: str | None = None,
-        stop_checker: Callable[[], bool] | None = None,
-        cancellation_scope: Any | None = None,
+        cancel: SendCancellation | None = None,
         sandbox_policy: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
@@ -953,13 +953,12 @@ class PythonWorkerManager:
                     on_heartbeat=on_heartbeat,
                     python_tool_domain=python_tool_domain,
                     pin=script_session_id,
-                    stop_checker=stop_checker,
-                    cancellation_scope=cancellation_scope,
+                    cancel=cancel,
                     sandbox_policy=sandbox_policy,
                 ),
                 leased=leased,
             ),
-            stop_checker=stop_checker,
+            cancel=cancel,
             timeout_sec=timeout_sec,
         )
 
@@ -969,14 +968,13 @@ class PythonWorkerManager:
         *,
         timeout_sec: int,
         on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
-        cancellation_scope: Any | None = None,
+        cancel: SendCancellation | None = None,
     ) -> dict[str, Any]:
         """Run one PPT-Master sidebar turn in the venv worker (LLM + scripts + host UNO RPC).
 
-        ``cancellation_scope`` is host-side only. ``data`` is pickled to the child,
+        ``cancel`` is host-side only. ``data`` is pickled to the child,
         so the scope is passed beside it and attached when an llm_request frame
-        comes back, the same way as ``stop_checker``.
+        comes back; it is not on ``wire()``.
         """
         try:
             import plugin.ppt_master  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -998,13 +996,12 @@ class PythonWorkerManager:
                     action="ppt_master_turn",
                     session=SessionKey.from_host(session_id),
                     on_worker_event=on_worker_event,
-                    stop_checker=stop_checker,
-                    cancellation_scope=cancellation_scope,
+                    cancel=cancel,
                     caller="ppt_master_venv",
                 ),
                 leased=leased,
             ),
-            stop_checker=stop_checker,
+            cancel=cancel,
             timeout_sec=timeout_sec,
         )
         if raw.get("status") == "error":
@@ -1079,17 +1076,17 @@ class PythonWorkerManager:
         self,
         stdout: IO[bytes],
         timeout_sec: float | int,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
     ) -> bytes | FailedAfterStart:
         if not self._is_worker_alive():
             raise RuntimeError("worker terminated concurrently")
-        return self._read_frame_bytes(stdout, timeout_sec, stop_checker=stop_checker)
+        return self._read_frame_bytes(stdout, timeout_sec, cancel=cancel)
 
     def _read_frame_bytes(
         self,
         stdout: IO[bytes],
         timeout_sec: float | int,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
         *,
         deadline: float | None = None,
     ) -> bytes | FailedAfterStart:
@@ -1099,6 +1096,7 @@ class PythonWorkerManager:
         self._is_worker_alive, and forces DEFAULT_MAX_PAYLOAD_BYTES plus
         frame_label="venv worker frame".
         """
+        ipc_stop = _ipc_stop_checker(cancel)
         try:
             payload = read_frame_payload(
                 stdout,
@@ -1108,13 +1106,13 @@ class PythonWorkerManager:
                 frame_label="venv worker frame",
                 cmd=self.exe,
                 is_alive=self._is_worker_alive,
-                stop_checker=stop_checker,
+                stop_checker=ipc_stop,
             )
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
             # ipc reports Stop as TimeoutExpired, including a mid-chunk stall
-            # (IpcPartialFrameTimeout). Re-check the checker so Windows peek and
+            # (IpcPartialFrameTimeout). Re-check cancel so Windows peek and
             # the POSIX loop both become CANCELLED.
-            if _stop_requested(stop_checker):
+            if is_cancelled(cancel):
                 return FailedAfterStart(RuntimeError("Python worker stopped by user"), "cancel")
             raise
         return payload or b""
@@ -1125,7 +1123,7 @@ class PythonWorkerManager:
         timeout_sec: float | int,
         grace_sec: float,
         on_heartbeat: Callable[[dict[str, Any]], None] | None,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
         absolute_cap_sec: float | None = None,
     ) -> dict[str, Any] | None | FailedAfterStart:
         from plugin.framework.ipc import FRAME_HEARTBEAT, FRAME_RESULT
@@ -1160,7 +1158,7 @@ class PythonWorkerManager:
             if now >= deadline:
                 raise subprocess.TimeoutExpired(cmd=self.exe, timeout=timeout_label)
             frame_bytes = self._read_frame_bytes(
-                stdout, timeout_label, stop_checker=stop_checker, deadline=deadline
+                stdout, timeout_label, cancel=cancel, deadline=deadline
             )
             if isinstance(frame_bytes, FailedAfterStart):
                 return frame_bytes
@@ -1308,8 +1306,7 @@ def run_code_in_user_venv(
     allow_heartbeat: bool = False,
     on_heartbeat: Callable[[dict[str, Any]], None] | None = None,
     action: str | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    cancellation_scope: Any | None = None,
+    cancel: SendCancellation | None = None,
     sandbox_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
@@ -1364,8 +1361,7 @@ def run_code_in_user_venv(
         action=action,
         python_tool_domain=python_tool_domain,
         script_session_id=script_session_id,
-        stop_checker=stop_checker,
-        cancellation_scope=cancellation_scope,
+        cancel=cancel,
         sandbox_policy=sandbox_policy,
     )
 

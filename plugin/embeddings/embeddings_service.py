@@ -54,7 +54,7 @@ def _run_embeddings_action(
         heartbeat_fn=heartbeat_fn,
         error_code="EMBEDDING_INDEX_ERROR",
         error_label="Embeddings",
-        cancellation_scope=cancel,
+        cancel=cancel,
     )
     if isinstance(res, dict) and res.get("error"):
         from plugin.framework.errors import ToolExecutionError

@@ -324,12 +324,16 @@ def test_execute_tool_uses_pinned_document_not_front_window():
 
 
 def test_handle_tool_call_frame_refuses_when_stopped():
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
         handled = handle_tool_call_frame(
             {"type": "tool_call", "id": "stop1", "tool": "export_presentation_project", "args": {}},
             stdin_write=written.append,
-            stop_checker=lambda: True,
+            cancel=scope,
         )
     assert handled is True
     mock_tool.assert_not_called()
@@ -342,6 +346,10 @@ def test_handle_tool_call_frame_refuses_when_stopped():
 
 def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
     """A dead worker pipe must not escape the USER_STOPPED or result write."""
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
 
     def _broken(_blob: bytes) -> None:
         raise BrokenPipeError("stdin closed")
@@ -350,7 +358,7 @@ def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
         stopped = handle_tool_call_frame(
             {"type": "tool_call", "id": "stop1", "tool": "export_presentation_project", "args": {}},
             stdin_write=_broken,
-            stop_checker=lambda: True,
+            cancel=scope,
         )
     assert stopped is True
     mock_tool.assert_not_called()
@@ -482,7 +490,9 @@ def test_rpc_call_drops_none_kwargs():
 def test_run_code_in_user_venv_forwards_python_tool_domain():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr:
+    with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr, patch(
+        "plugin.scripting.venv_worker.get_config", return_value=""
+    ):
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
@@ -680,6 +690,9 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
     with (
         patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "0", "WRITERAGENT_COMPUTE_WORKER": "0"}),
     ):
+        from plugin.scripting.host_tool_call import set_process_role
+
+        set_process_role(None)
         with patch(
             "plugin.scripting.host_rpc.execute_tool",
             side_effect=StoppedError("operation stopped"),
@@ -720,6 +733,8 @@ def test_writeragent_api_exports_and_tool_methods():
 
 
 def test_execute_tool_copies_stop_onto_tool_context():
+    from plugin.framework.send_cancellation import SendCancellation
+
     focused = MagicMock()
     bound = MagicMock()
     registry = MagicMock()
@@ -729,10 +744,7 @@ def test_execute_tool_copies_stop_onto_tool_context():
     registry.get.return_value = tool
     registry.execute.return_value = {"status": "ok"}
 
-    def checker() -> bool:
-        return False
-
-    sentinel = object()
+    scope = SendCancellation()
     with (
         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
@@ -746,29 +758,25 @@ def test_execute_tool_copies_stop_onto_tool_context():
         execute_tool(
             "export_presentation_project",
             {"project_path": "/p"},
-            stop_checker=checker,
-            send_cancellation=sentinel,
+            send_cancellation=scope,
         )
     tctx = registry.execute.call_args.args[1]
-    assert tctx.send_cancellation is sentinel
+    assert tctx.send_cancellation is scope
 
 
-def test_handle_tool_call_frame_forwards_stop_to_execute_tool():
-    def checker() -> bool:
-        return False
+def test_handle_tool_call_frame_forwards_cancel_to_execute_tool():
+    from plugin.framework.send_cancellation import SendCancellation
 
-    sentinel = object()
+    scope = SendCancellation()
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
         handled = handle_tool_call_frame(
             {"type": "tool_call", "id": "fwd1", "tool": "apply_document_content", "args": {}},
             stdin_write=written.append,
-            stop_checker=checker,
-            send_cancellation=sentinel,
+            cancel=scope,
         )
     assert handled is True
-    assert mock_tool.call_args.kwargs["stop_checker"] is checker
-    assert mock_tool.call_args.kwargs["send_cancellation"] is sentinel
+    assert mock_tool.call_args.kwargs["send_cancellation"] is scope
 
 
 def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):

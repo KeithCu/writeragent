@@ -69,8 +69,7 @@ def _run_ppt_master_venv_agent(
         model=None,
         session_id=session_id,
         on_worker_event=on_worker_event,
-        stop_checker=scope.is_cancelled if scope is not None else None,
-        cancellation_scope=scope,
+        cancel=scope,
     )
 
 

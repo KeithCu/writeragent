@@ -3137,7 +3137,9 @@ def _apply_fake_vision(mode: str) -> None:
             _patch(image_tools, "export_graphic_object_to_bytes", _no_export)
 
         def _fake_run_vision(ctx: Any, spec: Any, image: Any = None, *, context: dict[str, Any] | None = None,
-                             stop_checker: Any = None) -> dict[str, Any]:
+                             cancel: Any = None) -> dict[str, Any]:
+            from plugin.framework.send_cancellation import is_cancelled
+
             name = str((context or {}).get("image_name") or "")
             with _FAKE_VISION_LOCK:
                 index = len(_FAKE_VISION_STATE["calls"])
@@ -3151,7 +3153,7 @@ def _apply_fake_vision(mode: str) -> None:
             if mode == "slow":
                 deadline = time.monotonic() + 6.0
                 while time.monotonic() < deadline:
-                    if stop_checker is not None and stop_checker():
+                    if is_cancelled(cancel):
                         result = {"status": "error", "code": "USER_STOPPED", "message": "Cancelled by user."}
                         break
                     time.sleep(0.05)
