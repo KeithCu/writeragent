@@ -191,8 +191,8 @@ Delete and Insert as two independent rows. WriterAgent adds:
    wired by [`change_context_menu.py`](../../plugin/writer/change_context_menu.py) /
    [`review_click_popup.py`](../../plugin/writer/review_click_popup.py): left-click popup, right-click
    menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak.
-2. **Review toolbar** — [`plugin/writer/review_toolbar.py`](../../plugin/writer/review_toolbar.py):
-   **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
+2. **Review toolbar** — [`plugin/writer/review_view_attachment.py`](../../plugin/writer/review_view_attachment.py)
+   (`refresh_review_toolbar`, dock-once): **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
    `agent_change_presence(model, stop_at_first=True)`: if the scan is unreliable, visibility is left
    unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
@@ -257,7 +257,7 @@ resolve-all returns user-facing messages when verification fails.
   pending counter may still include them. Stops with unreadable bounds are omitted from Next/Previous;
   a change with bounds in another text object is visited in redline-table order.
 * **Second window, same document:** toolbar visibility is per-window; a rare stale toolbar can appear
-  in a secondary window (documented in `review_toolbar.py`).
+  in a secondary window (documented in `review_view_attachment.refresh_review_toolbar`).
 
 ## Ways to improve
 

@@ -72,7 +72,7 @@ def test_plot_data_requires_helper(calc_ctx):
 
 
 def test_plot_data_not_registered():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     from plugin.tests.testing_utils import CalcDocStub
 

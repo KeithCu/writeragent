@@ -13,7 +13,7 @@ import uno
 
 from plugin.doc.document_research import list_nearby_files, open_document_for_read
 from plugin.framework.tool import ToolContext
-from plugin.main import get_services, get_tools
+from plugin.app import get_services, get_tools
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import (
     note_windows_hidden_open_bitmap,

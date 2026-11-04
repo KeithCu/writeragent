@@ -323,4 +323,4 @@ Not planned unless a real product need appears. **Do not treat the list below as
 - Blank side-channel on `split_grid` + masked-array ingress so pass-through blanks stay empty and `np.mean` auto-ignores Calc blanks (upgrade can be atomic; wire already carries NaN slots).
 - Formula parameters: 3rd arg `extras` for recalc deps; `collapse` on conversion; host `lp()` bridge; per-formula `timeout_sec`.
 - Range alignment helper for mismatched multi-range shapes before `np.corrcoef` / element-wise math — see [Calc UX backlog](../enabling_numpy_in_libreoffice.md#calc-ux-backlog).
-- `per-workbook `WorkbookState.matrix`` keys use `repr(worker_data)` (`WorkerResultSession` in [`recalc.py`](../../plugin/calc/python/recalc.py)). A packed-payload digest + cell count would avoid building a full `repr` of large grids; do not use `id()`. Not codec work.
+- `per-workbook `WorkbookState.matrix`` keys use `repr(worker_data)` (`WorkerResultSession` in [`function.py`](../../plugin/calc/python/function.py)). A packed-payload digest + cell count would avoid building a full `repr` of large grids; do not use `id()`. Not codec work.

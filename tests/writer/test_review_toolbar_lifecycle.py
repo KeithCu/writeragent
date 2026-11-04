@@ -10,8 +10,7 @@ and its registry entry leak, and a later document that reuses the RuntimeUID wou
 """
 from unittest.mock import MagicMock, patch
 
-import plugin.writer.review_toolbar as rt
-from plugin.writer import review_view_attachment as rva
+import plugin.writer.review_view_attachment as rva
 
 
 def _doc_key(uid: str) -> str:
@@ -94,11 +93,11 @@ def test_toolbar_docks_once_per_document():
     key = _doc_key("uid-D")
     rva._get_or_create(model)
     with patch("plugin.writer.review_view_attachment.layout_manager", return_value=MagicMock()), \
-         patch("plugin.writer.review_toolbar._dock_top") as dock, \
+         patch("plugin.writer.review_view_attachment._dock_top") as dock, \
          patch("plugin.writer.review_scan.agent_change_presence", side_effect=[(1, True), (0, True), (1, True)]):
-        rt.refresh_review_toolbar(model)
-        rt.refresh_review_toolbar(model)
-        rt.refresh_review_toolbar(model)
+        rva.refresh_review_toolbar(model)
+        rva.refresh_review_toolbar(model)
+        rva.refresh_review_toolbar(model)
     assert dock.call_count == 1
     assert rva._attachments[key].toolbar_docked is True
 
@@ -152,7 +151,7 @@ def test_modified_does_not_recount_synchronously():
     _reset_pending()
     listener = rva.ReviewModifyListener(_doc_key("uid-sync"))
     posted, post_patch = _capture_posts()
-    with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
+    with _visible_toolbar_patch(True), post_patch, patch.object(rva, "refresh_review_toolbar") as refresh:
         listener.modified(_event(FakeModel("uid-sync")))
         refresh.assert_not_called()
     assert [fn for fn, _ in posted] == [rva._run_deferred_refresh], "the recount must be queued, not run"
@@ -164,7 +163,7 @@ def test_keystroke_burst_collapses_into_one_queued_recount():
     listener = rva.ReviewModifyListener(_doc_key("uid-burst"))
     model = FakeModel("uid-burst")
     posted, post_patch = _capture_posts()
-    with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar"):
+    with _visible_toolbar_patch(True), post_patch, patch.object(rva, "refresh_review_toolbar"):
         for _ in range(25):  # a long comment, one modified() per keystroke
             listener.modified(_event(model))
     assert len(posted) == 1
@@ -175,7 +174,7 @@ def test_normal_typing_without_a_review_queues_nothing():
     _reset_pending()
     listener = rva.ReviewModifyListener(_doc_key("uid-idle"))
     posted, post_patch = _capture_posts()
-    with _visible_toolbar_patch(False), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
+    with _visible_toolbar_patch(False), post_patch, patch.object(rva, "refresh_review_toolbar") as refresh:
         listener.modified(_event(FakeModel("uid-idle")))
     refresh.assert_not_called()
     assert posted == []
@@ -185,7 +184,7 @@ def test_queued_recount_runs_once_then_allows_the_next():
     _reset_pending()
     model = FakeModel("uid-run")
     posted, post_patch = _capture_posts()
-    with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
+    with _visible_toolbar_patch(True), post_patch, patch.object(rva, "refresh_review_toolbar") as refresh:
         rva.schedule_toolbar_refresh(model, "uid-run")
         fn, args = posted[0]
         fn(*args)  # the main loop gets to it
@@ -200,7 +199,7 @@ def test_deferred_recount_rechecks_visibility():
     model = FakeModel("uid-v")
     with rva._pending_lock:
         rva._pending_refresh.add("uid-v")
-    with _visible_toolbar_patch(False), patch.object(rt, "refresh_review_toolbar") as refresh:
+    with _visible_toolbar_patch(False), patch.object(rva, "refresh_review_toolbar") as refresh:
         rva._run_deferred_refresh(model, "uid-v")
     refresh.assert_not_called()
 
@@ -212,7 +211,7 @@ def test_closing_the_document_cancels_a_queued_recount():
     rva.ensure_modify_listener(model)
     key = _doc_key("uid-close")
     posted, post_patch = _capture_posts()
-    with _visible_toolbar_patch(True), post_patch, patch.object(rt, "refresh_review_toolbar") as refresh:
+    with _visible_toolbar_patch(True), post_patch, patch.object(rva, "refresh_review_toolbar") as refresh:
         rva.modify_listener_map()[key].modified(_event(model))
         rva.release_document(model)
         fn, args = posted[0]
@@ -235,7 +234,7 @@ def test_non_writer_unload_does_not_ask_disposed_controller():
     ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
     rva.reset_all()
     with patch("plugin.framework.uno_context.get_desktop", return_value=None):
-        rt.install_review_toolbar(ctx)
+        rva.install(ctx)
         listener = broadcaster.addDocumentEventListener.call_args.args[0]
     impress = MagicMock()
     impress.supportsService.return_value = False
@@ -253,13 +252,13 @@ def test_dock_failure_is_retried_on_the_next_show():
     key = _doc_key("uid-dock")
     lm = MagicMock()
     with patch.object(rva, "layout_manager", return_value=lm), \
-         patch.object(rt, "_dock_top", side_effect=[False, True]) as dock, \
+         patch.object(rva, "_dock_top", side_effect=[False, True]) as dock, \
          patch("plugin.writer.review_scan.agent_change_presence",
                side_effect=[(1, True), (0, True), (1, True)]):
-        rt.refresh_review_toolbar(model)
+        rva.refresh_review_toolbar(model)
         assert not rva._attachments.get(key, rva.ReviewViewAttachment(key, model)).toolbar_docked
-        rt.refresh_review_toolbar(model)
-        rt.refresh_review_toolbar(model)
+        rva.refresh_review_toolbar(model)
+        rva.refresh_review_toolbar(model)
     assert dock.call_count == 2
     assert rva._attachments[key].toolbar_docked is True
     _reset()
@@ -267,33 +266,33 @@ def test_dock_failure_is_retried_on_the_next_show():
 
 def test_dock_top_returns_boolean():
     lm = MagicMock()
-    assert rt._dock_top(lm) is True
+    assert rva._dock_top(lm) is True
     lm.dockWindow.side_effect = RuntimeError("dock error")
-    assert rt._dock_top(lm) is False
+    assert rva._dock_top(lm) is False
 
 
 def test_refresh_review_toolbar_show_hide_unreliable():
     lm = MagicMock()
     model = FakeModel("uid-sh")
     with patch.object(rva, "layout_manager", return_value=lm), \
-         patch.object(rt, "_dock_top", return_value=True):
+         patch.object(rva, "_dock_top", return_value=True):
         # 1 pending change -> show
         with patch("plugin.writer.review_scan.agent_change_presence", return_value=(1, True)):
-            rt.refresh_review_toolbar(model)
+            rva.refresh_review_toolbar(model)
             lm.showElement.assert_called_once_with(rva.TOOLBAR_RESOURCE_URL)
             lm.hideElement.assert_not_called()
 
         lm.reset_mock()
         # 0 pending changes -> hide
         with patch("plugin.writer.review_scan.agent_change_presence", return_value=(0, True)):
-            rt.refresh_review_toolbar(model)
+            rva.refresh_review_toolbar(model)
             lm.hideElement.assert_called_once_with(rva.TOOLBAR_RESOURCE_URL)
             lm.showElement.assert_not_called()
 
         lm.reset_mock()
         # unreliable scan -> no-op
         with patch("plugin.writer.review_scan.agent_change_presence", return_value=(0, False)):
-            rt.refresh_review_toolbar(model)
+            rva.refresh_review_toolbar(model)
             lm.showElement.assert_not_called()
             lm.hideElement.assert_not_called()
 
@@ -304,7 +303,7 @@ def test_install_review_toolbar_warns_on_sweep_failure():
     rva.reset_all()
     with patch("plugin.framework.uno_context.get_desktop", side_effect=RuntimeError("sweep error")), \
          patch.object(rva.log, "warning") as warn:
-        rt.install_review_toolbar(ctx)
+        rva.install(ctx)
         warn.assert_any_call("review_view_attachment: initial sweep failed", exc_info=True)
 
 
@@ -314,6 +313,6 @@ def test_install_review_toolbar_warns_on_listener_install_failure():
     rva.reset_all()
     with patch("plugin.framework.uno_context.get_desktop", return_value=None), \
          patch("plugin.framework.uno_listeners.log.warning") as warn:
-        rt.install_review_toolbar(ctx)
+        rva.install(ctx)
         warn.assert_any_call("%s: doc-event listener install failed", "review_view_attachment", exc_info=True)
 

@@ -458,7 +458,7 @@ class ToolCallingMixin:
             return
         try:
             log.debug("_do_send: importing core modules...")
-            from plugin.main import get_tools
+            from plugin.app import get_tools
 
             log.debug("_do_send: core modules imported OK")
         except Exception as e:
@@ -627,7 +627,7 @@ class ToolCallingMixin:
         if turn is None:
             return
         try:
-            from plugin.main import get_tools
+            from plugin.app import get_tools
 
             turn_session = session_for_turn(self._panel)
             active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
@@ -847,7 +847,7 @@ class ToolCallingMixin:
         elif raw_kind == StreamQueueKind.TOOL_DONE:
             mutates = False
             with suppress_disposed("Tool loop event: mutates_document check", logger=log):
-                from plugin.main import get_tools as _get_tools_registry
+                from plugin.app import get_tools as _get_tools_registry
 
                 tool = _get_tools_registry().get(item[2])
                 if tool and tool.detects_mutation():
@@ -1033,7 +1033,7 @@ class ToolCallingMixin:
         self._panel._append_response("\nAI: ")
 
         def _get_async_tools() -> frozenset[str]:
-            from plugin.main import get_tools as _get_tools_registry
+            from plugin.app import get_tools as _get_tools_registry
 
             registry = _get_tools_registry()
             return frozenset(

@@ -71,7 +71,7 @@ def _caller_tid() -> int:
 def _install_eval_fallback_ctx(ctx: Any) -> None:
     """Point ``get_ctx()`` at the remote office context.
 
-    What was wrong: ``plugin.main.bootstrap`` stores the pipe context on the
+    What was wrong: ``plugin.app.bootstrap`` stores the pipe context on the
     service registry and on ``QueueExecutor``, but it does not call
     ``set_fallback_ctx``. ``get_ctx()`` then returns
     ``uno.getComponentContext()``, the local pyuno context. ``host_rpc``
@@ -231,8 +231,10 @@ class LOBackend:
         _install_eval_fallback_ctx(_lo_ctx)
 
         try:
-            from plugin.main import bootstrap
+            from plugin.main import bind
+            from plugin.app import bootstrap
 
+            bind()
             bootstrap(_lo_ctx)
         except Exception:
             # Bootstrap can fail (missing _manifest) after soffice is already up.
@@ -392,7 +394,7 @@ class LOBackend:
 
 def _tool_ctx(doc, doc_type: str = "writer"):
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
 
     return ToolContext(doc, _lo_ctx, doc_type, get_services(), "eval")
 
@@ -506,7 +508,7 @@ def get_content_as_html() -> str:
     def _do():
         try:
             doc = LOBackend.acquire_document()
-            from plugin.main import get_tools
+            from plugin.app import get_tools
 
             ctx = _tool_ctx(doc, "writer")
             res = get_tools().execute_unguarded(
@@ -526,7 +528,7 @@ def get_content_as_html() -> str:
 def get_document_content(scope="full", max_chars=None, start=None, end=None, **kwargs) -> str:
     def _do():
         doc = LOBackend.acquire_document()
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         params = {"scope": scope}
         if max_chars is not None:
@@ -549,7 +551,7 @@ def get_document_content(scope="full", max_chars=None, start=None, end=None, **k
 def apply_document_content(content: str, old_content: str = "", all_matches: bool = False, **kwargs) -> str:
     def _do():
         doc = LOBackend.acquire_document()
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         params = {"content": content, "old_content": old_content}
         if all_matches:
@@ -674,7 +676,7 @@ def _execute_lo_tool_impl(
     (``shapes,core``). ``run_venv_python_script`` forwards it so ``wa.shape``
     is permitted. Leave it unset for ordinary tool calls.
     """
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     kind = LOBackend.current_kind()
     doc = LOBackend.acquire_document()
@@ -712,7 +714,7 @@ def execute_lo_tool(
 
 def get_draw_export() -> str:
     def _do():
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "draw")
@@ -726,7 +728,7 @@ def get_calc_export() -> str:
     """Sheet summary + grid snapshot so Tax / 0.8 / snapshot can appear."""
 
     def _do():
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "calc")

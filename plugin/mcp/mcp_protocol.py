@@ -1136,7 +1136,7 @@ class MCPProtocolHandler:
         return result
 
     def _debug_trigger(self, command: str) -> Any:
-        from plugin.main import get_services
+        from plugin.app import get_services
 
         if command == "settings":
             from plugin.chatbot.dialog_views import settings_box

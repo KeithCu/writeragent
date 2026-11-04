@@ -11,7 +11,7 @@ import uno
 
 from plugin.doc.document_research_grep import grep_nearby_files
 from plugin.framework.uno_context import get_desktop
-from plugin.main import get_services
+from plugin.app import get_services
 from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 

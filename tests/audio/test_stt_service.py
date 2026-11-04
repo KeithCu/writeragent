@@ -429,11 +429,16 @@ def _wait_grandchild_gone(gpid: int, deadline: float) -> bool:
             os.kill(gpid, 0)
         except ProcessLookupError:
             return True
-        stat_path = Path(f"/proc/{gpid}/stat")
-        if stat_path.is_file():
-            state = stat_path.read_text().split()[2]
-            if state == "Z":
-                return True
+        # The process can be reaped between kill(0) and this read (is_file()+read_text raced in CI
+        # with FileNotFoundError); a vanished /proc entry means it is gone.
+        try:
+            state = Path(f"/proc/{gpid}/stat").read_text().split()[2]
+        except (FileNotFoundError, ProcessLookupError):
+            return True
+        except OSError:
+            state = ""
+        if state == "Z":
+            return True
         time.sleep(0.05)
     return False
 

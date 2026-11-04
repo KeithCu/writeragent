@@ -279,7 +279,7 @@ def test_execute_tool_prefers_script_session_document():
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
-        patch("plugin.main.get_tools", return_value=registry),
+        patch("plugin.app.get_tools", return_value=registry),
         patch("plugin.framework.doc_type.is_draw", return_value=True),
         patch("plugin.framework.doc_type.is_calc", return_value=False),
         patch("plugin.framework.doc_type.is_writer", return_value=False),
@@ -310,7 +310,7 @@ def test_execute_tool_uses_pinned_document_not_front_window():
             patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
             patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
             patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
-            patch("plugin.main.get_tools", return_value=registry),
+            patch("plugin.app.get_tools", return_value=registry),
             patch("plugin.framework.doc_type.is_draw", return_value=True),
             patch("plugin.framework.doc_type.is_calc", return_value=False),
             patch("plugin.framework.doc_type.is_writer", return_value=False),
@@ -575,7 +575,7 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
-        patch("plugin.main.get_tools", return_value=registry),
+        patch("plugin.app.get_tools", return_value=registry),
         patch("plugin.framework.doc_type.is_draw", return_value=True),
         patch("plugin.framework.doc_type.is_calc", return_value=False),
         patch("plugin.framework.doc_type.is_writer", return_value=False),
@@ -750,7 +750,7 @@ def test_execute_tool_copies_stop_onto_tool_context():
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
-        patch("plugin.main.get_tools", return_value=registry),
+        patch("plugin.app.get_tools", return_value=registry),
         patch("plugin.framework.doc_type.is_draw", return_value=True),
         patch("plugin.framework.doc_type.is_calc", return_value=False),
         patch("plugin.framework.doc_type.is_writer", return_value=False),
@@ -840,8 +840,13 @@ def test_handle_tool_call_frame_write_timeout_propagates():
 
 
 def test_every_domain_tool_resolves_to_a_proxy_method():
-    from plugin.scripting.host_rpc import _proxy_methods_by_tool
+    import importlib
+
     import plugin.scripting.writeragent_api as api
+
+    # Alias/sandbox tests can repoint writeragent.vision; reload keeps TOOL_METHODS and proxies aligned.
+    importlib.reload(api)
+    from plugin.scripting.host_rpc import _proxy_methods_by_tool
 
     methods = _proxy_methods_by_tool()
     assert methods is not None

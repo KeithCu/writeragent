@@ -50,11 +50,11 @@ def call_options_provider(provider_path: str) -> Any:
 
     services = None
     try:
-        from plugin.main import get_services
+        from plugin.app import get_services
 
         services = get_services()
     except ImportError:
-        # LibrePy does not ship plugin.main; providers that need services skip.
+        # LibrePy does not ship plugin.app; providers that need services skip.
         pass
     return func(services)
 

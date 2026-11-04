@@ -672,7 +672,11 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     with _mock_uno():
-        from plugin.main import get_tools
+        from plugin.main import bind
+
+        bind()
+
+        from plugin.app import get_tools
 
         with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
             _config_in_scratch_dir(tmp_dir)

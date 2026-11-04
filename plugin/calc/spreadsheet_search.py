@@ -14,9 +14,10 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.address_utils import format_address
 from plugin.calc.bridge import filter_agent_sheet_names
 from plugin.calc.calc_utils import resolve_sheet
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Iterator
 
 # Cap search hit text at the same 200-character snippet budget as
 # document_research_grep (not a user config setting).
@@ -50,7 +51,7 @@ def search_spreadsheet_cells(
     max_results: int = 50,
     all_sheets: bool = True,
     sheet_name: str | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> list[dict[str, Any]]:
     """Search a Calc document for *pattern*; return match dicts with sheet, cell, value. Long values are truncated to 200 characters with a trailing "…"."""
     if not pattern:
@@ -59,7 +60,7 @@ def search_spreadsheet_cells(
     matches: list[dict[str, Any]] = []
 
     for sheet, sname in iter_target_sheets(doc, all_sheets=all_sheets, sheet_name=sheet_name):
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             break
         sd = sheet.createSearchDescriptor()
         configure_search_descriptor(sd, pattern, regex=regex, case_sensitive=case_sensitive)
@@ -69,7 +70,7 @@ def search_spreadsheet_cells(
         # per hit. max_results still bounds the loop if findNext repeats.
         cell = sheet.findFirst(sd)
         while cell is not None:
-            if (stop_checker and stop_checker()) or len(matches) >= max_results:
+            if is_cancelled(cancel) or len(matches) >= max_results:
                 return matches
             value = cell.getString()
             if len(value) > _HIT_TEXT_MAX:

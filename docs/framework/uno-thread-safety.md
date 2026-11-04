@@ -138,7 +138,7 @@ Decorators only guard functions we remember to decorate. UNO sources wrap the ob
 ### A4. Yellow Context Refusal (`sync_host_dispatch`)
 When Calc evaluates an add-in formula like `=PY("1+1")` or `=PROMPT(...)` via a remote PyUNO bridge, execution occurs in a **Yellow Context**:
 - **Wrapped Entry Roots**:
-  1. [`plugin/calc/python/recalc.py`](../../plugin/calc/python/recalc.py): `execute_python_addin` enters `with sync_host_dispatch():`. Public add-in entry points `py()` and `python()` forward directly to `execute_python_addin`.
+  1. [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py): `execute_python_addin` enters `with sync_host_dispatch():`. Public add-in entry points `py()` and `python()` forward directly to `execute_python_addin`.
   2. [`plugin/calc/prompt_function.py`](../../plugin/calc/prompt_function.py): `execute_prompt_addin` enters `with sync_host_dispatch():`. Public add-in entry point `prompt()` forwards directly to `execute_prompt_addin`.
   3. [`plugin/framework/thread_guard.py`](../../plugin/framework/thread_guard.py): `_notify_thread_violation` logs and posts a message box on the UI thread. It does **not** enter `sync_host_dispatch()` — a blocking marshal from the violation path deadlocks when the UI thread is already waiting (#402).
 - **Why UI Listeners Are NOT Wrapped**: Standard UNO listeners (e.g. `actionPerformed` in `uno_listeners.py`) execute on LibreOffice's main UI thread during interactive user operations. Wrapping them would unnecessarily tag normal UI thread execution as host dispatches.
@@ -182,7 +182,7 @@ For fast CI tests where LibreOffice is not running:
 Thread routing is owned by `MainThread` (`plugin/framework/queue_executor.py`), governed by four explicit policies:
 - `Policy.production`: Standard runtime policy. Only the marshal thread inlines UNO; worker threads marshal via `AsyncCallback`. Pytest defaults to `Policy.production` (reset after each test in `conftest.py`).
 - `Policy.eval_harness`: Headless eval / benchmark suite (`scripts/run_eval.py`, `tools_lo.py`). Disables `AsyncCallback` so UNO stays exclusively on the designated `_lo_thread`.
-- `Policy.test_inline`: Fast inlined execution on untagged threads without `AsyncCallback`. Installed in `testing_runner.py` and `plugin.main.bootstrap` (via `WRITERAGENT_TESTING=1`); unit tests opt in explicitly with `main.install(Policy.test_inline)`.
+- `Policy.test_inline`: Fast inlined execution on untagged threads without `AsyncCallback`. Installed in `testing_runner.py` and `plugin.app.bootstrap` (via `WRITERAGENT_TESTING=1`); unit tests opt in explicitly with `main.install(Policy.test_inline)`.
 - `Policy.test_marshal`: Thread-affinity testing (`tests/framework/thread_safety.py`). Forces queueing to synthetic test pump threads even during tests.
 
 ---
@@ -247,7 +247,7 @@ All UNO objects must be wrapped at birth using `guard_uno(obj)` or obtained via 
 | Desktop Enumeration | `plugin/doc/document_research.py` | `_office_model_from_desktop_element()` guards enumerated desktop models. |
 | Scripting Calc Resolver | `plugin/scripting/document_scripts.py` | `get_calc_document_from_ctx()` (UI commands only, never `=PY()`) wraps the active Calc model. A focused Writer, Draw, or Impress document returns `None` without enumerating (`is_draw` is Draw or Impress). Base, Math, and no current component still enumerate. The fallback returns the only open Calc model, or `None` when zero or several are open. |
 | Script session document | `plugin/scripting/session_manager.py` | `document_for_script_session()` returns `guard_uno(model)`. A `doc:` pin from chat `run_venv_python_script` returns `guard_uno` of that object and does not enumerate the desktop. |
-| Calc Add-in Doc Lookup | `plugin/calc/python/recalc.py` | `_get_calc_doc()` returns `None` off-main (#402), guards on-main. |
+| Calc Add-in Doc Lookup | `plugin/calc/python/function.py` | `_get_calc_doc()` returns `None` off-main (#402), guards on-main. |
 | Calc Cell Editor Selection | `plugin/calc/python/editor.py` | `_get_active_calc_cell()` guards active cell interface. |
 | Graphic Export Bridge | `plugin/writer/images/image_tools.py` | `export_graphic_object_to_bytes()` resolves via `get_ctx()`. |
 | Locale Resolution | `plugin/framework/i18n.py` | `get_lo_locale()` uses `get_ctx()` on-main, falls back to `en_US` off-main. |

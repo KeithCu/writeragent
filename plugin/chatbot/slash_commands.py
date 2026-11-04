@@ -560,7 +560,7 @@ def try_dispatch_slash_on_send_click(host: SlashHost) -> bool:
 
 def tool_schemas_for_slash_compact(host: SlashHost, ctx: Any, session: Any) -> list[Any]:
     """OpenAI tool schemas for ``/compact`` — same shape as the main tool loop."""
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     model = host.slash_document_model()
     doc_type_str = host.cached_doc_type or "writer"

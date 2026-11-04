@@ -65,7 +65,7 @@ class ListNearbyFiles(ToolBase):
             ctx.doc,
             filter=kwargs.get("filter"),
             file_kind=kwargs.get("file_kind", "documents"),
-            stop_checker=scope.is_cancelled if scope is not None else None,
+            cancel=scope,
         )
 
 

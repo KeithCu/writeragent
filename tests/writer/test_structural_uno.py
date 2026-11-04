@@ -16,7 +16,7 @@ def test_structural_tools_execution(ctx, doc):
     mock_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native", doc_type="writer")
 
     # Test BookmarkList via registry
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     list_bm_tool = registry.get("bookmark_list")
     assert list_bm_tool is not None, "list_bookmarks tool not found in registry"

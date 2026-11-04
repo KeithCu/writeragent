@@ -69,7 +69,7 @@ def open_init_script_editor(ctx: Any) -> None:
             if err is not None:
                 return {"type": "error", "message": err}
             initial = new_code
-            from plugin.calc.python.recalc import clear_python_addin_cache
+            from plugin.calc.python.function import clear_python_addin_cache
 
             clear_python_addin_cache()
         return {"type": "saved", "ok": True, "status_ok_text": _("Initialization script saved.")}

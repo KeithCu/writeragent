@@ -220,7 +220,7 @@ class CalcSpillModifyListener(BaseModifyListener):
             from plugin.framework.queue_executor import main
 
             if main.is_current():
-                from plugin.calc.python.recalc import _get_calc_doc
+                from plugin.calc.python.function import _get_calc_doc
 
                 doc = _get_calc_doc(self.ctx)
         state = self._state

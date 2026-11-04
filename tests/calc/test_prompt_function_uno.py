@@ -29,7 +29,7 @@ def test_prompt_addin_metadata(ctx):
 @with_native_doc("calc")
 def test_python_addin_execution(ctx, doc):
     from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.recalc import clear_python_addin_cache
+    from plugin.calc.python.function import clear_python_addin_cache
     from plugin.framework.config import save
     import unittest.mock
 
@@ -40,7 +40,7 @@ def test_python_addin_execution(ctx, doc):
     func = PythonFunction(ctx)
 
     try:
-        with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
             mock_run.reset_mock()
             mock_run.return_value = {"status": "ok", "result": 42}
             res = func.py(doc, "result = 21 * 2")

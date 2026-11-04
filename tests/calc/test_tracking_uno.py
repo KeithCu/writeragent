@@ -16,7 +16,7 @@ from plugin.tests.testing_utils import TestingFactory, with_native_doc
 @with_native_doc("calc")
 def test_calc_track_changes_record_toggle(ctx, doc):
     """SpreadsheetDocument exposes RecordChanges via SpreadsheetDocumentSettings."""
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.tracking import TrackChangesStart, TrackChangesStop
 
     before = bool(doc.getPropertyValue("RecordChanges"))
@@ -35,7 +35,7 @@ def test_calc_track_changes_record_toggle(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_calc_track_changes_list_unsupported(ctx, doc):
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.tracking import TrackChangesList
 
     tctx = TestingFactory.create_context(
@@ -52,7 +52,7 @@ def test_calc_track_changes_list_unsupported(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_calc_manage_tracked_changes_bulk_unsupported(ctx, doc):
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.tracking import ManageTrackedChanges
 
     tctx = TestingFactory.create_context(
@@ -68,7 +68,7 @@ def test_calc_manage_tracked_changes_bulk_unsupported(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_calc_track_changes_show_returns_stub(ctx, doc):
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.tracking import TrackChangesShow
 
     tctx = TestingFactory.create_context(

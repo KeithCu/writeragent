@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """LibrePy-safe sidebar header buttons and hamburger popup.
 
-Must not import plugin.main, llm_client, embeddings, or MCP. WriterAgent
+Must not import plugin.main, plugin.app, llm_client, embeddings, or MCP. WriterAgent
 chat hamburger keeps those extras in hamburger_menu.py.
 """
 

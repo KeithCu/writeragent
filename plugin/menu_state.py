@@ -103,7 +103,7 @@ class MenuStatusPublisher:
 
     def _lookup_menu_text(self, url: Any, where: str) -> tuple[str, str | None] | None:
         try:
-            from plugin.main import get_menu_text
+            from plugin.app import get_menu_text
 
             command = command_from_dispatch_url(url)
             return command, get_menu_text(command)
@@ -113,7 +113,7 @@ class MenuStatusPublisher:
 
     def _fire_status_event(self, listener: Any, url: Any, text: str | None, command: str) -> None:
         """Send a FeatureStateEvent to one listener."""
-        from plugin.main import tests_bundled
+        from plugin.app import tests_bundled
 
         ev = cast("Any", uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent"))
         ev.FeatureURL = url
@@ -133,10 +133,10 @@ class MenuStatusPublisher:
         """
         # Snapshot the listeners under the lock, then fire OUTSIDE it. _fire_status_event ->
         # listener.statusChanged is a UNO call to a UI control that marshals to the main thread, so
-        # holding _status_lock across it deadlocks: the main thread, while rebinding a toolbar
+        # holding _lock across it deadlocks: the main thread, while rebinding a toolbar
         # controller (addStatusListener), waits for the same lock this background thread holds. (This is
         # what froze LibreOffice on the toolbar's Accept all.) addStatusListener already fires outside
-        # the lock; this makes notify_menu_update consistent.
+        # the lock; this makes publish consistent.
         with self._lock:
             snapshot = list(self.listeners)
         failed = []
@@ -144,7 +144,7 @@ class MenuStatusPublisher:
             # What was wrong: menu text retrieval and statusChanged were grouped in a single try block, so text errors treated the listener as dead.
             # How it happened: get_menu_text exception caused the listener to be appended to failed and pruned from listeners.
             # Why this change: isolate command/text lookup; log and skip on text failure without marking listener failed or pruning it.
-            looked_up = self._lookup_menu_text(url, "notify_menu_update")
+            looked_up = self._lookup_menu_text(url, "publish")
             if looked_up is None:
                 continue
             command, text = looked_up
@@ -154,7 +154,7 @@ class MenuStatusPublisher:
                 # UNO boundary: listener.statusChanged callback
                 failed.append((listener, url))
                 log.warning(
-                    "notify_menu_update: failed to fire status event for %s: %s",
+                    "publish: failed to fire status event for %s: %s",
                     command,
                     e,
                 )
@@ -162,13 +162,13 @@ class MenuStatusPublisher:
             # What was wrong: this prune called uno_same on the pool worker.
             # uno_same is @main_thread_only, so a dev build raised before the
             # list was filtered and the icon refresh below never ran.
-            # How it happened: notify_menu_update is @background and is only
+            # How it happened: publish is @background and is only
             # started with run_in_background. The unit test calls it on the
             # main thread, where the guard does not fire.
             # Why this change: post the comparison to the main thread. A direct
             # call that is already on the main thread still prunes before return.
             # post, not call: a blocking marshal during startup deadlocks
-            # AsyncCallback lazy-init, same as _update_menu_icons.
+            # AsyncCallback lazy-init, same as MenuIcons.apply.
             if main.is_current():
                 self._prune_failed_status_listeners(failed)
             else:
@@ -178,8 +178,8 @@ class MenuStatusPublisher:
                     # Why this change: pass bound_scope=None because listener cleanup is UI maintenance, not send work.
                     main.post(self._prune_failed_status_listeners, list(failed), bound_scope=None)
                 except Exception:
-                    # UNO boundary: notify_menu_update post to main thread
-                    log.exception("notify_menu_update: failed to post listener prune")
+                    # UNO boundary: publish post to main thread
+                    log.exception("publish: failed to post listener prune")
         if main.policy is Policy.production:
             from plugin.framework.worker_pool import run_in_background
 
@@ -214,7 +214,7 @@ class MenuIcons:
 
         result: dict[str, tuple[str, str]] = {}
 
-        from plugin.main import get_menu_icon
+        from plugin.app import get_menu_icon
 
         for m in cast("list[dict[str, Any]]", MODULES):
             mod_name = str(m["name"])

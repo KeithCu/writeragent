@@ -103,7 +103,7 @@ def test_display_math_inserts_embed(ctx: Any, doc: Any) -> None:
 def test_apply_document_content_end_with_mathml(ctx: Any, doc: Any) -> None:
     """End-to-end: ``apply_document_content`` tool on a hidden doc with MathML HTML."""
     _skip_windows_leftover_hidden_mathml()
-    from plugin.main import get_services, get_tools
+    from plugin.app import get_services, get_tools
     from plugin.framework.tool import ToolContext
 
     text = doc.getText()

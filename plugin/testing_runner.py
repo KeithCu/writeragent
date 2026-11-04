@@ -979,6 +979,18 @@ def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
     return (0, module_path)
 
 
+def _ensure_writeragent_bind() -> None:
+    """Bind WriterAgent finish hooks when tests import ``plugin.app`` without the loader exec."""
+    import plugin.app as app
+
+    # Inside LibreOffice, importing plugin.main again would create a second module object.
+    if app._finish is not None:
+        return
+    from plugin.main import bind
+
+    bind()
+
+
 def _rebootstrap_ctx(ctx: Any) -> None:
     """Bind config and the extension to a live UNO context.
 
@@ -990,8 +1002,9 @@ def _rebootstrap_ctx(ctx: Any) -> None:
 
     set_fallback_ctx(ctx)
     init_config(ctx)
+    _ensure_writeragent_bind()
     if not _office.options.use_user_profile:
-        from plugin.main import bootstrap
+        from plugin.app import bootstrap
 
         bootstrap(ctx=ctx)
 

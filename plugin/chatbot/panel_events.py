@@ -53,7 +53,7 @@ class PanelEventsController:
     def _mcp_subscribe_must_defer() -> bool:
         """True when get_tools() could need bootstrap and this is not the Python main thread."""
         from plugin.framework.queue_executor import MainThread
-        from plugin.main import bootstrap_complete
+        from plugin.app import bootstrap_complete
 
         if bootstrap_complete():
             return False
@@ -69,7 +69,7 @@ class PanelEventsController:
         """Join services.events for mcp:request / mcp:result (may bootstrap; main thread)."""
         if self._panel._panel_teardown:
             return
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         event_bus = getattr(get_tools()._services, "events", None)
         if event_bus:

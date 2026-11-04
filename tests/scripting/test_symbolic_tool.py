@@ -54,7 +54,7 @@ def test_symbolic_math_uno_services():
 
 
 def test_symbolic_math_in_python_domain():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     with patch("plugin.framework.uno_context.get_desktop", return_value=None):
         registry = get_tools()

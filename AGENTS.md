@@ -147,7 +147,7 @@ Hubs (open the topic doc; do not grow this list here):
 
 | Need | Start |
 |------|--------|
-| Bootstrap / MCP | `plugin/main.py` |
+| Bootstrap / MCP | `plugin/main.py`, `plugin/app.py` |
 | LibrePy bootstrap | `plugin/main_core.py` |
 | Sidebar / send | `plugin/chatbot/panel.py` |
 | Tool loop / FSM | `plugin/chatbot/tool_loop.py` |

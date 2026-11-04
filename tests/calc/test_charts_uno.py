@@ -105,7 +105,7 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
     # 2. Writer chart creation and array mapping validation
     writer_doc = TestingFactory.create_native_doc(ctx, "writer", hidden=not current_office().options.show_window)
     try:
-        from plugin.main import get_tools, get_services
+        from plugin.app import get_tools, get_services
 
         writer_ctx = TestingFactory.create_context(
             doc=writer_doc, ctx=ctx, env="native", doc_type="writer", services=get_services()
@@ -211,7 +211,7 @@ def test_charts_validation_and_writer_arrays(ctx, doc):
 
 @native_test
 def test_charts_schema_filtering():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     manage_charts_tool = get_tools().get("manage_charts")
     assert manage_charts_tool is not None

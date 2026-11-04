@@ -1,10 +1,11 @@
 """Unit tests for paragraph range helpers moved out of document_helpers."""
 
 import logging
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.doc.paragraph_search import (
     _confirm_paragraph_index,
     paragraph_index_for_anchor,
@@ -293,26 +294,39 @@ def test_search_paragraph_texts_exact_fit_is_not_truncated():
 
 
 def test_search_paragraph_texts_does_not_scan_past_cap():
-    scans = []
+    cancel_calls: list[int] = []
 
-    def check_stop():
-        scans.append(1)
+    def fake_is_cancelled(_cancel):
+        cancel_calls.append(1)
         return False
 
-    matches, truncated = search_paragraph_texts(
-        "foo",
-        ["foo foo foo", "foo"],
-        max_results=2,
-        stop_checker=check_stop,
-    )
+    with patch("plugin.doc.paragraph_search.is_cancelled", side_effect=fake_is_cancelled):
+        matches, truncated = search_paragraph_texts(
+            "foo",
+            ["foo foo foo", "foo"],
+            max_results=2,
+            cancel=SendCancellation(),
+        )
     assert len(matches) == 2
     assert truncated is True
-    assert len(scans) == 1
+    assert len(cancel_calls) == 1
 
 
 def test_search_paragraph_texts_stop_checker_returns_nothing():
-    matches, truncated = search_paragraph_texts("foo", ["foo"], stop_checker=lambda: True)
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
+    matches, truncated = search_paragraph_texts("foo", ["foo"], cancel=scope)
     assert matches == []
+    assert truncated is False
+
+
+def test_search_paragraph_texts_truthy_non_bool_is_not_stop():
+    scope = MagicMock()
+    scope.is_cancelled.return_value = 1
+    matches, truncated = search_paragraph_texts("foo", ["foo bar"], cancel=scope)
+    assert matches
     assert truncated is False
 
 

@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Core tool schemas for string eval — same ``get_schemas`` path as sidebar chat.
 
-Headless ``ToolRegistry`` + module ``initialize`` (no ``plugin.main.bootstrap``).
+Headless ``ToolRegistry`` + module ``initialize`` (no ``plugin.app.bootstrap``).
 
 Eval-only transforms (name allowlist, named presets, skinny descriptions)
 live here so ``run_eval`` / ``run_eval_multi`` can sweep tool-count and

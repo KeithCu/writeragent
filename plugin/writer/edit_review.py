@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 from plugin.doc.text_helpers import FAILED, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.errors import document_is_disposed
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.i18n import N_, _
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
@@ -190,7 +191,7 @@ def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
 
 def _refresh_review_toolbar(doc: Any, fail_message: str) -> None:
     try:
-        from plugin.writer.review_toolbar import refresh_review_toolbar
+        from plugin.writer.review_view_attachment import refresh_review_toolbar
 
         refresh_review_toolbar(doc)
     except Exception:
@@ -687,14 +688,15 @@ class EditReviewSession:
         }
 
     def wait_for_review(self, timeout: float, poll: float = 0.3,
-                        stop_checker: Callable[[], bool] | None = None,
-                        uno_runner: Callable[[Callable[[], Any]], Any] | None = None) -> dict[str, Any]:
+                        uno_runner: Callable[[Callable[[], Any]], Any] | None = None, *,
+                        cancel: SendCancellation | None = None,
+                        still_reviewing: Callable[[], bool] | None = None) -> dict[str, Any]:
         """Block (on the caller's thread) until every change is resolved, then report outcomes.
 
         Returns ``{"complete", "timed_out", "changes": [{"id", "outcome", ...}]}``. On timeout
         the still-open entries report ``"pending"`` and ``complete`` is False -- the agent must
-        not assume the text's state. *stop_checker* lets the caller abort early (e.g. the
-        review feature was toggled off mid-wait); that also returns ``complete=False``.
+        not assume the text's state. *cancel* and *still_reviewing* let the caller abort early
+        (e.g. Stop or the review feature toggled off mid-wait); that also returns ``complete=False``.
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
@@ -723,7 +725,8 @@ class EditReviewSession:
                 # have missed an unresolved registered change (fail closed).
                 if reliable and not pending:
                     break
-                if stop_checker is not None and stop_checker():
+                # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
+                if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
                     return run(lambda: self._review_payload(complete=False, timed_out=False))
                 if time.monotonic() >= deadline:
                     timed_out = True

@@ -138,7 +138,7 @@ def test_sandboxed_code_resolves_writeragent_imports():
 def test_writeragent_api_in_process_rpc():
     import writeragent
 
-    with patch("plugin.main.get_tools") as mock_get_tools, \
+    with patch("plugin.app.get_tools") as mock_get_tools, \
          patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, \
          patch("plugin.framework.uno_context.get_active_document") as mock_get_doc, \
          patch("plugin.framework.doc_type.is_calc") as mock_is_calc:
@@ -172,7 +172,7 @@ def test_venv_worker_bidirectional_tool_call():
         "result = writeragent.bookmark.list()\n"
     )
 
-    with patch("plugin.main.get_tools") as mock_get_tools, \
+    with patch("plugin.app.get_tools") as mock_get_tools, \
          patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, \
          patch("plugin.framework.uno_context.get_active_document") as mock_get_doc, \
          patch("plugin.framework.doc_type.is_calc") as mock_is_calc, \

@@ -1725,7 +1725,7 @@ class TestingFactory:
         if hasattr(_NATIVE_DOC_POOL, "mark_clean"):
             _NATIVE_DOC_POOL.mark_clean(doc, False)
         try:
-            from plugin.calc.python.recalc import clear_python_addin_cache
+            from plugin.calc.python.function import clear_python_addin_cache
 
             clear_python_addin_cache()
         except Exception:
@@ -1887,7 +1887,7 @@ class TestingFactory:
                     else:
                         _native_teardown_progress("native_doc: teardown reset done")
                         try:
-                            from plugin.calc.python.recalc import clear_python_addin_cache
+                            from plugin.calc.python.function import clear_python_addin_cache
 
                             clear_python_addin_cache()
                         except Exception:
@@ -2014,7 +2014,7 @@ class TestingFactory:
         ``KeyError`` / ``ValueError`` from the registry become
         ``{"status": "error", "error": ...}`` (same contract as the old per-file helpers).
         """
-        from plugin.main import get_tools, get_services
+        from plugin.app import get_tools, get_services
 
         if services is None:
             services = get_services()
@@ -2066,7 +2066,7 @@ def writer_services_tool_context(doc, ctx, *, skip_reason: str):
 
     services = None
     try:
-        from plugin.main import get_services
+        from plugin.app import get_services
 
         services = get_services()
     except Exception:

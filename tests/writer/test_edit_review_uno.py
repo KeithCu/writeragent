@@ -214,12 +214,16 @@ def test_timeout_reports_pending_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_stop_checker_aborts_wait_uno(ctx, doc):
+    from plugin.framework.send_cancellation import SendCancellation
+
     _body(doc, ctx, "Abort clause here.")
     with EditReviewSession(doc, ctx, enabled=True) as session:
         session.record_mutation(_replace_fn(doc, "Abort clause here.", "Abort clause EDITED."))
-    result = session.wait_for_review(timeout=30, poll=0.05, stop_checker=lambda: True)
+    scope = SendCancellation()
+    scope.cancel()
+    result = session.wait_for_review(timeout=30, poll=0.05, cancel=scope)
     assert result["complete"] is False and result["timed_out"] is False, \
-        "stop_checker abort is not a timeout: %r" % result
+        "cancel abort is not a timeout: %r" % result
     _body(doc, ctx, "reset")
 
 

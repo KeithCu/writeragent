@@ -542,7 +542,7 @@ def test_run_slash_compact_resolves_document_on_main_thread_only():
             with patch("plugin.framework.config.get_config", return_value=True):
                 with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
                     compact_mod.return_value = MagicMock(compacted=True, reason="ok")
-                    with patch("plugin.main.get_tools", return_value=registry):
+                    with patch("plugin.app.get_tools", return_value=registry):
                         with patch(
                             "plugin.framework.client.model_fetcher.resolve_context_window",
                             return_value=4096,
@@ -619,7 +619,7 @@ def test_run_slash_compact_stop_cancels_after_ui_thread_client():
 
     with patch("plugin.chatbot.selection.get_api_config", return_value=api_config):
         with patch("plugin.chatbot.selection.validate_api_config", return_value=(True, "")):
-            with patch("plugin.main.get_tools", return_value=MagicMock(get_schemas=MagicMock(return_value=[]))):
+            with patch("plugin.app.get_tools", return_value=MagicMock(get_schemas=MagicMock(return_value=[]))):
                 with patch.object(LlmClient, "stop", track_stop):
                     with agent_session(cancel):
                         client, tools = prepare_slash_compact_on_ui_thread(host, ctx, session)

@@ -32,7 +32,6 @@ from typing import Any
 import unohelper
 
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
-from plugin.writer import review_view_attachment as rva
 
 log = logging.getLogger(__name__)
 
@@ -96,31 +95,3 @@ def _make_interceptor(model: Any) -> Any:
 
         _interceptor_cls = _ChangeContextMenuInterceptor
     return _interceptor_cls(model)
-
-
-def _cleanup_disposed_controllers() -> None:
-    rva.cleanup_disposed_controllers()
-
-
-def _unregister_model(model: Any) -> None:
-    rva.unregister_controllers_for_model(model)
-
-
-def _register_controller(controller: Any) -> None:
-    rva.register_controller(controller)
-
-
-def _register_frame(frame: Any) -> None:
-    try:
-        controller = frame.getController() if frame is not None else None
-    except Exception:
-        return
-    _register_controller(controller)
-
-
-def _install_doc_event_listener(ctx: Any) -> None:
-    rva.install(ctx)
-
-
-def install_writer_change_context_menu(ctx: Any) -> None:
-    rva.install(ctx)

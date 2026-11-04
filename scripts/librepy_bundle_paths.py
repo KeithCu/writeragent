@@ -86,7 +86,7 @@ LIBREPY_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/calc/python/addin_values.py",
     "plugin/calc/python/undo.py",
     "plugin/calc/python/spill.py",
-    "plugin/calc/python/recalc.py",
+    "plugin/calc/python/function.py",
     "plugin/calc/python/editor.py",
     "plugin/calc/python/cell_editor_ui.py",
     "plugin/calc/python/xl_static_rewrite.py",

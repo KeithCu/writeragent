@@ -500,6 +500,70 @@ def test_wait_for_review_still_waits_on_open_registered_change_beside_orphan():
     assert result["changes"][0]["outcome"] == "pending"
 
 
+def test_wait_for_review_aborts_on_cancelled_scope():
+    from plugin.framework.send_cancellation import SendCancellation
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = make_agent_token(session.session_id, 0)
+    orphan = make_agent_token(session.session_id, 1)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([
+        _FakeRl("open", comment=registered),
+        _FakeRl("orphan", comment=orphan),
+    ])
+    scope = SendCancellation()
+    scope.cancel()
+    cleanup_ran = {"n": 0}
+    orig_cleanup = session.cleanup
+
+    def _cleanup():
+        cleanup_ran["n"] += 1
+        orig_cleanup()
+
+    session.cleanup = _cleanup
+    result = session.wait_for_review(timeout=0.2, poll=0.01, cancel=scope)
+    assert result["complete"] is False
+    assert result["timed_out"] is False
+    assert cleanup_ran["n"] == 1
+
+
+def test_wait_for_review_aborts_when_still_reviewing_false():
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = make_agent_token(session.session_id, 0)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([_FakeRl("open", comment=registered)])
+    result = session.wait_for_review(
+        timeout=0.2,
+        poll=0.01,
+        still_reviewing=lambda: False,
+        cancel=None,
+    )
+    assert result["complete"] is False
+    assert result["timed_out"] is False
+
+
+def test_wait_for_review_still_reviewing_true_times_out():
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = make_agent_token(session.session_id, 0)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([_FakeRl("open", comment=registered)])
+    result = session.wait_for_review(
+        timeout=0,
+        poll=0.01,
+        still_reviewing=lambda: True,
+        cancel=None,
+    )
+    assert result["timed_out"] is True
+
+
 def test_wait_for_review_unreliable_scan_does_not_complete_on_empty_intersection():
     # The partial scan sees only an orphan. getCount() says more redlines exist, so the
     # registered token might be in the unseen tail. Do not declare the review complete.
