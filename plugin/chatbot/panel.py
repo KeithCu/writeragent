@@ -49,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from plugin.chatbot.chat_session import ChatSession
     from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.send_cancellation import SendCancellation
 
 _AudioRecorderCls: type[Any] | None
 try:
@@ -339,7 +340,7 @@ class SendButtonListener(BaseActionListener):
         self.cached_uno_services = None
         self._stop_requested_fallback = False
         self._orphan_send_outcome = None
-        self._send_cancellation: Any = None
+        self._send_cancellation: SendCancellation | None = None
         self._stt_inflight = False
         self._stt_kill = None
         self._active_mode = ""
@@ -1491,7 +1492,7 @@ class SendButtonListener(BaseActionListener):
         # Dispose can run on a later VCL turn while an event-driven drain
         # session is still open. Set the flag first so _close_turn_ui
         # does not write status or start TTS after ctx is cleared. Cancel the
-        # send scope (same object already captured by capture_send_stop) so
+        # send scope (same object read on the send thread before the worker starts) so
         # the drain stop checker fires instead of streaming into a dead panel.
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True

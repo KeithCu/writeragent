@@ -164,7 +164,6 @@ def run_slash_formula_worker(host: SlashHost, *, ctx: Any, model: Any, descripti
     """LLM stream under send cancellation; formula insert runs on the main thread."""
     from plugin.chatbot.selection import create_validated_client, stream_completion
     from plugin.framework.config import get_config
-    from plugin.framework.send_cancellation import capture_send_stop
 
     title = _(FORMULA_UNDO_TITLE)
     client = create_validated_client(ctx, title)
@@ -187,7 +186,8 @@ def run_slash_formula_worker(host: SlashHost, *, ctx: Any, model: Any, descripti
     )
     max_tokens = get_config("chatbot.extend_selection_max_tokens")
     chunks: list[str] = []
-    cancel = capture_send_stop(host)
+    # Send thread, before stream; worker must not re-read host._send_cancellation (drain clears it).
+    cancel = host._send_cancellation
 
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
         if not is_thinking:

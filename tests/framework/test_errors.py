@@ -205,7 +205,7 @@ class TestErrorHandling:
     def test_http_status_message_matches_urllib_and_client_response(self):
         import urllib.error
         from email.message import Message
-        from plugin.framework.client.errors import _format_http_error_response
+        from plugin.framework.client.errors import format_http_error_response
         from plugin.framework.errors import format_error_message, http_status_message
 
         for status in (401, 403, 404, 429):
@@ -213,7 +213,7 @@ class TestErrorHandling:
             assert msg is not None
             http_err = urllib.error.HTTPError("http://example.com", status, "Error", Message(), None)
             assert format_error_message(http_err) == msg
-            assert _format_http_error_response(status, "Error", "") == msg
+            assert format_http_error_response(status, "Error", "") == msg
 
         assert http_status_message(500) is None
         assert http_status_message(200) is None

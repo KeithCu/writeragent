@@ -803,6 +803,7 @@ def test_acp_approval_default_and_dead_turn():
         def __init__(self):
             self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
+            self._send_cancellation = None
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
         def _append_response(self, *args, **kwargs):
@@ -848,6 +849,7 @@ def test_acp_approval_auto_approve_when_configured():
         def __init__(self):
             self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
             self.stop_requested = False
+            self._send_cancellation = None
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
         def _append_response(self, *args, **kwargs):
@@ -1018,7 +1020,6 @@ def test_web_research_tool():
                 assert ctx.append_thinking_callback.called
 
 def test_web_research_tool_stop():
-    from plugin.framework.send_cancellation import SendCancellation
 
     ctx = MagicMock()
     ctx.ctx = MockContext()
@@ -1862,7 +1863,6 @@ def test_agent_backend_drops_output_after_abort():
 
 
 def _arm_spawn_scope(panel):
-    from plugin.framework.send_cancellation import SendCancellation
 
     old = SendCancellation()
     panel._send_cancellation = old
@@ -1870,7 +1870,6 @@ def _arm_spawn_scope(panel):
 
 
 def _swap_scope_and_run(panel, old, worker_fn):
-    from plugin.framework.send_cancellation import SendCancellation
 
     new = SendCancellation()
     old.cancel()
@@ -1881,8 +1880,6 @@ def _swap_scope_and_run(panel, old, worker_fn):
 
 def test_run_search_keeps_spawn_scope_after_next_send():
     """A late run_search body must not bind the send that replaced the panel field."""
-    from plugin.framework.send_cancellation import capture_send_stop
-
     panel = DummyChatbotPanel()
     panel.session.messages = []
     old = _arm_spawn_scope(panel)
@@ -1904,12 +1901,9 @@ def test_run_search_keeps_spawn_scope_after_next_send():
 
     with patch.dict("sys.modules", {"plugin.main": mock_main}):
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
-            with patch("plugin.chatbot.send_handlers.capture_send_stop", wraps=capture_send_stop) as mock_capture:
-                with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
-                    panel._execute_web_research_effect("query", MagicMock())
-                    assert mock_capture.call_count == 1
-                    new = _swap_scope_and_run(panel, old, captured["fn"])
-                    assert mock_capture.call_count == 1
+            with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
+                panel._execute_web_research_effect("query", MagicMock())
+                new = _swap_scope_and_run(panel, old, captured["fn"])
 
     assert seen["scope"] is old
     assert seen["scope"].is_cancelled() is True
@@ -1917,8 +1911,6 @@ def test_run_search_keeps_spawn_scope_after_next_send():
 
 
 def test_direct_image_keeps_spawn_scope_after_next_send():
-    from plugin.framework.send_cancellation import capture_send_stop
-
     panel = DummyChatbotPanel()
     old = _arm_spawn_scope(panel)
     seen = {}
@@ -1939,12 +1931,9 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
 
     with patch.dict("sys.modules", {"plugin.main": mock_main}):
         with patch("plugin.chatbot.send_handlers.update_lru_history"):
-            with patch("plugin.chatbot.send_handlers.capture_send_stop", wraps=capture_send_stop) as mock_capture:
-                with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
-                    panel._execute_direct_image_effect("a cat", MagicMock())
-                    assert mock_capture.call_count == 1
-                    new = _swap_scope_and_run(panel, old, captured["fn"])
-                    assert mock_capture.call_count == 1
+            with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
+                panel._execute_direct_image_effect("a cat", MagicMock())
+                new = _swap_scope_and_run(panel, old, captured["fn"])
 
     assert seen["scope"] is old
     assert seen["scope"].is_cancelled() is True
@@ -1952,8 +1941,6 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
 
 
 def test_agent_worker_keeps_spawn_checker_after_next_send():
-    from plugin.framework.send_cancellation import capture_send_stop
-
     panel = DummyChatbotPanel()
     panel.session.messages = []
     panel.session.document_context = "doc"
@@ -1989,13 +1976,10 @@ def test_agent_worker_keeps_spawn_checker_after_next_send():
         patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
         patch("plugin.chatbot.send_handlers.get_core_directives_for_type", return_value=""),
         patch("plugin.chatbot.send_handlers.full_manual", return_value=""),
-        patch("plugin.chatbot.send_handlers.capture_send_stop", wraps=capture_send_stop) as mock_capture,
         patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker),
     ):
         panel._execute_agent_backend_effect("hi", model, "writer")
-        assert mock_capture.call_count == 1
         new = _swap_scope_and_run(panel, old, captured["fn"])
-        assert mock_capture.call_count == 1
 
     assert seen["checker"]() is True
     assert not new.is_cancelled()
@@ -2010,7 +1994,6 @@ def _run_blocking_now(ctx, func, *args, stop_checker=None, **kwargs):
 
 def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
     """Stop on the first scope still aborts STT after the panel field moves."""
-    from plugin.framework.send_cancellation import SendCancellation
 
     panel = DummyChatbotPanel()
     panel.client = MagicMock()
@@ -2049,7 +2032,6 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
 
 def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
     """A second STT call while the first is running must not delete that WAV."""
-    from plugin.framework.send_cancellation import SendCancellation
 
     panel = DummyChatbotPanel()
     panel.client = MagicMock()
@@ -2082,7 +2064,6 @@ def test_reentrant_transcribe_keeps_the_first_wav(tmp_path):
 
 class TestSTTClientReset:
     def test_transcribe_cancelling_send_scope_does_not_stop_stt_client(self) -> None:
-        from plugin.framework.send_cancellation import SendCancellation
 
         panel = DummyChatbotPanel()
         scope = SendCancellation()
@@ -2112,7 +2093,6 @@ class TestSTTClientReset:
             patch("plugin.chatbot.panel_voice.get_api_config"),
             patch("plugin.chatbot.panel_voice.LlmClient") as mock_llm_client,
             patch("plugin.chatbot.panel_voice.run_blocking_in_thread"),
-            patch("plugin.chatbot.panel_voice.capture_send_stop", return_value=SendCancellation())
         ):
             host._voice._transcribe_audio("fake.wav", "stt-model")
             assert mock_llm_client.called
@@ -2127,7 +2107,6 @@ class TestSTTClientReset:
             patch("plugin.chatbot.panel_voice.LlmClient") as mock_llm_client,
             patch("plugin.chatbot.panel_voice.run_blocking_in_thread", side_effect=_run_blocking_now),
             patch("plugin.audio.stt_service.transcribe", return_value="hi"),
-            patch("plugin.chatbot.panel_voice.capture_send_stop", return_value=SendCancellation()),
         ):
             res = host._voice._transcribe_audio("fake.wav", "stt-model")
             assert res == "hi"

@@ -20,7 +20,7 @@ Constraints for any follow-up (from `plugin/chatbot/AGENTS.md` and the root `AGE
 - Do not merge smol or librarian into the main chat FSM. No second HTTP client. Smol stays on `WriterAgentSmolModel` → `LlmClient.request_with_tools`.
 - Send and the tool loop refresh through `ChatSession.refresh_document_context`. They must not import `get_document_context_for_chat` or `panel_factory`.
 - The factory resolves the document from the frame only and must not import `get_document_context_for_chat`.
-- Stop uses `SendCancellation` (`capture_send_stop`). Queue items start with a `StreamQueueKind` enum member. No raw threads.
+- Stop uses `SendCancellation` (spawn-time `host._send_cancellation` closed over in workers). Queue items start with a `StreamQueueKind` enum member. No raw threads.
 - Do not split `panel.py` or `dialog_views.py` just because they are long. Prefer one existing function over a new module.
 
 ## Fix these first

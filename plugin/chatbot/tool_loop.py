@@ -46,7 +46,7 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import SendCancellation, capture_send_stop, get_current_send_cancellation
+from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 from plugin.doc.peer_message import log_peer_tool_on_wire
@@ -652,9 +652,8 @@ class ToolCallingMixin:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
-        # Spawn-time scope. The body must not re-read _send_cancellation:
-        # Stop clears the field and the next send replaces it.
-        bound_scope = capture_send_stop(self._panel)
+        # Spawn-time scope on the send thread; worker must not re-read _send_cancellation (drain clears it).
+        bound_scope = self._panel._send_cancellation
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)

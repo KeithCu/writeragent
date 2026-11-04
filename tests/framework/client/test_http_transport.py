@@ -660,7 +660,7 @@ def test_stream_error_body_read_failure_costs_one_retry():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=_delay),
     ):
-        result = budget.run_stream("POST", "/v1/chat/completions", b"{}", {}, lambda _resp: "finished")
+        result = transport.stream(budget, "POST", "/v1/chat/completions", b"{}", {}, lambda _resp: "finished")
     assert result == "finished"
     assert calls["n"] == 3
     assert attempts == [1, 2]
@@ -968,8 +968,8 @@ def test_transport_auto_open_zero_prevents_silent_reconnect_on_closed_connection
 
 
 def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect():
-    """_apply_redirect must strip cookie and proxy-authorization on cross-origin hops."""
-    from plugin.framework.client.http_security import _SECRET_HEADER_NAMES, _apply_redirect
+    """apply_redirect must strip cookie and proxy-authorization on cross-origin hops."""
+    from plugin.framework.client.http_security import _SECRET_HEADER_NAMES, apply_redirect
 
     assert "cookie" in _SECRET_HEADER_NAMES
     assert "proxy-authorization" in _SECRET_HEADER_NAMES
@@ -981,7 +981,7 @@ def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect()
         "X-Custom-Header": "keep-me",
     }
     # Cross-origin redirect
-    result = _apply_redirect("POST", b"{}", headers, "https://source.com/api", 302, "https://target.com/api")
+    result = apply_redirect("POST", b"{}", headers, "https://source.com/api", 302, "https://target.com/api")
     assert result is not None
     _, _, new_headers, origin, _, _ = result
     assert origin == "https://target.com"
@@ -992,7 +992,7 @@ def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect()
     assert new_headers.get("X-Custom-Header") == "keep-me"
 
     # Same-origin redirect preserves Cookie and Proxy-Authorization
-    same_result = _apply_redirect("GET", None, headers, "https://source.com/api", 302, "/new-path")
+    same_result = apply_redirect("GET", None, headers, "https://source.com/api", 302, "/new-path")
     assert same_result is not None
     _, _, same_headers, same_origin, _, _ = same_result
     assert same_origin == "https://source.com"

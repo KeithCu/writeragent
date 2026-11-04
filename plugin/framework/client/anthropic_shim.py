@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .shim_helpers import _dict_parts, _normalize_usage, _system_text, annotate_anthropic_cache, fold_trailing_user_message
+from .shim_helpers import dict_parts, normalize_usage, system_text, annotate_anthropic_cache, fold_trailing_user_message
 from .base_provider_shim import (
     BaseProviderShim,
     coerce_raw_b64,
@@ -131,7 +131,7 @@ def _convert_parts(content: Any, *, allow_images: bool) -> list[dict[str, Any]]:
     """
     blocks: list[dict[str, Any]] = []
     if isinstance(content, list):
-        for part in _dict_parts(content):
+        for part in dict_parts(content):
             if part.get("type") == "text":
                 text = part.get("text", "")
                 if text:
@@ -179,7 +179,7 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
             # dropped date/dev/instructions earlier in the list.
             # ``developer`` is OpenAI's system stand-in. Anthropic has no such
             # role; sending it unchanged was HTTP 400.
-            text = _system_text(content)
+            text = system_text(content)
             if text:
                 system_parts.append(text)
             continue
@@ -367,7 +367,7 @@ class AnthropicShim(BaseProviderShim):
             # input_tokens live under message.usage, not on the event. The
             # stream loop never saw them, so prompt_tokens stayed missing.
             message = chunk.get("message")
-            usage = _normalize_usage(message.get("usage") if isinstance(message, dict) else None)
+            usage = normalize_usage(message.get("usage") if isinstance(message, dict) else None)
             if usage:
                 delta = {"usage": usage}
         elif msg_type == "content_block_start":
@@ -395,7 +395,7 @@ class AnthropicShim(BaseProviderShim):
                     delta = tool_delta
         elif msg_type == "message":
             # SYNC response.
-            content_parts = _dict_parts(chunk.get("content", []))
+            content_parts = dict_parts(chunk.get("content", []))
             content = "".join([p.get("text", "") for p in content_parts if p.get("type") == "text"])
             thinking = _thinking_text(content_parts)
             finish_reason = _map_anthropic_finish_reason(chunk.get("stop_reason"))
@@ -412,7 +412,7 @@ class AnthropicShim(BaseProviderShim):
                 finish_reason = _map_anthropic_finish_reason(raw_delta.get("stop_reason"))
             # Top-level usage is the cumulative output count. Normalize it here
             # so the stream loop does not forward raw output_tokens only.
-            usage = _normalize_usage(chunk.get("usage"))
+            usage = normalize_usage(chunk.get("usage"))
             if usage:
                 delta = {"usage": usage}
         # message_stop carries no stop_reason. The stream loop keeps the
@@ -425,5 +425,5 @@ class AnthropicShim(BaseProviderShim):
     def parse_sync_response(self, response_data: dict[str, Any]) -> tuple[str, str | None, list[dict[str, Any]] | None, dict[str, Any], list[str], dict[str, Any]]:
         content, finish_reason, _thinking, delta = self.parse_response_chunk(response_data, {})
         tool_calls = delta.get("tool_calls")
-        usage = _normalize_usage(response_data.get("usage") or {})
+        usage = normalize_usage(response_data.get("usage") or {})
         return content, finish_reason, tool_calls, usage, [], delta

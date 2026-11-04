@@ -65,7 +65,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import main
-from plugin.framework.send_cancellation import capture_send_stop, is_cancelled
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
@@ -794,6 +794,7 @@ class ToolLoopActionHost(Protocol):
     session: Any
     image_model_selector: Any
     audio_wav_path: str | None
+    _send_cancellation: SendCancellation | None
     _tool_calling: Any
     _tool_loop_interpreter: Any
     rich_text_widget: Any
@@ -1127,7 +1128,8 @@ class ToolLoopEffectInterpreter:
         supports_status = turn.active_supports_status
         # Scope from this send. execute_fn must not read the
         # panel field when the tool later runs.
-        bound_scope = capture_send_stop(host)
+        # Send thread, before run_in_background; worker must not re-read _send_cancellation (drain clears it).
+        bound_scope = host._send_cancellation
 
         # Bugfix: getText ran for every tool whenever the sidebar combobox
         # existed, and main.call re-raises, so a disposed or
