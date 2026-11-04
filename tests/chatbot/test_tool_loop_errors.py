@@ -56,7 +56,7 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.audio_wav_path = None
         self.stop_requested = False
         self._send_cancellation = None
-        self._get_document_model = MagicMock(return_value=StreamErrorOutcome.END)
+        self._get_document_model = MagicMock(return_value=None)
         self.responses = []
         self.statuses = []
         self._orphan_send_outcome = None
@@ -331,11 +331,11 @@ def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_g
     test_instance._start_tool_calling_async = MagicMock()
 
     with (
-        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
         patch("plugin.chatbot.tool_loop.get_config", return_value=128),
-        patch("plugin.chatbot.tool_loop.get_toolkit", return_value=StreamErrorOutcome.END),
+        patch("plugin.chatbot.tool_loop.get_toolkit", return_value=None),
         patch("plugin.chatbot.tool_loop.LlmClient") as mock_llm_cls,
-        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=StreamErrorOutcome.NOT_HANDLED),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
         agent_session(scope),
     ):
         test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
@@ -652,7 +652,7 @@ def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
         test_instance._spawn_llm_worker(q, client, 128, [], 1, force_compact=True)
         assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
         test_instance._set_status = MagicMock()
@@ -680,11 +680,11 @@ def test_llm_worker_skips_compact_when_flag_false(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config", return_value=StreamErrorOutcome.NOT_HANDLED),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
         patch("plugin.chatbot.tool_loop.compact_session") as mock_compact,
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
         test_instance._spawn_llm_worker(MagicMock(), client, 64, [], 0)
         captured["fn"]()
 
@@ -717,7 +717,7 @@ def test_final_stream_compacts_then_sends_view(test_instance):
         patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
         test_instance._spawn_final_stream(MagicMock(), client, 256)
         test_instance._set_status = MagicMock()
         captured["fn"]()
@@ -758,10 +758,10 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config", return_value=StreamErrorOutcome.NOT_HANDLED),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
         test_instance._spawn_final_stream(b1, client, 256)
         original_set_status = test_instance._set_status
         mock_set_status = MagicMock()
@@ -799,10 +799,10 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config", return_value=StreamErrorOutcome.NOT_HANDLED),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
     ):
         mock_lane.return_value.__enter__ = MagicMock()
-        mock_lane.return_value.__exit__ = MagicMock(return_value=StreamErrorOutcome.NOT_HANDLED)
+        mock_lane.return_value.__exit__ = MagicMock(return_value=False)
         test_instance._spawn_final_stream(b2, client, 256)
         captured["fn"]()
     b2._timer.stop()
@@ -827,7 +827,7 @@ def test_final_stream_done_and_stop_partial(test_instance):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
         patch("plugin.chatbot.tool_loop.llm_request_lane") as mock_lane,
-        patch("plugin.chatbot.tool_loop.get_config", return_value=StreamErrorOutcome.NOT_HANDLED),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=False),
     ):
         test_instance._spawn_final_stream(b3, client, 256)
         captured["fn"]()
@@ -951,8 +951,8 @@ def test_text_send_without_wav_stamps_turn_model(test_instance, mock_get_tools):
     with (
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
-        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
-        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=StreamErrorOutcome.NOT_HANDLED),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
     ):
         test_instance._do_send_chat_with_tools("hello", MagicMock(), "writer")
 
@@ -978,8 +978,8 @@ def test_text_only_model_does_not_attach_image(test_instance, mock_get_tools):
     with (
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
-        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
-        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=StreamErrorOutcome.NOT_HANDLED),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
+        patch("plugin.framework.client.model_fetcher.has_native_vision", return_value=False),
         patch("plugin.writer.images.image_tools.get_selected_image_base64") as mock_get_img,
     ):
         test_instance._do_send_chat_with_tools("describe the image", MagicMock(), "writer")
@@ -1006,7 +1006,7 @@ def test_ui_thread_send_never_calls_fetch_for_cold_model(test_instance, mock_get
         patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
         patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
-        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
+        patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
         patch("plugin.framework.client.requests.sync_request") as mock_sync,
         patch("plugin.framework.client.model_fetcher.fetch_available_models") as mock_fetch,
         patch("plugin.writer.images.image_tools.get_selected_image_base64", return_value="FAKE_B64") as mock_get_img,
@@ -1065,7 +1065,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
             patch("plugin.framework.client.model_fetcher.run_in_background"),
             patch("plugin.chatbot.tool_loop.get_api_config", return_value=api_config),
             patch("plugin.chatbot.tool_loop.validate_api_config", return_value=(True, "")),
-            patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=StreamErrorOutcome.END),
+            patch("plugin.chatbot.tool_loop.sync_sidebar_text_model", return_value=None),
             patch("plugin.writer.images.image_tools.get_selected_image_base64", return_value="FAKE_B64"),
         ):
             test_instance._do_send_chat_with_tools("describe the image", MagicMock(), "writer")
@@ -1077,7 +1077,7 @@ def test_first_send_cold_model_real_lookup_sends_image(test_instance, mock_get_t
 
         # Send worker, round 0: resolves the cold model before building the request.
         with (
-            patch("plugin.framework.queue_executor.main.is_current", return_value=StreamErrorOutcome.NOT_HANDLED),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=False),
             patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
             patch("plugin.chatbot.tool_loop.llm_request_lane", side_effect=_Lane),
             patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
