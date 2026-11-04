@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from plugin.draw.bridge import DrawBridge, find_notes_shape
-from plugin.framework.errors import is_disposal
+from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal
 
 log = logging.getLogger(__name__)
 
@@ -71,10 +71,10 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
                 failures.append(f"slide {idx} transition: {exc}")
                 log.warning("apply enhancement transition failed on slide %s: %s", idx, exc)
     if failures:
-        return {
-            "status": "error",
-            "applied": applied,
-            "failed": len(failures),
-            "message": "Failed to apply enhancement: " + "; ".join(failures) + ".",
-        }
+        payload = format_error_payload(
+            ToolExecutionError("Failed to apply enhancement: " + "; ".join(failures) + ".")
+        )
+        payload["applied"] = applied
+        payload["failed"] = len(failures)
+        return payload
     return {"status": "ok", "applied": applied}

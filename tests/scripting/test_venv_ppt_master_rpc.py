@@ -351,6 +351,7 @@ def test_handle_llm_request_catches_call_on_main_failure():
         )
 
     assert out["status"] == "error"
+    assert out["code"] == "TOOL_EXECUTION_ERROR"
     assert "main thread queue failure" in out["message"]
 
 
@@ -374,5 +375,6 @@ def test_dispatch_llm_request_handles_get_ctx_failure():
     assert resp is not None
     assert resp["status"] == "error"
     assert resp["id"] == "err-ctx"
+    assert resp["code"] == "TOOL_EXECUTION_ERROR"
     assert "main thread queue failure" in resp["message"]
 

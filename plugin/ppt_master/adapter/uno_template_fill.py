@@ -12,13 +12,14 @@ from typing import Any, cast
 
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.placeholders import _find_placeholder
+from plugin.framework.errors import ToolExecutionError, format_error_payload
 
 
 def apply_fill_plan_to_doc(doc: Any, plan: dict[str, Any], *, template_doc: Any | None = None) -> dict[str, Any]:
     """Best-effort fill: duplicate slides and set placeholder/body text from plan."""
     slides = plan.get("slides")
     if not isinstance(slides, list) or not slides:
-        return {"status": "error", "message": "fill_plan must contain a non-empty slides list."}
+        return format_error_payload(ToolExecutionError("fill_plan must contain a non-empty slides list."))
 
     bridge = DrawBridge(doc)
     filled = 0

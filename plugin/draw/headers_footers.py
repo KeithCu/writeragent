@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
-from plugin.framework.errors import WriterAgentException, is_disposal, uno_read
+from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -148,17 +148,6 @@ def _get_text(shape: Any) -> str:
     return uno_read(lambda: str(shape.getString() or ""), "")
 
 
-def _write(fn: Any, what: str) -> bool:
-    try:
-        fn()
-        return True
-    except Exception as e:
-        if is_disposal(e):
-            raise
-        log.debug("%s failed", what, exc_info=True)
-        return False
-
-
 def _set_text(shape: Any, text: str) -> bool:
     # Resolve setString inside the probe. A missing member stays silent; the write logs.
     if shape is None:
@@ -166,17 +155,17 @@ def _set_text(shape: Any, text: str) -> bool:
     setter = uno_read(lambda: shape.setString, _MISSING)
     if setter is _MISSING:
         return False
-    return _write(lambda: setter(text), "setString on header/footer shape")
+    return uno_write(lambda: setter(text))
 
 
 def _set_visible(shape: Any, vis: bool) -> bool:
-    # Same split as _set_text: lookup is silent, setPropertyValue logs through _write.
+    # Same split as _set_text: lookup is silent; failed writes return False via uno_write.
     if shape is None:
         return False
     setter = uno_read(lambda: shape.setPropertyValue, _MISSING)
     if setter is _MISSING:
         return False
-    return _write(lambda: setter("Visible", vis), "set Visible on header/footer shape")
+    return uno_write(lambda: setter("Visible", vis))
 
 
 def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
