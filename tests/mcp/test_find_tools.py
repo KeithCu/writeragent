@@ -434,7 +434,7 @@ def test_execute_normalizes_domain_case_and_whitespace():
 
 def test_find_tools_call_blocked_outside_direct_discovery():
     handler = _handler_real("delegate", _real_registry())
-    res = handler._mcp_tools_call({"name": "find_tools", "arguments": {}})
+    res = handler._mcp_tools_call({"name": "find_tools", "arguments": {}}, cancel=SendCancellation())
     assert res["isError"] is True
     assert "direct_discovery" in res["content"][0]["text"]
 
@@ -443,13 +443,13 @@ def test_specialized_tool_allowed_in_direct_discovery():
     """Specialized tools advertised via find_tools must be callable in direct_discovery mode."""
     # In delegate mode, calling specialized tool directly is blocked
     delegate_handler = _handler_real("delegate", _real_registry())
-    res_del = delegate_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}})
+    res_del = delegate_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}}, cancel=SendCancellation())
     assert res_del["isError"] is True
     assert "not available in the current exposure mode" in res_del["content"][0]["text"]
 
     # In direct_discovery mode, specialized tool is allowed through
     disc_handler = _handler_real("direct_discovery", _real_registry())
-    res_disc = disc_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}})
+    res_disc = disc_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}}, cancel=SendCancellation())
     # Should not be rejected by exposure mode check
     if res_disc.get("isError"):
         assert "not available in the current exposure mode" not in res_disc["content"][0]["text"]

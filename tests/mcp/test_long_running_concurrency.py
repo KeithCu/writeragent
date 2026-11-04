@@ -133,7 +133,7 @@ def _run_concurrent(method, doc_urls, *, kwargs_list=None):
 
     def worker(url, extra):
         try:
-            method("any_tool", {}, document_url=url, **extra)
+            method("any_tool", {}, document_url=url, cancel=SendCancellation(), **extra)
         except Exception as e:  # noqa: BLE001
             errors.append("%s: %s" % (type(e).__name__, e))
 
