@@ -979,6 +979,31 @@ def _native_suite_sort_key(module_path: str) -> tuple[int, str]:
     return (0, module_path)
 
 
+def _ensure_writeragent_bind() -> None:
+    """Bind WriterAgent finish hooks when tests import ``plugin.app`` without ``plugin.main``.
+
+    The UNO harness and pytest load test modules directly; only the pythonloader
+    ``main.py`` exec runs ``bind_writeragent`` at import time.
+    """
+    import plugin.app as app
+
+    if app._finish is not None:
+        return
+    import plugin.main  # noqa: F401 — bind_writeragent at module end
+
+    if app._finish is None:
+        from plugin.app import bind_writeragent
+        from plugin.main import (
+            _register_writeragent_prompt_hooks,
+            _writeragent_bootstrap_finish,
+        )
+
+        bind_writeragent(
+            finish=_writeragent_bootstrap_finish,
+            register_prompt_hooks=_register_writeragent_prompt_hooks,
+        )
+
+
 def _rebootstrap_ctx(ctx: Any) -> None:
     """Bind config and the extension to a live UNO context.
 
@@ -990,10 +1015,18 @@ def _rebootstrap_ctx(ctx: Any) -> None:
 
     set_fallback_ctx(ctx)
     init_config(ctx)
+    _ensure_writeragent_bind()
     if not _office.options.use_user_profile:
         from plugin.app import bootstrap
 
         bootstrap(ctx=ctx)
+    else:
+        import plugin.app as app
+
+        if app._services is None:
+            from plugin.app import bootstrap
+
+            bootstrap(ctx=ctx)
 
 
 def _open_keeper(ctx: Any) -> Any:
