@@ -490,3 +490,38 @@ def test_calc_edit_strips_echoed_scaffolding_from_cell():
         do_calc_extend_edit(MagicMock(), model, is_edit=True, preset_instruction="proofread")
 
     assert sheet.getCellByPosition(0, 0).getString() == "Fixed line"
+
+
+def test_calc_preset_length_empty_notifies_sidebar():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("hello wrld",),))
+    sidebar_lines: list[str] = []
+
+    def fake_stream_completion_tasks(
+        ctx,
+        client,
+        tasks,
+        prepare_task,
+        on_finished,
+        *,
+        completion_out=None,
+    ):
+        assert completion_out is not None
+        completion_out["finish_reason"] = "length"
+        on_finished()
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.stream_completion_tasks", side_effect=fake_stream_completion_tasks):
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=True,
+            preset_instruction="expand",
+            sidebar_notify=sidebar_lines.append,
+        )
+
+    assert sidebar_lines
+    assert "tokens" in sidebar_lines[0].lower()
+    assert sheet.getCellByPosition(0, 0).getString() == "hello wrld"

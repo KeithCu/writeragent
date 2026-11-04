@@ -1561,3 +1561,20 @@ def test_compact_session_summarizer_user_body_includes_focus():
     user_messages = [m for m in client.calls[0]["messages"] if m.get("role") == "user"]
     assert user_messages
     assert "Keep details about: budget" in user_messages[-1]["content"]
+
+
+def test_summarizer_retries_after_length_or_empty_content():
+    class RetryClient(DummyClient):
+        def request_with_tools(self, messages, **kwargs):
+            self.calls.append({"messages": messages, **kwargs})
+            if len(self.calls) == 1:
+                return {"content": None, "finish_reason": "length"}
+            return {"content": "recovered summary", "finish_reason": "stop"}
+
+    session = DummySession(_history_3x1000())
+    client = RetryClient(content="unused")
+    result = C.compact_session(session, client, window=4096)
+    assert result.compacted is True
+    assert len(client.calls) == 2
+    assert client.calls[0].get("chat_extra") == {"reasoning": {"effort": "low"}}
+    assert client.calls[1]["max_tokens"] > client.calls[0]["max_tokens"]

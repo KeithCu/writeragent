@@ -280,6 +280,7 @@ class TurnController:
     active_execute_tool_fn: Callable[..., Any] | None
     active_query_text: str | None
     active_supports_status: bool
+    slash_sidebar_only: bool
     outcome: SendOutcome | None
 
     def __init__(
@@ -311,6 +312,7 @@ class TurnController:
         self.active_execute_tool_fn = None
         self.active_query_text = None
         self.active_supports_status = False
+        self.slash_sidebar_only = False
         self.outcome = None
 
     def same_messages(self) -> bool:

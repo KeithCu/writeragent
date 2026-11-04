@@ -112,6 +112,8 @@ def stream_completion_tasks(
     tasks: list[StreamCompletionTask],
     prepare_task_fn: PrepareTaskFn,
     on_finished: Callable[[], None] | None = None,
+    *,
+    completion_out: dict[str, Any] | None = None,
 ) -> None:
     """Run simple completion streams sequentially, advancing from each done callback.
 
@@ -172,8 +174,15 @@ def stream_completion_tasks(
                 finish_once()
 
         stream_completion(
-            ctx, client, task.prompt, task.system_prompt, task.max_tokens,
-            apply_chunk_fn, schedule_next_when_idle, on_error,
+            ctx,
+            client,
+            task.prompt,
+            task.system_prompt,
+            task.max_tokens,
+            apply_chunk_fn,
+            schedule_next_when_idle,
+            on_error,
+            completion_out=completion_out,
         )
 
     try:

@@ -132,6 +132,9 @@ def do_calc_extend_edit(
 
     record_agent_turn_before(model)
 
+    completion_meta: dict[str, Any] = {}
+    produced_text = [False]
+
     def prepare_task(task: StreamCompletionTask) -> tuple[ApplyChunkFn, ErrorFn]:
         col, row, original = task.payload
         cell = sheet.getCellByPosition(col, row)
@@ -150,6 +153,8 @@ def do_calc_extend_edit(
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
+                if chunk_text.strip():
+                    produced_text[0] = True
                 accumulated_text[0] += chunk_text
                 _write_cell(strip_echoed_edit_scaffolding(accumulated_text[0]))
 
@@ -168,9 +173,26 @@ def do_calc_extend_edit(
     def on_finished() -> None:
         undo.close()
         record_agent_turn_after(model)
+        if (
+            is_edit
+            and preset_instruction is not None
+            and sidebar_notify is not None
+            and completion_meta.get("finish_reason") == "length"
+            and not produced_text[0]
+        ):
+            sidebar_notify(
+                _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
+            )
 
     try:
-        stream_completion_tasks(ctx, client, tasks, prepare_task, on_finished)
+        stream_completion_tasks(
+            ctx,
+            client,
+            tasks,
+            prepare_task,
+            on_finished,
+            completion_out=completion_meta,
+        )
     except BaseException:
         undo.close()
         record_agent_turn_after(model)

@@ -269,7 +269,7 @@ def tool_schema_tokens(tools: Any) -> int:
 
 def _summary_budget(window: int) -> int:
     """Token allowance for the summary pair, summarizer max_tokens, and char cap."""
-    return min(1024, max(256, window // 8))
+    return min(4096, max(512, window // 8))
 
 
 def should_compact(tokens: int, window: int | None) -> bool:
@@ -482,8 +482,12 @@ def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
     SessionDB archive.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
     """
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+
     lines = []
     for i, msg in enumerate(messages):
+        if msg.get(SLASH_LOCAL):
+            continue
         role = msg.get("role") or ""
         text, n_img, n_aud = flatten_content(msg.get("content"))
         if role == "assistant":
@@ -813,28 +817,54 @@ def _summarize_bounded(
         chunk_text, next_idx = next_chunk
         user_body = _summarizer_user_body(chunk_text, running, focus=focus)
 
-        try:
-            result = client.request_with_tools(
-                [
-                    {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_body},
-                ],
-                max_tokens=max_out,
-                tools=None,
-                stream=False,
-                cancel=cancel,
-                prepend_dev_build_system_prefix=False,
-            )
-        except Exception:
-            log.exception("Compaction failed")
-            return None, "failed"
+        summarizer_extra = {"reasoning": {"effort": "low"}}
 
+        def _request_summary(max_tokens_out: int) -> dict[str, Any] | None:
+            try:
+                return client.request_with_tools(
+                    [
+                        {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_body},
+                    ],
+                    max_tokens=max_tokens_out,
+                    tools=None,
+                    stream=False,
+                    cancel=cancel,
+                    prepend_dev_build_system_prefix=False,
+                    chat_extra=summarizer_extra,
+                )
+            except Exception:
+                log.exception("Compaction failed")
+                return None
+
+        result = _request_summary(max_out)
         if cancel is not None and cancel.is_cancelled():
             return None, "aborted"
+        if result is None:
+            return None, "failed"
 
         content = (result or {}).get("content") or ""
-        if not content.strip():
-            return None, "failed"
+        finish_reason = (result or {}).get("finish_reason")
+        if not content.strip() or finish_reason == "length":
+            retry_out = min(max(max_out * 2, 2048), 8192)
+            log.warning(
+                "Compaction summarizer empty or truncated (finish_reason=%s, max_out=%s); retrying with max_out=%s",
+                finish_reason,
+                max_out,
+                retry_out,
+            )
+            result = _request_summary(retry_out)
+            if cancel is not None and cancel.is_cancelled():
+                return None, "aborted"
+            content = (result or {}).get("content") or ""
+            finish_reason = (result or {}).get("finish_reason")
+            if not content.strip() or finish_reason == "length":
+                log.warning(
+                    "Compaction summarizer still empty after retry (finish_reason=%s, max_out=%s)",
+                    finish_reason,
+                    retry_out,
+                )
+                return None, "failed"
 
         running = _cap_running_summary(content, window)
         idx = next_idx
