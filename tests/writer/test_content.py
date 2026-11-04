@@ -748,11 +748,6 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
     ctx = _edit_ctx()
     session_mock = MagicMock()
 
-    def fake_execute_edit(_ctx, session_sink=None, **kwargs):
-        if session_sink is not None:
-            session_sink.append(session_mock)
-        return {"status": "ok", "message": "Inserted content at end."}, None
-
     call_count = [0]
 
     def fake_execute_on_main(fn, *args, **kwargs):
@@ -763,12 +758,18 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
 
     with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
          patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
-         patch.object(ApplyDocumentContent, "_execute_edit", side_effect=fake_execute_edit), \
+         patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session_mock), \
+         patch.object(
+             ApplyDocumentContent,
+             "_dispatch_edit",
+             return_value={"status": "ok", "message": "Inserted content at end."},
+         ), \
          patch("plugin.framework.queue_executor.main.call", side_effect=fake_execute_on_main):
         res = ApplyDocumentContent().execute(ctx, content="test", target="end")
 
     assert res["status"] == "ok"
     assert res["message"].startswith("Inserted content at end.")
+    assert call_count[0] == 2
 
 
 def test_apply_document_content_releases_session_on_mid_edit_failure():
@@ -777,17 +778,106 @@ def test_apply_document_content_releases_session_on_mid_edit_failure():
     ctx = _edit_ctx()
     session_mock = MagicMock()
 
-    def fake_execute_edit(_ctx, session_sink=None, **kwargs):
-        if session_sink is not None:
-            session_sink.append(session_mock)
-        raise RuntimeError("boom mid-edit")
-
     tool = ApplyDocumentContent()
-    with patch.object(ApplyDocumentContent, "_execute_edit", side_effect=fake_execute_edit), \
+    with patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session_mock), \
+         patch.object(
+             ApplyDocumentContent,
+             "_dispatch_edit",
+             side_effect=RuntimeError("boom mid-edit"),
+         ), \
          patch.object(tool, "_release_review_session") as mock_release:
         with pytest.raises(RuntimeError, match="boom mid-edit"):
             tool.execute(ctx, content="test", target="end")
         mock_release.assert_called_once_with(session_mock)
+
+
+def test_param_errors_do_not_construct_review_session():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    with patch("plugin.writer.apply_document_content.EditReviewSession") as session_cls:
+        tool = ApplyDocumentContent()
+        res = tool.execute(ctx, content=[None], target="end")
+        assert res["status"] == "error"
+        session_cls.assert_not_called()
+
+        res = tool.execute(
+            ctx,
+            content="x",
+            target="search",
+            old_content="([a-",
+            regex=True,
+        )
+        assert res.get("code") == "INVALID_REGEX"
+        session_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "expected_method,execute_kwargs",
+    [
+        ("_edit_full_document", {"target": "full_document", "content": "body"}),
+        ("_edit_insert_at", {"target": "end", "content": "tail"}),
+        ("_edit_insert_at", {"target": "beginning", "content": "head"}),
+        ("_edit_selection", {"target": "selection", "content": "sel"}),
+        ("_edit_search", {"target": "search", "content": "new", "old_content": "old"}),
+        # Unknown target strings still dispatch through the search body (legacy callers).
+        ("_edit_search", {"target": "legacy", "content": "new", "old_content": "old"}),
+    ],
+    ids=["full_document", "end", "beginning", "selection", "search", "unknown_target"],
+)
+def test_apply_document_content_routes_targets_to_edit_helpers(expected_method, execute_kwargs):
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    routed: list[str] = []
+
+    def _route_stub(*args, **kwargs):
+        routed.append(expected_method)
+        return {"status": "ok", "message": "stub"}
+
+    def _forbidden(name):
+        def _fail(*args, **kwargs):
+            raise AssertionError(f"{name} should not run")
+        return _fail
+
+    tool = ApplyDocumentContent()
+    patches = {
+        "_edit_full_document": patch.object(tool, "_edit_full_document"),
+        "_edit_insert_at": patch.object(tool, "_edit_insert_at"),
+        "_edit_selection": patch.object(tool, "_edit_selection"),
+        "_edit_search": patch.object(tool, "_edit_search"),
+    }
+    with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.apply_document_content.EditReviewSession", return_value=MagicMock()):
+        for name, patcher in patches.items():
+            if name == expected_method:
+                patcher.start().side_effect = _route_stub
+            else:
+                patcher.start().side_effect = _forbidden(name)
+        try:
+            res = tool.execute(ctx, **execute_kwargs)
+        finally:
+            for patcher in patches.values():
+                patcher.stop()
+    assert res["status"] == "ok"
+    assert routed == [expected_method]
+
+
+def test_outline_undo_reraises_disposal_on_mutate_error():
+    """commit_or_rollback re-raises disposal today; this pins _outline_undo if mutate_error is set."""
+    from plugin.doc.compound_undo import UndoOutcome
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc = MagicMock()
+    session = MagicMock()
+    session.changes = []
+    disposed = type("DisposedException", (Exception,), {})("gone")
+    outcome = UndoOutcome(rolled_back=True, mutate_error=disposed)
+
+    with patch("plugin.writer.apply_document_content.commit_or_rollback", return_value=outcome):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent()._outline_undo(doc, session, lambda: [])
 
 
 def test_apply_document_content_main_thread_uses_is_current():

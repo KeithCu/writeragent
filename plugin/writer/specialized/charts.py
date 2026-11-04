@@ -19,20 +19,39 @@
 These operate on the active Writer context but use the same UNO paths as Calc chart
 tools (embedded chart / sheet-style APIs), not a dedicated chart2 Writer-only module.
 
-Only ``ManageCharts`` is registered; chart actions and host adapters live in ``plugin.calc.charts``.
+Four chart tools are registered; host adapters live in ``plugin.calc.charts``.
 """
 
 from typing import ClassVar
 
 from ..specialized_base import ToolWriterChartBase
-from plugin.calc.charts import ManageCharts as CalcManageCharts
+from plugin.calc.charts import ChartDelete as CalcChartDelete
+from plugin.calc.charts import ChartGetInfo as CalcChartGetInfo
+from plugin.calc.charts import ChartList as CalcChartList
+from plugin.calc.charts import ChartUpsert as CalcChartUpsert
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 
-# Union services: same name as Calc/Draw ``manage_charts``; last registration wins, so include
+# Union services: same names as Calc/Draw chart tools; last registration wins, so include
 # all chart-capable document services (cf. ``plugin.writer.specialized.shapes``).
-class ManageCharts(CalcManageCharts, ToolWriterChartBase):  # type: ignore[misc]
+# Calc's chart class is the first base, so MRO would find ToolCalcSpecialBase.required_core_tools
+# (sheet readers) and hide Writer's document readers. A class-body assignment wins.
+
+
+class ChartList(CalcChartList, ToolWriterChartBase):  # type: ignore[misc]
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
-    # Calc's ManageCharts is the first base, so MRO would find
-    # ToolCalcSpecialBase.required_core_tools (sheet readers) and hide
-    # Writer's document readers. A class-body assignment wins.
+    required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools
+
+
+class ChartGetInfo(CalcChartGetInfo, ToolWriterChartBase):  # type: ignore[misc]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+    required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools
+
+
+class ChartUpsert(CalcChartUpsert, ToolWriterChartBase):  # type: ignore[misc]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+    required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools
+
+
+class ChartDelete(CalcChartDelete, ToolWriterChartBase):  # type: ignore[misc]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
     required_core_tools: ClassVar[frozenset[str] | None] = ToolWriterChartBase.required_core_tools

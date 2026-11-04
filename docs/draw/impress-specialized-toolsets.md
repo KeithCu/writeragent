@@ -81,7 +81,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `set_speaker_notes` | `speaker_notes` | `draw/notes.py` | Set speaker notes (Impress) | Presentation |
 | `get_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
 | `set_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
-| `manage_charts` | `charts` | `draw/charts.py` | Unified charts CRUD | Drawing+Presentation |
+| `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | `charts` | `draw/charts.py` | Charts CRUD (four tools) | Drawing+Presentation |
 | `form_*` (6 tools) | `forms` | `writer/specialized/forms.py` | Live ControlShape widgets (name-addressable; checkbox/radio State) | Drawing+Presentation+Spreadsheet+Text |
 | `insert_math` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
 | `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
@@ -403,7 +403,7 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 | `slide_masters` | `list_master_slides`, `get_slide_master`, `set_slide_master` | Presentation templates |
 | `speaker_notes` | `get_speaker_notes`, `set_speaker_notes` | Presenter talking points |
 | `headers_footers` | `get_headers_footers`, `set_headers_footers` | Page numbers, dates, footers |
-| `charts` | `manage_charts` | Data visualizations |
+| `charts` | `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | Data visualizations |
 | `media` | `insert_audio`, `insert_video`, `control_media` | Multimedia presentations |
 | `export` | `export_pdf`, `export_image`, `export_video` | Document output |
 

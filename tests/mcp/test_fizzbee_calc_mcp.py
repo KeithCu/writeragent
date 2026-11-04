@@ -5,7 +5,7 @@
 """Tests for FizzBee formal modeling and full-layout MCP testing for Calc tools.
 
 Covers:
-- Full Calc layout extraction (all 61 tools across core and 12 specialized domains)
+- Full Calc layout extraction (all 62 tools across core and 12 specialized domains)
 - Full MCP schema validation for every Calc tool
 - Tool exposure mode filtering (direct_flat, delegate, direct_discovery)
 - Calc state transition trace replay against MCP protocol handler
@@ -109,7 +109,10 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "list_nearby_files",
     "list_pivot_tables",
     "list_sheets",
-    "manage_charts",
+    "chart_delete",
+    "chart_get_info",
+    "chart_list",
+    "chart_upsert",
     "merge_cells",
     "named_range_add",
     "named_range_create_from_titles",
@@ -142,12 +145,12 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
 
 
 def test_extract_full_calc_layout_count():
-    """Verify that full layout extraction returns all 55 Calc tools across tiers."""
+    """Verify that full layout extraction returns all 62 Calc tools across tiers."""
     layout = extract_full_calc_layout()
 
     all_tool_names = {t.name for t in layout["core_tools"] + layout["specialized_tools"]}
     assert all_tool_names == _EXPECTED_CALC_TOOL_NAMES
-    assert layout["total_count"] == 59
+    assert layout["total_count"] == 62
     assert len(layout["core_tools"]) >= 10
     assert len(layout["specialized_tools"]) >= 39
 
@@ -296,7 +299,7 @@ def test_fizzbee_calc_trace_initialize(calc_mcp_setup):
 
 
 def test_full_layout_all_calc_tools_executable_dispatch(calc_mcp_setup):
-    """Verify that every tool in the 61-tool Calc layout can be dispatched without unhandled exceptions."""
+    """Verify that every tool in the 62-tool Calc layout can be dispatched without unhandled exceptions."""
     handler = calc_mcp_setup["handler"]
     tools_reg = calc_mcp_setup["tools"]
 
@@ -317,7 +320,7 @@ def test_full_layout_all_calc_tools_executable_dispatch(calc_mcp_setup):
 
 
 def test_fizzbee_randomized_calc_mcp_fuzz(calc_mcp_setup):
-    """Randomized multi-step state machine fuzzer over the entire 61 Calc tool layout."""
+    """Randomized multi-step state machine fuzzer over the entire 62 Calc tool layout."""
     import os
     from tests.harness.vhs_budget import vhs_max_examples
 

@@ -12,7 +12,7 @@ from typing import Any, Callable
 from plugin.framework.errors import ToolExecutionError, format_error_payload
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 from plugin.framework.queue_executor import main
-from plugin.framework.send_cancellation import is_cancelled
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 log = logging.getLogger(__name__)
 
@@ -30,15 +30,11 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     tools = payload.get("tools")
     model = payload.get("model")
     max_tokens = payload.get("max_tokens")
-    stop_checker = payload.get("_stop_checker")
-    if not callable(stop_checker):
-        stop_checker = None
+    cancel = payload.get("_cancel")
 
     # Build the client on the send cancellation scope so sidebar Stop closes
     # this call too. The scope registers the live client and must not be
-    # pickled to the child; dispatch attaches it on the way in, the same
-    # way as _stop_checker.
-    cancellation_scope = payload.get("_cancellation_scope")
+    # pickled to the child; dispatch attaches it on the way in.
     try:
         # get_ctx() is @main_thread_only, so a background worker marshals it
         # with main.call. Keep that call inside the try: a raise
@@ -48,21 +44,19 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         if max_tokens is None:
             max_tokens = get_config("chat_max_tokens")
 
-        client = LlmClient(get_api_config(), ctx, cancel=cancellation_scope)
+        client = LlmClient(get_api_config(), ctx, cancel=cancel)
         result = client.request_with_tools(
             messages,
             max_tokens=int(max_tokens),
             tools=tools if tools else None,
             model=model,
             prepend_dev_build_system_prefix=False,
-            cancel=cancellation_scope,
+            cancel=cancel,
         )
         if not isinstance(result, dict):
             raise TypeError("LLM response is not a dictionary")
 
-        is_stopped = is_cancelled(cancellation_scope) or client.stopped() is True
-        if stop_checker is not None and stop_checker():
-            is_stopped = True
+        is_stopped = is_cancelled(cancel) or client.stopped() is True
 
         if is_stopped:
             return format_error_payload(ToolExecutionError("Stopped by user.", code="USER_STOPPED"))
@@ -97,8 +91,7 @@ def dispatch_worker_response(
     *,
     stdin_write: Callable[[bytes], None],
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    cancellation_scope: Any | None = None,
+    cancel: SendCancellation | None = None,
 ) -> bool:
     """Handle intermediate worker frames. Returns True if caller should keep reading."""
     frame_type = response.get("type")
@@ -123,12 +116,9 @@ def dispatch_worker_response(
         payload = dict(response)
         payload.pop("type", None)
         payload.pop("id", None)
-        payload.pop("_stop_checker", None)
-        payload.pop("_cancellation_scope", None)
-        if stop_checker is not None:
-            payload["_stop_checker"] = stop_checker
-        if cancellation_scope is not None:
-            payload["_cancellation_scope"] = cancellation_scope
+        payload.pop("_cancel", None)
+        if cancel is not None:
+            payload["_cancel"] = cancel
         llm_out = handle_llm_request(payload)
         llm_response = {"status": llm_out.get("status", "error"), "id": call_id}
         if llm_out.get("status") == "ok":

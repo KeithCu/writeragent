@@ -16,18 +16,36 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Draw charting tools leveraging shared chart implementation.
 
-Only ``ManageCharts`` is registered; chart actions and host adapters live in ``plugin.calc.charts``.
+Four chart tools are registered; host adapters live in ``plugin.calc.charts``.
 """
 
 from typing import ClassVar
 
-from plugin.calc.charts import ManageCharts as CalcManageCharts
+from plugin.calc.charts import ChartDelete as CalcChartDelete
+from plugin.calc.charts import ChartGetInfo as CalcChartGetInfo
+from plugin.calc.charts import ChartList as CalcChartList
+from plugin.calc.charts import ChartUpsert as CalcChartUpsert
 from plugin.draw.base import ToolDrawChartBase
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 
+# Same MRO issue as Writer charts: Calc's sheet readers must not become this domain's core tools.
 
-class ManageCharts(CalcManageCharts, ToolDrawChartBase):  # type: ignore[misc]
+
+class ChartList(CalcChartList, ToolDrawChartBase):  # type: ignore[misc]
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
-    # Same MRO issue as Writer charts: Calc's sheet readers must not become
-    # this domain's core tools. Draw charts do not request sheet or Writer readers.
+    required_core_tools: ClassVar[frozenset[str] | None] = None
+
+
+class ChartGetInfo(CalcChartGetInfo, ToolDrawChartBase):  # type: ignore[misc]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+    required_core_tools: ClassVar[frozenset[str] | None] = None
+
+
+class ChartUpsert(CalcChartUpsert, ToolDrawChartBase):  # type: ignore[misc]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
+    required_core_tools: ClassVar[frozenset[str] | None] = None
+
+
+class ChartDelete(CalcChartDelete, ToolDrawChartBase):  # type: ignore[misc]
+    uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)  # type: ignore[assignment]
     required_core_tools: ClassVar[frozenset[str] | None] = None

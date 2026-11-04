@@ -623,42 +623,40 @@ class TestExcludeSpecializedTiers:
         assert "fake_tool" in names
         assert "spec_tool" in names
 
-class TestManageChartsSpecializedTier:
-    """manage_charts is specialized on all apps; use delegate domain=charts."""
+class TestChartToolsSpecializedTier:
+    """chart_* tools are specialized on all apps; use delegate domain=charts."""
 
-    _SKINNY_CHART_TOOLS = frozenset({"list_charts", "get_chart_info", "upsert_chart", "delete_chart"})
+    _CHART_TOOL_NAMES = frozenset({"chart_list", "chart_get_info", "chart_upsert", "chart_delete"})
 
     @pytest.fixture
     def chart_registry(self):
-        from plugin.calc.charts import ManageCharts
+        from plugin.calc.charts import ChartList, ChartGetInfo, ChartUpsert, ChartDelete
 
-        return _make_registry(ManageCharts())
+        return _make_registry(ChartList(), ChartGetInfo(), ChartUpsert(), ChartDelete())
 
     @pytest.mark.parametrize(
         "doc_type",
         [
-            pytest.param("calc", id="test_manage_charts_hidden_from_main_chat_calc"),
-            pytest.param("writer", id="test_manage_charts_hidden_from_main_chat_writer"),
+            pytest.param("calc", id="test_chart_tools_hidden_from_main_chat_calc"),
+            pytest.param("writer", id="test_chart_tools_hidden_from_main_chat_writer"),
         ],
     )
-    def test_manage_charts_hidden_from_main_chat_calc(self, chart_registry, doc_type):
+    def test_chart_tools_hidden_from_main_chat(self, chart_registry, doc_type):
         doc = TestingFactory.create_doc(doc_type=doc_type, content=[])
         names = {t.name for t in chart_registry.get_tools(doc=doc)}
-        assert "manage_charts" not in names
+        assert names.isdisjoint(self._CHART_TOOL_NAMES)
 
-
-    def test_manage_charts_in_charts_domain_calc(self, chart_registry):
+    def test_chart_tools_in_charts_domain_calc(self, chart_registry):
         doc = TestingFactory.create_doc(doc_type="calc", content=[])
         names = {t.name for t in chart_registry.get_tools(doc=doc, active_domain="charts")}
-        assert "manage_charts" in names
+        assert names == self._CHART_TOOL_NAMES
 
-    def test_manage_charts_openai_schema_excluded_by_default(self, chart_registry):
+    def test_chart_tools_openai_schema_excluded_by_default(self, chart_registry):
         doc = TestingFactory.create_doc(doc_type="calc", content=[])
         tool_names = {s["function"]["name"] for s in chart_registry.get_schemas("openai", doc=doc)}
-        assert "manage_charts" not in tool_names
+        assert tool_names.isdisjoint(self._CHART_TOOL_NAMES)
 
-    def test_skinny_chart_tools_not_discovered(self):
-        """list/info/upsert/delete are functions; only manage_charts registers."""
+    def test_skinny_chart_tools_discovered(self):
         import plugin.calc.charts as calc_charts
         import plugin.draw.charts as draw_charts
         import plugin.writer.specialized.charts as writer_charts
@@ -668,24 +666,29 @@ class TestManageChartsSpecializedTier:
         reg.auto_discover(writer_charts)
         reg.auto_discover(draw_charts)
 
-        assert reg.get("manage_charts") is not None
-        for name in self._SKINNY_CHART_TOOLS:
-            assert reg.get(name) is None, f"{name} should not be registered"
+        for name in self._CHART_TOOL_NAMES:
+            assert reg.get(name) is not None, f"{name} should be registered"
 
         doc = TestingFactory.create_doc(doc_type="calc", content=[])
         domain_names = {t.name for t in reg.get_tools(doc=doc, active_domain="charts")}
-        assert domain_names == {"manage_charts"}
+        assert domain_names == self._CHART_TOOL_NAMES
 
     def test_writer_charts_domain_uses_writer_core_tools_not_sheet_readers(self):
-        """Shared manage_charts name must not inherit Calc's required_core_tools via MRO."""
+        """Shared chart tool names must not inherit Calc's required_core_tools via MRO."""
         from plugin.calc.shapes import UpsertShape as CalcUpsertShape
-        from plugin.writer.specialized.charts import ManageCharts as WriterManageCharts
+        from plugin.writer.specialized.charts import (
+            ChartDelete as WriterChartDelete,
+            ChartGetInfo as WriterChartGetInfo,
+            ChartList as WriterChartList,
+            ChartUpsert as WriterChartUpsert,
+        )
         from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
 
         assert "get_document_content" in (WriterUpsertShape.required_core_tools or ())
         assert "get_sheet_summary" in (CalcUpsertShape.required_core_tools or ())
-        assert WriterManageCharts.required_core_tools is not None
-        assert "read_cell_range" not in WriterManageCharts.required_core_tools
+        for chart_cls in (WriterChartList, WriterChartGetInfo, WriterChartUpsert, WriterChartDelete):
+            assert chart_cls.required_core_tools is not None
+            assert "read_cell_range" not in chart_cls.required_core_tools
 
         def _exec(self, ctx, **kwargs):
             return {"status": "ok"}
@@ -698,19 +701,40 @@ class TestManageChartsSpecializedTier:
             )
             return cls()
 
+        from plugin.writer.specialized.charts import (
+            ChartDelete as WriterChartDelete,
+            ChartGetInfo as WriterChartGetInfo,
+            ChartList as WriterChartList,
+            ChartUpsert as WriterChartUpsert,
+        )
+
         reg = _make_registry(
             core("get_document_content"),
             core("get_document_tree"),
             core("get_sheet_summary"),
             core("read_cell_range"),
-            WriterManageCharts(),
+            WriterChartList(),
+            WriterChartGetInfo(),
+            WriterChartUpsert(),
+            WriterChartDelete(),
         )
         names = {t.name for t in reg.get_tools(active_domain="charts", filter_doc_type=False)}
-        assert "manage_charts" in names
+        assert self._CHART_TOOL_NAMES <= names
         assert "get_document_content" in names
         assert "get_document_tree" in names
         assert "read_cell_range" not in names
         assert "get_sheet_summary" not in names
+
+    def test_chart_list_unions_required_core_tools_on_replace(self):
+        from plugin.calc.charts import ChartList as CalcChartList
+        from plugin.writer.specialized.charts import ChartList as WriterChartList
+
+        reg = _make_registry()
+        reg.register(CalcChartList())
+        reg.register(WriterChartList())
+        cores = reg._required_core_union.get("chart_list") or frozenset()
+        assert "get_document_content" in cores
+        assert "get_sheet_summary" in cores
 
     def test_shared_shape_upsert_unions_required_core_tools_on_replace(self):
         """Last-wins registration must keep Calc and Writer core tool sets."""
@@ -807,17 +831,17 @@ class TestManageChartsSpecializedTier:
         assert "style_sibling" not in names
         assert "finish_control" not in names
 
-    def test_manage_charts_still_dispatches_to_dummy_backends(self):
-        from plugin.calc.charts import ManageCharts
+    def test_chart_list_dispatches_to_list_charts(self):
+        from plugin.calc.charts import ChartList
 
         ctx = TestingFactory.create_context(doc_type="calc")
-        tool = ManageCharts()
+        tool = ChartList()
         with patch("plugin.calc.charts.list_charts") as mock_list:
             mock_list.return_value = {"status": "ok", "charts": [], "count": 0}
-            res = tool.execute(ctx, action="list")
+            res = tool.execute(ctx)
         assert res["status"] == "ok"
         assert res["count"] == 0
-        mock_list.assert_called_once_with(tool, ctx, action="list")
+        mock_list.assert_called_once_with(tool, ctx)
 
 
 class TestLibrarianToolVisibility:

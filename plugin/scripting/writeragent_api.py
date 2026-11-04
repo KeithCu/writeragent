@@ -9,8 +9,12 @@ Skip replacing this with a __getattr__ proxy over DOMAIN_TOOLS: explicit
 per-tool classes are the public script API (IDE jump and types). Change this
 generator if the file is too large; do not slim the generated module by hand.
 """
-from typing import Any
+from __future__ import annotations
+from typing import Any, TYPE_CHECKING
 from plugin.framework.constants import WORKFLOW_TASK_PREFIXES as _WORKFLOW_TASK_PREFIXES
+
+if TYPE_CHECKING:
+    import builtins  # proxy methods named list/dict shadow builtins in annotations
 
 # Re-export so venv scripts and tests share the comment-scan prefix tuple.
 WORKFLOW_TASK_PREFIXES = _WORKFLOW_TASK_PREFIXES
@@ -42,7 +46,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'read_cell_range',
                 'set_style',
                 'write_formula_range'],
-    'chart': ['manage_charts'],
+    'chart': ['chart_delete', 'chart_get_info', 'chart_list', 'chart_upsert'],
     'comment': [   'add_cell_comment',
                    'comment_check_stop',
                    'comment_delete',
@@ -203,6 +207,10 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'bookmark_list': ('bookmark', 'list'),
     'bookmark_rename': ('bookmark', 'rename'),
     'bookmark_resolve': ('bookmark', 'resolve'),
+    'chart_delete': ('chart', 'delete'),
+    'chart_get_info': ('chart', 'get_info'),
+    'chart_list': ('chart', 'list'),
+    'chart_upsert': ('chart', 'upsert'),
     'clear_sheet_filter': ('sheet', 'clear_sheet_filter'),
     'comment_check_stop': ('comment', 'check_stop'),
     'comment_delete': ('comment', 'delete'),
@@ -296,7 +304,6 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'mail_merge_list_sources': ('mail_merge', 'list_sources'),
     'mail_merge_register_source': ('mail_merge', 'register_source'),
     'mail_merge_run': ('mail_merge', 'run'),
-    'manage_charts': ('chart', 'manage_charts'),
     'manage_table_structure': ('table', 'manage_table_structure'),
     'manage_tracked_changes': ('tracking', 'manage_tracked_changes'),
     'merge_cells': ('calc', 'merge_cells'),
@@ -555,12 +562,40 @@ calc = _CalcProxy()
 class _ChartProxy:
     """Proxy for chart tools."""
 
-    def manage_charts(self, action: str, *, name: str | None = None, sheet: str | None = None, page: int | None = None, data_range: str | None = None, has_header: bool | None = None, headers: list[str] | None = None, rows: list[Any] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | None = None, colors: list[str] | None = None) -> dict[str, Any]:
-        """Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide).
+    def delete(self, name: str, *, sheet: str | None = None, page: int | None = None) -> dict[str, Any]:
+        """Delete a chart by name.
 
         Args:
-            action (required): The action to perform on the charts. One of: list, get_info, create, edit, delete.
-            name (optional): The name of the chart (required for get_info, edit, delete).
+            name (required): The name of the chart to delete.
+            sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
+            page (optional): Zero-based slide/page index to search (Draw/Impress only).
+        """
+        return call_host_tool("chart_delete", name=name, sheet=sheet, page=page)
+
+    def get_info(self, name: str, *, sheet: str | None = None, page: int | None = None) -> dict[str, Any]:
+        """Get detailed metadata for a chart by name.
+
+        Args:
+            name (required): The name of the chart.
+            sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
+            page (optional): Zero-based slide/page index to search (Draw/Impress only).
+        """
+        return call_host_tool("chart_get_info", name=name, sheet=sheet, page=page)
+
+    def list(self, *, sheet: str | None = None, page: int | None = None) -> dict[str, Any]:
+        """List charts in the current document (active sheet, document body, or all slides).
+
+        Args:
+            sheet (optional): Sheet to search for the chart (Calc only; omit to search all sheets).
+            page (optional): Zero-based slide/page index to search (Draw/Impress only).
+        """
+        return call_host_tool("chart_list", sheet=sheet, page=page)
+
+    def upsert(self, *, name: str | None = None, sheet: str | None = None, page: int | None = None, data_range: str | None = None, has_header: bool | None = None, headers: builtins.list[str] | None = None, rows: builtins.list[Any] | None = None, chart_type: str | None = None, title: str | None = None, subtitle: str | None = None, is_3d: bool | None = None, stacked: bool | None = None, percent: bool | None = None, x_axis_title: str | None = None, y_axis_title: str | None = None, legend_position: str | None = None, has_legend: bool | None = None, position: str | None = None, bg_color: str | None = None, colors: builtins.list[str] | None = None) -> dict[str, Any]:
+        """Create or update a chart. Omit name to create a new chart (requires chart_type and a data source: data_range on Calc, or headers and rows on Writer/Draw/Impress). When name is set, update that chart if it exists. When it does not exist, create a chart with that name if chart_type and a valid data source are provided; otherwise the chart is not found. If the name is wrong but create fields are present, a new chart is created under that name rather than updating an existing chart — verify the name when editing.
+
+        Args:
+            name (optional): Chart name for edit, or for create when the chart does not yet exist.
             sheet (optional): Sheet name where the chart should be placed (Calc only, defaults to active sheet).
             page (optional): Zero-based page/slide index (Draw/Impress only; omitted page means the current page, otherwise page 0).
             data_range (optional): Cell range for chart data (Calc only, required for create, e.g. 'A1:B10').
@@ -581,7 +616,7 @@ class _ChartProxy:
             bg_color (optional): Chart area background color (hex: #FF0000 or name: green).
             colors (optional): List of hex/named colors to apply to each data series.
         """
-        return call_host_tool("manage_charts", action=action, name=name, sheet=sheet, page=page, data_range=data_range, has_header=has_header, headers=headers, rows=rows, chart_type=chart_type, title=title, subtitle=subtitle, is_3d=is_3d, stacked=stacked, percent=percent, x_axis_title=x_axis_title, y_axis_title=y_axis_title, legend_position=legend_position, has_legend=has_legend, position=position, bg_color=bg_color, colors=colors)
+        return call_host_tool("chart_upsert", name=name, sheet=sheet, page=page, data_range=data_range, has_header=has_header, headers=headers, rows=rows, chart_type=chart_type, title=title, subtitle=subtitle, is_3d=is_3d, stacked=stacked, percent=percent, x_axis_title=x_axis_title, y_axis_title=y_axis_title, legend_position=legend_position, has_legend=has_legend, position=position, bg_color=bg_color, colors=colors)
 
 chart = _ChartProxy()
 
@@ -926,7 +961,7 @@ error = _ErrorProxy()
 class _FieldProxy:
     """Proxy for field tools."""
 
-    def delete(self, ids: list[Any], *, snapshot: str | None = None) -> dict[str, Any]:
+    def delete(self, ids: builtins.list[Any], *, snapshot: str | None = None) -> dict[str, Any]:
         """Deletes one or more text fields from the document by their 1-based ID in the fields_list snapshot. Pass the snapshot string from fields_list to ensure IDs have not shifted.
 
         Args:
@@ -1133,7 +1168,7 @@ headers_footer = _HeadersFooterProxy()
 class _ImagesProxy:
     """Proxy for images tools."""
 
-    def crop_and_highlight(self, name: str, *, crop_box: list[Any] | None = None, highlights: list[Any] | None = None, units: str | None = None, width_mm: float | None = None, sheet_index: int | None = None) -> dict[str, Any]:
+    def crop_and_highlight(self, name: str, *, crop_box: builtins.list[Any] | None = None, highlights: builtins.list[Any] | None = None, units: str | None = None, width_mm: float | None = None, sheet_index: int | None = None) -> dict[str, Any]:
         """Cut an image down to a region and/or mark passages on it (highlighter, red box, underline) with boxes in the picture's OWN pixels: [x, y, width, height] from its top-left corner, inside width_px x height_px from image_get_info. If you only see a scaled copy, pass units='percent' (0-100 of the picture's width/height). crop_box and every highlight box use the same frame: the picture as it is now. The result is baked into the picture: the cut-away part is removed from the file and marks cannot drift. Afterwards the picture IS the region (new width_px/height_px). The frame keeps its width (or width_mm) and its height follows the new shape. Check the result with get_image.
 
         Args:
@@ -2096,7 +2131,7 @@ class _StylesProxy:
         """
         return call_host_tool("style_clone", style=style, new_style=new_style, family=family)
 
-    def create(self, style: str, *, family: str | None = None, parent_style: str | None = None, property_updates: dict[str, Any] | None = None, conditional_rules: list[Any] | None = None) -> dict[str, Any]:
+    def create(self, style: str, *, family: str | None = None, parent_style: str | None = None, property_updates: dict[str, Any] | None = None, conditional_rules: builtins.list[Any] | None = None) -> dict[str, Any]:
         """Create a new paragraph or character style with optional inheritance and property settings. For paragraph styles, you can also define conditional rules mapping contexts (like Table or Header) to other styles.
 
         Args:
@@ -2176,7 +2211,7 @@ class _TableProxy:
         """
         return call_host_tool("table_get_cells", name=name, cell=cell, page=page, index=index)
 
-    def insert(self, rows: int, columns: int, *, data: list[Any] | None = None, parent: str | None = None, cell: str | None = None, page: int | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None) -> dict[str, Any]:
+    def insert(self, rows: int, columns: int, *, data: builtins.list[Any] | None = None, parent: str | None = None, cell: str | None = None, page: int | None = None, x: int | None = None, y: int | None = None, width: int | None = None, height: int | None = None) -> dict[str, Any]:
         """Insert a table. Writer: text table at the view cursor (or document end); pass parent + cell to nest inside an existing table cell (inserts at the cell end). Draw/Impress: TableShape; position/size in 1/100 mm. parent/cell are Writer-only. Optional data is a 2D array of cell strings.
 
         Args:

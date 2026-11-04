@@ -15,7 +15,7 @@ from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import main
-from plugin.framework.send_cancellation import SendCancelled
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
 from plugin.scripting.client import run_vision
 from plugin.vision.vision_common import (
     HELPER_NAMES,
@@ -108,10 +108,10 @@ def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
     return "en"
 
 
-def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, stop_checker: Any = None) -> dict[str, Any]:
+def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, cancel: SendCancellation | None = None) -> dict[str, Any]:
     """Export graphic bytes and run a trusted vision helper in the user venv.
 
-    *stop_checker* cancels the venv OCR mid-run. Callers pass it explicitly: *ctx* is
+    *cancel* aborts the venv OCR mid-run. Callers pass it explicitly: *ctx* is
     the UNO component context, which never carries the tool's stop flag.
     """
     name = _validate_helper(helper)
@@ -142,7 +142,7 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         )
     spec: dict[str, Any] = {"helper": name, "params": {k: v for k, v in params_out.items() if k != "image_name"}}
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
-    return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
+    return run_vision(ctx, spec, png_bytes, context=context, cancel=cancel)
 
 
 @dataclass
@@ -231,7 +231,7 @@ class VisionBatch:
         return res_out
 
 
-def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, stop_checker: Any = None) -> dict[str, Any]:
+def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, cancel: SendCancellation | None = None) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers named graphics while the selection is intact, then OCRs and inserts
@@ -263,7 +263,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         batch.target_names = main.call(_discover_names)
 
         for image_name in batch.target_names:
-            if stop_checker is not None and stop_checker():
+            if is_cancelled(cancel):
                 if batch.results:
                     batch.stopped_early = True
                     break
@@ -272,7 +272,7 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
 
             per_params = dict(params_dict)
             per_params["image_name"] = image_name
-            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, stop_checker=stop_checker)
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel)
 
             if result.get("status") == "error":
                 if result.get("code") == "USER_STOPPED":

@@ -1,6 +1,23 @@
 # Chart Architecture and Management
 
-WriterAgent provides unified chart management through the `manage_charts` tool across LibreOffice Calc, Writer, and Draw/Impress.
+WriterAgent provides chart management through four specialized tools (`chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete`) across LibreOffice Calc, Writer, and Draw/Impress.
+
+## Tool surface
+
+- **`chart_list`**: List charts (optional `sheet` / `page` parameters are accepted; listing still scans all hosts today).
+- **`chart_get_info`**: Metadata for a chart by `name` (required).
+- **`chart_upsert`**: Create or update. Omit `name` to create (`chart_type` plus a host data source). A non-blank `name` edits when the chart exists; when it does not, the same call creates under that name if `chart_type` and a valid source are present, otherwise returns not found.
+- **`chart_delete`**: Delete by `name` (required).
+
+## Validation and `doc_type`
+
+`validate()` receives `doc_type` from the caller; it does not open the document.
+
+- **Chat** builds `ToolContext` with `doc_type` from the active document.
+- **Script / `host_rpc.execute_tool`** passes `doc_type=""` only when the document is not calc, writer, or draw; otherwise calc, writer, or draw.
+- **MCP `direct_flat`** runs tools with real `doc_type` from `DocumentService.detect_doc_type`.
+- **MCP delegate mode** rejects specialized tiers (including all four chart tools) before `validate`.
+- When `doc_type` is omitted, `None`, or not `"calc"`, create validation uses the Writer/Draw/Impress array path (`headers` and `rows` required). Wrong-host keys stripped from the schema may still fail at execute with messages naming `data_range` or `headers`/`rows` (not a single cross-host sentence).
 
 ## Host Kinds and Deletion
 
@@ -15,12 +32,12 @@ Charts live in different container structures depending on the host application:
 
 ## Draw and Impress Page Scope
 
-In Draw and Impress documents, create takes the lowest `Chart_N` free on any Draw/Impress page; list still includes `page`; get/edit/delete still take optional `page` and still return `CHART_AMBIGUOUS` when that name is on more than one page.
+In Draw and Impress documents, create takes the lowest `Chart_N` free on any Draw/Impress page unless a unused requested name is supplied; list still includes `page`; get/edit/delete still take optional `page` and still return `CHART_AMBIGUOUS` when that name is on more than one page.
 
 ## Data Representation: Calc vs. Writer/Draw
 
 - **Calc (`data_range`, `has_header`)**: Calc charts bind directly to cell ranges in spreadsheet sheets using `data_range` (e.g. `"A1:B10"` or qualified like `"'Sheet1'.A1:B10"`). On create or edit, the range is resolved via `CalcBridge.get_cell_range()`. Setting `has_header` toggles `setHasColumnHeaders` and `setHasRowHeaders`. Raw data arrays (`headers`, `rows`) are rejected in Calc.
-- **Writer and Draw (`headers`, `rows`)**: Writer and Draw do not possess spreadsheet cell grids; chart data is supplied programmatically as `headers` and `rows` arrays and committed via `com.sun.star.chart.XChartDataArray.setData()`. In `manage_charts(action="create")` or `edit`, data arrays are applied before diagram creation and series colors. If `getDiagram()` is missing on the chart document, data arrays are already applied and styling records a non-fatal `"No diagram found on chart document."` warning while returning `status: "ok"`.
+- **Writer and Draw (`headers`, `rows`)**: Writer and Draw do not possess spreadsheet cell grids; chart data is supplied programmatically as `headers` and `rows` arrays and committed via `com.sun.star.chart.XChartDataArray.setData()`. On `chart_upsert`, data arrays are applied before diagram creation and series colors. If `getDiagram()` is missing on the chart document, data arrays are already applied and styling records a non-fatal `"No diagram found on chart document."` warning while returning `status: "ok"`.
 - **Cell Cap**: Programmatic data arrays enforce a maximum payload limit of `len(rows) * len(headers) <= 10_000` cells to protect UI thread responsiveness. Values must be finite numbers (`math.isfinite`).
 
 ## Styling Failures and Chart Rollback
@@ -30,4 +47,4 @@ In Draw and Impress documents, create takes the lowest `Chart_N` free on any Dra
 
 ## Python Matplotlib Visualizations
 
-Note that programmatic charts via `manage_charts` insert native LibreOffice Chart2 OLE objects. Scripted matplotlib/seaborn plots generated via `plot_data` (in `plugin/calc/viz.py` and Python formula evaluations) follow a completely separate path, rendering raster images (PNG) and inserting them as graphical shape objects onto the sheet.
+Note that programmatic charts via `chart_upsert` insert native LibreOffice Chart2 OLE objects. Scripted matplotlib/seaborn plots generated via `plot_data` (in `plugin/calc/viz.py` and Python formula evaluations) follow a completely separate path, rendering raster images (PNG) and inserting them as graphical shape objects onto the sheet.

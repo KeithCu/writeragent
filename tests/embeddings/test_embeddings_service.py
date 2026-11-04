@@ -276,7 +276,7 @@ def test_hybrid_search_passes_ctx_send_cancellation_to_worker(ctx, tmp_path):
             with patch("plugin.framework.config.get_config", return_value="sqlite"):
                 embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL)
     assert mock_run.call_args.args[0] is ctx
-    assert mock_run.call_args.kwargs["cancellation_scope"] is None
+    assert mock_run.call_args.kwargs["cancel"] is None
 
 
 def test_hybrid_search_explicit_cancel_overrides_ctx(ctx, tmp_path):
@@ -296,5 +296,5 @@ def test_hybrid_search_explicit_cancel_overrides_ctx(ctx, tmp_path):
                     model=DEFAULT_EMBEDDING_MODEL,
                     cancel=explicit,
                 )
-    assert mock_run.call_args.kwargs["cancellation_scope"] is explicit
+    assert mock_run.call_args.kwargs["cancel"] is explicit
 
