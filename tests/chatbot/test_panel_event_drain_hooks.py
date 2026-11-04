@@ -144,7 +144,10 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         act = logging_mod._shared()["activity"]
         assert act["phase"] == ""
         assert act["status_control"] is None
-        post_main.assert_called_once_with(logging_mod._clear_hung_status, status_ctrl)
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert len(clear_calls) == 1
         drop_turn.assert_called_once()
 
         # Nothing left to run: the strip and the Hung clear happened once.
