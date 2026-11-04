@@ -89,9 +89,23 @@ def off_main_spill_lifecycle_key(doc: Any | None) -> str:
 def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
     st = WorkbookState.known(doc)
     if st is not None:
-        st.key = key
-    else:
-        WorkbookState._remember(doc, WorkbookState(key=key))
+        if key:
+            st.key = key
+        return
+    from plugin.framework.queue_executor import main
+
+    if main.is_current():
+        try:
+            st = WorkbookState.for_doc(doc)
+        except Exception:
+            st = None
+        if st is not None:
+            if key:
+                st.key = key
+            return
+    if key:
+        st = WorkbookState(key=key)
+        WorkbookState._remember(doc, st)
 
 
 def _forget_doc_lifecycle_key(key: str) -> None:
@@ -302,9 +316,12 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
 
     uid = get_runtime_uid(doc)
     key = f"py:{uid or session_id}"
+    state = WorkbookState.known(doc)
+    if state is None:
+        state = WorkbookState(key=key)
     _register(
         doc,
         key,
-        lambda: _CalcPythonUnloadListener(ctx, session_id, WorkbookState(key=key), calc_cleanup=False),
+        lambda: _CalcPythonUnloadListener(ctx, session_id, state, calc_cleanup=False),
         lambda existing: existing.note_session(session_id),
     )

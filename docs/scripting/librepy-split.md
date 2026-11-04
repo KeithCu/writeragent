@@ -192,7 +192,7 @@ This closure **does not** call the LLM, chat panel, or MCP.
 ### 2. As-shipped module closure — WriterAgent (split complete)
 
 - **`=PY()` (WriterAgent):** register [`addin.py`](../../plugin/calc/python/addin.py) → [`recalc.py`](../../plugin/calc/python/recalc.py) and related spill/value modules (no `LlmClient`).
-- **`=PY()` (LibrePy):** register [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) → same `function.py`.
+- **`=PY()` (LibrePy):** register [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) → same `recalc.py` / `spill.py` modules.
 - **`=PROMPT()`:** register [`prompt_addin.py`](../../plugin/calc/prompt_addin.py) → loads [`prompt_function.py`](../../plugin/calc/prompt_function.py) (LLM stack). WriterAgent only.
 
 A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [Recommended refactors](#recommended-refactors-for-libreoffice-maintainers).

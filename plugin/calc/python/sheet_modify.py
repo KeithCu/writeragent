@@ -105,11 +105,21 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
     if state is None or not state.key:
         return
 
-    def _pass(target_key: str = f"sheet:{name}") -> None:
-        effective_name = target_key.removeprefix("sheet:")
-        run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=effective_name)
+    debounce_key = f"sheet:{name}"
 
-    state.debounce.schedule(f"sheet:{name}", delay_sec, _pass)
+    def _pass() -> None:
+        sname = name
+        disp = state.listeners.get(name)
+        if disp is not None and hasattr(disp, "sheet_name"):
+            sname = disp.sheet_name
+        else:
+            for candidate in state.listeners.values():
+                if getattr(candidate, "doc", None) is doc and hasattr(candidate, "sheet_name"):
+                    sname = candidate.sheet_name
+                    break
+        run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=sname)
+
+    state.debounce.schedule(debounce_key, delay_sec, _pass)
 
 
 def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:

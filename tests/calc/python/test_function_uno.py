@@ -22,16 +22,15 @@ from plugin.calc.python.recalc import (
     clear_python_addin_cache,
 )
 from plugin.calc.python.spill import (
-    SPILL_REGISTRY,
     CalcSpillModifyListener,
     SpillCell,
     SpillRecord,
     clear_in_memory_spill_state,
     perform_deferred_spill,
-    spill_registry_doc_key,
 )
-from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 from plugin.calc.python.workbook_state import WorkbookState
+from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY
 from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
@@ -359,7 +358,9 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
     """Row insertion shifts =PY() formula and its spill; modify listener remaps without clearing."""
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
-    doc_key = spill_registry_doc_key(doc)
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    doc_key = st.key
     try:
         sheet = doc.getSheets().getByIndex(0)
         if sheet.getName() != "Sheet1":

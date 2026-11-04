@@ -329,7 +329,7 @@ SQL_IDENTITY_TEACH = (
 
 # Quoted =PY() payload must stay short. SQL lives in cells; this is only the
 # runner. ``data[`` is required so the trailing SQL cell is not peeled as a
-# matrix index (see plugin/calc/python/function.py).
+# matrix index (see plugin/calc/python/recalc.py).
 RESULTS_PY_CODE_MAX_LEN = 200
 
 

@@ -145,7 +145,7 @@ plugin/scripting/
 └── payload_codec.py          # split_grid / multi_data pack/unpack
 ```
 
-Calc ingress/egress entry points: [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`python_function.py`](../../plugin/calc/python/function.py), [`venv_python.py`](../../plugin/calc/python/venv.py).
+Calc ingress/egress entry points: [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`recalc.py`](../../plugin/calc/python/recalc.py), [`venv_python.py`](../../plugin/calc/python/venv.py).
 
 | Key | Shipped | Role |
 |-----|---------|------|
@@ -391,7 +391,7 @@ The implementation was simplified in May 2026 to unify the 1D and 2D packing pat
 | [`plugin/scripting/payload_codec.py`](../../plugin/scripting/payload_codec.py) | Single source: unified pack/unpack, threshold, `describe_wire_value` for logs |
 | [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | `pack_calc_data_for_wire()` after range read; `wire_cell_count` in `payload_codec` understands split_grid envelopes |
 | [`plugin/scripting/venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response`: `host_unpack_data` on worker `result` (all callers); respects `column_kinds` |
-| [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `=PY()` ingress pack + matrix/session flattening (result already unpacked) |
+| [`plugin/calc/python/recalc.py`](../../plugin/calc/python/recalc.py) | `=PY()` ingress pack + matrix/session flattening (result already unpacked) |
 | [`plugin/calc/python/venv.py`](../../plugin/calc/python/venv.py) | Chat tool ingress pack |
 | [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `child_unpack_data` before inject; `child_pack_result` in `serialize_result` |
 | [`tests/scripting/test_payload_codec.py`](../../tests/scripting/test_payload_codec.py) | Unit tests (threshold, round-trip, mixed text → lists) |
@@ -429,7 +429,7 @@ Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`
 | Child unpack | [`venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
 | Return | [`serialize_result`](../../plugin/scripting/venv/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
 | Host decode | [`venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
-| Calc return | [`python_function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
+| Calc return | [`recalc.py`](../../plugin/calc/python/recalc.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../../plugin/scripting/payload_codec.py).
 
@@ -439,7 +439,7 @@ Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`
 
 Calc add-ins return **one scalar per evaluation**. A 1,000-row matrix formula would otherwise cause 1,000 IPC crossings and serialization pack taxes.
 
-WriterAgent implements a **Worker Result Session** cache ([`WorkerResultSession`](../../plugin/calc/python/function.py)):
+WriterAgent implements a **Worker Result Session** cache ([`WorkerResultSession`](../../plugin/calc/python/recalc.py)):
 
 1. **First cell** in the range runs the full worker; the serialized list is cached on the **LibreOffice host**.
 2. **Remaining cells** with the same `code` + `data` signature bypass the worker and read by index from the host cache.
@@ -458,7 +458,7 @@ Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `
 | Layer | Module |
 |-------|--------|
 | Arg split / convert | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) — rectangular grids + `pack_calc_data_for_wire` |
-| Add-in execution | [`python_function.py`](../../plugin/calc/python/function.py) |
+| Add-in execution | [`recalc.py`](../../plugin/calc/python/recalc.py) |
 | Range value type | [`calc_range.py`](../../plugin/scripting/calc_range.py) — `CalcRange`, `materialize_inputs` |
 | Wire codec | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) |
 | Tests | [`test_calc_addin_data.py`](../../tests/calc/test_calc_addin_data.py), [`test_calc_range.py`](../../tests/scripting/test_calc_range.py), [`test_function_multi.py`](../../tests/calc/python/test_function_multi.py) |
@@ -571,7 +571,7 @@ Often beats another codec — product, prompts, and formula patterns:
 | Area | Action |
 |------|--------|
 | **Chat / LLM** | Prompts + tool behavior: return scalars/summaries (`result = float(np.mean(...))`), two-phase “compute in venv → `write_formula_range`”, not 10⁵-element lists in `result`. |
-| **`=PY()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`WorkerResultSession`](../../plugin/calc/python/function.py); avoid N recalcs each resending the same `data`. |
+| **`=PY()` matrix** | Prefer **`ROW()-1`** index form — one worker run + [`WorkerResultSession`](../../plugin/calc/python/recalc.py); avoid N recalcs each resending the same `data`. |
 | **Ranges** | Tighter sheet ranges; strip `None` in script; no `collapse` on host yet (LibrePythonista gap) but same intent. |
 
 See [core two-phase workflow](../enabling_numpy_in_libreoffice.md#two-phase-llm-workflow).

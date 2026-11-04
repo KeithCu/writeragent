@@ -21,27 +21,27 @@ from plugin.calc.python.sheet_modify import (
     schedule_sheet_modify_pass,
 )
 from plugin.calc.python.spill import (
-    SHEET_MODIFY_LISTENERS,
-    SPILL_REGISTRY,
     SpillCell,
     SpillRecord,
     clear_in_memory_spill_state,
     perform_deferred_spill,
+)
+from tests.calc.python.calc_workbook_test_access import (
+    SHEET_MODIFY_LISTENERS,
+    SPILL_REGISTRY,
+    reset_calc_workbook_states,
 )
 from plugin.tests.testing_utils import CalcDocStub
 
 
 @pytest.fixture(autouse=True)
 def _reset_sheet_listeners():
-    from plugin.calc.python.workbook_state import WorkbookState
 
     reset_sheet_modify_runtime_for_tests()
-    SHEET_MODIFY_LISTENERS.clear()
-    WorkbookState.reset_for_tests()
+    reset_calc_workbook_states()
     yield
     reset_sheet_modify_runtime_for_tests()
-    SHEET_MODIFY_LISTENERS.clear()
-    WorkbookState.reset_for_tests()
+    reset_calc_workbook_states()
 
 
 def test_unsaved_workbooks_get_separate_listeners():
@@ -262,6 +262,7 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
 
     doc = CalcDocStub(url="", props={"RuntimeUID": "uid-rekey-timer"})
     sheet = doc.getSheets().getByName("Sheet1")
+    ensure_sheet_modify_listener("ctx", doc, sheet)
 
     schedule_sheet_modify_pass("ctx", doc, sheet)
     state = WorkbookState.for_doc(doc)

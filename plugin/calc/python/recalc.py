@@ -59,67 +59,6 @@ log = logging.getLogger(__name__)
 
 _MATRIX_SCALAR_SESSIONS_LOCK = threading.Lock()
 
-_DUMMY_MATRIX_DOC = object()
-
-
-class _MatrixScalarSessionsProxy(dict[Any, Any]):
-    def __getitem__(self, key: Any) -> Any:
-        for state in WorkbookState.all_states():
-            if key in state.matrix:
-                return state.matrix[key]
-        raise KeyError(key)
-
-    def __setitem__(self, key: Any, value: Any) -> None:
-        states = WorkbookState.all_states()
-        if not states:
-            st = WorkbookState(key="default")
-            WorkbookState._remember(_DUMMY_MATRIX_DOC, st)
-            states = [st]
-        for s in states:
-            s.matrix[key] = value
-
-    def __contains__(self, key: Any) -> bool:
-        for state in WorkbookState.all_states():
-            if key in state.matrix:
-                return True
-        return False
-
-    def get(self, key: Any, default: Any = None) -> Any:
-        for state in WorkbookState.all_states():
-            if key in state.matrix:
-                return state.matrix[key]
-        return default
-
-    def pop(self, key: Any, default: Any = None) -> Any:
-        found = False
-        res = default
-        for state in WorkbookState.all_states():
-            if key in state.matrix:
-                res = state.matrix.pop(key)
-                found = True
-        if found:
-            return res
-        return default
-
-    def __iter__(self):
-        seen = set()
-        for state in WorkbookState.all_states():
-            for k in list(state.matrix):
-                if k not in seen:
-                    seen.add(k)
-                    yield k
-
-    def __len__(self) -> int:
-        return len(list(iter(self)))
-
-    def clear(self) -> None:
-        for state in WorkbookState.all_states():
-            state.matrix.clear()
-        super().clear()
-
-
-_MATRIX_SCALAR_SESSIONS = _MatrixScalarSessionsProxy()
-
 _PY_PASS_GAP_SEC = 2.0
 
 _INDEXED_BINDING_RE = re.compile(r"(?<![A-Za-z0-9_.])(?:data|ranges)\[")
@@ -207,10 +146,7 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = 
         on_main = main.is_current()
     if on_main:
         state = WorkbookState.for_doc(doc) if doc is not None else None
-        try:
-            sk = session_key(ctx, code, doc=doc, on_main=True)
-        except TypeError:
-            sk = session_key(ctx, code, doc=doc)
+        sk = session_key(ctx, code, doc=doc, on_main=True)
         session_id = sk[2] or None
         origin = sk[4]
         init_kwargs = get_python_init_kwargs(ctx, doc=doc, on_main=True) if doc is not None else {}
@@ -338,10 +274,7 @@ def scalar_for_list_result(
 
             on_main = main.is_current()
     tid = threading.get_ident()
-    try:
-        sk = session_key(ctx, code, doc=doc, on_main=on_main)
-    except TypeError:
-        sk = session_key(ctx, code, doc=doc)
+    sk = session_key(ctx, code, doc=doc, on_main=on_main)
     if not sk[4]:
         return flat[0]
     token = data_token if data_token is not None else _worker_data_token(worker_data)
@@ -353,21 +286,15 @@ def scalar_for_list_result(
     if target_doc is not None:
         wb_state = WorkbookState.for_doc(target_doc) if on_main else WorkbookState.known(target_doc)
     if wb_state is None:
-        states = WorkbookState.all_states()
-        if states:
-            wb_state = states[0]
-        else:
-            wb_state = WorkbookState(key="default")
-            WorkbookState._remember(object(), wb_state)
+        return flat[0]
 
     with _MATRIX_SCALAR_SESSIONS_LOCK:
-        for s in WorkbookState.all_states():
-            stale = [
-                k for k, session in s.matrix.items()
-                if (now - session.timestamp) > _PY_PASS_GAP_SEC
-            ]
-            for k in stale:
-                s.matrix.pop(k, None)
+        stale = [
+            k for k, session in wb_state.matrix.items()
+            if (now - session.timestamp) > _PY_PASS_GAP_SEC
+        ]
+        for k in stale:
+            wb_state.matrix.pop(k, None)
         state = wb_state.matrix.get(key)
         if state is None or not _flat_result_equal(state.flat, flat):
             state = WorkerResultSession(result, flat, timestamp=now)
@@ -618,9 +545,6 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             data_token = _worker_data_token(worker_data)
             cache_key = (tid, sk, data_token)
             wb_state = cell_ctx.state
-            if wb_state is None:
-                states = WorkbookState.all_states()
-                wb_state = states[0] if states else None
             if wb_state is not None:
                 with _MATRIX_SCALAR_SESSIONS_LOCK:
                     stale = [

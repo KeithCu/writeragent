@@ -6,6 +6,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import logging
 import threading
+import time
 from typing import TYPE_CHECKING, Any, Callable
 import weakref
 
@@ -37,120 +38,75 @@ def _doc_objects(doc: Any) -> list[Any]:
     return objects
 
 
-def _invoke_fn(f: Callable[..., None], k: str) -> None:
-    try:
-        f(k)
-    except TypeError:
-        f()
-
-
-@dataclass
-class _DebounceEntry:
-    fn: Callable[..., None]
-    thread: DeadlineThread | None = None
-
-
 class Debounce:
-    """Per-workbook debounce coordinator using DeadlineThreads."""
+    """Per-workbook debounce: one DeadlineThread, many keyed callbacks."""
 
-    _test_sync: bool = False
-
-    def __init__(self) -> None:
+    def __init__(self, post: Callable[[Callable[[], None]], None] | None = None) -> None:
+        self._post: Callable[[Callable[[], None]], None] = post if post is not None else main.post
         self._lock: threading.Lock = threading.Lock()
-        self._entries: dict[str, _DebounceEntry] = {}
-        self._local_test_sync: bool = False
+        self._entries: dict[str, tuple[Callable[[], None], float]] = {}
+        self._timer: DeadlineThread | None = None
 
-    def schedule(self, key: str, delay: float, fn: Callable[..., None]) -> None:
-        """Store *fn* and arm the key's DeadlineThread for *delay*, posting to main on fire."""
-        if self._local_test_sync or Debounce._test_sync:
-            with self._lock:
-                self._entries[key] = _DebounceEntry(fn=fn)
-
-            def _fire_sync() -> None:
-                with self._lock:
-                    ent = self._entries.pop(key, None)
-                if ent is not None and ent.fn is not None:
-                    _invoke_fn(ent.fn, key)
-
-            main.post(_fire_sync)
+    def _arm_timer_locked(self) -> None:
+        if not self._entries:
+            if self._timer is not None:
+                self._timer.cancel()
             return
+        next_deadline = min(deadline for _, deadline in self._entries.values())
+        delay = max(0.0, next_deadline - time.monotonic())
+        if self._timer is None:
 
-        thread: DeadlineThread | None = None
+            def _fire() -> None:
+                self._on_timer()
+
+            self._timer = DeadlineThread(_fire, name="calc-debounce")
+        self._timer.arm(delay)
+
+    def _on_timer(self) -> None:
+        now = time.monotonic()
+        due: list[Callable[[], None]] = []
         with self._lock:
-            entry = self._entries.get(key)
-            if entry is None:
-                entry = _DebounceEntry(fn=fn)
-                self._entries[key] = entry
+            for k, (fn, deadline) in list(self._entries.items()):
+                if deadline <= now:
+                    due.append(fn)
+                    del self._entries[k]
+            self._arm_timer_locked()
+        for fn in due:
+            self._post(fn)
 
-                def _fire(k: str = key) -> None:
-                    target_fn: Callable[..., None] | None = None
-                    with self._lock:
-                        ent = self._entries.pop(k, None)
-                        if ent is not None:
-                            target_fn = ent.fn
-                    if target_fn is not None:
-                        main.post(lambda f=target_fn, target_k=k: _invoke_fn(f, target_k))
-
-                thread = DeadlineThread(_fire, name=f"calc-debounce-{key}")
-                entry.thread = thread
-            else:
-                entry.fn = fn
-                thread = entry.thread
-        if thread is not None:
-            thread.arm(delay)
+    def schedule(self, key: str, delay: float, fn: Callable[[], None]) -> None:
+        """Store *fn* and arm for *delay* seconds from now (reschedules *key*)."""
+        with self._lock:
+            self._entries[key] = (fn, time.monotonic() + delay)
+            self._arm_timer_locked()
 
     def cancel(self, key: str) -> None:
-        """Cancel and stop the thread for *key*."""
         with self._lock:
-            entry = self._entries.pop(key, None)
-        if entry is not None and entry.thread is not None:
-            entry.thread.stop()
+            self._entries.pop(key, None)
+            self._arm_timer_locked()
 
     def cancel_all(self) -> None:
-        """Cancel and stop all debounce threads."""
         with self._lock:
-            entries = list(self._entries.values())
             self._entries.clear()
-        for ent in entries:
-            if ent.thread is not None:
-                ent.thread.stop()
+            if self._timer is not None:
+                self._timer.stop()
+                self._timer = None
 
     def flush(self, key: str) -> None:
-        """Cancel the timer and invoke *fn* synchronously on the current thread."""
         with self._lock:
-            entry = self._entries.pop(key, None)
-        if entry is not None:
-            if entry.thread is not None:
-                entry.thread.stop()
-            if entry.fn is not None:
-                _invoke_fn(entry.fn, key)
+            ent = self._entries.pop(key, None)
+            self._arm_timer_locked()
+        if ent is not None:
+            ent[0]()
 
     def rekey(self, old_key: str, new_key: str) -> None:
-        """Rekey an existing debounce entry."""
         with self._lock:
-            entry = self._entries.pop(old_key, None)
-            if entry is None:
+            ent = self._entries.pop(old_key, None)
+            if ent is None:
                 return
-            old_new = self._entries.pop(new_key, None)
-            if old_new is not None and old_new.thread is not None:
-                old_new.thread.stop()
-            new_entry = _DebounceEntry(fn=entry.fn)
-            self._entries[new_key] = new_entry
-
-            def _fire(k: str = new_key) -> None:
-                target_fn: Callable[..., None] | None = None
-                with self._lock:
-                    ent = self._entries.pop(k, None)
-                    if ent is not None:
-                        target_fn = ent.fn
-                if target_fn is not None:
-                    main.post(lambda f=target_fn, target_k=k: _invoke_fn(f, target_k))
-
-            thread = DeadlineThread(_fire, name=f"calc-debounce-{new_key}")
-            new_entry.thread = thread
-            if entry.thread is not None:
-                entry.thread.stop()
-            thread.arm(0.1)
+            self._entries.pop(new_key, None)
+            self._entries[new_key] = ent
+            self._arm_timer_locked()
 
     def __contains__(self, key: str) -> bool:
         with self._lock:
@@ -178,7 +134,7 @@ class WorkbookState:
     def scheduled_key_matches(self, scheduled: str) -> bool:
         """True when *scheduled* is this workbook's current or superseded lifecycle id."""
         if not scheduled:
-            return bool(self.key)
+            return False
         sk = scheduled
         k = self.key
         if k == sk or k == f"calc:{sk}" or f"calc:{k}" == sk:
@@ -214,11 +170,11 @@ class WorkbookState:
         with _LOCK:
             to_clear: list[WorkbookState] = []
             for obj, st in list(_STATES.items()):
-                if st.key == key:
+                if st.key == key or st.scheduled_key_matches(key):
                     _STATES.pop(obj, None)
                     to_clear.append(st)
             for doc_id, entry in list(_STATE_BY_DOC_ID.items()):
-                if entry[0].key == key:
+                if entry[0].key == key or entry[0].scheduled_key_matches(key):
                     _STATE_BY_DOC_ID.pop(doc_id, None)
                     to_clear.append(entry[0])
             for st in to_clear:
@@ -290,31 +246,10 @@ class WorkbookState:
         if uid:
             key = uid
         else:
-            # Bugfix: What was wrong: with no RuntimeUID, every call minted a new
-            # ``calc:unsaved:{uuid}`` and overwrote the remembered key, so a deferred
-            # spill's scheduled key never matched the live key and the write returned
-            # without touching the sheet.
-            # How it happened: ``_lifecycle_key`` always called
-            # ``calc_workbook_base_session_id``, and ``mint_document_key`` returns a
-            # fresh uuid when the session property does not stick.
-            # Why this change fixes it: a missing RuntimeUID reuses the key already
-            # stored for this object. A new session id is computed only the first time.
-            # A RuntimeUID read still replaces that fallback.
+            # Without RuntimeUID, mint the session id once per document object (not each call).
             import plugin.calc.python.workbook_lifecycle as _wb_lc
 
             key = _wb_lc.calc_workbook_base_session_id(doc)
-
-        url = doc.getURL() if hasattr(doc, "getURL") else ""
-        for other in cls.all_states():
-            if (
-                other.key == key
-                or f"calc:{other.key}" == key
-                or other.key == f"calc:{key}"
-                or (url and (other.key == url or other.key == f"calc:{url}"))
-            ):
-                other.key = key
-                cls._remember(doc, other)
-                return other
 
         state = cls(key=key)
         cls._remember(doc, state)

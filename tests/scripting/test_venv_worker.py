@@ -2674,15 +2674,20 @@ def test_idle_worker_death_clears_matrix_sessions_and_runs_on_death_once(monkeyp
             assert not isinstance(leased, dict)
             pid = leased.pid
         stale_key = (1, ('stale',), 'idle-death')
+        from plugin.calc.python.workbook_state import WorkbookState
+        from plugin.tests.testing_utils import CalcDocStub
+
+        st = WorkbookState.for_doc(CalcDocStub())
+        assert st is not None
         with calc_python.recalc._MATRIX_SCALAR_SESSIONS_LOCK:
-            calc_python.recalc._MATRIX_SCALAR_SESSIONS[stale_key] = calc_python.recalc.WorkerResultSession([99], [99])
+            st.matrix[stale_key] = calc_python.recalc.WorkerResultSession([99], [99])
         os.kill(pid, signal.SIGKILL)
         time.sleep(0.2)
         res = mgr.execute('result = 1', timeout_sec=10)
         assert res.get('status') == 'ok'
         assert len(clear_calls) == 1
         with calc_python.recalc._MATRIX_SCALAR_SESSIONS_LOCK:
-            assert stale_key not in calc_python.recalc._MATRIX_SCALAR_SESSIONS
+            assert stale_key not in st.matrix
     finally:
         mgr._retired = True
         shutdown_venv_workers_for_tests()

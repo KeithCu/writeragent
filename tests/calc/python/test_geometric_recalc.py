@@ -1727,7 +1727,7 @@ def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
 
 
 def test_ensure_listener_is_idempotent(monkeypatch):
-    from plugin.calc.python.spill import SHEET_MODIFY_LISTENERS
+    from tests.calc.python.calc_workbook_test_access import reset_calc_workbook_states
     from plugin.calc.python.sheet_modify import (
         ensure_sheet_modify_listener,
         reset_sheet_modify_runtime_for_tests,
@@ -1735,14 +1735,14 @@ def test_ensure_listener_is_idempotent(monkeypatch):
     from plugin.tests.testing_utils import CalcDocStub
 
     reset_sheet_modify_runtime_for_tests()
-    SHEET_MODIFY_LISTENERS.clear()
+    reset_calc_workbook_states()
     doc = CalcDocStub(url="file:///one-listener.ods")
     sheet = doc.getSheets().getByName("Sheet1")
     first = ensure_sheet_modify_listener("ctx", doc, sheet)
     second = ensure_sheet_modify_listener("ctx", doc, sheet)
     assert first is second
     assert len(sheet._modify_listeners) == 1
-    SHEET_MODIFY_LISTENERS.clear()
+    reset_calc_workbook_states()
 
 
 def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):

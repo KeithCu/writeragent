@@ -13,7 +13,7 @@ To understand where plot insertion fits in Collabora Online, it is essential to 
 ### 1.1 What WriterAgent / LibrePy Does Today (Production Template)
 WriterAgent / LibrePy is running in production as a desktop extension for LibreOffice with comprehensive support for matplotlib, seaborn, and custom visualization payloads:
 1. **Plot Generation in Python:** The sandboxed runner captures open matplotlib/seaborn figures via `_capture_open_figures_payload` in [`plugin/scripting/venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py). If a single figure is open, it serializes it to an image payload (`{"__wa_payload__": "image", "format": "png", "data": ...}`); if multiple figures are open, it bundles them into a `multi_data` envelope containing all open figures.
-2. **Result Inspection in Egress:** When `=PYTHON(...)` or `=PY(...)` executes in [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py), `find_image_payloads(result)` scans the returned object. If images are present, it invokes `insert_image_result_on_sheet` with `image_count=len(images)` and `notify_cell=True`:
+2. **Result Inspection in Egress:** When `=PYTHON(...)` or `=PY(...)` executes in [`plugin/calc/python/recalc.py`](../../plugin/calc/python/recalc.py), `find_image_payloads(result)` scans the returned object. If images are present, it invokes `insert_image_result_on_sheet` with `image_count=len(images)` and `notify_cell=True`:
    ```python
    images = find_image_payloads(result)
    if images:
