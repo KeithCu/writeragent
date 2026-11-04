@@ -28,20 +28,20 @@ def apply_fill_plan_to_doc(doc: Any, plan: dict[str, Any], *, template_doc: Any 
         bridge.create_slide(offset, switch=False)
         item_dict = cast("dict[str, Any]", item)
         replacements = item_dict.get("replacements") or item_dict.get("text") or {}
-        page = bridge.get_slide_for_tool(doc, offset)
+        page, _slide_idx = bridge.resolve_page(offset)
         if isinstance(replacements, dict):
             for _key, text in replacements.items():
                 if not text:
                     continue
-                shape, _idx = _find_placeholder(page, _key)
+                shape, _ph_idx = _find_placeholder(page, _key)
                 if shape is not None and hasattr(shape, "setString"):
                     shape.setString(text)
                     filled += 1
         elif isinstance(replacements, str) and replacements.strip():
             # For a raw string, try to write to the body or title
-            shape, _idx = _find_placeholder(page, "body")
+            shape, _ph_idx = _find_placeholder(page, "body")
             if shape is None:
-                shape, _idx = _find_placeholder(page, "title")
+                shape, _ph_idx = _find_placeholder(page, "title")
             if shape is not None and hasattr(shape, "setString"):
                 shape.setString(replacements)
                 filled += 1

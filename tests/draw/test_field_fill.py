@@ -129,7 +129,7 @@ def test_fill_draw_fields_happy_and_miss_on_mock_page():
     ctx.doc = MagicMock()
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch("plugin.draw.field_fill.build_shape_tree", return_value=tree):
-        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = FillDrawFields().execute(
             ctx,
             fields=[
@@ -254,7 +254,7 @@ def test_fill_draw_fields_group_child_path_index():
     ctx.doc = MagicMock()
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch("plugin.draw.field_fill.build_shape_tree", return_value=tree):
-        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = FillDrawFields().execute(
             ctx,
             fields=[{"label_hint": "Lot", "value": "LOT-1"}],
@@ -282,7 +282,7 @@ def test_fill_draw_fields_missing_value_does_not_clear():
     ctx.doc = MagicMock()
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch("plugin.draw.field_fill.build_shape_tree", return_value=tree):
-        bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = FillDrawFields().execute(
             ctx,
             fields=[{"name": "fld_product"}],

@@ -164,11 +164,10 @@ class ListPlaceholders(ToolBase):
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         scan = _scan_shapes(page)
         placeholders = _list_placeholders(page, scan)
-        return {"status": "ok", "page": page_idx, "placeholders": placeholders, "count": len(placeholders)}
+        return {"status": "ok", "page": actual_idx, "placeholders": placeholders, "count": len(placeholders)}
 
 
 class GetPlaceholderText(ToolBase):
@@ -184,8 +183,7 @@ class GetPlaceholderText(ToolBase):
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, _actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         role = kwargs.get("role")
         shape_index = kwargs.get("index")
         scan = None if shape_index is not None else _scan_shapes(page)
@@ -223,8 +221,7 @@ class SetPlaceholderText(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, _actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         text = kwargs["text"]
         role = kwargs.get("role")
         shape_index = kwargs.get("index")

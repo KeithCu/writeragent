@@ -54,14 +54,7 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
     ``getMasterPages().getByIndex(n)`` is wrong here because master collection
     order does not match slide order in Impress.
     """
-    bridge = DrawBridge(ctx.doc)
-    pages = bridge.get_pages()
-    count = pages.getCount()
-    if page_index < 0 or page_index >= count:
-        if count == 0:
-            raise WriterAgentException("This presentation has no slides.", code="INVALID_INDEX")
-        raise WriterAgentException(f"Slide index {page_index} is out of bounds. Must be between 0 and {count - 1}", code="INVALID_INDEX")
-    slide = pages.getByIndex(page_index)
+    slide, _idx = DrawBridge(ctx.doc).resolve_page(page_index)
     if is_master_page:
         try:
             master = slide.MasterPage

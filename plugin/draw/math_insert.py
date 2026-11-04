@@ -133,7 +133,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "math"
 
     def execute(self, ctx: Any, **kwargs: Any) -> Any:
-        from plugin.draw.bridge import resolve_shape_page
+        from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Size, Point
 
         formula_type = kwargs["formula_type"]
@@ -155,10 +155,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
             detail = (res.error_message or "").strip() or "unknown_error"
             return self._tool_error(f"Failed to convert math expression: {detail}", conversion_detail=detail)
 
-        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-        if err:
-            return self._tool_error(err)
-        assert page is not None
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         shape = None
         added = False

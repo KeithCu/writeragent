@@ -177,8 +177,7 @@ def test_insert_table_ok():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
             with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
                 "com.sun.star.awt.Size", MagicMock(), create=True
@@ -202,19 +201,22 @@ def test_insert_table_disposed_page_is_not_invalid_index():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             insert_draw_table(ctx, rows=2, columns=2, page=0)
 
 
 def test_insert_table_bad_page_stays_invalid_index():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
-        out = insert_draw_table(ctx, rows=2, columns=2, page=4)
-    assert out["status"] == "error"
-    assert out["message"].startswith("Invalid page index")
+        from plugin.framework.errors import ToolExecutionError
+
+        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 4 out of range.")
+        with pytest.raises(ToolExecutionError, match=r"Page index \d+ out of range\."):
+            insert_draw_table(ctx, rows=2, columns=2, page=4)
 
 
 def test_table_insert_tool_dispatches_draw():
@@ -314,8 +316,7 @@ def test_insert_table_size_failure_removes_shape():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
             with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
                 "com.sun.star.awt.Size", MagicMock(), create=True
@@ -335,8 +336,7 @@ def test_insert_table_fill_failure_removes_shape():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
             with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
                 "com.sun.star.awt.Size", MagicMock(), create=True
@@ -358,8 +358,7 @@ def test_insert_table_size_disposed_propagates():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
             with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
                 "com.sun.star.awt.Size", MagicMock(), create=True
@@ -379,8 +378,7 @@ def test_insert_table_set_size_failure_removes_shape():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
             "com.sun.star.awt.Size", MagicMock(), create=True
         ):

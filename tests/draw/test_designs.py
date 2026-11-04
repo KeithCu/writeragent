@@ -320,7 +320,7 @@ def test_add_slide_reports_inherited_master():
     bridge.get_active_page_index.return_value = 1
     bridge.get_pages.return_value = pages
     with (
-        patch("plugin.draw.bridge.DrawBridge", return_value=bridge),
+        patch("plugin.draw.pages.DrawBridge", return_value=bridge),
         patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Metropolis"),
     ):
         out = AddSlide().execute(ctx)

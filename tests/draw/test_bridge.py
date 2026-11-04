@@ -304,35 +304,173 @@ def test_draw_bridge_rejects_document_without_draw_page():
         DrawBridge(Empty())
 
 
-def test_get_slide_for_tool_returns_resolved_slide():
+def test_resolve_page_explicit_zero_beats_active():
     from plugin.draw.bridge import DrawBridge
 
-    slide = object()
-    with patch.object(DrawBridge, "resolve_slide", return_value=slide) as resolve:
-        out = DrawBridge.get_slide_for_tool("doc", 1)
-    assert out is slide
-    resolve.assert_called_once_with("doc", 1)
+    page0 = object()
+    pages = MagicMock()
+    pages.getCount.return_value = 3
+    pages.getByIndex.return_value = page0
+
+    init_count = 0
+
+    class Doc:
+        def getDrawPages(self):
+            return pages
+
+    original_init = DrawBridge.__init__
+
+    def counting_init(self, doc):
+        nonlocal init_count
+        init_count += 1
+        original_init(self, doc)
+
+    with patch.object(DrawBridge, "__init__", counting_init):
+        bridge = DrawBridge(Doc())
+        page, idx = bridge.resolve_page(0, active_page_index=2)
+    assert page is page0
+    assert idx == 0
+    assert init_count == 1
+    pages.getByIndex.assert_called_once_with(0)
 
 
-def test_get_slide_for_tool_index_error_is_tool_error():
+def test_resolve_page_omitted_uses_active_then_controller():
+    from plugin.draw.bridge import DrawBridge
+
+    page1 = object()
+    pages = MagicMock()
+    pages.getCount.return_value = 3
+    pages.getByIndex.return_value = page1
+
+    class Doc:
+        def getDrawPages(self):
+            return pages
+
+    bridge = DrawBridge(Doc())
+    with patch.object(bridge, "get_active_page_index", return_value=99) as active_idx:
+        page, idx = bridge.resolve_page(None, active_page_index=1)
+    assert page is page1
+    assert idx == 1
+    active_idx.assert_not_called()
+
+    pages.getCount.return_value = 5
+    with patch.object(bridge, "get_active_page_index", return_value=4) as active_idx:
+        page, idx = bridge.resolve_page(None, active_page_index=None)
+    assert idx == 4
+    active_idx.assert_called_once()
+
+
+def test_resolve_page_out_of_range():
     from plugin.draw.bridge import DrawBridge
     from plugin.framework.errors import ToolExecutionError
 
-    with patch.object(DrawBridge, "resolve_slide", side_effect=IndexError("Page index 9 out of range.")):
-        with pytest.raises(ToolExecutionError, match="Page index 9 out of range"):
-            DrawBridge.get_slide_for_tool("doc", 9)
+    pages = MagicMock()
+    pages.getCount.return_value = 3
+
+    class Doc:
+        def getDrawPages(self):
+            return pages
+
+    bridge = DrawBridge(Doc())
+    for bad, msg in [(-1, "Page index -1 out of range."), (3, "Page index 3 out of range.")]:
+        with pytest.raises(ToolExecutionError) as exc_info:
+            bridge.resolve_page(bad)
+        assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
+        assert str(exc_info.value) == msg
+
+    pages.getCount.return_value = 0
+    with pytest.raises(ToolExecutionError) as exc_info:
+        bridge.resolve_page(0)
+    assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
+    assert str(exc_info.value) == "Page index 0 out of range."
 
 
-def test_get_slide_for_tool_reraises_disposed():
+def test_resolve_page_bool_and_float_are_out_of_range():
+    from plugin.draw.bridge import DrawBridge
+    from plugin.framework.errors import ToolExecutionError
+
+    pages = MagicMock()
+    pages.getCount.return_value = 3
+
+    class Doc:
+        def getDrawPages(self):
+            return pages
+
+    bridge = DrawBridge(Doc())
+    with pytest.raises(ToolExecutionError, match="Page index True out of range."):
+        bridge.resolve_page(True)
+    with pytest.raises(ToolExecutionError, match="Page index 1.5 out of range."):
+        bridge.resolve_page(1.5)
+
+
+def test_resolve_page_disposed_getByIndex_propagates():
     from plugin.draw.bridge import DrawBridge
 
     class DisposedException(Exception):
         pass
 
-    boom = DisposedException("Binary URP bridge disposed during call")
-    with patch.object(DrawBridge, "resolve_slide", side_effect=boom):
-        with pytest.raises(DisposedException, match="URP"):
-            DrawBridge.get_slide_for_tool("doc", 0)
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.side_effect = DisposedException("gone")
+
+    class Doc:
+        def getDrawPages(self):
+            return pages
+
+    bridge = DrawBridge(Doc())
+    with pytest.raises(DisposedException, match="gone"):
+        bridge.resolve_page(0)
+
+
+def test_resolve_page_in_range_runtime_error_propagates():
+    from plugin.draw.bridge import DrawBridge
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.side_effect = RuntimeError("broken page")
+
+    class Doc:
+        def getDrawPages(self):
+            return pages
+
+    bridge = DrawBridge(Doc())
+    with pytest.raises(RuntimeError, match="broken page"):
+        bridge.resolve_page(0)
+
+
+def test_resolve_page_none_page():
+    from plugin.draw.bridge import DrawBridge
+    from plugin.framework.errors import ToolExecutionError
+
+    pages = MagicMock()
+    pages.getCount.return_value = 1
+    pages.getByIndex.return_value = None
+
+    class Doc:
+        def getDrawPages(self):
+            return pages
+
+    bridge = DrawBridge(Doc())
+    with pytest.raises(ToolExecutionError, match="No draw page available."):
+        bridge.resolve_page(0)
+
+
+def test_page_size():
+    from plugin.draw.bridge import page_size
+
+    class Page:
+        def __init__(self, w, h):
+            self.Width = w
+            self.Height = h
+
+    assert page_size(Page(100, 200)) == (100, 200)
+    assert page_size(Page(0, 200)) is None
+    assert page_size(Page(-5, 200)) is None
+    assert page_size(Page(True, 200)) is None
+    assert page_size(Page(1.5, 200)) is None
+    assert page_size(None) is None
+    assert page_size(object()) is None
+    assert page_size(Page(100, 0)) is None
 
 
 def test_get_active_page_index_matches_via_uno_same():
@@ -350,15 +488,6 @@ def test_get_active_page_index_matches_via_uno_same():
     bridge = DrawBridge(Doc())
     with patch.object(bridge, "get_active_page", return_value=second):
         assert bridge.get_active_page_index() == 1
-
-
-def test_get_slide_for_tool_wraps_other_errors():
-    """Non-IndexError failures propagate; execute_safe applies TOOL_EXECUTION_ERROR."""
-    from plugin.draw.bridge import DrawBridge
-
-    with patch.object(DrawBridge, "resolve_slide", side_effect=RuntimeError("No draw page available.")):
-        with pytest.raises(RuntimeError, match="No draw page available"):
-            DrawBridge.get_slide_for_tool("doc")
 
 
 class _MoveShape:
