@@ -7,10 +7,10 @@ on:
       os:
         description: "Operating system runner"
         required: true
-        default: "ubuntu-latest"
+        default: "ubuntu-26.04"
         type: choice
         options:
-          - "ubuntu-latest"
+          - "ubuntu-26.04"
           - "macos-latest"
           - "windows-latest"
           - "all"
@@ -50,9 +50,9 @@ jobs:
       matrix:
         os: >-
           ${{
-            github.event_name == 'pull_request' && fromJSON('["ubuntu-latest"]') ||
-            (inputs.os == 'all' && fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') ||
-            fromJSON(format('["{0}"]', inputs.os || 'ubuntu-latest')))
+            github.event_name == 'pull_request' && fromJSON('["ubuntu-26.04"]') ||
+            (inputs.os == 'all' && fromJSON('["ubuntu-26.04", "macos-latest", "windows-latest"]') ||
+            fromJSON(format('["{0}"]', inputs.os || 'ubuntu-26.04')))
           }}
 
     defaults:
@@ -77,30 +77,52 @@ jobs:
 
       - name: Install LibreOffice and system tools (Ubuntu)
         if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          # ubuntu-latest ships Chrome's apt source. Chrome's Packages.gz
+          # ubuntu-26.04 ships Chrome's apt source. Chrome's Packages.gz
           # Hash-Sum-mismatches periodically (PR CI 34384169659) and fails
-          # this step before LibreOffice. This job never installs from that repo.
+          # apt before LibreOffice. This job never installs from that repo.
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
                      /etc/apt/sources.list.d/google-chrome.sources \
                      /etc/apt/sources.list.d/google.list
-          sudo add-apt-repository -y ppa:libreoffice/ppa
-          sudo apt-get update
-          # libreoffice-dev ships unoidl-write; make build-core / rdb-core needs it.
-          # The download normally takes under a minute. PR CI 40094662438 drew a slow
-          # mirror connection (265 MB at 200 kB/s, 22 min) and the job hit its 30 min cap.
-          # apt has no minimum-speed abort, so cap each download try and retry on a fresh
-          # connection. Finished .debs stay in the apt cache, so a retry only fetches the rest.
-          for attempt in 1 2 3; do
-            sudo timeout 300 apt-get install -y --download-only -o Acquire::Retries=3 \
-              libreoffice libreoffice-dev python3-uno gettext && break
-            echo "apt download attempt $attempt did not finish in 5 min; retrying"
-          done
-          sudo apt-get install -y libreoffice libreoffice-dev python3-uno gettext
-          # Visible Writer for make test-mock-sidebar (testing_runner requires DISPLAY).
-          if [ "${{ inputs.test_mock_sidebar }}" = "true" ]; then
-            sudo apt-get install -y xvfb dbus-x11
-          fi
+          sudo tee /etc/apt/apt.conf.d/99-writeragent-ci <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          Acquire::ftp::Timeout "20";
+          EOF
+
+      - name: Cache apt — LibreOffice (Ubuntu)
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.1
+        with:
+          # ImageVersion rolls when runner image updates; lo-v1 = manual bump on LO major.
+          version: ${{ env.ImageOS }}-${{ env.ImageVersion }}-lo-v1
+          packages: libreoffice libreoffice-dev python3-uno gettext
+          execute_install_scripts: true
+
+      - name: Log installed LibreOffice version (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          echo "Installed LibreOffice (dpkg): $(dpkg-query -W -f='${Version}' libreoffice)"
+          soffice --version
+
+      - name: Install mock-sidebar display deps (Ubuntu)
+        if: runner.os == 'Linux' && inputs.test_mock_sidebar == true
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: sudo apt-get install -y xvfb dbus-x11
+
+      - name: Install opengrep (Ubuntu)
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: |
           # Fatal here (unlike macOS/Windows), so ride out transient resets from raw.githubusercontent.com.
           curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors \
             https://raw.githubusercontent.com/opengrep/opengrep/main/install.sh | bash
