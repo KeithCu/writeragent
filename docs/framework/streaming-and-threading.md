@@ -335,7 +335,7 @@ Smolagents (`ToolCallingAgent.process_tool_calls`) uses the same rule: multiple 
 
 - **Stop / dispose:** `StopSendEffect` or `disposing()` call `scope.cancel()` while `_do_send` is still inside `agent_session`. The drain exits; `_do_send` returns normally. **`agent_session` must not cancel again** on success (would close finished HTTP and `cancel_pending_work()` unrelated grammar/MCP items).
 - **Crash / abort:** An exception propagates out of the `with agent_session()` body. `agent_session` calls `scope.cancel()` once if not already cancelled (closes HTTP, wakes blocked `main.call` waiters).
-- **Success:** Normal return (including handled errors that only set `_terminal_status` without raising). **No cancel.**
+- **Success:** Normal return (including handled errors that record a send outcome and do not raise). **No cancel.**
 
 #### Why the first implementation looked fixed but was not
 

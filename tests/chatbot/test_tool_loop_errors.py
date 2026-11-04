@@ -6,7 +6,14 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
-from plugin.chatbot.tool_loop_actions import build_tool_execute_fn, current_turn, take_stop_partial
+from plugin.chatbot.tool_loop_actions import (
+    assign_send_outcome,
+    build_tool_execute_fn,
+    current_turn,
+    send_outcome_is_error,
+    send_outcome_terminal_display,
+    take_stop_partial,
+)
 from plugin.chatbot.tool_loop import ToolCallingMixin
 from plugin.chatbot.tool_loop_state import ToolLoopState
 from plugin.chatbot.send_state import SendButtonState, SendMode
@@ -54,17 +61,6 @@ class MockDummyToolCallingClass(ToolCallingMixin):
         self.statuses = []
         self._orphan_send_outcome = None
 
-    @property
-    def _terminal_status(self) -> str:
-        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
-
-        return send_outcome_terminal_display(self)
-
-    @_terminal_status.setter
-    def _terminal_status(self, value: str) -> None:
-        from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
-        assign_send_outcome(self, "" if value is None else value)
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
         self.responses.append(text)
@@ -156,16 +152,16 @@ def test_document_context_error_handling(test_instance, mock_get_tools):
 
         test_instance._do_send_chat_with_tools("test", "test_model", "writer")
 
-        assert test_instance._terminal_status == "Error"
+        assert send_outcome_terminal_display(test_instance) == "Error"
         assert any("[Document closed or unavailable.]" in r for r in test_instance.responses)
 
         test_instance.responses.clear()
-        test_instance._terminal_status = None
+        assign_send_outcome(test_instance, None)
         mock_refresh.side_effect = RuntimeError("Something bad")
 
         test_instance._do_send_chat_with_tools("test", "test_model", "writer")
 
-        assert test_instance._terminal_status == "Error"
+        assert send_outcome_terminal_display(test_instance) == "Error"
         assert any("[Error reading document: Something bad]" in r for r in test_instance.responses)
 
         class MockRuntimeException(Exception):
@@ -186,21 +182,21 @@ def test_document_context_error_handling(test_instance, mock_get_tools):
 
         # RuntimeException against live doc -> reading-error, not closed
         test_instance.responses.clear()
-        test_instance._terminal_status = None
+        assign_send_outcome(test_instance, None)
         mock_refresh.side_effect = MockRuntimeException("bridge broke")
         test_instance._do_send_chat_with_tools("test", LiveDoc(), "writer")
 
-        assert test_instance._terminal_status == "Error"
+        assert send_outcome_terminal_display(test_instance) == "Error"
         assert any("[Error reading document: bridge broke]" in r for r in test_instance.responses)
         assert not any("[Document closed or unavailable.]" in r for r in test_instance.responses)
 
         # RuntimeException against dead doc is still a reading error; only DisposedException means closed
         test_instance.responses.clear()
-        test_instance._terminal_status = None
+        assign_send_outcome(test_instance, None)
         mock_refresh.side_effect = MockRuntimeException("bridge broke")
         test_instance._do_send_chat_with_tools("test", DeadDoc(), "writer")
 
-        assert test_instance._terminal_status == "Error"
+        assert send_outcome_terminal_display(test_instance) == "Error"
         assert any("[Error reading document: bridge broke]" in r for r in test_instance.responses)
 
 def test_audio_handling_error(test_instance, mock_get_tools):
@@ -220,7 +216,7 @@ def test_audio_handling_error(test_instance, mock_get_tools):
             # The error shouldn't crash the loop
             assert test_instance.audio_wav_path is None
             assert any("test" in r for r in test_instance.responses)
-            assert test_instance._terminal_status != "Error" # Should not terminate on audio error
+            assert not send_outcome_is_error(test_instance) # Should not terminate on audio error
 
         # The first send's drain aborted its turn. This call is a new send.
         begin_send_turn(test_instance)
@@ -231,7 +227,7 @@ def test_audio_handling_error(test_instance, mock_get_tools):
             # The error shouldn't crash the loop
             assert test_instance.audio_wav_path is None
             assert any("test" in r for r in test_instance.responses)
-            assert test_instance._terminal_status != "Error"
+            assert not send_outcome_is_error(test_instance)
 
 
 def test_stream_error_stt_fallback_does_not_reenter_send(test_instance):
@@ -319,7 +315,7 @@ def test_stream_error_empty_stt_ends_the_drain(test_instance):
     test_instance._spawn_llm_worker.assert_not_called()
     assert test_instance.audio_wav_path is None
     assert any("No speech detected" in text for text in test_instance.responses)
-    assert test_instance._terminal_status == ""
+    assert send_outcome_terminal_display(test_instance) == ""
 
 
 def test_reused_llm_client_registers_on_current_send_scope(test_instance, mock_get_tools):
@@ -361,7 +357,7 @@ def test_handle_stream_error_payload_dict(test_instance):
     assert "[API error:" in joined
     assert "500" in joined
     assert "mock LLM soak failure" in joined
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_handle_stream_error_payload_dict_missing_message(test_instance):
@@ -371,7 +367,7 @@ def test_handle_stream_error_payload_dict_missing_message(test_instance):
     joined = "".join(test_instance.responses)
     assert "[API error:" in joined
     assert "HTTP_ERROR" in joined
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_handle_stream_error_llama_overflow_plain_sentence(test_instance):
@@ -394,7 +390,7 @@ def test_handle_stream_error_llama_overflow_plain_sentence(test_instance):
     assert "[API error:" not in joined
     assert "{'status'" not in joined
     assert "0xc0000005" not in joined
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_handle_stream_error_keeps_named_window_sentence(test_instance):
@@ -456,7 +452,7 @@ def test_overflow_respawns_worker_with_force_compact(test_instance):
     assert current_turn(test_instance)._overflow_compact_attempts == 1
     assert "Compacting conversation..." in test_instance.statuses
     assert not any(str(s).startswith("Thinking") for s in test_instance.statuses)
-    assert test_instance._terminal_status == ""
+    assert send_outcome_terminal_display(test_instance) == ""
     joined = "".join(test_instance.responses)
     assert "[API error:" not in joined
     from plugin.framework.client.errors import local_model_overflow_message
@@ -475,7 +471,7 @@ def test_overflow_attempt_3_falls_through(test_instance):
     assert recovered is not True
     test_instance._spawn_llm_worker.assert_not_called()
     assert "[API error:" in "".join(test_instance.responses)
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_process_death_does_not_retry_overflow(test_instance):
@@ -497,7 +493,7 @@ def test_process_death_does_not_retry_overflow(test_instance):
     from plugin.framework.client.errors import local_model_overflow_message
 
     assert local_model_overflow_message() in "".join(test_instance.responses)
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 @pytest.mark.parametrize(
@@ -526,7 +522,7 @@ def test_overflow_does_not_retry_after_failed_or_tiny_shrink(
 
     assert recovered is not True
     test_instance._spawn_llm_worker.assert_not_called()
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_compaction_flag_false_does_not_respawn(test_instance):
@@ -547,7 +543,7 @@ def test_compaction_flag_false_does_not_respawn(test_instance):
     from plugin.framework.client.errors import local_model_overflow_message
 
     assert local_model_overflow_message() in "".join(test_instance.responses)
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_force_compact_skips_host_thinking_status(test_instance):
@@ -875,7 +871,7 @@ def test_overflow_does_not_retry_when_stop_requested(test_instance):
 
     assert recovered is not True
     test_instance._spawn_llm_worker.assert_not_called()
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
@@ -887,7 +883,7 @@ def test_overflow_does_not_retry_when_stop_checker_active(test_instance):
 
     assert recovered is not True
     test_instance._spawn_llm_worker.assert_not_called()
-    assert test_instance._terminal_status == "Error"
+    assert send_outcome_terminal_display(test_instance) == "Error"
 
 
 
@@ -1196,7 +1192,7 @@ def test_native_audio_stt_fallback_replaces_db_row():
 
     host = MagicMock()
     host.audio_wav_path = "/fake/a.wav"
-    host._terminal_status = "Ready"
+    assign_send_outcome(host, "ready")
     host._turn.alive = True
     host._turn.session = host.session
     host._turn.same_messages.return_value = True
@@ -1262,7 +1258,7 @@ def test_native_audio_stt_fallback_stop_does_not_spawn_chat():
     host._turn = turn
 
     def _stopped(_path, _model):
-        assign_send_outcome(host, "Stopped")
+        assign_send_outcome(host, "stopped")
         return ""
 
     host._voice._transcribe_audio.side_effect = _stopped
@@ -1291,7 +1287,7 @@ def test_native_audio_stt_fallback_uses_turn_model_on_mid_turn_change():
 
     host = MagicMock()
     host.audio_wav_path = "/fake/a.wav"
-    host._terminal_status = "Ready"
+    assign_send_outcome(host, "ready")
     host._turn.alive = True
     host._turn.session = host.session
     host._turn.same_messages.return_value = True

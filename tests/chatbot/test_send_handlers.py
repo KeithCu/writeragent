@@ -13,6 +13,7 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import StreamQueue
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.chatbot.send_handlers import SendHandlersMixin
+from plugin.chatbot.tool_loop_actions import assign_send_outcome, send_outcome_terminal_display
 from plugin.tests.testing_utils import MockContext, MockDocument
 import pytest
 pytest.importorskip("requests")
@@ -54,17 +55,6 @@ class DummyChatbotPanel(SendHandlersMixin):
         self.base_size_input = MagicMock()
         self.base_size_input.getText.return_value = "1024"
 
-    @property
-    def _terminal_status(self) -> str:
-        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
-
-        return send_outcome_terminal_display(self)
-
-    @_terminal_status.setter
-    def _terminal_status(self, value: str) -> None:
-        from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
-        assign_send_outcome(self, "" if value is None else value)
 
     def _append_response(self, text, is_thinking=False, role="assistant"):
         self.responses.append(text)
@@ -589,7 +579,7 @@ def test_direct_image_success_persists_assistant_note():
         tool_calls=None,
         reasoning_replay=None,
     )
-    assert panel._terminal_status == "Ready"
+    assert send_outcome_terminal_display(panel) == "Ready"
     assert any("image_generate: Image generated successfully" in text for text in panel.responses)
 
 
@@ -611,15 +601,15 @@ def test_direct_image_tool_error_persists_assistant_note():
 
 def test_direct_image_stop_keeps_stopped_status():
     panel = DummyChatbotPanel()
-    panel._terminal_status = "Ready"
+    assign_send_outcome(panel, "ready")
 
     def fake_drain(q, worker, handler_type, *args, **kwargs):
-        panel._terminal_status = "Stopped"
+        assign_send_outcome(panel, "stopped")
 
     with patch("plugin.chatbot.send_handlers.update_lru_history"):
         with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=fake_drain):
             panel._execute_direct_image_effect("a cat", MagicMock())
-    assert panel._terminal_status == "Stopped"
+    assert send_outcome_terminal_display(panel) == "Stopped"
 
 
 def test_do_send_direct_image_error():
@@ -815,7 +805,6 @@ def test_acp_approval_default_and_dead_turn():
             self.stop_requested = False
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
-            self._terminal_status = "Ready"
         def _append_response(self, *args, **kwargs):
             pass
         def _set_status(self, text):
@@ -861,7 +850,6 @@ def test_acp_approval_auto_approve_when_configured():
             self.stop_requested = False
             self.ctx = mock.MagicMock()
             self.frame = mock.MagicMock()
-            self._terminal_status = "Ready"
         def _append_response(self, *args, **kwargs):
             pass
         def _set_status(self, text):
@@ -899,7 +887,7 @@ def test_unavailable_agent_backend_does_not_store_user_row():
 
     panel.session.add_user_message.assert_not_called()
     assert "hello" not in panel.responses
-    assert panel._terminal_status == "Error"
+    assert send_outcome_terminal_display(panel) == "Error"
 
 
 def test_web_research_tool():
@@ -1226,7 +1214,7 @@ def test_run_web_research_invalid_json():
                 assert "\n[Research error: Invalid JSON from web search tool.]\n" in panel.responses
 
                 # Verify stream completed normally (terminal status is Ready)
-                assert panel._terminal_status == "Ready"
+                assert send_outcome_terminal_display(panel) == "Ready"
 
 
 def test_run_web_research_uses_session_history_not_response_control():
@@ -1670,7 +1658,7 @@ def test_specialized_tool_errors_persist_assistant_row():
         content = panel.session.add_assistant_message.call_args.kwargs["content"]
         assert content == needle
         assert needle in "".join(panel.responses)
-        assert panel._terminal_status == "Ready"
+        assert send_outcome_terminal_display(panel) == "Ready"
 
 
 def test_handler_errors_persist_assistant_banner():
@@ -2052,7 +2040,7 @@ def test_transcribe_keeps_spawn_stop_after_next_send(tmp_path):
         result = panel._voice._transcribe_audio(str(wav), "base")
 
     assert result == "hello"
-    assert panel._terminal_status == "Stopped"
+    assert send_outcome_terminal_display(panel) == "Stopped"
     assert not any("Transcription error" in text for text in panel.responses)
     assert not wav.exists()
     assert panel._stt_inflight is False
@@ -2236,7 +2224,7 @@ def test_execute_agent_backend_effect_errors():
     with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn), \
          patch("plugin.chatbot.send_handlers.defer_until_drain_done") as mock_defer:
         panel._execute_agent_backend_effect("query", MagicMock(), "writer")
-    assert panel._terminal_status == "Error"
+    assert send_outcome_terminal_display(panel) == "Error"
     mock_defer.assert_called_once()
 
 
@@ -2597,7 +2585,7 @@ class TestSendHandlerDirectInlining:
             q.put((StreamQueueKind.STREAM_DONE, {}))
 
         _drive_unified_drain(panel, worker, "web")
-        assert panel._terminal_status == "Ready"
+        assert send_outcome_terminal_display(panel) == "Ready"
         assert panel.status_history[-1] == "Ready"
 
     def test_stop_event_terminates_with_stopped(self):
@@ -2607,7 +2595,7 @@ class TestSendHandlerDirectInlining:
             q.put((StreamQueueKind.STOPPED,))
 
         _drive_unified_drain(panel, worker, "agent")
-        assert panel._terminal_status == "Stopped"
+        assert send_outcome_terminal_display(panel) == "Stopped"
         assert panel.status_history[-1] == "Stopped"
 
     def test_error_event_terminates_with_error(self):
@@ -2617,7 +2605,7 @@ class TestSendHandlerDirectInlining:
             q.put((StreamQueueKind.ERROR, Exception("network crash")))
 
         _drive_unified_drain(panel, worker, "web")
-        assert panel._terminal_status == "Error"
+        assert send_outcome_terminal_display(panel) == "Error"
         assert panel.status_history[-1] == "Error"
         assert any("Research Chat error:" in r and "network crash" in r for r in panel.responses)
 
@@ -2634,7 +2622,7 @@ class TestSendHandlerDirectInlining:
             with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_error_then_chunk):
                 panel._run_unified_worker_drain_loop(q, lambda: None, "web")
 
-        assert panel._terminal_status == "Error"
+        assert send_outcome_terminal_display(panel) == "Error"
         assert "late chunk" not in panel.responses
         assert sum(1 for r in panel.responses if "Research Chat error:" in r and "network crash" in r) == 1
 
@@ -2668,7 +2656,7 @@ class TestSendHandlerDirectInlining:
             with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_stopped_then_error):
                 panel._run_unified_worker_drain_loop(q, lambda: None, "web")
 
-        assert panel._terminal_status == "Stopped"
+        assert send_outcome_terminal_display(panel) == "Stopped"
         assert not any("Research Chat error" in r for r in panel.responses)
 
     def test_stop_after_done_is_noop(self):
@@ -2685,7 +2673,7 @@ class TestSendHandlerDirectInlining:
             with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_done_then_stop):
                 panel._run_unified_worker_drain_loop(q, lambda: None, "web")
 
-        assert panel._terminal_status == "Ready"
+        assert send_outcome_terminal_display(panel) == "Ready"
 
     def test_error_after_done_is_noop(self):
         panel = DummyChatbotPanel()
@@ -2701,7 +2689,7 @@ class TestSendHandlerDirectInlining:
             with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=drain_done_then_error):
                 panel._run_unified_worker_drain_loop(q, lambda: None, "web")
 
-        assert panel._terminal_status == "Ready"
+        assert send_outcome_terminal_display(panel) == "Ready"
         assert not any("Research Chat error" in r for r in panel.responses)
 
     def test_append_keeps_thinking_flag(self):

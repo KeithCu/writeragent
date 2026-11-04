@@ -16,16 +16,18 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Protocol
 
 SendOutcome = Literal["ready", "error", "stopped"]
 
-_OUTCOME_TO_TERMINAL: dict[SendOutcome, str] = {
+_OUTCOME_DISPLAY: dict[SendOutcome, str] = {
     "ready": "Ready",
     "error": "Error",
     "stopped": "Stopped",
 }
-_TERMINAL_TO_OUTCOME: dict[str, SendOutcome] = {
-    "Ready": "ready",
-    "Error": "error",
-    "Stopped": "stopped",
-}
+
+
+def _outcome_for_status_text(text: str) -> SendOutcome | None:
+    for outcome, display in _OUTCOME_DISPLAY.items():
+        if text == display:
+            return outcome
+    return None
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
@@ -543,12 +545,8 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
                 set_control_text(control, cur + _STOP_LINE)
 
 
-def assign_send_outcome(host: Any, terminal: str) -> None:
-    """Record how this send ended. Empty terminal means an earlier path already explained itself."""
-    if terminal == "":
-        outcome: SendOutcome | None = None
-    else:
-        outcome = _TERMINAL_TO_OUTCOME.get(terminal, "ready")
+def assign_send_outcome(host: Any, outcome: SendOutcome | None) -> None:
+    """Record how this send ended. None means an earlier path already explained itself."""
     turn = current_turn(host)
     if turn is not None:
         turn.outcome = outcome
@@ -565,7 +563,7 @@ def send_outcome_terminal_display(host: Any) -> str:
         oc = getattr(host, "_orphan_send_outcome", None)
     if oc is None:
         return ""
-    return _OUTCOME_TO_TERMINAL[oc]
+    return _OUTCOME_DISPLAY[oc]
 
 
 def send_outcome_is_error(host: Any) -> bool:
@@ -1009,7 +1007,7 @@ class ToolLoopEffectInterpreter:
 
         def _fail(message: str) -> bool:
             host._append_response(message)
-            assign_send_outcome(host, "Error")
+            assign_send_outcome(host, "error")
             host._set_status("Error")
             return True
 
@@ -1038,8 +1036,9 @@ class ToolLoopEffectInterpreter:
             host._append_response(effect.text)
         elif effect.kind == UIEffectKind.STATUS:
             host._set_status(effect.text)
-            if effect.text in ("Stopped", "Ready", "Error"):
-                assign_send_outcome(host, effect.text)
+            outcome = _outcome_for_status_text(effect.text)
+            if outcome is not None:
+                assign_send_outcome(host, outcome)
         elif effect.kind == UIEffectKind.TOOL_RUNNING:
             status_text, run_line = format_tool_running_ui(effect.func_name, effect.func_args or {})
             host._set_status(status_text)
