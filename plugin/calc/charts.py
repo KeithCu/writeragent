@@ -15,7 +15,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Calc chart management tools: list, info, create, edit, delete.
+"""Calc chart tools (chart_list, chart_get_info, chart_upsert, chart_delete).
 Enhanced to support Writer and Draw documents, 3D, stacking, and rich properties.
 Recognized chart CLSIDs include classic OLE, SO3_SCH_CLASSID_60, LibreOffice OLE
 embed IDs, and the runtime Writer draw-page shape id (12d37028-0b55-463d-863a-211463e2c59f,
@@ -296,26 +296,24 @@ def _validate_headers_and_rows(headers: Any, rows: Any) -> tuple[bool, str | Non
     return True, None
 
 
-def _validate_chart_action(kwargs: dict[str, Any], doc_type: str | None = None) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
-    """Validate parameters for chart create and edit actions."""
-    action = kwargs.get("action")
-    if action == "create":
-        if not kwargs.get("chart_type"):
-            return False, "Parameter 'chart_type' is required when action is 'create'"
-        if doc_type == "calc":
-            if not kwargs.get("data_range"):
-                return False, "Parameter 'data_range' is required when action is 'create' in Calc"
-        else:
-            headers = kwargs.get("headers")
-            rows = kwargs.get("rows")
-            if not headers or not rows:
-                return False, "Both 'headers' and 'rows' are required to create a chart in Writer or Draw/Impress"
-            ok, err = _validate_headers_and_rows(headers, rows)
-            if not ok:
-                return False, err or "Invalid headers or rows"
-    elif action == "edit":
-        if "name" not in kwargs:
-            return False, "Parameter 'name' is required when action is 'edit'"
+def _chart_name_from_kwargs(kwargs: dict[str, Any]) -> str | None:
+    """Return a non-blank chart name from kwargs, or None when omitted."""
+    raw = kwargs.get("name")
+    if not isinstance(raw, str):
+        return None
+    stripped = raw.strip()
+    return stripped if stripped else None
+
+
+def _validate_chart_upsert(kwargs: dict[str, Any], doc_type: str | None = None) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+    """Validate parameters for chart_upsert (create or edit by name lookup)."""
+    if doc_type == "writer" and "position" in kwargs:
+        pos = kwargs["position"]
+        if pos not in ("cursor", "end"):
+            return False, f"Invalid position '{pos}' for Writer chart: must be 'cursor' or 'end'"
+
+    name = _chart_name_from_kwargs(kwargs)
+    if name:
         headers = kwargs.get("headers")
         rows = kwargs.get("rows")
         if headers is not None or rows is not None:
@@ -324,11 +322,21 @@ def _validate_chart_action(kwargs: dict[str, Any], doc_type: str | None = None) 
             ok, err = _validate_headers_and_rows(headers, rows)
             if not ok:
                 return False, err or "Invalid headers or rows"
+        return True, None
 
-    if doc_type == "writer" and "position" in kwargs:
-        pos = kwargs["position"]
-        if pos not in ("cursor", "end"):
-            return False, f"Invalid position '{pos}' for Writer chart: must be 'cursor' or 'end'"
+    if not kwargs.get("chart_type"):
+        return False, "Parameter 'chart_type' is required to create a chart"
+    if doc_type == "calc":
+        if not kwargs.get("data_range"):
+            return False, "Parameter 'data_range' is required to create a chart in Calc"
+    else:
+        headers = kwargs.get("headers")
+        rows = kwargs.get("rows")
+        if not headers or not rows:
+            return False, "Both 'headers' and 'rows' are required to create a chart in Writer or Draw/Impress"
+        ok, err = _validate_headers_and_rows(headers, rows)
+        if not ok:
+            return False, err or "Invalid headers or rows"
 
     return True, None
 
@@ -962,7 +970,7 @@ class SheetCharts:
     def create(self, tool: Any, ctx: ToolContext, rect: Any, service: str, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
         data_range = cast("str", kwargs.get("data_range"))
-        # Missing data_range is rejected by ManageCharts.validate for calc create.
+        # Missing data_range is rejected by ChartUpsert.validate for calc create.
 
         target_sheet_name = kwargs.get("sheet")
         if target_sheet_name:
@@ -1002,7 +1010,13 @@ class SheetCharts:
                 return tool._tool_error(f"Invalid position '{pos_str}': {_format_chart_exception_msg(exc)}")
 
         existing_names = self.names()
-        name = _unique_chart_name(existing_names)
+        requested = _chart_name_from_kwargs(kwargs)
+        if requested:
+            if requested in existing_names:
+                return tool._tool_error(f"Chart name '{requested}' is already used.")
+            name = requested
+        else:
+            name = _unique_chart_name(existing_names)
 
         has_header = bool(kwargs.get("has_header", True))
         charts = sheet.getCharts()
@@ -1147,7 +1161,13 @@ class WriterEmbeds:
 
         # 2. Collect existing names across embeds and draw page
         existing_names = self.names()
-        name = _unique_chart_name(existing_names)
+        requested = _chart_name_from_kwargs(kwargs)
+        if requested:
+            if requested in existing_names:
+                return tool._tool_error(f"Chart name '{requested}' is already used.")
+            name = requested
+        else:
+            name = _unique_chart_name(existing_names)
 
         # We use plain createInstance for Writer; createInstanceWithArguments can be flaky for OLE
         chart_obj = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
@@ -1407,7 +1427,14 @@ class DrawPage:
 
             # Tip: a per-page Chart_0 made the next edit/delete CHART_AMBIGUOUS.
             existing_names = self.names(skip=shape)
-            name = _unique_chart_name(existing_names)
+            requested = _chart_name_from_kwargs(kwargs)
+            if requested:
+                if requested in existing_names:
+                    _drop_failed_chart_insert(lambda: page.remove(shape), requested)
+                    return tool._tool_error(f"Chart name '{requested}' is already used.")
+                name = requested
+            else:
+                name = _unique_chart_name(existing_names)
             shape.Name = name
 
             chart_doc = _chart_document_from_host(shape)
@@ -1532,7 +1559,6 @@ def get_chart_info(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]
 
 def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """Create or edit a chart."""
-    action = kwargs.get("action")
     doc = ctx.doc
     host = chart_host(doc)
     is_calc = isinstance(host, SheetCharts)
@@ -1545,29 +1571,9 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if "data_range" in kwargs:
             return tool._tool_error("Parameter 'data_range' is only supported in Calc. For Writer/Draw, please use 'headers' and 'rows' to pass chart data.")
 
-    if action == "create":
-        chart_type = kwargs["chart_type"]
-        assert chart_type in CHART_SERVICE_MAP, chart_type
-        chart_service = CHART_SERVICE_MAP[chart_type]
-        rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
+    chart_name = _chart_name_from_kwargs(kwargs)
 
-        try:
-            if host is None:
-                return tool._tool_error("Unsupported document type for chart creation.")
-            return host.create(tool, ctx, rect, chart_service, **kwargs)
-        except Exception as e:
-            # Bugfix: a closed document raises DisposedException during chart create, and this
-            # except turned that into CHART_CREATE_ERROR.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing error path.
-            return _chart_op_error(tool, e, prefix="Failed to create chart", log_msg="Chart creation failed", code="CHART_CREATE_ERROR")
-
-    elif action == "edit":
-        target = _require_chart(tool, doc, kwargs)
-        if isinstance(target, dict):
-            return target
-        chart_name, ref = target
-
+    def _edit_existing(ref: ChartRef, resolved_name: str) -> dict[str, Any]:
         chart_obj = ref.host
 
         chart_doc = _chart_document_from_host(chart_obj)
@@ -1605,7 +1611,6 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         try:
             _apply_chart_data_arrays(chart_doc, kwargs.get("headers"), kwargs.get("rows"))
 
-            # If chart_type is provided, update the diagram first
             chart_type = kwargs.get("chart_type")
             if chart_type:
                 assert chart_type in CHART_SERVICE_MAP, chart_type
@@ -1616,10 +1621,41 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         except Exception as e:
             return _chart_op_error(tool, e, prefix="Failed to edit chart", log_msg="Chart edit failed", code="CHART_EDIT_ERROR")
 
-        out: dict[str, Any] = {"status": "ok", "name": chart_name, "message": "Chart updated."}
+        out: dict[str, Any] = {"status": "ok", "name": resolved_name, "message": "Chart updated."}
         return _with_warnings(out, warnings)
 
-    return tool._tool_error(f"Unsupported action: '{action}'")
+    def _create_new(**create_kwargs: Any) -> dict[str, Any]:
+        chart_type = create_kwargs["chart_type"]
+        assert chart_type in CHART_SERVICE_MAP, chart_type
+        chart_service = CHART_SERVICE_MAP[chart_type]
+        rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
+
+        try:
+            if host is None:
+                return tool._tool_error("Unsupported document type for chart creation.")
+            return host.create(tool, ctx, rect, chart_service, **create_kwargs)
+        except Exception as e:
+            return _chart_op_error(tool, e, prefix="Failed to create chart", log_msg="Chart creation failed", code="CHART_CREATE_ERROR")
+
+    if chart_name:
+        lookup = _lookup_chart(doc, chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
+        if lookup.error:
+            return tool._tool_error(lookup.error, code="CHART_AMBIGUOUS")
+        if lookup.ref:
+            return _edit_existing(lookup.ref, chart_name)
+
+        chart_type = kwargs.get("chart_type")
+        if is_calc:
+            has_source = bool(kwargs.get("data_range"))
+        else:
+            headers = kwargs.get("headers")
+            rows = kwargs.get("rows")
+            has_source = bool(headers and rows)
+        if not chart_type or not has_source:
+            return tool._tool_error(f"Chart '{chart_name}' not found.")
+        return _create_new(**kwargs)
+
+    return _create_new(**kwargs)
 
 
 def delete_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1644,35 +1680,10 @@ def delete_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         return _chart_op_error(tool, exc, prefix="Failed to delete chart")
 
 
-class ManageCharts(ToolCalcChartBase):
-    """Manage charts: list, get_info, create, edit, or delete in the current context.
+class _ChartTool(ToolCalcChartBase):
+    """Shared chart-tool helpers (schema strip, union ``uno_services``)."""
 
-    Sole charts-domain tool advertised to LLMs/MCP. Calc/Writer/Draw each register
-    ``ManageCharts`` with their chart specialized base (like ``shape_upsert``);
-    ``ToolRegistry`` keeps one instance per name (last module load wins). Writer/Draw
-    set union ``uno_services`` so registration order does not drop other document types.
-    The four actions (list, get_info, upsert, delete) are plain functions dispatched
-    across the three chart hosts (SheetCharts, WriterEmbeds, DrawPage).
-    """
-
-    name: str | None = "manage_charts"
-    description: str = "Manage charts: list, get_info, create, edit, or delete a chart in the current context (active sheet, document, or slide)."
-    parameters: dict[str, Any] | None = {
-        "type": "object",
-        "properties": {
-            "action": {"type": "string", "enum": ["list", "get_info", "create", "edit", "delete"], "description": "The action to perform on the charts."},
-            "name": {"type": "string", "description": "The name of the chart (required for get_info, edit, delete)."},
-            **CHART_PROPERTIES,
-        },
-        "required": ["action"],
-    }
     uno_services: list[str] | None = list(ALL_DOCUMENT_SERVICES)
-    is_mutation: bool | None = True
-
-    def requires_document_lock(self, arguments: Any = None) -> bool:
-        """Read actions must not take the MCP per-document write gate."""
-        action = arguments.get("action") if isinstance(arguments, dict) else None
-        return action not in ("list", "get_info")
 
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         params = copy.deepcopy(cast("dict[str, Any]", self.parameters))
@@ -1680,32 +1691,100 @@ class ManageCharts(ToolCalcChartBase):
         _strip_chart_schema_for_doc_type(properties, doc_type)
         return params
 
+
+class ChartList(_ChartTool):
+    name: str | None = "chart_list"
+    description: str = "List charts in the current document (active sheet, document body, or all slides)."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "sheet": CHART_PROPERTIES["sheet"],
+            "page": CHART_PROPERTIES["page"],
+        },
+    }
+    is_mutation: bool | None = False
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        return list_charts(self, ctx, **kwargs)
+
+
+class ChartGetInfo(_ChartTool):
+    name: str | None = "chart_get_info"
+    description: str = "Get detailed metadata for a chart by name."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The name of the chart."},
+            "sheet": CHART_PROPERTIES["sheet"],
+            "page": CHART_PROPERTIES["page"],
+        },
+        "required": ["name"],
+    }
+    is_mutation: bool | None = False
+
     def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
         ok, err = super().validate(doc_type=doc_type, **kwargs)
         if not ok:
             return False, err or "invalid parameters"
-        action = kwargs.get("action")
-        if action in ("get_info", "delete") and "name" not in kwargs:
-            return False, f"Parameter 'name' is required when action is '{action}'"
-        if action in ("create", "edit"):
-            return _validate_chart_action(kwargs, doc_type)
+        if not _chart_name_from_kwargs(kwargs):
+            return False, "Parameter 'name' is required"
         return True, None
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # action (required + enum), create chart_type, and edit/get_info/delete name are
-        # rejected by validate() before execute. Direct execute checks remain below.
-        action = kwargs.get("action")
+        return get_chart_info(self, ctx, **kwargs)
 
-        if action == "list":
-            return list_charts(self, ctx, **kwargs)
-        elif action == "get_info":
-            if "name" not in kwargs:
-                return self._tool_error("name parameter is required for action='get_info'.")
-            return get_chart_info(self, ctx, **kwargs)
-        elif action in ("create", "edit"):
-            return upsert_chart(self, ctx, **kwargs)
-        elif action == "delete":
-            if "name" not in kwargs:
-                return self._tool_error("name parameter is required for action='delete'.")
-            return delete_chart(self, ctx, **kwargs)
-        return self._tool_error(f"Unsupported action: '{action}'")
+
+class ChartDelete(_ChartTool):
+    name: str | None = "chart_delete"
+    description: str = "Delete a chart by name."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The name of the chart to delete."},
+            "sheet": CHART_PROPERTIES["sheet"],
+            "page": CHART_PROPERTIES["page"],
+        },
+        "required": ["name"],
+    }
+    is_mutation: bool | None = True
+
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+        ok, err = super().validate(doc_type=doc_type, **kwargs)
+        if not ok:
+            return False, err or "invalid parameters"
+        if not _chart_name_from_kwargs(kwargs):
+            return False, "Parameter 'name' is required"
+        return True, None
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        return delete_chart(self, ctx, **kwargs)
+
+
+_CHART_UPSERT_DESCRIPTION = (
+    "Create or update a chart. Omit name to create a new chart (requires chart_type and a data source: "
+    "data_range on Calc, or headers and rows on Writer/Draw/Impress). "
+    "When name is set, update that chart if it exists. When it does not exist, create a chart with that name "
+    "if chart_type and a valid data source are provided; otherwise the chart is not found."
+)
+
+
+class ChartUpsert(_ChartTool):
+    name: str | None = "chart_upsert"
+    description: str = _CHART_UPSERT_DESCRIPTION
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Chart name for edit, or for create when the chart does not yet exist."},
+            **CHART_PROPERTIES,
+        },
+    }
+    is_mutation: bool | None = True
+
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+        ok, err = super().validate(doc_type=doc_type, **kwargs)
+        if not ok:
+            return False, err or "invalid parameters"
+        return _validate_chart_upsert(kwargs, doc_type)
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        return upsert_chart(self, ctx, **kwargs)
