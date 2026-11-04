@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Steerable slash-command completion menu attached to the sidebar Ask field.
 
+Prototype: disabled (ENABLE_SLASH = False) and kept on purpose; it will be enabled one day. Do not suggest deleting it.
+
 A native ``PopupMenu`` is modal — the user could not keep typing. The XDL
 placeholder is ``dlg:menulist`` (LibreOffice dialog.dtd has no ``listbox``).
 
@@ -78,6 +80,9 @@ def _dispose(obj: Any, msg: str) -> None:
     if callable(getattr(obj, "dispose", None)):
         best_effort(obj.dispose, msg)
 
+
+# Feature flag: slash-command popup is currently disabled until stable.
+ENABLE_SLASH = False
 
 _POPUP_MAX_ROWS = 6
 _POPUP_ROW_PX = 14
@@ -396,7 +401,7 @@ class SlashPopupController:
         # Live XDL placeholder is a real ListBox with no Ask-peer test mock —
         # do not attach keys to it or the toolkit window never gets them.
         query_has_peer = callable(getattr(query_control, "getPeer", None))
-        if query_has_peer:
+        if query_has_peer and ENABLE_SLASH:
             # The sidebar FocusManager consumes Esc in panel content (focus
             # moves to the panel title). It is an Application key listener
             # too, so ours must be registered first, at panel creation, and
@@ -479,6 +484,9 @@ class SlashPopupController:
 
     def on_query_text(self, text: str) -> bool:
         """Open or narrow the popup from the current Ask-box contents. Returns True if TEXT_UPDATED should be skipped."""
+        if not ENABLE_SLASH:
+            _ovlog("on_query_text disabled (ENABLE_SLASH=False)")
+            return False
         snippet = text[:40] if isinstance(text, str) else text
         _ovlog("query_text entered raw=%r", snippet)
         prefix = slash_typed_prefix(text)
@@ -567,6 +575,8 @@ class SlashPopupController:
         from_overlay: bool = False,
     ) -> bool:
         """True when the popup consumed the key (do not Send / insert newline)."""
+        if not ENABLE_SLASH:
+            return False
         _ovlog("handle_key code=%s mods=%s open=%s overlay=%s", key_code, modifiers, self._open, from_overlay)
         if not self._open:
             return False

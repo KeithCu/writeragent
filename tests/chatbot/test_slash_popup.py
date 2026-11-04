@@ -31,6 +31,7 @@ from plugin.chatbot.slash_popup import (
 
 @pytest.fixture(autouse=True)
 def _enable_slash_for_unit_tests(monkeypatch):
+    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", True)
     # Most tests drive the [mock] rows, like the mock-LLM sidebar harness.
     monkeypatch.setattr("plugin.chatbot.slash_commands._mock_commands_enabled", True)
 
@@ -650,6 +651,15 @@ def test_frame_key_attach_failure_logs_warning(caplog):
             delattr(awt, "XKeyHandler")
 
 
+def test_slash_disabled_when_flag_false(monkeypatch, caplog):
+    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
+    monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
+    popup, _box = _controller()
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
+        popup.on_query_text("/")
+    assert popup.is_open is False
+    assert not any("[SLASH-OV]" in r.message for r in caplog.records)
+
 
 def test_ovlog_silent_when_verbose_off(caplog, monkeypatch):
     from plugin.chatbot.slash_popup import _ovlog
@@ -852,6 +862,7 @@ def test_toolkit_key_handler_registered_at_panel_creation(monkeypatch):
 
 
 def test_toolkit_key_handler_not_registered_when_slash_disabled(monkeypatch):
+    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
     toolkit = MagicMock()
     peer = SimpleNamespace(getToolkit=lambda: toolkit)
     query = SimpleNamespace(getPeer=lambda: peer, getText=lambda: "")

@@ -790,7 +790,7 @@ def resolve_columns(
 
 def numeric_columns(df: Any, columns: Any = None) -> list[Any]:
     """Return *columns* when given (an empty list returns []), else all numeric column names. Unknown names raise."""
-    # See auto_numeric for the stringified-label / KeyError history on int column names.
+    # Return select_dtypes labels as-is (int columns stay int, not str() "0").
     if columns is None:
         return list(df.select_dtypes(include="number").columns)
     if isinstance(columns, (str, int, float)):

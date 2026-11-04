@@ -929,14 +929,14 @@ def _query_text_event(text: str) -> Any:
     return event
 
 
-class TestSlashOverlayListeners:
-    """Ask listeners always call the slash overlay; dispatch follows on_query_text's return."""
+class TestSlashOverlayParked:
+    """ENABLE_SLASH stays false: Ask listeners remain, overlay work does not run."""
 
     def test_text_change_skips_overlay_and_still_dispatches(self, caplog) -> None:
         send_listener = MagicMock()
         send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
-        with caplog.at_level(logging.DEBUG):
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), caplog.at_level(logging.DEBUG):
             listener.on_text_changed(_query_text_event("/he"))
         send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
         send_listener.dispatch.assert_called_once()
@@ -950,7 +950,8 @@ class TestSlashOverlayListeners:
         send_listener = MagicMock()
         send_listener.slash_popup.on_query_text.return_value = True
         listener = QueryTextListener(send_listener)
-        with patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False), \
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True), \
+             patch("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False), \
              caplog.at_level(logging.DEBUG):
             listener.on_text_changed(_query_text_event("/he"))
         send_listener.slash_popup.on_query_text.assert_called_once_with("/he")
@@ -961,7 +962,8 @@ class TestSlashOverlayListeners:
         send_listener = MagicMock()
         send_listener.slash_popup.on_query_text.return_value = False
         listener = QueryTextListener(send_listener)
-        listener.on_text_changed(_query_text_event("hello"))
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
+            listener.on_text_changed(_query_text_event("hello"))
         send_listener.slash_popup.on_query_text.assert_called_once_with("hello")
         send_listener.dispatch.assert_called_once()
         event = send_listener.dispatch.call_args[0][0]
@@ -975,7 +977,7 @@ class TestSlashOverlayListeners:
         listener.on_text_changed(_query_text_event("hello"))
         send_listener.dispatch.assert_not_called()
 
-    def test_enter_calls_handle_key_and_still_sends(self, caplog) -> None:
+    def test_disabled_enter_skips_handle_key_and_still_sends(self, caplog) -> None:
         send_listener = MagicMock()
         send_listener._button_action = ButtonAction.SEND
         send_listener.slash_popup.handle_key.return_value = False
@@ -985,7 +987,8 @@ class TestSlashOverlayListeners:
         send_listener.send_control.getModel.return_value = send_model
         listener = QueryKeyListener(send_listener)
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
-        with patch("plugin.framework.config.get_config", return_value=True), \
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), \
+             patch("plugin.framework.config.get_config", return_value=True), \
              caplog.at_level(logging.DEBUG):
             listener.on_key_pressed(event)
         send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
@@ -1012,7 +1015,8 @@ class TestQueryKeyListenerDispose:
         send_listener.slash_popup.handle_key.return_value = True
         listener = QueryKeyListener(send_listener)
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
-        listener.on_key_pressed(event)
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
+            listener.on_key_pressed(event)
         send_listener.slash_popup.handle_key.assert_called_once_with(1280, 0)
         send_listener.on_action_performed.assert_not_called()
         assert (event.Consume)
@@ -1980,7 +1984,8 @@ class TestPanelR3Fixes:
         listener = QueryKeyListener(send_listener)
         event = type("KeyEvent", (), {"KeyCode": 1280, "Modifiers": 0, "Consume": False})()
 
-        with patch("plugin.framework.config.get_config", return_value=True):
+        with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", False), \
+             patch("plugin.framework.config.get_config", return_value=True):
             for action in (ButtonAction.RECORD, ButtonAction.STOP_REC, ButtonAction.ACCEPT, ButtonAction.CHANGE, ButtonAction.REJECT):
                 send_listener._button_action = action
                 listener.on_key_pressed(event)

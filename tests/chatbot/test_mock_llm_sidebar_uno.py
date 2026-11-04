@@ -2742,6 +2742,7 @@ def _slash_key(key_code, listener=None):
 
 def _slash_prep():
     """Clear Ask + LRU. Isolated from Packet G. Works in-process or over URP."""
+    from plugin.chatbot import slash_popup
     from plugin.chatbot.sidebar_test_hooks import (
         adopt_runtime_send_listeners,
         ensure_slash_popup,
@@ -2751,6 +2752,7 @@ def _slash_prep():
     from plugin.chatbot.slash_commands import enable_mock_slash_commands
     from plugin.framework.config import save
 
+    slash_popup.ENABLE_SLASH = True
     enable_mock_slash_commands()  # [mock] rows exist only in this harness
     adopt_runtime_send_listeners()
     sl = getattr(_session, "listener", None) or send_listener()

@@ -322,7 +322,7 @@ def test_wrap_uno_skips_pyuno_structs():
         tg.GUARD_ON = was
 
 
-def testunwrap_uno_tuple_of_proxies():
+def test_unwrap_uno_tuple_of_proxies():
     real = _make_pyuno_like()
     proxy = tg._UnoThreadGuardProxy(real)
     out = tg.unwrap_uno((proxy, "x"))

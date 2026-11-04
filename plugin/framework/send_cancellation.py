@@ -143,7 +143,7 @@ def capture_send_stop(host: Any) -> SendCancellation | None:
 
 def is_cancelled(scope: SendCancellation | None) -> bool:
     """Return True if *scope* is cancelled."""
-    return scope is not None and scope.is_cancelled() is True
+    return scope is not None and bool(scope.is_cancelled())
 
 
 @contextmanager

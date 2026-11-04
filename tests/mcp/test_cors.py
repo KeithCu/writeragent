@@ -679,7 +679,7 @@ def test_get_configured_tunnel_host_reads_shared_tunnel_public_url(monkeypatch):
     assert get_configured_tunnel_host() is None
 
 
-def testdrain_request_body_reads_up_to_content_length():
+def test_drain_request_body_reads_up_to_content_length():
     from io import BytesIO
     from plugin.mcp.cors import drain_request_body
 
@@ -714,7 +714,7 @@ def test_reload_cors_missing_private_key_stays_on():
         assert get_allow_private_origins() is True
 
 
-def testdrain_request_body_swallows_valueerror_and_oserror():
+def test_drain_request_body_swallows_valueerror_and_oserror():
     from plugin.mcp.cors import drain_request_body
 
     class _BadLength:
@@ -735,7 +735,7 @@ def testdrain_request_body_swallows_valueerror_and_oserror():
     drain_request_body(_Reset())
 
 
-def testdrain_request_body_other_error_propagates():
+def test_drain_request_body_other_error_propagates():
     from plugin.mcp.cors import drain_request_body
 
     class _Bug:
