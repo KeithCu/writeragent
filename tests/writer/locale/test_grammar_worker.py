@@ -1291,3 +1291,16 @@ def test_batch_resolves_provider_once() -> None:
     ec = mock_run.call_args[0][3]
     assert ec.spec is _SINGLE_SENTENCE_PROVIDERS["vale"]
 
+
+def test_worker_batch_skips_harper_provider() -> None:
+    from plugin.writer.locale.grammar_worker import run_llm_and_cache_batch
+
+    item = _item(provider="harper")
+    with (
+        patch("plugin.writer.locale.grammar_worker.grammar_obs") as mock_obs,
+        patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run,
+    ):
+        run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
+    mock_obs.assert_any_call("worker_batch_skip", reason="harper_not_queued", item_count=1)
+    mock_run.assert_not_called()
+

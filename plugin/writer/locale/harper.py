@@ -154,8 +154,8 @@ class HarperRuntime:
 
         HarperLSClient does Popen plus LSP initialize (up to _INIT_BUDGET_SEC).
         Running construction outside the lock prevents blocking callers, while
-        the compare-and-swap under the lock keeps two concurrent builders
-        (ensure_body concurrent builders) from both leaving a live process installed.
+        the compare-and-swap under the lock keeps two concurrent ensure_body calls
+        from both leaving a live process installed.
         """
         built = HarperLSClient(
             binary_path,

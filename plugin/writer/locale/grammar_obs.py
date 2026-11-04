@@ -141,6 +141,10 @@ class GrammarStatus:
         length_hint: int | None = None,
         routine: bool = False,
     ) -> None:
+        """Deliver a status update. ``routine=True`` marks steady-state per-keystroke text; the
+        LibreHarper status-bar sink must not paint it unless the phase is terminal and an
+        indicator is already active (issue #768).
+        """
         pass
 
     def start(self, text: str, *, result: str = "", routine: bool = False) -> None:
@@ -282,8 +286,6 @@ class StatusBarGrammarStatus(GrammarStatus):
         try:
             if phase == "failed":
                 routine = False
-            elif not (result or "").strip():
-                routine = True
             if routine and (
                 phase not in _TERMINAL_STATUS_PHASES or self._indicator is None
             ):
@@ -314,7 +316,6 @@ class StatusBarGrammarStatus(GrammarStatus):
 
     def _paint(self, phase: str, result: str = "", routine: bool = False) -> None:
         """Update the LibreOffice window status bar using XStatusIndicator."""
-
         msg = f"LibreHarper: {result or 'Checking...'}"
         if phase == "done":
             msg = "LibreHarper: Grammar check complete"

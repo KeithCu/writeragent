@@ -359,7 +359,7 @@ def run_grammar_check(
 ) -> None:
     """Grammar check dispatcher: executes LLM, LanguageTool, or Vale, then caches results."""
     try:
-        if isinstance(ec.spec, _ProviderSpec):
+        if ec.spec is not None:
             cfg_dir = config.user_config_dir() or ""
             run_single_sentence_provider(
                 ec.spec,
@@ -839,6 +839,11 @@ def run_llm_and_cache_batch(
     status_cycle_started = False
     try:
         provider_name = item0.provider or grammar_settings.provider()
+        # Harper lints in doProofreading (harper_try_lint); batches are grouped by provider
+        # (filter_stale_and_group), so one spec snapshot from items[0] matches every item.
+        if provider_name == "harper":
+            grammar_obs("worker_batch_skip", reason="harper_not_queued", item_count=len(items))
+            return
         spec = _SINGLE_SENTENCE_PROVIDERS.get(provider_name)
         if not _worker_batch_gates(items, provider_name):
             return

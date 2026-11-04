@@ -220,8 +220,12 @@ def test_status_bar_routine_flag_ignores_result_text() -> None:
     assert sink._indicator is None
 
     with patch("plugin.framework.queue_executor.main.post") as mock_post:
-        sink.request("Hi.", result="")
+        sink.request("Hi.", result="", routine=True)
     mock_post.assert_not_called()
+
+    with patch("plugin.framework.queue_executor.main.post") as mock_post:
+        sink.request("Hi.", result="")
+    assert mock_post.call_count >= 1
 
     with patch(
         "plugin.framework.queue_executor.main.post",

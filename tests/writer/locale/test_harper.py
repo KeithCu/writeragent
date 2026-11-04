@@ -1100,6 +1100,13 @@ def test_harper_runtime_is_ready_requires_alive_client() -> None:
     assert harper_module.runtime.is_ready() is False
 
 
+def test_harper_runtime_mark_idle_clears_ready_state() -> None:
+    with harper_module.runtime.lock:
+        harper_module.runtime.state = HarperRuntimeState.READY
+    harper_module.runtime.mark_idle()
+    assert harper_module.runtime.state is HarperRuntimeState.IDLE
+
+
 def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
     """A held lock blocks harper_try_lint (pumping via wait_while_pumping) until released."""
     mock_client = MagicMock()

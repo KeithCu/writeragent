@@ -220,12 +220,12 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
 
 
 def test_worker_does_not_pause_local_provider_when_agent_active() -> None:
-    """Harper / LanguageTool / Vale keep checking while chat runs; pause is LLM-only."""
+    """LanguageTool / Vale keep checking while chat runs; pause is LLM-only (Harper never uses the queue)."""
 
     with (
         patch(
             "plugin.framework.config.get_config",
-            side_effect=lambda key: _proofreader_get_config_side_effect(key, enabled="harper", pause=True),
+            side_effect=lambda key: _proofreader_get_config_side_effect(key, enabled="languagetool", pause=True),
         ),
         patch("plugin.framework.send_cancellation.is_agent_active", return_value=True),
         patch("plugin.writer.locale.grammar_worker.run_grammar_check") as run_check,
