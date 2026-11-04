@@ -142,8 +142,13 @@ def capture_send_stop(host: Any) -> SendCancellation | None:
 
 
 def is_cancelled(scope: SendCancellation | None) -> bool:
-    """Return True if *scope* is cancelled."""
-    return scope is not None and bool(scope.is_cancelled())
+    """Return True if *scope* is cancelled.
+
+    Strict ``is True``: a non-bool return (e.g. a MagicMock scope in specialized
+    delegation tests, or a stub host) must not read as a user Stop, or
+    incomplete/step-limit results turn into error/USER_STOPPED.
+    """
+    return scope is not None and scope.is_cancelled() is True
 
 
 @contextmanager
