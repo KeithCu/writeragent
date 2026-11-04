@@ -11,8 +11,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.embeddings.embedding_client import EmbeddingBatch, embed_texts, get_embedding_model
-from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
+from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, WORKER_POOL_EMBEDDINGS
 from plugin.scripting.config_limits import long_trusted_worker_timeout_sec
+from plugin.scripting.session_key import SessionKind
 from plugin.framework.errors import ConfigError, ToolExecutionError
 
 
@@ -69,7 +70,7 @@ def test_embed_texts_happy_path(ctx, config_data):
     assert kwargs["domain"] == "embedding"
     assert kwargs["additional_data"] == {"model": DEFAULT_EMBEDDING_MODEL, "texts": ["hello", "", "world"]}
     expected_session_slug = DEFAULT_EMBEDDING_MODEL.replace("/", "_").replace(":", "_")
-    assert kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:{expected_session_slug}"
+    assert kwargs["session_id"] == f"{SessionKind.EMBEDDINGS.value}:{expected_session_slug}"
     assert kwargs["timeout_sec"] == long_trusted_worker_timeout_sec()
     assert kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
 
@@ -84,7 +85,7 @@ def test_embed_texts_custom_model_session_slug(ctx, config_data):
     ):
         embed_texts(ctx, [], model="BAAI/bge-small-en-v1.5")
 
-    assert mock_run.call_args.kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:BAAI_bge-small-en-v1.5"
+    assert mock_run.call_args.kwargs["session_id"] == f"{SessionKind.EMBEDDINGS.value}:BAAI_bge-small-en-v1.5"
 
 
 def test_embed_texts_uses_timeout_override(ctx, config_data):

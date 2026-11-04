@@ -68,7 +68,6 @@ WORKFLOW_TASK_PREFIXES: tuple[str, ...] = ("TODO-AI", "FIX", "QUESTION", "VALIDA
 
 # Local sentence-transformers default until multi-model bench picks a winner (docs/embeddings.md).
 DEFAULT_EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-EMBEDDINGS_WORKER_SESSION_PREFIX = "embeddings"
 # Host corpus_meta.json schema version (docs/embeddings.md).
 EMBEDDINGS_SCHEMA_VERSION = "6"
 # Background folder index tick when embeddings cache is enabled (docs/embeddings.md).

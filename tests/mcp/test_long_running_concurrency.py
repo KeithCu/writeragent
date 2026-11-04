@@ -23,6 +23,7 @@
 import threading
 import time
 
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 import pytest
 
@@ -132,7 +133,7 @@ def _run_concurrent(method, doc_urls, *, kwargs_list=None):
 
     def worker(url, extra):
         try:
-            method("any_tool", {}, document_url=url, **extra)
+            method("any_tool", {}, document_url=url, cancel=SendCancellation(), **extra)
         except Exception as e:  # noqa: BLE001
             errors.append("%s: %s" % (type(e).__name__, e))
 
@@ -216,7 +217,7 @@ def test_unknown_tool_is_rejected_up_front_without_executing():
     reg = _UnknownRegistry(is_mutation=True)
     handler = MCPProtocolHandler(_FakeServices(reg))
 
-    result = handler._run_tool("totally_bogus_tool", {}, document_url="file:///same.odt")
+    result = handler._run_tool("totally_bogus_tool", {}, document_url="file:///same.odt", cancel=SendCancellation())
 
     assert result["status"] == "error" and result["code"] == "UNKNOWN_TOOL"
     assert "tools/list" in result["message"]
@@ -242,13 +243,13 @@ def test_cross_path_long_running_and_backpressure_same_document_serializes():
 
     def run_long():
         try:
-            handler._run_tool("long_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("long_tool", {}, document_url="file:///same.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("long: %s" % e)
 
     def run_backpressure():
         try:
-            handler._run_tool("fast_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("fast_tool", {}, document_url="file:///same.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("bp: %s" % e)
 
@@ -315,13 +316,13 @@ def test_backpressure_waits_for_document_gate_off_the_main_thread():
 
     def run_long():
         try:
-            handler._run_tool("long_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("long_tool", {}, document_url="file:///same.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("long: %s" % e)
 
     def run_bp():
         try:
-            handler._run_tool("fast_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("fast_tool", {}, document_url="file:///same.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("bp: %s" % e)
 
@@ -384,13 +385,13 @@ def test_readonly_backpressure_does_not_wait_on_held_mutation_gate():
 
     def run_long():
         try:
-            handler._run_tool("mutator", {}, document_url="file:///same.odt")
+            handler._run_tool("mutator", {}, document_url="file:///same.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("long: %s" % e)
 
     def run_bp():
         try:
-            handler._run_tool("readonly_tool", {}, document_url="file:///same.odt")
+            handler._run_tool("readonly_tool", {}, document_url="file:///same.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("bp: %s" % e)
 
@@ -434,19 +435,19 @@ def test_gate_wait_does_not_hold_global_semaphore():
 
     def run_long():
         try:
-            handler._run_tool("long_tool", {}, document_url="file:///a.odt")
+            handler._run_tool("long_tool", {}, document_url="file:///a.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("long: %s" % e)
 
     def run_fast_a():
         try:
-            handler._run_tool("fast_a", {}, document_url="file:///a.odt")
+            handler._run_tool("fast_a", {}, document_url="file:///a.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("fast_a: %s" % e)
 
     def run_fast_b():
         try:
-            handler._run_tool("fast_b", {}, document_url="file:///b.odt")
+            handler._run_tool("fast_b", {}, document_url="file:///b.odt", cancel=SendCancellation())
         except Exception as e:  # noqa: BLE001
             errors.append("fast_b: %s" % e)
 

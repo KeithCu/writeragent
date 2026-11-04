@@ -1906,7 +1906,7 @@ def test_agent_worker_keeps_spawn_checker_after_next_send():
     adapter.is_available.return_value = True
 
     def send(**kwargs):
-        seen["checker"] = kwargs["stop_checker"]
+        seen["cancel"] = kwargs["cancel"]
 
     adapter.send.side_effect = send
 
@@ -1932,7 +1932,7 @@ def test_agent_worker_keeps_spawn_checker_after_next_send():
         panel._execute_agent_backend_effect("hi", model, "writer")
         new = _swap_scope_and_run(panel, old, captured["fn"])
 
-    assert seen["checker"]() is True
+    assert seen["cancel"] is old
     assert not new.is_cancelled()
 
 
@@ -2311,7 +2311,6 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
 
     hermes = MagicMock()
     hermes.is_available.return_value = True
-    hermes.prepare_turn.side_effect = lambda: order.append("prepare")
     claude = MagicMock()
     claude.is_available.return_value = True
     created: list[str] = []
@@ -2338,14 +2337,17 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
         patch("plugin.mcp.is_mcp_server_running", return_value=False),
     ):
         panel._execute_agent_backend_effect("one", MagicMock(), "writer")
-        assert order == ["prepare", "register"]
+        assert order == []
         assert created == ["hermes"]
         assert panel._acp_backend is hermes
         assert panel._acp_backend_id == "hermes"
+        send_kwargs = hermes.send.call_args.kwargs
+        assert send_kwargs.get("cancel") is scope
+        scope.register_on_cancel.assert_not_called()
         order.clear()
         panel._execute_agent_backend_effect("two", MagicMock(), "writer")
         assert created == ["hermes"]
-        assert order == ["prepare", "register"]
+        assert order == []
         hermes.shutdown.assert_not_called()
         assert panel._acp_backend is hermes
         panel._execute_agent_backend_effect("three", MagicMock(), "writer")

@@ -5,6 +5,7 @@ import pytest
 from io import BytesIO
 from typing import Any
 
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 class MockHandler:
@@ -684,7 +685,7 @@ def test_handle_mcp_tools_call_is_async_routing():
             "name": "dummy_async_tool",
             "arguments": {"arg": "val"}
         }
-        mcp_protocol._mcp_tools_call(params)
+        mcp_protocol._mcp_tools_call(params, cancel=SendCancellation())
         mock_execute_lr.assert_called_once()
         args, kwargs = mock_execute_lr.call_args
         assert args[0] == "dummy_async_tool"
@@ -711,7 +712,7 @@ def test_handle_mcp_tools_call_parameter():
                 "document_url": "file:///my/custom/doc.odt"
             }
         }
-        mcp_protocol._mcp_tools_call(params, document_url="file:///default/header/doc.odt")
+        mcp_protocol._mcp_tools_call(params, document_url="file:///default/header/doc.odt", cancel=SendCancellation())
 
         # Verify execute was called with the document_url from arguments, and not the header's
         mock_execute.assert_called_once()

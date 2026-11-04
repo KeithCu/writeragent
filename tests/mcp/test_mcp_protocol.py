@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.tool import ToolBase, ToolRegistry
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 
@@ -120,7 +121,7 @@ def test_long_running_precomputes_echo_without_post_execute_doc_access():
     handler = MCPProtocolHandler(_FakeServices(registry))
 
     with patch("plugin.mcp.mcp_protocol._document_echo_payload", return_value={"name": "doc.odt", "uid": "uid-1"}) as mock_echo:
-        result = handler._run_tool("any_tool", {}, document_url="file:///doc.odt")
+        result = handler._run_tool("any_tool", {}, document_url="file:///doc.odt", cancel=SendCancellation())
 
     assert result["status"] == "ok"
     assert result["document"] == {"name": "doc.odt", "uid": "uid-1"}
@@ -288,11 +289,11 @@ def test_tools_call_rejects_unadvertised_tiers():
     handler_delegate._tool_exposure_mode = lambda: "delegate"
     handler_delegate.tool_registry = registry
 
-    res1 = handler_delegate._mcp_tools_call({"name": "secret_tool", "arguments": {}})
+    res1 = handler_delegate._mcp_tools_call({"name": "secret_tool", "arguments": {}}, cancel=SendCancellation())
     assert res1.get("isError") is True
     assert _payload(res1)["code"] == "UNKNOWN_TOOL"
 
-    res2 = handler_delegate._mcp_tools_call({"name": "chat_tool", "arguments": {}})
+    res2 = handler_delegate._mcp_tools_call({"name": "chat_tool", "arguments": {}}, cancel=SendCancellation())
     assert res2.get("isError") is True
     assert _payload(res2)["code"] == "UNKNOWN_TOOL"
 
@@ -302,11 +303,11 @@ def test_tools_call_rejects_unadvertised_tiers():
     handler_flat.tool_registry = registry
     handler_flat.event_bus = MagicMock()
 
-    res3 = handler_flat._mcp_tools_call({"name": "secret_tool", "arguments": {}})
+    res3 = handler_flat._mcp_tools_call({"name": "secret_tool", "arguments": {}}, cancel=SendCancellation())
     # Call is accepted and starts processing (it returns None, but event bus gets called)
     assert not isinstance(res3, dict) or res3.get("isError") is not True
 
-    res4 = handler_flat._mcp_tools_call({"name": "chat_tool", "arguments": {}})
+    res4 = handler_flat._mcp_tools_call({"name": "chat_tool", "arguments": {}}, cancel=SendCancellation())
     assert res4.get("isError") is True
     assert _payload(res4)["code"] == "UNKNOWN_TOOL"
 
@@ -324,17 +325,17 @@ def test_tools_call_cannot_skip_disposed_document_check(bypass):
     seen = _watch_execute_safe(handler)
     args = {"bypass_thread_guard": bypass, "note": "keep"}
 
-    direct = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt")
+    direct = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt", cancel=SendCancellation())
     assert direct["code"] == "DOCUMENT_DISPOSED"
     assert direct["status"] == "error"
 
-    wrapped = handler._mcp_tools_call({"name": "sync_probe", "arguments": dict(args)})
+    wrapped = handler._mcp_tools_call({"name": "sync_probe", "arguments": dict(args)}, cancel=SendCancellation())
     assert wrapped["isError"] is True
     assert _payload(wrapped)["code"] == "DOCUMENT_DISPOSED"
 
     tool.long_running = False
     debug = handler._debug_call_tool("sync_probe", dict(args), document_url="file:///gone.odt")
-    backpressure = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt")
+    backpressure = handler._run_tool("sync_probe", dict(args), document_url="file:///gone.odt", cancel=SendCancellation())
     assert debug["code"] == "DOCUMENT_DISPOSED"
     assert backpressure["code"] == "DOCUMENT_DISPOSED"
     assert tool.body_calls == []
@@ -347,7 +348,7 @@ def test_tools_call_keeps_real_arguments_when_stripping_bypass():
     tool = _SyncProbe()
     handler = _handler(_LiveDoc(), tool)
     seen = _watch_execute_safe(handler)
-    result = handler._run_tool("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt")
+    result = handler._run_tool("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt", cancel=SendCancellation())
     assert result["status"] == "ok"
     assert result["note"] == "keep"
     assert tool.body_calls == [{"note": "keep"}]
@@ -388,7 +389,7 @@ def test_long_running_bypass_still_marshals_to_the_main_thread():
     box = {}
 
     def worker():
-        box["result"] = handler._mcp_tools_call({"name": "sync_probe", "arguments": {"bypass_thread_guard": True, "note": "keep"}})
+        box["result"] = handler._mcp_tools_call({"name": "sync_probe", "arguments": {"bypass_thread_guard": True, "note": "keep"}}, cancel=SendCancellation())
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
         thread = threading.Thread(target=worker, name="http-worker")
@@ -419,7 +420,7 @@ def test_backpressure_and_debug_bypass_still_marshals_to_the_main_thread():
 
     def worker():
         box["debug"] = handler._debug_call_tool("sync_probe", {"bypass_thread_guard": True, "note": "keep"}, document_url="file:///live.odt")
-        box["direct"] = handler._run_tool("sync_probe", {"bypass_thread_guard": True}, document_url="file:///live.odt")
+        box["direct"] = handler._run_tool("sync_probe", {"bypass_thread_guard": True}, document_url="file:///live.odt", cancel=SendCancellation())
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
         thread = threading.Thread(target=worker, name="http-worker")
@@ -728,17 +729,15 @@ def test_mcp_run_tool_captures_send_cancellation() -> None:
 
     scope = SendCancellation()
 
-    with patch("plugin.framework.send_cancellation.get_current_send_cancellation", return_value=scope):
-        res = handler._run_tool("my_tool", {})
+    res = handler._run_tool("my_tool", {}, cancel=scope)
 
     assert res == "final_result"
     assert executor.call.call_count == 2
 
-    # first call should be _prepare_mcp_execution with bound_scope=scope and send_cancellation=scope
     prepare_call = executor.call.call_args_list[0]
     assert prepare_call.args[0] == handler._prepare_mcp_execution
     assert prepare_call.kwargs.get("bound_scope") is scope
-    assert prepare_call.kwargs.get("send_cancellation") is scope
+    assert prepare_call.kwargs.get("cancel") is scope
 
 def test_async_long_running_uses_execute_safe_without_bypass_keyword():
     """is_async tools are the long-running path and still use execute_safe."""
@@ -773,7 +772,7 @@ def test_async_long_running_uses_execute_safe_without_bypass_keyword():
         raise AssertionError("is_async MCP tool must not be marshalled to the main thread")
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=fail_marshal):
-        result = handler._run_tool("async_probe", {"bypass_thread_guard": False, "note": "keep"}, document_url="file:///live.odt")
+        result = handler._run_tool("async_probe", {"bypass_thread_guard": False, "note": "keep"}, document_url="file:///live.odt", cancel=SendCancellation())
 
     assert marshalled == []
     assert result["status"] == "ok"
@@ -788,7 +787,7 @@ def test_long_running_flag_without_is_async_stays_on_backpressure():
     tool.long_running = True
     handler = _handler(_LiveDoc(), tool)
     with patch.object(handler, "_run_tool", return_value={"status": "ok"}) as mock_run:
-        handler._mcp_tools_call({"name": "sync_probe", "arguments": {"bypass_thread_guard": True}})
+        handler._mcp_tools_call({"name": "sync_probe", "arguments": {"bypass_thread_guard": True}}, cancel=SendCancellation())
     assert mock_run.called
 
 
@@ -812,7 +811,7 @@ def test_async_tools_are_long_running():
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
     with patch.object(handler, "_run_tool", return_value={"status": "ok"}) as mock_run:
-        handler._mcp_tools_call({"name": "async_mock", "arguments": {}})
+        handler._mcp_tools_call({"name": "async_mock", "arguments": {}}, cancel=SendCancellation())
         assert mock_run.called
 
 
@@ -833,7 +832,7 @@ def test_document_url_not_popped_when_declared():
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
     with patch.object(handler, "_run_tool", return_value={"status": "ok"}) as mock_run:
-        handler._mcp_tools_call({"name": "doc_url_mock", "arguments": {"document_url": "test"}})
+        handler._mcp_tools_call({"name": "doc_url_mock", "arguments": {"document_url": "test"}}, cancel=SendCancellation())
         assert mock_run.call_args[0][1] == {"document_url": "test"}
 
 
@@ -856,7 +855,7 @@ def test_timeout_zero_rejects_async_tool():
     registry._tools["async_zero_timeout"] = MockAsyncZeroTimeoutTool()
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
-    result = handler._prepare_mcp_execution("async_zero_timeout", {}, None, send_cancellation=None)
+    result = handler._prepare_mcp_execution("async_zero_timeout", {}, None, cancel=SendCancellation())
     assert isinstance(result, dict)
     assert result["status"] == "error"
     assert result["code"] == "TOOL_EXECUTION_ERROR"
@@ -880,7 +879,7 @@ def test_async_tool_without_timeout_runs():
     registry._tools["async_no_timeout"] = MockAsyncNoTimeoutTool()
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
-    result = handler._prepare_mcp_execution("async_no_timeout", {}, None, send_cancellation=None)
+    result = handler._prepare_mcp_execution("async_no_timeout", {}, None, cancel=SendCancellation())
     assert not isinstance(result, dict) or result.get("status") != "error"
 
 
@@ -920,10 +919,10 @@ def test_is_async_uses_long_running_path():
     tool = _AsyncProbe()
     handler = _handler(None, tool)
 
-    prep = handler._prepare_mcp_execution("async_probe", {}, send_cancellation=None)
+    prep = handler._prepare_mcp_execution("async_probe", {}, cancel=SendCancellation())
     assert prep.is_async is True
 
-    result = handler._mcp_tools_call({"name": "async_probe", "arguments": {}})
+    result = handler._mcp_tools_call({"name": "async_probe", "arguments": {}}, cancel=SendCancellation())
     payload = _payload(result)
     assert payload.get("from_long_running") is True
 
@@ -1101,7 +1100,7 @@ def test_resolve_exception_is_not_document_not_found():
     services.document.resolve_document_by_url.side_effect = DocumentDisposedError("closed", object_type="Document")
     handler = MCPProtocolHandler(services)
     with pytest.raises(DocumentDisposedError):
-        handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///gone.odt", send_cancellation=None)
+        handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///gone.odt", cancel=SendCancellation())
 
 
 def test_unresolved_document_url_is_still_document_not_found():
@@ -1114,7 +1113,7 @@ def test_unresolved_document_url_is_still_document_not_found():
     services.tools.get.return_value = tool
     services.document.resolve_document_by_url.return_value = (None, None)
     handler = MCPProtocolHandler(services)
-    result = handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///missing.odt", send_cancellation=None)
+    result = handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///missing.odt", cancel=SendCancellation())
     assert result["code"] == "DOCUMENT_NOT_FOUND"
     assert "missing.odt" in result["message"]
 
@@ -1131,7 +1130,7 @@ def test_open_documents_failure_is_not_no_document_open():
     services.document.open_documents.side_effect = RuntimeError("desktop")
     handler = MCPProtocolHandler(services)
     with pytest.raises(RuntimeError, match="desktop"):
-        handler._prepare_mcp_execution("t", {}, send_cancellation=None)
+        handler._prepare_mcp_execution("t", {}, cancel=SendCancellation())
 
 
 def test_draw_page_index_failure_propagates():
@@ -1146,7 +1145,7 @@ def test_draw_page_index_failure_propagates():
     handler = MCPProtocolHandler(services)
     with patch("plugin.draw.bridge.DrawBridge", side_effect=RuntimeError("no page")):
         with pytest.raises(RuntimeError, match="no page"):
-            handler._prepare_mcp_execution("t", {}, document_url="file:///a.odg", send_cancellation=None)
+            handler._prepare_mcp_execution("t", {}, document_url="file:///a.odg", cancel=SendCancellation())
 
 
 def test_sse_keepalive_unexpected_error_is_logged(caplog):
@@ -1232,7 +1231,7 @@ def test_prepare_mcp_execution_passes_arguments_to_requires_document_lock(lock):
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
     args = {"domain": "shapes", "note": 1}
-    prepared = handler._prepare_mcp_execution("lock_probe", args, None, send_cancellation=None)
+    prepared = handler._prepare_mcp_execution("lock_probe", args, None, cancel=SendCancellation())
     assert isinstance(prepared, _PreparedMcpCall)
     assert seen == [args]
     assert seen[0] is args

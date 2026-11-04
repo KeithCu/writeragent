@@ -295,11 +295,11 @@ def register_core_handlers() -> None:
         except Exception:
             log.log(level, message, exc_info=True)
 
-    def _open_settings() -> None:
+    def _open_settings(frame: Any = None) -> None:
         open_dialog_safely(settings_box, "Failed to open settings")
 
     register_action_handler("main", "settings", _open_settings)
-    register_action_handler("main", "EvaluationDashboard", lambda: open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
+    register_action_handler("main", "EvaluationDashboard", lambda frame=None: open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
     test_suites = (
         ("RunFormatTests", "plugin.tests.writer.test_format_uno", "writer.format_tests"),
@@ -311,21 +311,21 @@ def register_core_handlers() -> None:
         register_action_handler(
             "main",
             action,
-            lambda m=mod_name, t=test_name: _run_test_suite(m, t),
+            lambda frame=None, m=mod_name, t=test_name: _run_test_suite(m, t),
         )
-    register_action_handler("main", "NoOp", lambda: None)
+    register_action_handler("main", "NoOp", lambda frame=None: None)
 
     from plugin.menu_handlers import register_common_handlers
 
     register_common_handlers()
 
-    def _convert_spreadsheet() -> None:
+    def _convert_spreadsheet(frame: Any = None) -> None:
         from plugin.calc.spreadsheet_import.import_dialog import show_import_dialog
         open_dialog_safely(show_import_dialog, "Failed to open Convert Sheet to Python dialog")
 
     register_action_handler("calc", "convert_spreadsheet_to_python", _convert_spreadsheet)
 
-    def _open_search_dialog() -> None:
+    def _open_search_dialog(frame: Any = None) -> None:
         from plugin.embeddings.search_ui import show_search_dialog
         show_search_dialog(get_ctx())
 
@@ -355,8 +355,8 @@ def register_core_handlers() -> None:
         else:
             log.debug("inline review: no current component")
 
-    register_action_handler("writer", "accept_change", lambda: _resolve_change_at_cursor(True))
-    register_action_handler("writer", "reject_change", lambda: _resolve_change_at_cursor(False))
+    register_action_handler("writer", "accept_change", lambda frame=None: _resolve_change_at_cursor(True))
+    register_action_handler("writer", "reject_change", lambda frame=None: _resolve_change_at_cursor(False))
 
     def _resolve_all_agent(accept: bool) -> None:
         from plugin.writer.inline_review import resolve_all_with_feedback, show_review_message
@@ -369,8 +369,8 @@ def register_core_handlers() -> None:
             show_review_message(c, msg)
             _refresh_review_toolbar(model)
 
-    register_action_handler("writer", "review_accept_all", lambda: _resolve_all_agent(True))
-    register_action_handler("writer", "review_reject_all", lambda: _resolve_all_agent(False))
+    register_action_handler("writer", "review_accept_all", lambda frame=None: _resolve_all_agent(True))
+    register_action_handler("writer", "review_reject_all", lambda frame=None: _resolve_all_agent(False))
 
     def _goto_adjacent_change(forward: bool) -> None:
         """Fast-travel (#2): move the cursor to the next/previous pending agent change, in document
@@ -385,8 +385,8 @@ def register_core_handlers() -> None:
         log.debug("review nav: forward=%s -> token=%s", forward, token)
         _refresh_review_toolbar(model)
 
-    register_action_handler("writer", "review_next", lambda: _goto_adjacent_change(True))
-    register_action_handler("writer", "review_prev", lambda: _goto_adjacent_change(False))
+    register_action_handler("writer", "review_next", lambda frame=None: _goto_adjacent_change(True))
+    register_action_handler("writer", "review_prev", lambda frame=None: _goto_adjacent_change(False))
 
     def _install_review_ui() -> None:
         from plugin.writer.review_view_attachment import install
@@ -402,19 +402,6 @@ from plugin.menu_state import MenuIcons, MenuStatusPublisher, command_from_dispa
 
 menu_icons = MenuIcons()
 menu_status = MenuStatusPublisher(menu_icons)
-
-
-_LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {
-    "settings": "main.settings",
-    "ToggleMCPServer": "mcp.toggle_server",
-    "MCPStatus": "mcp.server_status",
-    "RunFormatTests": "main.RunFormatTests",
-    "RunCalcTests": "main.RunCalcTests",
-    "RunDrawTests": "main.RunDrawTests",
-    "RunCalcIntegrationTests": "main.RunCalcIntegrationTests",
-    "EvaluationDashboard": "main.EvaluationDashboard",
-    "NoOp": "main.NoOp",
-}
 
 
 # Bootstrapper replaces the previous monolithic MainJob.
@@ -449,11 +436,6 @@ class MainBootstrapJob(BaseMainBootstrapJob):
             if Event and ("." in Event or Event.startswith("plugin.")):
                 cmd = Event[7:] if Event.startswith("plugin.") else Event
                 dispatch_command(cmd)
-                return
-
-            legacy = _LEGACY_FRAMEWORK_COMMANDS.get(Event)
-            if legacy is not None:
-                dispatch_command(legacy)
                 return
 
             model = get_active_document(self.ctx)
