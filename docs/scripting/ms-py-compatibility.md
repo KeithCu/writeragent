@@ -56,7 +56,7 @@ Shipped in WriterAgent / LibrePy (Python Add-In, not in stock LibreOffice):
 - **Spill:** If auto-spill is on, multi-cell returns are written to adjacent cells via a **deferred timer** and a document property registry (`WriterAgentSpillRegistry`). This is **not** Calc dynamic-array spill; dependents of spilled cells do not automatically see engine-owned spill ranges.
 - **Sync on formula thread:** Recalc must not pump the UI event loop (re-entrancy → `#VALUE!`). Long work blocks the formula interpretation of that cell.
 
-Entry points: [`plugin/calc/python/addin.py`](../../plugin/calc/python/addin.py), [`function.py`](../../plugin/calc/python/function.py), [`venv_worker.py`](../../plugin/scripting/venv_worker.py). Design rationale: [../enabling_numpy_in_libreoffice.md §6–§7](../enabling_numpy_in_libreoffice.md).
+Entry points: [`plugin/calc/python/addin.py`](../../plugin/calc/python/addin.py), [`recalc.py`](../../plugin/calc/python/recalc.py), [`venv_worker.py`](../../plugin/scripting/venv_worker.py). Design rationale: [../enabling_numpy_in_libreoffice.md §6–§7](../enabling_numpy_in_libreoffice.md).
 
 ### 3.2 Stock LibreOffice core (tree at `~/Desktop/libreoffice`)
 
@@ -501,7 +501,7 @@ Registering a name is the easy 5%. Co-volatility, spill, and object cards are th
 - [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoffice.md) — shipped `=PY`, session modes, MS comparison table
 - [numpy-jailsafe.md](numpy-jailsafe.md) — Online compute service + core Add-In
 - [enabling_numpy §7 Calc UX backlog](../enabling_numpy_in_libreoffice.md#calc-ux-backlog) — object cards and related UX; explicitly out-of-scope: cloud / `xl()` as default
-- Implementation: `plugin/calc/python/function.py` (spill registry), `plugin/scripting/venv_worker.py`, [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) (OOXML Excel ↔ DAG rewriter)
+- Implementation: `plugin/calc/python/spill.py` (spill state on `WorkbookState`), `plugin/scripting/venv_worker.py`, [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) (OOXML Excel ↔ DAG rewriter)
 - Sample fidelity: [`scripts/roundtrip_excel_py_samples.py`](../../scripts/roundtrip_excel_py_samples.py) over [`PythonExcelSamples/`](../PythonExcelSamples/)
 
 ### Microsoft / independent analysis

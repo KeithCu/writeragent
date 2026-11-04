@@ -320,7 +320,7 @@ def _flush(ctx, doc, sheet) -> None:
 
 def _cold_kernel() -> None:
     """Drop this process's worker. Soffice's worker is a different process."""
-    from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.calc.python.recalc import clear_python_addin_cache
     from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
     shutdown_venv_workers_for_tests()
@@ -638,8 +638,9 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
     same ``perform_deferred_spill`` path as ``test_calc_spill_undo_lock``.
     """
     from plugin.calc.python.formula_locator_cache import is_matching_py_formula
-    from plugin.calc.python.function import _spill_registry_doc_key, perform_deferred_spill
+    from plugin.calc.python.spill import perform_deferred_spill
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
+    from plugin.calc.python.workbook_state import WorkbookState
     from plugin.framework.config import get_config
 
     assert get_config("scripting.python_auto_spill") is True
@@ -666,7 +667,9 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
 
         # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
         # be a saved file, and its URL would not match, so the spill would be skipped.
-        doc_url = _spill_registry_doc_key(doc)
+        st = WorkbookState.for_doc(doc)
+        assert st is not None
+        doc_url = st.key
         perform_deferred_spill(
             doc_url,
             sheet.Name,
