@@ -173,6 +173,17 @@ class WorkbookState:
     listeners: dict[str, Any] = field(default_factory=dict)  # sheet name -> dispatcher
     matrix: dict[tuple[Any, ...], "WorkerResultSession"] = field(default_factory=dict)
     debounce: Debounce = field(default_factory=Debounce)
+    prior_keys: set[str] = field(default_factory=set)
+
+    def scheduled_key_matches(self, scheduled: str) -> bool:
+        """True when *scheduled* is this workbook's current or superseded lifecycle id."""
+        if not scheduled:
+            return bool(self.key)
+        sk = scheduled
+        k = self.key
+        if k == sk or k == f"calc:{sk}" or f"calc:{k}" == sk:
+            return True
+        return sk in self.prior_keys
 
     def clear(self) -> None:
         """Drop this workbook's spills, listeners, matrix, and debounce timers."""
@@ -265,6 +276,7 @@ class WorkbookState:
             uid = get_runtime_uid(doc)
             if uid and uid != state.key:
                 old_key = state.key
+                state.prior_keys.add(old_key)
                 state.key = uid
                 from plugin.calc.python.workbook_lifecycle import rekey_listener
 

@@ -369,8 +369,6 @@ class CalcSpillModifyListener(BaseModifyListener):
         state = self._state
         if state is None and doc is not None:
             state = WorkbookState.for_doc(doc)
-        if state is not None and self.doc_key and not _proxy_keys_match(state.key, self.doc_key):
-            return
         cleanup_orphans(state, sheet, doc=doc, ctx=self.ctx, sheet_name=self.sheet_name)
 
 
@@ -486,11 +484,7 @@ def perform_deferred_spill(
         with _undo_lock(doc):
             scheduled = key or lifecycle_key
             if scheduled:
-                if (
-                    scheduled != state.key
-                    and scheduled != state.key.removeprefix("calc:")
-                    and f"calc:{scheduled}" != state.key
-                ):
+                if not state.scheduled_key_matches(scheduled):
                     return
             elif not state.key:
                 return
