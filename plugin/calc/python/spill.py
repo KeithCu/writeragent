@@ -4,6 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc spill array tracking, collision detection, and orphan cleanup."""
+# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 
@@ -28,7 +29,7 @@ from plugin.calc.python.addin_values import (
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc, search_sheet_for_formula
 from plugin.calc.python.undo import _undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
-from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.errors import uno_read
 from plugin.framework.uno_listeners import BaseModifyListener
 
 log = logging.getLogger(__name__)
@@ -359,9 +360,12 @@ class CalcSpillModifyListener(BaseModifyListener):
 
         doc = _owning_calc_doc(sheet)
         if doc is None and self.ctx is not None:
-            from plugin.calc.python.recalc import _get_calc_doc
+            from plugin.framework.queue_executor import main
 
-            doc = _get_calc_doc(self.ctx)
+            if main.is_current():
+                from plugin.calc.python.recalc import _get_calc_doc
+
+                doc = _get_calc_doc(self.ctx)
         state = self._state
         if state is None and doc is not None:
             state = WorkbookState.for_doc(doc)

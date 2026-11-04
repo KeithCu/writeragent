@@ -4,6 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Calc add-in value conversion, error mapping, and result coercion helpers."""
+# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 

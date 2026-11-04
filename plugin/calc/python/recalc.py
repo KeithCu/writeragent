@@ -4,6 +4,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 """=PY() recalculation, session caching, and add-in execution."""
+# pyright: reportUnusedFunction=false
 
 from __future__ import annotations
 

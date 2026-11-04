@@ -21,7 +21,6 @@ from plugin.calc.python.sheet_modify import (
     schedule_sheet_modify_pass,
 )
 from plugin.calc.python.spill import (
-    CalcSpillModifyListener,
     SHEET_MODIFY_LISTENERS,
     SPILL_REGISTRY,
     SpillCell,
