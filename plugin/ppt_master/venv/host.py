@@ -29,8 +29,7 @@ def run_ppt_master_venv_turn(
     model: str | None,
     session_id: str,
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    cancellation_scope: Any | None = None,
+    cancel: Any | None = None,
 ) -> dict[str, Any]:
     """Dispatch one sidebar turn to the venv ppt-master runner."""
     apply_data_root_env(uno_ctx)
@@ -53,12 +52,11 @@ def run_ppt_master_venv_turn(
         "max_tokens": get_config("chat_max_tokens"),
     }
 
-    # cancellation_scope is a host object (it registers the live LlmClient).
+    # cancel is a host object (it registers the live LlmClient).
     # It stays out of payload, which is pickled to the child.
     return manager.execute_ppt_master_turn(
         payload,
         timeout_sec=timeout_sec,
         on_worker_event=on_worker_event,
-        stop_checker=stop_checker,
-        cancellation_scope=cancellation_scope,
+        cancel=cancel,
     )

@@ -151,8 +151,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 data=py_data,
                 python_tool_domain=ctx.python_tool_domain,
                 script_session_id=script_session_id,
-                stop_checker=scope.is_cancelled if scope is not None else None,
-                cancellation_scope=scope,
+                cancel=scope,
             )
         finally:
             release_script_document(script_session_id)

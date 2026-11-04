@@ -154,12 +154,18 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
     busy_key = doc_key(doc)
 
     def _run() -> dict[str, Any]:
+        # Both Stop buttons run on the UI thread; this wait is pump_idle=False,
+        # so the per-doc Event cannot flip during the pipe wait — read it once here.
+        if _is_stop_requested(busy_key):
+            return {"status": "stopped", "message": "Stopped."}
+        from plugin.framework.send_cancellation import get_current_send_cancellation
+
         try:
             return run_code_in_user_venv(
                 code,
                 session_id=session_id,
                 script_session_id=script_session_id,
-                stop_checker=lambda: _is_stop_requested(busy_key),
+                cancel=get_current_send_cancellation(),
             )
         except Exception:
             if _is_stop_requested(busy_key):

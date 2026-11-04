@@ -186,12 +186,10 @@ def test_run_trusted_worker_action_resolves_cancellation_from_ctx() -> None:
     with patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": {"ok": True}}
         run_trusted_worker_action(ctx, domain="viz", session_id="s", timeout_sec=10)
-    assert mock_run.call_args.kwargs["cancellation_scope"] is scope
-    assert mock_run.call_args.kwargs["stop_checker"] is not None
-    assert mock_run.call_args.kwargs["stop_checker"]() is False
+    assert mock_run.call_args.kwargs["cancel"] is scope
 
 
-def test_run_trusted_worker_action_explicit_cancellation_scope_wins() -> None:
+def test_run_trusted_worker_action_explicit_cancel_wins() -> None:
     from plugin.framework.send_cancellation import SendCancellation
 
     ctx = MagicMock()
@@ -204,6 +202,6 @@ def test_run_trusted_worker_action_explicit_cancellation_scope_wins() -> None:
             domain="viz",
             session_id="s",
             timeout_sec=10,
-            cancellation_scope=explicit,
+            cancel=explicit,
         )
-    assert mock_run.call_args.kwargs["cancellation_scope"] is explicit
+    assert mock_run.call_args.kwargs["cancel"] is explicit

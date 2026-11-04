@@ -64,8 +64,8 @@ def _assert_graphics_named(doc: Any, names: list[str]) -> None:
 
 
 def _make_fake_run_vision(captured: list[tuple[str, str]], *, run_id: int = 0):
-    def fake_run_vision(_ctx: Any, spec: dict[str, Any], png_bytes: bytes, context: dict[str, Any] | None = None, stop_checker: Any = None):
-        del stop_checker  # production passes it; this fake does not abort
+    def fake_run_vision(_ctx: Any, spec: dict[str, Any], png_bytes: bytes, context: dict[str, Any] | None = None, cancel: Any = None):
+        del cancel  # production passes it; this fake does not abort
         params = spec.get("params") if isinstance(spec, dict) else {}
         image_name = str((params or {}).get("image_name") or "")
         if not image_name and context:
@@ -90,7 +90,7 @@ def _make_fake_run_vision(captured: list[tuple[str, str]], *, run_id: int = 0):
 def _make_failing_run_vision_on_image(fail_image_name: str, captured: list[tuple[str, str]]):
     ok = _make_fake_run_vision(captured)
 
-    def fake_run_vision(_ctx: Any, spec: dict[str, Any], png_bytes: bytes, context: dict[str, Any] | None = None, stop_checker: Any = None):
+    def fake_run_vision(_ctx: Any, spec: dict[str, Any], png_bytes: bytes, context: dict[str, Any] | None = None, cancel: Any = None):
         params = spec.get("params") if isinstance(spec, dict) else {}
         image_name = str((params or {}).get("image_name") or "")
         if not image_name and context:
@@ -103,7 +103,7 @@ def _make_failing_run_vision_on_image(fail_image_name: str, captured: list[tuple
                 "helper": "extract_text",
                 "message": f"mock OCR failed for {image_name}",
             }
-        return ok(_ctx, spec, png_bytes, context, stop_checker=stop_checker)
+        return ok(_ctx, spec, png_bytes, context, cancel=cancel)
 
     return fake_run_vision
 
@@ -129,33 +129,28 @@ def _run_mock_ocr_expect_fail(ctx: Any, doc: Any, *, fail_image_name: str) -> tu
 
 
 def _run_mock_ocr_with_stop(ctx: Any, doc: Any, *, stop_after_image_name: str) -> tuple[dict[str, Any], list[tuple[str, str]]]:
-    """OCR with a plain stop flag. Never assign stop state onto the UNO ctx.
+    """OCR with cancel on the send scope after one image completes."""
+    from plugin.framework.send_cancellation import SendCancellation
 
-    The flag flips after the named image's OCR returns. ``run_and_insert`` still
-    inserts that finished result, then the next image sees the flag and aborts.
-    """
     captured: list[tuple[str, str]] = []
     original_ok = _make_fake_run_vision(captured)
-    stopped = False
+    scope = SendCancellation()
 
-    def fake_run_vision_with_stop(_ctx: Any, spec: dict[str, Any], png_bytes: bytes, context: dict[str, Any] | None = None, stop_checker: Any = None):
-        nonlocal stopped
-        res = original_ok(_ctx, spec, png_bytes, context, stop_checker=stop_checker)
+    def fake_run_vision_with_stop(_ctx: Any, spec: dict[str, Any], png_bytes: bytes, context: dict[str, Any] | None = None, cancel: Any = None):
+        del cancel
+        res = original_ok(_ctx, spec, png_bytes, context, cancel=None)
         image_name = context.get("image_name") if context else None
         if not image_name and context and context.get("source") == "graphic_name":
             params = spec.get("params") if isinstance(spec, dict) else {}
             image_name = (params or {}).get("image_name")
 
         if image_name == stop_after_image_name:
-            stopped = True
+            scope.cancel()
 
         return res
 
-    def stop_checker() -> bool:
-        return stopped
-
     with patch("plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision_with_stop):
-        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", params={}, stop_checker=stop_checker)
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", params={}, cancel=scope)
     return result, captured
 
 
@@ -371,18 +366,17 @@ def test_mock_ocr_multi_select_reverse_click_order(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
-def test_mock_ocr_stop_checker_aborts_without_insert(ctx, doc):
-    """If stop_checker returns True, run_and_insert_vision_for_selection returns USER_STOPPED.
-
-    The checker is passed in. A UNO ctx rejects unknown attributes, so this does
-    not assign ``stop_checker`` onto ``ctx``.
-    """
+def test_mock_ocr_cancel_aborts_without_insert(ctx, doc):
+    """If cancel is set, run_and_insert_vision_for_selection returns USER_STOPPED."""
+    from plugin.framework.send_cancellation import SendCancellation
     from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 
+    scope = SendCancellation()
+    scope.cancel()
     fixture = _build_labeled_fixture(ctx, doc, image_count=2)
     try:
         _select_whole_document(doc)
-        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", stop_checker=lambda: True)
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_structure", cancel=scope)
         assert result.get("status") == "error"
         assert result.get("code") == "USER_STOPPED"
         body = doc.getText().getString()
@@ -431,7 +425,7 @@ def test_mock_ocr_mid_loop_failure_continues_with_remaining_images(ctx, doc):
 def test_mock_ocr_stop_prevents_insert(ctx, doc):
     """Stop flipped during the first OCR still inserts that result; the next image is not started.
 
-    The flag is a plain local, passed as ``stop_checker``. It is not stored on the UNO ctx.
+    The scope is host-side only; it is not stored on the UNO ctx.
     """
     fixture = _build_labeled_fixture(ctx, doc, image_count=2)
     stop_name = fixture["names"][0]
