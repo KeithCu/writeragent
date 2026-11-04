@@ -961,15 +961,14 @@ def test_main_bootstrap_job_trigger_extend_selection_none_model():
 
 
 def test_main_bootstrap_job_trigger_test_types_and_noop():
-    """TestTypes is ignored and does not dispatch; NoOp still dispatches."""
+    """Bare TestTypes and NoOp no longer dispatch; dotted commands still do."""
     job = main.MainBootstrapJob(MagicMock())
     with patch("plugin.app.dispatch_command") as mock_disp:
-        # TestTypes is no longer recognized as framework action
         job.trigger("TestTypes")
+        job.trigger("NoOp")
         mock_disp.assert_not_called()
 
-        # NoOp is recognized and dispatched
-        job.trigger("NoOp")
+        job.trigger("main.NoOp")
         mock_disp.assert_called_once_with("main.NoOp")
 
 

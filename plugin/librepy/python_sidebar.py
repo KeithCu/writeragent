@@ -591,31 +591,20 @@ class PythonSidebarController:
         if doc is not None:
             navigate_to_cell(doc, self.ctx, entry.address)
 
-    def _run_action(self, command: str, fallback: Callable[[], None]) -> None:
+    def _run_action(self, command: str) -> None:
         handler = get_action_handler(command)
-        if handler:
-            invoke_action_handler(handler, command=command)
+        if handler is None:
+            log.info("No handler registered for %s", command)
             return
-        fallback()
+        invoke_action_handler(handler, frame=self.frame, command=command)
 
     def _on_edit_cell(self) -> None:
         # Prefer selecting the highlighted cell first.
         self._on_cell_selected()
-
-        def _fallback() -> None:
-            from plugin.calc.python.editor import open_python_cell_editor
-
-            open_python_cell_editor(self.ctx)
-
-        self._run_action("scripting.edit_python_cell", _fallback)
+        self._run_action("scripting.edit_python_cell")
 
     def _on_run_script(self) -> None:
-        def _fallback() -> None:
-            from plugin.scripting.python_runner import run_python_dialog
-
-            run_python_dialog(self.ctx)
-
-        self._run_action("scripting.run_python_dialog", _fallback)
+        self._run_action("scripting.run_python_dialog")
 
     def _on_edit_init(self) -> None:
         from plugin.calc.python.init_script_editor import open_init_script_editor
@@ -623,25 +612,11 @@ class PythonSidebarController:
         open_init_script_editor(self.ctx)
 
     def _on_reset(self) -> None:
-        def _fallback() -> None:
-            from plugin.scripting.session_manager import reset_workbook_python_session
-
-            reset_workbook_python_session(self.ctx)
-
-        self._run_action("scripting.reset_python_session", _fallback)
+        self._run_action("scripting.reset_python_session")
         self.refresh()
 
     def _on_settings(self) -> None:
-        def _fallback() -> None:
-            try:
-                from plugin.framework.main_shared import open_dialog_safely
-                from plugin.librepy.settings import open_librepy_settings
-
-                open_dialog_safely(open_librepy_settings, "Failed to open settings")
-            except Exception:
-                log.debug("open settings failed", exc_info=True)
-
-        self._run_action("main.settings", _fallback)
+        self._run_action("main.settings")
 
 
 class _Action(BaseActionListener):

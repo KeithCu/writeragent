@@ -10,6 +10,7 @@ import sys
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import SendCancellation
 
 
 class TestGuardUnoBoundaries:
@@ -78,7 +79,7 @@ class TestGuardUnoBoundaries:
             patch("plugin.mcp.mcp_protocol._resolve_mcp_doc_key", return_value="key"),
             patch("plugin.mcp.document_mutation_gate._document_mutation_gate"),
         ):
-            handler._run_tool("noop", {}, document_url=None)
+            handler._run_tool("noop", {}, document_url=None, cancel=SendCancellation())
 
         mock_get_ctx.assert_called()
 
