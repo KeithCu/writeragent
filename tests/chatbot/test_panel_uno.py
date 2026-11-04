@@ -60,19 +60,16 @@ class TestChatModelLogic(unittest.TestCase):
 
         # Save and restore sys.modules to prevent pollution
         self._module_patcher = patch.dict('sys.modules', {
-            'plugin.main': MagicMock(),
             'plugin.framework.config': MagicMock()
         })
         self._module_patcher.start()
-        
-        from plugin.main import get_tools
-        get_tools.return_value = MagicMock()
 
-        self.listener = SendButtonListener(
-            self.ctx, self.frame, self.send_control, self.stop_control,
-            self.query_control, self.response_control, self.image_model_selector,
-            self.model_selector, self.status_control, self.session
-        )
+        with patch("plugin.app.get_tools", return_value=MagicMock()):
+            self.listener = SendButtonListener(
+                self.ctx, self.frame, self.send_control, self.stop_control,
+                self.query_control, self.response_control, self.image_model_selector,
+                self.model_selector, self.status_control, self.session
+            )
 
     def tearDown(self):
         self._module_patcher.stop()

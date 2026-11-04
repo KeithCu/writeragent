@@ -1077,9 +1077,9 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
 
 
 def _terminate_listener_installed() -> bool:
-    import plugin.main as plugin_main
+    import plugin.app as app
 
-    return getattr(plugin_main, "_terminate_listener", None) is not None
+    return app._terminate_listener is not None
 
 
 def _read_debug_snapshot() -> dict[str, Any]:
@@ -1271,9 +1271,9 @@ def handle_debug_sidebar_command(command: str) -> None:
     # Packet M8: run the real XTerminateListener.notifyTermination that File > Exit
     # triggers, without quitting soffice (that would end the whole test run).
     if op == "SIMULATE_TERMINATION":
-        import plugin.main as plugin_main
+        import plugin.app as app
 
-        listener = plugin_main._terminate_listener
+        listener = app._terminate_listener
         if listener is None:
             log.warning("debug_sidebar SIMULATE_TERMINATION: no terminate listener installed")
         else:

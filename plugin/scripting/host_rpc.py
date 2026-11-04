@@ -355,7 +355,7 @@ def execute_tool(
             from plugin.framework.doc_type import is_calc, is_draw, is_writer
             from plugin.framework.tool import ToolContext
             from plugin.framework.uno_context import get_ctx
-            from plugin.main import get_tools
+            from plugin.app import get_tools
         except ImportError as exc:
             raise RuntimeError(
                 "Document tool RPC is not available in this extension build."

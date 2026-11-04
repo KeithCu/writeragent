@@ -182,7 +182,7 @@ For fast CI tests where LibreOffice is not running:
 Thread routing is owned by `MainThread` (`plugin/framework/queue_executor.py`), governed by four explicit policies:
 - `Policy.production`: Standard runtime policy. Only the marshal thread inlines UNO; worker threads marshal via `AsyncCallback`. Pytest defaults to `Policy.production` (reset after each test in `conftest.py`).
 - `Policy.eval_harness`: Headless eval / benchmark suite (`scripts/run_eval.py`, `tools_lo.py`). Disables `AsyncCallback` so UNO stays exclusively on the designated `_lo_thread`.
-- `Policy.test_inline`: Fast inlined execution on untagged threads without `AsyncCallback`. Installed in `testing_runner.py` and `plugin.main.bootstrap` (via `WRITERAGENT_TESTING=1`); unit tests opt in explicitly with `main.install(Policy.test_inline)`.
+- `Policy.test_inline`: Fast inlined execution on untagged threads without `AsyncCallback`. Installed in `testing_runner.py` and `plugin.app.bootstrap` (via `WRITERAGENT_TESTING=1`); unit tests opt in explicitly with `main.install(Policy.test_inline)`.
 - `Policy.test_marshal`: Thread-affinity testing (`tests/framework/thread_safety.py`). Forces queueing to synthetic test pump threads even during tests.
 
 ---

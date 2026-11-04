@@ -66,7 +66,7 @@ tweaks. Those amplify a metric that is still too easy and too fake.
 - A Python LibreOffice or a formula engine that computes `=B2*0.08`.
 - Requiring a golden tool name for Writer table/cleanup tasks
   (`write_table_cells` traces are not coming back).
-- Bootstrapping `plugin.main.get_tools()` inside string eval (needs
+- Bootstrapping `plugin.app.get_tools()` inside string eval (needs
   services / UNO). Schemas come from tool **classes**.
 
 ## Target picture
@@ -201,7 +201,7 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
 ### Schemas
 
 `build_eval_tool_schemas()` uses a headless `ToolRegistry` (Writer/Calc/Draw
-+ Chatbot modules, no `plugin.main.bootstrap`) and
++ Chatbot modules, no `plugin.app.bootstrap`) and
 `get_schemas("openai", doc_type=kind)` — the same filter as sidebar
 (`tool_loop.py`). Specialized tools stay off the list; Draw
 `shape_upsert` / Calc `sort_range` are advertised only via

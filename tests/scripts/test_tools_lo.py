@@ -35,7 +35,36 @@ def _boot(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
     mock_desktop = MagicMock(name="desktop")
     mock_ctx.getServiceManager.return_value.createInstanceWithContext.return_value = mock_desktop
     monkeypatch.setattr(tl, "_bootstrap_headless", lambda: mock_ctx)
-    monkeypatch.setattr("plugin.main.bootstrap", lambda ctx: None)
+    monkeypatch.setattr(
+        "plugin.framework.queue_executor.MainThread.on_python_main_thread",
+        lambda: True,
+    )
+
+    def _stub_bootstrap_extension(
+        ctx: Any,
+        *,
+        extension_id: str,
+        register_prompt_hooks: Any = None,
+        finish: Any,
+    ) -> None:
+        import plugin.app as app
+        import plugin.bootstrap as bootstrap
+        from plugin.bootstrap import BootstrapState
+
+        if bootstrap._bootstrap_state is BootstrapState.INITIALIZED:
+            return
+        bootstrap._bootstrap_state = BootstrapState.BOOTSTRAPPING
+        try:
+            if register_prompt_hooks is not None:
+                register_prompt_hooks()
+            app._services = MagicMock(name="services")
+            app._tools = MagicMock(name="tools")
+            bootstrap._bootstrap_state = BootstrapState.INITIALIZED
+        finally:
+            if bootstrap._bootstrap_state is BootstrapState.BOOTSTRAPPING:
+                bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
+
+    monkeypatch.setattr("plugin.bootstrap.bootstrap_extension", _stub_bootstrap_extension)
     tl.LOBackend.start()
     return mock_ctx, mock_desktop
 

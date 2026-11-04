@@ -191,7 +191,7 @@ def main() -> int:
         print("ERROR: officehelper.bootstrap() returned None.", file=sys.stderr)
         return 1
 
-    # Full plugin.main.bootstrap() is not invoked here: it can segfault in a
+    # Full plugin.app.bootstrap() is not invoked here: it can segfault in a
     # headless officehelper session. The PY Calc add-in registers via extension
     # XCU independently; preflight below verifies it is available.
     print("Checking PY add-in registration...")

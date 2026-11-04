@@ -2335,8 +2335,8 @@ def test_testing_factory_execute_tool_unknown_name():
     fake_tools = MagicMock()
     fake_tools.execute.side_effect = KeyError("bad_tool")
     with (
-        patch("plugin.main.get_tools", return_value=fake_tools),
-        patch("plugin.main.get_services", return_value={}),
+        patch("plugin.app.get_tools", return_value=fake_tools),
+        patch("plugin.app.get_services", return_value={}),
     ):
         res = TestingFactory.execute_tool(doc, ctx, "bad_tool", {}, doc_type="calc")
     assert res["status"] == "error"

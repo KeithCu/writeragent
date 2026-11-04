@@ -28,7 +28,7 @@ Topic docs: [docs/calc/prompt-function.md](../../docs/calc/prompt-function.md),
 - Nested specialized sets use `specialized` / `specialized_control` and are omitted from default main-chat lists. Callers use `delegate_to_specialized_calc_toolset`.
 - `plugin/scripting/venv/calc_functions_*.py` alphabet splits are intentional; do not merge them.
 - `float(...)` inside `=PYTHON("...")` formula strings → Calc lexer `#NAME?`. Use code-in-cell or bare `np.sum` (see enabling-numpy doc).
-- In tests, resolve tools with `plugin.main.get_tools().get("tool_name")`.
+- In tests, resolve tools with `plugin.app.get_tools().get("tool_name")`.
 - Sheet names starting with `_` (xlsx→ods `__Anonymous_Sheet_DB__*`, etc.) stay in the workbook. Omit them from agent-facing lists (`list_sheets`, `get_sheet_summary`, chat context, `named_range_list(scope="all")`, unqualified named-range fallback). Do **not** delete them at trial/document open (parked).
 - Named-range rename must reject names `ScRangeData::IsNameValid` would reject (`A1`, dots, leading digits, spaces) before `setName`. `addNewByName` already validates; `setName` does not. A bare name in `named_range_get_info`, `named_range_edit`, and `named_range_delete` prefers the active sheet's local range over a same-spelled global name. Explicit `scope="global"` or a sheet name still forces that container. `query_folder_sql` and `CalcBridge.resolve_range_or_address` use `find_named_range` in this order.
 - A missing sheet name is `CalcBridge.get_sheet`'s `UnoObjectError`: `No sheet named '…'. Available: …`. `get_active_sheet` raises `UnoObjectError` for a non-spreadsheet or sheet-less document.

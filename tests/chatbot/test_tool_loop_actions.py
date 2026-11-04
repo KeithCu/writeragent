@@ -1,7 +1,5 @@
 import queue
-import sys
 import threading
-import types
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -404,18 +402,14 @@ def _install_fake_main_registry():
     """Avoid importing plugin.main (UNO-heavy). execute_fn does a local get_tools import."""
     registry = MagicMock()
     registry.execute.return_value = {"status": "ok"}
-    fake_main = types.ModuleType("plugin.main")
-    fake_main.get_tools = MagicMock(return_value=registry)
-    old_main = sys.modules.pop("plugin.main", None)
-    sys.modules["plugin.main"] = fake_main
-    return registry, old_main
+    patcher = patch("plugin.app.get_tools", MagicMock(return_value=registry))
+    patcher.start()
+    return registry, patcher
 
 
-def _restore_main(old_main):
-    if old_main is not None:
-        sys.modules["plugin.main"] = old_main
-    else:
-        sys.modules.pop("plugin.main", None)
+def _restore_main(patcher):
+    if patcher is not None:
+        patcher.stop()
 
 
 def test_sync_tool_returns_before_the_tool_finishes():
@@ -683,10 +677,6 @@ def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
     host = FakeHost()
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     args = {"bypass_thread_guard": bypass, "note": "keep"}
-    fake_main = types.ModuleType("plugin.main")
-    fake_main.get_tools = lambda: reg  # type: ignore[attr-defined]
-    old_main = sys.modules.get("plugin.main")
-    sys.modules["plugin.main"] = fake_main
     box: dict = {}
 
     def fake_marshal(fn):
@@ -696,13 +686,11 @@ def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
     def worker():
         box["out"] = execute_fn("sync_probe", args, None, MagicMock())
 
-    try:
+    with patch("plugin.app.get_tools", lambda: reg):
         with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
             thread = threading.Thread(target=worker, name="tool-sync-probe")
             thread.start()
             thread.join()
-    finally:
-        _restore_main(old_main)
 
     assert args == {"bypass_thread_guard": bypass, "note": "keep"}
     assert reg.seen == (False, {"note": "keep"})

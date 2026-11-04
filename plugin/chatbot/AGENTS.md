@@ -54,4 +54,4 @@ Topic docs: [docs/chat/sidebar-implementation.md](../../docs/chat/sidebar-implem
 - Mode-UI wiring can fail. `_wireControls` must still hand `_wire_buttons` a `SidebarModeFlags`, never `None`. A `None` used to raise inside the Send/Stop `try`, and that `except` left Send and Stop unwired.
 - Load XDL with `DialogProvider` and the extension `base_url` (see `dialogs` module doc). Settings UI is in `dialog_views`.
 - Do **not** merge smol/librarian with the main chat FSM. Smol must use `WriterAgentSmolModel` → `LlmClient.request_with_tools` — no second HTTP client.
-- In tests, resolve tools with `plugin.main.get_tools().get("tool_name")`.
+- In tests, resolve tools with `plugin.app.get_tools().get("tool_name")`.

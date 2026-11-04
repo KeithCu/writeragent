@@ -391,7 +391,7 @@ def test_save_one_write_one_emit_and_validation_writes_nothing(tmp_path):
         reset_config_for_tests()
 
 
-def test_call_options_provider_skips_plugin_main_when_absent():
+def test_call_options_provider_skips_services_when_app_get_services_missing():
     import sys
     import types
 
@@ -405,7 +405,8 @@ def test_call_options_provider_skips_plugin_main_when_absent():
 
     fake = types.ModuleType("wa_librepy_opts")
     fake.provide = provide
-    with patch.dict(sys.modules, {"plugin.main": None, "wa_librepy_opts": fake}):
+    stub_app = types.ModuleType("plugin.app")
+    with patch.dict(sys.modules, {"plugin.app": stub_app, "wa_librepy_opts": fake}):
         out = call_options_provider("wa_librepy_opts:provide")
     assert out == ["ok"]
     assert seen == [None]
@@ -438,7 +439,7 @@ def test_build_module_field_specs_voice_options_come_from_catalog():
         patch("plugin.chatbot.settings_fields.get_config", side_effect=_cfg),
         patch("plugin.framework.config.get_config", side_effect=_cfg),
         patch("plugin.framework.i18n.get_active_locale", return_value="de_DE"),
-        patch("plugin.main.get_services", return_value=None),
+        patch("plugin.app.get_services", return_value=None),
     ):
         specs = build_module_field_specs("audio", ctx=object(), control_ids="prefixed")
 
@@ -464,7 +465,7 @@ def test_build_module_field_specs_options_provider_falls_back_to_yaml():
     with (
         patch("plugin._manifest.MODULES", [manifest]),
         patch("plugin.chatbot.settings_fields.get_config", return_value="default"),
-        patch("plugin.main.get_services", return_value=None),
+        patch("plugin.app.get_services", return_value=None),
     ):
         specs = build_module_field_specs("audio", ctx=object(), control_ids="flat")
 

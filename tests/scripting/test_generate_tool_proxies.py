@@ -500,7 +500,7 @@ class _DummyRegistry:
 def test_main_fails_closed_on_empty_registry(monkeypatch, tmp_path):
     from scripts import generate_tool_proxies
 
-    monkeypatch.setattr("plugin.main.get_tools", lambda: _DummyRegistry([]))
+    monkeypatch.setattr("plugin.app.get_tools", lambda: _DummyRegistry([]))
     out_file = tmp_path / "writeragent_api.py"
     with pytest.raises(SystemExit) as exc_info:
         generate_tool_proxies.main(["--output", str(out_file)])
@@ -512,7 +512,7 @@ def test_main_fails_closed_when_core_missing_list_open_documents(monkeypatch, tm
     from scripts import generate_tool_proxies
 
     dummy_tool = _as_tool(MockTool("dummy_tool", "desc", {}, specialized_domain="footnotes"))
-    monkeypatch.setattr("plugin.main.get_tools", lambda: _DummyRegistry([dummy_tool]))
+    monkeypatch.setattr("plugin.app.get_tools", lambda: _DummyRegistry([dummy_tool]))
     out_file = tmp_path / "writeragent_api.py"
     with pytest.raises(SystemExit) as exc_info:
         generate_tool_proxies.main(["--output", str(out_file)])

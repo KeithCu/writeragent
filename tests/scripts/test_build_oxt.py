@@ -385,7 +385,7 @@ def test_always_include_plugin_ships_top_level_py_modules():
     from scripts.build_oxt import get_always_include_plugin
 
     includes = set(get_always_include_plugin(PROJECT_ROOT))
-    for name in ("bootstrap.py", "menu_state.py", "menu_handlers.py", "bootstrap_ui_hooks.py"):
+    for name in ("bootstrap.py", "app.py", "menu_state.py", "menu_handlers.py", "bootstrap_ui_hooks.py"):
         assert f"plugin/{name}" in includes
     assert "plugin/main_core.py" not in includes
     assert "plugin/testing_runner.py" not in includes

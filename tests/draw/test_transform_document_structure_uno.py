@@ -13,7 +13,7 @@ from plugin.tests.testing_utils import with_native_doc
 
 
 def _exec_transform(doc, ctx, **args):
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.draw.transform import TransformDocumentStructure
     from plugin.framework.tool import ToolContext
 
