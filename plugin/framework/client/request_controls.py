@@ -439,6 +439,39 @@ class RetryBudget:
     def note_emitted(self) -> None:
         self.emitted_any = True
 
+    def begin_exchange_attempt(self) -> None:
+        self.body_in_hand = False
+        self.attempt_charged = False
+
+    def record_http_status_attempt(self) -> int:
+        """Non-200 status on exchange or stream consumed one send attempt."""
+        self.sends_left -= 1
+        self.attempt_charged = True
+        return RETRY_MAX_ATTEMPTS - self.sends_left
+
+    def record_body_in_hand(self) -> None:
+        self.body_in_hand = True
+
+    def clear_pacing_gap_when_unspent(self, model: str | None) -> None:
+        if self.sends_left == RETRY_MAX_ATTEMPTS:
+            clear_host_gap(self._transport.pacing_key_for_model(model))
+
+    def begin_stream_send(self) -> None:
+        self.attempt_charged = False
+
+    def record_stream_overload_attempt(self) -> int:
+        self.sends_left -= 1
+        return RETRY_MAX_ATTEMPTS - self.sends_left
+
+    def exchange_connection_fatal(self) -> bool:
+        return self.body_in_hand
+
+    def exchange_connection_attempt_charged(self) -> bool:
+        return self.attempt_charged
+
+    def stream_connection_fatal(self) -> bool:
+        return self.emitted_any
+
     def rejected_effort(self, exc: BaseException) -> bool:
         details = getattr(exc, "details", None)
         return (
@@ -548,100 +581,6 @@ class RetryBudget:
             if action == "stop":
                 raise stopped_error()
             return value
-
-    def run_stream(
-        self,
-        method: str,
-        path: str,
-        body: Any,
-        headers: dict[str, str],
-        consume: Callable[[Any], str | None],
-        *,
-        wire_secrets: list[str] | None = None,
-    ) -> str | None:
-        """Wrapper around run_with_retries for SSE streaming responses."""
-        from plugin.framework.errors import NetworkError
-
-        transport = self._transport
-        cancel = self._cancel
-        current_model: str | None = None
-
-        def on_connection_error(err: Exception) -> tuple[str, Any]:
-            return self.connection_outcome(
-                err,
-                fatal=self.emitted_any,
-                attempt_charged=self.attempt_charged,
-                secrets=None,
-                path=path,
-                model=current_model,
-                retry_log_message="Retrying streaming request on fresh connection",
-                close_on_fatal=True,
-            )
-
-        def dispatch(current_body: Any) -> tuple[str, Any]:
-            nonlocal current_model
-            if self.stopped():
-                transport.close()
-                return "stop", None
-
-            current_model = request_model_from_body(current_body)
-            self.attempt_charged = False
-
-            response = transport.send(
-                method,
-                path,
-                current_body,
-                headers,
-                cancel=cancel,
-                status_callback=self._status_callback,
-            )
-            if response.status != 200:
-                self.sends_left -= 1
-                self.attempt_charged = True
-                attempt = RETRY_MAX_ATTEMPTS - self.sends_left
-                action = transport.handle_http_status(
-                    response,
-                    request_body=current_body,
-                    path=path,
-                    retries_left=self.sends_left,
-                    emitted_any=self.emitted_any,
-                    cancel=cancel,
-                    status_callback=self._status_callback,
-                    attempt=attempt,
-                    secrets=wire_secrets,
-                    observe_http_error=None,
-                )
-                if action == "stop":
-                    return "stop", None
-                return "again", current_body
-
-            if self.sends_left == RETRY_MAX_ATTEMPTS:
-                clear_host_gap(transport.pacing_key_for_model(current_model))
-
-            try:
-                res = consume(response)
-                return "done", res
-            except StreamOverload:
-                if self.emitted_any or self.sends_left <= 0:
-                    raise
-                self.sends_left -= 1
-                attempt = RETRY_MAX_ATTEMPTS - self.sends_left
-                delay = backoff_delay_sec(attempt=attempt)
-                remember_host_gap(
-                    transport.pacing_key_for_model(current_model),
-                    delay,
-                )
-                emit_retry_status(self._status_callback, delay)
-                if not wait_abortable(delay, cancel):
-                    return "stop", None
-                return "again", current_body
-
-        try:
-            return self.run_with_retries(body, dispatch, on_connection_error)
-        except NetworkError as exc:
-            if getattr(exc, "code", None) == "STOPPED":
-                return "stop"
-            raise
 
 
 class RequestPacer:

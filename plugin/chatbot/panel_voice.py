@@ -17,7 +17,7 @@ from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.config import get_api_config
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.send_cancellation import capture_send_stop, is_cancelled
+from plugin.framework.send_cancellation import is_cancelled
 from plugin.chatbot.tool_loop_actions import assign_send_outcome, send_outcome_is_stopped, send_outcome_terminal_display
 
 log = logging.getLogger(__name__)
@@ -322,7 +322,8 @@ class PanelVoiceController:
     def _transcribe_audio(self, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread.
 
-        ``capture_send_stop`` freezes the scope from this send (``capture_send_stop(self._panel._send_cancellation)``), and the
+        The send-scoped checker is taken from ``self._panel._send_cancellation`` on this
+        thread before blocking work, and the
         checker is read once more after the transcript returns. Without
         that checker, ``run_blocking_in_thread`` pumps the UI, so Stop can
         cancel the send scope and a nested send can replace
@@ -354,7 +355,8 @@ class PanelVoiceController:
         try:
             # Spawn-time scope. Do not read _send_cancellation inside the
             # worker: Stop's drain clears the field and the next send replaces it.
-            cancel_scope = capture_send_stop(self._panel._send_cancellation)
+            # Send thread, before run_blocking_in_thread; do not re-read _send_cancellation in the worker.
+            cancel_scope = self._panel._send_cancellation
             if is_cancelled(cancel_scope):
                 assign_send_outcome(self._panel, "stopped")
                 return ""

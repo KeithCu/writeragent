@@ -43,10 +43,10 @@ from . import http_security
 from .errors import RETRYABLE_HTTP_STATUS, format_http_error_response
 from .provider_detection import is_openrouter_endpoint
 from .request_controls import (
-    RETRY_MAX_ATTEMPTS,
     RETRY_MAX_DELAY_SEC,
     RequestPacer,
     RetryBudget,
+    StreamOverload,
     backoff_delay_sec,
     clear_host_gap,
     emit_retry_status,
@@ -445,6 +445,7 @@ class LlmHttpTransport:
 
         This method owns redirect handling and response reads;
         :meth:`RetryBudget.run_with_retries` only sequences attempts.
+        Streaming uses :meth:`stream` on the same transport with the same split.
         """
         budget = RetryBudget(
             self,
@@ -461,8 +462,8 @@ class LlmHttpTransport:
         def on_connection_error(err: Exception) -> tuple[str, Any]:
             return budget.connection_outcome(
                 err,
-                fatal=budget.body_in_hand,
-                attempt_charged=budget.attempt_charged,
+                fatal=budget.exchange_connection_fatal(),
+                attempt_charged=budget.exchange_connection_attempt_charged(),
                 secrets=wire_secrets,
                 path=path,
                 model=current_model,
@@ -478,8 +479,7 @@ class LlmHttpTransport:
                 http_security.secrets_from_headers(wire_headers),
                 http_security.secrets_from_target(path),
             )
-            budget.body_in_hand = False
-            budget.attempt_charged = False
+            budget.begin_exchange_attempt()
 
             self._raise_if_stopped(cancel)
             # A custom sender is bound to the caller's connection. After a
@@ -496,13 +496,13 @@ class LlmHttpTransport:
                     status_callback=status_callback,
                 )
             status = int(getattr(response, "status", 0) or 0)
-            if status in http_security._REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
+            if status in http_security.REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
                 # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
                 # catalogs, and update checks follow Location. One hop
                 # rewrites method/body, then loops. The retry budget is
                 # for 429/503, not for a redirect the server asked for.
                 current_url = self._absolute_url(path)
-                hop = http_security._apply_redirect(
+                hop = http_security.apply_redirect(
                     method,
                     current_body,
                     wire_headers,
@@ -524,8 +524,7 @@ class LlmHttpTransport:
                     return "again", new_body
 
             if status != 200:
-                budget.sends_left -= 1
-                budget.attempt_charged = True
+                attempt = budget.record_http_status_attempt()
                 action = self.handle_http_status(
                     response,
                     request_body=current_body,
@@ -534,7 +533,7 @@ class LlmHttpTransport:
                     emitted_any=False,
                     cancel=cancel,
                     status_callback=status_callback,
-                    attempt=RETRY_MAX_ATTEMPTS - budget.sends_left,
+                    attempt=attempt,
                     secrets=wire_secrets,
                     observe_http_error=observe_http_error,
                 )
@@ -544,13 +543,12 @@ class LlmHttpTransport:
                     on_retry()
                 return "again", current_body
 
-            if budget.sends_left == RETRY_MAX_ATTEMPTS:
-                clear_host_gap(self.pacing_key_for_model(current_model))
+            budget.clear_pacing_gap_when_unspent(current_model)
             if max_bytes is not None:
                 raw = self._read_bounded_response(response, max_bytes=max_bytes, cancel=cancel)
             else:
                 raw = response.read()
-            budget.body_in_hand = True
+            budget.record_body_in_hand()
             if after_read is not None:
                 after_read(response)
             parsed = parse_strict_json(raw) if parse_json else None
@@ -567,6 +565,97 @@ class LlmHttpTransport:
             if self._redirect_origin is not None:
                 self._redirect_origin = None
                 self.close()
+
+    def stream(
+        self,
+        budget: RetryBudget,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        consume: Callable[[Any], str | None],
+        *,
+        cancel: SendCancellation | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        wire_secrets: list[str] | None = None,
+    ) -> str | None:
+        """SSE streaming with the shared retry loop; dispatch lives on the transport like ``exchange``."""
+        from plugin.framework.errors import NetworkError
+
+        current_model: str | None = None
+
+        def on_connection_error(err: Exception) -> tuple[str, Any]:
+            return budget.connection_outcome(
+                err,
+                fatal=budget.stream_connection_fatal(),
+                attempt_charged=budget.exchange_connection_attempt_charged(),
+                secrets=None,
+                path=path,
+                model=current_model,
+                retry_log_message="Retrying streaming request on fresh connection",
+                close_on_fatal=True,
+            )
+
+        def dispatch(current_body: Any) -> tuple[str, Any]:
+            nonlocal current_model
+            if budget.stopped():
+                self.close()
+                return "stop", None
+
+            current_model = request_model_from_body(current_body)
+            budget.begin_stream_send()
+
+            response = self.send(
+                method,
+                path,
+                current_body,
+                headers,
+                cancel=cancel,
+                status_callback=status_callback,
+            )
+            if response.status != 200:
+                attempt = budget.record_http_status_attempt()
+                action = self.handle_http_status(
+                    response,
+                    request_body=current_body,
+                    path=path,
+                    retries_left=budget.sends_left,
+                    emitted_any=budget.emitted_any,
+                    cancel=cancel,
+                    status_callback=status_callback,
+                    attempt=attempt,
+                    secrets=wire_secrets,
+                    observe_http_error=None,
+                )
+                if action == "stop":
+                    return "stop", None
+                return "again", current_body
+
+            budget.clear_pacing_gap_when_unspent(current_model)
+
+            try:
+                res = consume(response)
+                return "done", res
+            except StreamOverload:
+                if budget.emitted_any or budget.sends_left <= 0:
+                    raise
+                attempt = budget.record_stream_overload_attempt()
+                delay = backoff_delay_sec(attempt=attempt)
+                remember_host_gap(
+                    self.pacing_key_for_model(current_model),
+                    delay,
+                )
+                emit_retry_status(status_callback, delay)
+                if not wait_abortable(delay, cancel):
+                    return "stop", None
+                return "again", current_body
+
+        try:
+            return budget.run_with_retries(body, dispatch, on_connection_error)
+        except NetworkError as exc:
+            if getattr(exc, "code", None) == "STOPPED":
+                return "stop"
+            raise
 
     def handle_connection_error(
         self,

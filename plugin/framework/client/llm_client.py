@@ -945,7 +945,17 @@ class LlmClient:
             return last_finish_reason
 
         try:
-            return budget.run_stream(method, path, body, headers, consume, wire_secrets=self._wire_secrets())
+            return self._transport.stream(
+                budget,
+                method,
+                path,
+                body,
+                headers,
+                consume,
+                cancel=active,
+                status_callback=status_callback,
+                wire_secrets=self._wire_secrets(),
+            )
         except NetworkError as e:
             if getattr(e, "code", None) == "STOPPED":
                 return "stop"

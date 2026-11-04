@@ -1131,7 +1131,7 @@ def _run_captured_llm_worker(spawn):
     import queue
 
     from plugin.chatbot.tool_loop_actions import current_turn
-    from plugin.framework.send_cancellation import SendCancellation, capture_send_stop
+    from plugin.framework.send_cancellation import SendCancellation
 
     panel, _session = setup_mock_panel()
     turn = current_turn(panel)
@@ -1167,14 +1167,11 @@ def _run_captured_llm_worker(spawn):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture),
         patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
-        patch("plugin.chatbot.tool_loop.capture_send_stop", wraps=capture_send_stop) as mock_capture,
     ):
         spawn(panel, batched, client)
-        assert mock_capture.call_count == 1
         assert len(started) == 1
         started[0]()
 
-    assert mock_capture.call_count == 1
     assert seen["scope"] is old
     assert old.is_cancelled()
     assert new.is_cancelled() is False
@@ -1359,11 +1356,11 @@ def test_spawn_final_stream_passes_active_tools_and_tool_choice_none():
 def test_bind_spawn_without_live_turn_has_no_session():
     # current_turn can be None; _bind_spawn must still return usable callbacks.
     host = Mock()
-    host._panel = Mock(_turn=None)
-    with patch("plugin.chatbot.tool_loop.capture_send_stop", return_value=Mock(is_cancelled=lambda: True)):
-        turn, session, bound_scope, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
+    cancelled = Mock(is_cancelled=lambda: True)
+    host._panel = Mock(_turn=None, _send_cancellation=cancelled)
+    turn, session, bound_scope, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
     assert turn is None and session is None
-    assert bound_scope.is_cancelled() is True
+    assert bound_scope is cancelled
     emit("x")  # no live turn: put_for_turn drops the item instead of raising
     assert stopped_cb() is True
 

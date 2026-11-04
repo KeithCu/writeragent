@@ -1223,7 +1223,7 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
 
 def test_tool_worker_keeps_spawn_scope_after_next_send():
     """execute_fn must use the scope captured at spawn, not the panel field."""
-    from plugin.framework.send_cancellation import SendCancellation, capture_send_stop
+    from plugin.framework.send_cancellation import SendCancellation
 
     host = FakeHost()
     old = SendCancellation()
@@ -1242,7 +1242,6 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
     try:
         with (
             patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)),
-            patch("plugin.chatbot.tool_loop_actions.capture_send_stop", wraps=capture_send_stop) as mock_capture,
         ):
             interpreter.execute(
                 SpawnToolWorkerEffect(
@@ -1253,11 +1252,9 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
                     is_async=True,
                 )
             )
-            assert mock_capture.call_count == 1
             new = SendCancellation()
             host._send_cancellation = new
             started[0]()
-            assert mock_capture.call_count == 1
     finally:
         _restore_main(old_main)
 
@@ -1277,8 +1274,11 @@ def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
 
     cancelled_scope = SendCancellation()
     cancelled_scope.cancel()
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.capture_send_stop", lambda scope: cancelled_scope)
-
+    mock_host._send_cancellation = cancelled_scope
+    monkeypatch.setattr(
+        "plugin.chatbot.tool_loop_actions.run_in_background",
+        lambda fn, *args, **kwargs: fn(),
+    )
     interpreter = ToolLoopEffectInterpreter(mock_host)
     effect = SpawnToolWorkerEffect(
         call_id="call_1",

@@ -56,7 +56,7 @@ class FakeExecutor:
         self.post_raises = False
 
     def has_async_callback(self) -> bool:
-        return self._get_async_callback() is not None
+        return True
 
     def _get_async_callback(self) -> Any:
         return self._async
@@ -69,7 +69,7 @@ class FakeExecutor:
 
 class NoAsyncExecutor:
     def has_async_callback(self) -> bool:
-        return self._get_async_callback() is not None
+        return False
 
     def _get_async_callback(self) -> None:
         return None

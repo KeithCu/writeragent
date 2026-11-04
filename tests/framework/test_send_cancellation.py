@@ -421,18 +421,14 @@ def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
     assert generator_closed is True
 
 
-def test_capture_send_stop_returns_scope_and_survives_attribute_replace():
-    from plugin.framework.send_cancellation import capture_send_stop
+def test_register_client_requires_stop_method():
+    scope = SendCancellation()
 
-    old = SendCancellation()
-    scope = capture_send_stop(old)
-    assert scope is old
-    old.cancel()
-    new = SendCancellation()
-    assert scope is not None and scope.is_cancelled() is True
-    assert new.is_cancelled() is False
-    assert capture_send_stop(new) is new
-    assert capture_send_stop(None) is None
+    class _NoStop:
+        pass
+
+    with pytest.raises(AttributeError):
+        scope.register_client(_NoStop())  # type: ignore[arg-type]
 
 
 def test_agent_session_reuses_existing_scope():

@@ -131,17 +131,6 @@ def get_current_send_cancellation() -> SendCancellation | None:
     return _current_send_cancellation.get()
 
 
-def capture_send_stop(scope: SendCancellation | None) -> SendCancellation | None:
-    """Scope frozen on the send thread before ``run_in_background``.
-
-    The worker closes over this result. Reading ``host._send_cancellation``
-    inside the thread body misses Stop: the drain clears that field and the
-    next send stores a new scope, so the old worker can latch onto the new
-    send and cancel it.
-    """
-    return scope
-
-
 def is_cancelled(scope: SendCancellation | None) -> bool:
     """Return True if *scope* is cancelled.
 
