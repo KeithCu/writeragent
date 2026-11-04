@@ -491,16 +491,16 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         pages = dest_doc.getDrawPages()
         p0 = pages.getByIndex(0) if pages.getCount() > 0 else None
         if p0 is not None:
-            dw = getattr(p0, "Width", 0) or 0
-            dh = getattr(p0, "Height", 0) or 0
-            if (not dw or not dh) and hasattr(p0, "MasterPage") and p0.MasterPage:
-                dw = getattr(p0.MasterPage, "Width", 0) or 0
-                dh = getattr(p0.MasterPage, "Height", 0) or 0
-        if not dw or not dh:
-            m0 = find_master(dest_doc, index=0)
-            if m0 is not None:
-                dw = getattr(m0, "Width", 0) or 0
-                dh = getattr(m0, "Height", 0) or 0
+            from plugin.draw.bridge import DrawBridge
+
+            size = DrawBridge.page_size(p0)
+            if size is None and hasattr(p0, "MasterPage") and p0.MasterPage:
+                size = DrawBridge.page_size(p0.MasterPage)
+            if size is None:
+                m0 = find_master(dest_doc, index=0)
+                if m0 is not None:
+                    size = DrawBridge.page_size(m0)
+            dw, dh = size or (0, 0)
         if dw and dh and float(dh) > 0:
             dest_ratio = float(dw) / float(dh)
     except Exception as exc:

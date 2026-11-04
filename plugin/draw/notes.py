@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSpeakerNotesBase
-from plugin.draw.bridge import DrawBridge, notes_text, resolve_page_and_bridge, set_notes_text
+from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
 from plugin.doc.text_helpers import normalize_linebreaks
 from plugin.framework.errors import uno_read
 
@@ -26,8 +26,8 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
-        page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
+        bridge = DrawBridge(ctx.doc)
+        page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         notes = notes_text(page)
         return {"status": "ok", "page": actual_idx, "notes": "" if notes is None else notes}
 
@@ -48,8 +48,8 @@ class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
         text = kwargs["text"]
         append = kwargs.get("append", False)
 
-        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
-        page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
+        bridge = DrawBridge(ctx.doc)
+        page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         text = normalize_linebreaks(text)
         if append:
             existing = notes_text(page)

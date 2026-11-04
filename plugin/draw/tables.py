@@ -230,7 +230,7 @@ def coerce_int(value: Any, default: int) -> int:
 def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
     from com.sun.star.awt import Point, Size
-    from plugin.draw.bridge import resolve_shape_page
+    from plugin.draw.bridge import DrawBridge
 
     rows = cast("int", kwargs.get("rows"))
     columns = cast("int", kwargs.get("columns"))
@@ -246,9 +246,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
             if isinstance(row, (list, tuple)) and len(row) > columns:
                 return {"status": "error", "message": "data row %d has %d columns but table only has %d." % (r_idx, len(row), columns), "code": "TOOL_EXECUTION_ERROR"}
 
-    page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-    if err or page is None:
-        return {"status": "error", "message": err or "No draw page available.", "code": "TOOL_EXECUTION_ERROR"}
+    page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=getattr(ctx, "active_page_index", None))
 
     x = coerce_int(kwargs.get("x"), 3000)
     y = coerce_int(kwargs.get("y"), 4000)

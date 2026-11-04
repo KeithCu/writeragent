@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
-from plugin.draw.bridge import DrawBridge, resolve_page_and_bridge
+from plugin.draw.bridge import DrawBridge
 from plugin.draw.layouts import available_layout_names, layout_id, layout_name
 from plugin.framework.errors import is_disposal, uno_read
 
@@ -62,12 +62,6 @@ def _transition_enum_name(value: Any) -> str:
     return value.value.lower() if hasattr(value, "value") else str(value).lower()
 
 
-def _slide_for_tool(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, int]:
-    """Explicit page, else ctx.active_page_index, else the controller."""
-    bridge, page_idx = resolve_page_and_bridge(ctx, kwargs)
-    return DrawBridge.get_slide_for_tool(bridge.doc, page_idx), page_idx
-
-
 class GetSlideTransition(ToolDrawSlideTransitionsBase):
     """Read the current transition settings from a slide."""
 
@@ -76,7 +70,7 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page, page_idx = _slide_for_tool(ctx, kwargs)
+        page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         # Bugfix: 130c136d6 dropped the per-property fallbacks while removing
         # try/except. A missing Effect/Speed/Duration/TransitionDuration/Change
@@ -129,7 +123,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page, page_idx = _slide_for_tool(ctx, kwargs)
+        page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         # Values are plain data until the write loop. _pres_enum stays inside
         # the try so ImportError is still "Could not update slide transition".
         ops: list[tuple[str, str, Any]] = []
@@ -197,7 +191,7 @@ class GetSlideLayout(ToolDrawSlideLayoutBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page, page_idx = _slide_for_tool(ctx, kwargs)
+        page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         current_id = page.Layout
         layout_name_str = layout_name(current_id)
         return {"status": "ok", "page": page_idx, "layout_id": current_id, "layout_name": layout_name_str, "available_layouts": available_layout_names()}
@@ -217,6 +211,6 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
         layout_name = kwargs["layout"].strip().lower()
         if layout_id(layout_name) is None:
             return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
-        page, page_idx = _slide_for_tool(ctx, kwargs)
+        page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         applied = apply_slide_layout(page, layout_name)
         return {"status": "ok", "page": page_idx, "layout": applied}

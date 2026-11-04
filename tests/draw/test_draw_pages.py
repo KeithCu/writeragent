@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.draw.bridge import DrawBridge as RealDrawBridge
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.pages import (
     AddSlide,
@@ -199,11 +200,13 @@ def test_duplicate_slide_ok():
 
 
 def test_duplicate_slide_out_of_range():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = _ctx()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getCount.return_value = 1
-        out = DuplicateSlide().execute(ctx, page=5)
-    assert out["status"] == "error"
+        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 5 out of range.")
+        with pytest.raises(ToolExecutionError):
+            DuplicateSlide().execute(ctx, page=5)
 
 
 def test_move_slide_failure():
@@ -327,6 +330,7 @@ def test_set_active_page_false_is_tool_error():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 3
+        bridge.resolve_page.return_value = (MagicMock(), 1)
         bridge.set_current_page_index.return_value = False
         out = SetActivePage().execute(ctx, page=1)
     assert out["status"] == "error"
@@ -335,12 +339,14 @@ def test_set_active_page_false_is_tool_error():
 
 
 def test_set_active_page_out_of_range():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = _ctx()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_pages.return_value.getCount.return_value = 1
-        out = SetActivePage().execute(ctx, page=5)
-    assert out["status"] == "error"
+        bridge.resolve_page.side_effect = ToolExecutionError("Page index 5 out of range.")
+        with pytest.raises(ToolExecutionError):
+            SetActivePage().execute(ctx, page=5)
     bridge.set_current_page_index.assert_not_called()
 
 
@@ -509,7 +515,7 @@ def test_read_slide_text_returns_shape_text_and_notes():
         patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
         patch("plugin.draw.bridge.find_notes_shape", return_value=notes_shape),
     ):
-        bridge_cls.get_slide_for_tool.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = ReadSlideText().execute(ctx)
 
     assert out["status"] == "ok"
@@ -537,7 +543,7 @@ def test_read_slide_text_skips_failing_shapes():
         patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
         patch("plugin.draw.bridge.find_notes_shape", return_value=None),
     ):
-        bridge_cls.get_slide_for_tool.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = ReadSlideText().execute(ctx)
 
     assert out["status"] == "ok"
@@ -563,7 +569,7 @@ def test_read_slide_text_reraises_dispose():
         patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
         patch("plugin.draw.bridge.find_notes_shape", return_value=None),
     ):
-        bridge_cls.get_slide_for_tool.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(DisposedException):
             ReadSlideText().execute(ctx)
 
@@ -594,6 +600,7 @@ def test_get_presentation_info_reports_deck():
     ctx.active_page_index = None
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_active_page_index.return_value = 1
         out = GetPresentationInfo().execute(ctx)
 

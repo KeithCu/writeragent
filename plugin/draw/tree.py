@@ -430,10 +430,8 @@ class GetDrawTree(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import resolve_shape_page
+        from plugin.draw.bridge import DrawBridge
 
-        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-        if err or page is None:
-            return self._tool_error(err or "No draw page available.")
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         return {"status": "ok", "page": actual_idx, "tree": build_shape_tree(page)}
