@@ -24,6 +24,7 @@ import uuid
 from typing import Any, Generator, NamedTuple
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from plugin.framework.uno_context import enum_has_more
 from .record_changes import is_recording_changes
 
 log = logging.getLogger("writeragent.writer")
@@ -152,7 +153,7 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
         reraise_if_disposed(exc)
         return False
     for _unused in range(total):
-        if enum.hasMoreElements() is not True:
+        if not enum_has_more(enum):
             break
         redline = enum.nextElement()
         try:

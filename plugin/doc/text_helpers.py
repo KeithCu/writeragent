@@ -36,7 +36,7 @@ from plugin.framework.errors import (
     uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
-from plugin.framework.uno_context import uno_same
+from plugin.framework.uno_context import enum_has_more, uno_same
 from plugin.framework import url_utils as _url_utils
 
 log = logging.getLogger(__name__)
@@ -47,14 +47,10 @@ FAILED: Any = object()
 
 
 def iter_elements(enum: Any) -> Generator[Any, None, None]:
-    """Safely iterate a UNO XEnumeration.
-
-    Applies the ``hasMoreElements() is True`` invariant (stops on MagicMock where
-    the unconfigured return is a truthy mock).
-    """
+    """Safely iterate a UNO XEnumeration."""
     if enum is None:
         return
-    while enum.hasMoreElements() is True:
+    while enum_has_more(enum):
         yield enum.nextElement()
 
 
@@ -68,7 +64,7 @@ def iter_elements_limited(enum: Any, limit: int) -> Generator[Any, None, None]:
     if enum is None or limit <= 0:
         return
     seen = 0
-    while enum.hasMoreElements() is True:
+    while enum_has_more(enum):
         if seen >= limit:
             break
         seen += 1
@@ -91,7 +87,7 @@ def walk_cap_warning(kind: str, seen: int, limit: int) -> str:
 
 def record_walk_cap(enum: Any, seen: int, limit: int, kind: str, dest: list[str] | None = None) -> bool:
     """Log (and optionally collect) a walk-cap warning. Returns True when the cap was hit."""
-    if seen < limit or enum is None or enum.hasMoreElements() is not True:
+    if seen < limit or enum is None or not enum_has_more(enum):
         return False
     msg = walk_cap_warning(kind, seen, limit)
     log.warning("%s", msg)
@@ -458,7 +454,7 @@ def _visible_portions(
         return
     in_delete = False
     seen = 0
-    while portion_enum.hasMoreElements() is True:
+    while enum_has_more(portion_enum):
         if limit is not None and seen >= limit:
             # Cap hit with more portions waiting — caller can warn that paint is partial.
             if truncated_out is not None:

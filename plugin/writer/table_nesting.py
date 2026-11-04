@@ -13,6 +13,7 @@ portions. Callers run on the UI thread: the read helper is @main_thread_only.
 from typing import Any, Iterator
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.framework.uno_context import enum_has_more
 from plugin.framework.errors import ToolExecutionError, uno_read
 
 # uno_read default for sites where None is a real UNO result.
@@ -54,9 +55,7 @@ def _safe_enumerate(obj: Any) -> Iterator[Any]:
     enum = uno_read(lambda: obj.createEnumeration(), None)
     if enum is None:
         return
-    # Portion walks must use hasMoreElements() is True; bare "if not enum.hasMoreElements()"
-    # never stops on MagicMock (AGENTS.md). A failed read ends the walk like the end does.
-    while (element := uno_read(lambda: enum.nextElement() if enum.hasMoreElements() is True else _FAILED, _FAILED)) is not _FAILED:
+    while (element := uno_read(lambda: enum.nextElement() if enum_has_more(enum) else _FAILED, _FAILED)) is not _FAILED:
         yield element
 
 
