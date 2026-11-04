@@ -147,11 +147,12 @@ def test_execute_code_latched_stop_skips_venv():
         patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
         patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=True),
         patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
-        patch("plugin.notebook.notebook_runner.release_script_document"),
+        patch("plugin.notebook.notebook_runner.release_script_document") as release,
     ):
         out = execute_code(ctx, doc, "x = 1")
     assert out["status"] == "stopped"
     run_venv.assert_not_called()
+    release.assert_called_once_with("doc:test")
 
 
 def test_execute_code_passes_current_send_scope():

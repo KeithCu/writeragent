@@ -7,7 +7,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.framework.config import get_config
 from plugin.ppt_master.paths import apply_data_root_env
@@ -29,7 +32,7 @@ def run_ppt_master_venv_turn(
     model: str | None,
     session_id: str,
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-    cancel: Any | None = None,
+    cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Dispatch one sidebar turn to the venv ppt-master runner."""
     apply_data_root_env(uno_ctx)

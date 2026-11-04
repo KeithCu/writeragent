@@ -39,9 +39,8 @@ from plugin.scripting.config_limits import (
     python_exec_timeout_default,
     resolve_python_exec_timeout,
 )
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.ipc import (
-    _stop_requested,
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
     IpcFrameError,
@@ -461,9 +460,8 @@ class PythonWorkerManager:
         """Hold the warm-child pipe lock; raise ``_IoSessionUnavailable`` otherwise."""
         acquire_end = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
         spawn_deadline = spawn_deadline or Deadline(float(WARM_WORKER_TIMEOUT_SEC))
-        ipc_stop = _ipc_stop_checker(cancel)
         while True:
-            if _stop_requested(ipc_stop):
+            if is_cancelled(cancel):
                 raise _IoSessionUnavailable(_worker_error("CANCELLED", "Python worker stopped by user"))
             reentry = self._reentry_error()
             if reentry is not None:
@@ -487,7 +485,7 @@ class PythonWorkerManager:
                     lease_acquired = True
                     self._io_owner = threading.get_ident()
                     try:
-                        if _stop_requested(ipc_stop):
+                        if is_cancelled(cancel):
                             raise _IoSessionUnavailable(_worker_error("CANCELLED", "Python worker stopped by user"))
                         warm_err = self._ensure_warmed_unlocked(leased)
                         if warm_err is not None:
@@ -1099,9 +1097,6 @@ class PythonWorkerManager:
         frame_label="venv worker frame".
         """
         ipc_stop = _ipc_stop_checker(cancel)
-        ipc_kwargs: dict[str, Any] = {}
-        if ipc_stop is not None:
-            ipc_kwargs["stop_" + "checker"] = ipc_stop
         try:
             payload = read_frame_payload(
                 stdout,
@@ -1111,13 +1106,13 @@ class PythonWorkerManager:
                 frame_label="venv worker frame",
                 cmd=self.exe,
                 is_alive=self._is_worker_alive,
-                **ipc_kwargs,
+                stop_checker=ipc_stop,
             )
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
             # ipc reports Stop as TimeoutExpired, including a mid-chunk stall
-            # (IpcPartialFrameTimeout). Re-check the checker so Windows peek and
+            # (IpcPartialFrameTimeout). Re-check cancel so Windows peek and
             # the POSIX loop both become CANCELLED.
-            if _stop_requested(ipc_stop):
+            if is_cancelled(cancel):
                 return FailedAfterStart(RuntimeError("Python worker stopped by user"), "cancel")
             raise
         return payload or b""

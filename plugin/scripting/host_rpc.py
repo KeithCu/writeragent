@@ -315,7 +315,7 @@ def execute_tool(
     caller: str = "script",
     allowed_tools: frozenset[str] | None = None,
     script_session_id: str | None = None,
-    send_cancellation: Any | None = None,
+    send_cancellation: SendCancellation | None = None,
 ) -> Any:
     """Dispatch a registered WriterAgent tool on the LO main thread (UNO-safe)."""
     if tool_name in _BLOCKED_FROM_VENV:
@@ -524,7 +524,7 @@ def handle_tool_call_frame(
         return True
     # Stop was checked once before the venv turn, so the child kept calling
     # host tools, including export, after the sidebar went idle. The same
-    # checker the LLM frame already receives refuses the call and tells the
+    # scope the LLM frame already receives refuses the call and tells the
     # child to end with USER_STOPPED.
     if is_cancelled(cancel):
         _reply(
