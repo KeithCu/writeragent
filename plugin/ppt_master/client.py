@@ -15,18 +15,22 @@ from plugin.framework.queue_executor import main
 from plugin.ppt_master.adapter.uno_enhance import apply_enhancement_project
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_to_doc
 from plugin.ppt_master.adapter.uno_template_fill import apply_fill_plan_file
-from plugin.ppt_master.paths import data_root_status
+from plugin.ppt_master.paths import apply_data_root_env, data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
 
 
 def export_project_to_doc(doc: Any, project_path: Path, ctx: Any | None = None) -> dict[str, Any]:
-    """Export a ppt-master project into *doc* via PPTX → LO ODP import."""
+    """Export a ppt-master project into *doc* via PPTX → LO ODP import.
+
+    Applies the ppt-master data root from *ctx* when present (idempotent; safe if the caller already did).
+    """
     project_path = Path(project_path).expanduser().resolve()
     svg_files = collect_svg_files(project_path)
     if not svg_files:
         return format_error_payload(ToolExecutionError("No SVG slides found under svg_final/ or svg_output/."))
     if ctx is None:
         return format_error_payload(ToolExecutionError("UNO context required for PPTX import."))
+    apply_data_root_env(ctx)
 
     status = data_root_status(ctx)
     if not status.get("ok"):
@@ -61,8 +65,11 @@ def export_project_to_doc(doc: Any, project_path: Path, ctx: Any | None = None) 
 
 
 def export_project_to_impress(ctx: Any, doc: Any, project_path: str | Path) -> dict[str, Any]:
-    """Apply a ppt-master project to the open Impress/Draw document via PPTX → ODP import."""
-    # ppt_master tools.execute already called apply_data_root_env before this entry point.
+    """Apply a ppt-master project to the open Impress/Draw document via PPTX → ODP import.
+
+    Caller must pass UNO *ctx*; ``export_project_to_doc`` applies the data root from it (``tools.py`` also
+    calls ``apply_data_root_env`` once per execute before dispatch).
+    """
     path = Path(project_path).expanduser().resolve()
     if not path.is_dir():
         return format_error_payload(ToolExecutionError(f"Project path not found: {path}"))
@@ -70,10 +77,14 @@ def export_project_to_impress(ctx: Any, doc: Any, project_path: str | Path) -> d
 
 
 def apply_template_fill(ctx: Any, doc: Any, plan_path: str | Path) -> dict[str, Any]:
+    """Apply a fill plan JSON file to *doc*. *ctx* matches the ppt-master tool entry signature (unused here)."""
+    del ctx
     return apply_fill_plan_file(doc, Path(plan_path))
 
 
 def apply_native_enhance(ctx: Any, doc: Any, project_path: str | Path) -> dict[str, Any]:
+    """Apply enhancement metadata from a project directory. *ctx* matches the ppt-master tool entry signature (unused here)."""
+    del ctx
     return apply_enhancement_project(doc, Path(project_path))
 
 

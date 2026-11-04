@@ -149,7 +149,7 @@ def _get_text(shape: Any) -> str:
 
 
 def _set_text(shape: Any, text: str) -> bool:
-    # Resolve setString inside the probe. A missing member stays silent; the write logs.
+    # Resolve setString inside the probe. A missing member stays silent; failed writes return False (no log).
     if shape is None:
         return False
     setter = uno_read(lambda: shape.setString, _MISSING)
@@ -159,7 +159,7 @@ def _set_text(shape: Any, text: str) -> bool:
 
 
 def _set_visible(shape: Any, vis: bool) -> bool:
-    # Same split as _set_text: lookup is silent; failed writes return False via uno_write.
+    # Same split as _set_text: lookup is silent; failed writes return False via uno_write (no log).
     if shape is None:
         return False
     setter = uno_read(lambda: shape.setPropertyValue, _MISSING)

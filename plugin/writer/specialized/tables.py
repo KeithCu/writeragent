@@ -672,7 +672,7 @@ class TableInsert(ToolWriterTableBase):
                     result = insert_draw_table(ctx, **kwargs)
                 except ToolExecutionError as exc:
                     return format_error_payload(exc)
-                return _raise_draw_result(result, "Insert failed")
+                return result
 
             if parent and not cell_raw:
                 return self._tool_error("cell is required when parent is set.")
