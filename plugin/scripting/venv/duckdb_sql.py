@@ -17,7 +17,6 @@ must treat ``truncated`` / ``warning`` / ``flags`` as user-visible — a short
 
 from __future__ import annotations
 
-from dataclasses import replace
 import logging
 import os
 import re
@@ -188,7 +187,7 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
         return None
     parsed = SessionKey.parse(sid)
     if parsed.kind in PERSISTABLE_KINDS and parsed.rest:
-        return replace(parsed, init=False).wire()
+        return parsed.without_init().wire()
     return None
 
 

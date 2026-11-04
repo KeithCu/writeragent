@@ -50,6 +50,8 @@ class SessionKey:
         if text.endswith(INIT_SUFFIX):
             init = True
             text = text[: -len(INIT_SUFFIX)]
+        # ``calc:init`` (no document key) becomes OTHER+init, not CALC(rest="init").
+        # HTTP rejects it via is_reserved_caller_id; host-only wire strings may still appear.
         prefix, sep, rest = text.partition(":")
         if sep and prefix in _KIND_BY_PREFIX:
             return cls(_KIND_BY_PREFIX[prefix], rest, init)
@@ -68,7 +70,16 @@ class SessionKey:
         return cls.parse(value)
 
     def with_init_suffix(self) -> SessionKey:
+        """Return the init-script companion id for this session (sets ``init=True``).
+
+        Idempotent when ``init`` is already set (``calc:x:init`` stays ``calc:x:init``;
+        older code that concatenated ``:init`` could yield ``:init:init``). Compute
+        rejects caller ids ending in ``:init``; sandbox reset uses the flag, not stacked suffixes.
+        """
         return replace(self, init=True)
+
+    def without_init(self) -> SessionKey:
+        return replace(self, init=False)
 
     def document_lookup_key(self) -> str | None:
         if self.kind not in DOCUMENT_KINDS:
@@ -77,12 +88,28 @@ class SessionKey:
 
 
 def is_reserved_caller_id(session_id: str) -> bool:
-    sid = session_id.strip()
-    if sid.endswith(INIT_SUFFIX):
+    """True when *session_id* must not be used as an HTTP compute caller id.
+
+    Reserved: bare kind names (``calc``, ``rps``, …), any name ending in ``:init``,
+    and any name starting with ``isolated:``. Bare kind names collide with
+    kind-prefixed workbook routing inside LibreOffice (``kind:document_key``).
+    """
+    if session_id.endswith(INIT_SUFFIX):
         return True
-    if sid.startswith(f"{SessionKind.ISOLATED.value}:"):
+    if session_id.startswith(f"{SessionKind.ISOLATED.value}:"):
         return True
-    return sid in _KIND_BY_PREFIX
+    return session_id in _KIND_BY_PREFIX
+
+
+RESERVED_CALLER_ID_HELP = (
+    "Reserved session_id: a bare kind name (calc, rps, notebook, ppt_master, doc, isolated, embeddings), "
+    "any name ending in ':init', or any name starting with 'isolated:' "
+    "(bare kind names collide with kind-prefixed session routing)."
+)
+
+
+def reserved_caller_id_error_message(session_id: str) -> str:
+    return f"Invalid session_id {session_id!r}: {RESERVED_CALLER_ID_HELP}"
 
 
 def new_unsaved_document_key() -> str:

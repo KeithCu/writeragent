@@ -85,6 +85,21 @@ def test_stacked_init_suffix_round_trip() -> None:
     assert SessionKey.parse(text).wire() == text
 
 
+def test_kind_only_init_wire_parses_other_with_init_flag() -> None:
+    """``calc:init`` has no document key; init strip yields OTHER, not CALC(rest=\"init\")."""
+    k = SessionKey.parse("calc:init")
+    assert k.kind is SessionKind.OTHER
+    assert k.rest == "calc"
+    assert k.init is True
+    assert k.wire() == "calc:init"
+    assert is_reserved_caller_id("calc:init") is True
+
+
+def test_with_init_suffix_idempotent() -> None:
+    k = SessionKey.parse("calc:wb:init")
+    assert k.with_init_suffix().wire() == "calc:wb:init"
+
+
 def test_empty_rest_calc_and_init_lookup_and_duckdb_none() -> None:
     assert SessionKey.parse("calc:").document_lookup_key() is None
     assert SessionKey.parse("calc::init").document_lookup_key() is None
@@ -156,10 +171,19 @@ def test_whitespace_padded_calc_wb_init() -> None:
         "calc",
         "embeddings",
         "doc",
+        "isolated",
     ],
 )
 def test_reserved_caller_ids(sid: str) -> None:
     assert is_reserved_caller_id(sid) is True
+
+
+def test_validate_session_id_rejects_padded_init_suffix() -> None:
+    from compute_service.json_forward import validate_session_id, ExecuteRequestError
+
+    with pytest.raises(ExecuteRequestError) as exc_info:
+        validate_session_id("foo:init ")
+    assert exc_info.value.code == "INVALID_SESSION_ID"
 
 
 @pytest.mark.parametrize(

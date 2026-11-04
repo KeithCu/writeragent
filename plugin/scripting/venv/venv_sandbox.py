@@ -19,7 +19,6 @@ from __future__ import annotations
 import ast
 import copy
 from collections import OrderedDict
-from dataclasses import replace
 import hashlib
 import logging
 import math
@@ -524,7 +523,7 @@ def _get_or_create_session_executor(
 
 def _clear_init_session_unlocked(init_session_id: str) -> None:
     key = SessionKey.parse(init_session_id)
-    cell_sid = replace(key, init=False).wire() if key.init else None
+    cell_sid = key.without_init().wire() if key.init else None
     _SESSION_EXECUTORS.pop(init_session_id, None)
     _INIT_SCRIPT_HASH.pop(init_session_id, None)
     if key.kind is SessionKind.ISOLATED:
@@ -546,7 +545,7 @@ def _drop_session_unlocked(session_id: str) -> None:
     else:
         _SESSION_EXECUTORS.pop(session_id, None)
         _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-        _clear_init_session_unlocked(replace(key, init=True).wire())
+        _clear_init_session_unlocked(key.with_init_suffix().wire())
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
