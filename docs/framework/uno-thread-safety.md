@@ -11,7 +11,7 @@ When Python code running in the WriterAgent extension touches a PyUNO object fro
 
 See [`threading.md`](threading.md) and [`streaming-and-threading.md`](streaming-and-threading.md) for the core architectural model: **worker threads perform network I/O, heavy LLM processing, and subprocess IPC; all PyUNO interactions are marshalled back to the main UI thread via [`main.call`](../../plugin/framework/queue_executor.py) or [`main.post`](../../plugin/framework/queue_executor.py).**
 
-**Cyclic GC only on main; workers never collect.** Automatic cyclic collection is disabled at bootstrap; a background ticker posts collection to the main thread via `main.post` so finalizers and `PyUNO_del` run under SolarMutex (recursive), not on a worker that may hold a Python lock the UI thread needs. See [`plugin/framework/gc_policy.py`](../../plugin/framework/gc_policy.py).
+**Cyclic GC only on main; workers never collect.** Automatic cyclic collection is disabled at bootstrap; a background ticker posts collection to the main thread via `main.post` so finalizers and `PyUNO_del` run under SolarMutex (recursive), not on a worker that may hold a Python lock the UI thread needs. See [`plugin/framework/gc_policy.py`](../../plugin/framework/gc_policy.py). `install` probes readiness through `MainThread.has_async_callback`, which uses the same lazy AsyncCallback creator as `_get_async_callback`.
 
 ### Logging PyUNO values
 

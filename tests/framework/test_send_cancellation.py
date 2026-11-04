@@ -424,19 +424,15 @@ def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
 def test_capture_send_stop_returns_scope_and_survives_attribute_replace():
     from plugin.framework.send_cancellation import capture_send_stop
 
-    class Host:
-        def __init__(self, scope):
-            self._send_cancellation = scope
-
     old = SendCancellation()
-    host = Host(old)
-    scope = capture_send_stop(host)
+    scope = capture_send_stop(old)
     assert scope is old
     old.cancel()
     new = SendCancellation()
-    host._send_cancellation = new
     assert scope is not None and scope.is_cancelled() is True
     assert new.is_cancelled() is False
+    assert capture_send_stop(new) is new
+    assert capture_send_stop(None) is None
 
 
 def test_agent_session_reuses_existing_scope():

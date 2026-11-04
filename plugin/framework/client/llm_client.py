@@ -66,11 +66,11 @@ from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_
 
 from plugin.framework.errors import format_error_message
 from .errors import (
-    _format_http_error_response,
-    _log_chat_request_body_diag,
-    _log_http_500_request_diag,
-    _parse_provider_envelope,
-    _path_without_query,
+    format_http_error_response,
+    log_chat_request_body_diag,
+    log_http_500_request_diag,
+    parse_provider_envelope,
+    path_without_query,
     append_zai_unknown_model_hint,
     stream_error_is_overload,
     stream_error_message,
@@ -311,7 +311,7 @@ class LlmClient:
         # a provider (or proxy) reflected it in the error text.
         # A leftover ``?key=`` on the path must not land in the log. Strip the
         # query and redact any echoed secret before logging.
-        safe_path = redact_secrets(_path_without_query(path), [api_key])
+        safe_path = redact_secrets(path_without_query(path), [api_key])
         st_raw = getattr(response, "status", 500)
         try:
             st = int(st_raw)
@@ -324,8 +324,8 @@ class LlmClient:
 
             n_ctx = peek_live_ollama_num_ctx(self)
         if st == 500:
-            _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
-        err_msg = _format_http_error_response(st, str(getattr(response, "reason", "") or ""), str(err_body), context_window=n_ctx)
+            log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
+        err_msg = format_http_error_response(st, str(getattr(response, "reason", "") or ""), str(err_body), context_window=n_ctx)
         return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
 
     def _wire_secrets(self) -> list[str]:
@@ -429,10 +429,10 @@ class LlmClient:
         )
 
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
-        log.debug("URL: %s" % _path_without_query(path))
+        log.debug("URL: %s" % path_without_query(path))
         if log.isEnabledFor(logging.DEBUG):
             log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
-        _log_chat_request_body_diag(self, path, body, headers, tools)
+        log_chat_request_body_diag(self, path, body, headers, tools)
 
         return method, path, body, headers
 
@@ -494,7 +494,7 @@ class LlmClient:
                 fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
                 lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
                 remember_accepted_effort(self._endpoint(), fb, lb)
-            return "ok", _parse_provider_envelope(result.body, path, api_key=api_key)
+            return "ok", parse_provider_envelope(result.body, path, api_key=api_key)
         finally:
             self._release_request_scope(cancel)
 

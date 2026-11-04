@@ -330,7 +330,7 @@ class SendHandlersMixin:
 
         # Spawn-time scope. The body must not re-read _send_cancellation:
         # Stop clears the field and the next send replaces it.
-        cancel_scope = capture_send_stop(self._panel)
+        cancel_scope = capture_send_stop(self._panel._send_cancellation)
 
         def run_direct_image() -> None:
             doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
@@ -470,7 +470,7 @@ class SendHandlersMixin:
         # Stop clears the field and the next send replaces it.
         # prepare_turn publishes this turn's id before Stop can be registered,
         # so a Stop that lands before send() aborts this turn only.
-        cancel_scope = capture_send_stop(self._panel)
+        cancel_scope = capture_send_stop(self._panel._send_cancellation)
         if hasattr(adapter, "prepare_turn"):
             adapter.prepare_turn()
         if cancel_scope is not None and hasattr(adapter, "stop"):
@@ -585,7 +585,7 @@ class SendHandlersMixin:
         history_text = format_sub_agent_conversation_history(self._panel.session, current_query=query_text)
         # Spawn-time scope. run_search must not re-read _send_cancellation:
         # Stop clears the field and the next send replaces it.
-        cancel_scope = capture_send_stop(self._panel)
+        cancel_scope = capture_send_stop(self._panel._send_cancellation)
 
         doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
 

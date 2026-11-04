@@ -9,7 +9,7 @@ from plugin.framework.errors import format_error_message
 from plugin.framework.client.errors import (
     is_audio_unsupported_error,
     is_image_unsupported_error,
-    _format_http_error_response,
+    format_http_error_response,
 )
 
 
@@ -27,7 +27,7 @@ def test_is_audio_unsupported_error():
     assert is_audio_unsupported_error("audio not supported") is True
     assert is_audio_unsupported_error("modality not supported") is True
 
-    # Specific API error bodies (passed via _format_http_error_response)
+    # Specific API error bodies (passed via format_http_error_response)
     assert is_audio_unsupported_error("model cannot process audio") is True
     assert is_audio_unsupported_error("No endpoints found that support input audio") is True
 
@@ -311,25 +311,25 @@ def test_format_error_message_edge_cases():
     assert "cert error" in format_error_message(err)
 
     # Empty body: friendly Settings copy (chat never raises urllib HTTPError)
-    assert "Invalid API Key" in _format_http_error_response(401, "Unauthorized", "")
-    assert "Forbidden" in _format_http_error_response(403, "Forbidden", "")
-    assert "404" in _format_http_error_response(404, "Not Found", "")
+    assert "Invalid API Key" in format_http_error_response(401, "Unauthorized", "")
+    assert "Forbidden" in format_http_error_response(403, "Forbidden", "")
+    assert "404" in format_http_error_response(404, "Not Found", "")
 
-    # test JSON decoding in _format_http_error_response
+    # test JSON decoding in format_http_error_response
     # Valid JSON with error message object
     json_err_1 = '{"error": {"message": "Custom auth error"}}'
-    msg_1 = _format_http_error_response(401, "Unauthorized", json_err_1)
+    msg_1 = format_http_error_response(401, "Unauthorized", json_err_1)
     assert "Custom auth error" in msg_1
     assert "HTTP Error 401" in msg_1
 
     # Valid JSON but missing standard error field (fallback to snippet)
     json_err_2 = '{"foo": "bar"}'
-    msg_2 = _format_http_error_response(401, "Unauthorized", json_err_2)
+    msg_2 = format_http_error_response(401, "Unauthorized", json_err_2)
     assert '{"foo": "bar"}' in msg_2
 
     # Broken JSON fallback to snippet
     broken_json = '{ "broken json'
-    msg_3 = _format_http_error_response(400, "Bad Request", broken_json)
+    msg_3 = format_http_error_response(400, "Bad Request", broken_json)
     assert '{ "broken json' in msg_3
 
     # Together AI: error.message is a nested object (must not raise TypeError on concat)
@@ -344,13 +344,13 @@ def test_format_error_message_edge_cases():
             "type": "invalid_request_error",
         },
     })
-    msg_4 = _format_http_error_response(400, "Bad Request", together_err)
+    msg_4 = format_http_error_response(400, "Bad Request", together_err)
     assert "HTTP Error 400" in msg_4
     assert "MessageContent" in msg_4 or "deserialize" in msg_4
 
     # Chat path uses this helper, not format_error_message(HTTPError).
     json_429 = '{"error": {"message": "mock LLM soak failure", "type": "rate_limit_error"}}'
-    msg_429 = _format_http_error_response(429, "Too Many Requests", json_429)
+    msg_429 = format_http_error_response(429, "Too Many Requests", json_429)
     assert "Rate limited" in msg_429
     assert "429" in msg_429
     assert "mock LLM soak failure" in msg_429

@@ -322,7 +322,7 @@ class PanelVoiceController:
     def _transcribe_audio(self, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread.
 
-        ``capture_send_stop`` freezes the scope from this send, and the
+        ``capture_send_stop`` freezes the scope from this send (``capture_send_stop(self._panel._send_cancellation)``), and the
         checker is read once more after the transcript returns. Without
         that checker, ``run_blocking_in_thread`` pumps the UI, so Stop can
         cancel the send scope and a nested send can replace
@@ -354,7 +354,7 @@ class PanelVoiceController:
         try:
             # Spawn-time scope. Do not read _send_cancellation inside the
             # worker: Stop's drain clears the field and the next send replaces it.
-            cancel_scope = capture_send_stop(self._panel)
+            cancel_scope = capture_send_stop(self._panel._send_cancellation)
             if is_cancelled(cancel_scope):
                 assign_send_outcome(self._panel, "stopped")
                 return ""

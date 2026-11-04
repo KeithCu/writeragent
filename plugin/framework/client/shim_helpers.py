@@ -129,7 +129,7 @@ def annotate_anthropic_cache(messages: list[dict[str, Any]]) -> list[dict[str, A
     return messages
 
 
-def _dict_parts(content: Any) -> list[dict[str, Any]]:  # pyright: ignore[reportUnusedFunction]
+def dict_parts(content: Any) -> list[dict[str, Any]]:
     """Content blocks that are dicts. Null, a string, or a non-dict part is skipped.
 
     Calling ``.get`` on sync ``content: null`` or a non-dict part raises
@@ -141,14 +141,14 @@ def _dict_parts(content: Any) -> list[dict[str, Any]]:  # pyright: ignore[report
     return [part for part in content if isinstance(part, dict)]
 
 
-def _system_text(content: Any) -> str:  # pyright: ignore[reportUnusedFunction]
+def system_text(content: Any) -> str:
     """Text of one system or developer message. List parts keep their order."""
     if isinstance(content, list):
-        return "\n\n".join(str(p.get("text", "")) for p in _dict_parts(content) if p.get("type") == "text")
+        return "\n\n".join(str(p.get("text", "")) for p in dict_parts(content) if p.get("type") == "text")
     return str(content or "")
 
 
-def _normalize_usage(raw: Any) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def normalize_usage(raw: Any) -> dict[str, Any]:
     """Copy provider usage and add the OpenAI token names callers already read.
 
     Librarian and PPT host use ``prompt_tokens`` / ``completion_tokens``.
@@ -164,7 +164,7 @@ def _normalize_usage(raw: Any) -> dict[str, Any]:  # pyright: ignore[reportUnuse
     return usage
 
 
-def _openai_model_leaf(model_name: str | None) -> str:  # pyright: ignore[reportUnusedFunction]
+def openai_model_leaf(model_name: str | None) -> str:
     """Strip ft: and vendor prefix (e.g. openai/...) from a model identifier.
 
     Fine-tune ids are ft:<base>:<org>:<suffix>:<id>. The base is the field after

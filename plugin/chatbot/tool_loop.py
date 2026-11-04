@@ -654,7 +654,7 @@ class ToolCallingMixin:
         bound_session = turn.session if turn is not None else None
         # Spawn-time scope. The body must not re-read _send_cancellation:
         # Stop clears the field and the next send replaces it.
-        bound_scope = capture_send_stop(self._panel)
+        bound_scope = capture_send_stop(self._panel._send_cancellation)
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)

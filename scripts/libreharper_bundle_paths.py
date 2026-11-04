@@ -88,7 +88,7 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/__init__.py",
     # requests.py calls LocalHttpsCertificateFallback for local HTTPS retries.
     "plugin/framework/client/request_controls.py",
-    # requests.py does ``from .errors import _format_http_error_response``.
+    # requests.py does ``from .errors import format_http_error_response``.
     "plugin/framework/client/errors.py",
     # errors.py does ``from .responses_shim import responses_failed_message``.
     "plugin/framework/client/responses_shim.py",

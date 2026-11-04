@@ -52,7 +52,7 @@ def install(executor: Any) -> bool:
     global _main_ident
     if _main_ident is not None:
         return True
-    if executor._get_async_callback() is None:
+    if not executor.has_async_callback():
         log.info("gc_policy: skipped (no AsyncCallback)")
         return False
     _main_ident = threading.get_ident()

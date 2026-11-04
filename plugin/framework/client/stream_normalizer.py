@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
-from .response_normalizers import _text_of
+from .response_normalizers import text_of
 
 log = logging.getLogger(__name__)
 
@@ -269,9 +269,9 @@ def _thinking_text_from_delta(delta: dict[str, Any]) -> str:
             if isinstance(item, dict):
                 item_type = item.get("type")
                 if item_type in ("reasoning.text", "thought", "reasoning"):
-                    parts.append(_text_of(item.get("text")))
+                    parts.append(text_of(item.get("text")))
                 elif item_type == "reasoning.summary":
-                    parts.append(_text_of(item.get("summary")))
+                    parts.append(text_of(item.get("summary")))
         if parts:
             return "".join(parts)
     return ""

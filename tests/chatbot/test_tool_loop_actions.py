@@ -1277,7 +1277,7 @@ def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
 
     cancelled_scope = SendCancellation()
     cancelled_scope.cancel()
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.capture_send_stop", lambda host: cancelled_scope)
+    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.capture_send_stop", lambda scope: cancelled_scope)
 
     interpreter = ToolLoopEffectInterpreter(mock_host)
     effect = SpawnToolWorkerEffect(

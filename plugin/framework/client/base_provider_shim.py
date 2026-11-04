@@ -15,7 +15,7 @@ from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
 from plugin.framework.url_utils import get_url_path_and_query
 
-from .shim_helpers import _dict_parts
+from .shim_helpers import dict_parts
 
 # Keys WriterAgent builds; openrouter_chat_extra must not replace these.
 # Lives here so chat payload assembly does not import llm_client (that
@@ -522,7 +522,7 @@ class BaseProviderShim:
         if not isinstance(response_data, dict):
             return []
         out = []
-        for it in _dict_parts(response_data.get("data")):
+        for it in dict_parts(response_data.get("data")):
             if b64 := it.get("b64_json"):
                 out.append(b64)
         return out

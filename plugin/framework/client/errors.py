@@ -65,7 +65,7 @@ def is_local_model_server_crash(text: Any) -> bool:
     )
 
 
-def _format_http_error_response(status: int, reason: str, err_body: str, context_window: int | None = None) -> str:  # pyright: ignore[reportUnusedFunction]  # shared by llm client tests and modality helpers
+def format_http_error_response(status: int, reason: str, err_body: str, context_window: int | None = None) -> str:
     """Build error message including response body for display in chat/UI.
 
     This remains client-specific because it parses provider error JSON bodies
@@ -292,7 +292,7 @@ def _request_payload_byte_length(body: Any) -> int:
     return 0
 
 
-def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:
     """Parse an HTTP 200 provider body as a JSON object.
 
     ``safe_json_loads`` without ``strict=True`` repairs truncated model text,
@@ -338,14 +338,14 @@ def _full_url_for_request_path(endpoint: str, path: str) -> str:
     return path
 
 
-def _path_without_query(path: str) -> str:  # pyright: ignore[reportUnusedFunction]
+def path_without_query(path: str) -> str:
     """Request path for logs. A leftover ``?key=`` must not be printed."""
     if not path or "?" not in path:
         return path
     return path.split("?", 1)[0]
 
 
-def _log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:  # pyright: ignore[reportUnusedFunction]
+def log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:
     """Log wire-level chat fields (no secrets) for provider debugging."""
     payload = _chat_request_payload_from_body(body)
     api_key = str(client.config.get("api_key") or "").strip()
@@ -382,7 +382,7 @@ def _exit_code_from_provider_body(err_body: str) -> str | None:
     return status.group(1) if status else None
 
 
-def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "", n_ctx: int | None = None) -> None:  # pyright: ignore[reportUnusedFunction]
+def log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "", n_ctx: int | None = None) -> None:
     """One ERROR-level safe request shape for HTTP 500. No prompts or secrets.
 
     Local llama-server / Ollama 500 bodies are often opaque. This is the

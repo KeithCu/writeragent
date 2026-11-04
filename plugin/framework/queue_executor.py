@@ -359,6 +359,15 @@ class MainThread:
     #      ``not main.is_marshal_ready()``, which is exactly the state
     #      while this lock is held.
     # If you refactor here, preserve both or the bootstrap deadlocks.
+    def has_async_callback(self) -> bool:
+        """True when AsyncCallback exists or can be created.
+
+        Uses the lazy creator so install sees the same readiness as
+        ``_get_async_callback()`` without peeking ``_async_callback_service`` alone
+        (that field stays None until creation, which would make install always skip).
+        """
+        return self._get_async_callback() is not None
+
     def _get_async_callback(self) -> Any:
         """Lazily create the AsyncCallback UNO service and XCallback instance."""
         if self._initialized:

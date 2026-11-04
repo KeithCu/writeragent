@@ -187,7 +187,7 @@ def run_slash_formula_worker(host: SlashHost, *, ctx: Any, model: Any, descripti
     )
     max_tokens = get_config("chatbot.extend_selection_max_tokens")
     chunks: list[str] = []
-    cancel = capture_send_stop(host)
+    cancel = capture_send_stop(host._send_cancellation)
 
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
         if not is_thinking:

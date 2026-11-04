@@ -2180,7 +2180,7 @@ def _assert_http_500_diag_safe(joined, *, prompt, api_key, model, stream, n_mess
 def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     import logging
 
-    from plugin.framework.client.errors import _format_http_error_response
+    from plugin.framework.client.errors import format_http_error_response
 
     prompt = "UNIQUE_PROMPT_BLOB_FOR_500_DIAG_TOOLS"
     api_key = "sk-UNIQUE-SECRET-KEY-500-DIAG"
@@ -2204,7 +2204,7 @@ def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     from plugin.framework.client.http_security import redact_secrets
 
     expected_user = redact_secrets(
-        _format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
+        format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
         [api_key],
     )
     assert str(err.value) == expected_user
