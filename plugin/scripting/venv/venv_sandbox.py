@@ -80,7 +80,7 @@ install_alias_authorizer()
 # Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session,
 # document OnUnload (workbook_lifecycle), or worker process exit.
 _SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
-_SESSION_LOCK = threading.Lock()
+_SESSION_LOCK = threading.Lock()  # Lock order: _SESSION_LOCK before DuckDB _SESSION_LOCK.
 _MAX_ISOLATED_INIT_SNAPSHOTS = 32
 _ISOLATED_INIT_LRU: OrderedDict[str, None] = OrderedDict()
 # Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
@@ -715,14 +715,11 @@ def _seed_shared_executor_once(
 
 
 
-def _executor_alarm_seconds(timeout_sec: int, deadline_end: float) -> int | None:
+def _executor_alarm_seconds(deadline_end: float) -> int | None:
     """Whole seconds for the child executor alarm, or None when the budget is spent.
 
-    Matches ``Deadline.from_absolute(timeout_sec, deadline_end).run_for()`` (at least
-    one second; ``alarm(0)`` cancels). *timeout_sec* is the request budget;
-    *deadline_end* is when it ends.
+    Matches ``Deadline.run_for()`` (at least one second; ``alarm(0)`` cancels).
     """
-    del timeout_sec  # budget is stored on Deadline; alarm uses end time only
     left = deadline_end - time.monotonic()
     if left <= 0:
         return None
@@ -776,7 +773,7 @@ def _ensure_init_executed(
     # Init and the cell used to each get a fresh alarm for the full budget, so
     # a slow init plus a slow cell outlived the single host read and killed
     # the worker (every other workbook on that process).
-    left = _executor_alarm_seconds(timeout_sec, deadline)
+    left = _executor_alarm_seconds(deadline)
     if left is None:
         return _budget_timeout_error(timeout_sec)
     init_executor.timeout_seconds = left
@@ -1247,7 +1244,7 @@ def run_sandboxed_code(
             if init_sid:
                 ns.seed(init_sid, copy=True)
 
-        left = _executor_alarm_seconds(timeout_sec, deadline)
+        left = _executor_alarm_seconds(deadline)
         if left is None:
             err = _budget_timeout_error(timeout_sec)
             if session_id:

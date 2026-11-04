@@ -41,7 +41,7 @@ from plugin.chatbot.slash_commands import (
 from plugin.framework.errors import best_effort, suppress_disposed, uno_read
 from plugin.framework.uno_listeners import BaseKeyListener, BaseMouseListener
 
-log = logging.getLogger("writeragent.slash_popup")
+log = logging.getLogger(__name__)
 
 # Slash-overlay tracing is very noisy. Set True to log these steps to the
 # debug log even when log_level is DEBUG. Stays False in tree (same pattern

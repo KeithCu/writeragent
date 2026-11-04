@@ -790,11 +790,7 @@ def resolve_columns(
 
 def numeric_columns(df: Any, columns: Any = None) -> list[Any]:
     """Return *columns* when given (an empty list returns []), else all numeric column names. Unknown names raise."""
-    # What was wrong: with no explicit columns, numeric_columns returned
-    # stringified labels via _column_labels(), so int-labelled frames returned "0" instead of 0.
-    # How it happened: _column_labels str() wraps each column name when selecting numeric types.
-    # Why this change: return list(df.select_dtypes(include="number").columns) directly so column
-    # labels preserve their original type, matching column_by_label resolution.
+    # Return select_dtypes labels as-is (int columns stay int, not str() "0").
     if columns is None:
         return list(df.select_dtypes(include="number").columns)
     if isinstance(columns, (str, int, float)):

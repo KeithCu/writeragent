@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from plugin.chatbot.chat_sidebar_mode import SidebarMode
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.sub_agent_tools")
+log = logging.getLogger(__name__)
 
 HTML_CONTENT_TARGETS: tuple[str, ...] = ("beginning", "end", "full_document")
 
