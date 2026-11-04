@@ -79,7 +79,9 @@ def run_kokoro_stdio_loop(handler: Any) -> int:
     stdout_bin = claim_ipc_channel()
     if is_real_fd1:
         sys.stdout = sys.stderr
-    write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
+    from plugin.framework.child_runtime import announce_ready
+
+    announce_ready(stdout_bin)
     while True:
         # A length-prefix or decode error has consumed stdin mid-frame;
         # writing an error and reading again would desync every later job.

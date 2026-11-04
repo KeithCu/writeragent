@@ -33,7 +33,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Same one-second lift as ``plugin.framework.process_worker.Deadline.run_for``;
+# Same one-second lift as ``plugin.framework.child_runtime.Deadline.run_for``;
 # LibrePy does not ship ``process_worker`` (compute-only IPC stack).
 _EXECUTOR_ALARM_MIN_SEC = 1.0
 

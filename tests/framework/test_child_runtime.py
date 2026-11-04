@@ -42,3 +42,21 @@ def test_die_with_parent_linux_prctl_and_ppid_race(monkeypatch) -> None:
     calls.clear()
     child_runtime.die_with_parent()
     assert calls == []
+
+
+def test_announce_ready_roundtrip() -> None:
+    import io
+    import os
+
+    from plugin.framework import ipc
+    from plugin.framework.child_runtime import announce_ready, is_ready_payload
+
+    buf = io.BytesIO()
+    announce_ready(buf)
+    buf.seek(0)
+    data = ipc.read_pickle_frame(buf)
+    assert data == {"status": "ready", "pid": os.getpid()}
+    assert is_ready_payload(data) is True
+    assert is_ready_payload(None) is False
+    assert is_ready_payload([]) is False
+    assert is_ready_payload({"status": "ok"}) is False

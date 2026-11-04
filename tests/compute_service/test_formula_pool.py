@@ -24,9 +24,8 @@ from compute_service.formula_pool import (
     shutdown_formula_pool,
 )
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-from compute_service.worker_base import Deadline
+from plugin.framework.child_runtime import Deadline
 from compute_service.vision import get_vision_pool, shutdown_vision_pool
-import plugin.framework.process_worker as process_worker
 from tests.compute_service.conftest import get_free_port
 
 
@@ -81,7 +80,7 @@ def test_replaced_child_drops_only_that_workers_session(monkeypatch: pytest.Monk
     Sessions store the Child. A reservation has no child yet and stays.
     """
     from compute_service.formula_pool import _Session
-    from plugin.framework.process_worker import Child
+    from plugin.framework.warm_child import Child
 
     class _Running:
         def __init__(self) -> None:
@@ -142,7 +141,7 @@ def test_dead_managed_child_drops_its_session(monkeypatch: pytest.MonkeyPatch) -
     """A session whose Child is dead drops even when it is still the slot's child."""
     from compute_service.formula_pool import _Session
     from plugin.framework.managed_subprocess import ManagedSubprocess
-    from plugin.framework.process_worker import Child
+    from plugin.framework.warm_child import Child
 
     class _Dead:
         def poll(self) -> int | None:
@@ -388,10 +387,10 @@ class TestFormulaPoolSupervisor:
 
     def test_spawn_timeout_logs_stderr_snippet(self, tmp_path, caplog, monkeypatch) -> None:
         """Handshake TimeoutExpired must log child stderr (H2), not a bare one-liner."""
-        from plugin.framework import process_worker
+        from plugin.framework import warm_child as wc
         from compute_service.worker_base import BaseProcessWorker
 
-        monkeypatch.setattr(process_worker, "_SPAWN_READY_TIMEOUT_SEC", 0.5)
+        monkeypatch.setattr(wc, "SPAWN_READY_TIMEOUT_SEC", 0.5)
         script = tmp_path / "hang_worker.py"
         script.write_text(
             "\n".join(
@@ -1225,7 +1224,7 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_deadline_left_is_negative_when_spent(self) -> None:
-        from compute_service.worker_base import Deadline
+        from plugin.framework.child_runtime import Deadline
 
         future = Deadline.from_absolute(10.0, time.monotonic() + 10.0)
         assert future.left() > 0.0
@@ -2007,7 +2006,7 @@ class TestFormulaHttpEndpoint:
 
     def test_post_lease_queue_timeout_drops_new_session(self) -> None:
         """When deadline expires right after leasing, new session reservation is dropped."""
-        from compute_service.worker_base import Deadline
+        from plugin.framework.child_runtime import Deadline
 
         pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0)
         try:
@@ -2034,7 +2033,7 @@ class TestFormulaHttpEndpoint:
 
     def test_post_lease_queue_timeout_keeps_existing_session(self) -> None:
         """When deadline expires right after leasing, an existing session is preserved."""
-        from compute_service.worker_base import Deadline
+        from plugin.framework.child_runtime import Deadline
 
         pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0)
         try:
@@ -2293,6 +2292,8 @@ def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.Monkey
 
 
 def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework import warm_child as process_worker
+
     real_read = process_worker.read_pickle_frame
     armed = False
     read_entered = threading.Event()

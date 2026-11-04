@@ -26,7 +26,9 @@ if _PROJECT_ROOT not in sys.path:
 from compute_service import error_codes as ec
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, Deadline, PoolSingleton, error_dict, resolve_override, run_compute_worker
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, resolve_override, run_compute_worker
+from plugin.framework.child_runtime import Deadline
+from plugin.framework.warm_child import error_dict
 
 log = logging.getLogger("compute_service.vision")
 

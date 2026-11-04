@@ -534,7 +534,7 @@ def test_kokoro_child_spec_env_and_spawn(monkeypatch, supervisor):
     monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *_a, **_k: MagicMock())
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     monkeypatch.setattr(
-        "plugin.framework.process_worker.read_pickle_frame",
+        "plugin.framework.warm_child.read_pickle_frame",
         lambda *_a, **_k: {"status": "ready", "pid": 1234},
     )
 

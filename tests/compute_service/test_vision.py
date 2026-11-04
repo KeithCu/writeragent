@@ -19,7 +19,7 @@ import pytest
 
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
-from compute_service.worker_base import Deadline
+from plugin.framework.child_runtime import Deadline
 from compute_service.vision import VisionProcessPool, _handle_request, get_vision_pool, shutdown_vision_pool
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from tests.compute_service.multipart_encode import encode_multipart_vision

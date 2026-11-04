@@ -192,10 +192,10 @@ def main():
     print(f"  Pickle Mode: Cold: {cold_pickle_m:.6f}s | Warm Avg: {avg_pickle_m:.6f}s | Warm Min: {min_pickle_m:.6f}s")
 
     # Teardown workers
-    from plugin.framework.warm_child import get_supervisor
+    from plugin.framework.warm_child import supervisor
     from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
-    get_supervisor().shutdown_all()
+    supervisor.shutdown_all()
     shutdown_venv_workers_for_tests()
     print("\nBenchmark complete.")
 
