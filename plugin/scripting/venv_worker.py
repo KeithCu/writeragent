@@ -617,7 +617,7 @@ class PythonWorkerManager:
         """IPC is desynced after a kill; only the default pool feeds the Calc cache."""
         if self.pool != WORKER_POOL_DEFAULT:
             return
-        from plugin.calc.python.function import clear_python_addin_cache
+        from plugin.calc.python.recalc import clear_python_addin_cache
 
         clear_python_addin_cache()
 

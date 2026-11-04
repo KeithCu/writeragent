@@ -15,7 +15,7 @@ This is **not** Excel co-volatility (re-run every Python cell when any one is di
 
 The **desktop LibrePy prototype is in the tree** (flag, attach on save / flag-on, UDProp map, eval strip, deferred insert/delete repair). The hard part that made it more than a one-liner: inserting a new `=PY()` cell in the middle of the list. The successor’s predecessor field must be rewritten to the new cell. Those writes **must happen outside recalc**, using the same deferred, undo-isolated pattern as auto-spill (`perform_deferred_spill` + 0.1s timer). Writing other cells from inside the add-in re-enters the formula engine.
 
-**Marker (required, and in the prototype):** a workbook UDProp plus an in-memory map, same pattern as `WriterAgentSpillRegistry` / `SPILL_REGISTRY` / `load_spill_registry_for_doc` in [`function.py`](../../plugin/calc/python/function.py). Eval-time strip consults that map. A 1×1 / “last arg is a PY cell” heuristic is **unimplementable** — `execute_python_addin` / `split_python_addin_data_args` / `calc_addin_args_from_split` see only values, never addresses.
+**Marker (required, and in the prototype):** a workbook UDProp plus an in-memory map, same pattern as `WriterAgentSpillRegistry` / `SPILL_REGISTRY` / `load_spill_registry_for_doc` in [`spill.py`](../../plugin/calc/python/spill.py). Eval-time strip consults that map. A 1×1 / “last arg is a PY cell” heuristic is **unimplementable** — `execute_python_addin` / `split_python_addin_data_args` / `calc_addin_args_from_split` see only values, never addresses.
 
 At eval time the add-in sees only values, not addresses. At repair time we group cells by `(workbook_key, resolved_code, n_args)`. **Unanimous-ours** means every cell in that group is one we attached. Then it is safe to drop the last arg for the whole group. If even one cell in the group is user-authored (mixed), we strip none — the mix “poisons” the group. That is why a truncated (cap-hit) list cannot be marked strip-safe: we cannot prove the group is entirely ours. Details in [§9.5](#95-marker-is-the-udprop--in-memory-map).
 
@@ -171,15 +171,15 @@ Today ([data shapes](py-data-shapes.md)):
 
 `PythonFunction.python` / `execute_python_addin` receive `(code, data)` values only (`addin_impl.py`). `split_python_addin_data_args` and `calc_addin_args_from_split` never see addresses or “this arg is a PY cell.”
 
-A rule like “if the last arg is a 1×1 PY cell, drop it” is therefore unimplementable. `locate_formula_cell_in_doc` (`function.py` `session_key`) is **not** a fix: it returns `None` on 0 or 2+ matches, and cannot disambiguate `=PY("f(data)"; A1)` when A1 is both predecessor and user data.
+A rule like “if the last arg is a 1×1 PY cell, drop it” is therefore unimplementable. `locate_formula_cell_in_doc` (`recalc.py` `session_key`) is **not** a fix: it returns `None` on 0 or 2+ matches, and cannot disambiguate `=PY("f(data)"; A1)` when A1 is both predecessor and user data.
 
 The last-row idea “user already passed the previous PY cell as real data → no-op, satisfied either way” is **wrong** under a shape-strip: it would drop real user data. Under the map, that row is: **do not record as ours, do not strip** ([§9.5](#95-marker-is-the-udprop--in-memory-map) table).
 
 ### 4.2 Where to strip (must be before the index heuristic)
 
-In `_execute_python_addin_impl` ([`function.py`](../../plugin/calc/python/function.py)):
+In `_execute_python_addin_impl` ([`recalc.py`](../../plugin/calc/python/recalc.py)):
 
-`function.py` order today: split → `maybe_strip_geometric_eval_args` → `calc_addin_args_from_split` → matrix-index peel.
+`recalc.py` order today: split → `maybe_strip_geometric_eval_args` → `calc_addin_args_from_split` → matrix-index peel.
 
 1. `args = split_python_addin_data_args(data)`
 2. **Strip here** if the eval index marks this `(workbook_key, resolved_code, n_args)` **strip-safe** (unanimous-ours — [§9.5](#95-marker-is-the-udprop--in-memory-map)). Unconditional across **both** branches — including `_code_uses_indexed_multi_data` (`"data["` / `"ranges["` in the source). If the geometric field stays, it becomes `data[-1]` / `ranges[-1]`.

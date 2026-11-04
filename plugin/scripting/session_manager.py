@@ -419,7 +419,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     res = _call_reset_python_session(session_id)
     # Also reset the persistent :init session so worker state from previous init script is cleared
     res_init = _call_reset_python_session(base_key.with_init_suffix().wire())
-    from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.calc.python.recalc import clear_python_addin_cache
 
     clear_python_addin_cache()
     # What was wrong: only the base res was tested, so a failed :init reset still

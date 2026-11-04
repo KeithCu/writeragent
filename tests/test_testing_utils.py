@@ -1647,7 +1647,7 @@ def test_native_doc_teardown_reset_failure_closes_without_session_clear(monkeypa
         TestingFactory, "close_doc", lambda *_a, **_k: events.append("close")
     )
     monkeypatch.setattr(
-        "plugin.calc.python.function.clear_python_addin_cache",
+        "plugin.calc.python.recalc.clear_python_addin_cache",
         lambda: events.append("clear_session"),
     )
     tu._NATIVE_DOC_POOL.clear()

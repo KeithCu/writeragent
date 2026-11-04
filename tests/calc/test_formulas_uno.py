@@ -374,7 +374,7 @@ def test_insert_result_into_calc_undo(ctx, doc):
 @with_native_doc("calc")
 def test_calc_spill_undo_lock(ctx, doc):
     """Deferred spill writes must not create extra undo actions on top of the formula."""
-    from plugin.calc.python.function import perform_deferred_spill
+    from plugin.calc.python.spill import perform_deferred_spill
     from plugin.calc.python.workbook_state import WorkbookState
 
     active_sheet = doc.getCurrentController().getActiveSheet()

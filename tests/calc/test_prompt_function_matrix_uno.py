@@ -15,7 +15,8 @@ def _cell_value(sheet, col, row):
 
 @native_test
 def test_finalize_python_return_helpers():
-    from plugin.calc.python.function import finalize_python_return, is_scalar_index_arg as _is_scalar_index_arg
+    from plugin.calc.python.addin_values import is_scalar_index_arg as _is_scalar_index_arg
+    from plugin.calc.python.recalc import finalize_python_return
 
     class _Ctx:
         pass
@@ -40,7 +41,7 @@ def test_python_matrix_via_index_argument(ctx, doc):
     primes = [7919.0, 7927.0, 7933.0, 7937.0, 7949.0, 7951.0]
     func = PythonFunction(ctx)
     code = "result = [sp.prime(x) for x in range(1000, 1006)]"
-    with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+    with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": [int(p) for p in primes]}
         for row, expected in enumerate(primes):
             res = func.python(doc, code, row)
@@ -62,7 +63,8 @@ def test_python_matrix_via_session_counter(ctx, doc):
     test_ordinary_formula_multi_cell_selection_returns_corner.
     """
     from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_in_memory_spill_state, clear_python_addin_cache
+    from plugin.calc.python.recalc import clear_python_addin_cache
+    from plugin.calc.python.spill import clear_in_memory_spill_state
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
     code = "result = [2, 3, 5]"
@@ -74,7 +76,7 @@ def test_python_matrix_via_session_counter(ctx, doc):
 
     func = PythonFunction(ctx)
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
             mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
             assert func.python(doc, code) == 2.0
             assert func.python(doc, code) == 3.0
@@ -87,7 +89,7 @@ def test_python_matrix_via_session_counter(ctx, doc):
 @with_native_doc("calc")
 def test_python_matrix_array_formula_block_with_single_cell_selected(ctx, doc):
     from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.calc.python.recalc import clear_python_addin_cache
 
     code = "result = [2, 3, 5]"
     sheet = doc.getCurrentController().getActiveSheet()
@@ -97,7 +99,7 @@ def test_python_matrix_array_formula_block_with_single_cell_selected(ctx, doc):
     clear_python_addin_cache()
 
     func = PythonFunction(ctx)
-    with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+    with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
         mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
         assert func.python(doc, code) == 2.0
         assert func.python(doc, code) == 3.0
@@ -115,7 +117,8 @@ def test_ordinary_formula_multi_cell_selection_returns_corner(ctx, doc):
     cancelled so it does not write after the document closes.
     """
     from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_in_memory_spill_state, clear_python_addin_cache
+    from plugin.calc.python.recalc import clear_python_addin_cache
+    from plugin.calc.python.spill import clear_in_memory_spill_state
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
     code = "result = [2, 3, 5]"
@@ -126,7 +129,7 @@ def test_ordinary_formula_multi_cell_selection_returns_corner(ctx, doc):
 
     func = PythonFunction(ctx)
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
             mock_run.return_value = {"status": "ok", "result": [2, 3, 5]}
             assert func.python(doc, code) == 2.0
             assert func.python(doc, code) == 2.0

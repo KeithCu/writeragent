@@ -1727,7 +1727,7 @@ def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -
     def _clear() -> None:
         cleared.append(True)
 
-    monkeypatch.setattr("plugin.calc.python.function.clear_python_addin_cache", _clear)
+    monkeypatch.setattr("plugin.calc.python.recalc.clear_python_addin_cache", _clear)
     result = mgr.execute("result = 1", timeout_sec=5)
     assert result["status"] == "error"
     assert result["code"] == "WORKER_IPC_ERROR"
@@ -3425,7 +3425,7 @@ def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPat
     )
     cleared: list[bool] = []
     monkeypatch.setattr(
-        "plugin.calc.python.function.clear_python_addin_cache",
+        "plugin.calc.python.recalc.clear_python_addin_cache",
         lambda: cleared.append(True),
     )
 
@@ -3703,7 +3703,7 @@ def test_non_default_pool_failure_does_not_clear_calc_addin_cache(monkeypatch):
 
     clear_calls: list[int] = []
     monkeypatch.setattr(
-        "plugin.calc.python.function.clear_python_addin_cache",
+        "plugin.calc.python.recalc.clear_python_addin_cache",
         lambda: clear_calls.append(1),
     )
 

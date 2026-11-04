@@ -13,8 +13,40 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import plugin.calc.python.function as python_function
-from plugin.calc.python.function import finalize_python_return, to_calc_compatible
+import plugin.calc.python.addin_values as _addin_values
+import plugin.calc.python.formula_locator_cache as _formula_locator_cache
+import plugin.calc.python.image_egress as _image_egress
+import plugin.calc.python.recalc as _recalc
+import plugin.calc.python.sheet_modify as _sheet_modify
+import plugin.calc.python.spill as _spill
+import plugin.calc.python.undo as _undo
+from plugin.calc.python.addin_values import to_calc_compatible
+from plugin.calc.python.recalc import finalize_python_return
+
+
+class _PythonFunctionProxy:
+    def __init__(self) -> None:
+        self.__file__ = _recalc.__file__
+        self.threading = threading
+
+    def __getattr__(self, name: str) -> Any:
+        for mod in (_recalc, _spill, _addin_values, _undo, _image_egress, _formula_locator_cache, _sheet_modify):
+            if hasattr(mod, name):
+                return getattr(mod, name)
+        raise AttributeError(f"None of split modules has {name}")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in ("__file__", "threading"):
+            super().__setattr__(name, value)
+            return
+        for mod in (_recalc, _spill, _addin_values, _undo, _image_egress, _formula_locator_cache, _sheet_modify):
+            if hasattr(mod, name):
+                setattr(mod, name, value)
+                return
+        setattr(_recalc, name, value)
+
+
+python_function = _PythonFunctionProxy()
 from plugin.tests.testing_utils import CalcDocStub
 
 
@@ -429,7 +461,7 @@ def test_spill_collision_detection(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that spill registry loads from and saves to document properties correctly."""
     import json
-    from plugin.calc.python.function import SpillCell, SpillRecord
+    from plugin.calc.python.spill import SpillCell, SpillRecord
 
     saved_payload = None
 
@@ -496,7 +528,7 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch: pytest.MonkeyPatch) -> None:
     import json
-    from plugin.calc.python.function import SpillCell, SpillRecord
+    from plugin.calc.python.spill import SpillCell, SpillRecord
 
     stored: dict[str, Any] = {}
 
@@ -550,7 +582,7 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
 
 
 def test_reloaded_nan_spill_cell_keeps_user_edit_on_cleanup(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.calc.python.function import CalcSpillModifyListener, SpillCell, SpillRecord
+    from plugin.calc.python.spill import CalcSpillModifyListener, SpillCell, SpillRecord
     from plugin.tests.testing_utils import CalcSheetStub
 
     stored: dict[str, Any] = {}
@@ -604,7 +636,7 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
     getURL() is "" for both. Registry identity is each book's RuntimeUID.
     """
     import json
-    from plugin.calc.python.function import PreparedSpill, SpillCell, SpillRecord
+    from plugin.calc.python.spill import PreparedSpill, SpillCell, SpillRecord
 
     stored: dict[int, str] = {}
 
@@ -1004,13 +1036,13 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
     saved: list[Any] = []
     monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda doc: saved.append(doc))
 
-    key = ("file:///owner.ods", "Sheet1", 1, 1)
+    key = ("uid-owner", "Sheet1", 1, 1)
     python_function.SPILL_REGISTRY[key] = python_function.SpillRecord(
         code='=PY("test")',
         cells=[python_function.SpillCell(2, 1, "n", 99.0)],
     )
     try:
-        listener = python_function.CalcSpillModifyListener(MagicMock(), "file:///owner.ods", "Sheet1")
+        listener = python_function.CalcSpillModifyListener(MagicMock(), "uid-owner", "Sheet1")
         listener.modified(SimpleNamespace(Source=sheet))
         assert key not in python_function.SPILL_REGISTRY
         assert spilled.getValue() == 0
@@ -1239,11 +1271,10 @@ def test_to_calc_compatible_duck_typed_numeric() -> None:
 
 
 def test_calc_python_function_zero_event_pumping_invariant() -> None:
-    """Static invariant: function.py must not import event loop pumping or UI draining functions."""
+    """Static invariant: recalc.py must not import event loop pumping or UI draining functions."""
     import inspect
-    import plugin.calc.python.function as fn_mod
 
-    source = inspect.getsource(fn_mod)
+    source = inspect.getsource(_recalc)
     assert "processEventsToIdle" not in source
     assert "async_stream" not in source
     assert "run_async_worker_with_drain" not in source
@@ -1253,17 +1284,22 @@ def test_function_module_avoids_document_helpers_import() -> None:
     """First =PY() must not load document_helpers → SheetAnalyzer or the dialog stack."""
     import ast
 
-    tree = ast.parse(Path(python_function.__file__).read_text(encoding="utf-8"))
-    mods: list[str] = []
-    for node in tree.body:
-        if isinstance(node, ast.ImportFrom) and node.module:
-            mods.append(node.module)
-        elif isinstance(node, ast.Import):
-            mods.extend(alias.name for alias in node.names)
-    assert "plugin.doc.document_helpers" not in mods
-    assert "plugin.calc.analyzer" not in mods
-    assert "plugin.scripting.document_scripts" not in mods
-    assert "plugin.chatbot.dialogs" not in mods
+    addin_modules = (_recalc, _spill, _addin_values, _undo)
+    forbidden = {
+        "plugin.doc.document_helpers",
+        "plugin.calc.analyzer",
+        "plugin.scripting.document_scripts",
+        "plugin.chatbot.dialogs",
+    }
+    for mod in addin_modules:
+        tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+        mods: list[str] = []
+        for node in tree.body:
+            if isinstance(node, ast.ImportFrom) and node.module:
+                mods.append(node.module)
+            elif isinstance(node, ast.Import):
+                mods.extend(alias.name for alias in node.names)
+        assert forbidden.isdisjoint(mods), mod.__name__
 
 
 def test_execute_python_addin_maps_missing_venv_error(monkeypatch) -> None:
@@ -1438,7 +1474,7 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
 
 def test_off_main_spill_timer_does_not_register_empty_lkey(caplog: pytest.LogCaptureFixture) -> None:
     doc = None
-    with caplog.at_level(logging.DEBUG, logger="plugin.calc.python.function"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.calc.python.spill"):
         python_function._queue_off_main_auto_spill(None, "code", [[1, 2]], doc)
     assert "skipping off-main auto-spill" in caplog.text
 
@@ -1571,7 +1607,7 @@ def test_prepare_auto_spill_with_16384_columns() -> None:
 
     # Locate formula at (row 0, col 1020)
     with unittest.mock.patch(
-        "plugin.calc.python.function.locate_formula_cell_in_doc",
+        "plugin.calc.python.spill.locate_formula_cell_in_doc",
         return_value=(sheet, cell, (0, 1020)),
     ):
         # 1 row by 10 columns grid -> targets col 1020..1029 (crosses past 1024)
@@ -1617,7 +1653,7 @@ def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
     doc_id = "uid-wide-fallback"
     try:
         with patch(
-            "plugin.calc.python.function.locate_formula_cell_in_doc",
+            "plugin.calc.python.spill.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 16300)),
         ):
             prepared = python_function._prepare_auto_spill(ctx, "py_code", grid, doc)
@@ -1629,7 +1665,7 @@ def test_prepare_auto_spill_respects_reported_sheet_size() -> None:
             assert prepared.formula_col == 16300
 
         with patch(
-            "plugin.calc.python.function.locate_formula_cell_in_doc",
+            "plugin.calc.python.spill.locate_formula_cell_in_doc",
             return_value=(sheet, cell, (0, 16383)),
         ):
             prepared_spill = python_function._prepare_auto_spill(ctx, "py_code", grid, doc)
@@ -2012,7 +2048,7 @@ def test_spill_clear_skips_user_text_matching_numeric_spill(monkeypatch: pytest.
 
 def test_cell_matches_stored_value_type_gate() -> None:
     """Direct _cell_matches_stored_value cases for VALUE/TEXT gate and PyUNO enum compatibility."""
-    from plugin.calc.python.function import SpillCell, _cell_matches_stored_value
+    from plugin.calc.python.spill import SpillCell, _cell_matches_stored_value
     from plugin.tests.testing_utils import CalcSheetStub
 
     sheet = CalcSheetStub("Sheet1")
@@ -2149,7 +2185,7 @@ def test_matrix_sessions_expire() -> None:
 
     # Call scalar_for_list_result for a different formula with a unique origin
     with patch(
-        "plugin.calc.python.function.session_key",
+        "plugin.calc.python.recalc.session_key",
         return_value=("file:///d.ods", "S", "sid", "c_new", "2,2"),
     ):
         python_function.scalar_for_list_result(ctx, "c_new", [10, 20], doc=doc)
@@ -2271,7 +2307,7 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
         "run_code_in_user_venv",
         lambda *_a, **_k: {"status": "error", "message": err_msg},
     )
-    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out = python_function.execute_python_addin(ctx, "bad_code", doc=doc)
     assert isinstance(out, float)
     raw = struct.unpack("Q", struct.pack("d", out))[0]
@@ -2316,7 +2352,7 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
         "run_code_in_user_venv",
         lambda *_a, **_k: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."},
     )
-    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out_stop = python_function.execute_python_addin(ctx, "stop_code", doc=doc)
     assert isinstance(out_stop, str)
     assert "Stopped" in out_stop or "USER_STOPPED" in out_stop
@@ -2456,7 +2492,7 @@ def test_py_addin_cell_value_helper_error_dict(caplog: pytest.LogCaptureFixture)
     ]
     for err, bits, logged in mapped:
         caplog.clear()
-        with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+        with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
             val = python_function.py_addin_cell_value(err)
         assert isinstance(val, float)
         assert not math.isfinite(val)
@@ -2489,7 +2525,7 @@ def test_py_addin_cell_value_helper_error_dict(caplog: pytest.LogCaptureFixture)
     ]
     for err in stay_text:
         caplog.clear()
-        with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+        with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
             val = python_function.py_addin_cell_value(err)
         assert val == str(err)
         assert isinstance(val, str)
@@ -2513,7 +2549,7 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     }
     worker = {"status": "ok", "result": err}
     monkeypatch.setattr(python_function, "run_code_in_user_venv", lambda *_a, **_k: worker)
-    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out = python_function.execute_python_addin(ctx, "helper_err", doc=doc)
     assert isinstance(out, float)
     assert struct.unpack("Q", struct.pack("d", out))[0] & 0xFFFF == 519
@@ -2543,7 +2579,7 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
         "run_code_in_user_venv",
         lambda *_a, **_k: {"status": "ok", "result": timed},
     )
-    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out_timed = python_function.execute_python_addin(ctx, "helper_timeout_word", doc=doc)
     assert isinstance(out_timed, float)
     assert struct.unpack("Q", struct.pack("d", out_timed))[0] & 0xFFFF == 519
@@ -2558,7 +2594,7 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
         "run_code_in_user_venv",
         lambda *_a, **_k: {"status": "ok", "result": plain},
     )
-    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out_plain = python_function.execute_python_addin(ctx, "plain_dict", doc=doc)
     assert isinstance(out_plain, str)
     assert "hello" in out_plain
@@ -2573,7 +2609,7 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
         "run_code_in_user_venv",
         lambda *_a, **_k: {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."},
     )
-    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.function"):
+    with caplog.at_level(logging.ERROR, logger="plugin.calc.python.addin_values"):
         out_stop = python_function.execute_python_addin(ctx, "stop_still_text", doc=doc)
     assert isinstance(out_stop, str)
     assert "Stopped" in out_stop
@@ -2782,7 +2818,7 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
     # Repeat off the main thread
     queue_mock = MagicMock()
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function._queue_off_main_auto_spill", queue_mock)
+    monkeypatch.setattr("plugin.calc.python.recalc._queue_off_main_auto_spill", queue_mock)
     val_off = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
     assert val_off == ""
     queue_mock.assert_not_called()
@@ -2794,7 +2830,7 @@ def test_scalar_for_list_result_uses_supplied_data_token(monkeypatch: pytest.Mon
     python_function.clear_python_addin_cache()
 
     monkeypatch.setattr(
-        "plugin.calc.python.function.session_key",
+        "plugin.calc.python.recalc.session_key",
         lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_token", "0,0"),
     )
     token_calls = []
@@ -2803,7 +2839,7 @@ def test_scalar_for_list_result_uses_supplied_data_token(monkeypatch: pytest.Mon
         token_calls.append(data)
         return "computed"
 
-    monkeypatch.setattr("plugin.calc.python.function._worker_data_token", mock_token)
+    monkeypatch.setattr("plugin.calc.python.recalc._worker_data_token", mock_token)
 
     res = python_function.scalar_for_list_result(ctx, "code_token", [10, 20], worker_data={"x": 1}, doc=doc, data_token="preset")
     assert res == 10
@@ -2820,7 +2856,7 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
     python_function.clear_python_addin_cache()
 
     monkeypatch.setattr(
-        "plugin.calc.python.function.session_key",
+        "plugin.calc.python.recalc.session_key",
         lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_once", "1,1"),
     )
     monkeypatch.setattr(
@@ -2828,7 +2864,7 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
         lambda key, default=False: False if key == "scripting.python_auto_spill" else default,
     )
     monkeypatch.setattr(
-        "plugin.calc.python.function.run_code_in_user_venv",
+        "plugin.calc.python.recalc.run_code_in_user_venv",
         lambda *args, **kwargs: {"status": "ok", "result": [1, 2, 3]},
     )
     call_count = 0
@@ -2839,7 +2875,7 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
         call_count += 1
         return real_token(data)
 
-    monkeypatch.setattr("plugin.calc.python.function._worker_data_token", counting_token)
+    monkeypatch.setattr("plugin.calc.python.recalc._worker_data_token", counting_token)
 
     python_function.execute_python_addin(ctx, "code_once", data=42, doc=doc)
     assert call_count == 1
@@ -2911,7 +2947,7 @@ def test_execute_python_addin_flag_passes_through_without_gate(monkeypatch: pyte
         captured_calls.append((code, kwargs))
         return {"status": "ok", "result": 123}
 
-    monkeypatch.setattr("plugin.calc.python.function.run_code_in_user_venv", fake_run)
+    monkeypatch.setattr("plugin.calc.python.recalc.run_code_in_user_venv", fake_run)
     monkeypatch.setattr(
         "plugin.framework.config.get_config",
         lambda key, default=False: True if key == "scripting.python_allow_network" else default,

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from plugin.calc.python.function import SHEET_MODIFY_LISTENERS, perform_deferred_spill
+from plugin.calc.python.spill import perform_deferred_spill, SHEET_MODIFY_LISTENERS
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.sheet_modify import (
     dispatch_sheet_modified,

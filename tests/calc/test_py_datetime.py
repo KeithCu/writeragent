@@ -9,7 +9,7 @@ from __future__ import annotations
 import datetime
 import pytest
 
-from plugin.calc.python.function import _coerce_spill_value
+from plugin.calc.python.addin_values import _coerce_spill_value
 
 
 def test_coerce_spill_value_dates_and_datetimes():

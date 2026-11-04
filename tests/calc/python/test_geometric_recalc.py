@@ -1138,7 +1138,7 @@ def _mean_range_and_pred():
 
 def test_strip_np_mean_data_stays_single_range():
     """=PY("np.mean(data)"; B1:B10; pred) still packs one CalcRange, not a list."""
-    from plugin.calc.python.function import execute_python_addin
+    from plugin.calc.python.recalc import execute_python_addin
     from plugin.scripting.calc_range import is_calc_range_payload
     from plugin.scripting.payload_codec import is_multi_data
 
@@ -1146,7 +1146,7 @@ def test_strip_np_mean_data_stays_single_range():
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key("np.mean(data)", 2)}))
     with (
-        patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
+        patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run,
         # The caller doc is a stub; keep the strip-safe set this test installed.
         patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
     ):
@@ -1161,7 +1161,7 @@ def test_strip_np_mean_data_stays_single_range():
 
 def test_strip_ranges_minus_one_is_user_range_not_pred():
     """Indexed multi-data branch: ranges[-1] is B1:B10, not the predecessor."""
-    from plugin.calc.python.function import execute_python_addin
+    from plugin.calc.python.recalc import execute_python_addin
     from plugin.scripting.payload_codec import is_multi_data
 
     _reset_geo()
@@ -1169,7 +1169,7 @@ def test_strip_ranges_minus_one_is_user_range_not_pred():
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key(code, 2)}))
     with (
-        patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
+        patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run,
         # The caller doc is a stub; keep the strip-safe set this test installed.
         patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
     ):
@@ -1186,12 +1186,12 @@ def test_strip_ranges_minus_one_is_user_range_not_pred():
 
 def test_strip_runs_before_matrix_index_peel():
     """Last geometric 1-cell must not become index_arg (silent wrong numbers)."""
-    from plugin.calc.python.function import execute_python_addin
+    from plugin.calc.python.recalc import execute_python_addin
     _reset_geo()
     col, pred = _mean_range_and_pred()
     replace_geometric_strip_safe(WB, frozenset({_key("np.mean(data)", 2)}))
     with (
-        patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run,
+        patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run,
         # The caller doc is a stub; keep the strip-safe set this test installed.
         patch("plugin.calc.python.geometric_recalc.ensure_geometric_strip_index_for_eval"),
     ):
@@ -1560,7 +1560,7 @@ def test_dispatcher_debounce_coalesces_two_modifies(monkeypatch):
     reset_sheet_modify_runtime_for_tests()
     doc = CalcDocStub(url="file:///debounce-geo.ods")
     sheet = doc.getSheets().getByName("Sheet1")
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: doc)
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: True
     )
@@ -1592,7 +1592,7 @@ def test_dispatcher_flag_off_does_not_rewrite(monkeypatch):
     monkeypatch.setattr(
         "plugin.calc.python.geometric_recalc.geometric_flag_enabled", lambda: False
     )
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     assert sheet.getCellByPosition(0, 1).getFormula() == '=PY("second")'
 
@@ -1617,7 +1617,7 @@ def test_dispatcher_insert_retargets_successor(monkeypatch):
     )
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     third = sheet.getCellByPosition(0, 2).getFormula()
     args = formula_data_args(third)
@@ -1653,7 +1653,7 @@ def test_dispatcher_delete_first_removes_field(monkeypatch):
     )
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     assert formula_data_args(sheet.getCellByPosition(0, 1).getFormula())
 
@@ -1678,7 +1678,7 @@ def test_dispatcher_reentrancy_skips_nested_schedule(monkeypatch):
     reset_sheet_modify_runtime_for_tests()
     doc = CalcDocStub(url="file:///reenter-mod.ods")
     sheet = doc.getSheets().getByName("Sheet1")
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: doc)
     geo._RUNTIME.repairing = True
     try:
         dispatch_sheet_modified(
@@ -1714,7 +1714,7 @@ def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
     )
     monkeypatch.setattr("plugin.doc.udprops.get_document_property", lambda *_a, **_k: None)
     monkeypatch.setattr("plugin.doc.udprops.set_document_property", lambda *_a, **_k: None)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: doc)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: doc)
     flush_sheet_modify_pass_for_tests("ctx", doc, sheet)
     wk = geometric_workbook_key(doc)
     assert _key("np.mean(data)", 2, wk) in _RUNTIME.strip_safe
@@ -1727,7 +1727,7 @@ def test_data_edit_rebuilds_strip_safe_index(monkeypatch):
 
 
 def test_ensure_listener_is_idempotent(monkeypatch):
-    from plugin.calc.python.function import SHEET_MODIFY_LISTENERS
+    from plugin.calc.python.spill import SHEET_MODIFY_LISTENERS
     from plugin.calc.python.sheet_modify import (
         ensure_sheet_modify_listener,
         reset_sheet_modify_runtime_for_tests,

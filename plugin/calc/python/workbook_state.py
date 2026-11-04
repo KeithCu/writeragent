@@ -16,7 +16,8 @@ from plugin.framework.thread_guard import _unwrap_uno
 from plugin.framework.uno_context import get_runtime_uid
 
 if TYPE_CHECKING:
-    from plugin.calc.python.function import SpillRecord, WorkerResultSession
+    from plugin.calc.python.recalc import WorkerResultSession
+    from plugin.calc.python.spill import SpillRecord
 
 log = logging.getLogger(__name__)
 

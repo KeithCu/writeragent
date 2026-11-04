@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-import plugin.calc.python.function as python_function
+from plugin.calc.python.spill import SpillRecord
 import plugin.calc.python.workbook_lifecycle as lifecycle
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.geometric_recalc import (
@@ -105,7 +105,7 @@ def test_non_calc_unload_resets_rps_and_notebook_sessions(monkeypatch: pytest.Mo
 
 def test_unload_clears_in_memory_spill_state():
     state = WorkbookState(key="key-spill")
-    state.spills[("Sheet1", 0, 0)] = python_function.SpillRecord(code="", cells=[])
+    state.spills[("Sheet1", 0, 0)] = SpillRecord(code="", cells=[])
     state.loaded = True
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:file:///gone.ods", state)

@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import logging
-from types import SimpleNamespace
 from typing import Any, Generator
 
 from plugin.framework.errors import best_effort, uno_read
@@ -151,7 +150,7 @@ def migrate_sheet_rename(
 
     # Rekey state.spills for this doc
     try:
-        from plugin.calc.python.function import save_spill_registry_for_doc
+        from plugin.calc.python.spill import save_spill_registry_for_doc
 
         for (sname, r, c) in list(state.spills):
             if sname == old_sheet_name:
@@ -217,14 +216,14 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
         log.debug("run_sheet_modify_pass: unreadable sheet name; skipping")
         return
     with sheet_modify_scope():
-        from plugin.calc.python.function import CalcSpillModifyListener
         from plugin.calc.python.workbook_state import WorkbookState
 
         state = WorkbookState.for_doc(doc) if doc is not None else None
         # Job 1 — spill orphan cleanup. Walks state.spills only.
         try:
-            reg_id = state.key if state is not None else ""
-            CalcSpillModifyListener(ctx, reg_id, name, state=state).modified(SimpleNamespace(Source=sheet))
+            from plugin.calc.python.spill import cleanup_orphans
+
+            cleanup_orphans(state, sheet, doc=doc, ctx=ctx, sheet_name=name)
         except Exception:
             log.exception("Error in spill orphan cleanup (%s)", name)
 
@@ -259,7 +258,7 @@ def dispatch_sheet_modified(
     if owner is None:
         owner = doc
     if owner is None:
-        from plugin.calc.python.function import _get_calc_doc
+        from plugin.calc.python.recalc import _get_calc_doc
 
         owner = _get_calc_doc(ctx)
     live = _sheet_name_of(sheet)

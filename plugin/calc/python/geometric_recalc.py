@@ -451,7 +451,7 @@ def reconcile(
     _RUNTIME.repairing = True
     repaired_sheets: dict[str, list[GeometricCell]] = {}
     try:
-        from plugin.calc.python.function import _undo_lock
+        from plugin.calc.python.undo import _undo_lock
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
 
         with _undo_lock(doc):

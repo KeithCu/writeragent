@@ -7,7 +7,7 @@ default tool lists).
 ## Entry points
 
 - `=PROMPT()`: `prompt_addin.py`, `prompt_function.py`
-- `=PYTHON()` / LibrePy: `python/addin.py`, `python/addin_librepy.py`, `python/function.py`
+- `=PYTHON()` / LibrePy: `python/addin.py`, `python/addin_librepy.py`, `python/recalc.py`, `python/spill.py`, `python/addin_values.py`, `python/undo.py`
 - Do **not** drop `analyzer.py` from the LibrePy bundle (reserved).
 
 Topic docs: [docs/calc/prompt-function.md](../../docs/calc/prompt-function.md),

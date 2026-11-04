@@ -9,14 +9,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from plugin.calc.python.function import (
-    SHEET_MODIFY_LISTENERS,
-    SPILL_REGISTRY,
-    SpillCell,
-    SpillRecord,
-    clear_in_memory_spill_state,
-    perform_deferred_spill,
-)
 from plugin.calc.python.sheet_modify import (
     SheetModifyDispatcher,
     _sheet_name_of,
@@ -27,6 +19,15 @@ from plugin.calc.python.sheet_modify import (
     reset_sheet_modify_runtime_for_tests,
     run_sheet_modify_pass,
     schedule_sheet_modify_pass,
+)
+from plugin.calc.python.spill import (
+    CalcSpillModifyListener,
+    SHEET_MODIFY_LISTENERS,
+    SPILL_REGISTRY,
+    SpillCell,
+    SpillRecord,
+    clear_in_memory_spill_state,
+    perform_deferred_spill,
 )
 from plugin.tests.testing_utils import CalcDocStub
 
@@ -89,7 +90,7 @@ def test_modify_uses_owning_document_not_active(monkeypatch):
     sheet.getParent = lambda: owner
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: other)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
 
     def _capture(ctx, doc, sheet, **kwargs):
@@ -109,7 +110,7 @@ def test_modify_uses_stored_document_when_source_has_no_parent(monkeypatch):
     sheet = owner.getSheets().getByName("Sheet1")
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.calc.python.geometric_recalc.is_geometric_repairing", lambda: False)
-    monkeypatch.setattr("plugin.calc.python.function._get_calc_doc", lambda _ctx: other)
+    monkeypatch.setattr("plugin.calc.python.recalc._get_calc_doc", lambda _ctx: other)
     captured: dict[str, object] = {}
 
     def _capture(ctx, doc, sheet, **kwargs):
@@ -338,7 +339,7 @@ def test_posted_pass_with_unreadable_sheet_name_skips_cleanup(monkeypatch: pytes
     def fail_cleanup(*args, **kwargs):
         raise AssertionError("spill cleanup must not run")
 
-    monkeypatch.setattr("plugin.calc.python.function.CalcSpillModifyListener", fail_cleanup)
+    monkeypatch.setattr("plugin.calc.python.spill.cleanup_orphans", fail_cleanup)
     run_sheet_modify_pass("ctx", doc, sheet)
 
 

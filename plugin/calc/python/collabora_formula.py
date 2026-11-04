@@ -150,7 +150,7 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     doc.lockControllers()
     try:
         # Reuses the shared hidden/locked undo context; do not create a new undo-context module.
-        from plugin.calc.python.function import _undo_lock
+        from plugin.calc.python.undo import _undo_lock
 
         with _undo_lock(doc):
             sheets = doc.getSheets()

@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from plugin.calc.python.function import SpillCell, SpillRecord
+from plugin.calc.python.spill import SpillCell, SpillRecord
 from plugin.calc.python.workbook_state import WorkbookState
 
 

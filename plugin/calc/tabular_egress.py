@@ -11,7 +11,7 @@ from typing import Any, Callable
 from plugin.calc.address_utils import format_address, format_range, qualify_a1
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
-from plugin.calc.python.function import to_calc_compatible
+from plugin.calc.python.addin_values import to_calc_compatible
 from plugin.framework.errors import CalcError
 
 
