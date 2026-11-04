@@ -6,6 +6,7 @@
 import json
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 
@@ -23,6 +24,7 @@ def test_unexpected_tool_exception_is_tool_execution_error_with_full_message():
         result = handler._mcp_tools_call(
             {"name": "apply_style", "arguments": {"style": "Heading 1"}},
             document_url=None,
+            cancel=SendCancellation(),
         )
     assert result is not None
     assert result["isError"] is True

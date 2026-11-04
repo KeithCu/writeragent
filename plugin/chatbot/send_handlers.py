@@ -468,13 +468,7 @@ class SendHandlersMixin:
         drain_q, turn = _send_worker_queues(self._panel)
         # Spawn-time scope. run_agent must not re-read _send_cancellation:
         # Stop clears the field and the next send replaces it.
-        # prepare_turn publishes this turn's id before Stop can be registered,
-        # so a Stop that lands before send() aborts this turn only.
         cancel_scope = self._panel._send_cancellation
-        if hasattr(adapter, "prepare_turn"):
-            adapter.prepare_turn()
-        if cancel_scope is not None and hasattr(adapter, "stop"):
-            cancel_scope.register_on_cancel(adapter.stop)
 
         # String-only: classifying the live model hits get_document_type (UNO).
         # run_agent is chatbot-send-handler; do not classify the document here.
@@ -514,7 +508,7 @@ class SendHandlersMixin:
                 def status_cb(t: str) -> None:
                     turn.put((StreamQueueKind.STATUS, t))
                 with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
-                    adapter.send(queue=turn, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=cancel_scope.is_cancelled if cancel_scope is not None else None)
+                    adapter.send(queue=turn, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, cancel=cancel_scope)
             except BlockingWaitStopped:
                 turn.put((StreamQueueKind.STOPPED,))
             except Exception as e:
