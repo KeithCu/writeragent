@@ -94,7 +94,7 @@ def _protect_worker_harness_os_exit(monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(harness.os, '_exit', lambda code: pytest.fail(f'Unexpected os._exit({code}) in harness test'))
     try:
         import plugin.contrib.smolagents.local_python_executor as lpe
-        lpe.abandoned_timeout = False
+        lpe.discard_thread_pool_timeout()
     except ImportError:
         pass
     try:
@@ -102,7 +102,7 @@ def _protect_worker_harness_os_exit(monkeypatch: pytest.MonkeyPatch) -> Any:
     finally:
         try:
             import plugin.contrib.smolagents.local_python_executor as lpe
-            lpe.abandoned_timeout = False
+            lpe.discard_thread_pool_timeout()
         except ImportError:
             pass
 

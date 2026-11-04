@@ -556,12 +556,26 @@ def _is_path_metadata_callable(module_root: str, fn_name: str) -> bool:
 
 
 def discard_thread_pool_timeout() -> None:
-    """Drop a deferred thread-pool timeout without waiting (pytest / host cleanup)."""
-    global _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
+    """Drop a deferred thread-pool timeout without waiting (pytest / host cleanup).
+
+    Windows xdist: after ``@timeout`` thread-pool fallback the worker thread can
+    outlive the test; ``shutdown(wait=False)`` alone left gw* wedged ~300s with
+    no traceback (CI 41744668351). Cancel the future and clear ``abandoned_timeout``
+    so the next test does not inherit a stray pool or harness exit flag.
+    """
+    global abandoned_timeout, _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
+    future = _pending_timeout_future
     pool = _pending_timeout_executor
     _pending_timeout_future = None
     _pending_timeout_grace_sec = 0.0
     _pending_timeout_executor = None
+    abandoned_timeout = False
+    if future is not None:
+        future.cancel()
+        try:
+            future.result(timeout=0)
+        except Exception:
+            pass
     if pool is not None:
         pool.shutdown(wait=False, cancel_futures=True)
 

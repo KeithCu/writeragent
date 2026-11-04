@@ -116,10 +116,17 @@ def _discard_lpe_thread_pool_timeout_between_tests():
         return
 
     lpe.discard_thread_pool_timeout()
-    lpe.abandoned_timeout = False
     yield
     lpe.discard_thread_pool_timeout()
-    lpe.abandoned_timeout = False
+
+
+def pytest_runtest_teardown(item, nextitem) -> None:
+    """Discard orphaned LPE timeout pools even if a fixture setup failed mid-test."""
+    try:
+        import plugin.contrib.smolagents.local_python_executor as lpe
+    except ImportError:
+        return
+    lpe.discard_thread_pool_timeout()
 
 
 @pytest.fixture(autouse=True)
