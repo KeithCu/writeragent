@@ -616,7 +616,6 @@ class ApplyDocumentContent(ToolBase):
                 err = outcome.error
                 if outcome.mutate_error is not None:
                     exc = outcome.mutate_error
-                    reraise_if_disposed(exc)
                     return self._tool_error(
                         f"Failed to update shape text: {exc}",
                         code="TOOL_EXECUTION_ERROR",
@@ -1208,7 +1207,6 @@ class ApplyDocumentContent(ToolBase):
             if outcome.mutate_error is not None:
                 e = outcome.mutate_error
                 log.exception("apply_document_content all_matches failed mid-batch")
-                reraise_if_disposed(e)
                 payload: dict[str, Any]
                 if isinstance(e, ToolExecutionError):
                     payload = format_error_payload(e)

@@ -831,8 +831,7 @@ def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callabl
     if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
         raise ToolExecutionError(outcome.error["message"])
 
-    if outcome.mutate_error is not None:
-        raise outcome.mutate_error
+    outcome.raise_mutate_error()
 
     return result_holder[0] if result_holder else None
 
@@ -948,8 +947,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 if whole_exc:
                     raise whole_exc[0]
                 raise RuntimeError(outcome.error.get("message"))
-            if outcome.mutate_error is not None:
-                raise outcome.mutate_error
+            outcome.raise_mutate_error()
         else:
             session.record_mutation(
                 lambda: replace_preserving_format(
@@ -1034,8 +1032,7 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
         if surgical_exc:
             raise surgical_exc[0]
         raise RuntimeError(outcome.error.get("message"))
-    if outcome.mutate_error is not None:
-        raise outcome.mutate_error
+    outcome.raise_mutate_error()
 
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:

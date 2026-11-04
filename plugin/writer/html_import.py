@@ -778,8 +778,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
         raise ToolExecutionError(
             f"the header/footer was written and could not be rolled back: {outcome.error.get('message')}"
         )
-    if outcome.mutate_error is not None:
-        raise outcome.mutate_error
+    outcome.raise_mutate_error()
 
 
 def content_has_markup(content: str | None) -> bool:

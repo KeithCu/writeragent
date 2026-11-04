@@ -68,12 +68,19 @@ def test_insert_slash_formula_on_main_uses_undo_context():
     formula = "=SUM(A1:A2)"
     recorded: list[str] = []
 
-    def fake_commit(doc: object, title: str, fn: object, **kwargs: object):
+    def fake_commit(
+        doc: object,
+        title: str,
+        fn: object,
+        *,
+        session: object | None = None,
+    ):
         from plugin.doc.compound_undo import UndoOutcome
         from plugin.framework.i18n import _
 
         assert doc is model
         assert title == _(FORMULA_UNDO_TITLE)
+        assert session is None
         fn()
         return UndoOutcome()
 

@@ -232,8 +232,7 @@ def _commit_form_batch(
 
     try:
         outcome = commit_or_rollback(doc, title, mutate)
-        if outcome.mutate_error is not None:
-            raise outcome.mutate_error
+        outcome.raise_mutate_error()
         error = outcome.error
         if error is not None:
             error["rolled_back"] = True

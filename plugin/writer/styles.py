@@ -1337,7 +1337,6 @@ class ApplyStyle(FrameworkToolBase):
                     return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
                 if outcome.mutate_error is not None:
                     error = outcome.mutate_error
-                    reraise_if_disposed(error)
                     if outcome.rolled_back:
                         return self._tool_error("Nothing was changed: %s" % (error,))
                     return self._tool_error(

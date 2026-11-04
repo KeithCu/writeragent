@@ -152,13 +152,18 @@ class UndoOutcome:
 
     ``rolled_back`` is True only when ``rollback_if_top`` actually ran undo.
     ``ROLLBACK_FAILED`` in ``error`` means undo itself failed after a failed mutate.
-    ``session`` (optional duck-typed review session) lets callers discard review
-    records after a successful rollback without importing Writer review code here.
+    Document disposal still raises from :func:`commit_or_rollback`; it is never stored
+    on ``mutate_error``.
     """
 
     error: dict[str, Any] | None = None
     rolled_back: bool = False
-    mutate_error: BaseException | None = None
+    mutate_error: Exception | None = None
+
+    def raise_mutate_error(self) -> None:
+        """Re-raise a failed ``mutate`` when the caller uses exception flow."""
+        if self.mutate_error is not None:
+            raise self.mutate_error
 
 
 def commit_or_rollback(
@@ -171,16 +176,23 @@ def commit_or_rollback(
     """Run mutate inside an undo context with title.
 
     Missing or locked undo manager raises UndoUnavailable.
-    Rolls back on error dict or exception from mutate; re-raises disposal via ``mutate_error``.
+    Rolls back on error dict or exception from mutate. Document disposal is re-raised
+    immediately (not returned on the outcome). Other mutate exceptions are returned on
+    ``UndoOutcome.mutate_error``.
+
+    Optional ``session`` (duck-typed review session with ``changes`` and
+    ``discard_changes_since``) lets Writer paths drop review records after rollback
+    without importing ``edit_review`` here. The snapshot is ``len(session.changes)`` taken
+    before ``mutate()`` runs.
+
     ``mutate`` returns an error dict or None; any dict is treated as an error.
-    Other mutate exceptions are returned on ``UndoOutcome.mutate_error``, not raised.
     """
     group = WriterCompoundUndo.try_enter(doc, title)
     if group is None:
         raise UndoUnavailable("Undo manager is missing, locked, or could not be entered.")
 
     error: dict[str, Any] | None = None
-    exc_cause: BaseException | None = None
+    exc_cause: Exception | None = None
     rolled_back = False
     changes_snapshot: int | None = None
     if session is not None:
@@ -210,6 +222,8 @@ def commit_or_rollback(
             if undone:
                 rolled_back = True
                 if session is not None and changes_snapshot is not None:
+                    # Same rule as the old on_fail callback: discard review records only when
+                    # undo actually ran, so a partial edit still in the document keeps them.
                     try:
                         session.discard_changes_since(changes_snapshot)
                     except Exception:

@@ -219,15 +219,30 @@ def test_commit_or_rollback_does_not_undo_previous_same_title_action():
     mgr.getAllUndoActionTitles.side_effect = [("Title",), ("Title",)]
     doc.getUndoManager.return_value = mgr
 
+    session = MagicMock()
+    session.changes = [1, 2]
+    discard_calls: list[int] = []
+    session.discard_changes_since.side_effect = lambda n: discard_calls.append(n)
+
     def mutate():
         raise ValueError("failed before write")
 
-    outcome = commit_or_rollback(doc, "Title", mutate)
+    outcome = commit_or_rollback(doc, "Title", mutate, session=session)
     assert isinstance(outcome.mutate_error, ValueError)
     assert str(outcome.mutate_error) == "failed before write"
     assert outcome.rolled_back is False
+    assert discard_calls == []
     mgr.leaveUndoContext.assert_called_once()
     mgr.undo.assert_not_called()
+
+
+def test_undo_outcome_raise_mutate_error():
+    import pytest
+    from plugin.doc.compound_undo import UndoOutcome
+
+    UndoOutcome().raise_mutate_error()
+    with pytest.raises(ValueError, match="x"):
+        UndoOutcome(mutate_error=ValueError("x")).raise_mutate_error()
 
 
 def test_commit_or_rollback_failed_leave_after_success_is_an_error():

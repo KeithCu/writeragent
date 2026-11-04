@@ -135,8 +135,7 @@ def insert_slash_formula_on_main(
 
     try:
         outcome = commit_or_rollback(model, _(FORMULA_UNDO_TITLE), mutate)
-        if outcome.mutate_error is not None:
-            raise outcome.mutate_error
+        outcome.raise_mutate_error()
     except Exception as exc:
         log.exception("slash /formula insert failed")
         host.append_output("\n" + format_error_message(exc) + "\n")
