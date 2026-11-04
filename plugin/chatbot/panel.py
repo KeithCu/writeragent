@@ -29,6 +29,7 @@ import threading
 import uno
 from plugin.chatbot.send_handlers import SendHandlersMixin
 from plugin.chatbot.tool_loop import ToolCallingMixin
+from plugin.chatbot.tool_loop_actions import assign_send_outcome
 
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
@@ -703,8 +704,6 @@ class SendButtonListener(BaseActionListener):
             return
         begin_send_turn(self)
         self._append_response(text)
-        from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
         assign_send_outcome(self, "error")
         drop_turn(self)
 
@@ -961,8 +960,6 @@ class SendButtonListener(BaseActionListener):
                 _stop_tts()
 
                 self._stop_requested_fallback = False
-                from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
                 assign_send_outcome(self, "ready")
                 # Create the scope before posting so a Stop click between Send
                 # returning and the AsyncCallback drain still latches cancel.
@@ -1084,8 +1081,6 @@ class SendButtonListener(BaseActionListener):
                 # Terminal status is "Stopped" so completion and TTS skip
                 # this turn. Leaving it at "Ready" replays the previous
                 # answer when Stop is pressed before the drain begins.
-                from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
                 assign_send_outcome(self, "stopped")
                 # Drop the take. STT never starts on this path, so it
                 # cannot be kept as text. Stop Rec stores it on
@@ -1133,8 +1128,6 @@ class SendButtonListener(BaseActionListener):
                     # The tool-loop epilogue already aborted the turn, so
                     # _append_response would treat this as a late chunk.
                     self._project_closing_line("\n\n[Error: %s]\n" % str(err), failed_turn)
-                    from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
                     assign_send_outcome(self, "error")
                 on_close()
 
@@ -1218,8 +1211,6 @@ class SendButtonListener(BaseActionListener):
 
         if message:
             self._append_response("\n" + message + "\n")
-        from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
         assign_send_outcome(self, "error")
         if set_status_text:
             self._set_status(_("Error"))
@@ -1281,8 +1272,6 @@ class SendButtonListener(BaseActionListener):
             # empty-query return that leaves outcome None displays as "" and
             # skips _set_status in _close_turn_ui (status stays "Getting
             # document…") and speaks the prior turn's reply.
-            from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
             assign_send_outcome(self, "ready")
             return None
 
@@ -1356,8 +1345,6 @@ class SendButtonListener(BaseActionListener):
             slash_cmd, slash_arg = parsed
             if not slash_send_continues_after_begin(slash_cmd, self):
                 if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
-                    from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
                     assign_send_outcome(self, "ready")
                     return
 
@@ -1473,8 +1460,6 @@ class SendButtonListener(BaseActionListener):
             return False
 
         self._stop_requested_fallback = False
-        from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
         assign_send_outcome(self, "ready")
         self._send_cancellation = SendCancellation()
 
@@ -1499,8 +1484,6 @@ class SendButtonListener(BaseActionListener):
             self._append_response(
                 "\n" + _("[Peer send requires Chat mode on this sidebar.]") + "\n"
             )
-            from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
             assign_send_outcome(self, "error")
             return
         if not already_appended:

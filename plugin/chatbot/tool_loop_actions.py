@@ -24,6 +24,7 @@ _OUTCOME_DISPLAY: dict[SendOutcome, str] = {
 
 
 def _outcome_for_status_text(text: str) -> SendOutcome | None:
+    # FSM STATUS effects still carry English bar text only; map the three terminals until a typed outcome effect exists.
     for outcome, display in _OUTCOME_DISPLAY.items():
         if text == display:
             return outcome
