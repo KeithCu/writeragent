@@ -985,11 +985,13 @@ def _ensure_writeragent_bind() -> None:
     The UNO harness and pytest load test modules directly; only the pythonloader
     ``main.py`` exec runs ``bind_writeragent`` at import time.
     """
+    import importlib
+
     import plugin.app as app
 
     if app._finish is not None:
         return
-    import plugin.main  # noqa: F401  # pyright: ignore[reportUnusedImport] — bind_writeragent at module end
+    importlib.import_module("plugin.main")
 
     if app._finish is None:
         from plugin.app import bind_writeragent

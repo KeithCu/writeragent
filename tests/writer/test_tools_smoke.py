@@ -11,10 +11,14 @@ from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
 # NoSuchElementException / XInitialization back before later imports.
 setup_uno_mocks()
 
+import importlib
 
 import plugin.app as app
 import plugin.bootstrap as bootstrap
+from plugin.bootstrap import BootstrapState
 from plugin.app import get_tools
+
+importlib.import_module("plugin.main")
 
 
 @pytest.fixture(autouse=True)
@@ -25,6 +29,10 @@ def _restore_bootstrap_globals():
     prev_tools = app._tools
     prev_modules = list(app._modules)
     prev_listener = app._terminate_listener
+    # Other modules on the same xdist worker can leave INITIALIZED with no registry.
+    if bootstrap._bootstrap_state is BootstrapState.INITIALIZED and app._tools is None:
+        bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
+        bootstrap._bootstrap_error = None
     try:
         yield
     finally:
