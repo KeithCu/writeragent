@@ -26,8 +26,8 @@ def _child(proc: object, *, worker_name: str, worker_id: int, tail: object = Non
     return Child(managed, worker_name=worker_name, worker_id=worker_id)
 
 
-def _patch_supervisor_spawn_overlap_counter(monkeypatch: pytest.MonkeyPatch) -> threading.Event:
-    """Event set when a second compute respawn has entered ``Supervisor.spawn``.
+def _second_spawn_queued_event(monkeypatch: pytest.MonkeyPatch) -> threading.Event:
+    """Return an event set when a second compute respawn enters ``Supervisor.spawn``.
 
     ``Popen`` is serialized on the supervisor spawner thread, so two overlapping
     ``respawn`` calls queue a second spawn while the first is still between
@@ -1938,13 +1938,13 @@ def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> 
 
     What was wrong: both threads passed the reap before either adopt, so
     the second assignment leaked the first Popen. Popen runs on the
-    supervisor spawner thread (serial), so overlap is synchronized in the
-    ready handshake instead of inside ``Popen``.
+    supervisor spawner thread (serial), so the first ``Popen`` waits until
+    the second respawn has reached ``Supervisor.spawn``.
     """
     from plugin.framework import process_worker as worker_mod
 
     worker = _worker_without_spawn(monkeypatch)
-    second_queued = _patch_supervisor_spawn_overlap_counter(monkeypatch)
+    second_queued = _second_spawn_queued_event(monkeypatch)
     release = threading.Event()
     children: list[object] = []
     children_lock = threading.Lock()
@@ -2087,7 +2087,7 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
     from plugin.framework import process_worker as worker_mod
 
     worker = _worker_without_spawn(monkeypatch)
-    second_queued = _patch_supervisor_spawn_overlap_counter(monkeypatch)
+    second_queued = _second_spawn_queued_event(monkeypatch)
     adopted = threading.Event()
     hold = threading.Event()
     calls = {"n": 0}

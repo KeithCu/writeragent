@@ -628,7 +628,11 @@ class WarmChild:
 
 
 class Supervisor:
-    """One spawner thread, registry, idle reaper, and shutdown for warm children."""
+    """One spawner thread; warm-child registry, idle reaper, and shutdown.
+
+    ``spawn`` also serves compute pool slots (``BaseProcessWorker``), which
+    are not registered here — the pool owns their idle lifecycle and quit.
+    """
 
     def __init__(self) -> None:
         self._registry_lock: threading.Lock = threading.Lock()

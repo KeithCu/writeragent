@@ -237,6 +237,8 @@ class BaseProcessWorker:
                 is_alive=self.is_alive,
                 max_payload_bytes=self.max_payload_bytes,
                 unpacker=self._unpacker,
+                # Not the caller thread: an HTTP worker exits at shutdown and
+                # PDEATHSIG would kill this child with it.
                 start=get_supervisor().spawn,
                 publish=_publish,
                 deadline=deadline,
