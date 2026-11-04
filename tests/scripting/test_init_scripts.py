@@ -227,7 +227,6 @@ def test_isolated_init_mutation_does_not_leak():
 
 
 def test_reset_non_calc_session_drops_init_companion():
-    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "online-wb:init"
     run_sandboxed_code(
@@ -265,7 +264,6 @@ def test_isolated_cells_do_not_share_cell_assignments():
 
 
 def test_reset_clears_init_session():
-    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "calc:wb-reset:init"
     cell_sid = "calc:wb-reset"
@@ -294,7 +292,6 @@ def test_reset_clears_init_session():
 
 
 def test_reset_clears_from_init_session_id():
-    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "calc:wb-reset-init:init"
     cell_sid = "calc:wb-reset-init"

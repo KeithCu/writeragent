@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import copy
+from collections import OrderedDict
 from dataclasses import dataclass
 import hashlib
 import logging
@@ -84,7 +85,6 @@ class SessionRecord:
     executor: LocalPythonExecutor | None = None
     init_script_hash: str | None = None
     seeded_digest: str | None = None
-    lru_rank: int | None = None
 
 
 class SessionStore:
@@ -94,7 +94,7 @@ class SessionStore:
         # Lock order: this lock before DuckDB duckdb_sql._SESSION_LOCK.
         self._lock: threading.Lock = threading.Lock()
         self._records: dict[SessionKey, SessionRecord] = {}
-        self._lru_clock: int = 0
+        self._isolated_init_lru: OrderedDict[SessionKey, None] = OrderedDict()
 
     def _record(self, session_id: str) -> SessionRecord | None:
         return self._records.get(SessionKey.parse(session_id))
@@ -107,9 +107,15 @@ class SessionStore:
             rec.executor is None
             and rec.init_script_hash is None
             and rec.seeded_digest is None
-            and rec.lru_rank is None
         ):
             self._records.pop(key, None)
+
+    def _forget_cell_unlocked(self, cell_key: SessionKey) -> None:
+        cell_rec = self._records.get(cell_key)
+        if cell_rec is not None:
+            cell_rec.executor = None
+            cell_rec.seeded_digest = None
+            self._maybe_drop_record(cell_key)
 
     def executor(self, session_id: str) -> LocalPythonExecutor | None:
         with self._lock:
@@ -128,7 +134,50 @@ class SessionStore:
 
     def isolated_lru_len(self) -> int:
         with self._lock:
-            return sum(1 for rec in self._records.values() if rec.lru_rank is not None)
+            return len(self._isolated_init_lru)
+
+    def is_isolated_lru(self, session_id: str) -> bool:
+        with self._lock:
+            return SessionKey.parse(session_id) in self._isolated_init_lru
+
+    def init_is_current(
+        self,
+        init_session_id: str,
+        script_digest: str,
+        policy: SandboxPolicy | None,
+    ) -> bool:
+        """Return True when init already ran for *script_digest* (refresh isolated LRU)."""
+        with self._lock:
+            prior = self._record(init_session_id)
+            prior_hash = prior.init_script_hash if prior else None
+            cached_exec = prior.executor if prior else None
+            if (
+                (prior_hash is not None and prior_hash != script_digest)
+                or (
+                    cached_exec is not None
+                    and policy is not None
+                    and cached_exec._sandbox_policy != policy
+                )
+            ):
+                self._clear_init_unlocked(init_session_id)
+                return False
+            if prior_hash == script_digest and cached_exec is not None:
+                if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
+                    self._note_isolated_access_unlocked(init_session_id)
+                return True
+            return False
+
+    def commit_init(self, init_session_id: str, script_digest: str) -> None:
+        with self._lock:
+            key = SessionKey.parse(init_session_id)
+            rec = self._records.setdefault(key, SessionRecord())
+            rec.init_script_hash = script_digest
+            if key.kind is SessionKind.ISOLATED:
+                self._note_isolated_access_unlocked(init_session_id)
+
+    def abort_init(self, init_session_id: str) -> None:
+        with self._lock:
+            self._clear_init_unlocked(init_session_id)
 
     def get_or_create(
         self,
@@ -179,25 +228,15 @@ class SessionStore:
 
     def _note_isolated_access_unlocked(self, init_session_id: str) -> None:
         key = SessionKey.parse(init_session_id)
-        rec = self._records.setdefault(key, SessionRecord())
-        self._lru_clock += 1
-        rec.lru_rank = self._lru_clock
-        while self._isolated_lru_len_unlocked() > _MAX_ISOLATED_INIT_SNAPSHOTS:
-            oldest_key = min(
-                (k for k, r in self._records.items() if r.lru_rank is not None),
-                key=lambda k: self._records[k].lru_rank or 0,
-            )
+        self._isolated_init_lru[key] = None
+        self._isolated_init_lru.move_to_end(key)
+        while len(self._isolated_init_lru) > _MAX_ISOLATED_INIT_SNAPSHOTS:
+            oldest_key = next(iter(self._isolated_init_lru))
             oldest_wire = oldest_key.wire()
             # Same path as an explicit reset: executor, hash, DuckDB, and the LRU slot.
-            # The rank clear after clear is what stops the loop if the id is not isolated.
+            # The pop after clear is what stops the loop if the id is not isolated.
             self._clear_init_unlocked(oldest_wire)
-            evicted = self._records.get(oldest_key)
-            if evicted is not None:
-                evicted.lru_rank = None
-                self._maybe_drop_record(oldest_key)
-
-    def _isolated_lru_len_unlocked(self) -> int:
-        return sum(1 for rec in self._records.values() if rec.lru_rank is not None)
+            self._isolated_init_lru.pop(oldest_key, None)
 
     def _clear_init_unlocked(self, init_session_id: str) -> None:
         key = SessionKey.parse(init_session_id)
@@ -207,16 +246,11 @@ class SessionStore:
             rec.executor = None
             rec.init_script_hash = None
             if key.kind is SessionKind.ISOLATED:
-                rec.lru_rank = None
+                self._isolated_init_lru.pop(key, None)
             self._maybe_drop_record(key)
         _reset_session_duckdb(init_session_id)
         if cell_sid:
-            cell_key = SessionKey.parse(cell_sid)
-            cell_rec = self._records.get(cell_key)
-            if cell_rec is not None:
-                cell_rec.executor = None
-                cell_rec.seeded_digest = None
-                self._maybe_drop_record(cell_key)
+            self._forget_cell_unlocked(SessionKey.parse(cell_sid))
             # Init-hash change drops the workbook kernel; DuckDB tables must go too.
             _reset_session_duckdb(cell_sid)
 
@@ -227,15 +261,17 @@ class SessionStore:
         if key.init:
             self._clear_init_unlocked(session_id)
         else:
-            rec = self._records.get(key)
-            if rec is not None:
-                rec.executor = None
-                rec.seeded_digest = None
-                self._maybe_drop_record(key)
+            self._forget_cell_unlocked(key)
             self._clear_init_unlocked(key.with_init_suffix().wire())
 
     def reset(self, session_id: str) -> dict[str, Any]:
-        """Drop cached executors for *session_id* (and companions). Idempotent."""
+        """Drop cached executors for *session_id* and reset DuckDB tables.
+
+        Also clears the ``{id}:init`` companion when *session_id* is a cell id,
+        and clears the cell session companion when *session_id* is an init id.
+        ``_clear_init_unlocked`` closes DuckDB for this id and for the
+        :init companion. Do not close again after the lock.
+        """
         if not (session_id or "").strip():
             return {"status": "error", "message": "No session_id provided."}
         with self._lock:
@@ -246,7 +282,7 @@ class SessionStore:
         """Clear every cached session (tests)."""
         with self._lock:
             self._records.clear()
-            self._lru_clock = 0
+            self._isolated_init_lru.clear()
         _reset_session_duckdb(None)
 
     def drop_if_policy_mismatch(self, session_id: str, policy: SandboxPolicy) -> None:
@@ -774,7 +810,13 @@ def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) 
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
-    """Drop any cached executor for *session_id* and reset DuckDB tables."""
+    """Drop any cached executor for *session_id* and reset DuckDB tables.
+
+    Also clears the ``{id}:init`` companion when *session_id* is a cell id,
+    and clears the cell session companion when *session_id* is an init id.
+    ``SessionStore._clear_init_unlocked`` closes DuckDB for this id and for the
+    :init companion. Do not close again after the lock.
+    """
     return SESSIONS.reset(session_id)
 
 
@@ -813,23 +855,8 @@ def _ensure_init_executed(
         return None
 
     script_digest = init_script_hash or ""
-    with SESSIONS._lock:
-        prior = SESSIONS._record(init_session_id)
-        prior_hash = prior.init_script_hash if prior else None
-        cached_exec = prior.executor if prior else None
-        if (
-            (prior_hash is not None and prior_hash != script_digest)
-            or (
-                cached_exec is not None
-                and policy is not None
-                and cached_exec._sandbox_policy != policy
-            )
-        ):
-            SESSIONS._clear_init_unlocked(init_session_id)
-        elif prior_hash == script_digest and cached_exec is not None:
-            if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
-                SESSIONS._note_isolated_access_unlocked(init_session_id)
-            return None
+    if SESSIONS.init_is_current(init_session_id, script_digest, policy):
+        return None
 
     init_executor, _ = SESSIONS.get_or_create(
         init_session_id, timeout_sec, policy=policy
@@ -844,16 +871,10 @@ def _ensure_init_executed(
     inject_auto_imports(init_executor, script)
     result = _run_on_executor(init_executor, script, result_optional=True)
     if result.get("status") != "ok":
-        with SESSIONS._lock:
-            SESSIONS._clear_init_unlocked(init_session_id)
+        SESSIONS.abort_init(init_session_id)
         return result
 
-    with SESSIONS._lock:
-        key = SessionKey.parse(init_session_id)
-        rec = SESSIONS._records.setdefault(key, SessionRecord())
-        rec.init_script_hash = script_digest
-        if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
-            SESSIONS._note_isolated_access_unlocked(init_session_id)
+    SESSIONS.commit_init(init_session_id, script_digest)
     return None
 
 

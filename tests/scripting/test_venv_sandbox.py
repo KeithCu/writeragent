@@ -26,15 +26,6 @@ from plugin.scripting.venv.venv_sandbox import (
 )
 
 
-def _lru_has(vs_module: Any, session_id: str) -> bool:
-    from plugin.scripting.session_key import SessionKey
-
-    key = SessionKey.parse(session_id)
-    with vs_module.SESSIONS._lock:
-        rec = vs_module.SESSIONS._records.get(key)
-        return rec is not None and rec.lru_rank is not None
-
-
 @pytest.fixture(autouse=True)
 def _reset_abandoned_timeout() -> Any:
     # Tip: ensure abandoned_timeout does not leak across sandbox tests.
@@ -525,7 +516,6 @@ def test_unpickleable_init_result_closes_open_figures() -> None:
 
 
 def test_init_executor_omits_cell_bindings() -> None:
-    from plugin.scripting.venv import venv_sandbox as vs
 
     try:
         res = run_sandboxed_code(
@@ -686,11 +676,11 @@ def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
 
         assert SESSIONS.executor("isolated:0:init") is None
         assert SESSIONS.init_script_hash("isolated:0:init") is None
-        assert not _lru_has(vs, "isolated:0:init")
+        assert not SESSIONS.is_isolated_lru("isolated:0:init")
 
         assert SESSIONS.executor("isolated:32:init") is not None
         assert SESSIONS.init_script_hash("isolated:32:init") is not None
-        assert _lru_has(vs, "isolated:32:init")
+        assert SESSIONS.is_isolated_lru("isolated:32:init")
 
         assert vs.SESSIONS.isolated_lru_len() == 32
 
@@ -717,11 +707,11 @@ def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
         assert r_33["status"] == "ok"
 
         assert SESSIONS.executor("isolated:1:init") is not None
-        assert _lru_has(vs, "isolated:1:init")
+        assert SESSIONS.is_isolated_lru("isolated:1:init")
 
         assert SESSIONS.executor("isolated:2:init") is None
         assert SESSIONS.init_script_hash("isolated:2:init") is None
-        assert not _lru_has(vs, "isolated:2:init")
+        assert not SESSIONS.is_isolated_lru("isolated:2:init")
 
         assert vs.SESSIONS.isolated_lru_len() == 32
     finally:
@@ -745,7 +735,7 @@ def test_isolated_init_lru_pops_non_isolated_id() -> None:
         assert SESSIONS.executor("weird:1:init") is None
         assert SESSIONS.executor("weird:1") is None
         assert SESSIONS.init_script_hash("weird:1:init") is None
-        assert not _lru_has(vs, "weird:1:init")
+        assert not SESSIONS.is_isolated_lru("weird:1:init")
         assert SESSIONS.seeded_digest("weird:1") is None
         assert vs.SESSIONS.isolated_lru_len() == 32
     finally:
