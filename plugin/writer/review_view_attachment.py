@@ -111,7 +111,7 @@ def _dock_top(lm: Any) -> bool:
         lm.dockWindow(TOOLBAR_RESOURCE_URL, area, pos)
         return True
     except Exception:
-        log.debug("review_toolbar: dock-to-top failed", exc_info=True)
+        log.debug("review_view_attachment: dock-to-top failed", exc_info=True)
         return False
 
 
@@ -119,11 +119,8 @@ def refresh_review_toolbar(model: Any) -> None:
     """Show the review fast-travel toolbar only while the document has pending agent changes.
 
     The toolbar is declared statically in Addons.xcu and named/hidden-by-default in
-    WriterWindowState.xcu. Here we flip its visibility at runtime: shown when
-    ``agent_change_presence(model, stop_at_first=True)`` finds changes, hidden when it drops back to zero. All LayoutManager
-    calls must run on the UNO main thread -- every caller below already does (the agent edit path is
-    marshalled via main.call; resolve/navigate handlers and document events fire on the
-    main thread).
+    WriterWindowState.xcu. Visibility follows ``agent_change_presence(model, stop_at_first=True)``.
+    LayoutManager calls must run on the UNO main thread (main.call, action handlers, modify events).
     """
     if model is None:
         return
@@ -148,7 +145,7 @@ def refresh_review_toolbar(model: Any) -> None:
         else:
             lm.hideElement(TOOLBAR_RESOURCE_URL)
     except Exception:
-        log.debug("review_toolbar: refresh failed", exc_info=True)
+        log.debug("review_view_attachment: refresh failed", exc_info=True)
 
 
 def schedule_toolbar_refresh(model: Any, key: str) -> None:
@@ -273,6 +270,7 @@ def register_controller(controller: Any) -> None:
             if any(uno_same(controller, ctrl) for ctrl, _i, _h in attachment.controllers):
                 return
         interceptor = change_context_menu._make_interceptor(model)
+        # detach_click_handler breaks the import cycle: disposing must not import this registry.
         click_handler = review_click_popup._make_handler(model, detach_click_handler)
         controller.registerContextMenuInterceptor(interceptor)
         if hasattr(controller, "addMouseClickHandler"):

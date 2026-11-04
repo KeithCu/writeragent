@@ -90,7 +90,7 @@ def resolve_grep_candidates(
         exclude_path=exclude_path,
         open_paths=open_paths,
         listing_root=listing_root,
-        stop_checker=None if cancel is None else cancel.is_cancelled,
+        cancel=cancel,
     )
     if listing.get("status") != "ok":
         if listing.get("code") == "USER_STOPPED":
@@ -187,7 +187,7 @@ def _grep_text_in_calc(
         case_sensitive=case_sensitive,
         max_results=max_results + 1,
         all_sheets=True,
-        stop_checker=None if cancel is None else cancel.is_cancelled,
+        cancel=cancel,
     )
     partial = len(fetched) > max_results
     return fetched[:max_results], partial

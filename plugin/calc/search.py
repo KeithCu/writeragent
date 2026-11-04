@@ -71,7 +71,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             max_results=max_results,
             all_sheets=kwargs.get("all_sheets", False),
             sheet_name=kwargs.get("sheet"),
-            stop_checker=scope.is_cancelled if scope is not None else None,
+            cancel=scope,
         )
 
         return {"status": "ok", "matches": matches, "count": len(matches)}

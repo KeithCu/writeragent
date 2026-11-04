@@ -725,6 +725,7 @@ class EditReviewSession:
                 # have missed an unresolved registered change (fail closed).
                 if reliable and not pending:
                     break
+                # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
                 if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
                     return run(lambda: self._review_payload(complete=False, timed_out=False))
                 if time.monotonic() >= deadline:

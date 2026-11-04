@@ -523,7 +523,7 @@ def test_wait_for_review_aborts_on_cancelled_scope():
         orig_cleanup()
 
     session.cleanup = _cleanup
-    result = session.wait_for_review(timeout=30, poll=0.01, cancel=scope)
+    result = session.wait_for_review(timeout=0.2, poll=0.01, cancel=scope)
     assert result["complete"] is False
     assert result["timed_out"] is False
     assert cleanup_ran["n"] == 1
@@ -538,7 +538,7 @@ def test_wait_for_review_aborts_when_still_reviewing_false():
     session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
     session.doc = _redlines_doc([_FakeRl("open", comment=registered)])
     result = session.wait_for_review(
-        timeout=30,
+        timeout=0.2,
         poll=0.01,
         still_reviewing=lambda: False,
         cancel=None,

@@ -937,6 +937,8 @@ class ApplyDocumentContent(ToolBase):
             except Exception:
                 log.debug("apply_document_content: status_callback failed", exc_info=True)
 
+        # Stop comes from ctx.send_cancellation; ToolContext has no stop_checker. MCP has no scope (None).
+        # still_reviewing: review mode toggled off aborts the wait; that is not a user Stop.
         scope = getattr(ctx, "send_cancellation", None)
 
         review = session.wait_for_review(
