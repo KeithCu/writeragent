@@ -464,9 +464,9 @@ _OUTSIDE_PAGE_WARNING = "Shape is outside the page bounds."
 
 def _outside_page(page: Any, shape: Any) -> bool:
     """True when the shape's box spills past the page edges."""
-    from plugin.draw.bridge import _page_size
+    from plugin.draw.bridge import page_size
 
-    size = _page_size(page)
+    size = page_size(page)
     if size is None:
         return False  # Tip: Calc sheet draw pages have no size or report 0; skip.
     w, h = size
@@ -930,9 +930,9 @@ class CreateDiagram(ToolDrawShapeBase):
                 return self._tool_error("Unknown connection endpoint: %s -> %s" % (conn.get("from"), conn.get("to")))
 
         layout_name = kwargs.get("layout") or "horizontal_flow"
-        from plugin.draw.bridge import _page_size
+        from plugin.draw.bridge import page_size
 
-        page_w, page_h = _page_size(page) or (layout.DEFAULT_PAGE_WIDTH, layout.DEFAULT_PAGE_HEIGHT)
+        page_w, page_h = page_size(page) or (layout.DEFAULT_PAGE_WIDTH, layout.DEFAULT_PAGE_HEIGHT)
         try:
             boxes = diagram_node_boxes(nodes, layout_name, page_width=page_w, page_height=page_h)
         except ValueError as exc:

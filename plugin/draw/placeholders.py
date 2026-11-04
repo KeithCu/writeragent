@@ -164,10 +164,10 @@ class ListPlaceholders(ToolBase):
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page, _ = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         scan = _scan_shapes(page)
         placeholders = _list_placeholders(page, scan)
-        return {"status": "ok", "page": kwargs.get("page"), "placeholders": placeholders, "count": len(placeholders)}
+        return {"status": "ok", "page": actual_idx, "placeholders": placeholders, "count": len(placeholders)}
 
 
 class GetPlaceholderText(ToolBase):

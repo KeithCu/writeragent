@@ -1,4 +1,3 @@
-from plugin.draw.bridge import DrawBridge as RealDrawBridge
 # WriterAgent — unit tests for align/distribute/graphic/diagram tools
 # SPDX-License-Identifier: GPL-3.0-or-later
 
@@ -43,7 +42,6 @@ def test_align_shapes_left():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("com.sun.star.awt.Point", lambda x, y: _Pos(x, y), create=True):
@@ -70,7 +68,6 @@ def test_create_diagram_reuses_upsert(tmp_path=None):
     page.Width = 28000
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as mock_conn:
@@ -98,7 +95,6 @@ def test_create_diagram_unknown_connection():
     page.Width = 28000
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
@@ -119,7 +115,6 @@ def test_create_diagram_numeric_ids_pass_connection_check():
     page.Width = 28000
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as mock_conn:
@@ -144,7 +139,6 @@ def test_create_diagram_unknown_connection_creates_nothing():
     page.Width = 28000
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
@@ -172,7 +166,6 @@ def _align_page(side_effect):
 def test_align_shapes_disposed_propagates():
     page, ctx = _align_page(DisposedException("closed"))
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(DisposedException):
@@ -182,7 +175,6 @@ def test_align_shapes_disposed_propagates():
 def test_align_shapes_bad_index_propagates():
     page, ctx = _align_page(IndexError("bad"))
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(IndexError):
@@ -202,7 +194,6 @@ def test_distribute_shapes_disposed_propagates():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(DisposedException):
@@ -218,7 +209,6 @@ def test_create_diagram_connector_failure_removes_connectors():
     shapes = [MagicMock(), MagicMock(), MagicMock()]
     page.getByIndex.side_effect = shapes
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as conn_cls:
@@ -249,7 +239,6 @@ def test_create_diagram_cleanup_reraises_disposed():
     page.getByIndex.return_value = MagicMock()
     page.remove.side_effect = DisposedException("closed")
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
@@ -279,7 +268,6 @@ def test_create_diagram_cleanup_continues_past_live_runtime_exception():
     page.getByIndex.side_effect = shapes
     page.remove.side_effect = [RuntimeException("busy"), None]
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
@@ -304,7 +292,6 @@ def test_connect_shapes_failure_removes_connector_and_raises():
     connector = MagicMock()
     connector.setPropertyValue.side_effect = ValueError("bad end shape")
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch("plugin.draw.shapes.DrawShapes") as ds_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         ds_cls.return_value.safe_create_shape.return_value = (connector, False, None)
         with pytest.raises(ValueError, match="bad end shape"):

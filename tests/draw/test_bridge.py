@@ -456,21 +456,21 @@ def test_resolve_page_none_page():
 
 
 def test_page_size():
-    from plugin.draw.bridge import DrawBridge
+    from plugin.draw.bridge import page_size
 
     class Page:
         def __init__(self, w, h):
             self.Width = w
             self.Height = h
 
-    assert DrawBridge.page_size(Page(100, 200)) == (100, 200)
-    assert DrawBridge.page_size(Page(0, 200)) is None
-    assert DrawBridge.page_size(Page(-5, 200)) is None
-    assert DrawBridge.page_size(Page(True, 200)) is None
-    assert DrawBridge.page_size(Page(1.5, 200)) is None
-    assert DrawBridge.page_size(None) is None
-    assert DrawBridge.page_size(object()) is None
-    assert DrawBridge.page_size(Page(100, 0)) is None
+    assert page_size(Page(100, 200)) == (100, 200)
+    assert page_size(Page(0, 200)) is None
+    assert page_size(Page(-5, 200)) is None
+    assert page_size(Page(True, 200)) is None
+    assert page_size(Page(1.5, 200)) is None
+    assert page_size(None) is None
+    assert page_size(object()) is None
+    assert page_size(Page(100, 0)) is None
 
 
 def test_get_active_page_index_matches_via_uno_same():

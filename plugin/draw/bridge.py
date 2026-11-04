@@ -114,13 +114,12 @@ class DrawBridge:
             return pages.getByIndex(0)
         return None
 
-    @staticmethod
-    def page_size(page: Any) -> tuple[int, int] | None:
-        """Both Width and Height must be type int and > 0, else None.
-
-        ``type(x) is int`` so bool is not a size. ``page is None`` → None.
-        """
-        return _page_size(page)
+    def active_or_ctx_index(self, page_index: Any = None, *, active_page_index: Any = None) -> Any:
+        """Explicit page index, else chat active_page_index, else the controller."""
+        actual = page_index if page_index is not None else active_page_index
+        if actual is None:
+            return self.get_active_page_index()
+        return actual
 
     def resolve_page(self, page_index: Any = None, *, active_page_index: Any = None) -> tuple[Any, int]:
         """Resolve a draw page by index for tool ``execute()``.
@@ -132,7 +131,7 @@ class DrawBridge:
 
         Disposal and any in-range ``getByIndex`` error propagate unchanged.
         """
-        actual = _select_page_index(page_index, active_page_index, self)
+        actual = self.active_or_ctx_index(page_index, active_page_index=active_page_index)
         pages = self.get_pages()
         count = pages.getCount()
         if type(actual) is not int or actual < 0 or actual >= count:
@@ -853,7 +852,7 @@ class DrawBridge:
         return 0
 
 
-def _page_size(page: Any) -> tuple[int, int] | None:
+def page_size(page: Any) -> tuple[int, int] | None:
     """Both Width and Height must be type int and > 0, else None.
 
     ``type(x) is int`` so bool is not a size. ``page is None`` → None.
@@ -865,13 +864,6 @@ def _page_size(page: Any) -> tuple[int, int] | None:
     if type(w) is not int or type(h) is not int or w <= 0 or h <= 0:
         return None
     return w, h
-
-
-def _select_page_index(page_index: Any, active_page_index: Any, bridge: Any) -> Any:
-    actual = page_index if page_index is not None else active_page_index
-    if actual is None:
-        return bridge.get_active_page_index()
-    return actual
 
 
 _NOTES_SHAPE_TYPE = "com.sun.star.presentation.NotesShape"
@@ -979,7 +971,7 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress_doc else "Page", active_page_idx)
 
         # Tip: page size lets the model keep shapes on the slide.
-        size = _page_size(active_page)
+        size = page_size(active_page)
         if size is not None:
             page_w, page_h = size
             ctx_str += "%s Size: width=%d, height=%d (1/100 mm)\n" % (

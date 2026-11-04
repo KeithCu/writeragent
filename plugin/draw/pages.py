@@ -20,7 +20,7 @@ import logging
 from typing import Any
 
 from plugin.framework.doc_type import is_impress
-from plugin.draw import bridge as draw_bridge
+from plugin.draw.bridge import DrawBridge, page_size
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.masters import iter_masters
 from plugin.framework.errors import is_disposal
@@ -95,7 +95,7 @@ class AddSlide(ToolBase):
         from plugin.draw.layouts import available_layout_names, layout_id
         from plugin.draw.transitions import apply_slide_layout
 
-        bridge = draw_bridge.DrawBridge(ctx.doc)
+        bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
@@ -166,24 +166,24 @@ class _SlideMutationTool(ToolBase):
     is_mutation: bool | None = True
 
 
-
 class DeleteSlide(_SlideMutationTool):
     name: str | None = "delete_slide"
     description: str = "Deletes the slide (page) at the specified index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-
-        bridge = draw_bridge.DrawBridge(ctx.doc)
+        bridge = DrawBridge(ctx.doc)
         page_idx = kwargs["page"]
         pages = bridge.get_pages()
+        count = pages.getCount()
+        # Range check only; reuse count for the one-slide guard below.
         bridge.resolve_page(page_idx)
         # A one-page Draw or Impress document keeps its only slide. An
         # in-range index is not enough to call bridge.delete_slide.
         # SlideCommandEngine._delete_slide already refuses that case
         # before it touches the document. Return the same error and skip
         # the removal when one page remains.
-        if pages.getCount() <= 1:
+        if count <= 1:
             return self._tool_error("Cannot delete the only slide")
         bridge.delete_slide(page_idx)
 
@@ -199,9 +199,8 @@ class ListPages(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-
-        bridge = draw_bridge.DrawBridge(ctx.doc)
-        active_idx = draw_bridge._select_page_index(None, ctx.active_page_index, bridge)
+        bridge = DrawBridge(ctx.doc)
+        active_idx = bridge.active_or_ctx_index(None, active_page_index=ctx.active_page_index)
         pages = bridge.get_pages()
         labels: list[str] = []
         count = pages.getCount()
@@ -224,7 +223,7 @@ class ReadSlideText(ToolBase):
         from plugin.draw.bridge import notes_text
         from plugin.framework.errors import is_disposal
 
-        bridge = draw_bridge.DrawBridge(ctx.doc)
+        bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         texts = []
@@ -254,8 +253,6 @@ class GetPresentationInfo(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import _page_size
-
         doc = ctx.doc
         pages = doc.getDrawPages()
         count = pages.getCount()
@@ -265,15 +262,15 @@ class GetPresentationInfo(ToolBase):
         height_mm = 0
         if count > 0:
             p = pages.getByIndex(0)
-            size = _page_size(p)
+            size = page_size(p)
             if size:
                 width_mm, height_mm = size[0] // 100, size[1] // 100
 
         # Master pages
         masters = [name or ("Master_%d" % i) for i, _m, name in iter_masters(doc)]
 
-        bridge = draw_bridge.DrawBridge(doc)
-        active_idx = draw_bridge._select_page_index(None, ctx.active_page_index, bridge)
+        bridge = DrawBridge(doc)
+        active_idx = bridge.active_or_ctx_index(None, active_page_index=ctx.active_page_index)
 
         return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress(doc), "active_page_index": active_idx}
 
@@ -289,9 +286,9 @@ class SetActivePage(ToolBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-
-        bridge = draw_bridge.DrawBridge(ctx.doc)
+        bridge = DrawBridge(ctx.doc)
         idx = kwargs["page"]
+        # Range check only before switching the controller view.
         bridge.resolve_page(idx)
         # Bugfix: this reimplemented setCurrentPage and caught every exception,
         # so a disposed controller became a normal tool error instead of
@@ -309,10 +306,9 @@ class DuplicateSlide(_SlideMutationTool):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-
         page_idx = kwargs["page"]
-        bridge = draw_bridge.DrawBridge(ctx.doc)
-        bridge.resolve_page(page_idx)
+        bridge = DrawBridge(ctx.doc)
+        bridge.resolve_page(page_idx)  # range check only
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
         bridge.duplicate_slide(page_idx, switch=switch_view)
@@ -334,7 +330,7 @@ class MoveSlide(_SlideMutationTool):
 
         from_page = kwargs["from_page"]
         to_page = kwargs["to_page"]
-        bridge = draw_bridge.DrawBridge(ctx.doc)
+        bridge = DrawBridge(ctx.doc)
         try:
             ok = bridge.move_slide(from_page, to_page)
         except PageExchangeRollbackError as exc:
@@ -354,12 +350,11 @@ class RenameSlide(_SlideMutationTool):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-
         page_idx = kwargs["page"]
         name = kwargs["name"]
         if not name:
             return self._tool_error("name is required.")
-        bridge = draw_bridge.DrawBridge(ctx.doc)
+        bridge = DrawBridge(ctx.doc)
         bridge.resolve_page(page_idx)
         ok = bridge.rename_slide(page_idx, str(name))
         if not ok:

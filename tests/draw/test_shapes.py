@@ -10,7 +10,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.draw.bridge import DrawBridge as RealDrawBridge
 
 from plugin.draw.shapes import (
     AlignShapes,
@@ -378,7 +377,6 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
         pages.getByIndex.return_value = page
 
         with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-            bridge_cls.page_size = RealDrawBridge.page_size
             bridge = bridge_cls.return_value
             bridge.get_pages.return_value = pages
             bridge.get_active_page.return_value = page
@@ -468,7 +466,6 @@ def test_shape_upsert_execute_line_zero_height():
     ctx.doc = doc
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
         bridge.resolve_page.return_value = (page, 0)
@@ -490,7 +487,6 @@ def test_shape_upsert_disposed_page_is_not_invalid_index():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=0)
@@ -502,7 +498,6 @@ def test_shape_upsert_bad_page_stays_invalid_index():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 3 out of range.")
         with pytest.raises(ToolExecutionError, match=r"Page index \d+ out of range\."):
             UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=3)
@@ -512,7 +507,6 @@ def test_shape_summary_disposed_page_is_not_missing_page():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             GetDrawSummary().execute(ctx, page=0)
@@ -522,7 +516,6 @@ def test_align_shapes_disposed_page_is_not_invalid_index():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=0)
@@ -534,7 +527,6 @@ def test_align_shapes_bad_page_stays_invalid_index():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 9 out of range.")
         with pytest.raises(ToolExecutionError, match=r"Page index \d+ out of range\."):
             AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=9)
@@ -571,7 +563,6 @@ def test_shape_upsert_creation_failure_keeps_draw_error_code():
     ctx.doc = doc
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
         bridge.resolve_page.return_value = (page, 0)
@@ -599,7 +590,6 @@ def test_shape_group_failure_propagates():
     pages.getByIndex.return_value = page
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
         bridge.resolve_page.return_value = (page, 0)
@@ -638,7 +628,6 @@ def test_shape_upsert_off_page_adds_warning():
     ctx.active_page_index = 0
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
         bridge.resolve_page.return_value = (page, 0)
@@ -683,7 +672,6 @@ def test_shape_upsert_within_page_has_no_warning():
     ctx.active_page_index = 0
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
         bridge.resolve_page.return_value = (page, 0)
@@ -749,7 +737,6 @@ def test_shape_summary_name():
     page.getByIndex.return_value = shape
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = tool.execute(ctx, page=0)
@@ -772,7 +759,6 @@ def test_upsert_shape_invalid_fill_color_adds_warning():
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, \
          patch("plugin.draw.shapes.DrawShapes") as ds_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         ds_cls.return_value.safe_create_shape.return_value = (shape, True, None)
@@ -806,7 +792,6 @@ def test_create_diagram_returns_layout_str():
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, \
          patch("plugin.draw.shapes.DrawShapes") as ds_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         ds_cls.return_value.safe_create_shape.return_value = (shape, True, None)
@@ -828,7 +813,6 @@ def test_upsert_shape_edit_text_only_does_not_set_text_fit_to_size():
     page.getByIndex.return_value = shape
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = UpsertShape().execute(ctx, action="edit", index=0, text="New text")
@@ -926,7 +910,6 @@ def test_draw_summary_nested_group_shapes():
     ctx = MagicMock()
     ctx.doc = MagicMock()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         res = GetDrawSummary().execute(ctx, page=0)
 
@@ -981,7 +964,6 @@ def test_upsert_shape_edit_nested_group_child():
     ctx = MagicMock()
     ctx.doc = MagicMock()
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         result = UpsertShape().execute(ctx, action="edit", index="1.1.0", text="star")
 
@@ -1010,7 +992,6 @@ def test_delete_shape_group_child_and_page_shape():
     ctx.doc = MagicMock()
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.page_size = RealDrawBridge.page_size
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         # Delete of "1.0" calls group.remove(child) and not page.remove
         res_child = DeleteShape().execute(ctx, index="1.0")
