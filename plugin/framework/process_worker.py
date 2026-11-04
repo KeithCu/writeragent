@@ -48,6 +48,7 @@ from plugin.framework.warm_child import (
     SPAWN_READY_TIMEOUT_SEC,
     error_dict,
     framed_request_roundtrip,
+    get_supervisor,
     spawn_budget,
     spawn_managed_child_with_handshake,
 )
@@ -236,7 +237,7 @@ class BaseProcessWorker:
                 is_alive=self.is_alive,
                 max_payload_bytes=self.max_payload_bytes,
                 unpacker=self._unpacker,
-                start=ManagedSubprocess.start,
+                start=get_supervisor().spawn,
                 publish=_publish,
                 deadline=deadline,
                 cap_sec=cap_sec,
