@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import unohelper
 
-from plugin.writer import review_view_attachment as rva
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = logging.getLogger(__name__)
 
@@ -97,19 +98,21 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         log.warning("review_click_popup: popup failed", exc_info=True)
 
 
-def _make_handler(model: Any) -> Any:
+def _make_handler(model: Any, detach: Callable[[Any], Any | None]) -> Any:
     global _handler_cls
     if _handler_cls is None:
         from com.sun.star.awt import XMouseClickHandler
 
         class _ClickReviewHandler(unohelper.Base, XMouseClickHandler):  # type: ignore[misc, valid-type]
             _model: Any
+            _detach: Callable[[Any], Any | None]
             _press: tuple[int, int] | None
             _click_gen: int
 
-            def __init__(self, model: Any) -> None:
+            def __init__(self, model: Any, detach: Callable[[Any], Any | None]) -> None:
                 super().__init__()
                 self._model = model
+                self._detach = detach
                 self._press = None
                 self._click_gen = 0
 
@@ -152,7 +155,7 @@ def _make_handler(model: Any) -> Any:
                 return False
 
             def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO API
-                controller = rva.detach_click_handler(self)
+                controller = self._detach(self)
                 if controller is None:
                     return
                 try:
@@ -162,12 +165,4 @@ def _make_handler(model: Any) -> Any:
                     pass
 
         _handler_cls = _ClickReviewHandler
-    return _handler_cls(model)
-
-
-def cleanup_disposed_controllers() -> None:
-    rva.cleanup_disposed_controllers()
-
-
-def register_click_review(controller: Any) -> None:
-    rva.register_controller(controller)
+    return _handler_cls(model, detach)

@@ -395,7 +395,7 @@ def register_core_handlers() -> None:
         """Re-evaluate the review toolbar's visibility (hide once nothing is left to review).
         Also a catch-up point if changes were resolved via LibreOffice's native UI."""
         try:
-            from plugin.writer.review_toolbar import refresh_review_toolbar
+            from plugin.writer.review_view_attachment import refresh_review_toolbar
 
             refresh_review_toolbar(model)
         except Exception:  # UNO boundary: refresh_review_toolbar layout/controller access
@@ -448,19 +448,12 @@ def register_core_handlers() -> None:
     register_action_handler("writer", "review_next", lambda: _goto_adjacent_change(True))
     register_action_handler("writer", "review_prev", lambda: _goto_adjacent_change(False))
 
-    def _install_writer_change_context_menu() -> None:
-        from plugin.writer.change_context_menu import install_writer_change_context_menu
+    def _install_review_ui() -> None:
+        from plugin.writer.review_view_attachment import install
 
-        install_writer_change_context_menu(get_ctx())
+        install(get_ctx())
 
-    _install_optional(_install_writer_change_context_menu, message="Writer change context menu install failed", level=logging.WARNING)
-
-    def _install_review_toolbar() -> None:
-        from plugin.writer.review_toolbar import install_review_toolbar
-
-        install_review_toolbar(get_ctx())
-
-    _install_optional(_install_review_toolbar, message="Review toolbar visibility install failed", level=logging.WARNING)
+    _install_optional(_install_review_ui, message="Review UI install failed", level=logging.WARNING)
 
 
 def bootstrap(ctx: Any | None = None) -> None:

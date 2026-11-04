@@ -937,25 +937,13 @@ class ApplyDocumentContent(ToolBase):
             except Exception:
                 log.debug("apply_document_content: status_callback failed", exc_info=True)
 
-        # Stop waiting early when the review feature is toggled off mid-wait OR the user
-        # cancels the chat turn (Stop button); MCP has no stop predicate -> None.
-        # What was wrong: ToolContext lost stop_checker, so getattr returned None and Stop was ignored.
-        # Fix: read send_cancellation scope directly and check is_cancelled.
         scope = getattr(ctx, "send_cancellation", None)
-        user_stop = scope.is_cancelled if scope is not None else None
-
-        def _stop() -> bool:
-            if get_agent_edit_review_mode() != "wait":
-                return True
-            try:
-                return bool(user_stop()) if callable(user_stop) else False
-            except Exception:
-                return False
 
         review = session.wait_for_review(
             timeout=wait_seconds,
-            stop_checker=_stop,
             uno_runner=main.call,
+            cancel=scope,
+            still_reviewing=lambda: get_agent_edit_review_mode() == "wait",
         )
         result = dict(result)
         result["review"] = review
