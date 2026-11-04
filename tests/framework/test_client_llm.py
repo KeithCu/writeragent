@@ -3333,7 +3333,7 @@ def test_stream_structured_429_code_retries_before_tokens(client, _fast_retry_wa
         result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
     assert result["content"] == "Recovered"
     assert mock_https.call_count == 2
-    _fast_retry_waits["controls"].assert_called_once()
+    _fast_retry_waits["transport"].assert_called_once()
 
 
 def test_stream_error_closes_without_draining(client):
