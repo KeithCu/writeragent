@@ -37,6 +37,7 @@ from plugin.framework.client.provider_detection import get_provider_from_endpoin
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.errors import format_error_payload
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.worker_pool import run_in_background
 from plugin.version import EXTENSION_VERSION
 
@@ -365,15 +366,9 @@ class ACPBackend(AgentBackend):
         self._session_mcp_url: str | None = None
         self._session_prompted: bool = False
         self._ready: bool = False
-        self._stop_requested: bool = False
         self._closed: bool = False
+        self._active_cancel: SendCancellation | None = None
         self._inflight_token: Any | None = None
-        # prepare_turn publishes _turn before Stop is registered. send()
-        # consumes that publication. A send that was not prepared opens a
-        # new turn, so a Stop from the previous message cannot stick.
-        self._turn: int = 0
-        self._turn_pending: bool = False
-        self._stop_turn: int = 0
         self._prompt_done: threading.Event = threading.Event()
         self._prompt_done.set()
         self._binary_path: Optional[str] = None
@@ -483,15 +478,15 @@ class ACPBackend(AgentBackend):
         log.info("%s binary not found", self.display_name)
         return False
 
-    def _slot_lost_locked(self, conn: ACPConnection | None = None) -> bool:
-        """Caller holds ``_state_lock``. Latch Stop when this conn is no longer the slot."""
-        if self._closed or (conn is not None and self._conn is not conn):
-            self._stop_requested = True
-            self._stop_turn = self._turn
-            return True
-        return False
+    def _user_stopped(self) -> bool:
+        """True when this send was cancelled or the adapter was shut down."""
+        return is_cancelled(self._active_cancel) or self._closed
 
-    def _ensure_connection(self, stop_checker: Any = None) -> None:
+    def _slot_lost_locked(self, conn: ACPConnection | None = None) -> bool:
+        """Caller holds ``_state_lock``. True when this conn is no longer the slot."""
+        return self._closed or (conn is not None and self._conn is not conn)
+
+    def _ensure_connection(self) -> None:
         """Start the ACP subprocess, or keep the one this sidebar already has.
 
         A live initialized child is the slot. A live child that never
@@ -509,7 +504,7 @@ class ACPBackend(AgentBackend):
         else:
             if existing is not None:
                 self._drop_connection()
-            if self._stop_requested:
+            if self._user_stopped():
                 return
             if not self._binary_path:
                 raise RuntimeError(f"{self.display_name} binary not found. Install {self.binary_name} and ensure it's in PATH.")
@@ -532,12 +527,7 @@ class ACPBackend(AgentBackend):
                 return
 
             # Honor Stop before sending initialize; fail fast if child died during spawn.
-            # Latch a true stop_checker onto _stop_requested so send() finishes Stopped.
-            # Call the checker once, and skip it when Stop already latched during spawn.
-            if self._stop_requested:
-                return
-            if callable(stop_checker) and bool(stop_checker()):
-                self._stop_requested = True
+            if self._user_stopped():
                 return
             if not conn.is_alive:
                 detail = conn.stderr_text().strip()
@@ -750,7 +740,7 @@ class ACPBackend(AgentBackend):
             self._queue_permission_request(conn, params, msg_id, queue)
             return
         if method in _SESSION_UPDATES or method in _AGENT_UPDATES:
-            if not self._stop_requested:
+            if not self._user_stopped():
                 default: Any = {} if method in _SESSION_UPDATES else params
                 self._handle_acp_update(params.get("update", default), queue)
             if msg_id is not None:
@@ -782,7 +772,7 @@ class ACPBackend(AgentBackend):
         # request that arrives as Stop runs is cancelled instead of stored
         # after the pending map was already swept.
         with self._state_lock:
-            reply_cancelled = self._stop_requested
+            reply_cancelled = self._user_stopped()
             if not reply_cancelled:
                 self._pending_permissions[msg_id] = (conn, stored)
         if reply_cancelled:
@@ -831,52 +821,17 @@ class ACPBackend(AgentBackend):
 
     def _report_failure(self, queue: Any, payload: Any) -> None:
         """Stopped when this turn was cancelled. Otherwise queue ``payload``."""
-        if self._stop_requested:
+        if self._user_stopped():
             self._finish_stopped(queue)
             return
         queue.put((StreamQueueKind.ERROR, payload))
-
-    def prepare_turn(self) -> None:
-        """Publish a turn id before Stop can be registered.
-
-        ``send_handlers`` calls this, then ``register_on_cancel(stop)``.
-        A Stop that lands before ``send()`` records this id. ``send()``
-        consumes the publication. A Stop from the previous turn recorded
-        an older id and does not abort this one.
-        """
-        with self._state_lock:
-            self._turn += 1
-            self._turn_pending = True
-            self._stop_turn = 0
-            self._stop_requested = False
-
-    def _turn_already_stopped(self, stop_checker: Any) -> bool:
-        """True when this send must return Stopped without starting work.
-
-        prepare_turn publishes an id that this send consumes. A send that was
-        not published opens a new turn, so a previous Stop cannot stick.
-        """
-        checker_hit = callable(stop_checker) and bool(stop_checker())
-        with self._state_lock:
-            if self._turn_pending:
-                self._turn_pending = False
-            else:
-                self._turn += 1
-                self._stop_turn = 0
-                self._stop_requested = False
-            if checker_hit or self._stop_turn == self._turn:
-                self._stop_turn = self._turn
-                self._stop_requested = True
-                return True
-            self._stop_requested = False
-            return False
 
     def _request(self, conn: ACPConnection, method: str, params: Any, timeout: float) -> Any:
         """send_request marked in flight so Stop can bound it."""
         token = object()
         # The stop latch and inflight flag share _state_lock so Stop cannot slip between the check and the enqueue.
         with self._state_lock:
-            if self._stop_requested and self._stop_turn == self._turn:
+            if self._user_stopped():
                 raise _TurnStopped()
             self._prompt_done.clear()
             self._inflight_token = token
@@ -926,7 +881,16 @@ class ACPBackend(AgentBackend):
         except Exception:
             log.exception("ACP shutdown failed")
 
-    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, stop_checker: Any = None) -> None:
+    def send(
+        self,
+        queue: Any,
+        user_message: str,
+        document_context: str | None,
+        document_url: str | None,
+        system_prompt: str | None = None,
+        mcp_url: str | None = None,
+        cancel: SendCancellation | None = None,
+    ) -> None:
         """Send one prompt. The CLI stays up for the next message on this sidebar."""
         # Serialize send() calls on the retained CLI. stop() and shutdown() do not take this lock, so session/cancel still runs.
         with self._send_lock:
@@ -934,20 +898,23 @@ class ACPBackend(AgentBackend):
                 if self._closed:
                     self._finish_stopped(queue)
                     return
-            if self._turn_already_stopped(stop_checker):
-                self._finish_stopped(queue)
-                return
-
-            queue.put((StreamQueueKind.STATUS, f"Starting {self.display_name}..."))
-
+                self._active_cancel = cancel
+            if cancel is not None:
+                cancel.register_on_cancel(self.stop)
             try:
+                if self._user_stopped():
+                    self._finish_stopped(queue)
+                    return
+
+                queue.put((StreamQueueKind.STATUS, f"Starting {self.display_name}..."))
+
                 try:
-                    self._ensure_connection(stop_checker)
+                    self._ensure_connection()
                 except Exception as e:
                     self._report_failure(queue, format_error_payload(RuntimeError(f"Cannot start {self.display_name} ACP. Is {self.binary_name} installed? Error: {e}")))
                     return
 
-                if self._stop_requested:
+                if self._user_stopped():
                     self._finish_stopped(queue)
                     return
 
@@ -969,7 +936,7 @@ class ACPBackend(AgentBackend):
                     self._report_failure(queue, format_error_payload(RuntimeError(f"Session creation failed: {e}")))
                     return
 
-                if self._stop_requested:
+                if self._user_stopped():
                     self._finish_stopped(queue)
                     return
 
@@ -980,7 +947,7 @@ class ACPBackend(AgentBackend):
                 try:
                     # Single local read of self._conn; check stop and none.
                     conn = self._conn
-                    if self._stop_requested:
+                    if self._user_stopped():
                         self._finish_stopped(queue)
                         return
                     if conn is None:
@@ -993,7 +960,7 @@ class ACPBackend(AgentBackend):
                     if included_manual:
                         self._session_prompted = True
 
-                    if self._stop_requested:
+                    if self._user_stopped():
                         self._finish_stopped(queue)
                         return
 
@@ -1004,14 +971,14 @@ class ACPBackend(AgentBackend):
                 except ACPTimeoutError:
                     # No accepted stdout for the idle window. The CLI is wedged.
                     self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} prompt timed out")))
-                    if not self._stop_requested:
+                    if not self._user_stopped():
                         self._drop_connection()
                 except Exception as e:
                     # When cancel grace killed this conn, the slot was cleared (self._conn is not conn).
                     # A new send may have already prepared or started. Calling shutdown() or reporting
                     # error here would break that next send or emit Error after Stop. If self._conn
                     # is not conn and the child is dead, finish stopped without dropping the new connection.
-                    if self._stop_requested or (conn is not None and not conn.is_healthy and self._conn is not conn):
+                    if self._user_stopped() or (conn is not None and not conn.is_healthy and self._conn is not conn):
                         self._finish_stopped(queue)
                     else:
                         log.exception("Prompt execution failed")
@@ -1022,6 +989,10 @@ class ACPBackend(AgentBackend):
                         if conn is not None and not conn.is_healthy:
                             self._drop_connection()
             finally:
+                with self._state_lock:
+                    self._active_cancel = None
+                if cancel is not None:
+                    cancel.unregister_on_cancel(self.stop)
                 # The process stays. Drop the callback so a late notification
                 # does not write into this turn's queue. The next send installs
                 # its own. shutdown() may already have cleared the connection.
@@ -1046,7 +1017,7 @@ class ACPBackend(AgentBackend):
         content_blocks = result.get("contentBlocks") or []
         if content_blocks:
             self._handle_acp_update({"content": content_blocks}, queue)
-        if stop_reason == "cancelled" or self._stop_requested:
+        if stop_reason == "cancelled" or self._user_stopped():
             self._finish_stopped(queue)
             return
         if stop_reason == "refusal":
@@ -1070,11 +1041,14 @@ class ACPBackend(AgentBackend):
         wait on the success path. Stop waits up to the grace for the prompt
         result. Activity after Stop does not extend that wait.
         """
-        # Same lock send() holds while it decides whether to clear the latch,
-        # so a Stop that lands as send() begins cannot be wiped by that reset.
+        active: SendCancellation | None
         with self._state_lock:
-            self._stop_turn = self._turn
-            self._stop_requested = True
+            active = self._active_cancel
+        if active is not None and not active.is_cancelled():
+            active.cancel()
+            return
+
+        with self._state_lock:
             inflight = self._inflight_token is not None
             token = self._inflight_token
             # Read _conn and _session_id under _state_lock to avoid sending cancel to a swapped connection.

@@ -19,6 +19,7 @@ from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args, _t
 from plugin.acp.acp_connection import ACPTimeoutError
 from plugin.acp.registry import ClaudeBackend, GrokBackend, HermesBackend, OpenCodeBackend
 from plugin.framework.stream_batch import StreamQueueKind
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.version import EXTENSION_VERSION
 
 
@@ -536,7 +537,7 @@ def _mock_conn(*, alive: bool = True, healthy: bool | None = None):
 def _bare_backend():
     """ACPBackend without config or a live process."""
     backend = ACPBackend.__new__(ACPBackend)
-    backend._stop_requested = False
+    backend._active_cancel = None
     backend._closed = False
     backend._inflight_token = None
     backend._session_id = None
@@ -545,9 +546,6 @@ def _bare_backend():
     backend._session_prompted = False
     backend._ready = False
     backend._conn = None
-    backend._turn = 0
-    backend._turn_pending = False
-    backend._stop_turn = 0
     backend._prompt_done = threading.Event()
     backend._prompt_done.set()
     backend._state_lock = threading.Lock()
@@ -556,6 +554,13 @@ def _bare_backend():
     backend.display_name = "Test"
     backend.binary_name = "test-agent"
     return backend
+
+
+def _cancelled_active_scope(backend):
+    scope = SendCancellation()
+    scope.cancel()
+    backend._active_cancel = scope
+    return scope
 
 
 def _drain(q):
@@ -759,7 +764,7 @@ class TestPermissionResult:
 
     def test_permission_after_stop_is_cancelled_without_dialog(self):
         backend = _bare_backend()
-        backend._stop_requested = True
+        _cancelled_active_scope(backend)
         conn = MagicMock()
         conn.is_alive = True
         backend._conn = conn
@@ -801,7 +806,7 @@ class TestPermissionResult:
     def test_permission_without_id_after_stop_is_not_queued(self, caplog):
         caplog.set_level("WARNING", logger="plugin.acp.acp_backend")
         backend = _bare_backend()
-        backend._stop_requested = True
+        _cancelled_active_scope(backend)
         conn = MagicMock()
         conn.is_alive = True
         backend._conn = conn
@@ -877,7 +882,6 @@ class TestStopAndShutdown:
         conn.stop.assert_not_called()
         assert (backend._conn) is conn
         assert (backend._session_id) == ("sess-1")
-        assert (backend._stop_requested) is True
         # The dialog lost the race: Stop already answered.
         backend.submit_approval(7, True)
         assert (conn.send_response.call_count) == (1)
@@ -919,7 +923,6 @@ class TestStopAndShutdown:
 
     def test_stop_cancel_uses_the_inflight_connection_and_session(self):
         backend = _bare_backend()
-        backend._turn = 4
         backend._inflight_token = object()
         backend._prompt_done.clear()
         backend._session_id = "sess-old"
@@ -954,7 +957,7 @@ class TestStopAndShutdown:
         conn = _mock_conn()
         conn.send_request.return_value = {"stopReason": "end_turn"}
         backend._conn = conn
-        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_connection = lambda cancel=None: None
         backend._ensure_session = lambda **kwargs: None
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
@@ -969,7 +972,7 @@ class TestStopAndShutdown:
         conn = MagicMock()
         conn.is_alive = True
 
-        def ensure_connection(stop_checker=None):
+        def ensure_connection(cancel=None):
             backend._conn = conn
 
         backend._ensure_connection = ensure_connection
@@ -999,20 +1002,23 @@ class TestStopAndShutdown:
             if method == "session/prompt":
                 started.set()
                 deadline = time.monotonic() + 2
-                while time.monotonic() < deadline and not backend._stop_requested:
+                while time.monotonic() < deadline and not scope.is_cancelled():
                     time.sleep(0.01)
-                if not backend._stop_requested:
+                if not scope.is_cancelled():
                     raise TimeoutError("prompt still blocked")
                 raise RuntimeError("ACP process stopped")
             return {"sessionId": "sess-9"}
 
         conn.send_request.side_effect = send_request
         backend._conn = conn
-        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_connection = lambda cancel=None: None
         backend._ensure_session = lambda **kwargs: None
         backend._pending_permissions[4] = (conn, [{"optionId": "allow-once", "name": "Allow once", "kind": "allow_once"}])
         q = queue.Queue()
-        worker = threading.Thread(target=lambda: backend.send(queue=q, user_message="hi", document_context=None, document_url=None))
+        scope = SendCancellation()
+        worker = threading.Thread(
+            target=lambda: backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope),
+        )
         worker.start()
         assert (started.wait(timeout=2))
         backend.stop()
@@ -1043,10 +1049,13 @@ class TestStopAndShutdown:
         conn.send_request.side_effect = send_request
         conn.stop.side_effect = lambda: release.set()
         backend._conn = conn
-        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_connection = lambda cancel=None: None
         backend._ensure_session = lambda **kwargs: None
         q = queue.Queue()
-        worker = threading.Thread(target=lambda: backend.send(queue=q, user_message="hi", document_context=None, document_url=None))
+        scope = SendCancellation()
+        worker = threading.Thread(
+            target=lambda: backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope),
+        )
         worker.start()
         assert (started.wait(timeout=2))
         with patch("plugin.acp.acp_backend._CANCEL_GRACE_SEC", 0.05):
@@ -1060,9 +1069,7 @@ class TestStopAndShutdown:
 
     def test_request_does_not_send_when_this_turn_is_already_stopped(self):
         backend = _bare_backend()
-        backend._turn = 2
-        backend._stop_turn = 2
-        backend._stop_requested = True
+        _cancelled_active_scope(backend)
         conn = MagicMock()
         with pytest.raises(_TurnStopped):
             backend._request(conn, "session/prompt", {}, 1)
@@ -1075,7 +1082,7 @@ class TestStopAndShutdown:
         backend._session_id = "sess-1"
         conn = _mock_conn()
         backend._conn = conn
-        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_connection = lambda cancel=None: None
         backend._ensure_session = lambda **kwargs: None
         real_request = backend._request
 
@@ -1086,7 +1093,8 @@ class TestStopAndShutdown:
 
         backend._request = request
         q = queue.Queue()
-        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        scope = SendCancellation()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
         assert (StreamQueueKind.STOPPED) in (kinds)
         assert (StreamQueueKind.ERROR) not in (kinds)
@@ -1099,7 +1107,7 @@ class TestStopAndShutdown:
         backend = _bare_backend()
         conn = _mock_conn()
 
-        def ensure_connection(stop_checker=None):
+        def ensure_connection(cancel=None):
             backend._conn = conn
 
         backend._ensure_connection = ensure_connection
@@ -1112,7 +1120,8 @@ class TestStopAndShutdown:
 
         backend._request = request
         q = queue.Queue()
-        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        scope = SendCancellation()
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
         assert (StreamQueueKind.STOPPED) in (kinds)
         assert (StreamQueueKind.ERROR) not in (kinds)
@@ -1211,7 +1220,6 @@ class TestStopAndShutdown:
         assert started.wait(timeout=2)
 
         def run_second_send():
-            backend.prepare_turn()
             backend.send(queue=q2, user_message="second", document_context=None, document_url=None)
 
         t2 = threading.Thread(target=run_second_send)
@@ -1230,16 +1238,16 @@ class TestStopAndShutdown:
 
     def test_stop_before_send_does_not_start_cli(self):
         backend = _bare_backend()
-        backend.prepare_turn()
-        backend.stop()
+        scope = SendCancellation()
+        scope.cancel()
         backend._ensure_connection = MagicMock(side_effect=AssertionError("cli started"))
         backend._ensure_session = MagicMock(side_effect=AssertionError("session started"))
         q = queue.Queue()
-        backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         assert (_drain(q)) == ([(StreamQueueKind.STOPPED, None)])
         backend._ensure_connection.assert_not_called()
         backend._ensure_session.assert_not_called()
-        assert (backend._stop_requested) is True
+        assert scope.is_cancelled() is True
 
     def test_stop_between_unprepared_sends_does_not_stick(self):
         """A Stop on one unprepared send must not Stop the next one.
@@ -1254,7 +1262,7 @@ class TestStopAndShutdown:
         backend._session_url = ""
         backend._session_prompted = True
 
-        def ensure_connection(stop_checker=None):
+        def ensure_connection(cancel=None):
             backend._conn = conn
 
         backend._ensure_connection = ensure_connection
@@ -1307,12 +1315,11 @@ class TestStopAndShutdown:
     def test_previous_stop_does_not_abort_the_next_send(self):
         backend = _bare_backend()
         backend.stop()
-        backend.prepare_turn()
         conn = _mock_conn()
         conn.send_request.return_value = {"stopReason": "end_turn"}
         backend._session_id = "sess-1"
 
-        def ensure_connection(stop_checker=None):
+        def ensure_connection(cancel=None):
             backend._conn = conn
 
         backend._ensure_connection = ensure_connection
@@ -1324,14 +1331,16 @@ class TestStopAndShutdown:
 
     def test_stop_checker_true_at_send_entry_does_not_start_cli(self):
         backend = _bare_backend()
+        scope = SendCancellation()
+        scope.cancel()
         backend._ensure_connection = MagicMock(side_effect=AssertionError("cli started"))
         backend._ensure_session = MagicMock(side_effect=AssertionError("session started"))
         q = queue.Queue()
-        backend.send(queue=q, user_message="hi", document_context=None, document_url=None, stop_checker=lambda: True)
+        backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         assert (_drain(q)) == ([(StreamQueueKind.STOPPED, None)])
         backend._ensure_connection.assert_not_called()
         backend._ensure_session.assert_not_called()
-        assert (backend._stop_requested) is True
+        assert scope.is_cancelled() is True
 
     def test_notification_callback_is_registered_before_session_new(self):
         """A session/update emitted during session/new must reach the queue.
@@ -1367,7 +1376,7 @@ class TestStopAndShutdown:
         conn.set_notification_callback.side_effect = set_notification_callback
         conn.send_request.side_effect = send_request
 
-        def ensure_connection(stop_checker=None):
+        def ensure_connection(cancel=None):
             backend._conn = conn
 
         backend._ensure_connection = ensure_connection
@@ -1383,7 +1392,7 @@ class TestStopAndShutdown:
         backend._ready = True
         backend._session_id = "sess-1"
         backend._session_prompted = True
-        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_connection = lambda cancel=None: None
         backend._ensure_session = lambda **kwargs: None
 
         order = []
@@ -1453,7 +1462,7 @@ class TestStopAndShutdown:
             name="first-send",
         )
         t2 = threading.Thread(
-            target=lambda: (backend.prepare_turn(), backend.send(queue=q2, user_message="two", document_context=None, document_url=None)),
+            target=lambda: backend.send(queue=q2, user_message="two", document_context=None, document_url=None),
             name="second-send",
         )
 
@@ -1485,7 +1494,7 @@ class TestStopAndShutdown:
         backend._ready = True
         backend._session_id = "sess-1"
         backend._session_prompted = True
-        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_connection = lambda cancel=None: None
         backend._ensure_session = lambda **kwargs: None
 
         prompt_started = threading.Event()
@@ -1594,10 +1603,11 @@ class TestStartupWait:
     def test_stop_during_spawn_does_not_initialize_or_prompt(self):
         backend = self._backend()
         conn = _startup_conn()
-        conn.start.side_effect = lambda: backend.stop()
+        scope = SendCancellation()
+        conn.start.side_effect = lambda: (scope.cancel(), backend.stop())
         q = queue.Queue()
         with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
-            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
         assert (StreamQueueKind.STOPPED) in (kinds)
         assert (StreamQueueKind.ERROR) not in (kinds)
@@ -1611,19 +1621,19 @@ class TestStartupWait:
     def test_stop_checker_during_spawn_does_not_prompt(self):
         backend = self._backend()
         conn = _startup_conn()
-        armed = {"stop": False}
+        scope = SendCancellation()
 
         def start() -> None:
-            armed["stop"] = True
+            scope.cancel()
 
         conn.start.side_effect = start
         q = queue.Queue()
         with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
-            backend.send(queue=q, user_message="hi", document_context=None, document_url=None, stop_checker=lambda: armed["stop"])
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
         assert (StreamQueueKind.STOPPED) in (kinds)
         assert (StreamQueueKind.ERROR) not in (kinds)
-        assert (backend._stop_requested) is True
+        assert scope.is_cancelled() is True
         conn.send_request.assert_not_called()
 
     def test_turn_stopped_during_initialize_keeps_the_child(self):
@@ -1637,8 +1647,9 @@ class TestStartupWait:
 
         backend._request = request
         q = queue.Queue()
+        scope = SendCancellation()
         with patch("plugin.acp.acp_backend.ACPConnection", return_value=conn):
-            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None, cancel=scope)
         kinds = [event[0] for event in _drain(q)]
         assert (StreamQueueKind.STOPPED) in (kinds)
         assert (StreamQueueKind.ERROR) not in (kinds)
@@ -1774,7 +1785,7 @@ class TestUnknownAcpRequest:
 
     def test_unknown_method_while_stopped_is_still_rejected(self):
         backend = _bare_backend()
-        backend._stop_requested = True
+        _cancelled_active_scope(backend)
         conn = MagicMock()
         backend._conn = conn
         q = queue.Queue()
@@ -1788,7 +1799,7 @@ class TestUnknownAcpRequest:
     )
     def test_update_request_while_stopped_is_acked_without_queue(self, method):
         backend = _bare_backend()
-        backend._stop_requested = True
+        _cancelled_active_scope(backend)
         conn = MagicMock()
         backend._conn = conn
         q = queue.Queue()
@@ -1799,7 +1810,7 @@ class TestUnknownAcpRequest:
 
     def test_session_update_notification_while_stopped_is_not_queued(self):
         backend = _bare_backend()
-        backend._stop_requested = True
+        _cancelled_active_scope(backend)
         conn = MagicMock()
         backend._conn = conn
         q = queue.Queue()
@@ -1841,7 +1852,7 @@ class TestSessionId:
 
         conn.send_request.side_effect = send_request
 
-        def ensure_connection(stop_checker=None):
+        def ensure_connection(cancel=None):
             backend._conn = conn
             backend._ready = True
 
@@ -1882,7 +1893,7 @@ class TestSessionId:
         conn2 = _mock_conn()
         conn2.send_request.side_effect = send_request2
 
-        def ensure_connection2(stop_checker=None):
+        def ensure_connection2(cancel=None):
             backend2._conn = conn2
             backend2._ready = True
 
@@ -1913,7 +1924,7 @@ class TestSessionId:
 
         conn.send_request.side_effect = send_request
 
-        def ensure_connection(stop_checker=None):
+        def ensure_connection(cancel=None):
             backend._conn = conn
             backend._ready = True
 
@@ -1954,7 +1965,7 @@ class TestSessionId:
 
         conn.send_request.side_effect = send_request
 
-        def ensure_connection(stop_checker=None):
+        def ensure_connection(cancel=None):
             backend._conn = conn
             backend._ready = True
 
@@ -2005,7 +2016,7 @@ class TestSessionId:
 
     def test_missing_process_without_stop_is_an_error(self):
         backend = _bare_backend()
-        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_connection = lambda cancel=None: None
         backend._ensure_session = lambda **kwargs: None
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
@@ -2031,7 +2042,7 @@ class TestSessionId:
 
         conn.send_request.side_effect = send_request
         backend._conn = conn
-        backend._ensure_connection = lambda stop_checker=None: None
+        backend._ensure_connection = lambda cancel=None: None
         q = queue.Queue()
         backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
         assert ("session/prompt") not in (methods)
@@ -2054,7 +2065,8 @@ class TestSessionId:
 
 class TestEnsureSessionMcp:
     def test_ensure_session_omits_mcp_when_disabled(self):
-        backend = HermesBackend()
+        with patch("plugin.acp.acp_backend._agent_backend_settings", return_value=("", "")):
+            backend = HermesBackend()
         backend._conn = _mock_conn()
         backend._conn.send_request.return_value = {"sessionId": "s-123"}
         with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: "false" if k == "mcp.mcp_enabled" else d):
@@ -2064,7 +2076,8 @@ class TestEnsureSessionMcp:
         assert params["mcpServers"] == []
 
     def test_ensure_session_attaches_mcp_when_enabled(self):
-        backend = HermesBackend()
+        with patch("plugin.acp.acp_backend._agent_backend_settings", return_value=("", "")):
+            backend = HermesBackend()
         backend._conn = _mock_conn()
         backend._conn.send_request.return_value = {"sessionId": "s-123"}
         with patch("plugin.framework.config.get_config", side_effect=lambda k, d=None: "true" if k == "mcp.mcp_enabled" else d):
@@ -2075,7 +2088,8 @@ class TestEnsureSessionMcp:
         assert params["mcpServers"][0]["url"] == "http://localhost:8765/mcp"
 
     def test_same_url_and_same_effective_mcp_reuses_session(self):
-        backend = HermesBackend()
+        with patch("plugin.acp.acp_backend._agent_backend_settings", return_value=("", "")):
+            backend = HermesBackend()
         conn = _mock_conn()
         conn.send_request.return_value = {"sessionId": "s-123"}
         backend._conn = conn
@@ -2085,7 +2099,8 @@ class TestEnsureSessionMcp:
         conn.send_request.assert_called_once()
 
     def test_same_url_different_effective_mcp_starts_new_session(self):
-        backend = HermesBackend()
+        with patch("plugin.acp.acp_backend._agent_backend_settings", return_value=("", "")):
+            backend = HermesBackend()
         conn = _mock_conn()
         conn.send_request.side_effect = [{"sessionId": "s-1"}, {"sessionId": "s-2"}]
         backend._conn = conn
@@ -2098,7 +2113,8 @@ class TestEnsureSessionMcp:
         conn.stop.assert_not_called()
 
     def test_disabled_then_enabled_mcp_starts_new_session(self):
-        backend = HermesBackend()
+        with patch("plugin.acp.acp_backend._agent_backend_settings", return_value=("", "")):
+            backend = HermesBackend()
         conn = _mock_conn()
         conn.send_request.side_effect = [{"sessionId": "s-1"}, {"sessionId": "s-2"}]
         backend._conn = conn
@@ -2116,7 +2132,7 @@ def _prompt_events(result: object):
     conn = _mock_conn()
     conn.send_request.return_value = result
     backend._conn = conn
-    backend._ensure_connection = lambda stop_checker=None: None
+    backend._ensure_connection = lambda cancel=None: None
     backend._ensure_session = lambda **kwargs: None
     q = queue.Queue()
     backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
@@ -2247,7 +2263,7 @@ class TestReplyAndCancelDoNotSwallow:
 def test_stop_during_begin_request_cannot_queue_cancel_first():
     backend = _bare_backend()
     backend._session_id = "sess-1"
-    backend._ensure_connection = lambda stop_checker=None: None
+    backend._ensure_connection = lambda cancel=None: None
     backend._ensure_session = lambda **kwargs: None
 
     entered_begin = threading.Event()
@@ -2309,7 +2325,7 @@ def test_stop_during_begin_request_cannot_queue_cancel_first():
 def test_send_prompt_timeout_shuts_down_connection():
     backend = _bare_backend()
     backend._session_id = "sess-1"
-    backend._ensure_connection = lambda stop_checker=None: None
+    backend._ensure_connection = lambda cancel=None: None
     backend._ensure_session = lambda **kwargs: None
 
     conn = _mock_conn()
@@ -2328,7 +2344,7 @@ def test_send_prompt_timeout_shuts_down_connection():
 def test_finished_send_cancels_an_unanswered_permission():
     backend = _bare_backend()
     backend._session_id = "sess-1"
-    backend._ensure_connection = lambda stop_checker=None: None
+    backend._ensure_connection = lambda cancel=None: None
     backend._ensure_session = lambda **kwargs: None
 
     conn = _mock_conn()
@@ -2365,7 +2381,7 @@ def test_unhealthy_connection_is_dropped_and_replaced():
 def test_prompt_runtime_error_on_unhealthy_conn_shuts_down():
     backend = _bare_backend()
     backend._session_id = "sess-1"
-    backend._ensure_connection = lambda stop_checker=None: None
+    backend._ensure_connection = lambda cancel=None: None
     backend._ensure_session = lambda **kwargs: None
 
     conn = _mock_conn(alive=True, healthy=True)

@@ -139,14 +139,22 @@ def test_skips_unregistered_handlers():
     assert rows == []
 
 
-def test_invoke_zero_arg_handler():
-    called = []
+def test_invoke_zero_arg_handler_is_reported(monkeypatch):
+    """A zero-arg handler raises TypeError and is reported as a failed action."""
+    reported = []
+
+    def fake_report(cmd, exc):
+        reported.append((cmd, exc))
+
+    monkeypatch.setattr("plugin.framework.main_shared.report_action_failure", fake_report)
 
     def handler():
-        called.append(True)
+        raise RuntimeError("should not run")
 
-    invoke_action_handler(handler, frame=object(), command="test")
-    assert called == [True]
+    invoke_action_handler(handler, frame=object(), command="test.action")
+    assert len(reported) == 1
+    assert reported[0][0] == "test.action"
+    assert isinstance(reported[0][1], TypeError)
 
 
 def test_invoke_frame_handler():
@@ -181,14 +189,13 @@ def test_invoke_raising_handler_reported(monkeypatch):
 
     monkeypatch.setattr("plugin.framework.main_shared.report_action_failure", fake_report)
 
-    def bad_handler():
+    def bad_handler(frame=None):
         raise RuntimeError("boom")
 
     invoke_action_handler(bad_handler, command="test.action")
     assert len(reported) == 1
     assert reported[0][0] == "test.action"
     assert isinstance(reported[0][1], RuntimeError)
-
 
 
 def test_show_hamburger_uses_librepy_command_prefix():

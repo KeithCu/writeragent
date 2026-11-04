@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from plugin.doc.find_tools_tool import FindTools, get_domain_guidance
 from plugin.doc.specialized_catalog import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolRegistry
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
@@ -457,7 +458,7 @@ def test_specialized_tool_allowed_in_direct_discovery():
 
 def _prepare_and_invoke(handler, tool_name, arguments=None):
     arguments = {} if arguments is None else arguments
-    prepared = handler._prepare_mcp_execution(tool_name, arguments, None, send_cancellation=None)
+    prepared = handler._prepare_mcp_execution(tool_name, arguments, None, cancel=SendCancellation())
     if not isinstance(prepared, _PreparedMcpCall):
         return prepared
     return handler._invoke_prepared_mcp_tool(prepared, tool_name, arguments)

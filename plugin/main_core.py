@@ -54,7 +54,7 @@ from plugin.menu_handlers import register_common_handlers
 
 
 def _register_librepy_handlers() -> None:
-    def _open_settings() -> None:
+    def _open_settings(frame: Any = None) -> None:
         from plugin.librepy.settings import open_librepy_settings
 
         open_dialog_safely(open_librepy_settings, "Failed to open settings")

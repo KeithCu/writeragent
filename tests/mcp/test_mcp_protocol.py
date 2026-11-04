@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.tool import ToolBase, ToolRegistry
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 
@@ -728,17 +729,15 @@ def test_mcp_run_tool_captures_send_cancellation() -> None:
 
     scope = SendCancellation()
 
-    with patch("plugin.framework.send_cancellation.get_current_send_cancellation", return_value=scope):
-        res = handler._run_tool("my_tool", {})
+    res = handler._run_tool("my_tool", {}, cancel=scope)
 
     assert res == "final_result"
     assert executor.call.call_count == 2
 
-    # first call should be _prepare_mcp_execution with bound_scope=scope and send_cancellation=scope
     prepare_call = executor.call.call_args_list[0]
     assert prepare_call.args[0] == handler._prepare_mcp_execution
     assert prepare_call.kwargs.get("bound_scope") is scope
-    assert prepare_call.kwargs.get("send_cancellation") is scope
+    assert prepare_call.kwargs.get("cancel") is scope
 
 def test_async_long_running_uses_execute_safe_without_bypass_keyword():
     """is_async tools are the long-running path and still use execute_safe."""
@@ -856,7 +855,7 @@ def test_timeout_zero_rejects_async_tool():
     registry._tools["async_zero_timeout"] = MockAsyncZeroTimeoutTool()
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
-    result = handler._prepare_mcp_execution("async_zero_timeout", {}, None, send_cancellation=None)
+    result = handler._prepare_mcp_execution("async_zero_timeout", {}, None, cancel=SendCancellation())
     assert isinstance(result, dict)
     assert result["status"] == "error"
     assert result["code"] == "TOOL_EXECUTION_ERROR"
@@ -880,7 +879,7 @@ def test_async_tool_without_timeout_runs():
     registry._tools["async_no_timeout"] = MockAsyncNoTimeoutTool()
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
-    result = handler._prepare_mcp_execution("async_no_timeout", {}, None, send_cancellation=None)
+    result = handler._prepare_mcp_execution("async_no_timeout", {}, None, cancel=SendCancellation())
     assert not isinstance(result, dict) or result.get("status") != "error"
 
 
@@ -920,7 +919,7 @@ def test_is_async_uses_long_running_path():
     tool = _AsyncProbe()
     handler = _handler(None, tool)
 
-    prep = handler._prepare_mcp_execution("async_probe", {}, send_cancellation=None)
+    prep = handler._prepare_mcp_execution("async_probe", {}, cancel=SendCancellation())
     assert prep.is_async is True
 
     result = handler._mcp_tools_call({"name": "async_probe", "arguments": {}})
@@ -1101,7 +1100,7 @@ def test_resolve_exception_is_not_document_not_found():
     services.document.resolve_document_by_url.side_effect = DocumentDisposedError("closed", object_type="Document")
     handler = MCPProtocolHandler(services)
     with pytest.raises(DocumentDisposedError):
-        handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///gone.odt", send_cancellation=None)
+        handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///gone.odt", cancel=SendCancellation())
 
 
 def test_unresolved_document_url_is_still_document_not_found():
@@ -1114,7 +1113,7 @@ def test_unresolved_document_url_is_still_document_not_found():
     services.tools.get.return_value = tool
     services.document.resolve_document_by_url.return_value = (None, None)
     handler = MCPProtocolHandler(services)
-    result = handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///missing.odt", send_cancellation=None)
+    result = handler._prepare_mcp_execution("apply_document_content", {}, document_url="file:///missing.odt", cancel=SendCancellation())
     assert result["code"] == "DOCUMENT_NOT_FOUND"
     assert "missing.odt" in result["message"]
 
@@ -1131,7 +1130,7 @@ def test_open_documents_failure_is_not_no_document_open():
     services.document.open_documents.side_effect = RuntimeError("desktop")
     handler = MCPProtocolHandler(services)
     with pytest.raises(RuntimeError, match="desktop"):
-        handler._prepare_mcp_execution("t", {}, send_cancellation=None)
+        handler._prepare_mcp_execution("t", {}, cancel=SendCancellation())
 
 
 def test_draw_page_index_failure_propagates():
@@ -1146,7 +1145,7 @@ def test_draw_page_index_failure_propagates():
     handler = MCPProtocolHandler(services)
     with patch("plugin.draw.bridge.DrawBridge", side_effect=RuntimeError("no page")):
         with pytest.raises(RuntimeError, match="no page"):
-            handler._prepare_mcp_execution("t", {}, document_url="file:///a.odg", send_cancellation=None)
+            handler._prepare_mcp_execution("t", {}, document_url="file:///a.odg", cancel=SendCancellation())
 
 
 def test_sse_keepalive_unexpected_error_is_logged(caplog):
@@ -1232,7 +1231,7 @@ def test_prepare_mcp_execution_passes_arguments_to_requires_document_lock(lock):
     handler = MCPProtocolHandler(MagicMock(tool_registry=registry))
     handler.tool_registry = registry
     args = {"domain": "shapes", "note": 1}
-    prepared = handler._prepare_mcp_execution("lock_probe", args, None, send_cancellation=None)
+    prepared = handler._prepare_mcp_execution("lock_probe", args, None, cancel=SendCancellation())
     assert isinstance(prepared, _PreparedMcpCall)
     assert seen == [args]
     assert seen[0] is args
