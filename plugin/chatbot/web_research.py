@@ -28,7 +28,6 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Callable, final
 
 from plugin.framework.send_cancellation import SendCancellation
-
 from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBase
 
@@ -79,6 +78,9 @@ class WebAgentRunParams:
     chat_append_callback: Callable[[str], None] | None
     outer_query: str
     visited_urls: _VisitedUrls | None = None
+    # Pool workers do not see the send thread's cancellation thread-local.
+    # LlmClient only auto-registers get_current_send_cancellation() on the
+    # constructing thread, so each worker must be handed this scope explicitly.
     cancel: SendCancellation | None = None
 
 

@@ -827,6 +827,7 @@ def build_tool_execute_fn(
         append_thinking_callback: Callable[[str], None] | None = None,
         *,
         captured_turn: Any = None,
+        # Caller passes the spawn-time scope; never read host._send_cancellation here (drain clears it).
         send_cancellation: SendCancellation | None = None,
     ) -> str:
         from plugin.app import get_tools as _get_tools
@@ -1123,8 +1124,6 @@ class ToolLoopEffectInterpreter:
         # panel field when the tool later runs.
         # Send thread, before run_in_background; worker must not re-read _send_cancellation (drain clears it).
         bound_scope = host._send_cancellation
-        if bound_scope is not None and not isinstance(bound_scope, SendCancellation):
-            bound_scope = None
 
         # Bugfix: getText ran for every tool whenever the sidebar combobox
         # existed, and main.call re-raises, so a disposed or
