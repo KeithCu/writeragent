@@ -637,7 +637,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
         cfg_dir = user_config_dir() or ""
         if uncached_spans[0][2]:
-            get_grammar_status().start(uncached_spans[0][2], result="Harper")
+            get_grammar_status().start(uncached_spans[0][2], result="Harper", routine=True)
         issue_count = 0
         ignore_set = IgnoreSet.for_document(self.ctx, a_doc_id)
         for sent_start, _sent_end, sent_text in uncached_spans:
@@ -647,7 +647,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 grammar_obs("do_proofreading_harper_ensure", doc_id=a_doc_id, grammar_bcp47=loc_key)
                 get_grammar_status().request(sent_text, result="Starting Harper…")
                 return
-            get_grammar_status().request(sent_text, result="Harper check")
+            get_grammar_status().request(sent_text, result="Harper check", routine=True)
             errors = res.get("errors", [])
             active_errors = store_sentence_result(
                 self.ctx,
@@ -662,7 +662,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             _append_shifted_errors(active_errors, sent_start, combined_errors)
         if uncached_spans[-1][2]:
             iw = "issue" if issue_count == 1 else "issues"
-            get_grammar_status().done(uncached_spans[-1][2], result=f"{issue_count} {iw}")
+            get_grammar_status().done(uncached_spans[-1][2], result=f"{issue_count} {iw}", routine=True)
 
     # --- XProofreader ---
     def isSpellChecker(self) -> bool:
@@ -889,9 +889,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         ready = False
         if not pending:
             try:
-                from plugin.writer.locale.harper import harper_runtime_is_ready
+                from plugin.writer.locale.harper import runtime
 
-                ready = self._resolved_profile().provider == "harper" and harper_runtime_is_ready()
+                ready = self._resolved_profile().provider == "harper" and runtime.is_ready()
             except Exception:
                 ready = False
         if not pending and not ready:

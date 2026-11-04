@@ -19,16 +19,21 @@ user_config_dir = "/tmp/writeragent_harper_test"
 print(f"\n--- Step 1: Initializing config directory at '{user_config_dir}' ---")
 
 try:
-    from plugin.writer.locale.harper import run_harper_check
+    from plugin.writer.locale.harper import harper_try_lint, runtime
 
     # Sample text with spelling error (there), capitalization, and spaces
     text = "this is a test sentence. there is some spelling errors and a double  space."
     print("Running check (this will trigger platform-specific binary auto-download on first run)...")
-    
+
+    runtime.ensure_body(user_config_dir)
     start = time.monotonic()
-    res = run_harper_check(None, text, user_config_dir)
+    res = harper_try_lint(text, user_config_dir)
     print(f"Check completed in {time.monotonic() - start:.3f}s")
-    
+
+    if res is None:
+        print("ERROR: harper_try_lint returned None (harper-ls not ready or lint failed)")
+        sys.exit(1)
+
     print("\n--- Results ---")
     errors = res.get("errors", [])
     print(f"Found {len(errors)} warnings/errors:")

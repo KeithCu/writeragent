@@ -157,29 +157,15 @@ def test_status_bar_grammar_status_always_posts_to_main_thread() -> None:
     mock_indicator.start.assert_called_once_with("LibreHarper: Starting Harper…", 100)
 
 
-def test_is_routine_libreharper_status_covers_per_keystroke_strings() -> None:
-    assert go.is_routine_libreharper_status("start", "Harper")
-    assert go.is_routine_libreharper_status("request", "Harper check")
-    assert go.is_routine_libreharper_status("start", "queued")
-    assert go.is_routine_libreharper_status("done", "0 issues")
-    assert go.is_routine_libreharper_status("done", "1 issue")
-    assert go.is_routine_libreharper_status("request", "")
-    assert not go.is_routine_libreharper_status("request", "Downloading harper-ls v2.7.0…")
-    assert not go.is_routine_libreharper_status("request", "Starting harper-ls…")
-    assert not go.is_routine_libreharper_status("request", "Starting Harper…")
-    assert not go.is_routine_libreharper_status("failed", "Harper")
-    assert not go.is_routine_libreharper_status("failed", "")
-
-
 def test_status_bar_grammar_status_skips_routine_libreharper_paints() -> None:
     sink = go.StatusBarGrammarStatus()
-    for result in ("Harper", "Harper check", "queued"):
+    for result in ("steady-state", "another-routine", "enqueue-marker"):
         with (
             patch("plugin.framework.uno_context.is_libreharper", return_value=True),
             patch.object(sink, "_paint") as mock_paint,
             patch("plugin.framework.queue_executor.main.post") as mock_post,
         ):
-            sink.start("Hello world.", result=result)
+            sink.start("Hello world.", result=result, routine=True)
         mock_paint.assert_not_called()
         mock_post.assert_not_called()
 
@@ -188,7 +174,7 @@ def test_status_bar_grammar_status_skips_routine_libreharper_paints() -> None:
         patch.object(sink, "_paint") as mock_paint,
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
-        sink.done("Hello world.", result="0 issues")
+        sink.done("Hello world.", result="terminal routine summary", routine=True)
     mock_paint.assert_not_called()
     mock_post.assert_not_called()
 
@@ -203,10 +189,50 @@ def test_status_bar_grammar_status_posts_routine_done_when_indicator_active() ->
         patch.object(go, "resolve_status_bar_frame", return_value=mock_frame),
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None) as mock_post,
     ):
-        sink.done("Hello world.", result="0 issues")
+        sink.done("Hello world.", result="routine terminal", routine=True)
     assert mock_post.called
     mock_indicator.end.assert_called_once()
     assert sink._indicator is None
+
+
+def test_status_bar_routine_flag_ignores_result_text() -> None:
+    sink = go.StatusBarGrammarStatus()
+    with (
+        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
+    ):
+        sink.done("Hello world.", result="0 issues")
+    assert mock_post.call_count >= 1
+
+    with patch("plugin.framework.queue_executor.main.post") as mock_post:
+        sink.done("Hello world.", result="0 issues", routine=True)
+    mock_post.assert_not_called()
+
+    mock_indicator = MagicMock()
+    sink._indicator = mock_indicator
+    with patch(
+        "plugin.framework.queue_executor.main.post",
+        side_effect=lambda fn, *args: fn(*args) if callable(fn) else None,
+    ):
+        sink.done("Hello world.", result="0 issues", routine=True)
+    mock_indicator.end.assert_called_once()
+    mock_indicator.setText.assert_not_called()
+    assert sink._indicator is None
+
+    with patch("plugin.framework.queue_executor.main.post") as mock_post:
+        sink.request("Hi.", result="", routine=True)
+    mock_post.assert_not_called()
+
+    with patch("plugin.framework.queue_executor.main.post") as mock_post:
+        sink.request("Hi.", result="")
+    assert mock_post.call_count >= 1
+
+    with patch(
+        "plugin.framework.queue_executor.main.post",
+        side_effect=lambda fn, *args: fn(*args) if callable(fn) else None,
+    ) as mock_post:
+        sink.failed("Hi.", result="")
+    mock_post.assert_called()
 
 
 def test_status_bar_grammar_status_paints_progress_and_failure() -> None:
@@ -388,7 +414,7 @@ def test_status_bar_paint_ends_indicator_on_routine_done() -> None:
         assert sink._indicator is mock_indicator
         mock_indicator.setText.reset_mock()
 
-        sink._paint("done", "2 issues")
+        sink._paint("done", "2 issues", routine=True)
         mock_indicator.end.assert_called_once()
         mock_indicator.setText.assert_not_called()
         assert sink._indicator is None
@@ -398,7 +424,7 @@ def test_status_bar_paint_routine_done_without_indicator_does_nothing() -> None:
     sink = go.StatusBarGrammarStatus()
     mock_frame = MagicMock()
     with patch.object(go, "resolve_status_bar_frame", return_value=mock_frame) as mock_resolve:
-        sink._paint("done", "0 issues")
+        sink._paint("done", "0 issues", routine=True)
         mock_resolve.assert_not_called()
         mock_frame.createStatusIndicator.assert_not_called()
 
@@ -509,7 +535,7 @@ def test_routine_libreharper_status_does_not_call_slice_preview_debug() -> None:
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
         patch("plugin.writer.locale.grammar_obs.slice_preview_debug") as mock_preview,
     ):
-        sink.request("Some text.", result="harper check")
+        sink.request("Some text.", result="harper check", routine=True)
     mock_preview.assert_not_called()
 
 
@@ -533,7 +559,7 @@ def test_status_bar_grammar_status_skips_post_when_routine_or_unsafe() -> None:
         patch("plugin.framework.uno_context.is_libreharper", return_value=True),
         patch("plugin.framework.queue_executor.main.post") as mock_post,
     ):
-        sink.request("Some text.", result="harper check")
+        sink.request("Some text.", result="harper check", routine=True)
     assert mock_post.call_count == 0
 
     # Unsafe desktop create
