@@ -31,7 +31,7 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     get_all_indexed_urls_in_db,
     insert_paragraph_rows,
     mark_file_indexed_in_db,
-    model_slug,
+    missing_vector_chunks,
     rebuild_fts_corpus_index,
     remove_file_from_index_in_db,
     sync_file_paragraph_state_in_db,
@@ -223,16 +223,7 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
             from plugin.embeddings.venv.embeddings_sqlite import _load_vec_extension
 
             _load_vec_extension(conn)
-            slug = model_slug(embedding_model)
-            tbl_name = f"vec_chunks_{slug}"
-            # Check if table exists
-            has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (tbl_name,)).fetchone()
-            if not has_table:
-                has_missing = True
-            else:
-                row = conn.execute(f"SELECT 1 FROM chunks WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name}) LIMIT 1").fetchone()
-                if row is not None:
-                    has_missing = True
+            has_missing = bool(missing_vector_chunks(conn, embedding_model, limit=1))
         except Exception:
             log.exception("Error checking for missing vectors in vector alignment check")
             has_missing = True

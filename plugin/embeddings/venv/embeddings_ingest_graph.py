@@ -23,9 +23,10 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     delete_by_chunk_locator,
     delete_paragraph_keys,
     ensure_schema,
-    upsert_chunk_with_vector,
-    _conn_operational_error,
+    missing_vector_chunks,
     model_slug,
+    stored_model_dim,
+    upsert_chunk_with_vector,
 )
 
 log = logging.getLogger(__name__)
@@ -84,15 +85,7 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
         # subclass sqlite3.OperationalError, so "no such table" would abort
         # the node.
         if dim is None and build_vectors:
-            try:
-                row = conn.execute(
-                    "SELECT dim FROM model_metadata WHERE embedding_model = ?",
-                    (model,),
-                ).fetchone()
-                if row is not None:
-                    dim = int(row["dim"])
-            except _conn_operational_error(conn):
-                pass
+            dim = stored_model_dim(conn, model)
 
         # Cold build: embedding dim is unknown until embed runs; upsert creates vec_chunks.
         with_vec = build_vectors and dim is not None
@@ -138,65 +131,12 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
 
         # Same cold-DB catch as delete_stale: this connection's OperationalError.
         if schema_dim is None and build_vectors:
-            try:
-                row = conn.execute(
-                    "SELECT dim FROM model_metadata WHERE embedding_model = ?",
-                    (model,),
-                ).fetchone()
-                if row is not None:
-                    schema_dim = int(row["dim"])
-            except _conn_operational_error(conn):
-                pass
+            schema_dim = stored_model_dim(conn, model)
 
         with_vec = build_vectors and schema_dim is not None
         ensure_schema(conn, dim=schema_dim, with_fts=build_fts, with_vec=with_vec, model=model)
 
-        # Identify missing vector embeddings for the active model
-        slug = model_slug(model)
-        tbl_name = f"vec_chunks_{slug}"
-        has_table = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-            (tbl_name,),
-        ).fetchone()
-
-        missing_chunks = []
-        if has_table:
-            rows = conn.execute(
-                f"""
-                SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
-                FROM chunks
-                WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name})
-                """
-            ).fetchall()
-            for r in rows:
-                missing_chunks.append({
-                    "chunk_id": int(r["chunk_id"]),
-                    "doc_url": str(r["doc_url"] or ""),
-                    "para_index": int(r["para_index"] or 0),
-                    "char_start": int(r["char_start"] or 0),
-                    "char_end": int(r["char_end"] or 0),
-                    "content_hash": str(r["content_hash"] or ""),
-                    "text": str(r["text"] or "").strip(),
-                    "file_mtime": float(r["file_mtime"] or 0.0),
-                })
-        else:
-            rows = conn.execute(
-                """
-                SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
-                FROM chunks
-                """
-            ).fetchall()
-            for r in rows:
-                missing_chunks.append({
-                    "chunk_id": int(r["chunk_id"]),
-                    "doc_url": str(r["doc_url"] or ""),
-                    "para_index": int(r["para_index"] or 0),
-                    "char_start": int(r["char_start"] or 0),
-                    "char_end": int(r["char_end"] or 0),
-                    "content_hash": str(r["content_hash"] or ""),
-                    "text": str(r["text"] or "").strip(),
-                    "file_mtime": float(r["file_mtime"] or 0.0),
-                })
+        missing_chunks = missing_vector_chunks(conn, model) if build_vectors else []
 
         # Merge incoming chunks with missing chunks
         all_chunks = list(chunks)
