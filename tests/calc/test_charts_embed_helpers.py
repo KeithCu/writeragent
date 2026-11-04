@@ -20,7 +20,10 @@ from plugin.calc.charts import (
     CHART_CLSID,
     CHART_CLSID_DRAW_OLE,
     DrawPage,
-    ManageCharts,
+    ChartDelete,
+    ChartGetInfo,
+    ChartList,
+    ChartUpsert,
     _apply_chart_styling,
     _await_writer_chart_document,
     _axis_title_shape_string,
@@ -306,7 +309,7 @@ def test_list_charts_skips_disposed_shape():
     ctx = MagicMock()
     ctx.doc = doc
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
-        result = list_charts(ManageCharts(), ctx)
+        result = list_charts(ChartList(), ctx)
     assert result["status"] == "ok"
     assert [entry["name"] for entry in result["charts"]] == ["Chart_2"]
 
@@ -323,7 +326,7 @@ def test_list_charts_sees_byte_sequence_clsid():
     ctx = MagicMock()
     ctx.doc = doc
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
-        result = list_charts(ManageCharts(), ctx)
+        result = list_charts(ChartList(), ctx)
     assert [entry["name"] for entry in result["charts"]] == ["Chart_b"]
 
 
@@ -472,7 +475,7 @@ def test_list_charts_closed_document_is_disposal():
     ctx = MagicMock()
     ctx.doc = doc
     with pytest.raises(DocumentDisposedError):
-        list_charts(ManageCharts(), ctx)
+        list_charts(ChartList(), ctx)
     doc.supportsService.assert_not_called()
 
 
@@ -502,7 +505,7 @@ def test_list_charts_calc_per_sheet_error_is_explicit():
         patch("plugin.calc.charts._supports_service", side_effect=lambda obj, name: name == "com.sun.star.sheet.SpreadsheetDocument"),
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
     ):
-        result = list_charts(ManageCharts(), ctx)
+        result = list_charts(ChartList(), ctx)
 
     assert result["status"] == "ok"
     assert len(result["charts"]) == 1
@@ -526,7 +529,7 @@ def test_list_charts_calc_get_sheets_disposed_propagates_when_impl_name_succeeds
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
     ):
         with pytest.raises(_DisposedException):
-            list_charts(ManageCharts(), ctx)
+            list_charts(ChartList(), ctx)
 
 
 def test_list_charts_calc_get_sheets_runtime_exception_is_tool_error_when_live():
@@ -540,7 +543,7 @@ def test_list_charts_calc_get_sheets_runtime_exception_is_tool_error_when_live()
         patch("plugin.calc.charts._supports_service", side_effect=lambda obj, name: name == "com.sun.star.sheet.SpreadsheetDocument"),
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
     ):
-        result = list_charts(ManageCharts(), ctx)
+        result = list_charts(ChartList(), ctx)
 
     assert result["status"] == "error"
     assert "Could not list charts: RuntimeException: temporary failure" in result["message"]
@@ -560,7 +563,7 @@ def test_list_charts_draw_per_shape_error_keeps_later_chart():
     ctx.doc = doc
 
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
-        result = list_charts(ManageCharts(), ctx)
+        result = list_charts(ChartList(), ctx)
 
     assert result["status"] == "ok"
     assert [entry["name"] for entry in result["charts"]] == ["Chart_2"]
@@ -595,7 +598,7 @@ def test_list_charts_draw_closed_mid_scan_raises():
     ctx.doc = doc
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
         with pytest.raises(_DisposedException):
-            list_charts(ManageCharts(), ctx)
+            list_charts(ChartList(), ctx)
 
 
 def test_list_charts_writer_draw_page_error_keeps_embedded_chart():
@@ -614,7 +617,7 @@ def test_list_charts_writer_draw_page_error_keeps_embedded_chart():
         patch("plugin.calc.charts._is_chart_host", return_value=True),
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
     ):
-        result = list_charts(ManageCharts(), ctx)
+        result = list_charts(ChartList(), ctx)
 
     assert result["status"] == "ok"
     assert [entry["name"] for entry in result["charts"]] == ["Chart_E"]
@@ -661,7 +664,7 @@ def test_list_charts_writer_draw_page_disposal_propagates():
     ctx.doc = doc
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
         with pytest.raises(DisposedException):
-            list_charts(ManageCharts(), ctx)
+            list_charts(ChartList(), ctx)
 
 
 def test_get_summary_disposal_propagates():
@@ -687,7 +690,7 @@ def test_delete_chart_writer_draw_page_disposal_is_not_not_found():
     ctx.doc = doc
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
         with pytest.raises(DisposedException):
-            delete_chart(ManageCharts(), ctx, name="Chart_1")
+            delete_chart(ChartDelete(), ctx, name="Chart_1")
 
 
 def test_non_chart_embed_and_shape_absent_and_not_deleted():
@@ -706,10 +709,10 @@ def test_non_chart_embed_and_shape_absent_and_not_deleted():
 
     ctx_w = MagicMock(doc=doc_writer)
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
-        res = list_charts(ManageCharts(), ctx_w)
+        res = list_charts(ChartList(), ctx_w)
         assert res["charts"] == []
         assert _lookup_chart(doc_writer, "Formula_1").ref is None
-        del_res = delete_chart(ManageCharts(), ctx_w, name="Formula_1")
+        del_res = delete_chart(ChartDelete(), ctx_w, name="Formula_1")
         assert del_res["status"] == "error"
         assert "not found" in del_res["message"]
         embeds.removeByName.assert_not_called()
@@ -725,10 +728,10 @@ def test_non_chart_embed_and_shape_absent_and_not_deleted():
 
     ctx_d = MagicMock(doc=doc_draw)
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
-        res = list_charts(ManageCharts(), ctx_d)
+        res = list_charts(ChartList(), ctx_d)
         assert res["charts"] == []
         assert _lookup_chart(doc_draw, "Other_1").ref is None
-        del_res = delete_chart(ManageCharts(), ctx_d, name="Other_1")
+        del_res = delete_chart(ChartDelete(), ctx_d, name="Other_1")
         assert del_res["status"] == "error"
         assert "not found" in del_res["message"]
         page.remove.assert_not_called()
@@ -747,14 +750,14 @@ def test_runtime_writer_shape_clsid_listed_and_deleted():
 
     ctx = MagicMock(doc=doc)
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
-        res = list_charts(ManageCharts(), ctx)
+        res = list_charts(ChartList(), ctx)
         assert len(res["charts"]) == 1
         assert res["charts"][0]["name"] == "Chart_W"
 
         lookup = _lookup_chart(doc, "Chart_W")
         assert lookup.ref is not None and lookup.ref.host is shape
 
-        del_res = delete_chart(ManageCharts(), ctx, name="Chart_W")
+        del_res = delete_chart(ChartDelete(), ctx, name="Chart_W")
         assert del_res["status"] == "ok"
         page.remove.assert_called_once_with(shape)
 
@@ -781,12 +784,12 @@ def test_writer_duplicate_name_embed_and_draw_page_deduped():
 
     ctx = MagicMock(doc=doc)
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
-        res = list_charts(ManageCharts(), ctx)
+        res = list_charts(ChartList(), ctx)
         assert len(res["charts"]) == 1
         assert res["charts"][0]["name"] == "Chart_0"
 
         # Delete removes from embeds container first
-        del_res = delete_chart(ManageCharts(), ctx, name="Chart_0")
+        del_res = delete_chart(ChartDelete(), ctx, name="Chart_0")
         assert del_res["status"] == "ok"
         embed_obj.getAnchor().getText.return_value.removeTextContent.assert_called_once_with(embed_obj)
         doc.getText.return_value.removeTextContent.assert_not_called()
@@ -810,7 +813,7 @@ def test_delete_writer_embed_does_not_call_remove_on_collection():
     ctx = MagicMock(doc=doc)
 
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
-        del_res = delete_chart(ManageCharts(), ctx, name="Chart_0")
+        del_res = delete_chart(ChartDelete(), ctx, name="Chart_0")
         assert del_res["status"] == "ok"
         embed_obj.getAnchor().getText.return_value.removeTextContent.assert_called_once_with(embed_obj)
         doc.getText.return_value.removeTextContent.assert_not_called()
@@ -837,7 +840,7 @@ def test_delete_writer_embed_frame_anchored():
         assert lookup.ref is not None
         assert lookup.ref.kind == "writer_embed"
 
-        del_res = delete_chart(ManageCharts(), ctx, name="Chart_Frame")
+        del_res = delete_chart(ChartDelete(), ctx, name="Chart_Frame")
         assert del_res["status"] == "ok"
         assert del_res["deleted"] == "Chart_Frame"
         frame_text.removeTextContent.assert_called_once_with(embed_obj)
@@ -859,7 +862,7 @@ def test_delete_writer_embed_fallback_to_embedded_objects():
     ctx = MagicMock(doc=doc)
 
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
-        del_res = delete_chart(ManageCharts(), ctx, name="Chart_Fallback")
+        del_res = delete_chart(ChartDelete(), ctx, name="Chart_Fallback")
         assert del_res["status"] == "ok"
         assert del_res["deleted"] == "Chart_Fallback"
         embeds.removeByName.assert_called_once_with("Chart_Fallback")
@@ -872,9 +875,9 @@ def test_upsert_create_unsupported_document_type():
     ctx = MagicMock(doc=doc)
 
     res = upsert_chart(
-        ManageCharts(),
+        ChartUpsert(),
         ctx,
-        action="create",
+        
         chart_type="bar",
         headers=["A"],
         rows=[[1]],
@@ -923,7 +926,7 @@ def test_resolve_and_list_finds_chart_in_top_level_group_draw():
         lookup = _lookup_chart(doc, "Chart_G")
         assert lookup.ref is not None
         assert lookup.ref.host is chart
-        res = list_charts(ManageCharts(), ctx)
+        res = list_charts(ChartList(), ctx)
     assert res["status"] == "ok"
     assert [e["name"] for e in res["charts"]] == ["Chart_G"]
 
@@ -942,7 +945,7 @@ def test_resolve_and_list_finds_chart_in_top_level_group_writer():
         lookup = _lookup_chart(doc, "Chart_W")
         assert lookup.ref is not None
         assert lookup.ref.host is chart
-        res = list_charts(ManageCharts(), ctx)
+        res = list_charts(ChartList(), ctx)
     assert res["status"] == "ok"
     assert [e["name"] for e in res["charts"]] == ["Chart_W"]
 
@@ -1034,7 +1037,7 @@ def test_draw_create_name_scan_treats_grouped_shape_name_as_taken():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts.uno.createUnoStruct"),
     ):
-        res = DrawPage(ctx.doc).create(ManageCharts(), ctx, rect, "com.sun.star.chart.BarDiagram")
+        res = DrawPage(ctx.doc).create(ChartUpsert(), ctx, rect, "com.sun.star.chart.BarDiagram")
 
     assert res["status"] == "ok"
     assert res["name"] == "Chart_1"
@@ -1060,7 +1063,7 @@ def test_lookup_and_delete_nested_groups_and_toplevel():
         assert lookup.ref.host is chart_draw
         assert lookup.ref.parent is inner_group
 
-        del_res = delete_chart(ManageCharts(), MagicMock(doc=doc_draw), name="Chart_G")
+        del_res = delete_chart(ChartDelete(), MagicMock(doc=doc_draw), name="Chart_G")
         assert del_res["status"] == "ok"
         assert chart_draw not in inner_group._children
         page_draw.remove.assert_not_called()
@@ -1081,7 +1084,7 @@ def test_lookup_and_delete_nested_groups_and_toplevel():
         assert lookup_w.ref.host is chart_writer
         assert lookup_w.ref.parent is inner_w
 
-        del_res_w = delete_chart(ManageCharts(), MagicMock(doc=doc_writer), name="Chart_WG")
+        del_res_w = delete_chart(ChartDelete(), MagicMock(doc=doc_writer), name="Chart_WG")
         assert del_res_w["status"] == "ok"
         assert chart_writer not in inner_w._children
         page_writer.remove.assert_not_called()
@@ -1100,7 +1103,7 @@ def test_lookup_and_delete_nested_groups_and_toplevel():
         assert lookup_top.ref is not None
         assert lookup_top.ref.parent is page_top
 
-        del_res_top = delete_chart(ManageCharts(), MagicMock(doc=doc_top), name="Chart_Top")
+        del_res_top = delete_chart(ChartDelete(), MagicMock(doc=doc_top), name="Chart_Top")
         assert del_res_top["status"] == "ok"
         page_top.remove.assert_called_once_with(chart_top)
 
@@ -1120,7 +1123,7 @@ def test_multipage_draw_charts():
 
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
         # List entries both present with page 0 and 1
-        list_res = list_charts(ManageCharts(), ctx)
+        list_res = list_charts(ChartList(), ctx)
         assert list_res["status"] == "ok"
         assert len(list_res["charts"]) == 2
         assert list_res["charts"][0]["name"] == "Chart_0"
@@ -1129,25 +1132,25 @@ def test_multipage_draw_charts():
         assert list_res["charts"][1]["page"] == 1
 
         # Delete and get_info without page return CHART_AMBIGUOUS, neither page is removed
-        del_ambig = delete_chart(ManageCharts(), ctx, name="Chart_0")
+        del_ambig = delete_chart(ChartDelete(), ctx, name="Chart_0")
         assert del_ambig["status"] == "error"
         assert del_ambig.get("code") == "CHART_AMBIGUOUS"
         page0.remove.assert_not_called()
         page1.remove.assert_not_called()
 
-        info_ambig = get_chart_info(ManageCharts(), ctx, name="Chart_0")
+        info_ambig = get_chart_info(ChartGetInfo(), ctx, name="Chart_0")
         assert info_ambig["status"] == "error"
         assert info_ambig.get("code") == "CHART_AMBIGUOUS"
 
         # page=5 on a 2-page deck returns out-of-range error and removes nothing
-        del_oor = delete_chart(ManageCharts(), ctx, name="Chart_0", page=5)
+        del_oor = delete_chart(ChartDelete(), ctx, name="Chart_0", page=5)
         assert del_oor["status"] == "error"
         assert "out of range" in del_oor["message"].lower()
         page0.remove.assert_not_called()
         page1.remove.assert_not_called()
 
         # Delete with page=1 touches only page 1
-        del_p1 = delete_chart(ManageCharts(), ctx, name="Chart_0", page=1)
+        del_p1 = delete_chart(ChartDelete(), ctx, name="Chart_0", page=1)
         assert del_p1["status"] == "ok"
         page1.remove.assert_called_once_with(chart_p1)
         page0.remove.assert_not_called()
@@ -1158,7 +1161,7 @@ def test_multipage_draw_charts():
             patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
             patch("plugin.calc.charts._apply_chart_styling", return_value=[]) as mock_style,
         ):
-            edit_res = upsert_chart(ManageCharts(), ctx, action="edit", name="Chart_0", page=1, title="New Title")
+            edit_res = upsert_chart(ChartUpsert(), ctx, name="Chart_0", page=1, title="New Title")
             assert edit_res["status"] == "ok"
             mock_style.assert_called_once()
 
@@ -1212,7 +1215,7 @@ def test_axis_title_setter_warning_and_no_rollback():
         patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=_ChartDoc()),
     ):
-        edit_res = upsert_chart(ManageCharts(), ctx, action="edit", name="Chart_0", x_axis_title="X Title")
+        edit_res = upsert_chart(ChartUpsert(), ctx, name="Chart_0", x_axis_title="X Title")
         assert edit_res["status"] == "ok"
         assert any("X axis title" in w for w in edit_res.get("warnings", []))
         page.remove.assert_not_called()
@@ -1237,9 +1240,9 @@ def test_edit_missing_diagram_applies_data_and_warns():
         patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")),
         patch("plugin.calc.charts._chart_document_from_host", return_value=chart_doc),
     ):
-        res = upsert_chart(ManageCharts(), 
+        res = upsert_chart(ChartUpsert(), 
             ctx,
-            action="edit",
+            
             name="Chart_0",
             headers=["Cat", "Val"],
             rows=[["A", 10.0]],
@@ -1282,7 +1285,7 @@ def test_draw_page_unnamed_and_named_charts_list_and_lookup():
     ctx = MagicMock(doc=doc)
 
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("draw")):
-        list_res = list_charts(ManageCharts(), ctx)
+        list_res = list_charts(ChartList(), ctx)
         assert list_res["status"] == "ok"
         assert len(list_res["charts"]) == 2
         assert list_res["charts"][0]["name"] == ""
@@ -1291,11 +1294,11 @@ def test_draw_page_unnamed_and_named_charts_list_and_lookup():
         assert list_res["charts"][1]["page"] == 0
 
         for target in ("Chart_0_0", ""):
-            info = get_chart_info(ManageCharts(), ctx, name=target)
+            info = get_chart_info(ChartGetInfo(), ctx, name=target)
             assert info["status"] == "error"
             assert "not found" in info["message"].lower()
 
-            del_res = delete_chart(ManageCharts(), ctx, name=target)
+            del_res = delete_chart(ChartDelete(), ctx, name=target)
             assert del_res["status"] == "error"
             assert "not found" in del_res["message"].lower()
 
@@ -1318,7 +1321,7 @@ def test_writer_list_retains_embed_and_unnamed_draw_shape():
     ctx = MagicMock(doc=doc)
 
     with patch("plugin.calc.charts._supports_service", side_effect=_supports("writer")):
-        list_res = list_charts(ManageCharts(), ctx)
+        list_res = list_charts(ChartList(), ctx)
         assert list_res["status"] == "ok"
         names = [c["name"] for c in list_res["charts"]]
         assert names == ["Chart_0", ""]
@@ -1348,9 +1351,9 @@ def test_draw_create_with_page_and_out_of_range():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts.uno.createUnoStruct"),
     ):
-        res = upsert_chart(ManageCharts(), 
+        res = upsert_chart(ChartUpsert(), 
             ctx,
-            action="create",
+            
             page=1,
             chart_type="column",
             headers=["Cat", "Val"],
@@ -1367,9 +1370,9 @@ def test_draw_create_with_page_and_out_of_range():
         page0.add.reset_mock()
         page1.add.reset_mock()
 
-        err_p5 = upsert_chart(ManageCharts(), 
+        err_p5 = upsert_chart(ChartUpsert(), 
             ctx,
-            action="create",
+            
             page=5,
             chart_type="column",
             headers=["Cat", "Val"],
@@ -1381,9 +1384,9 @@ def test_draw_create_with_page_and_out_of_range():
         page0.add.assert_not_called()
         page1.add.assert_not_called()
 
-        err_neg = upsert_chart(ManageCharts(), 
+        err_neg = upsert_chart(ChartUpsert(), 
             ctx,
-            action="create",
+            
             page=-1,
             chart_type="column",
             headers=["Cat", "Val"],
@@ -1422,9 +1425,9 @@ def test_draw_create_omitted_page_uses_controller_current_page():
         patch("plugin.calc.charts._apply_chart_styling", return_value=[]),
         patch("plugin.calc.charts.uno.createUnoStruct"),
     ):
-        res = upsert_chart(ManageCharts(), 
+        res = upsert_chart(ChartUpsert(), 
             ctx,
-            action="create",
+            
             chart_type="column",
             headers=["Cat", "Val"],
             rows=[["A", 10]],
