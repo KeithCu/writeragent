@@ -31,14 +31,6 @@ def _folder_search_rerank_options(search_mode: str) -> dict[str, Any]:
     return {"use_mmr": True}
 
 
-def _resolve_cancel(ctx: Any, cancel: SendCancellation | None) -> SendCancellation | None:
-    if cancel is not None:
-        return cancel
-    if ctx is not None:
-        return getattr(ctx, "send_cancellation", None)
-    return None
-
-
 def _run_embeddings_action(
     ctx: Any,
     helper: str,
@@ -50,7 +42,6 @@ def _run_embeddings_action(
     cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     timeout_sec = embeddings_worker_timeout_sec()
-    scope = _resolve_cancel(ctx, cancel)
     res = run_trusted_worker_action(
         ctx,
         domain="embeddings_index",
@@ -63,8 +54,7 @@ def _run_embeddings_action(
         heartbeat_fn=heartbeat_fn,
         error_code="EMBEDDING_INDEX_ERROR",
         error_label="Embeddings",
-        stop_checker=scope.is_cancelled if scope is not None else None,
-        cancellation_scope=scope,
+        cancellation_scope=cancel,
     )
     if isinstance(res, dict) and res.get("error"):
         from plugin.framework.errors import ToolExecutionError

@@ -78,12 +78,6 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        # Cold corpus: model_metadata does not exist until ensure_schema.
-        # Catch this connection's OperationalError and continue. macOS opens
-        # the corpus with pysqlite3 (stdlib sqlite3 has no
-        # enable_load_extension), and pysqlite3.OperationalError does not
-        # subclass sqlite3.OperationalError, so "no such table" would abort
-        # the node.
         if dim is None and build_vectors:
             dim = stored_model_dim(conn, model)
 
@@ -129,7 +123,6 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
         meta = CorpusMeta.load(str(state.get("meta_path") or ""))
         schema_dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
 
-        # Same cold-DB catch as delete_stale: this connection's OperationalError.
         if schema_dim is None and build_vectors:
             schema_dim = stored_model_dim(conn, model)
 

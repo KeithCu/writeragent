@@ -251,7 +251,13 @@ def corpus_chunk_count(conn: sqlite3.Connection) -> int:
 
 
 def stored_model_dim(conn: sqlite3.Connection, model: str) -> int | None:
-    """Return embedding dimension recorded for *model*, or None when unknown."""
+    """Return embedding dimension recorded for *model*, or None when unknown.
+
+    On a cold corpus ``model_metadata`` may not exist yet. macOS often opens the
+    DB via pysqlite3; its ``OperationalError`` is not a subclass of stdlib
+    ``sqlite3.OperationalError``, so missing-table errors must be caught per
+    connection (see ``_conn_operational_error``).
+    """
     try:
         row = conn.execute(
             "SELECT dim FROM model_metadata WHERE embedding_model = ?",
@@ -280,8 +286,6 @@ def _missing_vector_chunk_row(row: Any) -> dict[str, Any]:
 def missing_vector_chunks(
     conn: sqlite3.Connection,
     model: str,
-    *,
-    limit: int | None = None,
 ) -> list[dict[str, Any]]:
     """Return chunk rows that have no vector in the active model's vec_chunks table.
 
@@ -304,10 +308,29 @@ def missing_vector_chunks(
             SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
             FROM chunks
             """
-    if limit is not None:
-        sql = f"{sql.strip()} LIMIT {max(1, int(limit))}"
     rows = conn.execute(sql).fetchall()
     return [_missing_vector_chunk_row(row) for row in rows]
+
+
+def has_missing_vector_chunks(conn: sqlite3.Connection, model: str) -> bool:
+    """True when at least one chunk row lacks a vector for *model*."""
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (tbl_name,),
+    ).fetchone()
+    if has_table:
+        row = conn.execute(
+            f"""
+            SELECT 1 FROM chunks
+            WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name})
+            LIMIT 1
+            """
+        ).fetchone()
+    else:
+        row = conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone()
+    return row is not None
 
 
 def _fts_index_row(conn: sqlite3.Connection, chunk_id: int) -> None:
@@ -967,6 +990,7 @@ __all__ = [
     "fts_corpus_search",
     "get_all_indexed_urls_in_db",
     "get_file_index_info",
+    "has_missing_vector_chunks",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
     "mark_file_indexed_in_db",

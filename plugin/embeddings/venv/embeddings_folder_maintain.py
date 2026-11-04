@@ -29,9 +29,9 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     ensure_schema,
     file_is_stale_in_db,
     get_all_indexed_urls_in_db,
+    has_missing_vector_chunks,
     insert_paragraph_rows,
     mark_file_indexed_in_db,
-    missing_vector_chunks,
     rebuild_fts_corpus_index,
     remove_file_from_index_in_db,
     sync_file_paragraph_state_in_db,
@@ -223,7 +223,7 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
             from plugin.embeddings.venv.embeddings_sqlite import _load_vec_extension
 
             _load_vec_extension(conn)
-            has_missing = bool(missing_vector_chunks(conn, embedding_model, limit=1))
+            has_missing = has_missing_vector_chunks(conn, embedding_model)
         except Exception:
             log.exception("Error checking for missing vectors in vector alignment check")
             has_missing = True
