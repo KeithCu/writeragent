@@ -1156,7 +1156,7 @@ def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -
 
     def _clear() -> None:
         cleared.append(True)
-    monkeypatch.setattr('plugin.calc.python.recalc.clear_python_addin_cache', _clear)
+    monkeypatch.setattr('plugin.calc.python.function.clear_python_addin_cache', _clear)
     result = mgr.execute('result = 1', timeout_sec=5)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_IPC_ERROR'
@@ -2401,7 +2401,7 @@ def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPat
     mgr._terminate_worker = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'id': '', 'status': 'error', 'message': 'Invalid pickle request: nope'}, protocol=5))
     cleared: list[bool] = []
-    monkeypatch.setattr('plugin.calc.python.recalc.clear_python_addin_cache', lambda: cleared.append(True))
+    monkeypatch.setattr('plugin.calc.python.function.clear_python_addin_cache', lambda: cleared.append(True))
     result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
     assert result['code'] == 'WORKER_IPC_ERROR'
     assert 'Invalid pickle request: nope' in result['message']
@@ -2631,7 +2631,7 @@ def test_host_preparation_failure_does_not_kill_worker(monkeypatch):
 def test_non_default_pool_failure_does_not_clear_calc_addin_cache(monkeypatch):
     from plugin.framework.constants import WORKER_POOL_DEFAULT, WORKER_POOL_DIAGNOSTICS
     clear_calls: list[int] = []
-    monkeypatch.setattr('plugin.calc.python.recalc.clear_python_addin_cache', lambda: clear_calls.append(1))
+    monkeypatch.setattr('plugin.calc.python.function.clear_python_addin_cache', lambda: clear_calls.append(1))
     diag_mgr = PythonWorkerManager('/tmp/python-diag', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DIAGNOSTICS)
     monkeypatch.setattr(diag_mgr, '_terminate_worker', lambda *args, **kwargs: None)
     diag_mgr._fail_no_replay('WORKER_IPC_ERROR', 'x')
@@ -2659,12 +2659,12 @@ def test_maybe_dispatch_ppt_master_missing_dependency_reraises(monkeypatch):
 def test_idle_worker_death_clears_matrix_sessions_and_runs_on_death_once(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc import python as calc_python
     clear_calls: list[int] = []
-    real_clear = calc_python.recalc.clear_python_addin_cache
+    real_clear = calc_python.function.clear_python_addin_cache
 
     def clear_spy() -> None:
         clear_calls.append(1)
         real_clear()
-    monkeypatch.setattr('plugin.calc.python.recalc.clear_python_addin_cache', clear_spy)
+    monkeypatch.setattr('plugin.calc.python.function.clear_python_addin_cache', clear_spy)
     monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     try:
@@ -2679,14 +2679,14 @@ def test_idle_worker_death_clears_matrix_sessions_and_runs_on_death_once(monkeyp
 
         st = WorkbookState.for_doc(CalcDocStub())
         assert st is not None
-        with calc_python.recalc._MATRIX_SCALAR_SESSIONS_LOCK:
-            st.matrix[stale_key] = calc_python.recalc.WorkerResultSession([99], [99])
+        with calc_python.function._MATRIX_SCALAR_SESSIONS_LOCK:
+            st.matrix[stale_key] = calc_python.function.WorkerResultSession([99], [99])
         os.kill(pid, signal.SIGKILL)
         time.sleep(0.2)
         res = mgr.execute('result = 1', timeout_sec=10)
         assert res.get('status') == 'ok'
         assert len(clear_calls) == 1
-        with calc_python.recalc._MATRIX_SCALAR_SESSIONS_LOCK:
+        with calc_python.function._MATRIX_SCALAR_SESSIONS_LOCK:
             assert stale_key not in st.matrix
     finally:
         mgr._retired = True

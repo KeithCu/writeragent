@@ -487,7 +487,7 @@ In **Shared kernel**, `session_duckdb()` (injected; also `from writeragent.scrip
 
 Registered tables are snapshots: a cell that passes `data` and re-registers refreshes that name; a query-only cell does not. **Reset Python Session** or `invalidate_session_tables()` drops the catalog. Full staleness table: [calc/duckdb-dev-plan.md § Phase D](calc/duckdb-dev-plan.md#phase-d--shared-kernel-session-cache).
 
-**Related:** `[WorkerResultSession](../plugin/calc/python/recalc.py)` is a **separate** thread-local cache for matrix list results within one recalc pass — it does not hold cross-cell Python globals. See [Matrix Formula Optimization](#matrix-formula-optimization-fast-path).
+**Related:** `[WorkerResultSession](../plugin/calc/python/function.py)` is a **separate** thread-local cache for matrix list results within one recalc pass — it does not hold cross-cell Python globals. See [Matrix Formula Optimization](#matrix-formula-optimization-fast-path).
 
 **Implementation:** `[session_manager.py](../plugin/scripting/session_manager.py)`, `[venv/venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` (`_SESSION_EXECUTORS`), `[venv/duckdb_sql.py](../plugin/scripting/venv/duckdb_sql.py)` (session catalog).
 
@@ -834,7 +834,7 @@ Complex returns (DataFrame, dict, class) should show a compact cell label (e.g. 
 - Object references in shared-kernel session (`__pyobj_N__`; object stays in worker namespace)
 - Worker `inspect_object` → shape, dtypes, `head(5)`
 - XDL preview dialog ([`dialogs.py`](../plugin/chatbot/dialogs.py) patterns); optional Spill to Grid on top of matrix formulas
-- Touch: [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py), [`worker_harness.py`](../plugin/scripting/venv/worker_harness.py), [`recalc.py`](../plugin/calc/python/recalc.py)
+- Touch: [`venv_sandbox.py`](../plugin/scripting/venv_sandbox.py), [`worker_harness.py`](../plugin/scripting/venv/worker_harness.py), [`function.py`](../plugin/calc/python/function.py)
 
 #### AI code synthesis
 

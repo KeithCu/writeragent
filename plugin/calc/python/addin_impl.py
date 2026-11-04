@@ -18,7 +18,7 @@ from typing import Any
 import unohelper
 
 from plugin.calc.addin_common import CalcAddInBase, CalcFunctionSpec
-from plugin.calc.python.recalc import execute_python_addin
+from plugin.calc.python.function import execute_python_addin
 
 log = logging.getLogger(__name__)
 

@@ -3,7 +3,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""=PY() recalculation, session caching, and add-in execution."""
+"""=PY() / =PYTHON() add-in entry: execute_python_addin, finalize_python_return, session_key, WorkerResultSession."""
 # pyright: reportUnusedFunction=false
 
 from __future__ import annotations

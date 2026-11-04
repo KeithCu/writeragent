@@ -157,7 +157,7 @@ def test_librepy_entry_imports_avoid_writeragent_only_modules():
     import plugin.calc.python.editor_context_menu  # noqa: F401
     import plugin.calc.python.formula_edit  # noqa: F401
     import plugin.calc.python.addin_values  # noqa: F401
-    import plugin.calc.python.recalc  # noqa: F401
+    import plugin.calc.python.function  # noqa: F401
     import plugin.calc.python.spill  # noqa: F401
     import plugin.calc.python.undo  # noqa: F401
     import plugin.calc.python.image_egress  # noqa: F401

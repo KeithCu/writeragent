@@ -171,15 +171,15 @@ Today ([data shapes](py-data-shapes.md)):
 
 `PythonFunction.python` / `execute_python_addin` receive `(code, data)` values only (`addin_impl.py`). `split_python_addin_data_args` and `calc_addin_args_from_split` never see addresses or “this arg is a PY cell.”
 
-A rule like “if the last arg is a 1×1 PY cell, drop it” is therefore unimplementable. `locate_formula_cell_in_doc` (`recalc.py` `session_key`) is **not** a fix: it returns `None` on 0 or 2+ matches, and cannot disambiguate `=PY("f(data)"; A1)` when A1 is both predecessor and user data.
+A rule like “if the last arg is a 1×1 PY cell, drop it” is therefore unimplementable. `locate_formula_cell_in_doc` (`function.py` `session_key`) is **not** a fix: it returns `None` on 0 or 2+ matches, and cannot disambiguate `=PY("f(data)"; A1)` when A1 is both predecessor and user data.
 
 The last-row idea “user already passed the previous PY cell as real data → no-op, satisfied either way” is **wrong** under a shape-strip: it would drop real user data. Under the map, that row is: **do not record as ours, do not strip** ([§9.5](#95-marker-is-the-udprop--in-memory-map) table).
 
 ### 4.2 Where to strip (must be before the index heuristic)
 
-In `_execute_python_addin_impl` ([`recalc.py`](../../plugin/calc/python/recalc.py)):
+In `_execute_python_addin_impl` ([`function.py`](../../plugin/calc/python/function.py)):
 
-`recalc.py` order today: split → `maybe_strip_geometric_eval_args` → `calc_addin_args_from_split` → matrix-index peel.
+`function.py` order today: split → `maybe_strip_geometric_eval_args` → `calc_addin_args_from_split` → matrix-index peel.
 
 1. `args = split_python_addin_data_args(data)`
 2. **Strip here** if the eval index marks this `(workbook_key, resolved_code, n_args)` **strip-safe** (unanimous-ours — [§9.5](#95-marker-is-the-udprop--in-memory-map)). Unconditional across **both** branches — including `_code_uses_indexed_multi_data` (`"data["` / `"ranges["` in the source). If the geometric field stays, it becomes `data[-1]` / `ranges[-1]`.
