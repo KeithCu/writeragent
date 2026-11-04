@@ -131,7 +131,8 @@ def test_auto_imports_inject_st_dt_plt_aliases():
     """Sandbox gets st/dt/plt aliases without explicit imports when packages exist."""
     from plugin.framework.constants import AUTO_IMPORTS
     from plugin.scripting.config_limits import python_exec_timeout_default
-    from plugin.scripting.venv.venv_sandbox import _new_executor, apply_auto_imports, inject_auto_imports, optional_module
+    from plugin.scripting.venv import optional_import as oi
+    from plugin.scripting.venv.venv_sandbox import _new_executor, apply_auto_imports, inject_auto_imports
 
     assert AUTO_IMPORTS["scipy.stats"] == "import scipy.stats as st"
     assert AUTO_IMPORTS["datetime"] == "import datetime as dt"
@@ -140,9 +141,9 @@ def test_auto_imports_inject_st_dt_plt_aliases():
 
     code, _lines = apply_auto_imports("result = 1")
     assert "import datetime as dt" in code
-    if optional_module("scipy.stats") is not None:
+    if oi.optional_module("scipy.stats") is not None:
         assert "import scipy.stats as st" in code
-    if optional_module("matplotlib.pyplot") is not None:
+    if oi.optional_module("matplotlib.pyplot") is not None:
         assert "import matplotlib.pyplot as plt" in code
 
     executor = _new_executor(python_exec_timeout_default())
@@ -150,10 +151,10 @@ def test_auto_imports_inject_st_dt_plt_aliases():
     assert "dt" in executor.state
     assert "datetime" not in executor.state
     assert executor("result = dt.date(2020, 1, 1).isoformat()").output == "2020-01-01"
-    if optional_module("scipy.stats") is not None:
+    if oi.optional_module("scipy.stats") is not None:
         assert "st" in executor.state
         assert executor("result = float(st.norm.cdf(0))").output == 0.5
-    if optional_module("matplotlib.pyplot") is not None:
+    if oi.optional_module("matplotlib.pyplot") is not None:
         assert "plt" in executor.state
         assert callable(executor.state["plt"].plot)
 

@@ -297,7 +297,7 @@ def test_optional_module_skips_partially_initialized_module(monkeypatch: pytest.
     import sys
     import types
 
-    from plugin.scripting.venv.venv_sandbox import optional_module
+    from plugin.scripting.venv import optional_import
 
     name = "writeragent_test_partial_mod"
     mod = types.ModuleType(name)
@@ -305,7 +305,7 @@ def test_optional_module_skips_partially_initialized_module(monkeypatch: pytest.
     setattr(spec, "_initializing", True)
     mod.__spec__ = spec
     monkeypatch.setitem(sys.modules, name, mod)
-    assert optional_module(name) is None
+    assert optional_import.optional_module(name) is None
 
 
 def test_serialize_result_rejects_self_referential_list():
@@ -414,14 +414,16 @@ def test_timedelta64_without_pandas_is_fractional_days(monkeypatch: pytest.Monke
     import datetime
     from plugin.scripting.venv import venv_sandbox as vs
 
-    real_opt = vs.optional_module
+    from plugin.scripting.venv import optional_import as oi
+
+    real_opt = oi.optional_module
 
     def fake_opt(name: str) -> Any:
         if name == "pandas":
             return None
         return real_opt(name)
 
-    monkeypatch.setattr(vs, "optional_module", fake_opt)
+    monkeypatch.setattr(oi, "optional_module", fake_opt)
 
     assert vs.serialize_result(np.timedelta64(90, "ns")) == 0.0
     assert vs.serialize_result(np.array(90, dtype="timedelta64[ns]")) == 0.0
@@ -444,6 +446,7 @@ def test_timedelta64_without_pandas_is_fractional_days(monkeypatch: pytest.Monke
 
 def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
+    from plugin.scripting.venv import optional_import as oi
     from plugin.scripting.venv import venv_sandbox as vs
 
     closed: list[Any] = []
@@ -466,7 +469,7 @@ def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.Mo
             return FakePyplot
         return None
 
-    monkeypatch.setattr(vs, "optional_module", fake_opt)
+    monkeypatch.setattr(oi, "optional_module", fake_opt)
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", cast("Any", FakePyplot))
 
     with pytest.raises(RuntimeError, match="backend gone"):
@@ -1404,10 +1407,10 @@ def test_sandbox_runtime_extra_modules_allows_importlib() -> None:
 
 def test_inject_auto_imports_ignores_nested_scope_bindings() -> None:
     from plugin.scripting.config_limits import python_exec_timeout_default
+    from plugin.scripting.venv import optional_import
     from plugin.scripting.venv.venv_sandbox import (
         _new_executor,
         inject_auto_imports,
-        optional_module,
     )
 
     executor = _new_executor(python_exec_timeout_default())
@@ -1422,7 +1425,7 @@ def test_inject_auto_imports_ignores_nested_scope_bindings() -> None:
 
     executor2 = _new_executor(python_exec_timeout_default())
     inject_auto_imports(executor2, "def f():\n    import numpy as np\nresult = 1")
-    if optional_module("numpy") is not None:
+    if optional_import.optional_module("numpy") is not None:
         assert "np" in executor2.state
 
 

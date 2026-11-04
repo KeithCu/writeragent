@@ -611,7 +611,7 @@ Larger architectural slice than “faster JSON.”
 | Idea | Notes |
 |------|--------|
 | **`float32` envelope** | Optional `dtype` in wire dict; ~half bytes when precision allows; policy + round-trip tests. |
-| **Pandas egress** | Shipped (rectangular + columns): DataFrames/Series emit `dataframe` envelope (columns + split_grid-able **numeric** data). datetime64/timedelta64 skip the numeric path (ISO / fractional days). Empty frames are header-only. MultiIndex columns flatten; row index is not spilled. See [pandas egress](../calc/py-data-shapes.md#pandas-egress). |
+| **Pandas egress** | Shipped (rectangular + columns): DataFrames/Series emit `dataframe` envelope (columns + split_grid-able **numeric** data). datetime64/timedelta64 skip the numeric path (ISO / fractional days). Empty frames are header-only. MultiIndex columns flatten (blank/`None` levels omitted, parts stripped; `NaN` level → `nan`; all-blank tuple → `value`); row index is not spilled. See [pandas egress](../calc/py-data-shapes.md#pandas-egress). |
 
 #### Priority 6 — Worker payload cache (same range, many recalcs)
 
