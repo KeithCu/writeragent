@@ -1,4 +1,8 @@
-"""WriterAgent extension state and bootstrap entry (import-only; no plugin.main)."""
+"""WriterAgent extension state and bootstrap entry (import-only; no plugin.main).
+
+Out-of-office scripts and pytest call ``plugin.main.bind()`` before ``bootstrap()`` or
+``get_tools()``; inside LibreOffice the pythonloader exec binds via the same ``bind()``.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +13,7 @@ if TYPE_CHECKING:
     from plugin.framework.module_base import ModuleBase
     from plugin.framework.tool import ToolRegistry
 
-from plugin.bootstrap import BootstrapState, bootstrap_extension
+from plugin.bootstrap import bootstrap_extension
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.main_shared import get_action_handler, report_action_failure
 
@@ -39,7 +43,12 @@ def bind_writeragent(
 
 
 def bootstrap(ctx: Any | None = None) -> None:
-    """Bootstraps the service container and modules."""
+    """Bootstraps the service container and modules.
+
+    This is currently triggered eagerly by Jobs.xcu on OnStartApp to ensure the
+    MCP server starts automatically in headless mode. We could make this lazy
+    again in the future if startup performance becomes a concern.
+    """
     if _finish is None:
         from plugin.framework.errors import WriterAgentException
 
@@ -59,7 +68,7 @@ def bootstrap_complete() -> bool:
     """Return True if bootstrap has fully completed and initialized."""
     from plugin import bootstrap as bootstrap_mod
 
-    return bootstrap_mod._bootstrap_state is BootstrapState.INITIALIZED
+    return bootstrap_mod.bootstrap_initialized()
 
 
 def get_services() -> Any:
@@ -120,6 +129,7 @@ def dispatch_command(command: str) -> None:
 
     bootstrap()
     if command.startswith("chatbot.debug_sidebar"):
+        # Dev/debug only. sidebar_test_hooks is omitted from release OXTs.
         try:
             from plugin.chatbot.sidebar_test_hooks import handle_debug_sidebar_command
 
@@ -169,6 +179,8 @@ def get_menu_text(command: str) -> str | None:
 
     text = mod.get_menu_text(action) if mod is not None else None
     if text is None:
+        # Titles are translated at lookup (locale is not ready at import). None keeps
+        # the en-US Addons.xcu string; a raw English literal overwrites the catalog.
         from plugin._manifest import MENU_TITLES, MODULES
 
         if "." in command:

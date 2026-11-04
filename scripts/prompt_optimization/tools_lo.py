@@ -231,8 +231,10 @@ class LOBackend:
         _install_eval_fallback_ctx(_lo_ctx)
 
         try:
+            from plugin.main import bind
             from plugin.app import bootstrap
 
+            bind()
             bootstrap(_lo_ctx)
         except Exception:
             # Bootstrap can fail (missing _manifest) after soffice is already up.

@@ -97,10 +97,7 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", _eval_like_modules)
 
-    prev_state = bootstrap._bootstrap_state
-    prev_services = app._services
-    prev_tools = app._tools
-    prev_modules = list(app._modules)
+    eval_catalog._registry = None
     try:
         bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
         app._services = None
@@ -125,10 +122,6 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
             assert _delegate_domain_enum(eval_rows, delegate_name) is not None
     finally:
         eval_catalog._registry = None
-        bootstrap._bootstrap_state = prev_state
-        app._services = prev_services
-        app._tools = prev_tools
-        app._modules = prev_modules
 
 
 def test_eval_prompts_build_without_libreoffice() -> None:

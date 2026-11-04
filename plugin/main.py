@@ -535,10 +535,19 @@ g_ImplementationHelper.addImplementation(DispatchHandler, DispatchHandler.IMPL_N
 
 from plugin.app import bind_writeragent
 
-bind_writeragent(
-    finish=_writeragent_bootstrap_finish,
-    register_prompt_hooks=_register_writeragent_prompt_hooks,
-)
+
+def bind() -> None:
+    """Register WriterAgent finish hooks (first call wins).
+
+    Out-of-office hosts must call this before ``plugin.app.bootstrap`` or ``get_tools()``.
+    """
+    bind_writeragent(
+        finish=_writeragent_bootstrap_finish,
+        register_prompt_hooks=_register_writeragent_prompt_hooks,
+    )
+
+
+bind()
 
 
 # Starting from Python IDE

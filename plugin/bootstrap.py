@@ -25,6 +25,11 @@ _bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
 _bootstrap_error: BaseException | None = None
 
 
+def bootstrap_initialized() -> bool:
+    """True when bootstrap_extension has finished successfully."""
+    return _bootstrap_state is BootstrapState.INITIALIZED
+
+
 def bootstrap_extension(
     ctx: Any | None = None,
     *,

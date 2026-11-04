@@ -54,7 +54,7 @@ def call_options_provider(provider_path: str) -> Any:
 
         services = get_services()
     except ImportError:
-        # LibrePy does not ship plugin.main; providers that need services skip.
+        # LibrePy does not ship plugin.app; providers that need services skip.
         pass
     return func(services)
 

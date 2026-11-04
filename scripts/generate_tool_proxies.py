@@ -672,23 +672,9 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     with _mock_uno():
-        import importlib
+        from plugin.main import bind
 
-        import plugin.app as app
-
-        importlib.import_module("plugin.main")
-
-        if app._finish is None:
-            from plugin.app import bind_writeragent
-            from plugin.main import (
-                _register_writeragent_prompt_hooks,
-                _writeragent_bootstrap_finish,
-            )
-
-            bind_writeragent(
-                finish=_writeragent_bootstrap_finish,
-                register_prompt_hooks=_register_writeragent_prompt_hooks,
-            )
+        bind()
 
         from plugin.app import get_tools
 

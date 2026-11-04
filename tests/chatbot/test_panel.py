@@ -10,7 +10,6 @@
 
 import dataclasses
 import logging
-import sys
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import ANY, MagicMock, patch
@@ -214,13 +213,6 @@ class TestSidebarModeFinishApplies:
 
 
 class TestSendDispose:
-    def setup_method(self) -> None:
-        self._modules_patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
-        self._modules_patcher.start()
-
-    def teardown_method(self) -> None:
-        self._modules_patcher.stop()
-
     def test_disposing_shuts_down_the_retained_cli(self) -> None:
         listener = _make_send_listener()
         scope = SendCancellation()
@@ -1141,13 +1133,6 @@ def _hands_free_listener() -> tuple[SendButtonListener, Any]:
 
 
 class TestHandsFreeRecord:
-    def setup_method(self) -> None:
-        self._modules_patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
-        self._modules_patcher.start()
-
-    def teardown_method(self) -> None:
-        self._modules_patcher.stop()
-
     def test_short_click_records_once_and_ignores_following_action(self) -> None:
         listener, send_model = _hands_free_listener()
         notify_record_mouse_pressed(listener)

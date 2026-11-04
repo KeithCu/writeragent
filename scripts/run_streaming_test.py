@@ -22,11 +22,13 @@ if _root not in sys.path:
 
 MODEL = "x-ai/grok-4.1-fast"
 
+from plugin.main import bind
+
+bind()
+
 from plugin.app import get_tools
-try:
-    WRITER_TOOLS = get_tools().get_openai_schemas(doc_type="writer")
-except Exception:
-    WRITER_TOOLS = []
+
+WRITER_TOOLS = get_tools().get_openai_schemas(doc_type="writer")
 
 def _normalize_content(raw):
     if raw is None:

@@ -90,6 +90,43 @@ def _reset_main_thread_policy_for_tests():
 
 
 @pytest.fixture(autouse=True)
+def _writeragent_bootstrap_isolation(request):
+    """Save/restore bootstrap flag and app registries; bind WriterAgent for headless pytest."""
+    mod_file = getattr(request.module, "__file__", "") or ""
+    if mod_file.endswith("_uno.py"):
+        yield
+        return
+
+    import plugin.app as app_module
+    import plugin.bootstrap as bootstrap_mod
+
+    prev_state = bootstrap_mod._bootstrap_state
+    prev_err = bootstrap_mod._bootstrap_error
+    prev_services = app_module._services
+    prev_tools = app_module._tools
+    prev_modules = list(app_module._modules)
+    prev_listener = app_module._terminate_listener
+    prev_finish = app_module._finish
+    prev_prompt_hooks = app_module._prompt_hooks
+
+    from plugin.main import bind
+
+    bind()
+
+    try:
+        yield
+    finally:
+        bootstrap_mod._bootstrap_state = prev_state
+        bootstrap_mod._bootstrap_error = prev_err
+        app_module._services = prev_services
+        app_module._tools = prev_tools
+        app_module._modules[:] = prev_modules
+        app_module._terminate_listener = prev_listener
+        app_module._finish = prev_finish
+        app_module._prompt_hooks = prev_prompt_hooks
+
+
+@pytest.fixture(autouse=True)
 def _register_prompt_hooks_for_tests():
     """Register prompt normalizers so config validation matches runtime."""
     from plugin.writeragent_hooks import register_writeragent_prompt_hooks

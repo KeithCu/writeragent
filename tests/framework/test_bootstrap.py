@@ -61,6 +61,8 @@ def test_bootstrap_extension_pythonloader_namespace(monkeypatch):
         )
         mock_init_config.assert_not_called()
     assert finish_calls == 1
+    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
+    bootstrap._bootstrap_error = None
 
 
 def test_bind_writeragent_first_call_wins(monkeypatch):
@@ -69,6 +71,11 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
 
     _patch_bootstrap_deps(monkeypatch)
     prev_finish = app._finish
+    prev_services = app._services
+    prev_tools = app._tools
+    prev_modules = list(app._modules)
+    prev_state = bootstrap._bootstrap_state
+    prev_err = bootstrap._bootstrap_error
     bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
     bootstrap._bootstrap_error = None
     app._finish = None
@@ -101,6 +108,12 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
         assert second_calls == 0
     finally:
         app._finish = prev_finish
+        app._services = prev_services
+        app._tools = prev_tools
+        app._modules.clear()
+        app._modules.extend(prev_modules)
+        bootstrap._bootstrap_state = prev_state
+        bootstrap._bootstrap_error = prev_err
 
 
 def test_unbound_bootstrap_raises_and_does_not_import_main():

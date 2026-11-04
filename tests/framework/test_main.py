@@ -75,27 +75,15 @@ from plugin.framework.main_shared import (
 
 
 @pytest.fixture(autouse=True)
-def _isolate_main_state():
-    """Isolate bootstrap state across tests."""
-    prev_state = bootstrap._bootstrap_state
-    prev_services = app._services
-    prev_tools = app._tools
-    prev_modules = list(app._modules)
-    prev_listener = app._terminate_listener
-    prev_err = bootstrap._bootstrap_error
+def _isolate_main_menu_state():
+    """Isolate menu_status / menu_icons across tests (bootstrap state: tests/conftest.py)."""
     prev_listeners = list(main.menu_status.listeners)
     prev_graphics = dict(main.menu_icons._loaded_icon_graphics)
     prev_stamp = main.menu_icons._icon_apply_stamp
     try:
         yield
     finally:
-        bootstrap._bootstrap_state = prev_state
-        app._services = prev_services
-        app._tools = prev_tools
-        app._modules[:] = prev_modules
-        app._terminate_listener = prev_listener
         main.menu_status.listeners[:] = prev_listeners
-        bootstrap._bootstrap_error = prev_err
         main.menu_icons._loaded_icon_graphics.clear()
         main.menu_icons._loaded_icon_graphics.update(prev_graphics)
         main.menu_icons._icon_apply_stamp = prev_stamp
