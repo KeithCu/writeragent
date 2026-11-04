@@ -331,15 +331,15 @@ def test_enter_on_exact_explain_runs_not_completes_draft():
     popup._selected = 0
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
-                with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=False) as run_cmd:
-                    with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
-                        popup.accept_selected()
-                        run_cmd.assert_called_once_with("explain", send, "", from_popup=False)
-                        set_text.assert_not_called()
-                        send.dispatch.assert_called_once()
-                        from plugin.chatbot.send_state import SendEventKind
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=False) as run_cmd:
+                with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+                    popup.accept_selected()
+                    run_cmd.assert_called_once_with("explain", send, "", from_popup=False)
+                    set_text.assert_not_called()
+                    send.dispatch.assert_called_once()
+                    from plugin.chatbot.send_state import SendEventKind
 
-                        assert send.dispatch.call_args[0][0].kind == SendEventKind.SEND_CLICKED
+                    assert send.dispatch.call_args[0][0].kind == SendEventKind.SEND_CLICKED
 
 
 def test_enter_on_exact_translate_runs_with_empty_arg():

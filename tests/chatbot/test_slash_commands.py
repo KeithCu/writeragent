@@ -557,7 +557,7 @@ def test_run_slash_compact_invalid_config_msgbox_on_main_thread():
     listener.slash_document_model = MagicMock(return_value=object())
 
     with patch("plugin.framework.uno_context.get_toolkit", side_effect=RuntimeError("no uno")):
-        with patch("plugin.chatbot.selection.get_api_config", return_value={"endpoint": "http://x", "model": "m", "api_key": "k"}):
+        with patch("plugin.chatbot.selection.get_api_config", return_value={"endpoint": "http://x", "model": "m"}):
             with patch("plugin.chatbot.selection.validate_api_config", return_value=(False, "bad config")):
                 with patch("plugin.chatbot.selection.msgbox", side_effect=record_msgbox):
                     with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
@@ -588,7 +588,7 @@ def test_run_slash_compact_stop_cancels_after_ui_thread_client():
     ctx = object()
     session = MagicMock()
     session.messages = [{"role": "user", "content": "hi"}]
-    api_config = {"endpoint": "http://127.0.0.1:5000", "model": "test-model", "api_key": "sk-test"}
+    api_config = {"endpoint": "http://127.0.0.1:5000", "model": "test-model"}
     stopped_clients: list[LlmClient] = []
     original_stop = LlmClient.stop
 
@@ -622,20 +622,23 @@ def test_run_slash_compact_stop_cancels_after_ui_thread_client():
     assert "cancelled" in line.lower()
 
 
-def test_run_slash_compact_sync_empty_api_key():
+def test_run_slash_compact_sync_without_api_key_still_compacts():
     from plugin.chatbot.slash_commands import run_slash_compact_sync
     from plugin.framework.send_cancellation import SendCancellation
 
-    client = SimpleNamespace(config={"api_key": "", "model": "openai/gpt-oss-20b", "endpoint": "https://openrouter.ai/api/v1"})
+    client = SimpleNamespace(config={"api_key": "", "model": "llama3", "endpoint": "http://127.0.0.1:11434/v1"})
+    compact_result = SimpleNamespace(compacted=True, reason="ok")
     with patch("plugin.framework.config.get_config", return_value=True):
-        line = run_slash_compact_sync(
-            focus="",
-            session=SimpleNamespace(messages=[{"role": "user", "content": "hi"}]),
-            cancel=SendCancellation(),
-            client=client,
-            tools=[],
-        )
-    assert "Configure an API key to compact." in line
+        with patch("plugin.chatbot.compaction.compact_session", return_value=compact_result):
+            line = run_slash_compact_sync(
+                focus="",
+                session=SimpleNamespace(messages=[{"role": "user", "content": "hi"}]),
+                cancel=SendCancellation(),
+                client=client,
+                tools=[],
+            )
+    assert "Configure an API key" not in line
+    assert "compacted" in line.lower()
 
 
 def test_run_remember_writes_user_md(tmp_path, monkeypatch):

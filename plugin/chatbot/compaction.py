@@ -268,7 +268,12 @@ def tool_schema_tokens(tools: Any) -> int:
 
 
 def _summary_budget(window: int) -> int:
-    """Token allowance for the summary pair, summarizer max_tokens, and char cap."""
+    """Token allowance for the retained summary pair and remainder math."""
+    return min(1024, max(256, window // 8))
+
+
+def _summarizer_max_out(window: int) -> int:
+    """max_tokens for the summarizer LLM call only (reasoning models need more headroom)."""
     return min(4096, max(512, window // 8))
 
 
@@ -474,6 +479,12 @@ def _format_tool_calls(msg: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
+def _is_slash_local_message(msg: dict[str, Any]) -> bool:
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+
+    return bool(msg.get(SLASH_LOCAL))
+
+
 def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
     """ROLE: text lines. Stub role=tool bodies > PRUNE_MIN_CHARS. Session unchanged.
 
@@ -482,11 +493,9 @@ def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
     SessionDB archive.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
     """
-    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
-
     lines = []
     for i, msg in enumerate(messages):
-        if msg.get(SLASH_LOCAL):
+        if _is_slash_local_message(msg):
             continue
         role = msg.get("role") or ""
         text, n_img, n_aud = flatten_content(msg.get("content"))
@@ -522,8 +531,6 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     (``context_compressor.py:3846-3884``); not a port of that method.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L3846-L3884
     """
-    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
-
     out = []
     i = 0
     n = len(messages)
@@ -533,7 +540,7 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
             i += 1
             continue
 
-        if msg.get(SLASH_LOCAL):
+        if _is_slash_local_message(msg):
             i += 1
             continue
         if msg.get("role") == "assistant" and (msg.get("tool_calls") or []):
@@ -837,34 +844,35 @@ def _summarize_bounded(
                 log.exception("Compaction failed")
                 return None
 
-        result = _request_summary(max_out)
-        if cancel is not None and cancel.is_cancelled():
-            return None, "aborted"
-        if result is None:
-            return None, "failed"
+        # Reasoning models may burn max_tokens on thinking and return empty content.
+        retry_cap = min(max(max_out * 2, 2048), 8192, window)
+        attempt_outs = (max_out, retry_cap) if retry_cap > max_out else (max_out,)
 
-        content = (result or {}).get("content") or ""
-        finish_reason = (result or {}).get("finish_reason")
-        if not content.strip() or finish_reason == "length":
-            retry_out = min(max(max_out * 2, 2048), 8192)
-            log.warning(
-                "Compaction summarizer empty or truncated (finish_reason=%s, max_out=%s); retrying with max_out=%s",
-                finish_reason,
-                max_out,
-                retry_out,
-            )
-            result = _request_summary(retry_out)
+        content = ""
+        finish_reason: str | None = None
+        for attempt_idx, max_tokens_out in enumerate(attempt_outs):
+            result = _request_summary(max_tokens_out)
             if cancel is not None and cancel.is_cancelled():
                 return None, "aborted"
+            if result is None:
+                return None, "failed"
             content = (result or {}).get("content") or ""
             finish_reason = (result or {}).get("finish_reason")
-            if not content.strip() or finish_reason == "length":
+            if content.strip():
+                break
+            if attempt_idx + 1 >= len(attempt_outs):
                 log.warning(
                     "Compaction summarizer still empty after retry (finish_reason=%s, max_out=%s)",
                     finish_reason,
-                    retry_out,
+                    max_tokens_out,
                 )
                 return None, "failed"
+            log.warning(
+                "Compaction summarizer empty (finish_reason=%s, max_out=%s); retrying with max_out=%s",
+                finish_reason,
+                max_tokens_out,
+                attempt_outs[attempt_idx + 1],
+            )
 
         running = _cap_running_summary(content, window)
         idx = next_idx
@@ -930,7 +938,7 @@ def compact_session(
     if status_callback:
         status_callback("Compacting conversation...")
 
-    max_out = _summary_budget(window)
+    max_out = _summarizer_max_out(window)
     if max_tokens is not None and max_tokens > 0:
         max_out = min(max_out, max_tokens)
 

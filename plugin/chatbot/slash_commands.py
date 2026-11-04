@@ -675,9 +675,6 @@ def run_slash_compact_sync(
     if not get_config("chat_compaction_enabled"):
         return "\n" + _("Chat compaction is disabled in settings.") + "\n"
 
-    if not str((client.config or {}).get("api_key") or "").strip():
-        return "\n" + _("Configure an API key to compact.") + "\n"
-
     def status_cb(text: str) -> None:
         log.debug("slash compact status: %s", text)
 

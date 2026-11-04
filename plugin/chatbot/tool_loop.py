@@ -487,6 +487,7 @@ class ToolCallingMixin:
             if toolkit:
                 pump_ui_idle(toolkit, max_queue_items=4)
             if slash_sidebar_only:
+                # Slash answer presets are sidebar-only; mid-loop refresh must not re-add tools.
                 active_tools: list[Any] = []
             else:
                 active_tools = get_tools().get_schemas(
@@ -628,6 +629,7 @@ class ToolCallingMixin:
         if turn is None:
             return
         if turn.slash_sidebar_only:
+            # Same rule as _do_send: local-only slash replies keep an empty tool list every round.
             turn.active_tools = []
             return
         try:
