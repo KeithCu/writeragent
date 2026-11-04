@@ -121,7 +121,7 @@ def enqueue_misses(
     count = len(uncached_spans)
     if count:
         label = f"{count} sentence" if count == 1 else f"{count} sentences"
-        get_grammar_status().start(label, result="queued")
+        get_grammar_status().start(label, result="queued", routine=True)
     for sent_start, sent_end, sent_text in uncached_spans:
         seq = next_enqueue_seq()
         complete_sentence = looks_complete_sentence(sent_text)

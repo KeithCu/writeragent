@@ -1434,7 +1434,7 @@ def test_set_context_wakes_pending_posts():
     """set_context must create AsyncCallback if there are pending posts."""
     from plugin.framework.queue_executor import MainThread
     from unittest.mock import patch, MagicMock
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
     qe = MainThread()
     # Add a pending post
@@ -1453,7 +1453,7 @@ def test_set_context_wakes_pending_posts():
         qe.set_context(mock_ctx)
 
         # Verify that AsyncCallback was created
-        mock_smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.awt.AsyncCallback", _unwrap_uno(mock_ctx))
+        mock_smgr.createInstanceWithContext.assert_called_once_with("com.sun.star.awt.AsyncCallback", unwrap_uno(mock_ctx))
         # Verify that _enqueue_work was called
         mock_enqueue.assert_called_once()
         assert mock_enqueue.call_args.args[0]() == "pending"

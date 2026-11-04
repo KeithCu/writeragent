@@ -24,7 +24,7 @@ import weakref
 from typing import Any
 
 from plugin.framework.errors import best_effort
-from plugin.framework.thread_guard import _unwrap_uno
+from plugin.framework.thread_guard import unwrap_uno
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
 from plugin.framework.uno_listeners import BaseDocumentEventListener
@@ -50,7 +50,7 @@ _LIFECYCLE_KEY_BY_DOC_ID: dict[int, tuple[str, Any]] = {}
 def _doc_objects(doc: Any) -> list[Any]:
     """*doc* and its unwrapped UNO target, without calling UNO methods."""
     objects = [doc]
-    raw = _unwrap_uno(doc)
+    raw = unwrap_uno(doc)
     if raw is not None and raw is not doc:
         objects.append(raw)
     return objects

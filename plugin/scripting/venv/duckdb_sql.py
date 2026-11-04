@@ -34,7 +34,7 @@ from plugin.scripting.session_key import (
 from plugin.scripting.venv.coerce import (
     table_from_df as _table_from_df,
 )
-from plugin.scripting.venv.results import error_result as _error_result
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
     ok_result as _ok_result,
 )
@@ -174,7 +174,7 @@ def _read_flat_relation(con: Any, path: str) -> Any:
 
 
 _SESSION_CONNECTIONS: dict[str, Any] = {}
-_SESSION_LOCK = threading.Lock()
+_SESSION_LOCK = threading.Lock()  # Lock order: venv_sandbox _SESSION_LOCK before this lock.
 
 
 def persistable_duckdb_session_id(session_id: str | None) -> str | None:
@@ -907,13 +907,13 @@ def _execute(
 
 def _handle_sql_error(exc: Exception, helper: str) -> dict[str, Any]:
     if isinstance(exc, SqlError):
-        return _error_result(exc.code, str(exc), helper=helper)
+        return error_result(exc.code, str(exc), helper=helper)
     # A DuckDB error is a failed query. Anything else keeps the traceback.
     if _is_duckdb_error(exc):
         log.warning("%s failed: %s", helper, exc)
     else:
         log.exception("%s failed", helper)
-    return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
+    return error_result("DUCKDB_ERROR", str(exc), helper=helper)
 
 
 def query_folder_df(
@@ -951,7 +951,7 @@ def run_sql(
     _require_duckdb(helper)
 
     if not sql or not str(sql).strip():
-        return _error_result("INVALID_SQL", "sql is required", helper=helper)
+        return error_result("INVALID_SQL", "sql is required", helper=helper)
 
     persist = False
     acquired: Any = None

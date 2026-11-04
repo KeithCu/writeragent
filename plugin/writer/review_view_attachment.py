@@ -14,7 +14,7 @@ from typing import Any
 from plugin.doc.document_helpers import UNKNOWN_DOC_KEY, _compute_doc_key
 from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import uno_same
-from plugin.framework.uno_listeners import BaseModifyListener, _controller_alive, install_view_doc_listener
+from plugin.framework.uno_listeners import BaseModifyListener, controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
 
@@ -179,7 +179,7 @@ def _drop_attachment(key: str, *, remove_modify_listener: bool) -> None:
         except Exception:
             log.debug("review_view_attachment: releaseContextMenuInterceptor failed", exc_info=True)
         try:
-            if _controller_alive(controller):
+            if controller_alive(controller):
                 controller.removeMouseClickHandler(click_handler)
         except Exception:
             log.debug("review_view_attachment: removeMouseClickHandler failed", exc_info=True)
@@ -279,7 +279,7 @@ def cleanup_disposed_controllers() -> None:
         for attachment in _attachments.values():
             alive: list[tuple[Any, Any, Any]] = []
             for ctrl, interceptor, handler in attachment.controllers:
-                if _controller_alive(ctrl):
+                if controller_alive(ctrl):
                     alive.append((ctrl, interceptor, handler))
             attachment.controllers[:] = alive
 

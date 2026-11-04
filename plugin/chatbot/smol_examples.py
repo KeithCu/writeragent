@@ -26,7 +26,7 @@ import logging
 
 from plugin.contrib.smolagents.toolcalling_agent_prompts import DELEGATE_GENERIC_EXAMPLES_BLOCK, WEB_RESEARCH_EXAMPLES_BLOCK
 
-log = logging.getLogger("writeragent.smol_examples")
+log = logging.getLogger(__name__)
 
 LIBRARIAN_EXAMPLES = """Task: User confirmed they want to be called Joe after the librarian asked "Would you like me to call you Joe?"
 

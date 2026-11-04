@@ -23,7 +23,7 @@ from typing import Any, Sequence
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
 
-log = logging.getLogger("writeragent.slash_commands")
+log = logging.getLogger(__name__)
 
 # Persist via the same LRU helper as model/prompt history (not a sidecar file).
 SLASH_LRU_KEY = "slash_command_lru"

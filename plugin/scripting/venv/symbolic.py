@@ -17,7 +17,7 @@ import re
 from typing import Any, Callable
 
 from plugin.scripting.helper_registry import helper
-from plugin.scripting.venv.results import error_result as _error_result
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
     is_blank_param,
     missing_package_error as _missing_package_error,
@@ -202,9 +202,9 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
         try:
             return func(sp, *args, **kwargs)
         except _SymbolicError as exc:
-            return _error_result(exc.code, str(exc), helper=helper)
+            return error_result(exc.code, str(exc), helper=helper)
         except Exception as exc:
-            return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
+            return error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
 
     # inspect.signature follows __wrapped__ unless this is set, and would
     # then require `sp`. Run Python Script templates bind the public kwargs.

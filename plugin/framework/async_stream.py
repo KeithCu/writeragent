@@ -267,9 +267,9 @@ def _handle_approval_required(state: _DrainState, _data: Any, item: Any) -> None
     # crosshair: off
     state.finish_display()
     if not state.on_approval_required:
-        # There is no dialog to answer. Set the event so the worker sees
-        # Unblock worker waiting on approval when no handler is present.
+        # There is no dialog to answer.
         log.warning("APPROVAL_REQUIRED with no handler; unblocking worker")
+        # Unblock worker waiting on approval when no handler is present.
         _set_approval_event(item)
         return
     try:

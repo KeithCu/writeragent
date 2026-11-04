@@ -611,12 +611,12 @@ def _undo_lock(doc: Any) -> Generator[Any, None, None]:
     hides the spill mutations under the formula's undo action so the spill does not
     create a separate undo step. If the undo stack is empty, um.lock() is used.
     """
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
     um = None
     hidden = False
     locked = False
-    raw_doc = _unwrap_uno(doc)
+    raw_doc = unwrap_uno(doc)
     if hasattr(raw_doc, "getUndoManager"):
         um = uno_read(raw_doc.getUndoManager, None)
         if um is not None:

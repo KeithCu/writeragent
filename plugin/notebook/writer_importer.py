@@ -42,6 +42,7 @@ from typing import Any, Generator, final
 
 
 from plugin.contrib.nbformat import read_ipynb
+from plugin.doc.text_helpers import iter_elements_limited
 from plugin.doc.visual_helpers import mm_to_units
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 from plugin.notebook.cell_registry import (
@@ -574,11 +575,7 @@ def _trim_trailing_empty_paragraph(doc: Any) -> None:
             return
         portions = uno_read(lambda: para_rng.createEnumeration(), None)
         if portions:
-            for _unused in range(64):
-                pmore = portions.hasMoreElements()
-                if pmore is not True and pmore != 1:
-                    break
-                portion = portions.nextElement()
+            for portion in iter_elements_limited(portions, 64):
                 ptype = uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), None)
                 if ptype is None:
                     ptype = str(getattr(portion, "TextPortionType", "") or "")
