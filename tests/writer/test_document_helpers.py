@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 from plugin.doc.udprops import get_document_property, set_document_property
@@ -152,6 +154,10 @@ def test_writer_streamed_rewrite_session_finishes_as_single_tracked_change():
     assert doc.undo.left is True
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows xdist worker crashitem after ~300s hang; mock-only (CI 41744668351)",
+)
 def test_writer_streamed_rewrite_session_abort_restores_original_text():
     doc = _MockDoc(recording=True)
     text_range = _MutableTextRange()
