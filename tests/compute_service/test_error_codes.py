@@ -8,8 +8,8 @@ from pathlib import Path
 from compute_service import error_codes
 
 _README = Path(__file__).resolve().parents[2] / "compute_service" / "README.md"
-_ROW = re.compile(r"^\| \*\*`(\d{3}) [^`]*`\*\*\s*\|(.*)$")
-_CODE = re.compile(r"`([A-Z][A-Z0-9_]*)`")
+_ROW = re.compile(r"^\| \*\*`(\d{3}) [^`]*`\*\*\s*\|([^|]*)\|")
+_CODE = re.compile(r"`([A-Z]+(?:_[A-Z]+)*)`")
 
 
 def _readme_codes_by_status() -> dict[str, set[str]]:
@@ -36,5 +36,6 @@ def test_readme_status_table_matches_error_codes() -> None:
     for status, codes in rows.items():
         assert not codes or status in expected, (status, codes)
     assert "BAD_REQUEST_BODY" in rows["400"]
+    assert "BAD_FRAMING" in rows["400"]
     assert "UNAUTHORIZED" in rows["401"]
     assert "READ_TIMEOUT" in rows["408"]

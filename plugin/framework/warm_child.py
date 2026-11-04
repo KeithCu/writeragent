@@ -38,13 +38,15 @@ _OMIT_ID = object()
 _SPAWN_SHUTDOWN = object()
 
 
-def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | None = None) -> dict[str, Any]:
+def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | None = None, **extra: Any) -> dict[str, Any]:
     """Build ``{"status": "error", "code", "error"}``."""
     res: dict[str, Any] = {"status": "error", "code": code, "error": error}
     if req_id is not _OMIT_ID:
         res["id"] = req_id
     if message is not None:
         res["message"] = message
+    if extra:
+        res.update(extra)
     return res
 
 

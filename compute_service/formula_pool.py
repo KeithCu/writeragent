@@ -30,7 +30,8 @@ from typing import Any, Generator
 from compute_service import error_codes as ec
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, validate_session_id
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, PoolSingleton, error_dict, resolve_override
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, PoolSingleton, resolve_override
+from plugin.framework.warm_child import error_dict
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")

@@ -105,14 +105,6 @@ def _error(start_response: Any, code: str, msg: str, req_id: Any = None, *, extr
     return _start_json(start_response, status, payload, extra_headers=extra_headers)
 
 
-def _plain_error(start_response: Any, status: str, msg: str, req_id: Any = None, *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
-    """JSON error without a ``code`` key (framing faults that close the connection)."""
-    payload: dict[str, Any] = {"status": "error", "error": msg}
-    if req_id is not None:
-        payload["id"] = req_id
-    return _start_json(start_response, status, payload, extra_headers=extra_headers)
-
-
 def _infrastructure_status(payload: dict[str, Any]) -> str | None:
     """Map a worker payload to an HTTP status, or None to keep 200.
 
@@ -313,7 +305,7 @@ def _reject_chunked(environ: dict[str, Any], start_response: Any) -> list[bytes]
     if not _transfer_encoding_is_chunked(environ):
         return None
     request_conn(environ).close_connection = True
-    return _plain_error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
+    return _error(start_response, ec.BAD_FRAMING, "Chunked transfer encoding is not supported")
 
 
 def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
@@ -328,29 +320,29 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
         rc.close_connection = True
-        return None, _plain_error(start_response, "400 Bad Request", "Missing Content-Length")
+        return None, _error(start_response, ec.BAD_FRAMING, "Missing Content-Length")
     try:
         content_length = int(raw_len)
     except (TypeError, ValueError):
         rc.close_connection = True
-        return None, _plain_error(start_response, "400 Bad Request", "Invalid Content-Length")
+        return None, _error(start_response, ec.BAD_FRAMING, "Invalid Content-Length")
     if content_length <= 0:
         rc.close_connection = True
-        return None, _plain_error(start_response, "400 Bad Request", "Invalid Content-Length")
+        return None, _error(start_response, ec.BAD_FRAMING, "Invalid Content-Length")
     if content_length > settings.max_body_bytes:
         _drain_body_before_error(environ, max_bytes=64 * 1024)
         rc.close_connection = True
-        return None, _plain_error(start_response, "413 Payload Too Large", "Request body too large")
+        return None, _error(start_response, ec.PAYLOAD_TOO_LARGE, "Request body too large")
 
     wsgi_input = environ.get("wsgi.input")
     if wsgi_input is None:
         rc.close_connection = True
         return None, _error(start_response, ec.INTERNAL_ERROR, "Missing wsgi.input stream")
 
-    def fail(resp: list[bytes]) -> tuple[None, list[bytes]]:
+    def fail(code: str, msg: str) -> tuple[None, list[bytes]]:
         rc.close_connection = True
         _set_write_deadline(environ)
-        return None, resp
+        return None, _error(start_response, code, msg)
 
     conn = rc.connection
     read_deadline = _accept_clock(rc.accept_time) + REQUEST_READ_TIMEOUT_SEC
@@ -366,7 +358,7 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
         while bytes_read < content_length:
             now = time.monotonic()
             if now >= read_deadline:
-                return fail(_error(start_response, ec.READ_TIMEOUT, "Request read timeout"))
+                return fail(ec.READ_TIMEOUT, "Request read timeout")
             remaining_time = read_deadline - now
             if conn is not None:
                 try:
@@ -375,7 +367,7 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
                     # If the deadline cannot be armed, stop. The next read would
                     # keep the previous socket timeout.
                     log.debug("failed to arm body-read deadline", exc_info=True)
-                    return fail(_error(start_response, ec.READ_TIMEOUT, "Request read timeout"))
+                    return fail(ec.READ_TIMEOUT, "Request read timeout")
 
             to_read = min(buf_size, content_length - bytes_read)
             raw_chunk: Any = read1(to_read) if callable(read1) else wsgi_input.read(to_read)
@@ -385,15 +377,15 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
             chunks.append(chunk)
             bytes_read += len(chunk)
     except TimeoutError:
-        return fail(_error(start_response, ec.READ_TIMEOUT, "Request read timeout"))
+        return fail(ec.READ_TIMEOUT, "Request read timeout")
     except OSError as e:
         log.warning("Socket read error during body ingress: %s", e)
-        return fail(_plain_error(start_response, "400 Bad Request", "Connection error reading request body"))
+        return fail(ec.BAD_FRAMING, "Connection error reading request body")
 
     _set_write_deadline(environ)
     if bytes_read != content_length:
         rc.close_connection = True
-        return None, _plain_error(start_response, "400 Bad Request", "Request body truncated")
+        return None, _error(start_response, ec.BAD_FRAMING, "Request body truncated")
 
     body = b"".join(chunks)
     # Admission reads the body before the permit wait. The handler must not

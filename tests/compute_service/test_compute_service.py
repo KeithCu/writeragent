@@ -1513,7 +1513,7 @@ class TestRequestBodyLimits:
         assert status_holder[0].startswith("400")
         parsed = json.loads(body)
         assert parsed["status"] == "error"
-        assert "code" not in parsed
+        assert parsed.get("code") == "BAD_FRAMING"
 
     def test_truncated_body_returns_400(self) -> None:
         """wsgi.input.read() returning fewer bytes than CONTENT_LENGTH must yield 400, not a
@@ -1542,7 +1542,7 @@ class TestRequestBodyLimits:
         parsed = json.loads(body)
         assert parsed["status"] == "error"
         assert "truncated" in parsed["error"]
-        assert "code" not in parsed
+        assert parsed.get("code") == "BAD_FRAMING"
 
     def test_vision_unhandled_exception_is_json_500(self) -> None:
         fake_pool = MagicMock()
@@ -1677,7 +1677,7 @@ class TestSessionResetHttp:
         )
         assert status.startswith("400")
         assert "chunked" in body.get("error", "").lower()
-        assert "code" not in body
+        assert body.get("code") == "BAD_FRAMING"
         assert reset_calls == []
 
         exec_status, _exec_headers, exec_body = _wsgi_post(
@@ -1688,7 +1688,7 @@ class TestSessionResetHttp:
         )
         assert exec_status.startswith("400")
         assert "chunked" in exec_body.get("error", "").lower()
-        assert "code" not in exec_body
+        assert exec_body.get("code") == "BAD_FRAMING"
 
     def test_lease_failure_is_503(self) -> None:
         def busy_reset(_session_id: str, **_kw):
