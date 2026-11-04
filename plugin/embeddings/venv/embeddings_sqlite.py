@@ -250,6 +250,89 @@ def corpus_chunk_count(conn: sqlite3.Connection) -> int:
     return int(row["c"] if row else 0)
 
 
+def stored_model_dim(conn: sqlite3.Connection, model: str) -> int | None:
+    """Return embedding dimension recorded for *model*, or None when unknown.
+
+    On a cold corpus ``model_metadata`` may not exist yet. macOS often opens the
+    DB via pysqlite3; its ``OperationalError`` is not a subclass of stdlib
+    ``sqlite3.OperationalError``, so missing-table errors must be caught per
+    connection (see ``_conn_operational_error``).
+    """
+    try:
+        row = conn.execute(
+            "SELECT dim FROM model_metadata WHERE embedding_model = ?",
+            (model,),
+        ).fetchone()
+        if row is not None:
+            return int(row["dim"])
+    except _conn_operational_error(conn):
+        pass
+    return None
+
+
+def _missing_vector_chunk_row(row: Any) -> dict[str, Any]:
+    return {
+        "chunk_id": int(row["chunk_id"]),
+        "doc_url": str(row["doc_url"] or ""),
+        "para_index": int(row["para_index"] or 0),
+        "char_start": int(row["char_start"] or 0),
+        "char_end": int(row["char_end"] or 0),
+        "content_hash": str(row["content_hash"] or ""),
+        "text": str(row["text"] or "").strip(),
+        "file_mtime": float(row["file_mtime"] or 0.0),
+    }
+
+
+def missing_vector_chunks(
+    conn: sqlite3.Connection,
+    model: str,
+) -> list[dict[str, Any]]:
+    """Return chunk rows that have no vector in the active model's vec_chunks table.
+
+    When the vec table does not exist yet, every chunk row is returned (cold corpus).
+    """
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (tbl_name,),
+    ).fetchone()
+    if has_table:
+        sql = f"""
+            SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
+            FROM chunks
+            WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name})
+            """
+    else:
+        sql = """
+            SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
+            FROM chunks
+            """
+    rows = conn.execute(sql).fetchall()
+    return [_missing_vector_chunk_row(row) for row in rows]
+
+
+def has_missing_vector_chunks(conn: sqlite3.Connection, model: str) -> bool:
+    """True when at least one chunk row lacks a vector for *model*."""
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (tbl_name,),
+    ).fetchone()
+    if has_table:
+        row = conn.execute(
+            f"""
+            SELECT 1 FROM chunks
+            WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name})
+            LIMIT 1
+            """
+        ).fetchone()
+    else:
+        row = conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone()
+    return row is not None
+
+
 def _fts_index_row(conn: sqlite3.Connection, chunk_id: int) -> None:
     conn.execute("INSERT INTO passages(rowid) VALUES (?)", (int(chunk_id),))
 
@@ -907,13 +990,16 @@ __all__ = [
     "fts_corpus_search",
     "get_all_indexed_urls_in_db",
     "get_file_index_info",
+    "has_missing_vector_chunks",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
     "mark_file_indexed_in_db",
+    "missing_vector_chunks",
     "paragraph_body_for_locator",
     "paragraph_bodies_for_locators",
     "rebuild_fts_corpus_index",
     "remove_file_from_index_in_db",
+    "stored_model_dim",
     "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",
     "vec0_search",

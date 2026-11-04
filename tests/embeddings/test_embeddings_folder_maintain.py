@@ -244,11 +244,11 @@ def test_resolve_mode_zvec_uses_collection_not_corpus_db(tmp_path):
 def test_incremental_same_model_vector_gap_requests_backfill(tmp_path):
     """has_missing must embed. An empty ingest with no flag returns before the graph."""
     conn = MagicMock()
-    conn.execute.return_value.fetchone.return_value = None
     with (
         patch.object(maintain, "connect_corpus_db", return_value=conn),
         patch.object(maintain, "ensure_schema"),
         patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
+        patch.object(maintain, "has_missing_vector_chunks", return_value=True),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
         patch.object(maintain.CorpusMeta, "write_row_count"),
         patch.object(maintain, "_ingest_rows", return_value={"indexed": 2, "upserted": 2}) as ingest,
@@ -270,16 +270,12 @@ def test_incremental_same_model_vector_gap_requests_backfill(tmp_path):
 
 def test_incremental_skips_backfill_when_vectors_present(tmp_path):
     conn = MagicMock()
-    has_table = MagicMock()
-    has_table.fetchone.return_value = (1,)
-    no_gap = MagicMock()
-    no_gap.fetchone.return_value = None
-    conn.execute.side_effect = [has_table, no_gap]
     with (
         patch.object(maintain, "connect_corpus_db", return_value=conn),
         patch.object(maintain, "ensure_schema"),
         patch.object(maintain, "get_all_indexed_urls_in_db", return_value=[]),
         patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
+        patch.object(maintain, "has_missing_vector_chunks", return_value=False),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
         patch.object(maintain.CorpusMeta, "write_row_count"),
         patch.object(maintain, "_ingest_rows") as ingest,
