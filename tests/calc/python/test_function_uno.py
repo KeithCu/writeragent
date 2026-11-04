@@ -28,6 +28,7 @@ from plugin.calc.python.spill import (
     SpillRecord,
     clear_in_memory_spill_state,
     perform_deferred_spill,
+    spill_registry_doc_key,
 )
 from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 from plugin.calc.python.workbook_state import WorkbookState
@@ -294,8 +295,11 @@ def test_py_multi_document_spill_and_plot(ctx):
         doc_second.calculateAll()
 
         # Wait for spill and image insertion
+        from plugin.framework.queue_executor import pump_main_thread_work_queue
+
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
+            pump_main_thread_work_queue(max_items=20)
             b1_val = sheet_second.getCellByPosition(1, 0).getValue()
             dp = sheet_second.getDrawPage()
             has_shape = False
@@ -355,9 +359,7 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
     """Row insertion shifts =PY() formula and its spill; modify listener remaps without clearing."""
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
-    st = WorkbookState.for_doc(doc)
-    assert st is not None
-    doc_key = st.key
+    doc_key = spill_registry_doc_key(doc)
     try:
         sheet = doc.getSheets().getByIndex(0)
         if sheet.getName() != "Sheet1":

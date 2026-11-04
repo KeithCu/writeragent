@@ -62,12 +62,19 @@ def _proxy_keys_match(k1: str, k2: str) -> bool:
     return k1 == k2 or k1 == f"calc:{k2}" or f"calc:{k1}" == k2
 
 
+def _state_matches_doc_key(state: WorkbookState, doc_key: str) -> bool:
+    """Match registry/listener keys after RuntimeUID rekey (see ``prior_keys``)."""
+    if not doc_key:
+        return False
+    return state.scheduled_key_matches(doc_key)
+
+
 class _SpillRegistryProxy(dict[Any, Any]):
     def __getitem__(self, key: Any) -> Any:
         if isinstance(key, tuple) and len(key) == 4:
             doc_key, sheet, r, c = key
             for state in WorkbookState.all_states():
-                if _proxy_keys_match(state.key, doc_key):
+                if _state_matches_doc_key(state, doc_key):
                     if (sheet, r, c) in state.spills:
                         return state.spills[(sheet, r, c)]
             raise KeyError(key)
@@ -84,7 +91,7 @@ class _SpillRegistryProxy(dict[Any, Any]):
             doc_key, sheet, r, c = key
             target_state = None
             for state in WorkbookState.all_states():
-                if _proxy_keys_match(state.key, doc_key):
+                if _state_matches_doc_key(state, doc_key):
                     target_state = state
                     break
             if target_state is None:
@@ -111,7 +118,7 @@ class _SpillRegistryProxy(dict[Any, Any]):
         if isinstance(key, tuple) and len(key) == 4:
             doc_key, sheet, r, c = key
             for state in WorkbookState.all_states():
-                if _proxy_keys_match(state.key, doc_key):
+                if _state_matches_doc_key(state, doc_key):
                     if (sheet, r, c) in state.spills:
                         return state.spills.pop((sheet, r, c))
             return default
@@ -138,7 +145,7 @@ class _SheetModifyListenersProxy(dict[Any, Any]):
         if isinstance(key, tuple) and len(key) == 2:
             doc_key, sheet = key
             for state in WorkbookState.all_states():
-                if _proxy_keys_match(state.key, doc_key) and sheet in state.listeners:
+                if _state_matches_doc_key(state, doc_key) and sheet in state.listeners:
                     return state.listeners[sheet]
             raise KeyError(key)
         return super().__getitem__(key)
@@ -148,7 +155,7 @@ class _SheetModifyListenersProxy(dict[Any, Any]):
             doc_key, sheet = key
             target_state = None
             for state in WorkbookState.all_states():
-                if _proxy_keys_match(state.key, doc_key):
+                if _state_matches_doc_key(state, doc_key):
                     target_state = state
                     break
             if target_state is None:
@@ -175,7 +182,7 @@ class _SheetModifyListenersProxy(dict[Any, Any]):
         if isinstance(key, tuple) and len(key) == 2:
             doc_key, sheet = key
             for state in WorkbookState.all_states():
-                if _proxy_keys_match(state.key, doc_key) and sheet in state.listeners:
+                if _state_matches_doc_key(state, doc_key) and sheet in state.listeners:
                     return state.listeners.pop(sheet)
             return default
         return super().pop(key, default)
@@ -199,6 +206,38 @@ class _SheetModifyListenersProxy(dict[Any, Any]):
 SPILL_REGISTRY = _SpillRegistryProxy()
 LOADED_DOCUMENTS: set[str] = set()
 SHEET_MODIFY_LISTENERS = _SheetModifyListenersProxy()
+
+
+def spill_registry_doc_key(doc: Any) -> str:
+    """Key spill registry rows by RuntimeUID, else URL, else lifecycle id."""
+    if doc is None:
+        return ""
+    from plugin.framework.uno_context import get_runtime_uid
+
+    uid = get_runtime_uid(doc)
+    url_raw = doc.getURL() if hasattr(doc, "getURL") else ""
+    url = str(url_raw) if isinstance(url_raw, str) else ""
+
+    if uid:
+        key = uid
+        if url and url != key:
+            if url in LOADED_DOCUMENTS:
+                LOADED_DOCUMENTS.discard(url)
+                LOADED_DOCUMENTS.add(key)
+            for st in WorkbookState.all_states():
+                if st.key == url or st.key == f"calc:{url}":
+                    st.key = key
+                    st.prior_keys.add(url)
+        return key
+    if url:
+        return url
+    try:
+        from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+
+        return str(_lifecycle_key(doc) or "")
+    except Exception:
+        log.debug("spill registry identity failed", exc_info=True)
+        return ""
 
 
 def _cell_matches_stored_value(sheet: Any, row: int, col: int, cell_rec: SpillCell) -> bool:
@@ -367,6 +406,11 @@ class CalcSpillModifyListener(BaseModifyListener):
 
                 doc = _get_calc_doc(self.ctx)
         state = self._state
+        if state is None and self.doc_key:
+            for st in WorkbookState.all_states():
+                if _state_matches_doc_key(st, self.doc_key):
+                    state = st
+                    break
         if state is None and doc is not None:
             state = WorkbookState.for_doc(doc)
         cleanup_orphans(state, sheet, doc=doc, ctx=self.ctx, sheet_name=self.sheet_name)
@@ -791,7 +835,7 @@ def _prepare_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any]], tar
             if cell_type != EMPTY:
                 log.debug("Spill: collision: cell at %r (type=%s, val=%r, formula=%r) is not empty", (target_r, target_c), cell_type, cell.getValue() or cell.getString(), cell.getFormula())
                 return "#SPILL!"
-    return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=state.key)
+    return PreparedSpill(sheet_name, formula_row, formula_col, sheet=sheet, key=spill_registry_doc_key(target_doc))
 
 
 def _queue_deferred_spill_write(code: str, grid_to_spill: list[list[Any]], target_doc: Any, prepared: PreparedSpill) -> None:
@@ -824,10 +868,7 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     only passed through to the UI-thread callback. Collision ``#SPILL!`` is too
     late to change the add-in return; the deferred path just skips the write.
     """
-    state = WorkbookState.known(doc)
-    if state is None or not state.key:
-        log.debug("Spill: skipping off-main auto-spill because doc is not known on UI thread")
-        return
+    from plugin.framework.queue_executor import main
 
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
@@ -851,7 +892,18 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
             key=prepared.key,
         )
 
-    state.debounce.schedule(f"code:{code}", 0.1, _on_main)
+    def _arm_on_ui() -> None:
+        # Bugfix: off-main =PY() runs before any UI-thread for_doc(); known() was
+        # always None so multi-document spill never scheduled (CI test_py_multi_document_spill_and_plot).
+        state = WorkbookState.known(doc)
+        if state is None and main.is_current():
+            state = WorkbookState.for_doc(doc)
+        if state is None or not state.key:
+            log.debug("Spill: no workbook state on UI thread; skipping off-main auto-spill")
+            return
+        state.debounce.schedule(f"code:{code}", 0.1, _on_main)
+
+    main.post(_arm_on_ui)
 
 
 def clear_in_memory_spill_state(state: WorkbookState | None = None, *, doc_url: str = "", lifecycle_key: str = "") -> None:
