@@ -49,6 +49,7 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/doc/__init__.py",
     "plugin/framework/doc_type.py",
     "plugin/framework/__init__.py",
+    "plugin/framework/child_runtime.py",
     "plugin/framework/constants.py",
     "plugin/framework/deal_shim.py",
     "plugin/framework/errors.py",
