@@ -55,7 +55,7 @@ def _user_defined_properties(model: Any) -> Any:
     PropertyBag hasPropertyByName / addProperty is unreliable through the
     guard proxy; unwrap the model then talk to the raw PropertyBag.
     """
-    raw_model = thread_guard._unwrap_uno(model)
+    raw_model = thread_guard.unwrap_uno(model)
     if raw_model is None:
         raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
     if not hasattr(raw_model, "getDocumentProperties"):
@@ -63,7 +63,7 @@ def _user_defined_properties(model: Any) -> Any:
     doc_props = uno_call(raw_model.getDocumentProperties, "Get document properties")
     if doc_props is None:
         return None
-    props = thread_guard._unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
+    props = thread_guard.unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
     return props
 
 
@@ -123,7 +123,7 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
         doc_url = ""
         readonly = ""
         try:
-            raw_model = thread_guard._unwrap_uno(model)
+            raw_model = thread_guard.unwrap_uno(model)
             if hasattr(raw_model, "getURL"):
                 doc_url = raw_model.getURL() or ""
             if hasattr(raw_model, "isReadonly"):

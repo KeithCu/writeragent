@@ -115,6 +115,7 @@ def test_apply_does_not_count_missing_notes_shape(tmp_path: Path):
     result = apply_enhancement_project(doc, project)
 
     assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
     assert result["applied"] == 0
     assert result["failed"] == 1
     assert footer.text == "footer"
@@ -137,6 +138,7 @@ def test_apply_does_not_claim_ok_when_setstring_fails(tmp_path: Path):
     result = apply_enhancement_project(doc, project)
 
     assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
     assert result["applied"] == 1
     assert result["failed"] == 1
     assert failed.text == "keep"
@@ -177,6 +179,7 @@ def test_apply_transition_failure_is_not_ok(tmp_path: Path):
     result = apply_enhancement_project(doc, project)
 
     assert result["status"] == "error"
+    assert result["code"] == "TOOL_EXECUTION_ERROR"
     assert result["applied"] == 1
     assert notes.text == "Cue"
     assert "Effect" not in slide.props

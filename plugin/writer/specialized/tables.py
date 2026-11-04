@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.writer.record_changes import is_recording_changes
-from plugin.framework.errors import is_disposal, make_tool_error, uno_read
+from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 
 from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
@@ -668,8 +668,11 @@ class TableInsert(ToolWriterTableBase):
 
                 if parent or cell_raw:
                     return self._tool_error("parent and cell are Writer-only (Draw has no nested text tables).")
-                result = insert_draw_table(ctx, **kwargs)
-                return _raise_draw_result(result, "Insert failed")
+                try:
+                    result = insert_draw_table(ctx, **kwargs)
+                except ToolExecutionError as exc:
+                    return format_error_payload(exc)
+                return result
 
             if parent and not cell_raw:
                 return self._tool_error("cell is required when parent is set.")

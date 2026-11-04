@@ -77,6 +77,7 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/scripting/session_key.py",
     "plugin/scripting/venv/__init__.py",
     "plugin/scripting/venv/coerce.py",
+    "plugin/scripting/venv/optional_import.py",
     "plugin/scripting/venv/results.py",
     "plugin/scripting/venv/to_wire.py",
     "plugin/scripting/venv/venv_sandbox.py",

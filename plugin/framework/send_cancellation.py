@@ -14,7 +14,7 @@ import logging
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -35,6 +35,10 @@ class _ScopeUnset:
 # ``_enqueue_work`` reads the current send unless the caller passes the scope
 # that was current when a pending post was stored.
 _SCOPE_UNSET = _ScopeUnset()
+
+
+class CancellableClient(Protocol):
+    def stop(self) -> None: ...
 
 
 class SendCancelled(Exception):
@@ -71,15 +75,12 @@ class SendCancellation:
             if executor not in self._executors:
                 self._executors.append(executor)
 
-    def register_client(self, client: Any) -> None:
+    def register_client(self, client: CancellableClient) -> None:
         # Resolve .stop() at registration time so cancel() only needs one list of
         # plain callables — no duck-type dispatch needed there.
         # B13: Stop can fire before the drain creates/registers the client. If the
         # scope is already cancelled, register_on_cancel calls stop() immediately.
-        stop = getattr(client, "stop", None)
-        if not callable(stop):
-            return
-        self.register_on_cancel(cast("Callable[[], None]", stop))
+        self.register_on_cancel(client.stop)
 
     def register_on_cancel(self, hook: Callable[[], None]) -> None:
         with self._lock:
@@ -130,19 +131,13 @@ def get_current_send_cancellation() -> SendCancellation | None:
     return _current_send_cancellation.get()
 
 
-def capture_send_stop(host: Any) -> SendCancellation | None:
-    """Scope frozen on the send thread before ``run_in_background``.
-
-    The worker closes over this result. Reading ``host._send_cancellation``
-    inside the thread body misses Stop: the drain clears that field and the
-    next send stores a new scope, so the old worker can latch onto the new
-    send and cancel it.
-    """
-    return getattr(host, "_send_cancellation", None)
-
-
 def is_cancelled(scope: SendCancellation | None) -> bool:
-    """Return True if *scope* is cancelled."""
+    """Return True if *scope* is cancelled.
+
+    Strict ``is True``: a non-bool return (e.g. a MagicMock scope in specialized
+    delegation tests, or a stub host) must not read as a user Stop, or
+    incomplete/step-limit results turn into error/USER_STOPPED.
+    """
     return scope is not None and scope.is_cancelled() is True
 
 

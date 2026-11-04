@@ -568,7 +568,7 @@ def test_enqueue_misses_emits_one_queued_status() -> None:
             "en-US",
             uncached,
         )
-    mock_status.start.assert_called_once_with("2 sentences", result="queued")
+    mock_status.start.assert_called_once_with("2 sentences", result="queued", routine=True)
     assert queue.enqueue.call_count == 2
 
 

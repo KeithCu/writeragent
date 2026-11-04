@@ -17,18 +17,20 @@ import uno
 from com.sun.star.table import CellAddress
 
 from plugin.calc.calc_addin_data import calc_addin_data_to_python
-from plugin.calc.python.function import (
-    SPILL_REGISTRY,
+from plugin.calc.python.recalc import (
+    _py_scoped_dir_bindings,
+    clear_python_addin_cache,
+)
+from plugin.calc.python.spill import (
     CalcSpillModifyListener,
     SpillCell,
     SpillRecord,
-    _py_scoped_dir_bindings,
-    _spill_registry_doc_key,
     clear_in_memory_spill_state,
-    clear_python_addin_cache,
     perform_deferred_spill,
 )
+from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY
 from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
@@ -121,19 +123,13 @@ def _wait_spill_settled(doc, timeout: float = 10.0) -> None:
 
     Tip: closing while a deferred spill write is still pending hangs close() on Windows.
     """
-    from plugin.calc.python import function as python_function
     from plugin.framework.queue_executor import pump_main_thread_work_queue
 
-    key = _lifecycle_key(doc)
+    st = WorkbookState.for_doc(doc)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         pump_main_thread_work_queue(max_items=20)
-        with python_function._PENDING_SPILL_LOCK:
-            pending = [
-                t for t, (k, _tok) in python_function._PENDING_SPILL_TIMERS.items()
-                if k == key and not python_function._spill_timer_finished(t)
-            ]
-        if not pending:
+        if st is None or len(st.debounce) == 0:
             break
         time.sleep(0.05)
     # A timer that just fired may still have its write queued for the UI thread.
@@ -298,8 +294,11 @@ def test_py_multi_document_spill_and_plot(ctx):
         doc_second.calculateAll()
 
         # Wait for spill and image insertion
+        from plugin.framework.queue_executor import pump_main_thread_work_queue
+
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
+            pump_main_thread_work_queue(max_items=20)
             b1_val = sheet_second.getCellByPosition(1, 0).getValue()
             dp = sheet_second.getDrawPage()
             has_shape = False
@@ -359,7 +358,9 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
     """Row insertion shifts =PY() formula and its spill; modify listener remaps without clearing."""
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
-    doc_key = _spill_registry_doc_key(doc)
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    doc_key = st.key
     try:
         sheet = doc.getSheets().getByIndex(0)
         if sheet.getName() != "Sheet1":
@@ -409,7 +410,7 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
     clear_python_addin_cache()
     try:
         err_msg = "Code execution failed at line 'bad' due to: ValueError: bad"
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
             mock_run.return_value = {"status": "error", "message": err_msg}
             cell = sheet.getCellByPosition(0, 0)
             cell.setFormula('=PY("bad")')
@@ -429,7 +430,7 @@ def test_py_addin_div0_token_formula_error(ctx, doc):
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
             mock_run.return_value = {"status": "ok", "result": "#DIV/0!"}
             cell = sheet.getCellByPosition(0, 0)
             cell.setFormula('=PY("result = \'#DIV/0!\'")')
@@ -448,7 +449,7 @@ def test_py_addin_na_token_formula_error(ctx, doc):
     sheet = doc.getSheets().getByIndex(0)
     clear_python_addin_cache()
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
             mock_run.return_value = {"status": "ok", "result": "#N/A"}
             cell = sheet.getCellByPosition(0, 0)
             cell.setFormula('=PY("result = \'#N/A\'")')
@@ -469,7 +470,7 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
     clear_python_addin_cache()
     code = "result = [[1, '#VALUE!'], ['#N/A', '#DIV/0!']]"
     try:
-        with unittest.mock.patch("plugin.calc.python.function.run_code_in_user_venv") as mock_run:
+        with unittest.mock.patch("plugin.calc.python.recalc.run_code_in_user_venv") as mock_run:
             mock_run.return_value = {"status": "ok", "result": [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]}
             cell_a1 = sheet.getCellByPosition(0, 0)
             cell_a1.setFormula(f'=PY("{code}")')

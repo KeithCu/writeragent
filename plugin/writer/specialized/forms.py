@@ -231,7 +231,9 @@ def _commit_form_batch(
     from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     try:
-        error = commit_or_rollback(doc, title, mutate)
+        outcome = commit_or_rollback(doc, title, mutate)
+        outcome.raise_mutate_error()
+        error = outcome.error
         if error is not None:
             error["rolled_back"] = True
             return error

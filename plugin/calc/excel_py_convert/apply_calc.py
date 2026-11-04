@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 # CellFlags: VALUE|DATETIME|STRING|FORMULA|HARDATTR. Same mask as
-# plugin/calc/python/function.py._SPILL_CLEAR_FLAGS: keeps comments, styles,
+# plugin/calc/python/spill.py._SPILL_CLEAR_FLAGS: keeps comments, styles,
 # and draw objects in the former spill area (511 would wipe them).
 _SPILL_CLEAR_FLAGS = 1 | 2 | 4 | 16 | 32
 

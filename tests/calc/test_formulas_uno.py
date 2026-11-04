@@ -374,12 +374,15 @@ def test_insert_result_into_calc_undo(ctx, doc):
 @with_native_doc("calc")
 def test_calc_spill_undo_lock(ctx, doc):
     """Deferred spill writes must not create extra undo actions on top of the formula."""
-    from plugin.calc.python.function import _spill_registry_doc_key, perform_deferred_spill
+    from plugin.calc.python.spill import perform_deferred_spill
+    from plugin.calc.python.workbook_state import WorkbookState
 
     active_sheet = doc.getCurrentController().getActiveSheet()
     # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
     # be a saved file, and its URL would not match, so the spill would be skipped.
-    doc_url = _spill_registry_doc_key(doc)
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    doc_url = st.key
 
     # Simulate user typing a formula into A1
     active_sheet.getCellByPosition(0, 0).setFormula('=PY("result = [1, 2, 3]")')

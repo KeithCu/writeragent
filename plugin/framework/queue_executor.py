@@ -251,9 +251,9 @@ class MainThread:
         return None
 
     def __init__(self, ctx: Any | None = None) -> None:
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
-        self._ctx: Any | None = _unwrap_uno(ctx) if ctx is not None else None
+        self._ctx: Any | None = unwrap_uno(ctx) if ctx is not None else None
         self._work_queue: queue.Queue[Any] = queue.Queue()
         self._async_callback_service: Any = None
         self._callback_instance: Any = None
@@ -267,11 +267,11 @@ class MainThread:
 
     def set_context(self, ctx: Any) -> None:
         """Update or set the UNO component context (e.g. at bootstrap)."""
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
         # Store the raw context: Layer A wraps get_ctx() results, and comparing
         # proxy vs target would reset initialization on every panel wire.
-        raw = _unwrap_uno(ctx) if ctx is not None else None
+        raw = unwrap_uno(ctx) if ctx is not None else None
         with self._init_lock:
             if self._ctx is not raw:
                 self._ctx = raw
@@ -353,7 +353,7 @@ class MainThread:
     # from a worker is the marshal bootstrap: if the guard fires here it calls
     # main.call while ``_init_lock`` is held, and the UI thread
     # deadlocks in set_context(). Two defenses prevent this:
-    #   1. _unwrap_uno() strips the guard proxy so UNO calls below don't
+    #   1. unwrap_uno() strips the guard proxy so UNO calls below don't
     #      trigger assert_main_thread at all.
     #   2. _notify_thread_violation (thread_guard.py) bails early when
     #      ``not main.is_marshal_ready()``, which is exactly the state
@@ -380,7 +380,7 @@ class MainThread:
                 # cause AsyncCallback to be created in the wrong context — silently
                 # making execute() pokes no-ops. Missing ctx is logged, not probed.
                 # self._ctx is already raw from __init__ and set_context; the service manager is unwrapped below.
-                from plugin.framework.thread_guard import _unwrap_uno
+                from plugin.framework.thread_guard import unwrap_uno
 
                 ctx = self._ctx
                 # get_ctx() is @main_thread_only. This runs on the first worker
@@ -399,7 +399,7 @@ class MainThread:
 
                 from plugin.framework.uno_context import get_service_manager
 
-                smgr = _unwrap_uno(get_service_manager(ctx))
+                smgr = unwrap_uno(get_service_manager(ctx))
                 self._async_callback_service = cast("Any", smgr).createInstanceWithContext("com.sun.star.awt.AsyncCallback", ctx)
                 if self._async_callback_service is None:
                     raise RuntimeError("createInstance com.sun.star.awt.AsyncCallback returned None")
@@ -414,6 +414,15 @@ class MainThread:
                     log.warning("AsyncCallback unavailable (%s); next marshal will retry", exc)
                     self._logged_callback_problem = True
             return self._async_callback_service
+
+    def has_async_callback(self) -> bool:
+        """True when AsyncCallback exists or can be created.
+
+        Uses the lazy creator so install sees the same readiness as
+        ``_get_async_callback()`` without peeking ``_async_callback_service`` alone
+        (that field stays None until creation, which would make install always skip).
+        """
+        return self._get_async_callback() is not None
 
     def _make_callback_instance(self) -> Any:
         """Create a UNO XCallback that processes work items one at a time."""

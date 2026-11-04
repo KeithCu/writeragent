@@ -462,7 +462,7 @@ def _patch_memory(module: Any) -> None:
 def _patch_cors(module: Any) -> None:
     from plugin.framework.deal_shim import ascii_bounded
 
-    module._deal_origin_ok = (
+    module.deal_origin_ok = (
         lambda origin: isinstance(origin, str)
         and len(origin) <= 32
         and all(c in module._ORIGIN_CHARS for c in origin)
@@ -475,11 +475,11 @@ def _patch_cors(module: Any) -> None:
     )
     module._deal_origins_config_ok = lambda value: (
         value is None
-        or (isinstance(value, str) and module._deal_origin_ok(value))
+        or (isinstance(value, str) and module.deal_origin_ok(value))
         or (
             isinstance(value, list)
             and len(value) <= 4
-            and all(module._deal_origin_ok(item) for item in value)
+            and all(module.deal_origin_ok(item) for item in value)
         )
     )
 

@@ -92,7 +92,8 @@ def test_set_slide_layout_uses_shared_helper():
     ctx = MagicMock()
     page = MagicMock()
     page.Layout = 20
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideLayout().execute(ctx, layout="text", page=0)
     assert out["status"] == "ok"
     assert out["layout"] == "text"
@@ -102,7 +103,8 @@ def test_set_slide_layout_uses_shared_helper():
 def test_set_slide_layout_none_alias():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideLayout().execute(ctx, layout="none", page=0)
     assert out["status"] == "ok"
     assert out["layout"] == "blank"
@@ -112,7 +114,8 @@ def test_set_slide_layout_none_alias():
 def test_get_slide_layout_labels_autolayout_not_powerpoint_ids():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         page.Layout = 19
         title_only = GetSlideLayout().execute(ctx, page=0)
         page.Layout = 20
@@ -141,7 +144,8 @@ def test_get_slide_transition_defaults_when_properties_missing():
     ctx = MagicMock()
     page = MagicMock()
     page.getPropertyValue.side_effect = Exception("Property missing")
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = GetSlideTransition().execute(ctx, page=0)
     assert out == {
         "status": "ok",
@@ -176,7 +180,8 @@ def test_get_slide_transition_defaults_only_the_failed_property():
         raise Exception(f"Unexpected {name}")
 
     page.getPropertyValue.side_effect = get_property
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 1)
         out = GetSlideTransition().execute(ctx, page=1)
     assert out == {
         "status": "ok",
@@ -193,8 +198,9 @@ def test_set_slide_transition_effect_and_speed():
     ctx = MagicMock()
     page = MagicMock()
 
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
          patch("plugin.draw.transitions._pres_enum", side_effect=lambda type_name, member: (type_name, member)):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, effect="dissolve", speed="fast", duration=5, advance="auto")
 
     assert out == {"status": "ok", "page": 0, "updated": ["effect", "speed", "duration", "advance"]}
@@ -207,7 +213,8 @@ def test_set_slide_transition_effect_and_speed():
 def test_set_slide_transition_unknown_effect():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, effect="not_a_real_effect")
 
     assert out["status"] == "error"
@@ -218,8 +225,9 @@ def test_set_slide_transition_unknown_effect():
 def test_set_slide_transition_enum_import_error_is_a_tool_error():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
          patch("plugin.draw.transitions._pres_enum", side_effect=ImportError("no uno")):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, effect="dissolve")
 
     assert out["status"] == "error"
@@ -230,8 +238,9 @@ def test_set_slide_transition_enum_import_error_is_a_tool_error():
 def test_set_slide_transition_accepts_every_effect_key():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
          patch("plugin.draw.transitions._pres_enum", return_value="enum"):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         for key in _FADE_EFFECTS:
             out = SetSlideTransition().execute(ctx, page=0, effect=key)
             assert out["status"] == "ok"
@@ -241,8 +250,9 @@ def test_set_slide_transition_accepts_every_effect_key():
 def test_set_slide_transition_unknown_effect_never_looks_up_enum():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
          patch("plugin.draw.transitions._pres_enum", side_effect=AssertionError("enum lookup")):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, effect="bogus")
 
     assert out["status"] == "error"
@@ -252,7 +262,8 @@ def test_set_slide_transition_unknown_effect_never_looks_up_enum():
 def test_set_slide_transition_unknown_speed():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, speed="supersonic")
 
     assert out["status"] == "error"
@@ -263,7 +274,8 @@ def test_set_slide_transition_unknown_speed():
 def test_set_slide_transition_unknown_advance():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, advance="telepathic")
 
     assert out["status"] == "error"
@@ -274,7 +286,8 @@ def test_set_slide_transition_unknown_advance():
 def test_set_slide_transition_accepts_semi_auto():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, advance="semi_auto")
     assert out["status"] == "ok"
     page.setPropertyValue.assert_any_call("Change", 2)
@@ -284,20 +297,22 @@ def test_get_slide_transition_uses_ctx_active_page_index():
     ctx = MagicMock()
     ctx.active_page_index = 2
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page) as mock_get_slide:
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 2)
         out = GetSlideTransition().execute(ctx)
     assert out["page"] == 2
-    mock_get_slide.assert_called_once_with(ctx.doc, 2)
+    bridge_cls.return_value.resolve_page.assert_called_once_with(None, active_page_index=2)
 
 
 def test_explicit_page_wins_over_ctx_active_page_index():
     ctx = MagicMock()
     ctx.active_page_index = 2
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page) as mock_get_slide:
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = GetSlideTransition().execute(ctx, page=0)
     assert out["page"] == 0
-    mock_get_slide.assert_called_once_with(ctx.doc, 0)
+    bridge_cls.return_value.resolve_page.assert_called_once_with(0, active_page_index=2)
 
 
 def test_set_slide_layout_uses_ctx_active_page_index():
@@ -305,17 +320,19 @@ def test_set_slide_layout_uses_ctx_active_page_index():
     ctx.active_page_index = 1
     page = MagicMock()
     page.Layout = 20
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page) as mock_get_slide:
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 1)
         out = SetSlideLayout().execute(ctx, layout="text")
     assert out["page"] == 1
     assert page.Layout == 1
-    mock_get_slide.assert_called_once_with(ctx.doc, 1)
+    bridge_cls.return_value.resolve_page.assert_called_once_with(None, active_page_index=1)
 
 
 def test_set_slide_transition_invalid_speed_writes_nothing():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, effect="dissolve", speed="supersonic")
     assert out["status"] == "error"
     assert "Unknown speed" in out["message"]
@@ -325,7 +342,8 @@ def test_set_slide_transition_invalid_speed_writes_nothing():
 def test_set_slide_transition_invalid_advance_writes_nothing():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, effect="dissolve", duration=5, advance="telepathic")
     assert out["status"] == "error"
     page.setPropertyValue.assert_not_called()
@@ -334,7 +352,8 @@ def test_set_slide_transition_invalid_advance_writes_nothing():
 def test_set_slide_transition_bad_duration_type():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, duration="five")
     assert out["status"] == "error"
     assert "Invalid duration" in out["message"]
@@ -344,7 +363,8 @@ def test_set_slide_transition_bad_duration_type():
 def test_set_slide_transition_bad_transition_duration_type():
     ctx = MagicMock()
     page = MagicMock()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, transition_duration="long")
     assert out["status"] == "error"
     assert "Invalid transition_duration" in out["message"]
@@ -355,7 +375,8 @@ def test_set_slide_transition_write_failure_is_a_tool_error():
     ctx = MagicMock()
     page = MagicMock()
     page.setPropertyValue.side_effect = RuntimeError("boom")
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = SetSlideTransition().execute(ctx, page=0, effect="dissolve")
     assert out["status"] == "error"
     assert "Could not update slide transition" in out["message"]
@@ -365,8 +386,9 @@ def test_set_slide_transition_disposal_still_raises():
     ctx = MagicMock()
     page = MagicMock()
     page.setPropertyValue.side_effect = RuntimeError("boom")
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=page), \
+    with patch("plugin.draw.transitions.DrawBridge") as bridge_cls, \
          patch("plugin.draw.transitions.is_disposal", return_value=True):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(RuntimeError):
             SetSlideTransition().execute(ctx, page=0, effect="dissolve")
 

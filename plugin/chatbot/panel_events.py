@@ -7,7 +7,7 @@ from plugin.chatbot.panel_resize import _set_pos_size_if_changed
 from plugin.chatbot.send_state import ButtonAction
 from plugin.framework.errors import suppress_disposed
 
-log = logging.getLogger("plugin.chatbot.panel")
+log = logging.getLogger(__name__)
 
 
 def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:

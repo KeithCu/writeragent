@@ -19,10 +19,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from plugin.framework.tool import ToolContext
 
 from plugin.doc import text_helpers as _text_helpers
 from plugin.framework.doc_type import is_impress
@@ -116,41 +114,32 @@ class DrawBridge:
             return pages.getByIndex(0)
         return None
 
-    @classmethod
-    def resolve_slide(cls, doc: Any, page_index: int | None = None) -> Any:
-        """Resolve a slide (XDrawPage) by index or active slide."""
-        bridge = cls(doc)
-        if page_index is not None:
-            pages = bridge.get_pages()
-            if page_index < 0 or page_index >= pages.getCount():
-                raise IndexError(f"Page index {page_index} out of range.")
-            return pages.getByIndex(page_index)
-        page = bridge.get_active_page()
-        if page is None:
-            raise RuntimeError("No draw page available.")
-        return page
+    def active_or_ctx_index(self, page_index: Any = None, *, active_page_index: Any = None) -> Any:
+        """Explicit page index, else chat active_page_index, else the controller."""
+        actual = page_index if page_index is not None else active_page_index
+        if actual is None:
+            return self.get_active_page_index()
+        return actual
 
-    @classmethod
-    def get_slide_for_tool(cls, doc: Any, page_index: int | None = None) -> Any:
-        """Resolve a slide for tool ``execute()``.
+    def resolve_page(self, page_index: Any = None, *, active_page_index: Any = None) -> tuple[Any, int]:
+        """Resolve a draw page by index for tool ``execute()``.
 
-        Re-raises UNO dispose so ``execute_safe`` maps it to ``DOCUMENT_DISPOSED``.
-        The four Draw/Impress tool modules used to catch ``Exception`` and raise
-        ``ToolExecutionError(str(e))``, which stripped dispose identity. The native
-        test runner then treated a dead URP as a normal tool failure instead of
-        aborting the remaining suite.
+        One bridge per call: explicit index, else ``active_page_index``, else
+        ``get_active_page_index()``. Connect, group, and delete used to ignore
+        ``ctx.active_page_index``. ``ToolExecutionError`` is what ``execute_safe``
+        returns without a ``Tool execution failed:`` prefix.
 
-        ``IndexError`` stays a ``ToolExecutionError`` (page out of range). Any
-        other failure propagates. ``execute_safe`` maps it to
-        ``TOOL_EXECUTION_ERROR`` (``Tool execution failed: ...``), the same code
-        as the old wrap, and includes the exception type.
+        Disposal and any in-range ``getByIndex`` error propagate unchanged.
         """
-        try:
-            return cls.resolve_slide(doc, page_index)
-        except IndexError:
-            # resolve_slide only raises IndexError when page_index is an int.
-            raise ToolExecutionError("Page index %s out of range." % page_index)
-        # Other failures propagate. execute_safe maps them to TOOL_EXECUTION_ERROR.
+        actual = self.active_or_ctx_index(page_index, active_page_index=active_page_index)
+        pages = self.get_pages()
+        count = pages.getCount()
+        if type(actual) is not int or actual < 0 or actual >= count:
+            raise ToolExecutionError("Page index %s out of range." % actual)
+        page = pages.getByIndex(actual)
+        if page is None:
+            raise ToolExecutionError("No draw page available.")
+        return page, actual
 
     def get_shapes(self, page: Any | None = None) -> list[tuple[str, Any]]:
         from plugin.draw.tree import iter_shape_addresses
@@ -863,45 +852,18 @@ class DrawBridge:
         return 0
 
 
-def _page_index(ctx: ToolContext, page: Any, bridge: Any) -> Any:
-    actual = page if page is not None else ctx.active_page_index
-    if actual is None:
-        actual = bridge.get_active_page_index()
-    return actual
+def page_size(page: Any) -> tuple[int, int] | None:
+    """Both Width and Height must be type int and > 0, else None.
 
-
-def resolve_page_and_bridge(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[Any, Any]:
-    bridge = DrawBridge(ctx.doc)
-    return bridge, _page_index(ctx, kwargs.get("page"), bridge)
-
-
-def resolve_shape_page(ctx: ToolContext, kwargs: dict[str, Any], bridge: Any | None = None) -> tuple[Any | None, Any, str | None]:
-    if bridge is None:
-        target_bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
-    else:
-        target_bridge = bridge
-        actual_idx = _page_index(ctx, kwargs.get("page"), target_bridge)
-    try:
-        page = target_bridge.get_pages().getByIndex(actual_idx)
-    except Exception as exc:
-        if is_disposal(exc):
-            raise
-        return None, actual_idx, "Invalid page index: %s" % actual_idx
-    if page is None:
-        return None, actual_idx, "No draw page available."
-    return page, actual_idx, None
-
-
-def mutation_page(ctx: ToolContext, page_index: Any) -> Any:
-    """Page upsert uses: explicit index, else chat active_page_index, else the controller.
-
-    Connect, group, and delete used ``get_active_page()`` and ignored
-    ``ctx.active_page_index``, so a turn could create on one page and
-    connect or delete on another. ``get_slide_for_tool`` re-raises dispose.
+    ``type(x) is int`` so bool is not a size. ``page is None`` → None.
     """
-    bridge = DrawBridge(ctx.doc)
-    actual = _page_index(ctx, page_index, bridge)
-    return DrawBridge.get_slide_for_tool(ctx.doc, actual)
+    if page is None:
+        return None
+    w = getattr(page, "Width", None)
+    h = getattr(page, "Height", None)
+    if type(w) is not int or type(h) is not int or w <= 0 or h <= 0:
+        return None
+    return w, h
 
 
 _NOTES_SHAPE_TYPE = "com.sun.star.presentation.NotesShape"
@@ -1009,9 +971,9 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
         ctx_str += "Active %s Index: %d\n" % ("Slide" if is_impress_doc else "Page", active_page_idx)
 
         # Tip: page size lets the model keep shapes on the slide.
-        page_w = getattr(active_page, "Width", None)
-        page_h = getattr(active_page, "Height", None)
-        if isinstance(page_w, int) and isinstance(page_h, int):
+        size = page_size(active_page)
+        if size is not None:
+            page_w, page_h = size
             ctx_str += "%s Size: width=%d, height=%d (1/100 mm)\n" % (
                 "Slide" if is_impress_doc else "Page", page_w, page_h)
 

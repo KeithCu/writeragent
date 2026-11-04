@@ -20,7 +20,6 @@ from plugin.scripting.venv.coerce import (
     coerce_str_list,
     flat_label,
     parse_date_column,
-    numeric_columns as _numeric_columns,
     resolve_columns,
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
@@ -505,7 +504,7 @@ class QuickStats:
                 return res
             numeric_columns = list(res)
         else:
-            cols = self.metadata.get("numeric_cols") or _numeric_columns(self.df)
+            cols = self.metadata.get("numeric_cols") or resolve_columns(self.df, numeric=True)
             numeric_columns = [c for c in cols if c in self.df.columns]
 
         columns: list[str] = ["Metric", "Value"]
@@ -998,7 +997,7 @@ def run_regression(
     target = rejected_target[0]
 
     if features is None:
-        feature_cols = [c for c in _numeric_columns(df) if c != target]
+        feature_cols = [c for c in resolve_columns(df, numeric=True) if c != target]
     else:
         coerced_features = _coerce_columns(features, "features", "run_regression")
         if isinstance(coerced_features, dict):
@@ -1226,7 +1225,7 @@ def monte_carlo(
     if df.empty:
         return _error_result("INSUFFICIENT_DATA", "No data for monte_carlo", helper="monte_carlo")
 
-    numeric_cols = _numeric_columns(df)
+    numeric_cols = resolve_columns(df, numeric=True)
     if not numeric_cols:
         return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns for monte_carlo", helper="monte_carlo")
 

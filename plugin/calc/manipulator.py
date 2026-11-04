@@ -26,7 +26,7 @@ from collections import Counter
 import csv
 import io
 import logging
-from typing import TYPE_CHECKING, Any, Callable, NamedTuple, TypeGuard
+from typing import TYPE_CHECKING, Any, Callable, NamedTuple, Sequence, TypeGuard
 
 if TYPE_CHECKING:
     from com.sun.star.awt import FontWeight
@@ -371,44 +371,37 @@ class CellManipulator:
             border_color: Border colour (RGB int).
             number_format: Number format string (e.g. "#,##0.00").
         """
-        try:
-            is_range = ":" in address_or_range
-            target = self.bridge.resolve_range_or_address(address_or_range) if is_range else self.bridge.get_cell_by_address(address_or_range)
-            if bold is not None:
-                target.setPropertyValue("CharWeight", FontWeight.BOLD if bold else FontWeight.NORMAL)
-            if italic is not None:
-                target.setPropertyValue("CharPosture", ITALIC if italic else NONE)
-            if bg_color is not None:
-                target.setPropertyValue("CellBackColor", bg_color)
-            if font_color is not None:
-                target.setPropertyValue("CharColor", font_color)
-            if font_size is not None:
-                target.setPropertyValue("CharHeight", font_size)
-            if h_align is not None:
-                align_map: dict[str, Any] = {"left": LEFT, "center": CENTER, "right": RIGHT, "justify": BLOCK, "standard": STANDARD}
-                if h_align.lower() in align_map:
-                    target.setPropertyValue("HoriJustify", align_map[h_align.lower()])
-            if v_align is not None:
-                align_map = {"top": TOP, "center": CENTER, "bottom": BOTTOM, "standard": STANDARD}
-                if v_align.lower() in align_map:
-                    target.setPropertyValue("VertJustify", align_map[v_align.lower()])
-            if wrap_text is not None:
-                target.setPropertyValue("IsTextWrapped", wrap_text)
-            if border_color is not None:
-                self._apply_borders(target, border_color)
-            if number_format:
-                self._set_number_format(target, number_format)
-            log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            log.exception("Style application failed for %s", address_or_range)
-            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
-            raise
+        is_range = ":" in address_or_range
+        target = self.bridge.resolve_range_or_address(address_or_range) if is_range else self.bridge.get_cell_by_address(address_or_range)
+        if bold is not None:
+            target.setPropertyValue("CharWeight", FontWeight.BOLD if bold else FontWeight.NORMAL)
+        if italic is not None:
+            target.setPropertyValue("CharPosture", ITALIC if italic else NONE)
+        if bg_color is not None:
+            target.setPropertyValue("CellBackColor", bg_color)
+        if font_color is not None:
+            target.setPropertyValue("CharColor", font_color)
+        if font_size is not None:
+            target.setPropertyValue("CharHeight", font_size)
+        if h_align is not None:
+            align_map: dict[str, Any] = {"left": LEFT, "center": CENTER, "right": RIGHT, "justify": BLOCK, "standard": STANDARD}
+            if h_align.lower() in align_map:
+                target.setPropertyValue("HoriJustify", align_map[h_align.lower()])
+        if v_align is not None:
+            align_map = {"top": TOP, "center": CENTER, "bottom": BOTTOM, "standard": STANDARD}
+            if v_align.lower() in align_map:
+                target.setPropertyValue("VertJustify", align_map[v_align.lower()])
+        if wrap_text is not None:
+            target.setPropertyValue("IsTextWrapped", wrap_text)
+        if border_color is not None:
+            self._apply_borders(target, border_color)
+        if number_format:
+            self._set_number_format(target, number_format)
+        log.info("%s %s style updated.", "Range" if is_range else "Cell", address_or_range.upper())
 
     @staticmethod
     def _resolve_document_locale(doc: Any) -> Any:
-        """Return document CharLocale, or en-US when Language is empty/unusable (M2)."""
+        """Return document CharLocale, or en-US when Language is empty/unusable."""
         import uno
 
         try:
@@ -439,22 +432,13 @@ class CellManipulator:
         Args:
             range_str: Cell range (e.g. "A1:D10").
         """
-        try:
-            cell_range, addr, sheet = self._resolve_range_sheet(range_str)
-            # clearContents on part of an array formula silently does nothing, so
-            # refuse with a clear message unless the range covers the whole array.
-            self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=True)
-            # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16 -> 23
-            cell_range.clearContents(23)
-            log.info("Range %s cleared.", range_str.upper())
-        except CalcError:
-            raise
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            log.exception("Range clear failed for %s", range_str)
-            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
-            raise
+        cell_range, addr, sheet = self._resolve_range_sheet(range_str)
+        # clearContents on part of an array formula silently does nothing, so
+        # refuse with a clear message unless the range covers the whole array.
+        self._raise_if_intersects_array(sheet, addr.StartColumn, addr.StartRow, addr.EndColumn, addr.EndRow, allow_contained=True)
+        # CellFlags: VALUE=1, DATETIME=2, STRING=4, FORMULA=16 -> 23
+        cell_range.clearContents(23)
+        log.info("Range %s cleared.", range_str.upper())
 
     def merge_cells(self, range_str: str, center: bool = True) -> None:
         """Merge a cell range.
@@ -463,20 +447,13 @@ class CellManipulator:
             range_str: Cell range to merge (e.g. "A1:D1").
             center: Centre content after merging.
         """
-        try:
-            cell_range = self.bridge.resolve_range_or_address(range_str)
-            cell_range.merge(True)
-            log.info("Range %s merged.", range_str.upper())
+        cell_range = self.bridge.resolve_range_or_address(range_str)
+        cell_range.merge(True)
+        log.info("Range %s merged.", range_str.upper())
 
-            if center:
-                cell_range.setPropertyValue("HoriJustify", CENTER)
-                cell_range.setPropertyValue("VertJustify", V_CENTER)
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            log.exception("Cell merge failed for %s", range_str)
-            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
-            raise
+        if center:
+            cell_range.setPropertyValue("HoriJustify", CENTER)
+            cell_range.setPropertyValue("VertJustify", V_CENTER)
 
     def sort_range(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True) -> str:
         """Sort a range.
@@ -490,45 +467,36 @@ class CellManipulator:
         Returns:
             Description string.
         """
-        try:
-            cell_range = self.bridge.resolve_range_or_address(range_str)
-            addr = _uno_range_address(cell_range)
-            width = int(addr.EndColumn) - int(addr.StartColumn) + 1
-            # Bugfix: sort_column was not checked against range width, and ascending/has_header
-            # accepted non-bools. This happened because arguments were passed directly to UNO's
-            # sort descriptor without bounds checking. Verifying sort_column fits within the
-            # range width and validating boolean types prevents crashes or sorting wrong columns.
-            if type(sort_column) is not int or sort_column < 0 or sort_column >= width:
-                raise CalcError(f"sort_column must be an integer from 0 to {width - 1} for this range ({width} columns).")
-            if type(ascending) is not bool or type(has_header) is not bool:
-                raise CalcError("ascending and has_header must be booleans")
+        cell_range = self.bridge.resolve_range_or_address(range_str)
+        addr = _uno_range_address(cell_range)
+        width = int(addr.EndColumn) - int(addr.StartColumn) + 1
+        # Bugfix: sort_column was not checked against range width, and ascending/has_header
+        # accepted non-bools. This happened because arguments were passed directly to UNO's
+        # sort descriptor without bounds checking. Verifying sort_column fits within the
+        # range width and validating boolean types prevents crashes or sorting wrong columns.
+        if type(sort_column) is not int or sort_column < 0 or sort_column >= width:
+            raise CalcError(f"sort_column must be an integer from 0 to {width - 1} for this range ({width} columns).")
+        if type(ascending) is not bool or type(has_header) is not bool:
+            raise CalcError("ascending and has_header must be booleans")
 
-            sort_desc = list(cell_range.createSortDescriptor())
+        sort_desc = list(cell_range.createSortDescriptor())
 
-            sort_field = TableSortField()
-            sort_field.Field = sort_column
-            sort_field.IsAscending = ascending
-            sort_field.IsCaseSensitive = False
+        sort_field = TableSortField()
+        sort_field.Field = sort_column
+        sort_field.IsAscending = ascending
+        sort_field.IsCaseSensitive = False
 
-            for p in sort_desc:
-                if p.Name == "SortFields":
-                    p.Value = (sort_field,)
-                elif p.Name == "ContainsHeader":
-                    p.Value = has_header
+        for p in sort_desc:
+            if p.Name == "SortFields":
+                p.Value = (sort_field,)
+            elif p.Name == "ContainsHeader":
+                p.Value = has_header
 
-            cell_range.sort(tuple(sort_desc))
+        cell_range.sort(tuple(sort_desc))
 
-            direction = "ascending" if ascending else "descending"
-            log.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
-            return f"Range {range_str} sorted {direction} by column {sort_column}."
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            if isinstance(e, CalcError):
-                raise
-            log.exception("Sort failed for %s", range_str)
-            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
-            raise
+        direction = "ascending" if ascending else "descending"
+        log.info("Range %s sorted %s by column %d.", range_str.upper(), direction, sort_column)
+        return f"Range {range_str} sorted {direction} by column {sort_column}."
 
     def _make_number_formatter(self, doc: Any) -> Any:
         """Attach a NumberFormatter to *doc* once per write invocation.
@@ -538,12 +506,12 @@ class CellManipulator:
         not auto-unwrapped — hand it the raw UNO supplier or attach fails with
         an often-empty UNO message and ISO writes never run.
         """
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
-        uno_ctx = _unwrap_uno(get_ctx())
+        uno_ctx = unwrap_uno(get_ctx())
         smgr = uno_ctx.getServiceManager()
         formatter = smgr.createInstanceWithContext("com.sun.star.util.NumberFormatter", uno_ctx)
-        formatter.attachNumberFormatsSupplier(_unwrap_uno(doc))
+        formatter.attachNumberFormatsSupplier(unwrap_uno(doc))
         return formatter
 
     def _resolve_elapsed_format_key(self, formats: Any, locale: Any) -> int:
@@ -631,7 +599,7 @@ class CellManipulator:
             return _CellWrite(value, "", "text", None, None)
 
     def _find_column_temporal_templates(self, sheet: Any, formats: Any, columns_needing_templates: dict[int, str], scan_start_row: int, category_cache: dict[int, str | None]) -> dict[int, int]:
-        """Find inherited NumberFormat keys by scanning upward in each column (P1).
+        """Find inherited NumberFormat keys by the upward scan that copies a column's existing number format.
 
         Args:
             sheet: The active sheet.
@@ -643,11 +611,11 @@ class CellManipulator:
         Returns:
             {col_index: inherited_format_key} for columns where a template was found.
 
-        Compatibility is stricter than M1 preserve (see ``is_compatible_temporal_template``):
+        Compatibility uses the stricter template check in ``is_compatible_temporal_template``:
         date does not inherit datetime; clock time skips elapsed FormatString templates.
         """
         column_templates: dict[int, int] = {}
-        # FormatString beside Type so clock-time P1 can skip elapsed [HH]:… templates.
+        # FormatString beside Type so the upward scan that copies a column's existing number format can skip elapsed [HH]:… templates.
         format_code_cache: dict[int, object | None] = {}
         for col, input_category in columns_needing_templates.items():
             start_r = scan_start_row - 1
@@ -677,7 +645,7 @@ class CellManipulator:
         return column_templates
 
     def _apply_temporal_format_runs(self, sheet: Any, start: tuple[int, int], decisions: Any) -> None:
-        """Apply detected NumberFormat keys as coalesced 2D rectangles (S8/S25).
+        """Apply detected NumberFormat keys with one NumberFormat write per coalesced rectangle.
 
         Resolves empty-cell bridging per row, finds horizontal apply runs, then
         vertically merges identical ``(c0, c1, key)`` spans before one range set
@@ -736,6 +704,171 @@ class CellManipulator:
 
             if not was_modified:
                 _quiet_probe_cleanup(lambda: doc.setModified(False), "setModified")
+
+    def plan_writes(
+        self,
+        values: Sequence[Any],
+        formatter: Any,
+        std_key: Any,
+        elapsed_format_key: int | None = None,
+        *,
+        literal_text: bool = False,
+        data_text: bool = False,
+    ) -> list[_CellWrite]:
+        """Classify write inputs into data/formula/meta cell writes without UNO access."""
+        return [
+            self._classify_write_cell(
+                v,
+                formatter,
+                std_key,
+                elapsed_format_key=elapsed_format_key,
+                literal_text=literal_text,
+                data_text=data_text,
+            )
+            for v in values
+        ]
+
+    def commit(
+        self,
+        sheet: Any,
+        start: tuple[int, int],
+        end: tuple[int, int],
+        cell_metas: list[_CellWrite],
+        formats: Any,
+        *,
+        literal_text: bool = False,
+        data_text: bool = False,
+    ) -> tuple[str, list[list[Any]], dict[tuple[int, int], str | None], dict[int, str | None], dict[int, str]]:
+        """Commit data, formulas, and text writes to the sheet and restore number format snapshots."""
+        data_array: list[list[Any]] = []
+        formula_cells: list[tuple[int, int, str]] = []  # (col, row, formula)
+        literal_text_cells: list[tuple[int, int, str]] = []
+        s29_snapshots: list[tuple[int, int, int]] = []  # col, row, key
+        dest_categories: dict[tuple[int, int], str | None] = {}
+        category_cache: dict[int, str | None] = {}
+        cols_needing: dict[int, str] = {}
+
+        num_cols = end[0] - start[0] + 1
+        num_rows = end[1] - start[1] + 1
+        total_cells = num_rows * num_cols
+
+        cell_idx = 0
+        for row in range(start[1], end[1] + 1):
+            data_row: list[Any] = []
+            for col in range(start[0], end[0] + 1):
+                cell_write = cell_metas[cell_idx]
+                data_val = cell_write.data
+                formula = cell_write.formula
+                if (literal_text or data_text) and cell_write.kind == "forced_text":
+                    # setDataArray/SetString parses a leading '=' as a formula
+                    # and float() would drop leading zeros. Commit text via setString.
+                    literal_text_cells.append((col, row, str(data_val)))
+                    data_val = ""
+                if formula:
+                    formula_cells.append((col, row, formula))
+                data_row.append(data_val)
+                if cell_write.kind == "text" or cell_write.kind == "temporal":
+                    cell = sheet.getCellByPosition(col, row)
+                    key = uno_read(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
+                    if cell_write.kind == "text":
+                        s29_snapshots.append((col, row, key))
+                    if cell_write.kind == "temporal":
+                        if key not in category_cache:
+                            category_cache[key] = uno_read(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
+                        dest_cat = category_cache[key]
+                        dest_categories[(col, row)] = dest_cat
+                        if dest_cat is None and col not in cols_needing:
+                            cols_needing[col] = cell_write.input_category or ""
+                cell_idx += 1
+            data_array.append(data_row)
+
+        cell_range = sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
+
+        # setDataArray undo does not clear previously-empty cells.
+        # Above 2000 cells, speed wins over that undo quirk.
+        if total_cells > 2000 or not _range_has_blank_cell(sheet, start, end):
+            cell_range.setDataArray(tuple(tuple(r) for r in data_array))
+        else:
+            for r_idx, row in enumerate(range(start[1], end[1] + 1)):
+                for c_idx, col in enumerate(range(start[0], end[0] + 1)):
+                    val = data_array[r_idx][c_idx]
+                    cell = sheet.getCellByPosition(col, row)
+                    if isinstance(val, (int, float)):
+                        cell.setValue(float(val))
+                    else:
+                        cell.setString(str(val))
+
+        for col, row, key in s29_snapshots:
+            sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
+
+        formula_warning = ""
+        for col, row, formula in formula_cells:
+            cell = sheet.getCellByPosition(col, row)
+            cell.setFormula(formula)
+            if not formula_warning:
+                err = int(cell.Error)
+                if err != 0:
+                    hint = " (hint: Calc uses ';' as the argument separator)" if err in (508, 525, 501) else ""
+                    formula_warning = f"; warning: formula gives Err:{err}{hint}"
+
+        for col, row, text_value in literal_text_cells:
+            sheet.getCellByPosition(col, row).setString(text_value)
+
+        return formula_warning, data_array, dest_categories, category_cache, cols_needing
+
+    def apply_temporal_formats(
+        self,
+        sheet: Any,
+        formats: Any,
+        start: tuple[int, int],
+        range_str: str,
+        cell_metas: list[_CellWrite],
+        data_array: list[list[Any]],
+        dest_categories: dict[tuple[int, int], str | None],
+        category_cache: dict[int, str | None],
+        cols_needing: dict[int, str],
+    ) -> str:
+        """Apply detected temporal formats with upward template inheritance and coalesced writes."""
+        if not any(m.kind == "temporal" for m in cell_metas):
+            return ""
+
+        format_warning = ""
+        num_cols = len(data_array[0]) if data_array else 0
+        column_templates = self._find_column_temporal_templates(sheet, formats, cols_needing, start[1], category_cache)
+
+        # Build row decisions: None | "empty" | ("apply", key) | ("preserve", None)
+        decisions: list[list[tuple[str, int | None] | str | None]] = []
+        for r_idx, row_vals in enumerate(data_array):
+            row = start[1] + r_idx
+            row_dec: list[tuple[str, int | None] | str | None] = []
+            for c_idx, data_val in enumerate(row_vals):
+                col = start[0] + c_idx
+                meta = cell_metas[r_idx * num_cols + c_idx]
+                if meta.kind == "temporal":
+                    dest_cat = dest_categories.get((col, row))
+                    if should_preserve_temporal_format(meta.input_category or "", float(data_val), dest_cat):
+                        row_dec.append(("preserve", None))
+                    else:
+                        apply_key = column_templates.get(col, meta.detected_key)
+                        row_dec.append(("apply", apply_key))
+                elif meta.kind == "empty":
+                    row_dec.append("empty")
+                else:
+                    row_dec.append(None)
+            decisions.append(row_dec)
+        try:
+            self._apply_temporal_format_runs(sheet, start, decisions)
+        except Exception as e:
+            if is_disposal(e):
+                raise
+            log.exception("Date/time format pass failed for range %s", range_str)
+            # The warning counts cells that needed a new format, not cells whose format was kept.
+            apply_n = sum(1 for row_dec in decisions for d in row_dec if isinstance(d, tuple) and d[0] == "apply")
+            if apply_n:
+                format_warning = f"; could not apply date/time formats to {apply_n} cells in {range_str}"
+            else:
+                format_warning = f"; date/time format pass failed for {range_str}"
+        return format_warning
 
     def write_formula_range(
         self,
@@ -875,56 +1008,37 @@ class CellManipulator:
             formatter = self._make_number_formatter(doc) if needs_formatter else None
             elapsed_format_key = self._resolve_elapsed_format_key(formats, locale) if needs_duration else None
 
-            data_array: list[list[Any]] = []
-            formula_cells: list[tuple[int, int, str]] = []  # (col, row, formula)
-            literal_text_cells: list[tuple[int, int, str]] = []
-            # Per-cell meta in row-major order matching values
-            cell_metas: list[_CellWrite] = []
-            s29_snapshots: list[tuple[int, int, int]] = []  # col, row, key
-            dest_categories: dict[tuple[int, int], str | None] = {}
-            category_cache: dict[int, str | None] = {}
-            cols_needing: dict[int, str] = {}
+            cell_metas = self.plan_writes(
+                values,
+                formatter,
+                std_key,
+                elapsed_format_key=elapsed_format_key,
+                literal_text=literal_text,
+                data_text=data_text,
+            )
 
-            cell_idx = 0
-            for row in range(start[1], end[1] + 1):
-                data_row: list[Any] = []
-                for col in range(start[0], end[0] + 1):
-                    cell_write = self._classify_write_cell(
-                        values[cell_idx],
-                        formatter,
-                        std_key,
-                        elapsed_format_key=elapsed_format_key,
-                        literal_text=literal_text,
-                        data_text=data_text,
-                    )
-                    data_val = cell_write.data
-                    formula = cell_write.formula
-                    if (literal_text or data_text) and cell_write.kind == "forced_text":
-                        # setDataArray/SetString parses a leading '=' as a formula
-                        # and float() would drop leading zeros. Commit text via setString.
-                        literal_text_cells.append((col, row, str(data_val)))
-                        data_val = ""
-                    if formula:
-                        formula_cells.append((col, row, formula))
-                    data_row.append(data_val)
-                    cell_metas.append(cell_write)
-                    if cell_write.kind == "text" or cell_write.kind == "temporal":
-                        cell = sheet.getCellByPosition(col, row)
-                        key = uno_read(lambda: int(cell.getPropertyValue("NumberFormat")), 0)
-                        if cell_write.kind == "text":
-                            s29_snapshots.append((col, row, key))
-                        if cell_write.kind == "temporal":
-                            if key not in category_cache:
-                                category_cache[key] = uno_read(lambda: format_category_from_type(formats.getByKey(key).getPropertyValue("Type")), None)
-                            dest_cat = category_cache[key]
-                            dest_categories[(col, row)] = dest_cat
-                            if dest_cat is None and col not in cols_needing:
-                                cols_needing[col] = cell_write.input_category or ""
-                    cell_idx += 1
-                data_array.append(data_row)
+            formula_warning, data_array, dest_categories, category_cache, cols_needing = self.commit(
+                sheet,
+                start,
+                end,
+                cell_metas,
+                formats,
+                literal_text=literal_text,
+                data_text=data_text,
+            )
 
-            cell_range = sheet.getCellRangeByPosition(start[0], start[1], end[0], end[1])
-            any_temporal = any(m.kind == "temporal" for m in cell_metas)
+            format_warning = self.apply_temporal_formats(
+                sheet,
+                formats,
+                start,
+                range_str,
+                cell_metas,
+                data_array,
+                dest_categories,
+                category_cache,
+                cols_needing,
+            )
+
             counts = Counter(
                 (m.input_category or "temporal") if m.kind == "temporal"
                 else "text" if m.kind in ("text", "forced_text")
@@ -932,73 +1046,6 @@ class CellManipulator:
                 for m in cell_metas
                 if m.kind in ("temporal", "text", "forced_text", "number", "formula")
             )
-
-            # setDataArray undo does not clear previously-empty cells.
-            # Above 2000 cells, speed wins over that undo quirk.
-            if total_cells > 2000 or not _range_has_blank_cell(sheet, start, end):
-                cell_range.setDataArray(tuple(tuple(r) for r in data_array))
-            else:
-                for r_idx, row in enumerate(range(start[1], end[1] + 1)):
-                    for c_idx, col in enumerate(range(start[0], end[0] + 1)):
-                        val = data_array[r_idx][c_idx]
-                        cell = sheet.getCellByPosition(col, row)
-                        if isinstance(val, (int, float)):
-                            cell.setValue(float(val))
-                        else:
-                            cell.setString(str(val))
-
-            for col, row, key in s29_snapshots:
-                sheet.getCellByPosition(col, row).setPropertyValue("NumberFormat", key)
-
-            formula_warning = ""
-            for col, row, formula in formula_cells:
-                cell = sheet.getCellByPosition(col, row)
-                cell.setFormula(formula)
-                if not formula_warning:
-                    err = int(cell.Error)
-                    if err != 0:
-                        hint = " (hint: Calc uses ';' as the argument separator)" if err in (508, 525, 501) else ""
-                        formula_warning = f"; warning: formula gives Err:{err}{hint}"
-
-            for col, row, text_value in literal_text_cells:
-                sheet.getCellByPosition(col, row).setString(text_value)
-
-            format_warning = ""
-            if any_temporal:
-                column_templates = self._find_column_temporal_templates(sheet, formats, cols_needing, start[1], category_cache)
-
-                # Build row decisions: None | "empty" | ("apply", key) | ("preserve", None)
-                decisions: list[list[tuple[str, int | None] | str | None]] = []
-                for r_idx, row_vals in enumerate(data_array):
-                    row = start[1] + r_idx
-                    row_dec: list[tuple[str, int | None] | str | None] = []
-                    for c_idx, data_val in enumerate(row_vals):
-                        col = start[0] + c_idx
-                        meta = cell_metas[r_idx * num_cols + c_idx]
-                        if meta.kind == "temporal":
-                            dest_cat = dest_categories.get((col, row))
-                            if should_preserve_temporal_format(meta.input_category or "", float(data_val), dest_cat):
-                                row_dec.append(("preserve", None))
-                            else:
-                                apply_key = column_templates.get(col, meta.detected_key)
-                                row_dec.append(("apply", apply_key))
-                        elif meta.kind == "empty":
-                            row_dec.append("empty")
-                        else:
-                            row_dec.append(None)
-                    decisions.append(row_dec)
-                try:
-                    self._apply_temporal_format_runs(sheet, start, decisions)
-                except Exception as e:
-                    if is_disposal(e):
-                        raise
-                    log.exception("Date/time format pass failed for range %s", range_str)
-                    # S30: count cells that needed apply, not preserve-only temporals.
-                    apply_n = sum(1 for row_dec in decisions for d in row_dec if isinstance(d, tuple) and d[0] == "apply")
-                    if apply_n:
-                        format_warning = f"; could not apply date/time formats to {apply_n} cells in {range_str}"
-                    else:
-                        format_warning = f"; date/time format pass failed for {range_str}"
 
             parts = []
             for name in ("date", "time", "datetime", "duration", "number", "text", "formula"):
@@ -1225,20 +1272,13 @@ class CellManipulator:
         """
         if structure_type != "rows" and structure_type != "columns":
             raise CalcError(f"Invalid structure_type: {structure_type}. Must be 'rows' or 'columns'.")
-        try:
-            sheet = self.bridge.get_active_sheet()
-            if structure_type == "rows":
-                sheet.getRows().removeByIndex(start - 1, count)
-                kind, where = "row", start
-            else:
-                where = start.upper()
-                kind = "column"
-                sheet.getColumns().removeByIndex(column_to_index(where), count)
-            log.info("%d %s(s) deleted starting from %s %s.", count, kind, kind, where)
-            return f"{count} {kind}(s) deleted starting from {kind} {where}."
-        except Exception as e:
-            if is_disposal(e):
-                raise
-            # CalcError(str(e)) dropped UNO Exception.Message and hid the original type.
-            log.exception("%s deletion failed", "Row" if structure_type == "rows" else "Column")
-            raise
+        sheet = self.bridge.get_active_sheet()
+        if structure_type == "rows":
+            sheet.getRows().removeByIndex(start - 1, count)
+            kind, where = "row", start
+        else:
+            where = start.upper()
+            kind = "column"
+            sheet.getColumns().removeByIndex(column_to_index(where), count)
+        log.info("%d %s(s) deleted starting from %s %s.", count, kind, kind, where)
+        return f"{count} {kind}(s) deleted starting from {kind} {where}."

@@ -533,11 +533,11 @@ class _UnoThreadGuardProxy:
         return self._target(*args, **kwargs)
 
     def __eq__(self, other: object) -> bool:
-        return self._target == _unwrap_uno(other)
+        return self._target == unwrap_uno(other)
 
-def _unwrap_uno(obj: Any) -> Any:
+def unwrap_uno(obj: Any) -> Any:
     # Do not walk list/tuple/dict: _wrap_uno never wraps, and copying
-    # containers would change identity (_unwrap_uno(doc) is doc). If _wrap_uno
+    # containers would change identity (unwrap_uno(doc) is doc). If _wrap_uno
     # ever wraps, copy the dev recursion in the same change.
     if isinstance(obj, _UnoThreadGuardProxy):
         return obj._target
@@ -559,7 +559,7 @@ __all__ = [
     "set_thread_violation_ui",
     "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
-    "_unwrap_uno",
+    "unwrap_uno",
     "GUARD_ON",
     "THREAD_VIOLATION_MARK",
 ]

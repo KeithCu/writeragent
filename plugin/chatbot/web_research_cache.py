@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 from plugin.framework.deal_shim import deal
 from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
 
-log = logging.getLogger("writeragent.web_research_cache")
+log = logging.getLogger(__name__)
 
 _SNOWBALL_LANGS = frozenset(_ISO_TO_SNOWBALL.values())
 _STEMMER_CACHE: dict[str, Any] = {}

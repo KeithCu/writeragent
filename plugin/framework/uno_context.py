@@ -503,10 +503,10 @@ def uno_same(a: Any, b: Any) -> bool:
     LibreOffice / PyUNO wrapper issue and exists with the proxy stripped.
 
     It still works when proxying is on: ``_UnoThreadGuardProxy.__eq__``
-    unwraps ``_target`` and compares ``self._target == _unwrap_uno(other)``
+    unwraps ``_target`` and compares ``self._target == unwrap_uno(other)``
     (see ``thread_guard.py``), so step 2 (``==``) succeeds for
     proxy↔unwrapped. ``uno.isSame`` is a UNO/C++ identity test and must see
-    real PyUNO objects, so step 3 unwraps via ``_unwrap_uno`` first.
+    real PyUNO objects, so step 3 unwraps via ``unwrap_uno`` first.
 
     Ladder:
 
@@ -529,11 +529,11 @@ def uno_same(a: Any, b: Any) -> bool:
         is_same = getattr(uno, "isSame", None)
         if not callable(is_same):
             return False
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
         # ``is True``: mocked ``uno.isSame`` (unit tests) returns a MagicMock,
         # which is truthy. Real PyUNO returns a bool.
-        return is_same(_unwrap_uno(a), _unwrap_uno(b)) is True
+        return is_same(unwrap_uno(a), unwrap_uno(b)) is True
     except Exception:
         return False
 
@@ -553,7 +553,7 @@ def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bo
     return True
 
 
-def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by document_scripts.py
+def enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by document_scripts.py
     """False when *enum* is exhausted or past ``_ENUM_CAP``.
 
     Swallows ``hasMoreElements`` errors and returns False. Callers that need

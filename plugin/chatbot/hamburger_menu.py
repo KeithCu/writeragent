@@ -20,7 +20,7 @@ from plugin.framework.main_shared import get_action_handler
 from plugin.framework.menu_icon_dpi import menu_icon_filename
 from plugin.framework.thread_guard import main_thread_only
 
-log = logging.getLogger("writeragent.hamburger_menu")
+log = logging.getLogger(__name__)
 
 
 @main_thread_only

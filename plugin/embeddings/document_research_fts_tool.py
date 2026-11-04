@@ -186,8 +186,7 @@ class SearchNearbyFiles(ToolBase):
                 k,
                 model=model,
                 near_slop=near_slop,
-                stop_checker=scope.is_cancelled if scope is not None else None,
-                cancellation_scope=scope,
+                cancel=scope,
             )
             if result.get("error"):
                 return self._tool_error(result["error"], code="FOLDER_HYBRID_SEARCH_ERROR")

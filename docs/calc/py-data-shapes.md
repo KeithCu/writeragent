@@ -12,7 +12,7 @@ Related:
 | [Venv IPC & serialization](../scripting/numpy-serialization.md) | Pickle5 wire, `split_grid`, benchmarks, codec invariants |
 | [Microsoft `=PY` design stance](../scripting/ms-py-compatibility.md) | Why Calc keeps explicit `data` args; Excel packages already bind ranges as trailing `_xlws.PY` args that the rewriter maps onto `data` / `ranges` ([§5.8](../scripting/ms-py-compatibility.md#58-ooxml--xlfnpy-import)) |
 
-Code: [`plugin/scripting/calc_range.py`](../../plugin/scripting/calc_range.py), [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) (`to_calc_compatible`).
+Code: [`plugin/scripting/calc_range.py`](../../plugin/scripting/calc_range.py), [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`plugin/calc/python/addin_values.py`](../../plugin/calc/python/addin_values.py) (`to_calc_compatible`).
 
 ## Table of contents
 
@@ -297,7 +297,7 @@ Returning a DataFrame (or named Series) uses the existing `dataframe` envelope (
 | **0-row** DataFrame | **Header only** (column names, no body) |
 | Named empty Series | Header-only one-column grid |
 | Unnamed empty Series | Empty (`""`) |
-| MultiIndex **columns** | Flattened labels `A / x` (not `"('A', 'x')"`) |
+| MultiIndex **columns** | Flattened labels `A / x` (not `"('A', 'x')"`). Blank and `None` levels are omitted and parts are stripped; a pandas `NaN` level stays the word `nan`; an all-blank tuple name is `value`. |
 | MultiIndex **rows** / index | **Dropped** (`itertuples(index=False)`). Call `reset_index()` in the script if the index should appear as a column. |
 | Categorical columns | Category **labels** (strings or codes already in the Series), not a special dtype on the wire |
 
@@ -323,4 +323,4 @@ Not planned unless a real product need appears. **Do not treat the list below as
 - Blank side-channel on `split_grid` + masked-array ingress so pass-through blanks stay empty and `np.mean` auto-ignores Calc blanks (upgrade can be atomic; wire already carries NaN slots).
 - Formula parameters: 3rd arg `extras` for recalc deps; `collapse` on conversion; host `lp()` bridge; per-formula `timeout_sec`.
 - Range alignment helper for mismatched multi-range shapes before `np.corrcoef` / element-wise math — see [Calc UX backlog](../enabling_numpy_in_libreoffice.md#calc-ux-backlog).
-- `_MATRIX_SCALAR_SESSIONS` keys use `repr(worker_data)` (`WorkerResultSession` in [`function.py`](../../plugin/calc/python/function.py)). A packed-payload digest + cell count would avoid building a full `repr` of large grids; do not use `id()`. Not codec work.
+- `per-workbook `WorkbookState.matrix`` keys use `repr(worker_data)` (`WorkerResultSession` in [`recalc.py`](../../plugin/calc/python/recalc.py)). A packed-payload digest + cell count would avoid building a full `repr` of large grids; do not use `id()`. Not codec work.

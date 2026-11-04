@@ -21,6 +21,7 @@ PNG_MAGIC = b"\x89PNG"
 
 
 def test_ensure_mpl_agg_does_not_retry_after_use_failure(monkeypatch):
+    from plugin.scripting.venv import optional_import as oi
     from plugin.scripting.venv import venv_sandbox as vs
 
     calls = {"n": 0}
@@ -33,7 +34,7 @@ def test_ensure_mpl_agg_does_not_retry_after_use_failure(monkeypatch):
 
     monkeypatch.setattr(vs, "_MPL_AGG_SET", False)
     monkeypatch.setattr(vs, "_MPL_AGG_FAILED", False)
-    monkeypatch.setattr(vs, "optional_module", lambda name: _Mpl() if name == "matplotlib" else None)
+    monkeypatch.setattr(oi, "optional_module", lambda name: _Mpl() if name == "matplotlib" else None)
     vs._ensure_mpl_agg()
     assert vs._MPL_AGG_SET is False
     assert vs._MPL_AGG_FAILED is True
@@ -293,7 +294,7 @@ def test_serialize_result_small_numeric_dataframe_spills_body():
     pd = pytest.importorskip("pandas")
     np = pytest.importorskip("numpy")
     from plugin.scripting.venv.venv_sandbox import serialize_result
-    from plugin.calc.python.function import to_calc_compatible
+    from plugin.calc.python.addin_values import to_calc_compatible
     from plugin.scripting.calc_range import result_to_calc_grid
     from plugin.scripting.payload_codec import host_unpack_data, is_split_grid
 
@@ -350,7 +351,7 @@ def test_serialize_result_empty_dataframe_and_series():
     """0-row DataFrame / named empty Series → header-only envelope. Not a codec gap."""
     pd = pytest.importorskip("pandas")
     from plugin.scripting.venv.venv_sandbox import serialize_result
-    from plugin.calc.python.function import to_calc_compatible
+    from plugin.calc.python.addin_values import to_calc_compatible
     from plugin.scripting.calc_range import result_to_calc_grid
     from plugin.scripting.payload_codec import is_dataframe_payload
 
@@ -376,7 +377,7 @@ def test_serialize_result_dataframe_datetime_is_iso_not_unix_epoch():
     pd = pytest.importorskip("pandas")
     from plugin.scripting.venv.venv_sandbox import serialize_result
     from plugin.scripting.payload_codec import host_unpack_data
-    from plugin.calc.python.function import to_calc_compatible
+    from plugin.calc.python.addin_values import to_calc_compatible
     from plugin.scripting.calc_range import result_to_calc_grid
 
     df = pd.DataFrame({"d": pd.to_datetime(["2026-06-25", "2026-06-26"])})
@@ -392,7 +393,7 @@ def test_serialize_result_datetime64_ndarray_is_iso_not_unix_epoch():
     np = pytest.importorskip("numpy")
     pytest.importorskip("pandas")
     from plugin.scripting.venv.venv_sandbox import serialize_result
-    from plugin.calc.python.function import to_calc_compatible
+    from plugin.calc.python.addin_values import to_calc_compatible
 
     arr = np.array([np.datetime64("2026-06-25"), np.datetime64("2026-06-26")])
     out = to_calc_compatible(serialize_result(arr))
@@ -457,6 +458,42 @@ def test_serialize_result_small_object_ndarray_is_host_pickleable():
     back = host_unpack_data(wire)
     assert back[0] == 0
     assert back[-1] == BINARY_MIN_CELLS - 1
+
+
+def test_serialize_result_blank_multiindex_levels():
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.scripting.payload_codec import host_unpack_data, is_dataframe_payload
+
+    df = pd.DataFrame(
+        [[1, 2]],
+        columns=pd.MultiIndex.from_tuples([("Region", ""), ("A", " x ")]),
+    )
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["Region", "A / x"]
+
+    s = pd.Series([1], name=("", None))
+    res2 = serialize_result(s)
+    assert is_dataframe_payload(res2)
+    assert res2["columns"] == ["value"]
+    unpacked = host_unpack_data(res2)
+    assert unpacked["columns"] == ["value"]
+
+
+def test_serialize_result_flat_label_collisions_are_deduped():
+    pd = pytest.importorskip("pandas")
+    from plugin.scripting.venv.venv_sandbox import serialize_result
+    from plugin.scripting.payload_codec import is_dataframe_payload
+
+    df = pd.DataFrame([[1, 2]], columns=[("A", ""), "A"])
+    res = serialize_result(df)
+    assert is_dataframe_payload(res)
+    assert res["columns"] == ["A", "A_1"]
+
+    df2 = pd.DataFrame([[1, 2]], columns=[("", None), "value"])
+    res2 = serialize_result(df2)
+    assert res2["columns"] == ["value", "value_1"]
 
 
 def test_serialize_result_multiindex_columns_and_categorical():
@@ -524,6 +561,7 @@ def test_serialize_set_and_frozenset_coercion():
 
 
 def test_capture_open_figures_closes_when_render_raises(monkeypatch):
+    from plugin.scripting.venv import optional_import as oi
     from plugin.scripting.venv import venv_sandbox as vs
 
     closed = {"n": 0}
@@ -542,7 +580,7 @@ def test_capture_open_figures_closes_when_render_raises(monkeypatch):
             assert what == "all"
             closed["n"] += 1
 
-    monkeypatch.setattr(vs, "optional_module", lambda name: _Plt() if name == "matplotlib.pyplot" else None)
+    monkeypatch.setattr(oi, "optional_module", lambda name: _Plt() if name == "matplotlib.pyplot" else None)
 
     def boom(fig, *, fmt="svg"):
         raise RuntimeError("bad figure")

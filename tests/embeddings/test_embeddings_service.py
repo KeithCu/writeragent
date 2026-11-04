@@ -264,3 +264,37 @@ def test_folder_search_rerank_options_hybrid_backend_enabled(ctx, value):
             opts = embeddings_service._folder_search_rerank_options(value)
     assert opts == {"use_mmr": True, "rerank_model": FOLDER_RERANK_MODEL_ENGLISH_SMALL}
 
+
+def test_hybrid_search_passes_ctx_send_cancellation_to_worker(ctx, tmp_path):
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    ctx.send_cancellation = scope
+    corpus_db = str(tmp_path / "corpus.db")
+    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"hits": []}) as mock_run:
+        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.framework.config.get_config", return_value="sqlite"):
+                embeddings_service.hybrid_search(ctx, corpus_db, "q", 5, model=DEFAULT_EMBEDDING_MODEL)
+    assert mock_run.call_args.args[0] is ctx
+    assert mock_run.call_args.kwargs["cancellation_scope"] is None
+
+
+def test_hybrid_search_explicit_cancel_overrides_ctx(ctx, tmp_path):
+    from plugin.framework.send_cancellation import SendCancellation
+
+    ctx.send_cancellation = SendCancellation()
+    explicit = SendCancellation()
+    corpus_db = str(tmp_path / "corpus.db")
+    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"hits": []}) as mock_run:
+        with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
+            with patch("plugin.framework.config.get_config", return_value="sqlite"):
+                embeddings_service.hybrid_search(
+                    ctx,
+                    corpus_db,
+                    "q",
+                    5,
+                    model=DEFAULT_EMBEDDING_MODEL,
+                    cancel=explicit,
+                )
+    assert mock_run.call_args.kwargs["cancellation_scope"] is explicit
+

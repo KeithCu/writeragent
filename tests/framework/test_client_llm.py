@@ -2180,7 +2180,7 @@ def _assert_http_500_diag_safe(joined, *, prompt, api_key, model, stream, n_mess
 def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     import logging
 
-    from plugin.framework.client.errors import _format_http_error_response
+    from plugin.framework.client.errors import format_http_error_response
 
     prompt = "UNIQUE_PROMPT_BLOB_FOR_500_DIAG_TOOLS"
     api_key = "sk-UNIQUE-SECRET-KEY-500-DIAG"
@@ -2204,7 +2204,7 @@ def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     from plugin.framework.client.http_security import redact_secrets
 
     expected_user = redact_secrets(
-        _format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
+        format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
         [api_key],
     )
     assert str(err.value) == expected_user
@@ -3333,7 +3333,7 @@ def test_stream_structured_429_code_retries_before_tokens(client, _fast_retry_wa
         result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
     assert result["content"] == "Recovered"
     assert mock_https.call_count == 2
-    _fast_retry_waits["controls"].assert_called_once()
+    _fast_retry_waits["transport"].assert_called_once()
 
 
 def test_stream_error_closes_without_draining(client):

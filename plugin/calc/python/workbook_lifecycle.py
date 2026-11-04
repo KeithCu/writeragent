@@ -20,12 +20,10 @@ from __future__ import annotations
 import logging
 import threading
 import time
-import weakref
 from typing import Any
 
+from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import best_effort
-from plugin.framework.thread_guard import _unwrap_uno
-from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from plugin.scripting.session_manager import calc_workbook_base_session_id
@@ -33,134 +31,85 @@ from plugin.scripting.venv_worker import reset_python_session
 
 log = logging.getLogger(__name__)
 
+__all__ = [
+    "ensure_calc_workbook_unload_resets_python",
+    "calc_workbook_base_session_id",
+    "off_main_spill_lifecycle_key",
+    "lifecycle_key_if_known",
+    "rekey_listener",
+    "_lifecycle_key",
+    "_remember_doc_lifecycle_key",
+    "_forget_doc_lifecycle_key",
+]
+
 # Re-entrant: ensure_* holds this lock while calling note_*, and note_* /
 # _teardown take it too. A plain Lock deadlocks that same-thread re-entry.
 # note_calc_identity can also run off the main thread during unload.
 _LOCK = threading.RLock()
 _LISTENERS: dict[str, "_CalcPythonUnloadListener"] = {}
-# Filled only when ``_lifecycle_key`` runs (UI thread). Off-main spill timers
-# look this up and must not call getPropertyValue / getURL on the cached model.
-# Weak keys so a collected document cannot leave an id that a new object reuses.
-_LIFECYCLE_KEYS: weakref.WeakKeyDictionary[Any, str] = weakref.WeakKeyDictionary()
-# PyUNO objects often reject weakref. Those ids are stored with a strong reference
-# to the object so Python cannot reuse the id for a different document before unload.
-_LIFECYCLE_KEY_BY_DOC_ID: dict[int, tuple[str, Any]] = {}
 
 
-def _doc_objects(doc: Any) -> list[Any]:
-    """*doc* and its unwrapped UNO target, without calling UNO methods."""
-    objects = [doc]
-    raw = _unwrap_uno(doc)
-    if raw is not None and raw is not doc:
-        objects.append(raw)
-    return objects
-
-
-def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
-    """Remember *key* for later off-main lookup. Call only after UNO already ran."""
-    if doc is None or not key:
-        return
-    objects = _doc_objects(doc)
-    with _LOCK:
-        for obj in objects:
-            try:
-                previous = _LIFECYCLE_KEYS.get(obj)
-                _LIFECYCLE_KEYS[obj] = key
-            except TypeError:
-                doc_id = id(obj)
-                entry = _LIFECYCLE_KEY_BY_DOC_ID.get(doc_id)
-                previous = entry[0] if entry is not None else None
-                # Strong ref: PyUNO often rejects weakref, and id() can be reused.
-                _LIFECYCLE_KEY_BY_DOC_ID[doc_id] = (key, obj)
-            if previous and previous != key:
-                _rekey_listener(previous, key)
-
-
-def _forget_doc_lifecycle_key(key: str) -> None:
-    """Drop the cached key for an unloaded workbook."""
-    if not key:
-        return
-    with _LOCK:
-        for obj, stored in list(_LIFECYCLE_KEYS.items()):
-            if stored == key:
-                _LIFECYCLE_KEYS.pop(obj, None)
-        for doc_id, entry in list(_LIFECYCLE_KEY_BY_DOC_ID.items()):
-            if entry[0] == key:
-                _LIFECYCLE_KEY_BY_DOC_ID.pop(doc_id, None)
-
-
-def _rekey_listener(old: str, new: str) -> None:
+def rekey_listener(old: str, new: str) -> None:
     """Move the unload listener when a document's key is upgraded.
 
     Caller holds ``_LOCK``. Without the move the old key kept a listener, the
     new key installed a second one, and unload forgot only the new alias.
     """
-    listener = _LISTENERS.pop(old, None)
-    if listener is not None:
-        listener._lifecycle_key = new
-        _LISTENERS[new] = listener
+    with _LOCK:
+        listener = _LISTENERS.pop(old, None)
+        if listener is not None:
+            _LISTENERS[new] = listener
 
 
 def lifecycle_key_if_known(doc: Any | None) -> str:
-    """Lifecycle key recorded on the UI thread.
-
-    No UNO. Off-main ``=PY()`` may hold a cached model only to post it back to
-    the UI thread; reading RuntimeUID here would trip the thread guard.
-    A missing document has no key: guessing the only open workbook would
-    cancel the wrong timer after an id is reused.
-    """
-    if doc is None:
-        return ""
-    objects = _doc_objects(doc)
-    with _LOCK:
-        for obj in objects:
-            try:
-                found = _LIFECYCLE_KEYS.get(obj)
-            except TypeError:
-                entry = _LIFECYCLE_KEY_BY_DOC_ID.get(id(obj))
-                found = entry[0] if entry is not None else None
-            if found:
-                return found
-    return ""
+    """Lifecycle key recorded on the UI thread."""
+    st = WorkbookState.known(doc)
+    return st.key if st is not None else ""
 
 
 def _lifecycle_key(doc: Any) -> str:
-    """Per-open identity: RuntimeUID, else the first session id remembered for this object.
-
-    Bugfix: What was wrong: with no RuntimeUID, every call minted a new
-    ``calc:unsaved:{uuid}`` and overwrote the remembered key, so a deferred
-    spill's scheduled key never matched the live key and the write returned
-    without touching the sheet.
-    How it happened: ``_lifecycle_key`` always called
-    ``calc_workbook_base_session_id``, and ``mint_document_key`` returns a
-    fresh uuid when the session property does not stick.
-    Why this change fixes it: a missing RuntimeUID reuses the key already
-    stored for this object. A new session id is computed only the first time.
-    A RuntimeUID read still replaces that fallback.
-    """
-    # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute and accepted non-strings. get_runtime_uid walks method, attribute, then property, and keeps only str or int.
-    uid = get_runtime_uid(doc)
-    if uid:
-        _remember_doc_lifecycle_key(doc, uid)
-        return uid
-    known = lifecycle_key_if_known(doc)
-    if known:
-        return known
-    key = calc_workbook_base_session_id(doc)
-    if key:
-        _remember_doc_lifecycle_key(doc, key)
-    return key
+    """Per-open identity: RuntimeUID, else the first session id remembered for this object."""
+    st = WorkbookState.for_doc(doc)
+    return st.key if st is not None else ""
 
 
 def off_main_spill_lifecycle_key(doc: Any | None) -> str:
     """Workbook key for an off-main spill timer, without UNO off the UI thread."""
+    if doc is None:
+        return ""
     from plugin.framework.queue_executor import main
 
-    if doc is not None and main.is_current():
-        key = best_effort(lambda: _lifecycle_key(doc), "off-main spill lifecycle key")
+    if main.is_current():
+        st = WorkbookState.for_doc(doc)
+    else:
+        st = WorkbookState.known(doc)
+    return st.key if st is not None else ""
+
+
+def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
+    st = WorkbookState.known(doc)
+    if st is not None:
         if key:
-            return key
-    return lifecycle_key_if_known(doc)
+            st.key = key
+        return
+    from plugin.framework.queue_executor import main
+
+    if main.is_current():
+        try:
+            st = WorkbookState.for_doc(doc)
+        except Exception:
+            st = None
+        if st is not None:
+            if key:
+                st.key = key
+            return
+    if key:
+        st = WorkbookState(key=key)
+        WorkbookState._remember(doc, st)
+
+
+def _forget_doc_lifecycle_key(key: str) -> None:
+    WorkbookState.forget_key(key)
 
 
 def _is_reentry(res: Any) -> bool:
@@ -170,31 +119,29 @@ def _is_reentry(res: Any) -> bool:
 class _CalcPythonUnloadListener(BaseDocumentEventListener):
     _ctx: Any
     _workbook_session_id: str
-    _lifecycle_key: str
-    _doc_url: str
+    _state: WorkbookState
     _teardown_done: bool
     _calc_cleanup: bool
     _extra_session_ids: set[str]
-    _extra_doc_urls: set[str]
 
     def __init__(
         self,
         ctx: Any,
         workbook_session_id: str,
-        lifecycle_key: str,
+        state: WorkbookState | str,
         *,
-        doc_url: str = "",
         calc_cleanup: bool = True,
+        **kwargs: Any,
     ) -> None:
         super().__init__()
         self._ctx = ctx
         self._workbook_session_id = workbook_session_id
-        self._lifecycle_key = lifecycle_key
-        self._doc_url = doc_url
+        if isinstance(state, str):
+            state = WorkbookState(key=state)
+        self._state = state
         self._teardown_done = False
         self._calc_cleanup = calc_cleanup
         self._extra_session_ids = set()
-        self._extra_doc_urls = set()
 
     def note_session(self, session_id: str) -> None:
         """Remember another worker session on this same document (rps + notebook)."""
@@ -218,10 +165,6 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             if session_id and session_id != self._workbook_session_id:
                 self._extra_session_ids.add(self._workbook_session_id)
                 self._workbook_session_id = session_id
-            if doc_url and doc_url != self._doc_url:
-                if self._doc_url:
-                    self._extra_doc_urls.add(self._doc_url)
-                self._doc_url = doc_url
 
     def on_document_event(self, Event: Any) -> None:
         name = getattr(Event, "EventName", "") or ""
@@ -286,21 +229,13 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             if sid:
                 best_effort(lambda: self._reset_one(sid), "python_workbook_lifecycle: reset on unload")
 
-    def _release_calc_state(self, session_ids: tuple[str, ...], doc_urls: tuple[str, ...], lifecycle_key: str) -> None:
+    def _release_calc_state(self, session_ids: tuple[str, ...], *args: Any) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:
-            from plugin.calc.python.function import clear_in_memory_spill_state
+            from plugin.calc.python.recalc import clear_python_addin_cache
 
-            clean_urls = {u for u in doc_urls if u}
-
-            def _clear_spill() -> None:
-                if clean_urls:
-                    for url in clean_urls:
-                        clear_in_memory_spill_state(doc_url=url, lifecycle_key=lifecycle_key)
-                elif lifecycle_key:
-                    clear_in_memory_spill_state(doc_url="", lifecycle_key=lifecycle_key)
-
-            best_effort(_clear_spill, "python_workbook_lifecycle: spill state clear")
+            best_effort(self._state.clear, "python_workbook_lifecycle: spill state clear")
+            best_effort(clear_python_addin_cache, "python_workbook_lifecycle: matrix cache clear")
 
             from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
 
@@ -320,14 +255,10 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             if self._teardown_done:
                 return
             self._teardown_done = True
-            _LISTENERS.pop(self._lifecycle_key, None)
+            _LISTENERS.pop(self._state.key, None)
             session_ids = (self._workbook_session_id, *tuple(self._extra_session_ids))
-            doc_urls = (self._doc_url, *tuple(self._extra_doc_urls))
-            lifecycle_key = self._lifecycle_key
-        # Drop the id cache in the same unload that cancels spill timers.
-        # ``_forget_doc_lifecycle_key`` takes ``_LOCK``; do that after the snapshot.
-        _forget_doc_lifecycle_key(lifecycle_key)
-        self._release_calc_state(session_ids, doc_urls, lifecycle_key)
+        WorkbookState.forget_key(self._state.key)
+        self._release_calc_state(session_ids)
 
 
 def _register(doc: Any, key: str, factory: Any, on_existing: Any) -> None:
@@ -348,14 +279,24 @@ def _register(doc: Any, key: str, factory: Any, on_existing: Any) -> None:
         log.warning("python_workbook_lifecycle: addDocumentEventListener failed", exc_info=True)
 
 
-def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any) -> None:
+def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any, *, state: WorkbookState | None = None) -> None:
     """Register a one-time listener so closing *doc* clears worker init/cell sessions."""
     if not _HAVE_UNO_DOC_EVENTS or doc is None:
         return
-    key = _lifecycle_key(doc)
+    is_new = False
+    if state is None:
+        if WorkbookState.known(doc) is None:
+            is_new = True
+        state = WorkbookState.for_doc(doc)
+    if state is None or is_new:
+        return
     session_id = calc_workbook_base_session_id(doc)
-    doc_url = doc.getURL() or ""
-    _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, doc_url=doc_url), lambda existing: existing.note_calc_identity(session_id, doc_url))
+    _register(
+        doc,
+        state.key,
+        lambda: _CalcPythonUnloadListener(ctx, session_id, state),
+        lambda existing: existing.note_calc_identity(session_id),
+    )
 
 
 def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str | None) -> None:
@@ -371,7 +312,16 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
     if SessionKey.parse(session_id).kind is SessionKind.CALC:
         ensure_calc_workbook_unload_resets_python(ctx, doc)
         return
-    # Writer/Draw key. Must not record a Calc session id. Same RuntimeUID ladder as _lifecycle_key.
+    from plugin.framework.uno_context import get_runtime_uid
+
     uid = get_runtime_uid(doc)
     key = f"py:{uid or session_id}"
-    _register(doc, key, lambda: _CalcPythonUnloadListener(ctx, session_id, key, calc_cleanup=False), lambda existing: existing.note_session(session_id))
+    state = WorkbookState.known(doc)
+    if state is None:
+        state = WorkbookState(key=key)
+    _register(
+        doc,
+        key,
+        lambda: _CalcPythonUnloadListener(ctx, session_id, state, calc_cleanup=False),
+        lambda existing: existing.note_session(session_id),
+    )

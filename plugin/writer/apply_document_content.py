@@ -540,23 +540,18 @@ class ApplyDocumentContent(ToolBase):
         """
         changes_before = len(session.changes)
         reports_holder: list[list[dict[str, Any]]] = []
-        rolled_back: list[bool] = []
 
         def mutate() -> None:
             reports = run()
             if reports is not None:
                 reports_holder.append(reports)
 
-        def on_fail() -> None:
-            rolled_back.append(True)
-            session.discard_changes_since(changes_before)
-
         try:
-            err = commit_or_rollback(
+            outcome = commit_or_rollback(
                 doc,
                 next_agent_edit_undo_title(),
                 mutate,
-                on_fail=on_fail,
+                session=session,
             )
         except UndoUnavailable:
             return None, self._tool_error(
@@ -564,15 +559,16 @@ class ApplyDocumentContent(ToolBase):
                 "refusing rather than risk a text change that leaves the link stale.",
                 code="UNDO_UNAVAILABLE",
             )
-        except Exception as exc:
-            reraise_if_disposed(exc)
+        if outcome.mutate_error is not None:
+            exc = outcome.mutate_error
             log.exception("apply_document_content: outline hyperlink update failed")
-            if rolled_back or len(session.changes) == changes_before:
+            if outcome.rolled_back or len(session.changes) == changes_before:
                 msg = f"Outline hyperlink update failed; the text change was rolled back ({exc})."
             else:
                 msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({exc})."
             return None, self._tool_error(msg, code="HYPERLINK_UPDATE_FAILED")
 
+        err = outcome.error
         if err is not None and err.get("code") == "ROLLBACK_FAILED":
             msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({err.get('message')})."
             return None, self._tool_error(msg, code="HYPERLINK_UPDATE_FAILED")
@@ -612,11 +608,18 @@ class ApplyDocumentContent(ToolBase):
                 return None
 
             try:
-                err = commit_or_rollback(
+                outcome = commit_or_rollback(
                     doc,
                     next_agent_edit_undo_title(),
                     mutate,
                 )
+                err = outcome.error
+                if outcome.mutate_error is not None:
+                    exc = outcome.mutate_error
+                    return self._tool_error(
+                        f"Failed to update shape text: {exc}",
+                        code="TOOL_EXECUTION_ERROR",
+                    )
                 if err is not None and err.get("code") == "ROLLBACK_FAILED":
                     return err
                 if err is not None and err.get("code") == "SHAPE_REPLACE_FAILED":
@@ -627,12 +630,6 @@ class ApplyDocumentContent(ToolBase):
                     "(no usable undo context); refusing rather than leave an edit "
                     "that is not one Ctrl+Z." % shape_name,
                     code="UNDO_UNAVAILABLE",
-                )
-            except Exception as exc:
-                reraise_if_disposed(exc)
-                return self._tool_error(
-                    f"Failed to update shape text: {exc}",
-                    code="TOOL_EXECUTION_ERROR",
                 )
 
             result = attach_edited_context(
@@ -1171,11 +1168,6 @@ class ApplyDocumentContent(ToolBase):
             link_failure_holder: list[dict[str, Any] | None] = [None]
             link_reports: list[dict[str, Any]] = []
             tracked_delete_box = [False]
-            rolled_back: list[bool] = []
-
-            def on_fail() -> None:
-                rolled_back.append(True)
-                session.discard_changes_since(changes_before)
 
             def mutate() -> None:
                 nonlocal count
@@ -1201,20 +1193,20 @@ class ApplyDocumentContent(ToolBase):
                         tracked_delete_box[0] = record_table_deletions(session, doc, ctx, doomed)
 
             try:
-                err = commit_or_rollback(
+                outcome = commit_or_rollback(
                     doc,
                     next_agent_edit_undo_title(),
                     mutate,
-                    on_fail=on_fail,
+                    session=session,
                 )
             except UndoUnavailable:
                 return self._tool_error(
                     "Cannot apply all_matches atomically (no usable undo context); "
                     "refusing rather than risk a half-applied edit.",
                     code="UNDO_UNAVAILABLE"), session
-            except Exception as e:
+            if outcome.mutate_error is not None:
+                e = outcome.mutate_error
                 log.exception("apply_document_content all_matches failed mid-batch")
-                reraise_if_disposed(e)
                 payload: dict[str, Any]
                 if isinstance(e, ToolExecutionError):
                     payload = format_error_payload(e)
@@ -1222,7 +1214,7 @@ class ApplyDocumentContent(ToolBase):
                     payload = dict(link_failure_holder[0])
                 else:
                     payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR"}
-                is_rolled_back = bool(rolled_back or len(session.changes) == changes_before)
+                is_rolled_back = bool(outcome.rolled_back or len(session.changes) == changes_before)
                 if is_rolled_back:
                     payload["message"] = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, e)
                 else:
@@ -1232,6 +1224,7 @@ class ApplyDocumentContent(ToolBase):
                 payload["attempted"] = count
                 return payload, session
 
+            err = outcome.error
             if err is not None and err.get("code") == "ROLLBACK_FAILED":
                 cause_msg = err.get("message", "unknown error")
                 msg = (

@@ -434,7 +434,7 @@ class TestStreamingHttpErrors:
                 lambda t: None,
             )
         # `format_error_message` operates on the string for generic Exception,
-        # meaning it outputs what `_format_http_error_response` built, which is
+        # meaning it outputs what `format_http_error_response` built, which is
         # "HTTP Error <status>: <reason>. <detail>"
         assert (str(ctx.value)) == ("HTTP Error 404 from AI Provider: Not Found. Model not found")
 

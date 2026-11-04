@@ -463,6 +463,22 @@ def uno_read(fn: Callable[[], _T], default: _T, *, object_type: str = "document"
         return default
 
 
+def uno_write(fn: Callable[[], Any]) -> bool:
+    """One UNO write. Re-raise the original disposal exception; False on any other Exception.
+
+    Does not log: callers surface failure via return value (e.g. failed property names to the model);
+    the underlying exception is intentionally dropped, not traced at DEBUG.
+    """
+    # Re-raise disposal as-is: reraise_if_disposed would wrap in DocumentDisposedError.
+    try:
+        fn()
+        return True
+    except Exception as exc:
+        if is_disposal(exc):
+            raise
+        return False
+
+
 def _raise_disposed_during(name: str, exc: BaseException) -> NoReturn:
     raise DocumentDisposedError(
         f"UNO object disposed during {name}",

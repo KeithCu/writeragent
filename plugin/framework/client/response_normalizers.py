@@ -53,7 +53,7 @@ _DATA_URI_IMAGE_RE = re.compile(
 )
 
 
-def _text_of(value: object) -> str:
+def text_of(value: object) -> str:
     """Coerce value to str if it is a str instance, else empty string."""
     return value if isinstance(value, str) else ""
 
@@ -73,7 +73,7 @@ def normalize_message_content(raw: Any) -> str | None:
             elif isinstance(item, dict):
                 # Ensure text part is converted to string.
                 if item.get("type") == "text" or "text" in item:
-                    parts.append(_text_of(item.get("text")))
+                    parts.append(text_of(item.get("text")))
         return "".join(parts) if parts else None
     return str(raw)
 
@@ -147,14 +147,14 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
         new_content_list: list[Any] = []
         for part in content:
             if isinstance(part, dict) and part.get("type") == "text":
-                part["text"] = _DATA_URI_IMAGE_RE.sub(repl, _text_of(part.get("text")))
+                part["text"] = _DATA_URI_IMAGE_RE.sub(repl, text_of(part.get("text")))
             elif (
                 isinstance(part, dict)
                 and part.get("type") == "image_url"
                 and strip_structured_image_blocks
             ):
                 image_url = part.get("image_url")
-                url_val = _text_of(image_url.get("url") if isinstance(image_url, dict) else image_url)
+                url_val = text_of(image_url.get("url") if isinstance(image_url, dict) else image_url)
                 if not url_val:
                     part = {"type": "text", "text": "[Image Ref]"}
                 elif url_val.startswith("data:"):
@@ -306,14 +306,14 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
                 if isinstance(item, dict) and item.get("type") == "text":
                     if text_item is None:
                         text_item = item
-                    t = _text_of(item.get("text"))
+                    t = text_of(item.get("text"))
                     if _has_date_line(t, date_msg):
                         already_has_date_line = True
                         break
 
             if not already_has_date_line:
                 if text_item:
-                    t = _text_of(text_item.get("text"))
+                    t = text_of(text_item.get("text"))
                     text_item["text"] = f"{date_msg}\n\n{t}" if t else date_msg
                 else:
                     old_content.insert(0, {"type": "text", "text": date_msg})
@@ -336,7 +336,7 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
                 only_text = True
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "text":
-                        all_text.append(_text_of(item.get("text")))
+                        all_text.append(text_of(item.get("text")))
                     else:
                         only_text = False
                         break
@@ -366,7 +366,7 @@ def prepend_dev_build_system_prefix_to_messages(messages: list[dict[str, Any]]) 
             # Prepend to the first text block if it doesn't already have it
             for item in c:
                 if isinstance(item, dict) and item.get("type") == "text":
-                    text = _text_of(item.get("text"))
+                    text = text_of(item.get("text"))
                     if text.startswith(prefix):
                         return
                     item["text"] = f"{prefix}\n\n{text}" if text else prefix

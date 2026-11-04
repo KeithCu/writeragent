@@ -41,6 +41,7 @@ from plugin.framework.ipc import (
     write_child_ipc_frame,
     write_pickle_frame,
 )
+from plugin.framework.child_runtime import die_with_parent
 
 # What was wrong: venv_sandbox was imported at module scope, and
 # claim_ipc_channel ran later in main(). The claim flushes sys.stdout onto
@@ -214,8 +215,6 @@ def _init_logging() -> None:
     except Exception as exc:
         sys.stderr.write(f"Failed to initialize worker logging: {exc}\n")
 
-
-from plugin.framework.child_runtime import die_with_parent
 
 
 def main() -> None:

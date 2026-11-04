@@ -653,7 +653,7 @@ Per gated cell, convert and obtain a format key through `XNumberFormatter` (lock
 #
 # Chat tools resolve docs via guard_uno (Layer A). attachNumberFormatsSupplier
 # is not called through that proxy, so CellManipulator._make_number_formatter
-# must _unwrap_uno(doc) (and ctx) before attach — otherwise ISO writes fail
+# must unwrap_uno(doc) (and ctx) before attach — otherwise ISO writes fail
 # and =DATE/=TIME still work because they skip the formatter path.
 try:
     detected_key = formatter.detectNumberFormat(std_key, text)

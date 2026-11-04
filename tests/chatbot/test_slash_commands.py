@@ -26,7 +26,16 @@ from plugin.chatbot.slash_commands import (
     format_help_text,
     record_slash_lru,
     registered_slash_commands,
+    MOCK_SLASH_COMMANDS,
+    SLASH_COMMANDS,
+    SlashResult,
+    SlashRun,
+    effective_slash_run,
+    plan_slash,
     run_slash_command,
+    run_slash_compact,
+    slash_continues_send,
+    slash_popup_runs_now,
     slash_typed_prefix,
 )
 from plugin.chatbot.send_state import ButtonAction
@@ -35,6 +44,14 @@ from plugin.chatbot.send_state import ButtonAction
 @pytest.fixture(autouse=True)
 def _enable_mock_commands(monkeypatch):
     monkeypatch.setattr("plugin.chatbot.slash_commands._mock_commands_enabled", True)
+
+
+def _cmd(name: str):
+    from plugin.chatbot.slash_commands import get_slash_command
+
+    cmd = get_slash_command(name)
+    assert cmd is not None, name
+    return cmd
 
 
 def _names(typed: str, lru: list[str] | None = None) -> list[str]:
@@ -112,7 +129,7 @@ def test_run_mock_echoes_and_records_lru():
         append_output=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru") as record:
-        assert run_slash_command("mock-alpha", host) is True
+        assert run_slash_command(_cmd("mock-alpha"), host) is SlashResult.HANDLED
     record.assert_called_once_with("mock-alpha")
     host.hide_popup.assert_called_once()
     host.clear_ask.assert_called_once()
@@ -129,7 +146,7 @@ def test_run_help_prints_static_list():
         append_output=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("help", host) is True
+        assert run_slash_command(_cmd("help"), host) is SlashResult.HANDLED
     body = host.append_output.call_args[0][0]
     assert "Slash commands:" in body
     assert "/help" in body
@@ -143,7 +160,7 @@ def test_run_clear_calls_existing_clear_listener():
         clear_chat=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("clear", host) is True
+        assert run_slash_command(_cmd("clear"), host) is SlashResult.HANDLED
     host.clear_ask.assert_called_once()
     host.clear_chat.assert_called_once()
 
@@ -155,7 +172,7 @@ def test_run_stop_uses_stop_button_and_clears_ask():
         stop_in_flight=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("stop", host) is True
+        assert run_slash_command(_cmd("stop"), host) is SlashResult.HANDLED
     host.stop_in_flight.assert_called_once()
     host.clear_ask.assert_called_once()
 
@@ -167,7 +184,7 @@ def test_set_config_raising_still_runs_help():
         append_output=MagicMock(),
     )
     with patch("plugin.framework.model_lru.save", side_effect=OSError("write failed")):
-        assert run_slash_command("help", host) is True
+        assert run_slash_command(_cmd("help"), host) is SlashResult.HANDLED
     host.append_output.assert_called_once()
 
 
@@ -193,7 +210,7 @@ def test_run_stop_stops_speech_and_hands_free_and_clears_ask():
         with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
             with patch("plugin.audio.tts_service.is_speaking", return_value=True):
                 with patch("plugin.audio.tts_service.stop_speech") as stop_speech:
-                    run_slash_command("stop", host)
+                    run_slash_command(_cmd("stop"), host)
     set_text.assert_not_called()
     host.clear_ask.assert_called_once()
     stop_speech.assert_called_once()
@@ -227,7 +244,7 @@ def test_run_stop_during_inline_approval_opens_change_dialog_and_clears_ask():
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
-            run_slash_command("stop", host)
+            run_slash_command(_cmd("stop"), host)
     set_text.assert_not_called()
     host.clear_ask.assert_called_once()
     events_mock._open_web_search_change_dialog.assert_called_once_with()
@@ -311,9 +328,9 @@ def test_try_dispatch_undo_before_send_busy():
     )
     host.query_control.getModel.return_value = True
     with patch("plugin.chatbot.slash_commands._peek_slash_from_ask", return_value=(undo, "")):
-        with patch("plugin.chatbot.slash_commands.run_slash_command", return_value=True) as run_cmd:
+        with patch("plugin.chatbot.slash_commands.run_slash_command", return_value=SlashResult.HANDLED) as run_cmd:
             assert try_dispatch_slash_on_send_click(host) is True
-    run_cmd.assert_called_once_with("undo", host, "", from_popup=False)
+    run_cmd.assert_called_once_with(undo, host, "", from_popup=False)
 
 
 def test_try_dispatch_remember_while_busy():
@@ -327,9 +344,9 @@ def test_try_dispatch_remember_while_busy():
         slash_document_model=lambda: None,
     )
     with patch("plugin.chatbot.slash_commands._peek_slash_from_ask", return_value=(remember, "Denali")):
-        with patch("plugin.chatbot.slash_commands.run_slash_command", return_value=True) as run_cmd:
+        with patch("plugin.chatbot.slash_commands.run_slash_command", return_value=SlashResult.HANDLED) as run_cmd:
             assert try_dispatch_slash_on_send_click(host) is True
-    run_cmd.assert_called_once_with("remember", host, "Denali", from_popup=False)
+    run_cmd.assert_called_once_with(remember, host, "Denali", from_popup=False)
 
 
 def test_try_dispatch_refuses_undo_while_busy():
@@ -356,7 +373,7 @@ def test_run_rewrite_passes_instruction_text():
         slash_run_rewrite=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("proofread", host) is True
+        assert run_slash_command(_cmd("proofread"), host) is SlashResult.HANDLED
     instruction = host.slash_run_rewrite.call_args[0][0]
     assert "grammar" in instruction.lower()
 
@@ -368,21 +385,35 @@ def test_run_answer_returns_continue_for_send():
         slash_document_model=lambda: object(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("summarize", host, "budget") is False
+        assert run_slash_command(_cmd("summarize"), host, "budget") is SlashResult.CONTINUE_SEND
 
 
-def test_slash_send_continues_after_begin_uses_kind_and_needs_turn():
-    from plugin.chatbot.slash_commands import SLASH_COMMANDS, slash_send_continues_after_begin
-
+def test_effective_slash_run_for_send_turn_commands():
     compact = next(c for c in SLASH_COMMANDS if c.name == "compact")
     summarize = next(c for c in SLASH_COMMANDS if c.name == "summarize")
     proofread = next(c for c in SLASH_COMMANDS if c.name == "proofread")
-    assert slash_send_continues_after_begin(compact) is True
-    assert slash_send_continues_after_begin(summarize) is True
-    assert slash_send_continues_after_begin(proofread) is False
     formula = next(c for c in SLASH_COMMANDS if c.name == "formula")
-    assert slash_send_continues_after_begin(formula) is True
-    assert formula.runs_in_send_turn is True
+    model = object()
+    assert effective_slash_run(compact, model) is SlashRun.COMPACT
+    assert effective_slash_run(summarize, model) is SlashRun.ANSWER
+    assert effective_slash_run(proofread, model) is SlashRun.REWRITE
+    assert effective_slash_run(formula, model) is SlashRun.FORMULA
+
+
+def test_slash_continues_send_proofread_without_host_is_false():
+    proofread = next(c for c in SLASH_COMMANDS if c.name == "proofread")
+    host = SimpleNamespace(
+        slash_document_model=lambda: object(),
+        sidebar_state=SimpleNamespace(send=SimpleNamespace(is_busy=False)),
+    )
+    assert slash_continues_send(proofread, host) is False
+
+
+def test_plan_slash_matches_effective_slash_run():
+    summarize = next(c for c in SLASH_COMMANDS if c.name == "summarize")
+    model = object()
+    host = SimpleNamespace(slash_document_model=lambda: model)
+    assert plan_slash(summarize, host) == effective_slash_run(summarize, model)
 
 
 def test_run_translate_writer_no_selection_continues_send():
@@ -398,25 +429,24 @@ def test_run_translate_writer_no_selection_continues_send():
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.slash_commands._writer_has_selection", return_value=False):
             with patch("plugin.chatbot.slash_commands.get_document_type", return_value=DocumentType.WRITER):
-                assert run_slash_command("translate", host, "French") is False
+                assert run_slash_command(_cmd("translate"), host, "French") is SlashResult.CONTINUE_SEND
     host.slash_run_rewrite.assert_not_called()
 
 
-def test_run_compact_returns_continue_for_send():
+def test_slash_compact_returns_continue_for_send():
     host = SimpleNamespace(
         hide_popup=MagicMock(),
         clear_ask=MagicMock(),
-        run_slash_compact=MagicMock(),
+        slash_document_model=lambda: None,
     )
-    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("compact", host, "budget") is False
-    host.run_slash_compact.assert_not_called()
+    with patch("plugin.chatbot.slash_commands.record_slash_lru") as record_lru:
+        assert run_slash_command(_cmd("compact"), host, "budget") is SlashResult.CONTINUE_SEND
+    record_lru.assert_not_called()
+    host.hide_popup.assert_not_called()
 
 
-def test_run_compact_busy_refuses():
-    from plugin.chatbot.panel import SendButtonListener
-
-    listener = MagicMock(spec=SendButtonListener)
+def test_slash_compact_busy_refuses():
+    listener = MagicMock()
     listener.sidebar_state = SimpleNamespace(tool_loop=object())
     listener.append_output = MagicMock()
     listener.ctx = object()
@@ -424,12 +454,11 @@ def test_run_compact_busy_refuses():
     listener._send_cancellation = None
     listener._set_status = MagicMock()
 
-    listener.run_slash_compact = SendButtonListener.run_slash_compact.__get__(listener, SendButtonListener)
-    listener.run_slash_compact("focus")
+    run_slash_compact(listener, "focus")
     assert "Wait for the current reply" in listener.append_output.call_args[0][0]
 
 
-def test_run_compact_sync_passes_tool_schema_list():
+def test_slash_compact_sync_passes_tool_schema_list():
     from plugin.framework.send_cancellation import SendCancellation
 
     cancel = SendCancellation()
@@ -455,7 +484,7 @@ def test_run_compact_sync_passes_tool_schema_list():
     assert compact_mod.call_args.kwargs.get("tools") == schema_list
 
 
-def test_run_compact_sync_passes_cancel():
+def test_slash_compact_sync_passes_cancel():
     from plugin.framework.send_cancellation import SendCancellation
 
     cancel = SendCancellation()
@@ -481,7 +510,6 @@ def test_run_compact_sync_passes_cancel():
 
 def test_run_slash_compact_resolves_document_on_main_thread_only():
     """Regression: /compact must not call UNO from run_blocking_in_thread's worker."""
-    from plugin.chatbot.panel import SendButtonListener
     from plugin.framework.send_cancellation import SendCancellation
 
     main = threading.main_thread()
@@ -494,7 +522,7 @@ def test_run_slash_compact_resolves_document_on_main_thread_only():
         return object()
 
     cancel = SendCancellation()
-    listener = MagicMock(spec=SendButtonListener)
+    listener = MagicMock()
     listener.sidebar_state = SimpleNamespace(tool_loop=None)
     listener.session = MagicMock()
     listener.ctx = object()
@@ -520,11 +548,7 @@ def test_run_slash_compact_resolves_document_on_main_thread_only():
                             return_value=4096,
                         ):
                             with patch("plugin.framework.llm_lanes.llm_request_lane"):
-                                listener.run_slash_compact = SendButtonListener.run_slash_compact.__get__(
-                                    listener,
-                                    SendButtonListener,
-                                )
-                                listener.run_slash_compact("focus", cancel=cancel)
+                                run_slash_compact(listener, "focus", cancel=cancel)
 
     assert model_threads == [main]
     assert compact_mod.call_args.kwargs.get("tools") == schema_list
@@ -533,7 +557,6 @@ def test_run_slash_compact_resolves_document_on_main_thread_only():
 
 def test_run_slash_compact_invalid_config_msgbox_on_main_thread():
     """Config validation (msgbox) must run on the UI thread, not the blocking worker."""
-    from plugin.chatbot.panel import SendButtonListener
     from plugin.framework.send_cancellation import SendCancellation
 
     main = threading.main_thread()
@@ -545,7 +568,7 @@ def test_run_slash_compact_invalid_config_msgbox_on_main_thread():
             raise AssertionError("msgbox must run on the main thread")
 
     cancel = SendCancellation()
-    listener = MagicMock(spec=SendButtonListener)
+    listener = MagicMock()
     listener.sidebar_state = SimpleNamespace(tool_loop=None)
     listener.session = MagicMock()
     listener.ctx = object()
@@ -556,15 +579,14 @@ def test_run_slash_compact_invalid_config_msgbox_on_main_thread():
     listener.cached_uno_services = None
     listener.slash_document_model = MagicMock(return_value=object())
 
+    def fake_create(ctx: object, title: str) -> None:
+        record_msgbox(ctx, title, "bad config")
+        return None
+
     with patch("plugin.framework.uno_context.get_toolkit", side_effect=RuntimeError("no uno")):
-        with patch("plugin.chatbot.selection.validate_api_config", return_value=(False, "bad config")):
-            with patch("plugin.chatbot.selection.msgbox", side_effect=record_msgbox):
-                with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
-                    listener.run_slash_compact = SendButtonListener.run_slash_compact.__get__(
-                        listener,
-                        SendButtonListener,
-                    )
-                    listener.run_slash_compact("focus", cancel=cancel)
+        with patch("plugin.chatbot.selection.create_validated_client", side_effect=fake_create):
+            with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+                run_slash_compact(listener, "focus", cancel=cancel)
 
     assert msgbox_threads == [main]
     compact_mod.assert_not_called()
@@ -641,7 +663,7 @@ def test_run_remember_writes_user_md(tmp_path, monkeypatch):
         append_output=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("remember", host, "British spelling") is True
+        assert run_slash_command(_cmd("remember"), host, "British spelling") is SlashResult.HANDLED
     saved = json.loads(user_md.read_text(encoding="utf-8"))
     assert any("British spelling" in str(v) for v in saved.values())
     assert "Saved to memory" in host.append_output.call_args[0][0]
@@ -667,7 +689,7 @@ def test_run_remember_migrates_prose_user_md(tmp_path, monkeypatch):
         append_output=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("remember", host, "Denali") is True
+        assert run_slash_command(_cmd("remember"), host, "Denali") is SlashResult.HANDLED
     saved = json.loads(user_md.read_text(encoding="utf-8"))
     assert saved[_LEGACY_PROSE_KEY] == "# Test User Profile"
     assert any("Denali" in str(v) for v in saved.values())
@@ -685,13 +707,9 @@ def test_mock_commands_not_registered_outside_harness(monkeypatch):
     assert "compact" in names
     assert "mock-bravo" not in names
     assert "[mock]" not in format_help_text()
-    host = SimpleNamespace(
-        hide_popup=MagicMock(),
-        clear_ask=MagicMock(),
-        append_output=MagicMock(),
-    )
-    assert run_slash_command("mock-bravo", host) is False
-    host.append_output.assert_not_called()
+    from plugin.chatbot.slash_commands import parse_slash_text
+
+    assert parse_slash_text("/mock-bravo") is None
 
 
 def test_parse_slash_text_known_and_unknown():
@@ -740,7 +758,7 @@ def test_missing_required_arg_prints_usage():
         append_output=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("tone", host, "") is True
+        assert run_slash_command(_cmd("tone"), host, "") is SlashResult.HANDLED
     assert "Usage:" in host.append_output.call_args[0][0]
     host.clear_ask.assert_not_called()
 
@@ -755,7 +773,7 @@ def test_popup_accept_completes_draft_for_preset():
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
-            assert run_slash_command("tone", host, from_popup=True) is True
+            assert run_slash_command(_cmd("tone"), host, from_popup=True) is SlashResult.HANDLED
             set_text.assert_called_once_with(host.query_control, "/tone ")
     host.clear_ask.assert_not_called()
     host.dispatch.assert_called_once()
@@ -795,7 +813,7 @@ def test_enable_mock_slash_commands_adds_stubs(monkeypatch):
     assert "mock-bravo" in names
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         host = MagicMock()
-        assert run_slash_command("mock-bravo", host) is True
+        assert run_slash_command(_cmd("mock-bravo"), host) is SlashResult.HANDLED
     slash._mock_commands_enabled = False
     assert "mock-bravo" not in [c.name for c in slash.registered_slash_commands()]
 
@@ -807,7 +825,7 @@ def test_run_undo_delegates_to_agent_undo():
     host.slash_document_model.return_value = model
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.doc.agent_undo.undo_last_agent_edit", return_value="Undid the last agent edit (2 steps)") as undo_fn:
-            assert run_slash_command("undo", host) is True
+            assert run_slash_command(_cmd("undo"), host) is SlashResult.HANDLED
     undo_fn.assert_called_once_with(model)
     host.clear_ask.assert_called_once()
     assert "Undid" in host.append_output.call_args[0][0]
@@ -817,7 +835,7 @@ def test_run_undo_refuses_while_in_flight():
     host = MagicMock()
     host.slash_agent_edit_in_flight.return_value = True
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("undo", host) is True
+        assert run_slash_command(_cmd("undo"), host) is SlashResult.HANDLED
     host.slash_document_model.assert_not_called()
 
 
@@ -831,7 +849,7 @@ def test_popup_accept_runs_undo_immediately():
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.doc.agent_undo.undo_last_agent_edit", return_value="There is no agent edit to undo."):
-            assert run_slash_command("undo", host, from_popup=True) is True
+            assert run_slash_command(_cmd("undo"), host, from_popup=True) is SlashResult.HANDLED
     host.clear_ask.assert_called_once()
     host.append_output.assert_called_once()
 
@@ -880,7 +898,7 @@ def test_run_stop_from_popup_clears_partial_draft():
         stop_in_flight=MagicMock(),
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("stop", host, from_popup=True) is True
+        assert run_slash_command(_cmd("stop"), host, from_popup=True) is SlashResult.HANDLED
     host.clear_ask.assert_called_once()
 
 
@@ -903,9 +921,9 @@ def test_format_instruction_keeps_trailing_ellipsis_when_template_has_period():
 
 
 def test_format_instruction_avoids_doubled_question_mark():
-    from plugin.chatbot.slash_commands import SlashCommand, SlashKind, _format_instruction
+    from plugin.chatbot.slash_commands import SlashCommand, SlashRun, _format_instruction
 
-    cmd = SlashCommand("test", "x", kind=SlashKind.ANSWER, instruction="Answer: {arg}?")
+    cmd = SlashCommand("test", "x", run=SlashRun.ANSWER, instruction="Answer: {arg}?")
     text = _format_instruction(cmd, "Why?")
     assert "Why??" not in text
     assert "Why?" in text
@@ -934,3 +952,31 @@ def test_slash_local_survives_next_user_message_in_session():
     assert append_slash_local_message(session, "\nSaved to memory: x\n")
     session.messages.append({"role": "user", "content": "next"})
     assert any(m.get(SLASH_LOCAL) for m in session.messages)
+
+
+def test_popup_runs_now_names():
+    immediate = {
+        "help",
+        "clear",
+        "stop",
+        "undo",
+        "mock-alpha",
+        "mock-bravo",
+        "mock-charlie",
+        "apply",
+        "web",
+        "model",
+    }
+    for cmd in registered_slash_commands():
+        if cmd.name in immediate:
+            assert slash_popup_runs_now(cmd), cmd.name
+        else:
+            assert not slash_popup_runs_now(cmd), cmd.name
+
+
+def test_slash_registry_handler_invariant():
+    from plugin.chatbot.slash_commands import _SEND_TURN_RUNS
+
+    for cmd in SLASH_COMMANDS + MOCK_SLASH_COMMANDS:
+        preset_kind = cmd.run in _SEND_TURN_RUNS or cmd.run is SlashRun.REWRITE
+        assert preset_kind != (cmd.handler is not None), cmd.name

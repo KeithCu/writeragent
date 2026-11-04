@@ -1325,10 +1325,6 @@ class ApplyStyle(FrameworkToolBase):
                 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
                 title = next_agent_edit_undo_title()
-                rolled_back: list[bool] = []
-
-                def on_fail() -> None:
-                    rolled_back.append(True)
 
                 def mutate() -> None:
                     for found in ranges:
@@ -1336,18 +1332,19 @@ class ApplyStyle(FrameworkToolBase):
                         reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
 
                 try:
-                    err = commit_or_rollback(ctx.doc, title, mutate, on_fail=on_fail)
+                    outcome = commit_or_rollback(ctx.doc, title, mutate)
                 except UndoUnavailable:
                     return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
-                except Exception as error:
-                    reraise_if_disposed(error)
-                    if rolled_back:
+                if outcome.mutate_error is not None:
+                    error = outcome.mutate_error
+                    if outcome.rolled_back:
                         return self._tool_error("Nothing was changed: %s" % (error,))
                     return self._tool_error(
                         "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                         % (len(reports), len(ranges), error)
                     )
 
+                err = outcome.error
                 if err is not None:
                     if err.get("code") == "UNDO_CONTEXT_LEAK":
                         return self._tool_error(

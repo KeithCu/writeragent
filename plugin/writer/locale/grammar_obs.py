@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import logging
-import re
 import threading
 from typing import Any, cast
 
@@ -55,30 +54,7 @@ def slice_preview_debug(text: str, max_len: int = 72) -> str:
     return "".join(chars)
 
 
-# Per-keystroke Harper / enqueue strings. Painting these via XStatusIndicator
-# replaces the Writer status bar on every doProofreading (issue #768).
-_ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
-    "harper",
-    "harper check",
-    "queued",
-})
-_ISSUE_COUNT_RESULT = re.compile(r"^\d+ issues?$", re.IGNORECASE)
 _TERMINAL_STATUS_PHASES = ("done", "failed")
-
-
-def is_routine_libreharper_status(phase: str, result: str) -> bool:
-    """True for steady-state LibreHarper strings that must not paint the status bar.
-
-    Failures always paint. Progress text (download, starting harper-ls) is not routine.
-    """
-    if phase == "failed":
-        return False
-    normalized = (result or "").strip().lower()
-    if not normalized:
-        return True
-    if normalized in _ROUTINE_LIBREHARPER_STATUS_RESULTS:
-        return True
-    return _ISSUE_COUNT_RESULT.fullmatch(normalized) is not None
 
 
 def _frame_from_controller(obj: Any) -> Any | None:
@@ -163,11 +139,16 @@ class GrammarStatus:
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
+        routine: bool = False,
     ) -> None:
+        """Deliver a status update. ``routine=True`` marks steady-state per-keystroke text; the
+        LibreHarper status-bar sink must not paint it unless the phase is terminal and an
+        indicator is already active (issue #768).
+        """
         pass
 
-    def start(self, text: str, *, result: str = "") -> None:
-        self._deliver("start", text, result=result)
+    def start(self, text: str, *, result: str = "", routine: bool = False) -> None:
+        self._deliver("start", text, result=result, routine=routine)
 
     def request(
         self,
@@ -175,8 +156,9 @@ class GrammarStatus:
         *,
         result: str = "",
         preview_source: str | None = None,
+        routine: bool = False,
     ) -> None:
-        self._deliver("request", text, result=result, preview_source=preview_source)
+        self._deliver("request", text, result=result, preview_source=preview_source, routine=routine)
 
     def done(
         self,
@@ -186,6 +168,7 @@ class GrammarStatus:
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
+        routine: bool = False,
     ) -> None:
         self._deliver(
             "done",
@@ -194,6 +177,7 @@ class GrammarStatus:
             elapsed_ms=elapsed_ms,
             preview_source=preview_source,
             length_hint=length_hint,
+            routine=routine,
         )
 
     def failed(self, text: str, *, result: str = "") -> None:
@@ -212,6 +196,7 @@ class GrammarStatus:
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
+        routine: bool = False,
     ) -> None:
         """Remember the latest chunk result; emitted when the last in-flight batch finishes."""
         with self._lock:
@@ -222,6 +207,7 @@ class GrammarStatus:
                     "elapsed_ms": elapsed_ms,
                     "preview_source": preview_source,
                     "length_hint": length_hint,
+                    "routine": routine,
                 },
             )
 
@@ -255,6 +241,7 @@ class SidebarGrammarStatus(GrammarStatus):
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
+        routine: bool = False,
     ) -> None:
         try:
             if preview_source is not None:
@@ -294,9 +281,11 @@ class StatusBarGrammarStatus(GrammarStatus):
         elapsed_ms: int | None = None,
         preview_source: str | None = None,
         length_hint: int | None = None,
+        routine: bool = False,
     ) -> None:
         try:
-            routine = is_routine_libreharper_status(phase, result)
+            if phase == "failed":
+                routine = False
             if routine and (
                 phase not in _TERMINAL_STATUS_PHASES or self._indicator is None
             ):
@@ -307,7 +296,7 @@ class StatusBarGrammarStatus(GrammarStatus):
             from plugin.framework.uno_context import get_ctx, process_events_to_idle
 
             try:
-                main.post(self._paint, phase, result)
+                main.post(self._paint, phase, result, routine)
             except Exception:
                 log.debug("Failed to post status bar update to main thread", exc_info=True)
                 return
@@ -325,10 +314,8 @@ class StatusBarGrammarStatus(GrammarStatus):
         except Exception as e:
             log.debug("[grammar] status bar emit failed: %s", e, exc_info=True)
 
-    def _paint(self, phase: str, result: str = "") -> None:
+    def _paint(self, phase: str, result: str = "", routine: bool = False) -> None:
         """Update the LibreOffice window status bar using XStatusIndicator."""
-        routine = is_routine_libreharper_status(phase, result)
-
         msg = f"LibreHarper: {result or 'Checking...'}"
         if phase == "done":
             msg = "LibreHarper: Grammar check complete"

@@ -17,7 +17,7 @@ from typing import Any, Callable
 from plugin.scripting.calc_range import ensure_rectangular_2d
 from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.map_range import inspect_input, map_over_range
-from plugin.scripting.venv.results import error_result as _error_result
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
     is_blank_param,
     missing_package_error,
@@ -217,13 +217,13 @@ def convert_quantity(
 
     from_text, from_conflict = _resolve_unit_alias(from_unit, kwargs.get("from"))
     if from_conflict:
-        return _error_result("INVALID_SPEC", "from and from_unit disagree", helper=helper)
+        return error_result("INVALID_SPEC", "from and from_unit disagree", helper=helper)
     to_text, to_conflict = _resolve_unit_alias(to_unit, kwargs.get("to"))
     if to_conflict:
-        return _error_result("INVALID_SPEC", "to and to_unit disagree", helper=helper)
+        return error_result("INVALID_SPEC", "to and to_unit disagree", helper=helper)
 
     if is_blank_param(from_text, strip=True) or is_blank_param(to_text, strip=True):
-        return _error_result("MISSING_PARAM", "from and to units are required", helper=helper)
+        return error_result("MISSING_PARAM", "from and to units are required", helper=helper)
 
     # map_over_range turns a ValueError from one cell into "#VALUE!".
     return map_over_range(
@@ -249,7 +249,7 @@ def parse_quantity(*, quantity: Any = "", **kwargs: Any) -> Any:
     if _get_ureg() is None:
         return missing_package_error(helper, "pint")
     if is_blank_param(quantity):
-        return _error_result("MISSING_PARAM", "quantity is required", helper=helper)
+        return error_result("MISSING_PARAM", "quantity is required", helper=helper)
     return map_over_range(
         _scalar_parse,
         quantity=quantity,
@@ -279,7 +279,7 @@ def format_quantity(
     if _get_ureg() is None:
         return missing_package_error(helper, "pint")
     if is_blank_param(units, strip=True):
-        return _error_result("MISSING_PARAM", "units is required", helper=helper)
+        return error_result("MISSING_PARAM", "units is required", helper=helper)
     return map_over_range(
         _scalar_format,
         magnitude=magnitude,
@@ -302,11 +302,11 @@ def check_dimensionality(
     left, left_conflict = _resolve_unit_alias(quantity_a, unit_a)
     right, right_conflict = _resolve_unit_alias(quantity_b, unit_b)
     if left_conflict or right_conflict:
-        return _error_result("INVALID_SPEC", "quantity and unit aliases disagree", helper=helper)
+        return error_result("INVALID_SPEC", "quantity and unit aliases disagree", helper=helper)
     left_text = str(left or "").strip()
     right_text = str(right or "").strip()
     if not left_text or not right_text:
-        return _error_result("MISSING_PARAM", "quantity_a/quantity_b or unit_a/unit_b are required", helper=helper)
+        return error_result("MISSING_PARAM", "quantity_a/quantity_b or unit_a/unit_b are required", helper=helper)
 
     def _run() -> dict[str, Any]:
         ureg = _get_ureg()
@@ -336,11 +336,11 @@ def _guarded(helper: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     try:
         return fn()
     except _FormatSpecError as exc:
-        return _error_result("INVALID_SPEC", str(exc), helper=helper)
+        return error_result("INVALID_SPEC", str(exc), helper=helper)
     except ValueError as exc:
-        return _error_result("PARSE_ERROR", str(exc), helper=helper)
+        return error_result("PARSE_ERROR", str(exc), helper=helper)
     except Exception as exc:
-        return _error_result("UNITS_ERROR", str(exc), helper=helper)
+        return error_result("UNITS_ERROR", str(exc), helper=helper)
 
 
 def _scalar_cell(value: Any) -> Any:
@@ -364,7 +364,7 @@ def _vector_result(
     try:
         res = call()
     except Exception as exc:
-        return _error_result("UNITS_ERROR", str(exc), helper=name)
+        return error_result("UNITS_ERROR", str(exc), helper=name)
     if isinstance(res, dict) and res.get("status") == "error":
         return res
     grid = ensure_rectangular_2d(res)
@@ -407,20 +407,20 @@ def _convert_formatted(flat: list[Any], suffixes: list[str]) -> list[Any]:
 
 
 @helper("units", "convert_quantity")
-def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
     name = "convert_quantity"
     raw_from, from_conflict = _resolve_unit_alias(params.get("from_unit"), params.get("from"))
     if from_conflict:
-        return _error_result("INVALID_SPEC", "from and from_unit disagree", helper=name)
+        return error_result("INVALID_SPEC", "from and from_unit disagree", helper=name)
     raw_to, to_conflict = _resolve_unit_alias(params.get("to_unit"), params.get("to"))
     if to_conflict:
-        return _error_result("INVALID_SPEC", "to and to_unit disagree", helper=name)
+        return error_result("INVALID_SPEC", "to and to_unit disagree", helper=name)
     raw_val = params.get("value")
     if inspect_input(raw_val).is_scalar and inspect_input(raw_from).is_scalar and inspect_input(raw_to).is_scalar:
         from_text = "" if is_blank_param(raw_from) else str(_scalar_cell(raw_from) or "").strip()
         to_text = "" if is_blank_param(raw_to) else str(_scalar_cell(raw_to) or "").strip()
         if not from_text or not to_text:
-            return _error_result("MISSING_PARAM", "from and to units are required", helper=name)
+            return error_result("MISSING_PARAM", "from and to units are required", helper=name)
 
         def _run() -> dict[str, Any]:
             converted = _converted_quantity(_scalar_cell(raw_val), from_text, to_text)
@@ -452,7 +452,7 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ign
 
 
 @helper("units", "parse_quantity")
-def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     name = "parse_quantity"
     # What was wrong: parse_quantity("") and parse_quantity(quantity=None)
     # returned MISSING_PARAM, while run_units with quantity "" or None returned
@@ -462,7 +462,7 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignor
     # Why this fixes it: omitted quantity uses the same MISSING_PARAM check as
     # the direct function. Whitespace-only text is still parsed.
     if is_blank_param(params.get("quantity")):
-        return _error_result("MISSING_PARAM", "quantity is required", helper=name)
+        return error_result("MISSING_PARAM", "quantity is required", helper=name)
     raw_qty = params.get("quantity")
     if inspect_input(raw_qty).is_scalar:
         def _run() -> dict[str, Any]:
@@ -483,7 +483,7 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignor
 
 
 @helper("units", "format_quantity")
-def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
     name = "format_quantity"
     raw_mag = params.get("magnitude")
     raw_units = params.get("units")
@@ -491,7 +491,7 @@ def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:  # pyright: igno
     if inspect_input(raw_mag).is_scalar and inspect_input(raw_units).is_scalar:
         units_text = str(_scalar_cell(raw_units) or "").strip()
         if not units_text:
-            return _error_result("MISSING_PARAM", "units is required", helper=name)
+            return error_result("MISSING_PARAM", "units is required", helper=name)
 
         def _run() -> dict[str, Any]:
             num = _finite_magnitude(_scalar_cell(raw_mag), empty_message="empty magnitude")
@@ -509,7 +509,7 @@ def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:  # pyright: igno
 
 
 @helper("units", "check_dimensionality")
-def _dispatch_check(params: dict[str, Any]) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def _dispatch_check(params: dict[str, Any]) -> dict[str, Any]:
     return check_dimensionality(
         quantity_a=str(params.get("quantity_a") or ""),
         quantity_b=str(params.get("quantity_b") or ""),

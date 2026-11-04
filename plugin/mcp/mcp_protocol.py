@@ -404,7 +404,7 @@ class MCPProtocolHandler:
     ) -> None:
         if transport:
             log_mcp_transport_entry(handler, transport)
-        if mcp_session._reject_stale_session(handler):
+        if mcp_session.reject_stale_session(handler):
             return
         if check_accept:
             accept = handler.headers.get("Accept", "")
@@ -639,7 +639,7 @@ class MCPProtocolHandler:
         req_id = msg.get("id") if isinstance(msg, dict) else None
         log.info("[MCP] <<< %s (id=%s)", method, req_id)
 
-        if mcp_session._reject_stale_session(handler, msg):
+        if mcp_session.reject_stale_session(handler, msg):
             return
 
         is_initialize = isinstance(msg, dict) and msg.get("method") == "initialize"
@@ -679,7 +679,7 @@ class MCPProtocolHandler:
         status, response = result
 
         if is_initialize and status == 200:
-            mcp_session._mint_session_id_once()
+            mcp_session.mint_session_id_once()
 
         log.info("[MCP] >>> %s (id=%s) -> %d", method, req_id, status)
         self._send_json(handler, status, response)

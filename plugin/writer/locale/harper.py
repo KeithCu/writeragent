@@ -2,11 +2,10 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Harper grammar: persistent harper-ls LSP client plus host entry for the grammar queue.
+"""Harper grammar: persistent harper-ls LSP client for in-process linting.
 
-Runs in-process on LibreOffice's grammar drain thread (not the warm venv worker / trusted
-RPC path used by LanguageTool and Vale). Status UI refresh during progress is best-effort
-(``main.post``); a busy main thread must not abort the check.
+Runs in-process on LibreOffice's grammar / linguistic threads (not the warm venv
+worker / trusted RPC path used by LanguageTool and Vale).
 """
 
 from __future__ import annotations
@@ -32,7 +31,7 @@ from plugin.scripting.sandbox import wrap_command_for_sandbox
 from plugin.contrib.lsp import json_rpc_framing
 from plugin.contrib.lsp.position_codec import ClientPosition, PositionCodec
 from plugin.writer.locale import grammar_settings
-from plugin.writer.locale.harper_binary import _emit_progress, _get_harper_binary
+from plugin.writer.locale.harper_binary import emit_progress, get_harper_binary
 from plugin.framework.grammar_rule_ids import HARPER_RULE_PREFIX, make_rule_identifier
 
 log = logging.getLogger("writeragent.grammar")
@@ -135,6 +134,15 @@ class HarperRuntime:
         for client in clients:
             client.close()
 
+    def is_ready(self) -> bool:
+        """True when harper-ls is in-process and the runtime state is READY."""
+        with self.lock:
+            return self.state is HarperRuntimeState.READY and any(c.is_alive() for c in self.clients.values())
+
+    def mark_idle(self) -> None:
+        with self.lock:
+            self.state = HarperRuntimeState.IDLE
+
     def install_client(
         self,
         binary_path: str,
@@ -146,8 +154,8 @@ class HarperRuntime:
 
         HarperLSClient does Popen plus LSP initialize (up to _INIT_BUDGET_SEC).
         Running construction outside the lock prevents blocking callers, while
-        the compare-and-swap under the lock keeps two concurrent builders
-        (ensure_body and run_harper_check) from both leaving a live process installed.
+        the compare-and-swap under the lock keeps two concurrent ensure_body calls
+        from both leaving a live process installed.
         """
         built = HarperLSClient(
             binary_path,
@@ -176,7 +184,7 @@ class HarperRuntime:
                 if message:
                     get_grammar_status().request("Harper", result=message)
 
-            harper_bin = _get_harper_binary(user_config_dir, heartbeat_fn=_on_progress)
+            harper_bin = get_harper_binary(user_config_dir, heartbeat_fn=_on_progress)
             dead_to_close: HarperLSClient | None = None
             with self.lock:
                 cached = self.clients.get(harper_bin)
@@ -382,7 +390,7 @@ class HarperLSClient:
             self._doc_opened = False
             out_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
             self.stdout_queue = out_queue
-            _emit_progress(self._heartbeat_fn, "Starting harper-ls…")
+            emit_progress(self._heartbeat_fn, "Starting harper-ls…")
             # Explanations for non-default flags:
             # - inherit_env: Popen env=None and the sandbox wrapper sees env=None, so Flatpak does not pass --clear-env (host session, as wrap_command_for_sandbox documents for harper).
             # - new_session=False: child is not a session leader; close signals that process with terminate / kill.
@@ -406,7 +414,7 @@ class HarperLSClient:
             self.stdout_thread.start()
 
             deadline = time.monotonic() + _INIT_BUDGET_SEC
-            _emit_progress(self._heartbeat_fn, "Initializing Harper LSP…")
+            emit_progress(self._heartbeat_fn, "Initializing Harper LSP…")
             self._send_request(
                 "initialize",
                 {
@@ -584,7 +592,7 @@ class HarperLSClient:
             if not self.is_alive():
                 self._initialize()
 
-            _emit_progress(self._heartbeat_fn, "Linting…")
+            emit_progress(self._heartbeat_fn, "Linting…")
 
             self._apply_bcp47(bcp47)
             self._doc_version += 1
@@ -654,12 +662,6 @@ def lsp_range_to_offset(text: str, line: int, character: int) -> int:
 def shutdown_harper_runtime() -> None:
     """Close every cached harper-ls client. Safe from tests and extension teardown."""
     runtime.shutdown()
-
-
-def harper_runtime_is_ready() -> bool:
-    """True when harper-ls is in-process and the runtime state is READY."""
-    with runtime.lock:
-        return runtime.state is HarperRuntimeState.READY and any(c.is_alive() for c in runtime.clients.values())
 
 
 def _broadcast_proofread_again() -> None:
@@ -738,8 +740,7 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     alive. Writer runs ``doProofreading`` on a linguistic worker (``Dummy-*``),
     not VCL: the helper posts PE2I to the main thread instead of pumping on
     this stack (in-loop PE2I there was a thread-violation dialog). Missing ``ctx`` falls
-    back to a blocking wait (no pump). Grammar-queue ``run_harper_check``
-    does not pass ``ctx``: that thread is already a worker and status sink repaints.
+    back to a blocking wait (no pump).
     """
     from plugin.writer.locale.grammar_obs import grammar_obs
 
@@ -808,8 +809,7 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
         # following harper_ensure_ready_async call no-ops instead of
         # restarting.
         log.exception("[harper] lint failed on ready client; empty aErrors this walk")
-        with runtime.lock:
-            runtime.state = HarperRuntimeState.IDLE
+        runtime.mark_idle()
         harper_ensure_ready_async(user_config_dir, bcp47)
         return None
 
@@ -869,53 +869,3 @@ def _diagnostics_to_errors(text: str, results: list[Any], lint_text: str) -> dic
         )
 
     return {"errors": errors}
-
-
-def run_harper_check(ctx: Any, text: str, config_dir: str, *, bcp47: str = "en-US") -> dict[str, Any]:
-    """Grammar-queue entry: status UI + in-process harper-ls lint (no venv worker)."""
-    from plugin.writer.locale.grammar_obs import get_grammar_status
-
-    get_grammar_status().request(text, result="Starting Harper…")
-
-    def _on_progress(payload: dict[str, Any]) -> None:
-        message = str(payload.get("message") or "").strip()
-        if message:
-            get_grammar_status().request(text, result=message)
-
-    try:
-        harper_bin = _get_harper_binary(config_dir, heartbeat_fn=_on_progress)
-    except Exception as e:
-        log.exception("[harper] Failed to resolve harper-ls binary")
-        raise RuntimeError(str(e)) from e
-
-    dead_to_close: HarperLSClient | None = None
-    with runtime.lock:
-        cached = runtime.clients.get(harper_bin)
-        if cached is not None and cached.is_alive():
-            client = cached
-            client._heartbeat_fn = _on_progress
-        else:
-            if cached is not None:
-                del runtime.clients[harper_bin]
-                dead_to_close = cached
-            client = None
-    if dead_to_close is not None:
-        dead_to_close.close()
-    if client is None:
-        client = runtime.install_client(harper_bin, config_dir, bcp47, heartbeat_fn=_on_progress)
-
-    with runtime.lock:
-        runtime.state = HarperRuntimeState.READY
-        try:
-            return runtime._lint_with_client(client, text, bcp47=bcp47, heartbeat_fn=_on_progress)
-        except Exception:
-            log.exception("[harper] Linting error or connection lost, restarting client")
-            if runtime.clients.get(harper_bin) is client:
-                del runtime.clients[harper_bin]
-            client_to_close = client
-
-    client_to_close.close()
-    client = runtime.install_client(harper_bin, config_dir, bcp47, heartbeat_fn=_on_progress)
-    with runtime.lock:
-        runtime.state = HarperRuntimeState.READY
-        return runtime._lint_with_client(client, text, bcp47=bcp47, heartbeat_fn=_on_progress)
