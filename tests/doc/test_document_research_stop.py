@@ -147,12 +147,11 @@ def test_grep_nearby_files_polls_stop_checker(
         ctx.doc = MagicMock()
         ctx.ctx = MagicMock()
         ctx.services = {}
-        stop_checker = MagicMock(return_value=False)
-        ctx.stop_checker = stop_checker
+        scope = SendCancellation()
 
         mock_grep_calc.return_value = ([], False)
 
-        grep_nearby_files(ctx, opened_model, {}, "pattern", stop_checker=stop_checker)
+        grep_nearby_files(ctx, opened_model, {}, "pattern", cancel=scope)
 
         mock_grep_calc.assert_called_once()
-        assert mock_grep_calc.call_args.kwargs.get("stop_checker") == stop_checker
+        assert mock_grep_calc.call_args.kwargs.get("cancel") is scope

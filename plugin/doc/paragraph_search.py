@@ -14,6 +14,7 @@ import re as re_mod
 from typing import Any
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 
 def compile_search_pattern(
@@ -44,12 +45,12 @@ def search_paragraph_texts(
     case_sensitive: bool = False,
     max_results: int = 20,
     context_paragraphs: int = 1,
-    stop_checker: Any = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Search *para_texts* for *pattern*; return (matches up to max_results, truncated).
 
     truncated is True when another hit exists beyond the returned matches.
-    The scan stops on that extra hit. A stop_checker break is not truncation.
+    The scan stops on that extra hit. A cancel break is not truncation.
     """
     if not pattern:
         return [], False
@@ -59,7 +60,7 @@ def search_paragraph_texts(
     matches: list[dict[str, Any]] = []
 
     for i, ptext in enumerate(para_texts):
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             break
         if not ptext:
             continue

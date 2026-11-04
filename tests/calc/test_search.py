@@ -37,11 +37,11 @@ def test_search_in_spreadsheet_valid_max_results():
         assert mock_search.call_args.kwargs["max_results"] == 5
 
 
-def test_search_in_spreadsheet_forwards_stop_checker():
+def test_search_in_spreadsheet_forwards_cancel():
     tool = SearchInSpreadsheet()
     scope = SendCancellation()
     ctx = types.SimpleNamespace(doc=MagicMock(), send_cancellation=scope)
     with patch("plugin.calc.search.search_spreadsheet_cells", return_value=[]) as mock_search:
         res = tool.execute(ctx, pattern="test")
         assert res["status"] == "ok"
-        assert mock_search.call_args.kwargs["stop_checker"] == scope.is_cancelled
+        assert mock_search.call_args.kwargs["cancel"] is scope

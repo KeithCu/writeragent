@@ -1053,12 +1053,8 @@ def test_register_core_handlers_continues_after_optional_import_failure(
             lambda: recorded.append("geo"),
         )
         monkeypatch.setattr(
-            "plugin.writer.change_context_menu.install_writer_change_context_menu",
-            lambda _ctx: recorded.append("writer_menu"),
-        )
-        monkeypatch.setattr(
-            "plugin.writer.review_toolbar.install_review_toolbar",
-            lambda _ctx: recorded.append("toolbar"),
+            "plugin.writer.review_view_attachment.install",
+            lambda _ctx: recorded.append("review"),
         )
         monkeypatch.setattr("plugin.framework.uno_context.get_ctx", lambda: MagicMock())
 
@@ -1074,7 +1070,7 @@ def test_register_core_handlers_continues_after_optional_import_failure(
         # Release strip removes log.debug; continue asserting handlers still registered.
         if not is_release_build():
             assert "Excel PY auto-convert on open install failed" in caplog.text
-        assert recorded == ["geo", "writer_menu", "toolbar"]
+        assert recorded == ["geo", "review"]
         assert get_action_handler("embeddings.search_dialog") is not None
         assert get_action_handler("writer.accept_change") is not None
         assert get_action_handler("writer.reject_change") is not None

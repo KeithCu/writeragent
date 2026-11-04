@@ -3,7 +3,7 @@
      "Add-On N") and starts it HIDDEN. The toolbar is declared in Addons.xcu under
      OfficeToolBar / org.extension.writeragent.toolbar, so LO derives the resource URL
      "private:resource/toolbar/addon_org.extension.writeragent.toolbar". It is shown/hidden at
-     runtime by plugin/writer/review_toolbar.py based on the count of pending agent changes. -->
+     runtime by plugin/writer/review_view_attachment.py based on the count of pending agent changes. -->
 <oor:component-data xmlns:oor="http://openoffice.org/2001/registry"
     xmlns:xs="http://www.w3.org/2001/XMLSchema"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
