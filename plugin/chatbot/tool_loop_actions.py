@@ -827,7 +827,7 @@ def build_tool_execute_fn(
         append_thinking_callback: Callable[[str], None] | None = None,
         *,
         captured_turn: Any = None,
-        send_cancellation: Any = None,
+        send_cancellation: SendCancellation | None = None,
     ) -> str:
         from plugin.app import get_tools as _get_tools
 
@@ -862,13 +862,6 @@ def build_tool_execute_fn(
                 )
                 return json.dumps(format_error_payload(err), default=str)
 
-        # Workers pass the scope captured at spawn. Direct
-        # callers (tests) omit it and still run on that thread.
-        from plugin.framework.send_cancellation import SendCancellation
-
-        checker_scope = send_cancellation if send_cancellation is not None else getattr(host, "_send_cancellation", None)
-        if checker_scope is not None and not isinstance(checker_scope, SendCancellation):
-            checker_scope = None
         if prompt_for_web:
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
@@ -879,7 +872,7 @@ def build_tool_execute_fn(
                     return (False, None)
                 # event.wait() ignored Stop. Sidebar close latches the
                 # checker and never sets the event, so this worker parked.
-                if not wait_for_approval(event, checker_scope) or not getattr(event, "approved", False):
+                if not wait_for_approval(event, send_cancellation) or not getattr(event, "approved", False):
                     put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
                     return (False, None)
                 return (True, getattr(event, "query_override", None))
@@ -1130,6 +1123,8 @@ class ToolLoopEffectInterpreter:
         # panel field when the tool later runs.
         # Send thread, before run_in_background; worker must not re-read _send_cancellation (drain clears it).
         bound_scope = host._send_cancellation
+        if bound_scope is not None and not isinstance(bound_scope, SendCancellation):
+            bound_scope = None
 
         # Bugfix: getText ran for every tool whenever the sidebar combobox
         # existed, and main.call re-raises, so a disposed or
