@@ -922,6 +922,7 @@ def test_chat_completion_sync_stop_checker_not_finish_reason():
 
 def _deep_preview_params(approval_callback):
     from plugin.chatbot.web_research import WebAgentRunParams
+    from plugin.framework.send_cancellation import SendCancellation
 
     api = MagicMock()
     api.config = {}
@@ -936,13 +937,12 @@ def _deep_preview_params(approval_callback):
         cache_max_mb=0,
         cache_max_age_days=30,
         cdp_url=None,
-        stop_checker=None,
         status_callback=None,
         append_thinking_callback=None,
         approval_callback=approval_callback,
         chat_append_callback=None,
         outer_query="topic",
-        cancellation_scope=object(),
+        cancel=SendCancellation(),
     )
 
 
@@ -1005,7 +1005,7 @@ class _RecordingClient:
     def __init__(self, config, ctx, cancel=None):
         self.config = config
         self.ctx = ctx
-        self.cancellation_scope = cancel
+        self.cancel = cancel
         self._owned = SendCancellation()
         self.kinds: list[str] = []
         self.saw_cancel = False
@@ -1112,8 +1112,8 @@ def test_user_stopped_during_sub_query_or_synthesis_is_not_cached(tmp_path):
         assert len(instances) >= 2
         parent = instances[0]
         workers = instances[1:]
-        assert parent.cancellation_scope is scope
-        assert all(worker.cancellation_scope is scope for worker in workers)
+        assert parent.cancel is scope
+        assert all(worker.cancel is scope for worker in workers)
         assert all(worker.config is parent.config for worker in workers)
         assert "extract" not in parent.kinds
         assert any("extract" in worker.kinds for worker in workers)
