@@ -13,9 +13,10 @@ import dataclasses
 from typing import Any
 
 from plugin.framework.config import get_config
-from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
+from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ConfigError, ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
+from plugin.scripting.session_key import SessionKey, SessionKind
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
 
 # --- Client ---
@@ -39,7 +40,7 @@ def get_embedding_model() -> str:
 
 def _embedding_session_id(model: str) -> str:
     slug = model.replace("/", "_").replace(":", "_")
-    return f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:{slug}"
+    return SessionKey.of(SessionKind.EMBEDDINGS, slug).wire()
 
 
 def _parse_worker_result(payload: dict[str, Any], *, model: str) -> EmbeddingBatch:

@@ -30,6 +30,7 @@ from compute_service.json_egress import normalize_execute_response
 from compute_service.json_forward import json_forward_envelope
 from compute_service.worker_base import configure_compute_worker_env, run_compute_worker
 from plugin.framework.warm_child import error_dict
+from plugin.scripting.session_key import SessionKey, SessionKind
 
 # Default math/OpenMP thread pools to 1 thread early before any heavy math imports.
 configure_compute_worker_env()
@@ -111,9 +112,9 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         if init_code is not None:
             init_hash = hashlib.sha256(init_code.encode("utf-8")).hexdigest()
             if use_session is not None:
-                init_sid = f"{use_session}:init"
+                init_sid = SessionKey.parse(use_session).with_init_suffix().wire()
             else:
-                init_sid = f"isolated:{init_hash}:init"
+                init_sid = SessionKey.of(SessionKind.ISOLATED, init_hash).with_init_suffix().wire()
 
         # Output is JSON: force="never" keeps grids as native lists so large ints stay exact.
         raw = run_sandboxed_code(

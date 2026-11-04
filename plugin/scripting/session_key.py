@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import enum
 import uuid
 
@@ -18,6 +18,7 @@ class SessionKind(enum.Enum):
     PPT_MASTER = "ppt_master"
     DOC = "doc"
     ISOLATED = "isolated"
+    EMBEDDINGS = "embeddings"
     OTHER = "other"
 
 
@@ -32,18 +33,29 @@ _KIND_BY_PREFIX = {k.value: k for k in SessionKind if k is not SessionKind.OTHER
 class SessionKey:
     kind: SessionKind
     rest: str
+    init: bool = False
 
     def wire(self) -> str:
         if self.kind is SessionKind.OTHER:
-            return self.rest
-        return f"{self.kind.value}:{self.rest}"
+            base = self.rest
+        else:
+            base = f"{self.kind.value}:{self.rest}"
+        if self.init:
+            return base + INIT_SUFFIX
+        return base
 
     @classmethod
     def parse(cls, text: str) -> SessionKey:
+        init = False
+        if text.endswith(INIT_SUFFIX):
+            init = True
+            text = text[: -len(INIT_SUFFIX)]
+        # ``calc:init`` (no document key) becomes OTHER+init, not CALC(rest="init").
+        # HTTP rejects it via is_reserved_caller_id; host-only wire strings may still appear.
         prefix, sep, rest = text.partition(":")
         if sep and prefix in _KIND_BY_PREFIX:
-            return cls(_KIND_BY_PREFIX[prefix], rest)
-        return cls(SessionKind.OTHER, text)
+            return cls(_KIND_BY_PREFIX[prefix], rest, init)
+        return cls(SessionKind.OTHER, text, init)
 
     @classmethod
     def of(cls, kind: SessionKind, document_key: str) -> SessionKey:
@@ -58,22 +70,46 @@ class SessionKey:
         return cls.parse(value)
 
     def with_init_suffix(self) -> SessionKey:
-        return SessionKey.parse(self.wire() + INIT_SUFFIX)
+        """Return the init-script companion id for this session (sets ``init=True``).
 
-    def endswith_init(self) -> bool:
-        return self.wire().endswith(INIT_SUFFIX)
+        Idempotent when ``init`` is already set (``calc:x:init`` stays ``calc:x:init``;
+        older code that concatenated ``:init`` could yield ``:init:init``). Compute
+        rejects caller ids ending in ``:init``; sandbox reset uses the flag, not stacked suffixes.
+        """
+        return replace(self, init=True)
+
+    def without_init(self) -> SessionKey:
+        return replace(self, init=False)
 
     def document_lookup_key(self) -> str | None:
         if self.kind not in DOCUMENT_KINDS:
             return None
-        key = self.rest
-        if self.kind is SessionKind.CALC and key.endswith(INIT_SUFFIX):
-            key = key[: -len(INIT_SUFFIX)]
-        return key or None
+        return self.rest or None
 
 
 def is_reserved_caller_id(session_id: str) -> bool:
-    return session_id.endswith(INIT_SUFFIX) or session_id.startswith(SessionKind.ISOLATED.value + ":")
+    """True when *session_id* must not be used as an HTTP compute caller id.
+
+    Reserved: bare kind names (``calc``, ``rps``, …), any name ending in ``:init``,
+    and any name starting with ``isolated:``. Bare kind names collide with
+    kind-prefixed workbook routing inside LibreOffice (``kind:document_key``).
+    """
+    if session_id.endswith(INIT_SUFFIX):
+        return True
+    if session_id.startswith(f"{SessionKind.ISOLATED.value}:"):
+        return True
+    return session_id in _KIND_BY_PREFIX
+
+
+RESERVED_CALLER_ID_HELP = (
+    "Reserved session_id: a bare kind name (calc, rps, notebook, ppt_master, doc, isolated, embeddings), "
+    "any name ending in ':init', or any name starting with 'isolated:' "
+    "(bare kind names collide with kind-prefixed session routing)."
+)
+
+
+def reserved_caller_id_error_message(session_id: str) -> str:
+    return f"Invalid session_id {session_id!r}: {RESERVED_CALLER_ID_HELP}"
 
 
 def new_unsaved_document_key() -> str:

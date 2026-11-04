@@ -45,7 +45,7 @@ from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation
 from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate
 import plugin.mcp.mcp_session as mcp_session
@@ -340,9 +340,7 @@ class MCPProtocolHandler:
         self.queue_executor = services.main_thread
         self.tool_registry = services.tools
         self.event_bus = getattr(services, "events", None)
-        self._cancelled_requests: set[tuple[Any, str | int]] = set()
-        self._in_flight_requests: dict[tuple[Any, str | int], int] = {}
-        self._request_scopes: dict[tuple[Any, str | int], SendCancellation] = {}
+        self._request_scopes: dict[tuple[Any, str | int], list[SendCancellation]] = {}
         self._requests_lock: threading.Lock = threading.Lock()
         # plugin.version is part of the extension. A missing module is a
         # packaging bug, not a runtime fallback to "unknown".
@@ -774,7 +772,7 @@ class MCPProtocolHandler:
     def _mcp_prompts_list(self, params: Any) -> Any:
         return {"prompts": []}
 
-    def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None, session: Any = None) -> Any:
+    def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None, session: Any = None, *, cancel: SendCancellation) -> Any:
         call_params = wire_types.CallToolRequestParams.from_params(params)
         tool_name = call_params.name
         arguments = dict(call_params.arguments)
@@ -810,7 +808,7 @@ class MCPProtocolHandler:
             event_bus.emit("mcp:request", tool=tool_name, args=arguments, method="tools/call", req_id=req_id)
 
         try:
-            res = self._run_tool(tool_name, arguments, document_url=document_url, req_id=req_id, session=session)
+            res = self._run_tool(tool_name, arguments, document_url=document_url, req_id=req_id, session=session, cancel=cancel)
         except document_mutation_gate.BusyError:
             raise
         except TimeoutError:
@@ -859,10 +857,8 @@ class MCPProtocolHandler:
             if isinstance(req_id_to_cancel, (str, int)) and not isinstance(req_id_to_cancel, bool):
                 cancel_target = (session, req_id_to_cancel)
                 with self._requests_lock:
-                    if cancel_target in self._in_flight_requests:
-                        self._cancelled_requests.add(cancel_target)
-                    scope = self._request_scopes.get(cancel_target)
-                if scope is not None:
+                    scopes = list(self._request_scopes.get(cancel_target, []))
+                for scope in scopes:
                     scope.cancel()
 
         # Notifications must not receive a JSON-RPC response (HTTP 202, empty body).
@@ -890,24 +886,24 @@ class MCPProtocolHandler:
                 result = self._mcp_tools_list(params, document_url=document_url)
             elif method == "tools/call":
                 cancel_key = (session, req_id) if req_id is not None else None
+                outer = get_current_send_cancellation()
+                scope = outer if outer is not None else SendCancellation()
                 if cancel_key is not None:
                     with self._requests_lock:
-                        count = self._in_flight_requests.get(cancel_key, 0)
-                        if count == 0:
-                            self._cancelled_requests.discard(cancel_key)
-                        self._in_flight_requests[cancel_key] = count + 1
+                        self._request_scopes.setdefault(cancel_key, []).append(scope)
                 try:
-                    result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id, session=session)
+                    result = self._mcp_tools_call(params, document_url=document_url, req_id=req_id, session=session, cancel=scope)
                 finally:
                     if cancel_key is not None:
                         with self._requests_lock:
-                            count = self._in_flight_requests.get(cancel_key, 0) - 1
-                            if count <= 0:
-                                self._request_scopes.pop(cancel_key, None)
-                                self._in_flight_requests.pop(cancel_key, None)
-                                self._cancelled_requests.discard(cancel_key)
-                            else:
-                                self._in_flight_requests[cancel_key] = count
+                            bucket = self._request_scopes.get(cancel_key)
+                            if bucket is not None:
+                                try:
+                                    bucket.remove(scope)
+                                except ValueError:
+                                    pass
+                                if not bucket:
+                                    self._request_scopes.pop(cancel_key, None)
             else:
                 result = one_arg[method](params)
             if log.isEnabledFor(logging.DEBUG):
@@ -939,11 +935,9 @@ class MCPProtocolHandler:
         document_url: str | None = None,
         req_id: Any = None,
         session: Any = None,
+        cancel: SendCancellation,
     ) -> Any:
         with _permit():
-            from plugin.framework.send_cancellation import get_current_send_cancellation
-
-            send_cancellation = get_current_send_cancellation()
             prepared = self.queue_executor.call(
                 self._prepare_mcp_execution,
                 tool_name,
@@ -951,8 +945,8 @@ class MCPProtocolHandler:
                 document_url,
                 req_id,
                 timeout=10.0,
-                bound_scope=send_cancellation,
-                send_cancellation=send_cancellation,
+                bound_scope=cancel,
+                cancel=cancel,
                 session=session,
             )
         if not isinstance(prepared, _PreparedMcpCall):
@@ -1004,13 +998,12 @@ class MCPProtocolHandler:
         log.debug("tools/list broadened past the active %s document to also cover: %s", active_doc_type, ", ".join(sorted(others)))
         return schemas, others
 
-    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, *, send_cancellation: Any, session: Any = None) -> Any:
+    def _prepare_mcp_execution(self, tool_name: str, arguments: Any, document_url: str | None = None, req_id: Any = None, *, cancel: SendCancellation, session: Any = None) -> Any:
         """Main-thread only: unknown-tool check, document resolve, ToolContext, precomputed echo.
 
         Returns ``_PreparedMcpCall`` or a structured error dict.
 
-        Callers pass the scope captured on the worker, including None.
-        None means that worker had no scope. This method does not read the main thread's send contextvar.
+        Callers pass the scope captured on the worker. This method does not read the main thread's send contextvar or the request-scope map.
         """
         tool = self.tool_registry.get(tool_name)
         if tool is None:
@@ -1072,14 +1065,6 @@ class MCPProtocolHandler:
 
             active_page_idx = DrawBridge(doc).get_active_page_index()
 
-        scope = send_cancellation if send_cancellation is not None else SendCancellation()
-        cancel_key = (session, req_id) if req_id is not None else None
-        if cancel_key is not None:
-            with self._requests_lock:
-                self._request_scopes[cancel_key] = scope
-                if cancel_key in self._cancelled_requests:
-                    scope.cancel()
-
         # MagicMock tools (and any non-bool is_async result) are not async. A
         # non-numeric timeout is not a positive timeout: comparing MagicMock
         # to int raises TypeError and aborts preparation before ToolContext.
@@ -1088,7 +1073,7 @@ class MCPProtocolHandler:
         if _is_async and _timeout is not None and not (isinstance(_timeout, (int, float)) and _timeout > 0):
             return {"status": "error", "code": "TOOL_EXECUTION_ERROR", "message": "Async tools must declare a positive timeout to run off-thread."}
 
-        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=scope)
+        context = ToolContext(doc=doc, ctx=ctx, doc_type=doc_type, services=self.services, caller="mcp", active_page_index=active_page_idx, uno_services_supported=uno_services, send_cancellation=cancel)
         return _PreparedMcpCall(tool=tool, context=context, doc=doc, doc_key=_resolve_mcp_doc_key(document_url, doc), needs_gate=tool.requires_document_lock(arguments), echo=_document_echo_payload(doc), is_async=_is_async)
 
     def _invoke_prepared_mcp_tool(self, prepared: _PreparedMcpCall, tool_name: str, arguments: Any) -> Any:
@@ -1132,7 +1117,7 @@ class MCPProtocolHandler:
         if document_url is None:
             document_url = args_copy.pop("document_url", None)
 
-        result = self._run_tool(tool_name, args_copy, document_url=document_url)
+        result = self._run_tool(tool_name, args_copy, document_url=document_url, cancel=SendCancellation())
         return result
 
     def _debug_trigger(self, command: str) -> Any:

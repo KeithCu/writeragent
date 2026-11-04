@@ -27,7 +27,6 @@ from plugin.scripting.calc_functions_common import (
     ANALYSIS_DATA_TABLE_ROWS as MAX_TABLE_ROWS,
 )
 from plugin.scripting.session_key import (
-    INIT_SUFFIX,
     PERSISTABLE_KINDS,
     SessionKey,
 )
@@ -186,11 +185,9 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
     sid = (session_id or "").strip()
     if not sid:
         return None
-    if sid.endswith(INIT_SUFFIX):
-        sid = sid[: -len(INIT_SUFFIX)]
     parsed = SessionKey.parse(sid)
     if parsed.kind in PERSISTABLE_KINDS and parsed.rest:
-        return parsed.wire()
+        return parsed.without_init().wire()
     return None
 
 

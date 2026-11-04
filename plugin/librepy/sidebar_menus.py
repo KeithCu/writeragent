@@ -10,7 +10,6 @@ chat hamburger keeps those extras in hamburger_menu.py.
 
 from __future__ import annotations
 
-import inspect
 import logging
 from typing import Any, Callable
 
@@ -99,25 +98,11 @@ def load_menu_graphic(ctx: Any, icon_filename: str) -> Any:
 
 
 def invoke_action_handler(handler: Callable[..., Any] | None, frame: Any = None, *, command: str) -> None:
-    """Call a registered action; most LibrePy handlers take no frame argument.
-
-    A parameter named ``frame`` receives the sidebar frame even when it has
-    a default, so Extend/Edit can prefer that document and the menubar can
-    still call the same handler with no arguments.
-    """
+    """Call a registered action handler, always passing the sidebar frame."""
     if handler is None:
         return
     try:
-        sig = inspect.signature(handler)
-        wants_frame = any(
-            param.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
-            and (param.name == "frame" or param.default is inspect.Parameter.empty)
-            for param in sig.parameters.values()
-        )
-        if wants_frame:
-            handler(frame)
-        else:
-            handler()
+        handler(frame)
     except Exception as exc:
         from plugin.framework.main_shared import report_action_failure
 
