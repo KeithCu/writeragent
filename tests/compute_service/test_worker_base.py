@@ -26,6 +26,31 @@ def _child(proc: object, *, worker_name: str, worker_id: int, tail: object = Non
     return Child(managed, worker_name=worker_name, worker_id=worker_id)
 
 
+def _second_spawn_queued_event(monkeypatch: pytest.MonkeyPatch) -> threading.Event:
+    """Return an event set when a second compute respawn enters ``Supervisor.spawn``.
+
+    ``Popen`` is serialized on the supervisor spawner thread, so two overlapping
+    ``respawn`` calls queue a second spawn while the first is still between
+    ``start`` and ``publish``. Tests that used to synchronize inside ``Popen``
+    should gate the first ``Popen`` on this event instead.
+    """
+    from plugin.framework.warm_child import get_supervisor
+
+    sup = get_supervisor()
+    real_spawn = sup.spawn
+    attempts = {"n": 0}
+    second_queued = threading.Event()
+
+    def patched_spawn(managed: object) -> None:
+        attempts["n"] += 1
+        if attempts["n"] == 2:
+            second_queued.set()
+        real_spawn(managed)
+
+    monkeypatch.setattr(sup, "spawn", patched_spawn)
+    return second_queued
+
+
 class _Slot:
     """Stand-in worker. kill() can re-enter the pool condition."""
 
@@ -1912,12 +1937,14 @@ def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> 
     """Two overlapping respawns publish one child and kill the other.
 
     What was wrong: both threads passed the reap before either adopt, so
-    the second assignment leaked the first Popen.
+    the second assignment leaked the first Popen. Popen runs on the
+    supervisor spawner thread (serial), so the first ``Popen`` waits until
+    the second respawn has reached ``Supervisor.spawn``.
     """
     from plugin.framework import process_worker as worker_mod
 
     worker = _worker_without_spawn(monkeypatch)
-    both_in_popen = threading.Event()
+    second_queued = _second_spawn_queued_event(monkeypatch)
     release = threading.Event()
     children: list[object] = []
     children_lock = threading.Lock()
@@ -1948,10 +1975,9 @@ def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> 
         proc = _Proc()
         with children_lock:
             children.append(proc)
-            if len(children) == 2:
-                both_in_popen.set()
-        assert both_in_popen.wait(timeout=2)
-        assert release.wait(timeout=2)
+            if len(children) == 1:
+                assert second_queued.wait(timeout=2)
+                assert release.wait(timeout=2)
         return proc
 
     def _read(_stdout: object, _timeout_sec: float, **_kwargs: object) -> dict[str, object]:
@@ -1971,7 +1997,7 @@ def test_concurrent_respawn_keeps_one_child(monkeypatch: pytest.MonkeyPatch) -> 
     threads = [threading.Thread(target=_run) for _idx in range(2)]
     for thread in threads:
         thread.start()
-    assert both_in_popen.wait(timeout=2)
+    assert second_queued.wait(timeout=2)
     release.set()
     try:
         for thread in threads:
@@ -2061,7 +2087,7 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
     from plugin.framework import process_worker as worker_mod
 
     worker = _worker_without_spawn(monkeypatch)
-    both_in_popen = threading.Event()
+    second_queued = _second_spawn_queued_event(monkeypatch)
     adopted = threading.Event()
     hold = threading.Event()
     calls = {"n": 0}
@@ -2094,10 +2120,8 @@ def test_respawn_failure_before_adopt_leaves_the_other_child(monkeypatch: pytest
         with calls_lock:
             calls["n"] += 1
             mine = calls["n"]
-            if calls["n"] == 2:
-                both_in_popen.set()
-        assert both_in_popen.wait(timeout=2)
         if mine == 1:
+            assert second_queued.wait(timeout=2)
             proc = _Proc()
             winner["proc"] = proc
             return proc
@@ -2730,6 +2754,48 @@ def test_deadline_budget_table(
     clock._end = now + remaining
     assert clock.usable() == usable_sec
     assert clock.left() == left_sec
+
+
+def test_compute_worker_spawn_runs_on_supervisor_spawner_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Initial spawn and respawn run Popen on the supervisor spawner thread."""
+    from plugin.framework.managed_subprocess import ManagedSubprocess
+    from plugin.framework.process_worker import BaseProcessWorker
+    from plugin.framework.warm_child import get_supervisor
+
+    supervisor = get_supervisor()
+    start_idents: list[int] = []
+    orig_start = ManagedSubprocess.start
+
+    def tracked_start(self: ManagedSubprocess) -> None:
+        start_idents.append(threading.get_ident())
+        return orig_start(self)
+
+    monkeypatch.setattr(ManagedSubprocess, "start", tracked_start)
+
+    script = Path(__file__).resolve().parents[2] / "compute_service" / "formula_worker.py"
+    worker = BaseProcessWorker(1, str(script), worker_name="Formula")
+    try:
+        assert supervisor.spawner_ident is not None
+        assert start_idents == [supervisor.spawner_ident]
+
+        caller_ident: list[int] = []
+        done = threading.Event()
+
+        def respawn_from_caller() -> None:
+            caller_ident.append(threading.get_ident())
+            worker.kill()
+            worker.respawn()
+            done.set()
+
+        thread = threading.Thread(target=respawn_from_caller)
+        thread.start()
+        assert done.wait(timeout=30)
+        assert caller_ident[0] != supervisor.spawner_ident
+        assert start_idents == [supervisor.spawner_ident, supervisor.spawner_ident]
+    finally:
+        worker.kill()
 
 
 def test_formula_worker_script_handshake() -> None:
