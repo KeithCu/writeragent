@@ -155,11 +155,9 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
     model = MockDocument()
     panel.session = MagicMock()
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = '{"status": "ok", "result": "<p>HTML answer</p>"}'
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
     class DummyBase1(object): pass
@@ -174,7 +172,7 @@ def test_run_web_research_stores_raw_answer_and_rerenders():
     mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
-    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict('sys.modules', {'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
             def fake_run_bg(func, **kwargs):
                 func()
@@ -218,7 +216,6 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
     panel.session = MagicMock()
     captured_tool_ctx = []
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry._services = MagicMock()
 
@@ -227,7 +224,6 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
         return '{"status": "ok", "result": "answer"}'
 
     mock_registry.execute.side_effect = capture_execute
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
     class DummyBase1(object):
@@ -246,16 +242,14 @@ def test_run_web_research_tool_context_uses_panel_ctx_not_get_ctx():
     mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
-    with patch.dict(
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
         "sys.modules",
         {
-            "plugin.main": mock_main,
             "uno": mock_uno,
             "unohelper": mock_unohelper,
             "com.sun.star.text": MagicMock(),
             "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang,
-        },
+            "com.sun.star.lang": mock_lang},
     ):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
             def fake_run_bg(func, **kwargs):
@@ -300,7 +294,6 @@ def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
     model = MockDocument()
     captured_tool_ctx = []
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry._services = MagicMock()
 
@@ -309,7 +302,6 @@ def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
         return {"status": "done", "message": "Image generated successfully"}
 
     mock_registry.execute.side_effect = capture_execute
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
     class DummyBase1(object):
@@ -328,16 +320,14 @@ def test_do_send_direct_image_tool_context_uses_panel_ctx_not_get_ctx():
     mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
-    with patch.dict(
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
         "sys.modules",
         {
-            "plugin.main": mock_main,
             "uno": mock_uno,
             "unohelper": mock_unohelper,
             "com.sun.star.text": MagicMock(),
             "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang,
-        },
+            "com.sun.star.lang": mock_lang},
     ):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
             def fake_run_bg(func, **kwargs):
@@ -380,11 +370,9 @@ def test_do_send_direct_image():
     panel = DummyChatbotPanel()
     model = MockDocument()
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "done", "message": "Image generated successfully"}
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
     class DummyBase1(object): pass
@@ -400,8 +388,7 @@ def test_do_send_direct_image():
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
-    with patch.dict('sys.modules', {
-        'plugin.main': mock_main,
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict('sys.modules', {
         'uno': mock_uno,
         'unohelper': mock_unohelper,
         'com.sun.star.text': MagicMock(),
@@ -455,11 +442,9 @@ def test_do_send_direct_image():
 
 def _run_direct_image_send(panel, model, execute_return, selected_graphic=None):
     """Drive ``_do_send_direct_image`` with mocked tools and drain loop."""
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = execute_return
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
 
@@ -480,16 +465,14 @@ def _run_direct_image_send(panel, model, execute_return, selected_graphic=None):
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
-    with patch.dict(
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
         "sys.modules",
         {
-            "plugin.main": mock_main,
             "uno": mock_uno,
             "unohelper": mock_unohelper,
             "com.sun.star.text": MagicMock(),
             "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang,
-        },
+            "com.sun.star.lang": mock_lang},
     ):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
             def fake_run_bg(func, **kwargs):
@@ -626,11 +609,9 @@ def test_do_send_direct_image_error():
     panel = DummyChatbotPanel()
     model = MockDocument()
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "error", "message": "Failed to generate image"}
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
     class DummyBase1(object): pass
@@ -646,8 +627,7 @@ def test_do_send_direct_image_error():
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
-    with patch.dict('sys.modules', {
-        'plugin.main': mock_main,
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict('sys.modules', {
         'uno': mock_uno,
         'unohelper': mock_unohelper,
         'com.sun.star.text': MagicMock(),
@@ -1171,12 +1151,10 @@ def test_run_web_research_invalid_json():
     setattr(panel, "session", MagicMock())
     setattr(panel, "response_control", MagicMock())
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     # Tool execute returns a non-JSON string
     mock_registry.execute.return_value = "This is not valid JSON."
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
     class DummyBase1(object): pass
@@ -1191,7 +1169,7 @@ def test_run_web_research_invalid_json():
     mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
-    with patch.dict('sys.modules', {'plugin.main': mock_main, 'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict('sys.modules', {'uno': mock_uno, 'unohelper': mock_unohelper, 'com.sun.star.text': MagicMock(), 'com.sun.star.awt': mock_awt, 'com.sun.star.lang': mock_lang}):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
             def fake_run_bg(func, **kwargs):
                 func()
@@ -1245,11 +1223,9 @@ def test_run_web_research_uses_session_history_not_response_control():
         "AI: I can edit or translate your document instantly with professional formatting and color. Try me!"
     )
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = '{"status": "ok", "result": "follows up"}'
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
 
@@ -1269,16 +1245,14 @@ def test_run_web_research_uses_session_history_not_response_control():
     mock_awt.XKeyListener = DummyBase2
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
-    with patch.dict(
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
         "sys.modules",
         {
-            "plugin.main": mock_main,
             "uno": mock_uno,
             "unohelper": mock_unohelper,
             "com.sun.star.text": MagicMock(),
             "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang,
-        },
+            "com.sun.star.lang": mock_lang},
     ):
         with patch("plugin.chatbot.dialogs.get_control_text", return_value=stale_greeting) as mock_get_text:
             with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
@@ -1324,11 +1298,9 @@ def test_run_librarian_keeps_panel_flag_until_switch():
     panel = DummyChatbotPanel()
     model = MockDocument()
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "ok", "result": "Still onboarding"}
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
 
@@ -1349,16 +1321,14 @@ def test_run_librarian_keeps_panel_flag_until_switch():
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
-    with patch.dict(
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
         "sys.modules",
         {
-            "plugin.main": mock_main,
             "uno": mock_uno,
             "unohelper": mock_unohelper,
             "com.sun.star.text": MagicMock(),
             "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang,
-        },
+            "com.sun.star.lang": mock_lang},
     ):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
             def fake_run_bg(func, **kwargs):
@@ -1403,11 +1373,9 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
     panel._sidebar_mode = SidebarModeController(panel)
     model = MockDocument()
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "switch_mode", "result": "Switching now"}
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
 
@@ -1428,16 +1396,14 @@ def test_run_librarian_clears_panel_flag_on_switch_mode():
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
-    with patch.dict(
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
         "sys.modules",
         {
-            "plugin.main": mock_main,
             "uno": mock_uno,
             "unohelper": mock_unohelper,
             "com.sun.star.text": MagicMock(),
             "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang,
-        },
+            "com.sun.star.lang": mock_lang},
     ):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
             def fake_run_bg(func, **kwargs):
@@ -1475,11 +1441,9 @@ def test_run_librarian_switch_mode_calls_finished_callback():
     panel = DummyChatbotPanel()
     model = MockDocument()
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "switch_mode", "result": "Switching now"}
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     mock_uno = MagicMock()
 
@@ -1500,16 +1464,14 @@ def test_run_librarian_switch_mode_calls_finished_callback():
     mock_lang = MagicMock()
     mock_lang.XEventListener = DummyBase2
 
-    with patch.dict(
+    with patch("plugin.app.get_tools", return_value=mock_registry), patch.dict(
         "sys.modules",
         {
-            "plugin.main": mock_main,
             "uno": mock_uno,
             "unohelper": mock_unohelper,
             "com.sun.star.text": MagicMock(),
             "com.sun.star.awt": mock_awt,
-            "com.sun.star.lang": mock_lang,
-        },
+            "com.sun.star.lang": mock_lang},
     ):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
             def fake_run_bg(func, **kwargs):
@@ -1652,16 +1614,14 @@ def test_specialized_tool_errors_persist_assistant_row():
     for mode, needle in cases:
         panel = DummyChatbotPanel()
         panel.session.messages = []
-        mock_main = MagicMock()
         mock_registry = MagicMock()
         mock_registry.execute.return_value = {"status": "error", "message": "nope"}
         mock_registry._services = MagicMock()
-        mock_main.get_tools.return_value = mock_registry
 
         def fake_run_bg(func, **kwargs):
             func()
 
-        with patch.dict("sys.modules", {"plugin.main": mock_main}):
+        with patch("plugin.app.get_tools", return_value=mock_registry):
             with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
                 with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                     with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
@@ -1677,8 +1637,7 @@ def test_handler_errors_persist_assistant_banner():
     expected = {
         "web": "Research Chat error",
         "agent": "Operation failed",
-        "image": "Operation failed",
-    }
+        "image": "Operation failed"}
     for handler_type, needle in expected.items():
         panel = DummyChatbotPanel()
 
@@ -1759,17 +1718,15 @@ def test_image_worker_drops_output_after_abort():
         tctx.status_callback("after bump")
         return {"status": "done", "message": "late"}
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
     kinds: list = []
 
     def fake_run_bg(func, **kwargs):
         func()
 
-    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+    with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.chatbot.send_handlers.update_lru_history"):
             with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                 with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain(kinds)):
@@ -1795,17 +1752,15 @@ def test_web_worker_drops_output_after_abort():
         _tctx.status_callback("still-here")
         raise RuntimeError("nope")
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
     kinds: list = []
 
     def fake_run_bg(func, **kwargs):
         func()
 
-    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+    with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
             with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                 with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain(kinds)):
@@ -1905,16 +1860,14 @@ def test_run_search_keeps_spawn_scope_after_next_send():
         seen["scope"] = tctx.send_cancellation
         return {"status": "error", "message": "stop-here"}
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     def run_worker(_q, worker_fn, *_args, **_kwargs):
         captured["fn"] = worker_fn
 
-    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+    with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
             with patch("plugin.chatbot.send_handlers.capture_send_stop", wraps=capture_send_stop) as mock_capture:
                 with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
@@ -1940,16 +1893,14 @@ def test_direct_image_keeps_spawn_scope_after_next_send():
         seen["scope"] = tctx.send_cancellation
         return {"status": "done", "message": "ok"}
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.side_effect = execute
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     def run_worker(_q, worker_fn, *_args, **_kwargs):
         captured["fn"] = worker_fn
 
-    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+    with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.chatbot.send_handlers.update_lru_history"):
             with patch("plugin.chatbot.send_handlers.capture_send_stop", wraps=capture_send_stop) as mock_capture:
                 with patch.object(panel, "_run_unified_worker_drain_loop", side_effect=run_worker):
@@ -2195,22 +2146,19 @@ def test_start_event_mode_determines_executed_tool():
         CHAT_MODE_PPT_MASTER: "ppt_master_session",
         CHAT_MODE_DEEP_RESEARCH: "deep_research_session",
         CHAT_MODE_WEB_RESEARCH: "web_research",
-        "": "web_research",
-    }
+        "": "web_research"}
     for mode, expected_tool in expected_tools.items():
         panel = DummyChatbotPanel()
-        mock_main = MagicMock()
         mock_registry = MagicMock()
         mock_registry.execute.return_value = {"status": "ok", "result": "done"}
         mock_registry._services = MagicMock()
-        mock_main.get_tools.return_value = mock_registry
         mock_turn = MagicMock()
 
         def fake_drain(q, run_search, *args, **kwargs):
             run_search()
 
         panel._run_unified_worker_drain_loop = fake_drain
-        with patch.dict("sys.modules", {"plugin.main": mock_main}):
+        with patch("plugin.app.get_tools", return_value=mock_registry):
             with patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=mock_turn):
                 panel._run_specialized("test query", MagicMock(), mode=mode)
         mock_registry.execute.assert_called_once()
@@ -2328,16 +2276,14 @@ def test_tool_error_clearing_mode_flag_runs_session_finished_callback():
     panel._apply_sidebar_mode_fn = MagicMock()
     panel._sidebar_mode = SidebarModeController(panel)
 
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "error", "message": "fail", "spec_saved": True}
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     def fake_run_bg(func, **kwargs):
         func()
 
-    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+    with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
             with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                 with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
@@ -2466,7 +2412,6 @@ def test_retained_agent_backend_reuses_one_cli_until_the_id_changes():
 def test_specialized_runner_decoder_modes(mode, outcome):
     """Decoder test over every mode x ok / leave / error."""
     panel = DummyChatbotPanel()
-    mock_main = MagicMock()
     mock_registry = MagicMock()
 
     if outcome == "ok":
@@ -2484,12 +2429,11 @@ def test_specialized_runner_decoder_modes(mode, outcome):
         mock_registry.execute.return_value = {"status": "error", "message": "something failed"}
 
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     def fake_run_bg(func, **kwargs):
         func()
 
-    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+    with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
             with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                 with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
@@ -2525,16 +2469,14 @@ def test_specialized_runner_decoder_modes(mode, outcome):
 
 def test_specialized_runner_empty_mode_defaults_to_web_research():
     panel = DummyChatbotPanel()
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = {"status": "ok", "result": "good answer"}
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
     def fake_run_bg(func, **kwargs):
         func()
 
-    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+    with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.chatbot.send_handlers.get_config", return_value=False):
             with patch("plugin.framework.async_stream.run_in_background", side_effect=fake_run_bg):
                 with patch("plugin.framework.async_stream.run_stream_drain_loop", side_effect=_collecting_drain([])):
