@@ -1534,7 +1534,8 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """Create or edit a chart."""
     action = kwargs.get("action")
     doc = ctx.doc
-    is_calc = _supports_service(doc, "com.sun.star.sheet.SpreadsheetDocument")
+    host = chart_host(doc)
+    is_calc = isinstance(host, SheetCharts)
 
     # Doc-type parameter checks (in addition to validate)
     if is_calc:
@@ -1551,13 +1552,9 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
 
         try:
-            if is_calc:
-                return SheetCharts(doc).create(tool, ctx, rect, chart_service, **kwargs)
-            elif _supports_service(doc, "com.sun.star.text.TextDocument"):
-                return WriterEmbeds(doc).create(tool, ctx, rect, chart_service, **kwargs)
-            elif _is_draw_doc(doc):
-                return DrawPage(doc).create(tool, ctx, rect, chart_service, **kwargs)
-            return tool._tool_error("Unsupported document type for chart creation.")
+            if host is None:
+                return tool._tool_error("Unsupported document type for chart creation.")
+            return host.create(tool, ctx, rect, chart_service, **kwargs)
         except Exception as e:
             # Bugfix: a closed document raises DisposedException during chart create, and this
             # except turned that into CHART_CREATE_ERROR.
@@ -1634,15 +1631,11 @@ def delete_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     chart_name, ref = target
 
     try:
+        # _lookup_chart already used chart_host; None here is the same miss. Reachable deletes use adapter remove.
         host = chart_host(doc)
-        if host is not None:
-            host.remove(ref, chart_name)
-        elif ref.kind == "calc_sheet":
-            ref.parent.getCharts().removeByName(chart_name)
-        elif ref.kind == "writer_embed":
-            _remove_writer_chart(doc, ref.host, chart_name)
-        else:
-            ref.parent.remove(ref.host)
+        if host is None:
+            return tool._tool_error(f"Chart '{chart_name}' not found.")
+        host.remove(ref, chart_name)
 
         if ref.kind == "calc_sheet":
             return {"status": "ok", "deleted": chart_name, "sheet": ref.parent.getName()}

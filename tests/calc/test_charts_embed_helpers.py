@@ -866,6 +866,25 @@ def test_delete_writer_embed_fallback_to_embedded_objects():
         doc.getText.return_value.removeTextContent.assert_not_called()
 
 
+def test_upsert_create_unsupported_document_type():
+    doc = MagicMock()
+    doc.supportsService.return_value = False
+    ctx = MagicMock(doc=doc)
+
+    res = upsert_chart(
+        ManageCharts(),
+        ctx,
+        action="create",
+        chart_type="bar",
+        headers=["A"],
+        rows=[[1]],
+    )
+    assert res["status"] == "error"
+    assert res["message"] == "Unsupported document type for chart creation."
+    assert res["code"] == "TOOL_EXECUTION_ERROR"
+    doc.createInstance.assert_not_called()
+
+
 def test_predicate_disposal_propagates():
     # Disposal in property access or fallback diagram check must propagate
     disposed_host = MagicMock()
