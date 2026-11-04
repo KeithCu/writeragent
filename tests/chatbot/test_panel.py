@@ -36,7 +36,7 @@ from plugin.chatbot.audio_recorder_state import AudioRecorderState
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.chatbot import panel_voice as panel_voice_module
-from plugin.main import BootstrapState
+from plugin.bootstrap import BootstrapState
 from tests.harness.strip_bundle import is_release_build, module_source_contains
 
 
@@ -330,7 +330,7 @@ class TestSendDispose:
         tools = MagicMock()
         tools._services = services
         with (
-            patch("plugin.main.get_tools", return_value=tools),
+            patch("plugin.app.get_tools", return_value=tools),
             patch("plugin.framework.event_bus.get_event_bus", return_value=other_bus),
         ):
             listener = _make_send_listener()
@@ -357,7 +357,7 @@ class TestSendDispose:
         tools = MagicMock()
         tools._services = services
         with (
-            patch("plugin.main.get_tools", return_value=tools),
+            patch("plugin.app.get_tools", return_value=tools),
             patch("plugin.framework.event_bus.get_event_bus", return_value=shared),
         ):
             listener = _make_send_listener()
@@ -387,7 +387,7 @@ class TestSendDispose:
         posted: list[Any] = []
         get_tools = MagicMock(return_value=tools)
         with (
-            patch("plugin.main.get_tools", get_tools),
+            patch("plugin.app.get_tools", get_tools),
             patch.object(PanelEventsController, "_mcp_subscribe_must_defer", return_value=True),
             patch.object(PanelEventsController, "_post_to_main", side_effect=posted.append),
             patch("plugin.framework.event_bus.get_event_bus", return_value=grammar_bus),
@@ -418,7 +418,7 @@ class TestSendDispose:
         from plugin.chatbot.panel_events import PanelEventsController
 
         with (
-            patch("plugin.main.bootstrap_complete", return_value=(bootstrap_state is BootstrapState.INITIALIZED)),
+            patch("plugin.app.bootstrap_complete", return_value=(bootstrap_state is BootstrapState.INITIALIZED)),
             patch("plugin.framework.queue_executor.MainThread.on_python_main_thread", return_value=py_main),
         ):
             assert PanelEventsController._mcp_subscribe_must_defer() is expected
@@ -429,7 +429,7 @@ class TestSendDispose:
         posted: list[Any] = []
         get_tools = MagicMock()
         with (
-            patch("plugin.main.get_tools", get_tools),
+            patch("plugin.app.get_tools", get_tools),
             patch.object(PanelEventsController, "_mcp_subscribe_must_defer", return_value=True),
             patch.object(PanelEventsController, "_post_to_main", side_effect=posted.append),
         ):
@@ -2125,7 +2125,7 @@ def test_mcp_turn_mutations_hold_the_lock() -> None:
     tools = MagicMock()
     tools._services = services
     with (
-        patch("plugin.main.get_tools", return_value=tools),
+        patch("plugin.app.get_tools", return_value=tools),
         patch("plugin.framework.event_bus.get_event_bus", return_value=other_bus),
     ):
         listener.disposing(None)

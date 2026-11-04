@@ -46,6 +46,7 @@ def _patch_unohelper_implementation_helper() -> None:
 _ensure_main_import_stubs()
 _patch_unohelper_implementation_helper()
 
+import plugin.app as app
 import plugin.main as main_mod
 
 
@@ -62,7 +63,7 @@ def test_run_test_suite_invokes_run_module_suite_on_main() -> None:
 
     fake_ctx = MagicMock()
     with (
-        patch("plugin.main.tests_bundled", return_value=True),
+        patch("plugin.app.tests_bundled", return_value=True),
         patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
         patch("plugin.chatbot.dialogs.msgbox"),
         patch("plugin.testing_runner.run_module_suite", side_effect=fake_run_module_suite),
@@ -82,7 +83,7 @@ def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
     Vision OCR was missing from the static map (None → Addons.xcu en-US).
     Debug was a raw English literal, so the status event overwrote the catalog.
     """
-    monkeypatch.setattr(main_mod, "bootstrap", lambda: None)
+    monkeypatch.setattr(app, "bootstrap", lambda: None)
 
     def fake_gettext(message: str) -> str:
         return {
@@ -91,17 +92,17 @@ def test_menu_text_translates_vision_ocr_and_debug(monkeypatch) -> None:
         }.get(message, message)
 
     monkeypatch.setattr("plugin.framework.i18n._", fake_gettext)
-    assert main_mod.get_menu_text("vision.open_settings") == "Vision OCR 設定..."
-    assert main_mod.get_menu_text("main.NoOp") == "デバッグ"
-    assert main_mod.get_menu_text("main.settings") == "Settings"
-    assert main_mod.get_menu_text("writer.insert_latex_dialog") == "Insert LaTeX Math..."
+    assert app.get_menu_text("vision.open_settings") == "Vision OCR 設定..."
+    assert app.get_menu_text("main.NoOp") == "デバッグ"
+    assert app.get_menu_text("main.settings") == "Settings"
+    assert app.get_menu_text("writer.insert_latex_dialog") == "Insert LaTeX Math..."
 
 
 def test_run_test_suite_unavailable_does_not_print() -> None:
     """When tests are not bundled, _run_test_suite must not emit debug prints."""
     printed: list[str] = []
     with (
-        patch("plugin.main.tests_bundled", return_value=False),
+        patch("plugin.app.tests_bundled", return_value=False),
         patch("builtins.print", side_effect=lambda *args, **kw: printed.append(" ".join(map(str, args)))),
         patch("plugin.main._show_tests_unavailable"),
     ):
@@ -113,7 +114,7 @@ def test_run_test_suite_unavailable_does_not_print() -> None:
 def test_run_test_suite_unavailable_does_not_import() -> None:
     """When tests are not bundled, _run_test_suite must not import the test module."""
     with (
-        patch("plugin.main.tests_bundled", return_value=False),
+        patch("plugin.app.tests_bundled", return_value=False),
         patch("plugin.main._show_tests_unavailable") as mock_unavailable,
         patch("importlib.import_module", side_effect=ModuleNotFoundError("unbundled")) as mock_import,
     ):
@@ -128,7 +129,7 @@ def test_run_test_suite_logs_failure() -> None:
     fake_ctx = MagicMock()
     sentinel_module = object()
     with (
-        patch("plugin.main.tests_bundled", return_value=True),
+        patch("plugin.app.tests_bundled", return_value=True),
         patch("plugin.framework.uno_context.get_ctx", return_value=fake_ctx),
         patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
         patch("plugin.testing_runner.run_module_suite", side_effect=RuntimeError("suite crash")),

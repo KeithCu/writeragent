@@ -829,7 +829,7 @@ def build_tool_execute_fn(
         captured_turn: Any = None,
         send_cancellation: Any = None,
     ) -> str:
-        from plugin.main import get_tools as _get_tools
+        from plugin.app import get_tools as _get_tools
 
         approval_cb: Any = None
         chat_append_cb: Any = None

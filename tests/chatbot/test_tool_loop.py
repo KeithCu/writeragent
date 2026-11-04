@@ -1,5 +1,4 @@
 import sys
-import types
 from unittest.mock import Mock, MagicMock, patch
 
 
@@ -617,41 +616,31 @@ def test_error_handling_in_loop(mock_get_config, mock_drain_loop):
     assert results[0] is True # Should exit loop
 
 
-def test_refresh_active_tools_for_session():
-    """Avoid @patch(plugin.main.get_tools): importing plugin.main pulls UNO-heavy code."""
+def test_refresh_active_tools_for_session(monkeypatch):
+    """Patch plugin.app.get_tools without importing plugin.main."""
     fake_registry = MagicMock()
     fake_registry.get_schemas.return_value = [{"function": {"name": "fresh"}}]
-    fake_main = types.ModuleType("plugin.main")
-    fake_main.get_tools = MagicMock(return_value=fake_registry)
+    monkeypatch.setattr("plugin.app.get_tools", MagicMock(return_value=fake_registry))
+    panel, session = setup_mock_panel()
+    panel.cached_doc_type = "writer"
+    panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
+    session.active_specialized_domain = "tables"
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
 
-    old_main = sys.modules.pop("plugin.main", None)
-    sys.modules["plugin.main"] = fake_main
-    try:
-        panel, session = setup_mock_panel()
-        panel.cached_doc_type = "writer"
-        panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
-        session.active_specialized_domain = "tables"
-        from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
+    turn = begin_send_turn(panel)
+    turn.active_tools = [{"function": {"name": "stale"}}]
 
-        turn = begin_send_turn(panel)
-        turn.active_tools = [{"function": {"name": "stale"}}]
+    panel._refresh_active_tools_for_session()
 
-        panel._refresh_active_tools_for_session()
-
-        fake_registry.get_schemas.assert_called_once_with(
-            "openai",
-            doc_type="writer",
-            uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
-            active_domain="tables",
-            ctx=panel.ctx,
-            doc=None,
-        )
-        assert current_turn(panel).active_tools == [{"function": {"name": "fresh"}}]
-    finally:
-        if old_main is not None:
-            sys.modules["plugin.main"] = old_main
-        else:
-            sys.modules.pop("plugin.main", None)
+    fake_registry.get_schemas.assert_called_once_with(
+        "openai",
+        doc_type="writer",
+        uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
+        active_domain="tables",
+        ctx=panel.ctx,
+        doc=None,
+    )
+    assert current_turn(panel).active_tools == [{"function": {"name": "fresh"}}]
 
 # =============================================================================
 # Specialized Delegation Tests (Merged)

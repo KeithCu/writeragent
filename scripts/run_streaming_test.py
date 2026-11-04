@@ -22,7 +22,7 @@ if _root not in sys.path:
 
 MODEL = "x-ai/grok-4.1-fast"
 
-from plugin.main import get_tools
+from plugin.app import get_tools
 try:
     WRITER_TOOLS = get_tools().get_openai_schemas(doc_type="writer")
 except Exception:

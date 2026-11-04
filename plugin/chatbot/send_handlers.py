@@ -332,7 +332,7 @@ class SendHandlersMixin:
         def run_direct_image() -> None:
             doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
             try:
-                from plugin.main import get_tools
+                from plugin.app import get_tools
 
                 tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=lambda t: turn.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
@@ -569,7 +569,7 @@ class SendHandlersMixin:
         self._execute_web_research_effect(query_text, model, mode=mode)
 
     def _execute_web_research_effect(self, query_text: str, model: Any, mode: str = "") -> None:
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         spec = sidebar_mode(mode) or require_sidebar_mode(CHAT_MODE_WEB_RESEARCH)
 

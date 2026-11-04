@@ -69,8 +69,10 @@ def _delegate_domain_enum(schemas: list[dict], tool_name: str) -> list[str] | No
 
 def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
     """Eval headless registry uses the same hooks/filters as plugin.main bootstrap."""
+    import plugin.app as app
+    import plugin.bootstrap as bootstrap
     import plugin.main as main
-    from plugin.main import BootstrapState
+    from plugin.bootstrap import BootstrapState
     from unittest.mock import MagicMock
     import tempfile
 
@@ -95,20 +97,20 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", _eval_like_modules)
 
-    prev_state = main._bootstrap_state
-    prev_services = main._services
-    prev_tools = main._tools
-    prev_modules = list(main._modules)
+    prev_state = bootstrap._bootstrap_state
+    prev_services = app._services
+    prev_tools = app._tools
+    prev_modules = list(app._modules)
     try:
-        main._bootstrap_state = BootstrapState.UNINITIALIZED
-        main._services = None
-        main._tools = None
-        main._modules = []
+        bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
+        app._services = None
+        app._tools = None
+        app._modules = []
         ctx = MagicMock()
         path_settings = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
         path_settings.UserConfig = tempfile.mkdtemp(prefix="wa-eval-sidebar-")
-        main.bootstrap(ctx)
-        sidebar = main.get_tools()
+        app.bootstrap(ctx)
+        sidebar = app.get_tools()
         assert sidebar is not None
         eval_reg = _headless_registry()
         for kind in ("writer", "calc", "draw"):
@@ -123,10 +125,10 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
             assert _delegate_domain_enum(eval_rows, delegate_name) is not None
     finally:
         eval_catalog._registry = None
-        main._bootstrap_state = prev_state
-        main._services = prev_services
-        main._tools = prev_tools
-        main._modules = prev_modules
+        bootstrap._bootstrap_state = prev_state
+        app._services = prev_services
+        app._tools = prev_tools
+        app._modules = prev_modules
 
 
 def test_eval_prompts_build_without_libreoffice() -> None:

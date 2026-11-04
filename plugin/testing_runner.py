@@ -991,7 +991,7 @@ def _rebootstrap_ctx(ctx: Any) -> None:
     set_fallback_ctx(ctx)
     init_config(ctx)
     if not _office.options.use_user_profile:
-        from plugin.main import bootstrap
+        from plugin.app import bootstrap
 
         bootstrap(ctx=ctx)
 

@@ -40,7 +40,7 @@ class MockCtx:
 @native_test
 @with_native_doc("writer")
 def test_create_form_control_checkbox(ctx, doc):
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     tool = registry.get("form_create_control")
     assert tool is not None, "create_form_control tool not found"
@@ -67,7 +67,7 @@ def test_create_form_control_checkbox(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_create_form_fat_api(ctx, doc):
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     tool = registry.get("form_create")
     assert tool is not None, "create_form tool not found"
@@ -167,7 +167,7 @@ def test_insert_text_with_view_cursor(ctx, doc):
 @with_native_doc("writer")
 def test_list_form_controls(ctx, doc):
     _clear_doc(doc)
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     
     # 1. Create a few controls
@@ -196,7 +196,7 @@ def test_list_form_controls(ctx, doc):
 @with_native_doc("writer")
 def test_edit_form_control(ctx, doc):
     _clear_doc(doc)
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     mock_ctx = MockCtx(doc)
     
@@ -239,7 +239,7 @@ def test_edit_form_control(ctx, doc):
 @with_native_doc("writer")
 def test_delete_form_control(ctx, doc):
     _clear_doc(doc)
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     mock_ctx = MockCtx(doc)
     
@@ -267,7 +267,7 @@ def test_delete_form_control(ctx, doc):
 @with_native_doc("writer")
 def test_forms_radios_addressing(ctx, doc):
     _clear_doc(doc)
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     mock_ctx = MockCtx(doc)
 
@@ -312,7 +312,7 @@ def test_forms_radios_addressing(ctx, doc):
 @with_native_doc("writer")
 def test_forms_button(ctx, doc):
     _clear_doc(doc)
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     mock_ctx = MockCtx(doc)
     create_tool = registry.get("form_create_control")
@@ -326,7 +326,7 @@ def test_forms_button(ctx, doc):
 @with_native_doc("writer")
 def test_forms_date(ctx, doc):
     _clear_doc(doc)
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     registry = get_tools()
     mock_ctx = MockCtx(doc)
     create_tool = registry.get("form_create_control")
@@ -354,7 +354,7 @@ def test_forms_date(ctx, doc):
 @with_native_doc("writer")
 def test_forms_radio_group_rename(ctx, doc):
     _clear_doc(doc)
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     registry = get_tools()
     mock_ctx = MockCtx(doc)

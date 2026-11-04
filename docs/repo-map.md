@@ -17,7 +17,7 @@ Start here by task.
 
 | Area | Role | Paths |
 |------|------|-------|
-| Bootstrap / MCP | WriterAgent bootstrap, settings apply, MCP startup | [`plugin/main.py`](../plugin/main.py), [`plugin/bootstrap.py`](../plugin/bootstrap.py) (shared sequence) |
+| Bootstrap / MCP | WriterAgent bootstrap, settings apply, MCP startup | [`plugin/main.py`](../plugin/main.py) (UNO entry), [`plugin/app.py`](../plugin/app.py) (shared state), [`plugin/bootstrap.py`](../plugin/bootstrap.py) (shared sequence) |
 | MCP mutation gate | Per-document lock for mutating MCP `tools/call`; timeout raises `BusyError` (`SERVER_BUSY`); WriterAgent-only | [`plugin/mcp/document_mutation_gate.py`](../plugin/mcp/document_mutation_gate.py) — [framework/threading.md](framework/threading.md) |
 | MCP session | Process-wide `Mcp-Session-Id`, minted on first successful `initialize`, stale id is HTTP 404; `DELETE /mcp` stays on `MCPProtocolHandler`; WriterAgent-only | [`plugin/mcp/mcp_session.py`](../plugin/mcp/mcp_session.py) — [mcp-protocol.md](mcp-protocol.md) |
 | LibrePy bootstrap | Core OXT: `=PY()`, Python menus, Settings → Python; no chat/MCP | [`plugin/main_core.py`](../plugin/main_core.py), [`plugin/bootstrap.py`](../plugin/bootstrap.py) (shared sequence), [`plugin/librepy/`](../plugin/librepy/), [`plugin/calc/python/addin_librepy.py`](../plugin/calc/python/addin_librepy.py) |

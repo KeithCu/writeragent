@@ -21,19 +21,23 @@ class BootstrapState(enum.Enum):
     INITIALIZED = "initialized"
 
 
+_bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
+_bootstrap_error: BaseException | None = None
+
+
 def bootstrap_extension(
     ctx: Any | None = None,
     *,
     extension_id: str,
     register_prompt_hooks: Callable[[], None] | None = None,
     finish: Callable[[Any], None],
-    state: dict[str, Any],
 ) -> None:
-    # state is globals(): pythonloader execs component files as uno_component without
-    # registering them in sys.modules, so sys.modules[__name__] raises KeyError.
-    # Off-thread get_menu_text and get_menu_icon depend on returning early
-    # when initialized, before the on_python_main_thread check raises BOOTSTRAP_OFF_THREAD.
-    if state["_bootstrap_state"] is BootstrapState.INITIALIZED:
+    global _bootstrap_state
+    # One process, one flag in this module — shared by the pythonloader exec
+    # namespace and by plugin.app (importers must not use a second globals() dict).
+    # plugin.app.get_menu_text / get_menu_icon depend on returning early when
+    # initialized, before the on_python_main_thread check raises BOOTSTRAP_OFF_THREAD.
+    if _bootstrap_state is BootstrapState.INITIALIZED:
         return
 
     from plugin.framework.queue_executor import MainThread
@@ -47,7 +51,7 @@ def bootstrap_extension(
             code="BOOTSTRAP_OFF_THREAD",
         )
 
-    if state["_bootstrap_state"] is BootstrapState.BOOTSTRAPPING:
+    if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
         return
 
     # What was wrong: _init_lock wrapped only the _initialized recheck, then
@@ -58,7 +62,7 @@ def bootstrap_extension(
     # other thread, and a nested call on this thread returns at BOOTSTRAPPING.
     # The lock excluded nobody. It is also not reentrant, so putting the body
     # back under it would deadlock if a nested call ever reached it.
-    state["_bootstrap_state"] = BootstrapState.BOOTSTRAPPING
+    _bootstrap_state = BootstrapState.BOOTSTRAPPING
     try:
         from plugin.framework.queue_executor import install_from_environ, main
 
@@ -99,8 +103,8 @@ def bootstrap_extension(
 
         finish(ctx)
     finally:
-        if state["_bootstrap_state"] is BootstrapState.BOOTSTRAPPING:
-            state["_bootstrap_state"] = BootstrapState.UNINITIALIZED
+        if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
+            _bootstrap_state = BootstrapState.UNINITIALIZED
 
 
 class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):

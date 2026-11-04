@@ -35,7 +35,7 @@ def _boot(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
     mock_desktop = MagicMock(name="desktop")
     mock_ctx.getServiceManager.return_value.createInstanceWithContext.return_value = mock_desktop
     monkeypatch.setattr(tl, "_bootstrap_headless", lambda: mock_ctx)
-    monkeypatch.setattr("plugin.main.bootstrap", lambda ctx: None)
+    monkeypatch.setattr("plugin.app.bootstrap", lambda ctx: None)
     tl.LOBackend.start()
     return mock_ctx, mock_desktop
 

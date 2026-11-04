@@ -308,7 +308,7 @@ def _inject_selection_markers(
     )
 
 
-# Resolver-only TreeService used when plugin.main has not registered writer_tree
+# Resolver-only TreeService used when WriterAgent has not registered writer_tree
 # (unit tests, and any call before WriterModule.initialize). One instance so
 # repeated misses do not subscribe a new cache listener each time.
 _FALLBACK_WRITER_TREE: Any = None
@@ -331,12 +331,11 @@ def _writer_tree_service() -> Any:
     this function runs outside bootstrap (pytest, or before the writer
     module loads). Its document service is a plain DocumentService.
     """
-    import sys
+    import plugin.app as app
 
     global _FALLBACK_WRITER_TREE
 
-    main_mod = sys.modules.get("plugin.main")
-    services = getattr(main_mod, "_services", None) if main_mod is not None else None
+    services = app._services
     if services is not None:
         getter = getattr(services, "get", None)
         if callable(getter):

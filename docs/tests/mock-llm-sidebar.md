@@ -185,7 +185,7 @@ Debug test hooks live in [`plugin/chatbot/sidebar_test_hooks.py`](../../plugin/c
 | `press_change()` / `press_reject()` | Fires Stop listener `Change` / `Reject` branch | HITL change / rejection |
 | `approval_active()` | Checks if `_approval_event is not None` | HITL state verification |
 | `execute_debug_sidebar_op("KILL_VENV_WORKER")` | SIGKILLs the live venv worker child inside soffice; snapshot `venv_worker_kills` counts kills | E24 |
-| `execute_debug_sidebar_op("SIMULATE_TERMINATION")` | Calls the real `plugin.main` `XTerminateListener.notifyTermination` without quitting soffice; snapshot `terminate_listener_installed` | M8 |
+| `execute_debug_sidebar_op("SIMULATE_TERMINATION")` | Calls the real `plugin.app._terminate_listener.notifyTermination` without quitting soffice; snapshot `terminate_listener_installed` | M8 |
 | `MockLLMConfig.open_streams` | SSE responses the mock is still writing; drops to 0 only when the stream ends or the client hangs up | M7 / M8 |
 | `install_fake_tts(mode)` / `clear_fake_tts()` | Fake TTS backend lifecycle via state file (`writeragent_fake_tts.json`) and debug ops `FAKE_TTS_HOLD`, `FAKE_TTS_CRASH`, `FAKE_TTS_MISSING`, `FAKE_TTS_OFF`. Test-hook only; production `tts_service` does not read this file | Packet T |
 

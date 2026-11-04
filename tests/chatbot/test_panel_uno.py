@@ -64,7 +64,7 @@ class TestChatModelLogic(unittest.TestCase):
         })
         self._module_patcher.start()
         
-        from plugin.main import get_tools
+        from plugin.app import get_tools
         get_tools.return_value = MagicMock()
 
         self.listener = SendButtonListener(

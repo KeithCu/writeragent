@@ -4,7 +4,7 @@ from plugin.tests.testing_utils import with_native_doc
 
 
 def _exec_tool(doc, ctx, name, args):
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     from plugin.framework.tool import ToolContext
     tctx = ToolContext(doc, ctx, "draw", {}, "test")
     res = get_tools().execute(name, tctx, **args)
@@ -143,7 +143,7 @@ def test_fill_draw_fields_happy_and_miss(ctx, doc):
 @with_native_doc("draw")
 def test_generate_form_draw(ctx, doc):
     # Test that generate_form is registered for Draw
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     tools = get_tools()
     gen_tool = tools.get("form_generate")
     assert gen_tool is not None

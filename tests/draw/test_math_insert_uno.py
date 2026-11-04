@@ -18,7 +18,7 @@ def test_insert_math_sizes_from_visual_area(ctx, doc):
     helper always returned None and ``insert_math`` used ``_heuristic_size_hmm``.
     """
     from plugin.draw.math_insert import _heuristic_size_hmm, _try_ole_shape_content_size_hmm
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     from plugin.framework.tool import ToolContext
     from plugin.tests.testing_utils import mark_windows_math_ole_doc
 

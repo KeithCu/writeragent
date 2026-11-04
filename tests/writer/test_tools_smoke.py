@@ -2,6 +2,8 @@
 
 from unittest.mock import patch
 
+import pytest
+
 from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
 
 # Locale tests swap com.sun.star.* for empty modules during collection.
@@ -9,7 +11,29 @@ from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
 # NoSuchElementException / XInitialization back before later imports.
 setup_uno_mocks()
 
-from plugin.main import get_tools
+
+import plugin.app as app
+import plugin.bootstrap as bootstrap
+from plugin.app import get_tools
+
+
+@pytest.fixture(autouse=True)
+def _restore_bootstrap_globals():
+    prev_state = bootstrap._bootstrap_state
+    prev_err = bootstrap._bootstrap_error
+    prev_services = app._services
+    prev_tools = app._tools
+    prev_modules = list(app._modules)
+    prev_listener = app._terminate_listener
+    try:
+        yield
+    finally:
+        bootstrap._bootstrap_state = prev_state
+        bootstrap._bootstrap_error = prev_err
+        app._services = prev_services
+        app._tools = prev_tools
+        app._modules[:] = prev_modules
+        app._terminate_listener = prev_listener
 
 
 class TestWriterToolsSmoke:

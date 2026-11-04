@@ -957,7 +957,7 @@ def test_parse_field_tag_quotes_and_empty_items():
 
 
 def test_form_tools_registered_for_all_doc_types():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     registry = get_tools()
     form_tools = [
