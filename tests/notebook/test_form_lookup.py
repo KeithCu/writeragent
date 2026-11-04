@@ -205,7 +205,8 @@ def test_lookup_with_none_doc_is_empty_not_a_crash():
     assert read_code_from_field(None, "nb_cell_0_code") is None
 
 
-def test_text_fallback_accepts_uno_integer_one():
+def test_text_fallback_rejects_uno_integer_one():
+    """Integer 1 is not a real hasMoreElements() result; walks must require bool True."""
     field_model = MagicMock()
     field_model.Name = "nb_cell_0_code"
     portion = MagicMock()
@@ -224,5 +225,5 @@ def test_text_fallback_accepts_uno_integer_one():
     doc.getDrawPage.return_value = dp
     doc.getText.return_value.createEnumeration.return_value = outer
 
-    assert find_form_control_model_by_name(doc, "nb_cell_0_code") is field_model
+    assert find_form_control_model_by_name(doc, "nb_cell_0_code") is None
 

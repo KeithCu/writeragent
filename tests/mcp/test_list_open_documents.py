@@ -104,29 +104,6 @@ def test_get_open_documents_magicmock_enum_does_not_hang():
     assert docs == []
 
 
-def test_get_open_documents_sal_bool_one_is_listed():
-    doc = MagicMock()
-    doc.getURL.return_value = "file:///home/user/doc.odt"
-    doc.getController.return_value = None
-    doc.RuntimeUID = "uid-1"
-    doc.isModified.return_value = False
-    doc.supportsService.return_value = True
-
-    desktop = MagicMock()
-    enum = MagicMock()
-    calls = [1, False]
-    enum.hasMoreElements.side_effect = lambda: calls.pop(0)
-    enum.nextElement.return_value = doc
-    desktop.getComponents.return_value.createEnumeration.return_value = enum
-
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
-         patch("plugin.doc.document_research._system_path_from_url", return_value="/home/user/doc.odt"):
-        docs = get_open_documents(MagicMock(), active_model=None)
-
-    assert len(docs) == 1
-    assert docs[0]["url"] == "file:///home/user/doc.odt"
-
-
 def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():
     """D5: an untitled doc (no URL) must never be dropped from the listing on a type-lookup error --
     its uid is the only handle a caller can target it by. It's listed with doc_type 'unknown'."""

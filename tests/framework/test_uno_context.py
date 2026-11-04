@@ -762,6 +762,17 @@ def test_iter_open_models_stops_on_magicmock():
     enum.nextElement.assert_not_called()
 
 
+def test_enum_has_more():
+    from plugin.framework.uno_context import enum_has_more
+
+    assert enum_has_more(MagicMock()) is False
+    mock = MagicMock()
+    mock.hasMoreElements.return_value = True
+    assert enum_has_more(mock) is True
+    mock.hasMoreElements.return_value = False
+    assert enum_has_more(mock) is False
+
+
 def test_iter_open_models_stops_at_enum_cap(caplog):
     import logging
     from plugin.framework.uno_context import iter_open_models
