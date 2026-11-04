@@ -173,7 +173,7 @@ def _read_flat_relation(con: Any, path: str) -> Any:
 
 
 _SESSION_CONNECTIONS: dict[str, Any] = {}
-_SESSION_LOCK = threading.Lock()  # Lock order: venv_sandbox _SESSION_LOCK before this lock.
+_SESSION_LOCK = threading.Lock()  # Lock order: venv_sandbox.SESSIONS._lock before this lock.
 
 
 def persistable_duckdb_session_id(session_id: str | None) -> str | None:

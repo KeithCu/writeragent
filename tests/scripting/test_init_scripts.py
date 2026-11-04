@@ -16,15 +16,15 @@ from plugin.scripting.document_scripts import (
     set_calc_init_script,
 )
 from plugin.scripting.named_scripts import script_body_hash
-from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
+from plugin.scripting.venv.venv_sandbox import SESSIONS, reset_sandbox_session, run_sandboxed_code
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
 
 @pytest.fixture(autouse=True)
 def _clear_sessions():
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     yield
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 def test_get_set_calc_init_script_roundtrip():
@@ -80,7 +80,8 @@ def test_init_script_runs_once_in_isolated_mode():
         # One init execution + two cell executions.
         assert mock_run.call_count == 3
 
-    init_exec = vs._SESSION_EXECUTORS[init_sid]
+    init_exec = SESSIONS.executor(init_sid)
+    assert init_exec is not None
     assert init_exec.state.get("INIT_RUNS") == 1
 
 
@@ -236,10 +237,10 @@ def test_reset_non_calc_session_drops_init_companion():
         init_session_id=init_sid,
         init_script_hash="h",
     )
-    assert init_sid in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is not None
     assert reset_sandbox_session("online-wb")["status"] == "ok"
-    assert init_sid not in vs._SESSION_EXECUTORS
-    assert "online-wb" not in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is None
+    assert SESSIONS.executor("online-wb") is None
 
 
 def test_isolated_cells_do_not_share_cell_assignments():
@@ -277,9 +278,9 @@ def test_reset_clears_init_session():
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    assert init_sid in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is not None
     assert reset_sandbox_session(cell_sid)["status"] == "ok"
-    assert init_sid not in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is None
     run_sandboxed_code(
         "result = MAGIC",
         session_id=None,
@@ -287,7 +288,9 @@ def test_reset_clears_init_session():
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    assert vs._SESSION_EXECUTORS[init_sid].state.get("INIT_RUNS") == 1
+    rerun_exec = SESSIONS.executor(init_sid)
+    assert rerun_exec is not None
+    assert rerun_exec.state.get("INIT_RUNS") == 1
 
 
 def test_reset_clears_from_init_session_id():
@@ -304,13 +307,13 @@ def test_reset_clears_from_init_session_id():
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    assert init_sid in vs._SESSION_EXECUTORS
-    assert cell_sid in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is not None
+    assert SESSIONS.executor(cell_sid) is not None
     assert reset_sandbox_session(init_sid)["status"] == "ok"
-    assert init_sid not in vs._SESSION_EXECUTORS
-    assert cell_sid not in vs._SESSION_EXECUTORS
-    assert init_sid not in vs._INIT_SCRIPT_HASH
-    assert cell_sid not in vs._CELL_SESSION_INIT_DIGEST
+    assert SESSIONS.executor(init_sid) is None
+    assert SESSIONS.executor(cell_sid) is None
+    assert SESSIONS.init_script_hash(init_sid) is None
+    assert SESSIONS.seeded_digest(cell_sid) is None
 
 
 def test_build_python_eval_init_kwargs():

@@ -358,16 +358,16 @@ def test_insert_run_image_svg_mime(value, value_2, expected):
     assert insert_flow.call_args.kwargs["mime"] == expected
 
 def test_shared_notebook_session_via_sandbox():
-    from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import SESSIONS, run_sandboxed_code
 
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     sid = "notebook:test-runner"
     r1 = run_sandboxed_code("x = 41\nresult = x + 1", None, session_id=sid)
     assert r1["status"] == "ok"
     r2 = run_sandboxed_code("result = x + 1", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 42
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 @pytest.mark.parametrize(

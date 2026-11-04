@@ -1495,14 +1495,14 @@ def test_init_and_cell_share_one_timeout_without_killing_worker():
         mgr._terminate_worker()
 
 def test_session_executor_updates_timeout_seconds():
-    """_get_or_create_session_executor updates timeout_seconds on an existing session."""
-    from plugin.scripting.venv.venv_sandbox import _get_or_create_session_executor, reset_sandbox_session
+    """SESSIONS.get_or_create updates timeout_seconds on an existing session."""
+    from plugin.scripting.venv.venv_sandbox import SESSIONS, reset_sandbox_session
     sid = 'test-dynamic-timeout-session'
     try:
-        exec1, created1 = _get_or_create_session_executor(sid, timeout_sec=10)
+        exec1, created1 = SESSIONS.get_or_create(sid, timeout_sec=10)
         assert created1 is True
         assert exec1.timeout_seconds == 10
-        exec2, created2 = _get_or_create_session_executor(sid, timeout_sec=3)
+        exec2, created2 = SESSIONS.get_or_create(sid, timeout_sec=3)
         assert created2 is False
         assert exec2 is exec1
         assert exec2.timeout_seconds == 3

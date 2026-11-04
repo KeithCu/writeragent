@@ -517,12 +517,12 @@ def test_run_sql_raises_on_query_error():
 @pytest.fixture
 def _clean_duckdb_sessions():
     reset_session_duckdb()
-    from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions
+    from plugin.scripting.venv.venv_sandbox import SESSIONS
 
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     yield
     reset_session_duckdb()
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 def _tiny_grid(value: int) -> list[list[object]]:
