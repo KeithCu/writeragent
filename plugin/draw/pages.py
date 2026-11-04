@@ -20,8 +20,8 @@ import logging
 from typing import Any
 
 from plugin.framework.doc_type import is_impress
+from plugin.draw import bridge as draw_bridge
 from plugin.draw.base import DRAW_AND_IMPRESS
-from plugin.draw.bridge import DrawBridge, _select_page_index
 from plugin.draw.masters import iter_masters
 from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
@@ -95,7 +95,7 @@ class AddSlide(ToolBase):
         from plugin.draw.layouts import available_layout_names, layout_id
         from plugin.draw.transitions import apply_slide_layout
 
-        bridge = DrawBridge(ctx.doc)
+        bridge = draw_bridge.DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
@@ -174,7 +174,7 @@ class DeleteSlide(_SlideMutationTool):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
-        bridge = DrawBridge(ctx.doc)
+        bridge = draw_bridge.DrawBridge(ctx.doc)
         page_idx = kwargs["page"]
         pages = bridge.get_pages()
         bridge.resolve_page(page_idx)
@@ -200,8 +200,8 @@ class ListPages(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
-        bridge = DrawBridge(ctx.doc)
-        active_idx = _select_page_index(None, ctx.active_page_index, bridge)
+        bridge = draw_bridge.DrawBridge(ctx.doc)
+        active_idx = draw_bridge._select_page_index(None, ctx.active_page_index, bridge)
         pages = bridge.get_pages()
         labels: list[str] = []
         count = pages.getCount()
@@ -224,7 +224,7 @@ class ReadSlideText(ToolBase):
         from plugin.draw.bridge import notes_text
         from plugin.framework.errors import is_disposal
 
-        bridge = DrawBridge(ctx.doc)
+        bridge = draw_bridge.DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         texts = []
@@ -254,7 +254,7 @@ class GetPresentationInfo(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import _page_size, _select_page_index
+        from plugin.draw.bridge import _page_size
 
         doc = ctx.doc
         pages = doc.getDrawPages()
@@ -272,8 +272,8 @@ class GetPresentationInfo(ToolBase):
         # Master pages
         masters = [name or ("Master_%d" % i) for i, _m, name in iter_masters(doc)]
 
-        bridge = DrawBridge(doc)
-        active_idx = _select_page_index(None, ctx.active_page_index, bridge)
+        bridge = draw_bridge.DrawBridge(doc)
+        active_idx = draw_bridge._select_page_index(None, ctx.active_page_index, bridge)
 
         return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress(doc), "active_page_index": active_idx}
 
@@ -290,7 +290,7 @@ class SetActivePage(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
-        bridge = DrawBridge(ctx.doc)
+        bridge = draw_bridge.DrawBridge(ctx.doc)
         idx = kwargs["page"]
         bridge.resolve_page(idx)
         # Bugfix: this reimplemented setCurrentPage and caught every exception,
@@ -311,7 +311,7 @@ class DuplicateSlide(_SlideMutationTool):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
         page_idx = kwargs["page"]
-        bridge = DrawBridge(ctx.doc)
+        bridge = draw_bridge.DrawBridge(ctx.doc)
         bridge.resolve_page(page_idx)
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
@@ -334,7 +334,7 @@ class MoveSlide(_SlideMutationTool):
 
         from_page = kwargs["from_page"]
         to_page = kwargs["to_page"]
-        bridge = DrawBridge(ctx.doc)
+        bridge = draw_bridge.DrawBridge(ctx.doc)
         try:
             ok = bridge.move_slide(from_page, to_page)
         except PageExchangeRollbackError as exc:
@@ -359,7 +359,7 @@ class RenameSlide(_SlideMutationTool):
         name = kwargs["name"]
         if not name:
             return self._tool_error("name is required.")
-        bridge = DrawBridge(ctx.doc)
+        bridge = draw_bridge.DrawBridge(ctx.doc)
         bridge.resolve_page(page_idx)
         ok = bridge.rename_slide(page_idx, str(name))
         if not ok:
