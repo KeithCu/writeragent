@@ -356,7 +356,7 @@ class PanelVoiceController:
             # worker: Stop's drain clears the field and the next send replaces it.
             cancel_scope = capture_send_stop(self._panel)
             if is_cancelled(cancel_scope):
-                assign_send_outcome(self._panel, "Stopped")
+                assign_send_outcome(self._panel, "stopped")
                 return ""
 
             if uses_local_stt():
@@ -412,7 +412,7 @@ class PanelVoiceController:
                 raise
             if is_cancelled(cancel_scope):
                 log.info("Speech-to-text finished after Stop; preserving transcript for query box")
-                assign_send_outcome(self._panel, "Stopped")
+                assign_send_outcome(self._panel, "stopped")
             return transcript_text
         finally:
             self._panel._stt_inflight = False
@@ -496,7 +496,7 @@ class PanelVoiceController:
                         log.exception("NetworkError during STT fallback")
                     else:
                         log.exception("Error during STT fallback")
-                    assign_send_outcome(self._panel, "Error")
+                    assign_send_outcome(self._panel, "error")
                     self._panel._restore_query_text(query_text)
                     return query_text, True
 
@@ -504,7 +504,7 @@ class PanelVoiceController:
                 # fall through into a chat POST with a blank user message.
                 if not query_text.strip():
                     self._panel._append_response("\n" + _("[No speech detected.]") + "\n")
-                    assign_send_outcome(self._panel, "Stopped")
+                    assign_send_outcome(self._panel, "stopped")
                     if self.note_empty_take():
                         self._panel._append_response(_("[Hands-free off: no speech heard.]") + "\n")
                     return query_text, True
@@ -513,7 +513,7 @@ class PanelVoiceController:
                     "[Model {0} does not support native audio. Please select an STT Model in Settings.]"
                 ).format(current_model)
                 self._panel._append_response("\n%s\n" % err_msg)
-                assign_send_outcome(self._panel, "Error")
+                assign_send_outcome(self._panel, "error")
                 self._panel._set_status(_("Error"))
                 self._panel._restore_query_text(query_text)
                 return query_text, True

@@ -60,6 +60,7 @@ setattr(lang_module, "XEventListener", _XEventListener)
 # =============================================================================
 
 from plugin.chatbot.panel import SendButtonListener
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
 from plugin.chatbot.smol_agent import (
     SmolToolAdapter,
     WriterAgentSmolModel,
@@ -135,7 +136,6 @@ def _make_listener(*, active_librarian: bool = False, sidebar_mode: str = "chat"
         query_control=query_control,
         _active_mode="librarian" if active_librarian else "",
         _mode_topic="",
-        _terminal_status="Ready",
         _stt_inflight=False,
         _set_status=MagicMock(),
         _get_document_model=MagicMock(return_value=object()),
@@ -1262,7 +1262,7 @@ def test_do_send_agent_backend_exception_does_not_start_builtin():
 
     listener._send_handlers._do_send_via_agent_backend.assert_called_once()
     listener._tool_calling._do_send_chat_with_tools.assert_not_called()
-    assert listener._terminal_status == "Error"
+    assert send_outcome_terminal_display(listener) == "Error"
     assert listener._set_status.call_args[0][0] == "Error"
     shown = listener._append_response.call_args[0][0]
     assert "Agent backend error" in shown
@@ -1282,7 +1282,7 @@ def test_do_send_agent_backend_lookup_exception_does_not_start_builtin():
 
     listener._send_handlers._do_send_via_agent_backend.assert_not_called()
     listener._tool_calling._do_send_chat_with_tools.assert_not_called()
-    assert listener._terminal_status == "Error"
+    assert send_outcome_terminal_display(listener) == "Error"
     shown = listener._append_response.call_args[0][0]
     assert "config boom" in shown
 

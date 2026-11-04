@@ -28,6 +28,7 @@ from plugin.chatbot.panel import (
     notify_stop_mouse_pressed,
     query_enter_triggers_primary_send,
 )
+from plugin.chatbot.tool_loop_actions import assign_send_outcome, send_outcome_terminal_display
 from plugin.chatbot.record_gesture import RecordGesture, hands_free_status_text
 from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEvent, SendEventKind, SendMode
 from plugin.framework.queue_executor import MainThread
@@ -283,7 +284,7 @@ class TestSendDispose:
         listener = _make_send_listener()
         listener._do_send = MagicMock()
         listener.session.messages = [{"role": "assistant", "content": "hello"}]
-        listener._terminal_status = "Ready"
+        assign_send_outcome(listener, "ready")
         listener._panel_teardown = True
         listener._voice._sticky_restart_pending = True
         listener._record_gesture = RecordGesture(sticky=True)
@@ -532,7 +533,7 @@ class TestSendDispose:
 
 
         listener = _make_send_listener()
-        listener._terminal_status = "Ready"
+        assign_send_outcome(listener, "ready")
         listener.ctx = MagicMock()
         listener._panel_teardown = False
         listener._send_cancellation = MagicMock()
@@ -583,7 +584,7 @@ class TestSendDispose:
     def test_live_drain_clears_send_cancellation(self) -> None:
         listener = _make_send_listener()
         listener._do_send = MagicMock()
-        listener._terminal_status = "Ready"
+        assign_send_outcome(listener, "ready")
         listener._panel_teardown = False
         with (
             patch("plugin.audio.tts_service.speak_text_async"),
@@ -597,7 +598,7 @@ class TestSendDispose:
     def test_send_completed_rereads_ask_box(self) -> None:
         listener = _make_send_listener()
         listener._do_send = MagicMock()
-        listener._terminal_status = "Ready"
+        assign_send_outcome(listener, "ready")
         listener._panel_teardown = False
         listener.sidebar_state = SidebarCompositeState(
             send=SendButtonState(SendMode.BUSY, True, False, True),
@@ -740,7 +741,7 @@ class TestSendDispose:
         listener._append_response = MagicMock()
         with patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()):
             listener._do_send()
-        assert listener._terminal_status == "Error"
+        assert send_outcome_terminal_display(listener) == "Error"
         text = listener._append_response.call_args[0][0]
         assert "Audio error" in text
         assert "sound file" in text
@@ -757,7 +758,7 @@ class TestSendDispose:
         listener._append_response = MagicMock()
         with patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()):
             listener._do_send()
-        assert listener._terminal_status == "Ready"
+        assert send_outcome_terminal_display(listener) == "Ready"
         listener._append_response.assert_not_called()
 
     def test_stt_inflight_keeps_the_first_stop(self) -> None:
@@ -810,7 +811,7 @@ class TestSendDispose:
         listener._append_response = MagicMock()
 
         def _stopped(_path: str, _model: str) -> str:
-            listener._terminal_status = "Stopped"
+            assign_send_outcome(listener, "stopped")
             return ""
 
         listener._voice._transcribe_audio = _stopped
@@ -823,7 +824,7 @@ class TestSendDispose:
             patch("plugin.framework.client.model_fetcher.get_stt_model", return_value="whisper-1"),
         ):
             listener._do_send()
-        assert listener._terminal_status == "Stopped"
+        assert send_outcome_terminal_display(listener) == "Stopped"
         for call in listener._append_response.call_args_list:
             assert "No speech detected" not in str(call.args[0])
 
@@ -1037,7 +1038,7 @@ class TestTtsStopInteraction:
             patch("plugin.framework.config.get_config", return_value=True),
         ):
             # simulate send completed event handling inside drain
-            listener._terminal_status = "Ready"
+            assign_send_outcome(listener, "ready")
             listener._send_cancellation = None
             listener._panel_teardown = False
             listener._sync_has_text_from_query = MagicMock()
@@ -1070,7 +1071,7 @@ class TestTtsStopInteraction:
             patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick,
             patch("plugin.chatbot.tool_loop_actions.session_for_turn", return_value=listener.sidebar_state.tool_loop),
         ):
-            listener._terminal_status = "Ready"
+            assign_send_outcome(listener, "ready")
             listener._send_cancellation = None
             listener._panel_teardown = False
             listener._sync_has_text_from_query = MagicMock()
@@ -1437,7 +1438,7 @@ class TestHandsFreeRecord:
             send=SendButtonState(SendMode.BUSY, False, False, True),
             tool_loop=None,
         )
-        listener._terminal_status = "Ready"
+        assign_send_outcome(listener, "ready")
         listener._sync_has_text_from_query = MagicMock()
         listener.queue_executor.post = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         spoken = MagicMock()
@@ -1477,7 +1478,7 @@ class TestHandsFreeRecord:
             send=SendButtonState(SendMode.BUSY, False, False, True),
             tool_loop=None,
         )
-        listener._terminal_status = "Ready"
+        assign_send_outcome(listener, "ready")
         listener._sync_has_text_from_query = MagicMock()
         listener.queue_executor.post = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         spoken = MagicMock()
@@ -1521,7 +1522,7 @@ class TestHandsFreeRecord:
         listener.cached_doc_type = "writer"
         listener.audio_wav_path = "/tmp/take.wav"
         listener.query_control = None
-        listener._terminal_status = "Ready"
+        assign_send_outcome(listener, "ready")
         with (
             patch("plugin.framework.uno_context.get_document_from_frame", return_value=MagicMock()),
             patch("plugin.chatbot.config_ui_helpers.sync_sidebar_text_model", return_value=None),
@@ -1538,7 +1539,7 @@ class TestHandsFreeRecord:
         listener._append_response = MagicMock()
         listener._voice._transcribe_audio = lambda _path, _model: ""
         self._empty_take_send(listener)
-        assert listener._terminal_status == "Stopped"
+        assert send_outcome_terminal_display(listener) == "Stopped"
         assert listener._record_gesture.sticky is True
         self._empty_take_send(listener)
         assert listener._record_gesture.sticky is False
@@ -1616,7 +1617,7 @@ class TestStopPreservesAudioWavPath:
         listener = _make_send_listener()
         listener.audio_wav_path = "/tmp/fake.wav"
         # Simulate Error terminal status which should clear WAV in the drain finally block
-        listener._terminal_status = "Error"
+        assign_send_outcome(listener, "error")
         listener._panel_teardown = False
 
         # We can just call _run_send_drain directly, mocking _do_send to not change terminal_status
@@ -1650,7 +1651,7 @@ class TestStopPreservesAudioWavPath:
 class TestStoppedTTS:
     def test_do_send_stopped_stt_does_not_invoke_tts(self) -> None:
         listener = _make_send_listener()
-        listener._terminal_status = "Stopped"
+        assign_send_outcome(listener, "stopped")
         listener.sidebar_state = SidebarCompositeState(
             send=SendButtonState(SendMode.BUSY, False, False, True),
             tool_loop=None,
@@ -1668,7 +1669,7 @@ class TestStoppedTTS:
     def test_session_messages_has_no_input_audio_after_turn_finishes(self) -> None:
         """Audio parts are stripped from the session message so they are not resent."""
         listener = _make_send_listener()
-        listener._terminal_status = ""
+        assign_send_outcome(listener, None)
         listener.sidebar_state = SidebarCompositeState(
             send=SendButtonState(SendMode.BUSY, False, False, True),
             tool_loop=None,
@@ -1693,7 +1694,7 @@ class TestStoppedTTS:
     def test_session_messages_has_no_input_audio_preserves_images(self) -> None:
         """Audio parts are stripped but image parts are kept."""
         listener = _make_send_listener()
-        listener._terminal_status = ""
+        assign_send_outcome(listener, None)
         listener.sidebar_state = SidebarCompositeState(
             send=SendButtonState(SendMode.BUSY, False, False, True),
             tool_loop=None,
@@ -1717,7 +1718,7 @@ class TestStoppedTTS:
     def test_do_send_empty_stt_does_not_invoke_tts(self) -> None:
         listener = _make_send_listener()
         # Not "Ready" and not "Stopped"
-        listener._terminal_status = "Error"
+        assign_send_outcome(listener, "error")
         listener.sidebar_state = SidebarCompositeState(
             send=SendButtonState(SendMode.BUSY, False, False, True),
             tool_loop=None,
@@ -1734,7 +1735,7 @@ class TestStoppedTTS:
 
     def test_send_completed_speaks_from_session_when_turn_aborted(self) -> None:
         listener = _make_send_listener()
-        listener._terminal_status = ""
+        assign_send_outcome(listener, None)
         listener.sidebar_state = SidebarCompositeState(
             send=SendButtonState(SendMode.BUSY, False, False, True),
             tool_loop=None,
@@ -1946,7 +1947,7 @@ class TestPanelR3Fixes:
             listener._run_send_drain()
             mock_do_send.assert_not_called()
             mock_speak.assert_not_called()
-            assert listener._terminal_status == "Stopped"
+            assert send_outcome_terminal_display(listener) == "Stopped"
 
     def test_whitespace_send_skips_tts_and_sets_ready(self) -> None:
         listener = _make_send_listener()
@@ -1973,7 +1974,7 @@ class TestPanelR3Fixes:
         ):
             listener._run_send_drain()
             mock_speak.assert_not_called()
-            assert listener._terminal_status == "Ready"
+            assert send_outcome_terminal_display(listener) == "Ready"
             listener._set_status.assert_called_with("Ready")
 
     def test_enter_key_only_triggers_when_label_is_send(self) -> None:
@@ -2182,7 +2183,7 @@ def test_do_send_logs_missing_document(caplog: pytest.LogCaptureFixture) -> None
         listener._do_send()
     err_records = [r for r in caplog.records if "no compatible document model" in r.message and "has_frame=False" in r.message]
     assert len(err_records) == 1
-    assert listener._terminal_status == "Error"
+    assert send_outcome_terminal_display(listener) == "Error"
 
 
 def test_do_send_missing_document_keeps_ask_text() -> None:
@@ -2239,7 +2240,7 @@ def test_extracted_peer_send_logs_missing_document(caplog: pytest.LogCaptureFixt
         listener._do_send_extracted_peer("hello", already_appended=True)
     err_records = [r for r in caplog.records if "no compatible document model" in r.message and "has_frame=False" in r.message]
     assert len(err_records) == 1
-    assert listener._terminal_status == "Error"
+    assert send_outcome_terminal_display(listener) == "Error"
 
 
 def test_extracted_peer_send_starts_one_chat_turn() -> None:
@@ -2310,7 +2311,7 @@ class TestAudioRecorderErrorCallback:
             tool_loop=None,
         )
         listener._record_gesture = RecordGesture(sticky=True)
-        listener._terminal_status = "Ready"
+        assign_send_outcome(listener, "ready")
         listener._start_local_error_turn = MagicMock()
 
         listener._voice._on_audio_recorder_error("late")
@@ -2321,7 +2322,7 @@ class TestAudioRecorderErrorCallback:
         assert listener.sidebar_state.send.has_audio is True
         assert listener.sidebar_state.send.has_text is True
         assert listener._record_gesture.sticky is True
-        assert listener._terminal_status == "Ready"
+        assert send_outcome_terminal_display(listener) == "Ready"
 
     def test_recorder_error_while_idle_does_not_paint_error(self) -> None:
         listener = _make_send_listener()
@@ -2430,7 +2431,7 @@ class TestPanelR14Fixes:
         assert owner is created_turn[0]
         assert owner is not None
         assert "boom" in text
-        assert listener._terminal_status == "Error"
+        assert send_outcome_terminal_display(listener) == "Error"
 
     def test_tts_speaks_only_the_assistant_row_appended_after_the_snapshot(self) -> None:
         from plugin.chatbot.tool_loop_actions import begin_send_turn

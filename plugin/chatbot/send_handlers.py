@@ -42,6 +42,9 @@ from plugin.chatbot.tool_loop_actions import (
     abort_turn,
     current_turn,
     persist_assistant_on_turn,
+    assign_send_outcome,
+    send_outcome_is_error,
+    send_outcome_is_stopped,
 )
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_WEB_RESEARCH,
@@ -131,7 +134,7 @@ def _ui_lines_for_handler_error(handler_type: str, err_msg: str) -> str:
 
 def _fail_handler(panel: Any, handler_type: str, exc: Exception) -> str:
     panel._set_status("Error")
-    panel._terminal_status = "Error"
+    assign_send_outcome(panel, "error")
     err_msg = format_error_for_display(exc)
     append_text = _ui_lines_for_handler_error(handler_type, err_msg)
     panel._append_response(append_text)
@@ -205,7 +208,7 @@ class SendHandlersMixin:
                 # handler_type string, so unknown/future handler types don't finish with
                 # missing status updates.
                 status = "done"
-                self._panel._terminal_status = "Ready"
+                assign_send_outcome(self._panel, "ready")
                 self._panel._set_status("Ready")
 
         def on_stopped() -> None:
@@ -225,7 +228,7 @@ class SendHandlersMixin:
                 return
             status = "stopped"
             self._panel._set_status("Stopped")
-            self._panel._terminal_status = "Stopped"
+            assign_send_outcome(self._panel, "stopped")
 
         def on_error(e: Exception) -> None:
             nonlocal status
@@ -385,8 +388,8 @@ class SendHandlersMixin:
         self._run_unified_worker_drain_loop(drain_q, run_direct_image, "image", on_finished=_image_ready)
 
     def _finalize_terminal_ready(self) -> None:
-        if self._panel._terminal_status not in ("Error", "Stopped"):
-            self._panel._terminal_status = "Ready"
+        if not send_outcome_is_error(self._panel) and not send_outcome_is_stopped(self._panel):
+            assign_send_outcome(self._panel, "ready")
 
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None:
         """Send via external agent backend. No fallback to built-in on failure."""
