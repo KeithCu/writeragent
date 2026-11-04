@@ -19,6 +19,7 @@ from __future__ import annotations
 import ast
 import copy
 from collections import OrderedDict
+from dataclasses import replace
 import hashlib
 import logging
 import math
@@ -47,7 +48,6 @@ from plugin.contrib.smolagents.local_python_executor import (
     print_outputs_from_state,
 )
 from plugin.scripting.session_key import (
-    INIT_SUFFIX,
     SessionKey,
     SessionKind,
 )
@@ -524,7 +524,7 @@ def _get_or_create_session_executor(
 
 def _clear_init_session_unlocked(init_session_id: str) -> None:
     key = SessionKey.parse(init_session_id)
-    cell_sid = init_session_id[: -len(INIT_SUFFIX)] if key.endswith_init() else None
+    cell_sid = replace(key, init=False).wire() if key.init else None
     _SESSION_EXECUTORS.pop(init_session_id, None)
     _INIT_SCRIPT_HASH.pop(init_session_id, None)
     if key.kind is SessionKind.ISOLATED:
@@ -541,12 +541,12 @@ def _drop_session_unlocked(session_id: str) -> None:
     # Desktop workbooks use calc:… and compute uses the raw Online session id;
     # both store the init executor at {id}:init. Reset drops both.
     key = SessionKey.parse(session_id)
-    if key.endswith_init():
+    if key.init:
         _clear_init_session_unlocked(session_id)
     else:
         _SESSION_EXECUTORS.pop(session_id, None)
         _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-        _clear_init_session_unlocked(key.with_init_suffix().wire())
+        _clear_init_session_unlocked(replace(key, init=True).wire())
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:

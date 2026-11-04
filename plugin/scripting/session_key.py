@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import enum
 import uuid
 
@@ -33,18 +33,27 @@ _KIND_BY_PREFIX = {k.value: k for k in SessionKind if k is not SessionKind.OTHER
 class SessionKey:
     kind: SessionKind
     rest: str
+    init: bool = False
 
     def wire(self) -> str:
         if self.kind is SessionKind.OTHER:
-            return self.rest
-        return f"{self.kind.value}:{self.rest}"
+            base = self.rest
+        else:
+            base = f"{self.kind.value}:{self.rest}"
+        if self.init:
+            return base + INIT_SUFFIX
+        return base
 
     @classmethod
     def parse(cls, text: str) -> SessionKey:
+        init = False
+        if text.endswith(INIT_SUFFIX):
+            init = True
+            text = text[: -len(INIT_SUFFIX)]
         prefix, sep, rest = text.partition(":")
         if sep and prefix in _KIND_BY_PREFIX:
-            return cls(_KIND_BY_PREFIX[prefix], rest)
-        return cls(SessionKind.OTHER, text)
+            return cls(_KIND_BY_PREFIX[prefix], rest, init)
+        return cls(SessionKind.OTHER, text, init)
 
     @classmethod
     def of(cls, kind: SessionKind, document_key: str) -> SessionKey:
@@ -59,18 +68,12 @@ class SessionKey:
         return cls.parse(value)
 
     def with_init_suffix(self) -> SessionKey:
-        return SessionKey.parse(self.wire() + INIT_SUFFIX)
-
-    def endswith_init(self) -> bool:
-        return self.wire().endswith(INIT_SUFFIX)
+        return replace(self, init=True)
 
     def document_lookup_key(self) -> str | None:
         if self.kind not in DOCUMENT_KINDS:
             return None
-        key = self.rest
-        if self.kind is SessionKind.CALC and key.endswith(INIT_SUFFIX):
-            key = key[: -len(INIT_SUFFIX)]
-        return key or None
+        return self.rest or None
 
 
 def is_reserved_caller_id(session_id: str) -> bool:

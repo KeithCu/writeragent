@@ -60,14 +60,16 @@ def test_calc_windows_url_rest_first_colon_only() -> None:
 
 def test_calc_init_companion_and_duckdb() -> None:
     k = SessionKey.parse("calc:file:///tmp/foo:init")
+    assert k.init is True
     assert k.document_lookup_key() == "file:///tmp/foo"
-    assert k.with_init_suffix().wire() == "calc:file:///tmp/foo:init:init"
+    assert k.with_init_suffix().wire() == "calc:file:///tmp/foo:init"
     assert persistable_duckdb_session_id("calc:file:///tmp/foo:init") == "calc:file:///tmp/foo"
 
 
-def test_rps_init_keeps_init_in_lookup() -> None:
+def test_rps_init_lookup_strips_init_flag() -> None:
     k = SessionKey.parse("rps:file:///tmp/foo:init")
-    assert k.document_lookup_key() == "file:///tmp/foo:init"
+    assert k.init is True
+    assert k.document_lookup_key() == "file:///tmp/foo"
     assert persistable_duckdb_session_id("rps:file:///tmp/foo:init") == "rps:file:///tmp/foo"
 
 
@@ -75,7 +77,12 @@ def test_notebook_and_calc_init_duckdb_and_lookup() -> None:
     assert persistable_duckdb_session_id("notebook:doc:init") == "notebook:doc"
     assert persistable_duckdb_session_id("calc:wb:init") == "calc:wb"
     assert SessionKey.parse("calc:wb:init").document_lookup_key() == "wb"
-    assert SessionKey.parse("notebook:doc:init").document_lookup_key() == "doc:init"
+    assert SessionKey.parse("notebook:doc:init").document_lookup_key() == "doc"
+
+
+def test_stacked_init_suffix_round_trip() -> None:
+    text = "calc:file:///tmp/foo:init:init"
+    assert SessionKey.parse(text).wire() == text
 
 
 def test_empty_rest_calc_and_init_lookup_and_duckdb_none() -> None:
@@ -169,6 +176,7 @@ def test_not_reserved_caller_ids(sid: str) -> None:
 
 def test_isolated_with_init_suffix() -> None:
     assert SessionKey.of(SessionKind.ISOLATED, "ab").with_init_suffix().wire() == "isolated:ab:init"
+    assert SessionKey.parse("isolated:ab:init").init is True
 
 
 def test_from_host_behavior() -> None:
