@@ -25,8 +25,8 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 from __future__ import annotations
 
 import logging
+from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable
-
 from plugin.framework.errors import ToolExecutionError, is_disposal, uno_call, uno_read
 from plugin.framework.tool import ToolBase
 
@@ -41,6 +41,34 @@ from plugin.calc.inspector import CellInspector, grid_to_rows
 from plugin.calc.manipulator import CellManipulator, _parse_formula_or_values_string, _values_length_mismatch_message
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import parse_color_to_uno_int
+
+
+_WRITE_VALUES_CELL_ERR = (
+    "Each cell in values must be string, number, boolean, or null; got {kind}."
+)
+
+
+def _write_values_cell_ok(cell: Any) -> bool:
+    if cell is None:
+        return True
+    return isinstance(cell, (str, int, float, bool))
+
+
+def _write_values_grid_cell_error(parsed_vals: list[Any]) -> str | None:
+    """Reject nested structures before UNO."""
+    if not parsed_vals:
+        return None
+    if isinstance(parsed_vals[0], (list, tuple)):
+        for row in parsed_vals:
+            if not isinstance(row, (list, tuple)):
+                return _WRITE_VALUES_CELL_ERR.format(kind=type(row).__name__)
+        cells: Any = chain.from_iterable(parsed_vals)
+    else:
+        cells = parsed_vals
+    for cell in cells:
+        if not _write_values_cell_ok(cell):
+            return _WRITE_VALUES_CELL_ERR.format(kind=type(cell).__name__)
+    return None
 
 # Verbose per-cell dicts blow chat/tool context (issue 405: A1:H500 → HTTP 400).
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
@@ -461,8 +489,9 @@ class WriteCellRange(ToolBase):
     name: str | None = "write_formula_range"
     description: str = (
         "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; "
-        "JSON array must match range size exactly (one value per cell); or multiline CSV from a start "
-        "cell. Use an empty string or empty array to clear contents. Supports lists for non-contiguous "
+        "a 2-D array (one inner array per row) must match the range; or multiline CSV from a start "
+        "cell. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. "
+        "Supports lists for non-contiguous "
         "areas. A single ordinary Calc formula into a 1-column or 1-row range fill-down/across "
         "adjusts relative A1 refs ($ stays absolute). Prefer plain values/ISO "
         "dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), "
@@ -496,8 +525,14 @@ class WriteCellRange(ToolBase):
             # and not the main tool description). #657 replaced the old
             # pin-workaround with fill-down teaching; a JSON array of copied
             # =B2*… still pins every row to the first ref.
+            # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
+            # keeps real unions (same pattern as apply_document_content content).
             "values": {
-                "type": "string",
+                "type": ["string", "array", "null"],
+                "items": {
+                    "type": ["array", "string", "number", "boolean", "null"],
+                    "items": {"type": ["string", "number", "boolean", "null"]},
+                },
                 "description": (
                     "Required unless source is set (do not pass both). "
                     "Single string: fills the entire range with that value or formula "
@@ -505,12 +540,13 @@ class WriteCellRange(ToolBase):
                     "multi-cell column or row is fill-down/across — relative A1 refs "
                     "adjust per cell ($ stays absolute). Prefer that for a related "
                     "rate or tax column. In formulas, other sheets are Sheet.A1 "
-                    "(dot), not Excel Sheet!A1. JSON array: exact per-cell contents; "
-                    "must have exactly as many elements as cells in the range "
-                    '(e.g. \'["a", "b"]\' for 2 cells). Repeating the same '
-                    "=B2*…-style formula in every element pins every row to the "
+                    "(dot), not Excel Sheet!A1. 2-D array: one inner array per row; "
+                    "must match the range. Cells are string, number, boolean, or null "
+                    '(e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same '
+                    "=B2*…-style formula in every cell pins every row to the "
                     "first ref — use one formula string over the whole column "
-                    "range instead. Empty string/array clears the range. "
+                    "range instead. A JSON string of a flat or 2-D array is still "
+                    "accepted. Empty string or empty array clears. "
                     "A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other "
                     "array functions) is entered as an array formula over its "
                     "result; occupied cells besides the origin are refused. "
@@ -567,11 +603,9 @@ class WriteCellRange(ToolBase):
         # source-only calls pass validate). Missing must not fall through as clear.
         if fov is None:
             return self._tool_error("values is required when source is omitted")
-        # Bugfix: top-level bool in values was converted to string "True"/"False"
-        # instead of being rejected to match the tool parameter schema.
         if isinstance(fov, bool):
-            return self._tool_error("values must be a string, number, or JSON array, not a boolean")
-        # Normalize: schema is string for Gemini; accept number/list from other providers
+            return self._tool_error("values must be a string, number, or array, not a boolean")
+        # Bare number → string for fill; native list passes through unchanged.
         if isinstance(fov, (int, float)):
             fov = str(fov)
 
@@ -598,6 +632,11 @@ class WriteCellRange(ToolBase):
                     n_cells, rows, cols = shape
                     if n_vals != n_cells:
                         return self._tool_error(_values_length_mismatch_message(r, n_vals, n_cells, rows, cols))
+
+        if parsed_vals is not None:
+            cell_err = _write_values_grid_cell_error(parsed_vals)
+            if cell_err:
+                return self._tool_error(cell_err)
 
         array_flag, err = _opt_bool(kwargs, "array")
         if err:

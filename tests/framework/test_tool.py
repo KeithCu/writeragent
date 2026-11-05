@@ -965,6 +965,10 @@ class TestExecuteKwargsAndFailure:
         assert result["details"]["ignored_parameters"] == ["paragraph_index"]
 
     def test_execute_coerces_write_formula_range_array_and_number(self):
+        from plugin.calc.cells import WriteCellRange
+
+        values_schema = WriteCellRange.parameters["properties"]["values"]
+
         class WriteFormulaRange(ToolBase):
             name = "write_formula_range"
             description = "write"
@@ -972,7 +976,7 @@ class TestExecuteKwargsAndFailure:
                 "type": "object",
                 "properties": {
                     "range": {"type": "array", "items": {"type": "string"}},
-                    "values": {"type": "string"},
+                    "values": values_schema,
                 },
                 "required": ["range"],
             }
@@ -984,20 +988,25 @@ class TestExecuteKwargsAndFailure:
         services = ServiceRegistry()
         reg = ToolRegistry(services)
         reg.register(WriteFormulaRange())
-        ctx = ToolContext(doc=TestingFactory.create_doc(doc_type="writer"), ctx=None, doc_type="writer", services=services, caller="mcp")
+        ctx = ToolContext(
+            doc=TestingFactory.create_doc(doc_type="writer"),
+            ctx=None,
+            doc_type="writer",
+            services=services,
+            caller="mcp",
+        )
 
         listed = reg.execute("write_formula_range", ctx, range=["A1:B1"], values=["a", "b"])
         assert listed["status"] == "ok"
-        assert listed["values"] == '["a", "b"]'
+        assert listed["values"] == ["a", "b"]
 
         number = reg.execute("write_formula_range", ctx, range=["A1"], values=3)
         assert number["values"] == "3"
 
         empty = reg.execute("write_formula_range", ctx, range=["A1"], values=[])
-        assert empty["values"] == ""
+        assert empty["values"] == []
 
-        # A plain string parameter must still reject a list. The coerce is
-        # only the MCP widening for write_formula_range values.
+        # A plain string parameter must still reject a list.
         class StringArg(ToolBase):
             name = "string_arg"
             description = "string only"
@@ -1008,7 +1017,14 @@ class TestExecuteKwargsAndFailure:
                 return {"status": "ok"}
 
         reg.register(StringArg())
-        rejected = reg.execute("string_arg", ctx, arg1=["nope"])
+        writer_ctx = ToolContext(
+            doc=TestingFactory.create_doc(doc_type="writer"),
+            ctx=None,
+            doc_type="writer",
+            services=services,
+            caller="mcp",
+        )
+        rejected = reg.execute("string_arg", writer_ctx, arg1=["nope"])
         assert rejected["status"] == "error"
         assert rejected["code"] == "VALIDATION_ERROR"
 

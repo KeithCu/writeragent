@@ -1272,7 +1272,7 @@ def test_write_formula_range_values_teaches_fill_down_not_json_pin():
     assert "fill-down/across" in values
     assert "relative A1 refs" in values
     assert "rate or tax column" in values
-    assert "exact per-cell contents" in values
+    assert "inner array per row" in values
     assert "pins every row to the first ref" in values
     assert "one formula string over the whole column" in values
     assert "FILTER/SORT/UNIQUE" in values
@@ -1283,8 +1283,114 @@ def test_write_formula_range_values_teaches_fill_down_not_json_pin():
     assert "Banana" not in values
     assert "Product" not in values
     assert "Revenue" not in values
-    # Schema stays Gemini-safe string; meaning of values is unchanged.
-    assert WriteCellRange.parameters["properties"]["values"]["type"] == "string"
+    assert WriteCellRange.parameters["properties"]["values"]["type"] == ["string", "array", "null"]
+
+
+def test_write_formula_range_passes_native_2d_grid_to_manipulator():
+    from plugin.calc.cells import WriteCellRange
+
+    grid = [["a", 1], ["b", None]]
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.WriterCompoundUndo"),
+    ):
+        manip_cls.return_value.write_formula_range.return_value = "wrote"
+        result = WriteCellRange().execute(ctx, range=["A1:B2"], values=grid)
+
+    assert result["status"] == "ok"
+    manip_cls.return_value.write_formula_range.assert_called_once()
+    assert manip_cls.return_value.write_formula_range.call_args[0][1] == grid
+
+
+def test_write_formula_range_passes_bool_cells_in_grid():
+    from plugin.calc.cells import WriteCellRange
+
+    grid = [[True, False]]
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+        patch("plugin.calc.cells.WriterCompoundUndo"),
+    ):
+        manip_cls.return_value.write_formula_range.return_value = "wrote"
+        result = WriteCellRange().execute(ctx, range=["A1:B1"], values=grid)
+
+    assert result["status"] == "ok"
+    assert manip_cls.return_value.write_formula_range.call_args[0][1] == grid
+
+
+def test_write_formula_range_rejects_2d_grid_shape_mismatch():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+    ):
+        result = WriteCellRange().execute(
+            ctx, range=["A1:C2"], values=[["a", "b"], ["c", "d"]]
+        )
+
+    assert result["status"] == "error"
+    assert "2x2" in result["message"]
+    assert "2x3" in result["message"]
+    manip_cls.return_value.write_formula_range.assert_not_called()
+
+
+def test_write_formula_range_rejects_ragged_rows_before_manipulator():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+    ):
+        result = WriteCellRange().execute(
+            ctx, range=["A1:B2"], values=[["a"], ["b", "c"]]
+        )
+
+    assert result["status"] == "error"
+    manip_cls.return_value.write_formula_range.assert_not_called()
+
+
+def test_write_formula_range_rejects_dict_cell_before_manipulator():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+    ):
+        result = WriteCellRange().execute(ctx, range=["A1"], values=[{"x": 1}])
+
+    assert result["status"] == "error"
+    assert "boolean, or null" in result["message"]
+    manip_cls.return_value.write_formula_range.assert_not_called()
+
+
+def test_write_formula_range_rejects_mixed_grid_rows_before_manipulator():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+    ):
+        result = WriteCellRange().execute(ctx, range=["A1"], values=[["a"], "b"])
+
+    assert result["status"] == "error"
+    assert "boolean, or null" in result["message"]
+    manip_cls.return_value.write_formula_range.assert_not_called()
+
+
+def test_write_values_grid_cell_error_rejects_mixed_rows():
+    from plugin.calc.cells import _write_values_grid_cell_error
+
+    assert _write_values_grid_cell_error([["a"], "b"]) is not None
+    assert _write_values_grid_cell_error([{"x": 1}]) is not None
+    assert _write_values_grid_cell_error([["a", True]]) is None
 
 
 def test_sort_range_description_teaches_reorder_key_and_direction():

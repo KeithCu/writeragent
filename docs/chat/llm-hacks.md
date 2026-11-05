@@ -11,12 +11,14 @@ Instead of requiring a `delimiter` parameter, the tool `write_formula_range` now
 - **Reasoning**: Reduces the cognitive load on the LLM and makes the tool "just work" regardless of the model's preferred separator.
 
 ## 2. Range Writing Semicolon Splitting
-**Problem**: When using `write_formula_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a JSON-encoded array `["Name", "Age", "Salary"]`. Without a workaround, this writes the entire string into a single cell.
+**Problem**: When using `write_formula_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a native row array `[["Name", "Age", "Salary"]]` or a JSON-encoded flat array. Without a workaround, this writes the entire string into a single cell.
 
 ### [Workaround] Raw String Splitting
 The internal `_parse_formula_or_values_string` helper in `core/calc_manipulator.py` detects raw semicolon-separated strings.
 - **Formula-Safe Detection**: It skips strings starting with `=` (standard formulas) but splits other strings containing `;` using `csv.reader`.
 - **CSV Reader**: Using `csv.reader` (with `skipinitialspace=True`) ensures that if the LLM puts a semicolon inside a quoted string, it won't be split incorrectly.
+
+**Preferred shape:** Tool schemas advertise a 2-D native array (one inner array per row). Semicolon and CSV string parsers remain for models that still send text.
 
 ## 3. Formula-Safe JSON Normalization
 **Problem**: LLMs often use semicolons inside JSON arrays (e.g., `["A"; "B"]`). Standard `json.loads` fails here. A blind `replace(";", ",")` fix breaks real formulas that *need* semicolons (e.g., `=SUM(A1;B1)` becomes `=SUM(A1,B1)` which is an error in Calc).
