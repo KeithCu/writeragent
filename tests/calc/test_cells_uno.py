@@ -79,7 +79,9 @@ def test_read_cell_range(ctx, doc):
 
     assert payload["rows"][0] == ["Col1", "Col2", "Col3"]
     assert payload["rows"][1] == [1.0, 2.5, 3.14]
-    assert payload["rows"][2] == ["End", None, 3.0]
+    assert payload["rows"][2][0] == "End"
+    assert payload["rows"][2][1] is None
+    assert abs(payload["rows"][2][2] - 3.5) < 1e-9
     assert payload["formulas"] == {"C3": "=A2+B2"}
 
 
