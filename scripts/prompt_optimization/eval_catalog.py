@@ -218,7 +218,7 @@ def resolve_tool_allowlist(
     """Allowlist for this catalog, or ``None`` to keep every advertised tool.
 
     Specialized inner catalogs (``active_domain`` set) are never filtered so
-    ``delegate_to_specialized_*`` still sees ``sort_range`` / shapes / etc.
+    ``delegate_to_specialized_*`` still sees ``range_sort`` / shapes / etc.
     Kind-specific presets no-op on other document kinds.
     """
     if active_domain:

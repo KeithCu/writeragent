@@ -53,7 +53,7 @@ Counts are **distinct catalog models** in the cluster (a model can appear in mor
 
 Also: Laguna XS (`20260912-0429-…`) — Sample empty **and** SSC renamed (see C5).
 
-**Shape:** `create_sheet` (or equivalent) ran; populate/copy never did. Matches the first-principles “create ≠ Sample deliverable” miss.
+**Shape:** `sheet_create` (or equivalent) ran; populate/copy never did. Matches the first-principles “create ≠ Sample deliverable” miss.
 
 ### C3 — R hole / S=0 with incomplete Sample (largest cluster)
 
@@ -100,7 +100,7 @@ Models with Sample+SSC present but oracle `R=None` and/or `S=0` despite rows:
 | MiniMax M3 | Invented `Analysis` instead of Sample/SSC (C1 compound; single-model-ish) |
 | gpt-oss-120b | Extras `SampleTest` / `Sample_old` alongside Sample — aliases, not the deliverable titles |
 
-**Flag:** underscore + invented aliases are the same hygiene miss. Prefer teaching exact titles on `create_sheet` over a fuzzy oracle sheet-name match.
+**Flag:** underscore + invented aliases are the same hygiene miss. Prefer teaching exact titles on `sheet_create` over a fuzzy oracle sheet-name match.
 
 ### C6 — Undersized Sample vs parseable R
 
@@ -156,18 +156,18 @@ Ordered by **blast radius × product generality**. Prefer colocated tool/prompt 
 **Hits:** C1 + C2 (≥8 models).
 
 **DO:**
-- Keep / sharpen `create_sheet` description + ok payload (“sheet created; **no cells copied**”) — already present in `plugin/calc/sheets.py`; verify the ok string stays visible in tool results models actually see.
+- Keep / sharpen `sheet_create` description + ok payload (“sheet created; **no cells copied**”) — already present in `plugin/calc/sheets.py`; verify the ok string stays visible in tool results models actually see.
 - Colocate on `copy_range` / `write_formula_range` (source+dest): one line — “empty tab is not the deliverable; copy or write the data block onto the new sheet.”
 - Keep `CALC_WORKFLOW` create≠populate one-liner; don’t restack a grab-bag essay.
 
 **Why:** Empty Sample with tabs present is still one of the most common Ready-looking fails. Teaching at call time beats restating step 4 in the task prompt alone.
 
-### L2 — Exact sheet-title contract on `create_sheet`
+### L2 — Exact sheet-title contract on `sheet_create`
 
 **Hits:** C5 now; reduces C1 false “I created SSC” when titles drift.
 
 **DO:**
-- On `create_sheet` `sheet` parameter description: “Use the **exact** title the user asked for (preserve spaces; do not snake_case or invent aliases).”
+- On `sheet_create` `sheet` parameter description: “Use the **exact** title the user asked for (preserve spaces; do not snake_case or invent aliases).”
 - Optional: ok payload echoes the created name so a rename mistake is visible in the next turn.
 
 **Why:** Laguna XS shows underscore aliases make the oracle (and a picky user) treat the tab as missing. MiniMax `Analysis` and oss-120b `SampleTest`/`Sample_old` are the same family. Exact-title hygiene is general Calc hygiene, not an AFC cheat.

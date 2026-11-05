@@ -1865,8 +1865,8 @@ def test_e12_calc_list_sheets(ctx):
         assert "write_formula_range" in advertised or "get_sheet_summary" in advertised, (
             "E12 expected Calc-deck tools, advertised=%r" % advertised
         )
-        # list_sheets is specialized-tier; main Calc chat uses get_sheet_summary.
-        assert "list_sheets" in decided or "get_sheet_summary" in decided, (
+        # sheet_list is specialized-tier; main Calc chat uses get_sheet_summary.
+        assert "sheet_list" in decided or "get_sheet_summary" in decided, (
             "E12 expected a Calc list tool, decided=%r snaps=%r" % (decided, snaps[-5:])
         )
         _hello_ok()

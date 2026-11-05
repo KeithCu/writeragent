@@ -390,7 +390,7 @@ flowchart TB
 | `get_sheet_summary` | Bounds + headers hint | Dict | 1 |
 | `list_calc_functions` | Filterable catalog | List[dict] | 3 / docs |
 | `evaluate_formula` | Oracle for one cell | Evaluated value | 9 Verify |
-| `detect_and_explain_errors` | Pre-flight errors | Error report | 1 optional |
+| `error_detect` | Pre-flight errors | Error report | 1 optional |
 
 ### Table B — Emission & execution APIs
 
@@ -413,7 +413,7 @@ flowchart TB
 | `write_formula_range` | Agent apply after user confirms |
 | `convert_spreadsheet_to_python` | **New** — full pipeline |
 | `list_calc_functions` | Agent lookup unsupported function |
-| `detect_and_explain_errors` | Pre/post validation |
+| `error_detect` | Pre/post validation |
 | `delegate_to_specialized_calc_toolset` | N/A for v1 |
 
 ### Table D — External libraries (research; not shipped)

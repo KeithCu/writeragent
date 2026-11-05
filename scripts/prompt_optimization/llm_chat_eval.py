@@ -299,7 +299,7 @@ def _run_specialized_inner(
         return json.dumps(
             {"status": "error", "message": "task is required for specialized delegation."}
         )
-    # Keep specialized schemas (sort_range, shapes, …). Density + MIPRO
+    # Keep specialized schemas (range_sort, shapes, …). Density + MIPRO
     # patches still apply; the outer --tools allowlist does not.
     if tools_override is not None:
         tools = tools_override

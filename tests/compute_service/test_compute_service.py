@@ -339,7 +339,7 @@ class TestExecuteLocal:
 
         from plugin.scripting.venv import venv_sandbox as vs
 
-        vs.clear_all_sandbox_sessions()
+        vs.SESSIONS.clear_all()
         init = "ONCE_ISO = 7"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:
             r1 = json.loads(_handle_request({"code": "result = ONCE_ISO", "mode": "isolated", "init_script": init})["result_json"])
@@ -354,7 +354,7 @@ class TestExecuteLocal:
 
         from plugin.scripting.venv import venv_sandbox as vs
 
-        vs.clear_all_sandbox_sessions()
+        vs.SESSIONS.clear_all()
         sid = "shared-init-once"
         init = "ONCE_SHARED = 10"
         with patch.object(vs, "_run_on_executor", wraps=vs._run_on_executor) as mock_run:

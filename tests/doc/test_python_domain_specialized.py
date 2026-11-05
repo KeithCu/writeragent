@@ -477,12 +477,12 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert result["status"] == "ok"
     tools_arg = mock_build.call_args[0][1]
     names = {tool.name for tool in tools_arg}
-    assert "list_sheets" in names
-    assert "sort_range" in names
+    assert "sheet_list" in names
+    assert "range_sort" in names
     assert "footnotes_insert" not in names
     by_name = {tool.name: tool for tool in tools_arg}
-    assert "labels" in by_name["sort_range"].inputs["has_header"]["description"]
-    assert by_name["sort_range"].inputs["range"]["type"] == "array"
+    assert "labels" in by_name["range_sort"].inputs["has_header"]["description"]
+    assert by_name["range_sort"].inputs["range"]["type"] == "array"
     assert "shape_upsert" not in names
     inner_ctx = mock_build.call_args[0][0]
     assert inner_ctx.python_tool_domain == "sheets,ranges,core"
@@ -490,13 +490,13 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
 
     allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
     assert allowed is not None
-    assert "list_sheets" in allowed
-    assert "sort_range" in allowed
+    assert "sheet_list" in allowed
+    assert "range_sort" in allowed
     assert "shape_upsert" not in allowed
     assert "undo" in allowed
     assert "run_venv_python_script" not in allowed
     calc_instructions = mock_build.call_args.kwargs["instructions"]
-    assert "wa.sheet.list_sheets" in calc_instructions
+    assert "wa.sheet.list" in calc_instructions
     assert "wa.core.undo" in calc_instructions
     assert "wa.shape.upsert" not in calc_instructions
 

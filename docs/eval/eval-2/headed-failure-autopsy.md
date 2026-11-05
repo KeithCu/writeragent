@@ -205,7 +205,7 @@ From each sibling `notes.md` + soft oracles after #693. Fold real stamps into th
 **What worked (rules out empty-tab / pin):**
 - Sheets created: Raw Data + **5** schedules (Income Statement, Monthly Trend, Branch Ranking, Regional Comparison, Efficiency Volume Profitability).
 - Oracle: `schedule_sheets: 5`, `formulas: 208`, **`pinned_columns: 0`**, husks 1/243.
-- Not the predicted empty-`create_sheet` miss. Not the AFC-style pin miss.
+- Not the predicted empty-`sheet_create` miss. Not the AFC-style pin miss.
 
 **Product NOT HAPPY — three real miss classes:**
 
@@ -228,7 +228,7 @@ From each sibling `notes.md` + soft oracles after #693. Fold real stamps into th
    Denominators must use exact Raw Data account labels (`Revenue (Units)`, Implementation Hours, …) — not shortened `"Units"`.  
    **Why:** `#DIV/0!` ×20 is wrong-factor, not Ready noise.
 
-3. **DO — Ban invented helper sheets** unless `create_sheet` + populate first  
+3. **DO — Ban invented helper sheets** unless `sheet_create` + populate first  
    Headcount for Sales $/Headcount must come from Raw Data headcount accounts (or an explicitly created sheet), never a phantom `headcount` tab.  
    **Why:** `#NAME?` VLOOKUP to missing sheet.
 
@@ -277,7 +277,7 @@ From each sibling `notes.md` + soft oracles after #693. Fold real stamps into th
    **Why:** under-1-min Ready with blank grid is the happy-bar fail.
 2. **DO — Dig the PreContractError** — which tool/args Deal rejected; fix schema teaching or caller so writes aren’t blocked mid-plan.  
    **Why:** PreContractError=1 with 0 cells suggests a failed write path, not a finished model.
-3. **DO — `create_sheet` + cell writes for rates/roster tabs** — if the design needs Sheet2/Sheet3, create and populate them; never leave them as chat fiction.
+3. **DO — `sheet_create` + cell writes for rates/roster tabs** — if the design needs Sheet2/Sheet3, create and populate them; never leave them as chat fiction.
 4. **DO — Read CBA Writer sibling before inventing** (`document_research` / open brief) — rates must come from the excerpt; blank grid also means brief was unused.
 5. **Don’t** soften 0-cell oracle. **Don’t** treat chat Sheet2/3 prose as product success.
 

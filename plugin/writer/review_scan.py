@@ -178,7 +178,7 @@ def redline_identity_key(rl: Any, *, strict_date: bool = False) -> tuple[Any, ..
     unreliable); the other fields read as None when they fail.
     When strict_date is True, an unreadable RedlineDateTime raises so callers can fail the scan
     (no split-piece check without it).
-    manage_tracked_changes uses this whole key, not ``RedlineIdentifier`` alone, because a
+    tracking_manage uses this whole key, not ``RedlineIdentifier`` alone, because a
     stacked Delete reuses the identifier.
     """
     rid = rl.getPropertyValue("RedlineIdentifier")

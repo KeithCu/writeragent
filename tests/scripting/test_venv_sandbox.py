@@ -19,7 +19,7 @@ import pytest
 from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.venv.venv_sandbox import (
-    clear_all_sandbox_sessions,
+    SESSIONS,
     reset_sandbox_session,
     run_sandboxed_code,
     serialize_result,
@@ -512,11 +512,10 @@ def test_unpickleable_init_result_closes_open_figures() -> None:
         assert res["result"] == 5
     finally:
         plt.close("all")
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_init_executor_omits_cell_bindings() -> None:
-    from plugin.scripting.venv import venv_sandbox as vs
 
     try:
         res = run_sandboxed_code(
@@ -529,7 +528,9 @@ def test_init_executor_omits_cell_bindings() -> None:
             init_script_hash="ns",
         )
         assert res["status"] == "ok"
-        init_state = vs._SESSION_EXECUTORS["calc:init-namespace:init"].state
+        init_exec = SESSIONS.executor("calc:init-namespace:init")
+        assert init_exec is not None
+        init_state = init_exec.state
         assert init_state.get("HELPER") == 1
         for name in (
             "data",
@@ -542,7 +543,7 @@ def test_init_executor_omits_cell_bindings() -> None:
         ):
             assert name not in init_state
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_shared_init_import_session_duckdb_shares_catalog() -> None:
@@ -578,7 +579,7 @@ def test_shared_init_import_session_duckdb_shares_catalog() -> None:
         assert r2["status"] == "ok"
         assert r2["result"] == 11
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_isolated_init_import_session_duckdb_does_not_share_catalog() -> None:
@@ -612,11 +613,11 @@ def test_isolated_init_import_session_duckdb_does_not_share_catalog() -> None:
         assert r2["status"] == "error"
         assert "init_marker" in str(r2.get("message", ""))
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_init_result_lambda_is_not_seeded() -> None:
-    from plugin.scripting.venv.venv_sandbox import _new_executor, _seed_executor_from_init
+    from plugin.scripting.venv.venv_sandbox import CellNamespace, _new_executor
 
     init_script = "def helper():\n    return 4\nresult = lambda: 99\n"
     init_sid = "isolated:skip-result:init"
@@ -632,7 +633,7 @@ def test_init_result_lambda_is_not_seeded() -> None:
         assert r1["result"] == 4
 
         exe = _new_executor(5)
-        _seed_executor_from_init(exe, init_sid, copy_values=True)
+        CellNamespace(exe).seed(init_sid, copy=True)
         assert cast("Any", exe.state["helper"])() == 4
         assert "result" not in exe.state
         assert "result" not in exe.custom_tools
@@ -655,7 +656,7 @@ def test_init_result_lambda_is_not_seeded() -> None:
         assert r2["status"] == "ok"
         assert r2["result"] == "absent"
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
@@ -673,15 +674,15 @@ def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
             )
             assert r["status"] == "ok"
 
-        assert "isolated:0:init" not in vs._SESSION_EXECUTORS
-        assert "isolated:0:init" not in vs._INIT_SCRIPT_HASH
-        assert "isolated:0:init" not in vs._ISOLATED_INIT_LRU
+        assert SESSIONS.executor("isolated:0:init") is None
+        assert SESSIONS.init_script_hash("isolated:0:init") is None
+        assert not SESSIONS.is_isolated_lru("isolated:0:init")
 
-        assert "isolated:32:init" in vs._SESSION_EXECUTORS
-        assert "isolated:32:init" in vs._INIT_SCRIPT_HASH
-        assert "isolated:32:init" in vs._ISOLATED_INIT_LRU
+        assert SESSIONS.executor("isolated:32:init") is not None
+        assert SESSIONS.init_script_hash("isolated:32:init") is not None
+        assert SESSIONS.is_isolated_lru("isolated:32:init")
 
-        assert len(vs._ISOLATED_INIT_LRU) == 32
+        assert vs.SESSIONS.isolated_lru_len() == 32
 
         # Re-run i == 1 with the same script and hash "h1" (early return, LRU refresh)
         r_refresh = run_sandboxed_code(
@@ -705,40 +706,40 @@ def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
         )
         assert r_33["status"] == "ok"
 
-        assert "isolated:1:init" in vs._SESSION_EXECUTORS
-        assert "isolated:1:init" in vs._ISOLATED_INIT_LRU
+        assert SESSIONS.executor("isolated:1:init") is not None
+        assert SESSIONS.is_isolated_lru("isolated:1:init")
 
-        assert "isolated:2:init" not in vs._SESSION_EXECUTORS
-        assert "isolated:2:init" not in vs._INIT_SCRIPT_HASH
-        assert "isolated:2:init" not in vs._ISOLATED_INIT_LRU
+        assert SESSIONS.executor("isolated:2:init") is None
+        assert SESSIONS.init_script_hash("isolated:2:init") is None
+        assert not SESSIONS.is_isolated_lru("isolated:2:init")
 
-        assert len(vs._ISOLATED_INIT_LRU) == 32
+        assert vs.SESSIONS.isolated_lru_len() == 32
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_isolated_init_lru_pops_non_isolated_id() -> None:
     from plugin.scripting.venv import venv_sandbox as vs
 
     try:
-        clear_all_sandbox_sessions()
-        vs._SESSION_EXECUTORS["weird:1"] = vs._new_executor(5)
-        vs._SESSION_EXECUTORS["weird:1:init"] = vs._new_executor(5)
-        vs._INIT_SCRIPT_HASH["weird:1:init"] = "h"
-        vs._CELL_SESSION_INIT_DIGEST["weird:1"] = "h"
+        SESSIONS.clear_all()
+        vs.SESSIONS.get_or_create("weird:1", 5)
+        vs.SESSIONS.get_or_create("weird:1:init", 5)
+        vs.SESSIONS.set_init_hash("weird:1:init", "h")
+        vs.SESSIONS.set_seeded_digest("weird:1", "h")
 
-        vs._record_isolated_init_access_unlocked("weird:1:init")
+        vs.SESSIONS.note_isolated_access("weird:1:init")
         for i in range(32):
-            vs._record_isolated_init_access_unlocked(f"isolated:lru{i}:init")
+            vs.SESSIONS.note_isolated_access(f"isolated:lru{i}:init")
 
-        assert "weird:1:init" not in vs._SESSION_EXECUTORS
-        assert "weird:1" not in vs._SESSION_EXECUTORS
-        assert "weird:1:init" not in vs._INIT_SCRIPT_HASH
-        assert "weird:1:init" not in vs._ISOLATED_INIT_LRU
-        assert "weird:1" not in vs._CELL_SESSION_INIT_DIGEST
-        assert len(vs._ISOLATED_INIT_LRU) == 32
+        assert SESSIONS.executor("weird:1:init") is None
+        assert SESSIONS.executor("weird:1") is None
+        assert SESSIONS.init_script_hash("weird:1:init") is None
+        assert not SESSIONS.is_isolated_lru("weird:1:init")
+        assert SESSIONS.seeded_digest("weird:1") is None
+        assert vs.SESSIONS.isolated_lru_len() == 32
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

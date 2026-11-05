@@ -551,7 +551,7 @@ class TableSetCell(ToolWriterTableBase):
 class ManageTableStructure(ToolWriterTableBase):
     """Insert or delete one row/column. The four former skinny tools shared table_name + index."""
 
-    name: str | None = "manage_table_structure"
+    name: str | None = "table_manage_structure"
     description: str = (
         "Insert or delete one table row or column. "
         "index is 0-based (for insert, equal to the current count appends at the end). "

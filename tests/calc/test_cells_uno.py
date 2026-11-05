@@ -335,8 +335,8 @@ def test_read_after_write_stability(ctx, doc):
     # 4. Clear range and search
     res_clear = _execute_calc_tool(doc, ctx, "write_formula_range", {"range": "Z1:Z2", "values": ""})
     assert res_clear.get("status") == "ok", f"write_formula_range clear failed: {res_clear}"
-    res_search = _execute_calc_tool(doc, ctx, "search_in_spreadsheet", {"pattern": "Apple"})
-    assert res_search.get("status") == "ok", f"search_in_spreadsheet failed: {res_search}"
+    res_search = _execute_calc_tool(doc, ctx, "search_cells", {"pattern": "Apple"})
+    assert res_search.get("status") == "ok", f"search_cells failed: {res_search}"
     # Filter matches to only check Z column to avoid false positives from other tests
     z_matches = [m for m in res_search.get("matches", []) if m.get("cell", "").startswith("Z")]
     assert len(z_matches) == 0, f"Expected 0 matches for Apple in Z column, found {len(z_matches)}"

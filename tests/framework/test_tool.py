@@ -165,6 +165,14 @@ def test_detects_mutation():
 
     assert SpecializedWorkflowFinished().detects_mutation() is False
 
+    from plugin.calc.search import ReplaceInSpreadsheet
+    from plugin.calc.errors import DetectErrors
+    from plugin.calc.sheet_filter import GetSheetFilter
+
+    assert ReplaceInSpreadsheet().detects_mutation() is True
+    assert DetectErrors().detects_mutation() is False
+    assert GetSheetFilter().detects_mutation() is False
+
 def test_requires_document_lock_default_matches_detects_mutation():
     tool1 = ValidTool()
     assert tool1.requires_document_lock() is tool1.detects_mutation()

@@ -40,23 +40,23 @@ def test_calc_sheet_filter_apply_get_clear(ctx, doc):
     })
     assert res_write.get("status") == "ok", f"write_formula_range failed: {res_write}"
 
-    res_apply = _execute_calc_tool(doc, ctx, "apply_sheet_filter", {
+    res_apply = _execute_calc_tool(doc, ctx, "sheet_filter_apply", {
         "range": ["G40:I43"],
         "has_header": True,
         "criteria": [
             {"field": 1, "operator": "CONTAINS", "value": "East"},
         ],
     })
-    assert res_apply.get("status") == "ok", f"apply_sheet_filter failed: {res_apply}"
+    assert res_apply.get("status") == "ok", f"sheet_filter_apply failed: {res_apply}"
 
-    res_get = _execute_calc_tool(doc, ctx, "get_sheet_filter", {"range": ["G40:I43"]})
-    assert res_get.get("status") == "ok", f"get_sheet_filter failed: {res_get}"
+    res_get = _execute_calc_tool(doc, ctx, "sheet_filter_get", {"range": ["G40:I43"]})
+    assert res_get.get("status") == "ok", f"sheet_filter_get failed: {res_get}"
     crit = res_get.get("criteria", [])
     assert len(crit) >= 1, crit
     assert crit[0].get("operator") == "CONTAINS", crit[0]
     assert crit[0].get("field") == 1, crit[0]
 
-    res_apply_or = _execute_calc_tool(doc, ctx, "apply_sheet_filter", {
+    res_apply_or = _execute_calc_tool(doc, ctx, "sheet_filter_apply", {
         "range": ["G40:I43"],
         "has_header": True,
         "criteria": [
@@ -70,19 +70,19 @@ def test_calc_sheet_filter_apply_get_clear(ctx, doc):
             },
         ],
     })
-    assert res_apply_or.get("status") == "ok", f"apply_sheet_filter OR chain failed: {res_apply_or}"
+    assert res_apply_or.get("status") == "ok", f"sheet_filter_apply OR chain failed: {res_apply_or}"
 
     assert _visible_row_count(data_i0, data_i1) == 3, "OR: East or Score>15 should show all three data rows"
 
-    res_get_or = _execute_calc_tool(doc, ctx, "get_sheet_filter", {"range": ["G40:I43"]})
-    assert res_get_or.get("status") == "ok", f"get_sheet_filter after OR apply failed: {res_get_or}"
+    res_get_or = _execute_calc_tool(doc, ctx, "sheet_filter_get", {"range": ["G40:I43"]})
+    assert res_get_or.get("status") == "ok", f"sheet_filter_get after OR apply failed: {res_get_or}"
     crit_or = res_get_or.get("criteria", [])
     assert len(crit_or) == 2, crit_or
     assert crit_or[1].get("operator") == "GREATER", crit_or[1]
     # Do not assert crit_or[1]["connection"] == "OR": LibreOffice may report AND on
     # getFilterFields2 readback even when the active filter is OR (validated above).
 
-    res_apply_and = _execute_calc_tool(doc, ctx, "apply_sheet_filter", {
+    res_apply_and = _execute_calc_tool(doc, ctx, "sheet_filter_apply", {
         "range": ["G40:I43"],
         "has_header": True,
         "criteria": [
@@ -95,35 +95,35 @@ def test_calc_sheet_filter_apply_get_clear(ctx, doc):
             },
         ],
     })
-    assert res_apply_and.get("status") == "ok", f"apply_sheet_filter AND chain failed: {res_apply_and}"
+    assert res_apply_and.get("status") == "ok", f"sheet_filter_apply AND chain failed: {res_apply_and}"
     assert _visible_row_count(data_i0, data_i1) == 1, "AND: only Carol matches East and Score>15"
 
-    res_clear = _execute_calc_tool(doc, ctx, "clear_sheet_filter", {"range": ["G40:I43"], "has_header": True})
-    assert res_clear.get("status") == "ok", f"clear_sheet_filter failed: {res_clear}"
+    res_clear = _execute_calc_tool(doc, ctx, "sheet_filter_clear", {"range": ["G40:I43"], "has_header": True})
+    assert res_clear.get("status") == "ok", f"sheet_filter_clear failed: {res_clear}"
 
-    res_get2 = _execute_calc_tool(doc, ctx, "get_sheet_filter", {"range": ["G40:I43"]})
-    assert res_get2.get("status") == "ok", f"get_sheet_filter after clear failed: {res_get2}"
+    res_get2 = _execute_calc_tool(doc, ctx, "sheet_filter_get", {"range": ["G40:I43"]})
+    assert res_get2.get("status") == "ok", f"sheet_filter_get after clear failed: {res_get2}"
     assert res_get2.get("count", -1) == 0, res_get2
 
 @native_test
 @with_native_doc("calc")
 def test_calc_sheet_filter_invalid_range(ctx, doc):
-    res_apply = _execute_calc_tool(doc, ctx, "apply_sheet_filter", {
+    res_apply = _execute_calc_tool(doc, ctx, "sheet_filter_apply", {
         "range": [],
         "has_header": True,
         "criteria": [
             {"field": 1, "operator": "CONTAINS", "value": "East"},
         ],
     })
-    assert res_apply.get("status") == "error", f"Expected error for empty range in apply_sheet_filter, got {res_apply}"
+    assert res_apply.get("status") == "error", f"Expected error for empty range in sheet_filter_apply, got {res_apply}"
     assert "Pass exactly one range." in res_apply.get("message", "")
 
-    res_get = _execute_calc_tool(doc, ctx, "get_sheet_filter", {"range": []})
-    assert res_get.get("status") == "error", f"Expected error for empty range in get_sheet_filter, got {res_get}"
+    res_get = _execute_calc_tool(doc, ctx, "sheet_filter_get", {"range": []})
+    assert res_get.get("status") == "error", f"Expected error for empty range in sheet_filter_get, got {res_get}"
     assert "Pass exactly one range." in res_get.get("message", "")
 
-    res_clear = _execute_calc_tool(doc, ctx, "clear_sheet_filter", {"range": [], "has_header": True})
-    assert res_clear.get("status") == "error", f"Expected error for empty range in clear_sheet_filter, got {res_clear}"
+    res_clear = _execute_calc_tool(doc, ctx, "sheet_filter_clear", {"range": [], "has_header": True})
+    assert res_clear.get("status") == "error", f"Expected error for empty range in sheet_filter_clear, got {res_clear}"
     assert "Pass exactly one range." in res_clear.get("message", "")
 
 

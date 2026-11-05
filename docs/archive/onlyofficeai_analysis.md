@@ -154,10 +154,10 @@ OnlyOffice uses **`StartAction` / `EndAction`** and **`GroupActions`** so multi-
 | OnlyOffice (`HELPERS.cell`) | What OO does (brief) | WriterAgent |
 |-----------------------------|----------------------|-------------|
 | `addChart` | Chart from range, rich `chartType` enum | [`create_chart`](plugin/calc/charts.py) — smaller `chart_type` enum; list/edit/delete + `get_chart_info` |
-| `setSort` / `setMultiSort` | Range sort | [`sort_range`](plugin/calc/cells.py) |
+| `setSort` / `setMultiSort` | Range sort | [`range_sort`](plugin/calc/cells.py) |
 | `addConditionalFormatting` / granular rules | Many presets | [`add_conditional_format`](plugin/calc/conditional.py), [`list_conditional_formats`](plugin/calc/conditional.py), [`remove_conditional_formats`](plugin/calc/conditional.py) |
 | `clearConditionalFormatting` | Clear CF | `remove_conditional_formats` |
-| `explainFormula` | LLM explains formula | [`detect_and_explain_errors`](plugin/calc/formulas.py) + [`error_detector.py`](plugin/calc/error_detector.py) / [`inspector.py`](plugin/calc/inspector.py) |
+| `explainFormula` | LLM explains formula | [`error_detect`](plugin/calc/formulas.py) + [`error_detector.py`](plugin/calc/error_detector.py) / [`inspector.py`](plugin/calc/inspector.py) |
 | `formatTable` | Table-like formatting | Partial: [`set_style`](plugin/calc/cells.py), merge/sort/delete structure |
 | `changeTextStyle` (cell) | Char/cell styling | [`set_style`](plugin/calc/cells.py) |
 | `addImage` (cell) | Image on sheet | Shared image pipeline; draw page insert via [`plugin/writer/image_tools.py`](../plugin/writer/image_tools.py) (`_insert_image_to_drawpage`); specialized Calc images via [`ToolCalcImageBase`](plugin/calc/base.py) |
@@ -171,7 +171,7 @@ OnlyOffice uses **`StartAction` / `EndAction`** and **`GroupActions`** so multi-
 | `summarizeData` | CSV-ish export → LLM prose → adjacent cell | Composable today; thin tool candidate (§2.1) |
 | `insertPivotTable` | Api + LLM parses NL → field indices | WriterAgent: [`plugin/calc/pivot.py`](plugin/calc/pivot.py) (`DataPilot`); OO useful for **prompts/errors** only |
 | `setAutoFilter` | Rich Excel-like criteria | **Gap** — major candidate (§2.1) |
-| `fillMissingData` / `fixFormula` | LLM + writes | Partial: `write_formula_range`, `detect_and_explain_errors` |
+| `fillMissingData` / `fixFormula` | LLM + writes | Partial: `write_formula_range`, `error_detect` |
 
 ### 7.3 OO-only granular conditional presets
 
@@ -179,7 +179,7 @@ Separate `RegisteredFunction` names: `addDataBars`, `addIconSet`, `addColorScale
 
 ### 7.4 WriterAgent Calc surface OO does not mirror
 
-[`list_sheets`](plugin/calc/sheets.py), [`switch_sheet`](plugin/calc/sheets.py), [`create_sheet`](plugin/calc/sheets.py), [`get_sheet_summary`](plugin/calc/sheets.py); [`read_cell_range`](plugin/calc/cells.py), [`write_formula_range`](plugin/calc/cells.py), [`merge_cells`](plugin/calc/cells.py), [`delete_structure`](plugin/calc/cells.py); [`list_named_ranges`](plugin/calc/navigation.py), [`search_in_spreadsheet`](plugin/calc/search.py), [`replace_in_spreadsheet`](plugin/calc/search.py); comments in [`plugin/calc/comments.py`](plugin/calc/comments.py); [`delegate_to_specialized_calc_toolset`](plugin/calc/specialized.py).
+[`sheet_list`](plugin/calc/sheets.py), [`sheet_switch`](plugin/calc/sheets.py), [`sheet_create`](plugin/calc/sheets.py), [`get_sheet_summary`](plugin/calc/sheets.py); [`read_cell_range`](plugin/calc/cells.py), [`write_formula_range`](plugin/calc/cells.py), [`merge_cells`](plugin/calc/cells.py), [`delete_structure`](plugin/calc/cells.py); [`list_named_ranges`](plugin/calc/navigation.py), [`search_cells`](plugin/calc/search.py), [`search_replace`](plugin/calc/search.py); comments in [`plugin/calc/comments.py`](plugin/calc/comments.py); [`delegate_to_specialized_calc_toolset`](plugin/calc/specialized.py).
 
 ### 7.5 Where to mine OnlyOffice Calc code
 

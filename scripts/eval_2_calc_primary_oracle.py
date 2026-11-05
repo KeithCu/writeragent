@@ -6,7 +6,7 @@
 
 Pass/fail is document-local. Chat Ready / STREAM_DONE is never consulted.
 This is **not** the AFC Sample/SSC/column-K oracle. Miss modes are wrong
-factor, pinned relative formula, and empty create_sheet tabs.
+factor, pinned relative formula, and empty sheet_create tabs.
 
 Usage:
   .venv/bin/python scripts/eval_2_calc_primary_oracle.py path/to/final_workbook.ods
@@ -177,7 +177,7 @@ def score_sheets(sheets: dict[str, list[list[Cell]]]) -> OracleResult:
     if len(populated) < MIN_SCHEDULE_SHEETS:
         failures.append(
             f"populated schedule sheets={len(populated)} < {MIN_SCHEDULE_SHEETS} "
-            "(empty create_sheet is not the model)"
+            "(empty sheet_create is not the model)"
         )
 
     joined = _workbook_text(visible)

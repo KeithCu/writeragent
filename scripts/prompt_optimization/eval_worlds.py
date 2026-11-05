@@ -876,7 +876,7 @@ class CalcWorld:
             "cell_count": len(cells),
         }
 
-    def sort_range(self, **kwargs: Any) -> dict[str, Any]:
+    def range_sort(self, **kwargs: Any) -> dict[str, Any]:
         """One-column sort (production sort_column is a 0-based int). Stable."""
         if not self._grid or len(self._grid) < 2:
             return {"status": "ok", "message": "Nothing to sort"}

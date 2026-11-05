@@ -638,7 +638,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "sort_range",
+                "range_sort",
                 {
                     "range": ["A1:B6"],
                     "sort_column": 0,
@@ -650,7 +650,7 @@ SCRIPTS: dict[str, list[dict[str, Any]]] = {
         ),
         _tools(
             _tc(
-                "sort_range",
+                "range_sort",
                 {
                     "range": ["A1:B6"],
                     "sort_column": 1,

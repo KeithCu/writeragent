@@ -15,8 +15,8 @@ from plugin.tests.testing_utils import execute_calc_tool as _execute_calc_tool, 
 @native_test
 @with_native_doc("calc")
 def test_create_sheet(ctx, doc):
-    res = _execute_calc_tool(doc, ctx, "create_sheet", {"sheet": "NewSheet"})
-    assert res.get("status") == "ok", f"create_sheet failed: {res}"
+    res = _execute_calc_tool(doc, ctx, "sheet_create", {"sheet": "NewSheet"})
+    assert res.get("status") == "ok", f"sheet_create failed: {res}"
     assert "no cells copied" in res.get("message", "")
     assert doc.getSheets().hasByName("NewSheet"), "Sheet not created"
 
@@ -24,11 +24,11 @@ def test_create_sheet(ctx, doc):
 @native_test
 @with_native_doc("calc")
 def test_rename_duplicate_sheet(ctx, doc):
-    _execute_calc_tool(doc, ctx, "create_sheet", {"sheet": "SheetA"})
-    _execute_calc_tool(doc, ctx, "create_sheet", {"sheet": "SheetB"})
+    _execute_calc_tool(doc, ctx, "sheet_create", {"sheet": "SheetA"})
+    _execute_calc_tool(doc, ctx, "sheet_create", {"sheet": "SheetB"})
 
     # Attempt to rename SheetB to SheetA
-    res_dup = _execute_calc_tool(doc, ctx, "rename_sheet", {"old_name": "SheetB", "new_name": "SheetA"})
+    res_dup = _execute_calc_tool(doc, ctx, "sheet_rename", {"old_name": "SheetB", "new_name": "SheetA"})
     assert res_dup.get("status") == "error"
     assert len(res_dup.get("message", "")) > 0
 

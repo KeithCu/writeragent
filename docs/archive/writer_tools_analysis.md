@@ -97,7 +97,7 @@ WriterAgent does not ship a separate `annotations.py`. The optional MCP-AI annot
 
 ---
 
-### 7. ~~Accept/Reject track-change tools → `manage_tracked_changes`~~ (done)
+### 7. ~~Accept/Reject track-change tools → `tracking_manage`~~ (done)
 
 Implemented as `ManageTrackedChanges` in [tracking.py](file:///home/keithcu/Desktop/Python/writeragent/plugin/writer/tracking.py) with
 `action` = `accept` / `reject` / `accept_all` / `reject_all` (optional `index` for single).

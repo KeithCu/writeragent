@@ -37,13 +37,13 @@ def test_named_slices_cover_calc_and_writer_hooks() -> None:
         "apply_html",
         "write_formula_range",
         "write_formula_range.values",
-        "sort_range",
+        "range_sort",
         "full_prompt",
     } <= names
     assert DEFAULT_LLM_SLICE == "calc_core"
     assert get_slice_spec("apply_html").kind == "prompt_fragment"
     assert get_slice_spec("apply_html").prompt_attr == "WRITER_APPLY_DOCUMENT_HTML_RULES"
-    assert get_slice_spec("sort_range").kind == "tool_description"
+    assert get_slice_spec("range_sort").kind == "tool_description"
     assert get_slice_spec("write_formula_range.values").param_name == "values"
 
 
@@ -84,9 +84,9 @@ def test_calc_core_injection_is_noop_on_writer_tasks(value, value_2, value_3) ->
 
 def test_sort_range_slice_patches_specialized_schema() -> None:
     marker = "SORT_SLICE_MARKER"
-    patches = schema_patches_for_slice("sort_range", marker)
-    assert patches == {"sort_range": {"description": marker}}
-    prompt, applied = apply_named_slice("data_sorting", "sort_range", marker)
+    patches = schema_patches_for_slice("range_sort", marker)
+    assert patches == {"range_sort": {"description": marker}}
+    prompt, applied = apply_named_slice("data_sorting", "range_sort", marker)
     assert prompt == get_eval_system_prompt("data_sorting")
     assert applied == patches
     schemas = apply_schema_patches(
@@ -95,7 +95,7 @@ def test_sort_range_slice_patches_specialized_schema() -> None:
     fn = next(
         (row.get("function") or row)
         for row in schemas
-        if (row.get("function") or row).get("name") == "sort_range"
+        if (row.get("function") or row).get("name") == "range_sort"
     )
     assert fn["description"] == marker
 

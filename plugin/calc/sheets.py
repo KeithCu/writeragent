@@ -69,7 +69,7 @@ def _sheet_name_error(doc: Any, name: Any, *, exclude: str | None = None) -> str
 class ListSheets(ToolCalcSheetBase):
     """List all sheet names in the workbook."""
 
-    name: str | None = "list_sheets"
+    name: str | None = "sheet_list"
     description: str = "Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}}
     is_mutation: bool | None = False
@@ -84,7 +84,7 @@ class ListSheets(ToolCalcSheetBase):
 class SwitchSheet(ToolCalcSheetBase):
     """Switch to a specified sheet."""
 
-    name: str | None = "switch_sheet"
+    name: str | None = "sheet_switch"
     description: str = "Switches to the specified sheet (makes it active)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to switch to"}}, "required": ["sheet"]}
     is_mutation: bool | None = True
@@ -103,8 +103,8 @@ class SwitchSheet(ToolCalcSheetBase):
 class CreateSheet(ToolCalcSheetBase):
     """Create a new sheet."""
 
-    name: str | None = "create_sheet"
-    description: str = "Creates a new empty sheet (tab exists; no cells copied). create_sheet is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet."
+    name: str | None = "sheet_create"
+    description: str = "Creates a new empty sheet (tab exists; no cells copied). sheet_create is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"sheet": {"type": "string", "description": ("Exact new sheet title from the request; preserve spaces (do not snake_case or invent aliases).")}, "position": {"type": "integer", "description": "Sheet position (0-based). Appended to end if not specified."}},
@@ -144,7 +144,7 @@ class CreateSheet(ToolCalcSheetBase):
 class RenameSheet(ToolCalcSheetBase):
     """Rename an existing sheet."""
 
-    name: str | None = "rename_sheet"
+    name: str | None = "sheet_rename"
     description: str = "Renames an existing sheet."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"old_name": {"type": "string", "description": "Current name of the sheet"}, "new_name": {"type": "string", "description": "New name for the sheet"}}, "required": ["old_name", "new_name"]}
     is_mutation: bool | None = True
@@ -171,7 +171,7 @@ class RenameSheet(ToolCalcSheetBase):
 class DeleteSheet(ToolCalcSheetBase):
     """Delete an existing sheet."""
 
-    name: str | None = "delete_sheet"
+    name: str | None = "sheet_delete"
     description: str = "Deletes an existing sheet by name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to delete"}}, "required": ["sheet"]}
     is_mutation: bool | None = True
@@ -195,7 +195,7 @@ class DeleteSheet(ToolCalcSheetBase):
 class ProtectSheet(ToolCalcSheetBase):
     """Protect or unprotect a sheet."""
 
-    name: str | None = "protect_sheet"
+    name: str | None = "sheet_protect"
     description: str = "Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
     is_mutation: bool | None = True

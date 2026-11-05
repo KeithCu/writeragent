@@ -216,7 +216,7 @@ On LibreOffice **≥ 25.04**, selecting a change's **exact** Delete+Insert bound
 agent changes in the same paragraph can be accepted/rejected individually. Pre-dispatch overlap
 checks refuse when a **user** redline or another **agent** change overlaps the exact span;
 post-dispatch safety requires that no foreign `redline_identity_key` count dropped (the same rule
-as `manage_tracked_changes`).
+as `tracking_manage`).
 
 Single-change resolve returns an honest `ResolveStatus`:
 * `RESOLVED`: Success message ("Change accepted." / "Change rejected.").

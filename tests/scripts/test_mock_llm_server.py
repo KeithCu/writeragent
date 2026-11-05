@@ -1209,10 +1209,10 @@ def test_mutate_and_calc_draw_thin_tools():
     assert mut.tool_name == "apply_document_content"
     assert mut.tool_args and mut.tool_args["target"] == "end"
     sheets = decide_completion(
-        {"messages": [{"role": "user", "content": "list sheets"}], "tools": _tools("list_sheets")},
+        {"messages": [{"role": "user", "content": "list sheets"}], "tools": _tools("sheet_list")},
         cfg,
     )
-    assert sheets.tool_name == "list_sheets"
+    assert sheets.tool_name == "sheet_list"
     sheets_core = decide_completion(
         {
             "messages": [{"role": "user", "content": "list sheets"}],
@@ -1802,7 +1802,7 @@ _WRITER_OUTER = (
     "get_document_tree",
 )
 _CALC_OUTER = (
-    "list_sheets",
+    "sheet_list",
     "write_formula_range",
     "delegate_to_specialized_calc_toolset",
 )
@@ -2023,13 +2023,13 @@ def test_scripted_rules_branch_writer_vs_calc():
     cfg = MockLLMConfig(
         delay_ms=0,
         rules=[
-            CompletionRule(tools_any=("write_formula_range",), tool_name="list_sheets", tool_args={}),
+            CompletionRule(tools_any=("write_formula_range",), tool_name="sheet_list", tool_args={}),
             CompletionRule(tools_any=("apply_document_content",), content="<p>writer branch</p>"),
         ],
     )
     calc = decide_completion(_payload("hello", _CALC_OUTER), cfg)
     writer = decide_completion(_payload("hello", _WRITER_OUTER), cfg)
-    assert calc.tool_name == "list_sheets"
+    assert calc.tool_name == "sheet_list"
     assert writer.content and "writer branch" in writer.content
 
 

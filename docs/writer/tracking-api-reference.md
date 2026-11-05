@@ -48,7 +48,7 @@ When enumerating the collection returned by `getRedlines()`, each element repres
 - `RedlineAuthor` (string): The name of the user who made the change.
 - `RedlineDateTime` (`com.sun.star.util.DateTime`): The timestamp when the change was made (contains Year, Month, Day, Hours, Minutes, etc.).
 - `RedlineComment` (string): An optional comment attached to the tracked change.
-- `RedlineIdentifier` (string): An internal identifier for the redline. It is not a stable identity by itself. `manage_tracked_changes` treats a resolve as successful only when `redline_identity_key` for that index drops by one and every other key stays. A stacked Delete reuses the identifier (`review_scan.py`).
+- `RedlineIdentifier` (string): An internal identifier for the redline. It is not a stable identity by itself. `tracking_manage` treats a resolve as successful only when `redline_identity_key` for that index drops by one and every other key stays. A stacked Delete reuses the identifier (`review_scan.py`).
 
 ## Comments / Annotations
 
