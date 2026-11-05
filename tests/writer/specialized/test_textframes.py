@@ -244,6 +244,9 @@ def test_frame_insert_default_size_and_undo_path():
     _undo = MagicMock()
     _undo.isLocked.return_value = False
     doc.getUndoManager.return_value = _undo
+    frames_coll = MagicMock()
+    frames_coll.hasByName.return_value = False
+    doc.getTextFrames.return_value = frames_coll
     frame = MagicMock()
     frame.getPropertyValue.return_value = "MyFrame"
     frame_text = MagicMock()
@@ -277,6 +280,7 @@ def test_frame_insert_default_size_and_undo_path():
     assert size_call[0][1].Width == 8000
     assert size_call[0][1].Height == 3000
     host_text.insertTextContent.assert_called_once()
+    frame.setName.assert_called_once_with("MyFrame")
     frame_text.insertString.assert_called_once_with(frame_cursor, "hello", False)
 
 

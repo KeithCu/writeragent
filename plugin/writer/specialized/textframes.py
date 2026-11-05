@@ -323,16 +323,26 @@ class FrameInsert(ToolWriterTextFramesBase):
         size.Height = mm_to_unit(height_mm if height_mm is not None else 30.0)
         frame.setPropertyValue("Size", size)
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
-        if frame_name:
-            frame.setPropertyValue("Name", frame_name)
 
         replace_match = target == "search" and bool(old_content)
+
+        if frame_name:
+            text_frames = doc.getTextFrames()
+            if text_frames.hasByName(frame_name):
+                return self._tool_error(
+                    "Text frame %r already exists." % frame_name,
+                    code="INVALID_PARAMETER",
+                    parameter="name",
+                )
 
         def mutate() -> dict[str, Any] | None:
             if replace_match:
                 cursor.setString("")
             host = cursor.getText()
             host.insertTextContent(cursor, frame, False)
+            if frame_name:
+                # XNamed::setName is valid only after the frame is anchored (not a Name property).
+                frame.setName(frame_name)
             if text:
                 frame_text = frame.getText()
                 frame_cursor = frame_text.createTextCursor()
@@ -352,7 +362,7 @@ class FrameInsert(ToolWriterTextFramesBase):
         if err is not None:
             return err
 
-        inserted_name = frame.getPropertyValue("Name") or frame_name or ""
+        inserted_name = frame_name or frame.getName() or ""
         return {"status": "ok", "frame_name": inserted_name, "anchor_type": anchor_type}
 
 
