@@ -18,14 +18,14 @@ from plugin.tests.testing_utils import TestingFactory, with_native_doc
 @native_test
 @with_native_doc("impress")
 def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
-    """Test that iter_draw_rewrite_targets finds text shapes for editing.
+    """Test that iter_draw_rewrite_targets finds text shapes for editing with custom undo action.
     
-    Verifies the target selection logic and that setString can modify text.
-    Draw/Impress text editing via setString does not generate individual undo
-    actions; compound undo groups structural changes (shape add/delete) but not
-    text content changes via setString. This matches LibreOffice behavior where
-    text edits in shapes are not undo-tracked the same way Writer text is.
+    Verifies the target selection logic, that setString can modify text, and that
+    a custom XUndoAction registered via addUndoAction produces one undo step that
+    restores the original text.
     """
+    from plugin.draw.draw_undo import DrawTextEditUndoAction
+    
     page = doc.getDrawPages().getByIndex(0)
     shape = doc.createInstance("com.sun.star.drawing.TextShape")
     page.add(shape)
@@ -44,15 +44,31 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
     targets[0].setString("Modified")
     assert targets[0].getString() == "Modified"
     
-    # Verify compound undo context can be entered (even if setString doesn't generate actions)
+    # Test custom undo action within compound undo context
     title = _("WriterAgent: Edit Selection (Draw)")
     undo = WriterCompoundUndo(doc, title)
     assert undo.entered, "compound undo should enter on Impress"
+    
+    # Register custom undo action
+    text_obj_originals = [(targets[0], "Hello")]
+    final_texts = ["Changed again"]
+    custom_undo_action = DrawTextEditUndoAction(text_obj_originals, final_texts, title)
+    um = doc.getUndoManager()
+    um.addUndoAction(custom_undo_action)
+    
     targets[0].setString("Changed again")
     undo.close()
     
-    # The text change happened, even though no undo action was registered
     assert targets[0].getString() == "Changed again"
+    
+    # Verify undo stack has actions
+    undo_titles = um.getAllUndoActionTitles()
+    assert len(undo_titles) > 0, "undo stack should have actions"
+    assert undo_titles[0] == title, f"top undo action title should be {title!r}, got {undo_titles[0]!r}"
+    
+    # Undo should restore original text
+    um.undo()
+    assert targets[0].getString() == "Hello", "undo should restore original text 'Hello'"
 
 
 @native_test

@@ -6,7 +6,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable
+
+log = logging.getLogger(__name__)
 
 from plugin.chatbot.dialogs import msgbox
 from plugin.chatbot.selection import (
@@ -19,6 +22,7 @@ from plugin.chatbot.selection import (
 )
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import _controller_selection
+from plugin.draw.draw_undo import DrawTextEditUndoAction
 from plugin.draw.tables import _is_table_shape
 from plugin.draw.tree import _is_group, _iter_children
 from plugin.framework.config import get_config
@@ -238,10 +242,19 @@ def do_draw_extend_edit(
     produced_text = [False]
     autogrow_done: set[int] = set()
 
+    # Capture text objects and originals for custom undo action
+    text_obj_originals: list[tuple[Any, str]] = []
+    final_texts: list[str] = []
+    for task in tasks:
+        text_obj, original = task.payload
+        text_obj_originals.append((text_obj, original))
+        final_texts.append(original)  # Will be updated during streaming
+
     def prepare_task(task: StreamCompletionTask) -> tuple[ApplyChunkFn, ErrorFn]:
         text_obj, original = task.payload
         obj_id = id(text_obj)
         accumulated_text = [task.prompt if not is_edit else ""]
+        task_idx = [i for i, (obj, _orig) in enumerate(text_obj_originals) if obj is text_obj][0]
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
@@ -251,7 +264,9 @@ def do_draw_extend_edit(
                     autogrow_done.add(obj_id)
                     _disable_text_autogrow(text_obj)
                 accumulated_text[0] += chunk_text
-                text_obj.setString(strip_echoed_edit_scaffolding(accumulated_text[0]))
+                final_text = strip_echoed_edit_scaffolding(accumulated_text[0])
+                text_obj.setString(final_text)
+                final_texts[task_idx] = final_text
 
         def on_error(e: BaseException) -> None:
             text_obj.setString(original)
@@ -260,6 +275,20 @@ def do_draw_extend_edit(
         return apply_chunk, on_error
 
     undo = WriterCompoundUndo(model, title)
+    
+    # Register custom undo action for Draw/Impress (setString doesn't push child actions)
+    try:
+        custom_undo_action = DrawTextEditUndoAction(text_obj_originals, final_texts, title)
+        um = model.getUndoManager()
+        if um is not None and undo.entered:
+            um.addUndoAction(custom_undo_action)
+    except ImportError:
+        # UNO not available (unit tests); custom undo will not work but that's OK for mocks
+        log.debug("UNO not available; skipping custom undo action registration")
+    except Exception as e:
+        from plugin.framework.errors import reraise_if_disposed
+        reraise_if_disposed(e)
+        log.debug("Failed to add custom undo action: %s", e)
 
     def on_finished() -> None:
         undo.close()
