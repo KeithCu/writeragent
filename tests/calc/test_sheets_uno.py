@@ -54,7 +54,10 @@ def test_sheet_copy_move_hide_and_list_objects(ctx, doc):
     assert listed.get("status") == "ok", listed
     rows = listed.get("result") or []
     assert rows and isinstance(rows[0], dict) and "visible" in rows[0]
+    for name in ("Extra", "ExtraCopy"):
+        hide_ok = _execute_calc_tool(doc, ctx, "sheet_hide", {"sheet": name, "visible": False})
+        assert hide_ok.get("status") == "ok", hide_ok
     hide_err = _execute_calc_tool(doc, ctx, "sheet_hide", {"sheet": "Sheet1", "visible": False})
-    assert hide_err.get("status") == "error"
+    assert hide_err.get("status") == "error", hide_err
     assert "only visible" in hide_err.get("message", "")
 
