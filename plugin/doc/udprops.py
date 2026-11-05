@@ -174,6 +174,14 @@ def _keywords_to_str_list(keywords: Any) -> list[str]:
     return [str(keywords)]
 
 
+_BUILTIN_DOCUMENT_PROPERTY_FIELDS: tuple[tuple[str, str], ...] = (
+    ("title", "Title"),
+    ("subject", "Subject"),
+    ("author", "Author"),
+    ("description", "Description"),
+)
+
+
 def read_builtin_document_properties(model: Any) -> dict[str, Any]:
     """Built-in metadata on ``getDocumentProperties()`` (strings + keyword list)."""
     doc_props = _document_properties_bag(model)
@@ -185,18 +193,16 @@ def read_builtin_document_properties(model: Any) -> dict[str, Any]:
             "description": "",
             "keywords": [],
         }
-    title = uno_call(lambda: getattr(doc_props, "Title", None) or "", "Read Title")
-    subject = uno_call(lambda: getattr(doc_props, "Subject", None) or "", "Read Subject")
-    author = uno_call(lambda: getattr(doc_props, "Author", None) or "", "Read Author")
-    description = uno_call(lambda: getattr(doc_props, "Description", None) or "", "Read Description")
+    out: dict[str, Any] = {}
+    for field_key, attr in _BUILTIN_DOCUMENT_PROPERTY_FIELDS:
+
+        def _read_field(a: str = attr, dp: Any = doc_props) -> str:
+            return str(getattr(dp, a, None) or "")
+
+        out[field_key] = uno_call(_read_field, f"Read {attr}")
     keywords_raw = uno_call(lambda: getattr(doc_props, "Keywords", None), "Read Keywords")
-    return {
-        "title": str(title or ""),
-        "subject": str(subject or ""),
-        "author": str(author or ""),
-        "description": str(description or ""),
-        "keywords": _keywords_to_str_list(keywords_raw),
-    }
+    out["keywords"] = _keywords_to_str_list(keywords_raw)
+    return out
 
 
 def write_builtin_document_properties(model: Any, **fields: Any) -> list[str]:
@@ -205,24 +211,23 @@ def write_builtin_document_properties(model: Any, **fields: Any) -> list[str]:
     if doc_props is None:
         return []
     updated: list[str] = []
-    if "title" in fields:
-        uno_call(lambda: setattr(doc_props, "Title", str(fields["title"])), "Write Title")
-        updated.append("title")
-    if "subject" in fields:
-        uno_call(lambda: setattr(doc_props, "Subject", str(fields["subject"])), "Write Subject")
-        updated.append("subject")
-    if "author" in fields:
-        uno_call(lambda: setattr(doc_props, "Author", str(fields["author"])), "Write Author")
-        updated.append("author")
-    if "description" in fields:
-        uno_call(lambda: setattr(doc_props, "Description", str(fields["description"])), "Write Description")
-        updated.append("description")
+    for field_key, attr in _BUILTIN_DOCUMENT_PROPERTY_FIELDS:
+        if field_key not in fields:
+            continue
+        val = fields[field_key]
+
+        def _write_attr(a: str = attr, v: Any = val, dp: Any = doc_props) -> None:
+            setattr(dp, a, str(v))
+
+        uno_call(_write_attr, f"Write {attr}")
+        updated.append(field_key)
     if "keywords" in fields:
         kw = fields["keywords"]
-        uno_call(
-            lambda: setattr(doc_props, "Keywords", tuple(str(k) for k in kw)),
-            "Write Keywords",
-        )
+
+        def _write_keywords(k: Any = kw, dp: Any = doc_props) -> None:
+            setattr(dp, "Keywords", tuple(str(item) for item in k))
+
+        uno_call(_write_keywords, "Write Keywords")
         updated.append("keywords")
     return updated
 

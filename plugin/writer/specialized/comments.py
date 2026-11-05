@@ -100,17 +100,32 @@ class CommentList(ToolWriterCommentBase):
                 ),
             },
             "start_index": {"type": "integer", "description": "Zero-based row to start this page at (default 0)."},
-            "max_comments": {"type": "integer", "description": "Maximum rows to return (default 100)."},
+            "max_comments": {
+                "type": "integer",
+                "description": "Maximum rows to return (default 100). Values below 1 are treated as 1, like tracking_list.",
+            },
         },
         "required": [],
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        from ..search import parse_non_negative_int
+
         author_filter = kwargs.get("author_filter")
-        start_index = kwargs.get("start_index", 0)
-        max_comments = kwargs.get("max_comments", 100)
-        start_index = max(0, int(start_index))
-        max_comments = max(1, int(max_comments))
+        start_raw = kwargs.get("start_index", 0)
+        max_raw = kwargs.get("max_comments", 100)
+        try:
+            start_index = max(0, int(start_raw if start_raw is not None else 0))
+        except (TypeError, ValueError):
+            return self._tool_error(
+                "start_index must be a non-negative integer.",
+                code="INVALID_PARAMETER",
+                parameter="start_index",
+            )
+        max_val, max_err = parse_non_negative_int(max_raw, name="max_comments", coerce=True)
+        if max_err:
+            return self._tool_error(max_err, code="INVALID_PARAMETER", parameter="max_comments")
+        max_comments = max(1, max_val if max_val is not None else 100)
         doc = ctx.doc
         # One field scan first: a comment-free document should not pay for the paragraph map.
         fields = list(_iter_annotations(doc))

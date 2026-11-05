@@ -1293,6 +1293,10 @@ def test_comment_list_paging_and_author_filter_order():
         clamped = CommentList().execute(ctx, start_index=-5, max_comments=0)
         assert clamped["count"] == 1
 
+        bad_page = CommentList().execute(ctx, max_comments="nope")
+        assert bad_page["status"] == "error"
+        assert bad_page["code"] == "INVALID_PARAMETER"
+
 
 def test_comment_edit_sets_content_only():
     from plugin.writer.specialized.comments import CommentEdit

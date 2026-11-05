@@ -62,35 +62,48 @@ def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
     )
 
 
+def _validate_frame_mm(tool: Any, param_name: str, val: Any) -> dict[str, Any] | None:
+    try:
+        fval = float(val)
+        if type(val) is bool or not (math.isfinite(fval) and fval > 0):
+            raise ValueError
+    except (TypeError, ValueError):
+        return tool._tool_error(
+            f"{param_name} must be a positive finite number.",
+            code="INVALID_PARAMETER",
+            parameter=param_name,
+        )
+    return None
+
+
+def _validate_frame_anchor_type(tool: Any, val: Any) -> dict[str, Any] | None:
+    if type(val) is not int or not (0 <= val <= 4):
+        return tool._tool_error(
+            "anchor_type must be an integer between 0 and 4.",
+            code="INVALID_PARAMETER",
+            parameter="anchor_type",
+        )
+    return None
+
+
+def _validate_frame_orientation(tool: Any, param_name: str, val: Any) -> dict[str, Any] | None:
+    if type(val) is not int:
+        return tool._tool_error(
+            f"{param_name} must be an integer.",
+            code="INVALID_PARAMETER",
+            parameter=param_name,
+        )
+    return None
+
+
 def _validate_frame_measurement(tool: Any, param_name: str, val: Any) -> dict[str, Any] | None:
     if val is None:
         return None
     if param_name in ("width_mm", "height_mm"):
-        try:
-            fval = float(val)
-            if type(val) is bool or not (math.isfinite(fval) and fval > 0):
-                raise ValueError
-        except (TypeError, ValueError):
-            return tool._tool_error(
-                f"{param_name} must be a positive finite number.",
-                code="INVALID_PARAMETER",
-                parameter=param_name,
-            )
-    elif param_name == "anchor_type":
-        if type(val) is not int or not (0 <= val <= 4):
-            return tool._tool_error(
-                "anchor_type must be an integer between 0 and 4.",
-                code="INVALID_PARAMETER",
-                parameter="anchor_type",
-            )
-    else:
-        if type(val) is not int:
-            return tool._tool_error(
-                f"{param_name} must be an integer.",
-                code="INVALID_PARAMETER",
-                parameter=param_name,
-            )
-    return None
+        return _validate_frame_mm(tool, param_name, val)
+    if param_name == "anchor_type":
+        return _validate_frame_anchor_type(tool, val)
+    return _validate_frame_orientation(tool, param_name, val)
 
 
 def text_content_anchor(index: int) -> Any:
@@ -310,6 +323,14 @@ class FrameInsert(ToolWriterTextFramesBase):
                 return err
 
         doc = ctx.doc
+        if frame_name:
+            text_frames = doc.getTextFrames()
+            if text_frames.hasByName(frame_name):
+                return self._tool_error(
+                    "Text frame %r already exists." % frame_name,
+                    code="INVALID_PARAMETER",
+                    parameter="name",
+                )
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:
@@ -325,15 +346,6 @@ class FrameInsert(ToolWriterTextFramesBase):
         frame.setPropertyValue("AnchorType", text_content_anchor(anchor_type))
 
         replace_match = target == "search" and bool(old_content)
-
-        if frame_name:
-            text_frames = doc.getTextFrames()
-            if text_frames.hasByName(frame_name):
-                return self._tool_error(
-                    "Text frame %r already exists." % frame_name,
-                    code="INVALID_PARAMETER",
-                    parameter="name",
-                )
 
         def mutate() -> dict[str, Any] | None:
             if replace_match:

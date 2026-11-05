@@ -789,6 +789,7 @@ class TestTypingIntegration:
         de_loc.Language = "de"
         de_loc.Country = "DE"
         de_loc.Variant = ""
+        assert pr.hasLocale(de_loc) is False
         with patch("plugin.writer.locale.harper.harper_try_lint") as mock_lint:
             res = pr.doProofreading("test-doc", "Hallo.", de_loc, 0, 6, ())
         mock_lint.assert_not_called()
