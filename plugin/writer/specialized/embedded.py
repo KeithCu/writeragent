@@ -119,10 +119,25 @@ def _deselect_inplace_embed(doc: Any, tool: Any) -> dict[str, Any] | None:
     return None
 
 
-def _used_range_size(sheet: Any, rows: int, cols: int) -> Any:
+# Default Writer Calc embed visual area for A1:D5 (9033×2260 in 1/100 mm on typical builds).
+_DEFAULT_EMBED_COLS = 4
+_DEFAULT_EMBED_ROWS = 5
+_DEFAULT_EMBED_WIDTH = 9033
+_DEFAULT_EMBED_HEIGHT = 2260
 
-    cell_range = sheet.getCellRangeByPosition(0, 0, max(cols - 1, 0), max(rows - 1, 0))
-    return cell_range.Size
+
+def _embed_size_for_used_range(rows: int, cols: int) -> Any:
+    import uno
+
+    width = max(int(_DEFAULT_EMBED_WIDTH * cols / _DEFAULT_EMBED_COLS), 1000)
+    height = max(int(_DEFAULT_EMBED_HEIGHT * rows / _DEFAULT_EMBED_ROWS), 500)
+    return uno.createUnoStruct("com.sun.star.awt.Size", Width=width, Height=height)
+
+
+def _embed_size_from_args(width: int, height: int) -> Any:
+    import uno
+
+    return uno.createUnoStruct("com.sun.star.awt.Size", Width=width, Height=height)
 
 
 class EmbeddedInsert(ToolWriterEmbeddedBase):
@@ -271,27 +286,17 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             sheet = inner.getSheets().getByIndex(0)
             rows = len(data)
             cols = max((len(row) for row in data), default=0)
-            for r_idx, row in enumerate(data):
-                for c_idx, cell_val in enumerate(row):
-                    try:
-                        _write_cell(sheet.getCellByPosition(c_idx, r_idx), cell_val)
-                    except ValueError as ve:
-                        return {"status": "error", "message": str(ve)}
 
-            if rows > 0 and cols > 0 and width is None:
-                import uno
-
-                size = _used_range_size(sheet, rows, cols)
-            elif width is not None and height is not None:
-                import uno
-
-                size = uno.createUnoStruct("com.sun.star.awt.Size", Width=width, Height=height)
-            else:
-                size = None
+            size = None
+            if width is not None and height is not None:
+                size = _embed_size_from_args(width, height)
+            elif rows > 0 and cols > 0:
+                size = _embed_size_for_used_range(rows, cols)
 
             read_w = read_h = None
             if size is not None:
                 xe = emb.getExtendedControlOverEmbeddedObject()
+                # Size before cell writes: setVisualAreaSize after formulas hung the UNO test runner (30s).
                 xe.setVisualAreaSize(_ASPECT_CONTENT, size)
                 va = xe.getVisualAreaSize(_ASPECT_CONTENT)
                 emb.Width = va.Width
@@ -299,6 +304,13 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
                 xe.update()
                 read_w = va.Width
                 read_h = va.Height
+
+            for r_idx, row in enumerate(data):
+                for c_idx, cell_val in enumerate(row):
+                    try:
+                        _write_cell(sheet.getCellByPosition(c_idx, r_idx), cell_val)
+                    except ValueError as ve:
+                        return {"status": "error", "message": str(ve)}
 
             result_holder.append(
                 {

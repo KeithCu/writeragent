@@ -145,9 +145,6 @@ def test_embedded_insert_sequence_and_cell_writes():
         return cells[key]
 
     sheet.getCellByPosition.side_effect = _cell
-    range_mock = MagicMock()
-    range_mock.Size = va
-    sheet.getCellRangeByPosition.return_value = range_mock
 
     ctx = MagicMock(doc=doc, ctx=MagicMock(getServiceManager=lambda: _fake_config(
         "abc-def",
@@ -171,6 +168,7 @@ def test_embedded_insert_sequence_and_cell_writes():
         return None
 
     data = [["Label", 1], ["=SUM(B2:B3)", 2], [3, None]]
+    expected_size = embedded_mod._embed_size_for_used_range(len(data), max(len(row) for row in data))
     with (
         patch("plugin.writer.specialized.embedded.resolve_target_cursor", return_value=cursor),
         patch("plugin.writer.specialized.embedded.commit_or_rollback_mutation", side_effect=_commit),
@@ -190,7 +188,7 @@ def test_embedded_insert_sequence_and_cell_writes():
     cells[(0, 1)].setFormula.assert_called_once_with("=SUM(B2:B3)")
     cells[(1, 1)].setValue.assert_called_once_with(2.0)
     cells[(0, 2)].setValue.assert_called_once_with(3.0)
-    xe.setVisualAreaSize.assert_called_once_with(embedded_mod._ASPECT_CONTENT, range_mock.Size)
+    xe.setVisualAreaSize.assert_called_once_with(embedded_mod._ASPECT_CONTENT, expected_size)
     assert emb.Width == va.Width
     assert emb.Height == va.Height
     xe.update.assert_called_once()
