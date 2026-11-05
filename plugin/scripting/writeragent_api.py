@@ -1607,7 +1607,7 @@ class _PageCommentProxy:
         return call_host_tool("page_comment_delete", index=index, page=page)
 
     def list(self, *, page: int | None = None, offset: int | None = None) -> dict[str, Any]:
-        """List comments (annotations) on Draw or Impress pages. Omit page to scan every page; pass page for one slide. Use offset to paginate (up to 100 per call).
+        """List comments (annotations) on Draw or Impress pages. Omit page to scan every page; pass page for one slide. Use offset to paginate (up to 100 per call). Each row includes x/y as raw RealPoint2D Position values from LibreOffice (not slide mm).
 
         Args:
             page (optional): 0-based page index (all pages if omitted).

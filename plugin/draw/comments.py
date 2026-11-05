@@ -31,8 +31,14 @@ from plugin.framework.uno_context import uno_same
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
+# offapi/com/sun/star/office/XAnnotationAccess.idl — implemented on Impress/Draw pages in
+# sd/source/ui/inc/unopage.hxx (SdGenericDrawPage), though drawing.DrawPage does not publish it.
+_ANNOTATION_ACCESS_SVC = "com.sun.star.office.XAnnotationAccess"
+
 _LIST_CAP = 100
 _UNDO_TITLE = "WriterAgent: Page comment"
+_UNDO_UNAVAILABLE_MSG = "Cannot change page comments atomically (no usable undo context)."
+_ROLLBACK_MSG = "Page comment change failed and was rolled back"
 
 
 def _annotation_date(dt: Any) -> str:
@@ -52,6 +58,7 @@ def _annotation_text(ann: Any) -> str:
 
 
 def _annotation_xy(ann: Any) -> tuple[Any, Any]:
+    # Raw RealPoint2D from XAnnotation.Position — LibreOffice units, not converted to slide mm.
     pos = uno_read(lambda: ann.Position, None)
     if pos is None:
         return None, None
@@ -59,11 +66,7 @@ def _annotation_xy(ann: Any) -> tuple[Any, Any]:
 
 
 def _page_supports_annotations(page: Any) -> bool:
-    return (
-        hasattr(page, "createAnnotationEnumeration")
-        and hasattr(page, "createAndInsertAnnotation")
-        and hasattr(page, "removeAnnotation")
-    )
+    return uno_read(lambda: page.supportsService(_ANNOTATION_ACCESS_SVC), False) is True
 
 
 def _annotations_unavailable(tool: Any, page_index: int) -> dict[str, Any]:
@@ -75,7 +78,12 @@ def _annotations_unavailable(tool: Any, page_index: int) -> dict[str, Any]:
 
 
 def _iter_annotations_on_page(page: Any) -> list[Any]:
-    """Return annotations in ``createAnnotationEnumeration`` order (empty when enum is None)."""
+    """Return annotations in ``createAnnotationEnumeration`` order.
+
+    That order is the ``index`` contract for ``page_comment_delete`` (see
+    ``offapi/com/sun/star/office/XAnnotationAccess.idl``). ``createAnnotationEnumeration``
+    returns NULL when the page has no comments (empty list, not an error).
+    """
     try:
         enum = page.createAnnotationEnumeration()
     except Exception as exc:
@@ -107,34 +115,53 @@ def _comment_row(page_index: int, index: int, ann: Any) -> dict[str, Any]:
     }
 
 
-def _collect_all_comments(
-    tool: Any,
+def _page_targets(
     bridge: DrawBridge,
+    page_kw: Any,
     *,
-    single_page: Any | None,
-    single_index: int | None,
-) -> tuple[list[tuple[int, int, Any]], dict[str, Any] | None]:
-    rows: list[tuple[int, int, Any]] = []
-    if single_page is not None and single_index is not None:
-        if not _page_supports_annotations(single_page):
-            return rows, _annotations_unavailable(tool, single_index)
-        for idx, ann in enumerate(_iter_annotations_on_page(single_page)):
-            rows.append((single_index, idx, ann))
-        return rows, None
-
+    active_page_index: Any,
+) -> tuple[list[tuple[int, Any]], int | None]:
+    """Build (page_index, page) pairs for one slide or the full deck."""
+    if page_kw is not None:
+        page, resolved = bridge.resolve_page(page_kw, active_page_index=active_page_index)
+        return [(resolved, page)], resolved
     pages = bridge.get_pages()
     try:
         count = pages.getCount()
     except Exception as exc:
         reraise_if_disposed(exc)
         raise
-    for page_index in range(count):
-        page = pages.getByIndex(page_index)
+    return [(page_index, pages.getByIndex(page_index)) for page_index in range(count)], None
+
+
+def _collect_comments(
+    tool: Any,
+    page_targets: list[tuple[int, Any]],
+) -> tuple[list[tuple[int, int, Any]], dict[str, Any] | None]:
+    rows: list[tuple[int, int, Any]] = []
+    for page_index, page in page_targets:
         if not _page_supports_annotations(page):
             return rows, _annotations_unavailable(tool, page_index)
         for idx, ann in enumerate(_iter_annotations_on_page(page)):
             rows.append((page_index, idx, ann))
     return rows, None
+
+
+def _list_truncation_hint(count: int, total: int, next_offset: int, *, one_page: bool) -> str:
+    if one_page:
+        return "Showing %d of %d on this page. Pass offset=%d to continue." % (count, total, next_offset)
+    return "Showing %d of %d. Pass offset=%d to continue, or page to one slide." % (count, total, next_offset)
+
+
+def _run_page_comment_mutation(tool: Any, doc: Any, mutate: Any) -> dict[str, Any] | None:
+    return commit_or_rollback_mutation(
+        tool,
+        doc,
+        _UNDO_TITLE,
+        mutate,
+        undo_unavailable_msg=_UNDO_UNAVAILABLE_MSG,
+        rollback_msg=_ROLLBACK_MSG,
+    )
 
 
 class ListPageComments(ToolDrawCommentBase):
@@ -144,7 +171,8 @@ class ListPageComments(ToolDrawCommentBase):
     description: str = (
         "List comments (annotations) on Draw or Impress pages. "
         "Omit page to scan every page; pass page for one slide. "
-        "Use offset to paginate (up to 100 per call)."
+        "Use offset to paginate (up to 100 per call). "
+        "Each row includes x/y as raw RealPoint2D Position values from LibreOffice (not slide mm)."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -162,30 +190,18 @@ class ListPageComments(ToolDrawCommentBase):
 
         bridge = DrawBridge(ctx.doc)
         page_kw = kwargs.get("page")
-        single_page: Any | None = None
-        resolved_page: int | None = None
-        if page_kw is not None:
-            single_page, resolved_page = bridge.resolve_page(page_kw, active_page_index=ctx.active_page_index)
-
-        flat, err = _collect_all_comments(
-            self,
+        targets, resolved_page = _page_targets(
             bridge,
-            single_page=single_page,
-            single_index=resolved_page,
+            page_kw,
+            active_page_index=ctx.active_page_index,
         )
+        flat, err = _collect_comments(self, targets)
         if err is not None:
             return err
 
         total = len(flat)
-        if offset >= total:
-            window: list[tuple[int, int, Any]] = []
-            truncated = False
-        elif offset + _LIST_CAP >= total:
-            window = flat[offset:]
-            truncated = False
-        else:
-            window = flat[offset : offset + _LIST_CAP]
-            truncated = True
+        window = flat[offset : offset + _LIST_CAP]
+        truncated = offset + _LIST_CAP < total
 
         comments = [_comment_row(p_idx, idx, ann) for p_idx, idx, ann in window]
         result: dict[str, Any] = {
@@ -200,17 +216,12 @@ class ListPageComments(ToolDrawCommentBase):
             result["page"] = resolved_page
         if truncated:
             next_offset = offset + len(comments)
-            if resolved_page is not None:
-                result["hint"] = "Showing %d of %d on this page. Pass offset=%d to continue." % (
-                    len(comments),
-                    total,
-                    next_offset,
-                )
-            else:
-                result["hint"] = (
-                    "Showing %d of %d. Pass offset=%d to continue, or page to one slide."
-                    % (len(comments), total, next_offset)
-                )
+            result["hint"] = _list_truncation_hint(
+                len(comments),
+                total,
+                next_offset,
+                one_page=resolved_page is not None,
+            )
         return result
 
 
@@ -257,6 +268,8 @@ class AddPageComment(ToolDrawCommentBase):
                 text_range.setString(text)
             if author_strip:
                 new_ann.Author = author_strip
+            # Re-scan enumeration: PyUNO may hand back a different wrapper for the same UNO object
+            # (plugin/framework/uno_context.py uno_same); do not assume "last index" after insert.
             for idx, ann in enumerate(_iter_annotations_on_page(page)):
                 if uno_same(ann, new_ann):
                     outcome["index"] = idx
@@ -268,14 +281,7 @@ class AddPageComment(ToolDrawCommentBase):
                 "message": "New comment was inserted but is not visible in the page enumeration.",
             }
 
-        err = commit_or_rollback_mutation(
-            self,
-            ctx.doc,
-            _UNDO_TITLE,
-            mutate,
-            undo_unavailable_msg="Cannot change page comments atomically (no usable undo context).",
-            rollback_msg="Page comment change failed and was rolled back",
-        )
+        err = _run_page_comment_mutation(self, ctx.doc, mutate)
         if err is not None:
             return err
         return {
@@ -334,14 +340,7 @@ class DeletePageComment(ToolDrawCommentBase):
                 raise
             return None
 
-        err = commit_or_rollback_mutation(
-            self,
-            ctx.doc,
-            _UNDO_TITLE,
-            mutate,
-            undo_unavailable_msg="Cannot change page comments atomically (no usable undo context).",
-            rollback_msg="Page comment change failed and was rolled back",
-        )
+        err = _run_page_comment_mutation(self, ctx.doc, mutate)
         if err is not None:
             return err
         return {

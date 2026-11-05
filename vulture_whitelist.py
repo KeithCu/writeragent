@@ -218,6 +218,9 @@ _.InsertMathDraw  # class: plugin/draw/math_insert.py:148
 _.LibrarianOnboardingTool  # class: plugin/chatbot/librarian.py:227
 _.ListCalcFunctions  # class: plugin/calc/formulas.py:121
 _.ListCellComments  # class: plugin/calc/comments.py:83
+_.ListPageComments  # class: plugin/draw/comments.py:167
+_.AddPageComment  # class: plugin/draw/comments.py:228
+_.DeletePageComment  # class: plugin/draw/comments.py:296
 _.ListConditionalFormats  # class: plugin/calc/conditional.py:93
 _.ListDataSources  # class: plugin/writer/specialized/mail_merge.py:85
 _.ListDesigns  # class: plugin/draw/designs.py:1325
