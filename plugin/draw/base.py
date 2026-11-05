@@ -88,6 +88,12 @@ class ToolDrawSpeakerNotesBase(ToolDrawSpecialBase):
     uno_services: list[str] | None = _IMPRESS_ONLY
 
 
+class ToolDrawCommentBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "page_comments"
+    specialized_domain_description: ClassVar[str | None] = "List, add, and delete comments on Draw and Impress pages."
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
+
+
 class ToolDrawSlideTransitionsBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_transitions"
     specialized_domain_description: ClassVar[str | None] = "Slide transition effects, timing, and Impress slide layouts."
