@@ -147,7 +147,12 @@ def _controller(lru: list[str] | None = None) -> tuple[SlashPopupController, Any
     query = _Query()
     query._stub_overlay = True
     query._stub_boxes = []
-    send = SimpleNamespace(query_control=query, slash_popup=None, sync_has_text_from_query=MagicMock())
+    send = SimpleNamespace(
+        query_control=query,
+        slash_popup=None,
+        sync_has_text_from_query=MagicMock(),
+        cached_doc_type=None,
+    )
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=lru or []):
         popup = SlashPopupController(placeholder, send, query)
     send.slash_popup = popup

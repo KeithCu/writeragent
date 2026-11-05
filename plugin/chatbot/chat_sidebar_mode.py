@@ -47,11 +47,13 @@ class SidebarModeFlags:
 @deal.pre(lambda doc_type_label: str_bounded(doc_type_label, DEAL_MAX_TOKEN))
 @deal.post(lambda result: isinstance(result, SidebarModeFlags))
 def sidebar_mode_flags_for_doc_type(doc_type_label: str) -> SidebarModeFlags:
-    """Writer gets brainstorming, writing plan, and deep research; Draw and Impress get PPT-Master; Calc and every other label get the shared modes only (Chat, Image, Web Research, Librarian)."""
+    """Writer gets brainstorming, writing plan, and deep research; Draw and Impress get PPT-Master and deep research; Calc gets deep research only; unknown labels get shared modes only (Chat, Image, Web Research, Librarian)."""
     if doc_type_label == "writer":
         return SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=False, include_deep_research=True)
     if doc_type_label in ("draw", "impress"):
-        return SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=True)
+        return SidebarModeFlags(include_brainstorming=False, include_writing_plan=False, include_ppt_master=True, include_deep_research=True)
+    if doc_type_label == "calc":
+        return SidebarModeFlags(include_deep_research=True)
     return SidebarModeFlags()
 
 

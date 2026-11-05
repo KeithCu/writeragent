@@ -95,7 +95,6 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
 | `max_tool_rounds` | `int` | `15` | `1`–`200` | Max Tool Rounds |
-| `context_strategy` | `string` | `"auto"` |  | How much document content to include in LLM context Options: auto (Auto (by document size)), full (Full document text), page (Pages around cursor), tree (Outline + excerpt), stats (Stats + outline only) |
 | `extend_selection_max_tokens` | `int` | `1000` | `10`–`4096` | Internal. Extend max tokens |
 | `edit_selection_max_new_tokens` | `int` | `1000` | `0`–`4096` | Internal. Extra tokens beyond original text length. 0 = same length as original. |
 | `web_research_cache_enabled` | `boolean` | `false` |  | Cache completed web research reports by normalized query (uses web cache database). |
@@ -108,10 +107,9 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `web_research_cache_embedding_percent` | `int` | `75` | `0`–`100` | Internal. Minimum cosine similarity (0-100) for an embedding cache hit. JSON only (internal); default 75. |
 | `web_research_cache_min_overlap` | `int` | `8` | `0`–`50` | Internal. Minimum shared stem count for a fuzzy cache hit (0 disables). JSON only (internal); default 8. |
 | `deep_research_breadth` | `int` | `4` | `1`–`10` | Internal. Sub-queries per depth level when Deep Research sidebar mode is used (internal). |
-| `deep_research_depth` | `int` | `2` | `1`–`4` | Internal. Legacy alias for max_rounds (internal). |
 | `deep_research_concurrency` | `int` | `2` | `1`–`5` | Internal. Parallel sub-query workers in Deep Research sidebar mode (internal). |
 | `deep_research_max_sub_queries` | `int` | `14` | `1`–`40` | Internal. Global cap on shallow sub-agent runs per deep research session (internal). |
-| `deep_research_max_rounds` | `int` | `3` | `1`–`6` | Internal. Adaptive research rounds; deep_research_depth JSON override maps here if max_rounds unset (internal). |
+| `deep_research_max_rounds` | `int` | `3` | `1`–`6` | Internal. Adaptive research rounds (internal). |
 | `deep_research_quality_threshold` | `int` | `7` | `1`–`10` | Internal. Stop when LLM coverage score reaches this value (1-10, internal). |
 | `deep_research_sub_agent_steps` | `int` | `0` | `0`–`50` | Internal. Max ReAct steps per sub-query (0 = 150% of chatbot.max_tool_rounds, internal). |
 | `rich_text_control_sidebar` | `boolean` | `true` |  | Formatted chat via RichTextControl. Requires restart. |
