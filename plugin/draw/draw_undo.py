@@ -41,7 +41,9 @@ def DrawTextEditUndoAction(text_objects: list[tuple[typing.Any, str]], final_tex
             self._final_texts: list[str] = final_texts
             self._title: str = title
 
-        def getTitle(self) -> str:
+        @property  # type: ignore[misc]
+        def Title(self) -> str:  # type: ignore[override]  # ty: ignore[invalid-property-type-override]  # pyright: ignore[reportIncompatibleMethodOverride]
+            """XUndoAction.Title (readonly). Python UNO requires a property; getTitle() alone fails addUndoAction."""
             return self._title
 
         def undo(self) -> None:
@@ -62,3 +64,23 @@ def DrawTextEditUndoAction(text_objects: list[tuple[typing.Any, str]], final_tex
                         log.debug("DrawTextEditUndoAction.redo: setString failed for one object", exc_info=True)
     
     return _DrawTextEditUndoActionImpl()
+
+
+def register_draw_text_edit_undo(
+    doc: typing.Any,
+    compound: typing.Any,
+    text_obj_originals: list[tuple[typing.Any, str]],
+    final_texts: list[str],
+    title: str,
+) -> None:
+    """Register :func:`DrawTextEditUndoAction` on the document undo manager.
+
+    Call only while ``compound.entered`` is true (inside ``WriterCompoundUndo``).
+    Raises on failure so callers do not mutate text without a real undo step.
+    """
+    if not compound.entered:
+        return
+    um = doc.getUndoManager()
+    if um is None:
+        raise RuntimeError("getUndoManager() returned None after enterUndoContext")
+    um.addUndoAction(DrawTextEditUndoAction(text_obj_originals, final_texts, title))

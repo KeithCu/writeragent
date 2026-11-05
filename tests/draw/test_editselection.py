@@ -119,6 +119,9 @@ class _UndoManager:
         self.open = False
         self.leaves += 1
 
+    def addUndoAction(self, action: object) -> None:
+        del action
+
 
 @contextmanager
 def _draw_model(selection):

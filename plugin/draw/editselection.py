@@ -22,7 +22,7 @@ from plugin.chatbot.selection import (
 )
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import _controller_selection
-from plugin.draw.draw_undo import DrawTextEditUndoAction
+from plugin.draw.draw_undo import register_draw_text_edit_undo
 from plugin.draw.tables import _is_table_shape
 from plugin.draw.tree import _is_group, _iter_children
 from plugin.framework.config import get_config
@@ -275,20 +275,26 @@ def do_draw_extend_edit(
         return apply_chunk, on_error
 
     undo = WriterCompoundUndo(model, title)
-    
-    # Register custom undo action for Draw/Impress (setString doesn't push child actions)
+
+    # Draw/Impress setString does not push child undo actions; attach our XUndoAction instead.
     try:
-        custom_undo_action = DrawTextEditUndoAction(text_obj_originals, final_texts, title)
-        um = model.getUndoManager()
-        if um is not None and undo.entered:
-            um.addUndoAction(custom_undo_action)
+        register_draw_text_edit_undo(model, undo, text_obj_originals, final_texts, title)
     except ImportError:
-        # UNO not available (unit tests); custom undo will not work but that's OK for mocks
-        log.debug("UNO not available; skipping custom undo action registration")
-    except Exception as e:
+        # UNO types unavailable (some unit-test environments); compound undo still groups if LO adds actions.
+        log.debug("UNO not available; skipping custom draw text undo registration")
+    except Exception as exc:
         from plugin.framework.errors import reraise_if_disposed
-        reraise_if_disposed(e)
-        log.debug("Failed to add custom undo action: %s", e)
+
+        reraise_if_disposed(exc)
+        log.exception("Draw edit selection: custom undo registration failed")
+        undo.close()
+        record_agent_turn_after(model)
+        msgbox(
+            ctx,
+            title,
+            _("Could not register undo for this edit. The change was not applied."),
+        )
+        return
 
     def on_finished() -> None:
         undo.close()
