@@ -843,6 +843,86 @@ def test_apply_shape_properties_non_disposal_still_warns():
     assert _apply_shape_properties(shape, {"text": "x"}) == ["text"]
 
 
+def test_apply_shape_properties_former_failed_prop_arms() -> None:
+    fill_style = MagicMock()
+    fill_style.NONE = "NONE"
+    fill_style.SOLID = "SOLID"
+    line_style = MagicMock()
+    line_style.SOLID = "SOLID"
+    drawing_mod = MagicMock()
+    drawing_mod.FillStyle = fill_style
+    drawing_mod.LineStyle = line_style
+    modules = {
+        "com.sun.star.drawing": drawing_mod,
+        "com.sun.star": MagicMock(drawing=drawing_mod),
+    }
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.LineStyle = True
+    shape.setPropertyValue.side_effect = RuntimeError("fill none fail")
+    with patch.dict("sys.modules", modules):
+        assert _apply_shape_properties(shape, {"fill_color": "none"}) == ["fill_color"]
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.setPropertyValue.side_effect = DisposedException("gone")
+    with patch.dict("sys.modules", modules):
+        with pytest.raises(DisposedException):
+            _apply_shape_properties(shape, {"fill_color": "none"})
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.setPropertyValue.side_effect = RuntimeError("solid fail")
+    with patch.dict("sys.modules", modules):
+        assert _apply_shape_properties(shape, {"fill_style": "solid"}) == ["fill_style"]
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.setPropertyValue.side_effect = DisposedException("gone")
+    with patch.dict("sys.modules", modules):
+        with pytest.raises(DisposedException):
+            _apply_shape_properties(shape, {"fill_style": "solid"})
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    with patch.dict("sys.modules", modules):
+        assert _apply_shape_properties(shape, {"fill_style": "gradient"}) == []
+
+    shape = MagicMock()
+    shape.LineStyle = True
+
+    def line_set(name: str, value: object) -> None:
+        if name == "LineStyle":
+            raise RuntimeError("line style fail")
+
+    shape.setPropertyValue.side_effect = line_set
+    with patch.dict("sys.modules", modules):
+        failed = _apply_shape_properties(shape, {"line_color": "#000000"})
+    assert failed == ["line_style"]
+    assert "line_color" not in failed
+
+    shape = MagicMock()
+    shape.LineStyle = True
+    shape.setPropertyValue.side_effect = DisposedException("gone")
+    with patch.dict("sys.modules", modules):
+        with pytest.raises(DisposedException):
+            _apply_shape_properties(shape, {"line_color": "#000000"})
+
+    shape = MagicMock()
+    with patch("plugin.draw.shapes.apply_character_properties", return_value={"CharHeight": False}):
+        assert _apply_shape_properties(shape, {"font_size": 12}) == ["CharHeight"]
+
+    shape = MagicMock()
+    with patch("plugin.draw.shapes.apply_character_properties", side_effect=RuntimeError("chars fail")):
+        assert _apply_shape_properties(shape, {"font_size": 12}) == ["text_properties"]
+
+    shape = MagicMock()
+    with patch("plugin.draw.shapes.apply_character_properties", side_effect=DisposedException("gone")):
+        with pytest.raises(DisposedException):
+            _apply_shape_properties(shape, {"font_size": 12})
+
+
 def test_clamp_shape_text_autogrow_disposal_propagates():
     shape = MagicMock()
     shape.setPropertyValue.side_effect = DisposedException("gone")

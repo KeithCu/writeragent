@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -335,3 +336,25 @@ def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path
     assert len(calls) == 1
     assert calls[0][1]["timeout"] == 1
     assert calls[0][1]["kill_tree"] is True
+
+
+def test_import_slide_to_odp_uses_one_main_call(monkeypatch) -> None:
+    from pathlib import Path
+
+    from plugin.ppt_master import fidelity
+
+    ctx = object()
+    pptx = Path("/deck.pptx")
+    odp = Path("/out.odp")
+    expected = (object(), object())
+
+    def fake_call(fn, timeout=None):
+        return fn()
+
+    monkeypatch.setattr(fidelity.main, "call", fake_call)
+
+    with patch.object(fidelity, "import_pptx_slide_to_odp", return_value=expected) as import_fn:
+        got = fidelity.import_slide_to_odp(ctx, pptx, 2, odp)
+
+    import_fn.assert_called_once_with(ctx, pptx, 2, odp)
+    assert got == expected

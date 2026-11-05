@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from plugin.framework.errors import ToolExecutionError, is_disposal
 from plugin.writer.table_helpers import (
@@ -19,6 +19,9 @@ from plugin.writer.table_helpers import (
 )
 
 log = logging.getLogger("writeragent.draw")
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 _A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
@@ -227,7 +230,7 @@ def coerce_int(value: Any, default: int) -> int:
     return int(value)
 
 
-def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
+def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
     from com.sun.star.awt import Point, Size
     from plugin.draw.bridge import DrawBridge
@@ -246,7 +249,7 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
             if isinstance(row, (list, tuple)) and len(row) > columns:
                 raise ToolExecutionError("data row %d has %d columns but table only has %d." % (r_idx, len(row), columns))
 
-    page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=getattr(ctx, "active_page_index", None))
+    page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
     x = coerce_int(kwargs.get("x"), 3000)
     y = coerce_int(kwargs.get("y"), 4000)
