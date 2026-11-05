@@ -435,6 +435,26 @@ def test_form_create_second_field_failure_triggers_undo(monkeypatch):
     mgr.undo.assert_called_once()
 
 
+def test_commit_form_batch_rollback_failed_flag_is_false(monkeypatch):
+    from plugin.writer.specialized import forms
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Form Create",)]
+    doc.getUndoManager.return_value = mgr
+    mgr.undo.side_effect = RuntimeError("undo failed")
+
+    def mutate():
+        raise ValueError("field failed")
+
+    tool = MagicMock()
+    res = forms._commit_form_batch(tool, doc, "Form Create", mutate, "undo msg")
+    assert res is not None
+    assert res.get("code") == "ROLLBACK_FAILED"
+    assert res.get("rolled_back") is False
+
+
 def test_form_create_locked_undo_manager_rejects(monkeypatch):
     tool = FormCreate()
     called = []

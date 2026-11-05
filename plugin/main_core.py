@@ -39,7 +39,6 @@ EXTENSION_ID = EXTENSION_ID_LIBREPY
 log = logging.getLogger(__name__)
 
 from plugin.bootstrap import (
-    BootstrapState,
     bootstrap_extension,
     MainBootstrapJob as BaseMainBootstrapJob,
 )
@@ -67,8 +66,8 @@ def _librepy_bootstrap_finish(ctx: Any) -> None:
     import plugin.bootstrap as bootstrap
 
     _register_librepy_handlers()
-    bootstrap._bootstrap_state = BootstrapState.INITIALIZED
-    bootstrap._bootstrap_error = None
+    bootstrap.mark_initialized()
+    bootstrap.clear_bootstrap_error()
 
 
 def bootstrap(ctx: Any | None = None) -> None:

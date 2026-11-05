@@ -23,7 +23,7 @@ from plugin.writer.specialized.tables import (
     record_table_deletions,
 )
 from plugin.writer.range_copy import (
-    _writer_cell_position,
+    writer_cell_position,
     _writer_table_copy_layout,
 )
 
@@ -719,19 +719,19 @@ def test_writer_cell_position_matches_get_cell_position():
     """A, Z, a, AA — Writer base 52, not spreadsheet parse_a1."""
     from plugin.draw.tables import parse_a1
 
-    assert _writer_cell_position("A1") == (0, 0)
-    assert _writer_cell_position("Z1") == (25, 0)
-    assert _writer_cell_position("a1") == (26, 0)
-    assert _writer_cell_position("AA1") == (52, 0)
-    assert _writer_cell_position("D2") == (3, 1)
-    assert _writer_cell_position("A10") == (0, 9)
+    assert writer_cell_position("A1") == (0, 0)
+    assert writer_cell_position("Z1") == (25, 0)
+    assert writer_cell_position("a1") == (26, 0)
+    assert writer_cell_position("AA1") == (52, 0)
+    assert writer_cell_position("D2") == (3, 1)
+    assert writer_cell_position("A10") == (0, 9)
     # o3tl::toInt32 stops at the first non-digit: split cell A1.1.1 is row 0.
-    assert _writer_cell_position("A1.1.1") == (0, 0)
-    assert _writer_cell_position("D2.1") == (3, 1)
+    assert writer_cell_position("A1.1.1") == (0, 0)
+    assert writer_cell_position("D2.1") == (3, 1)
     assert parse_a1("AA1") == (26, 0)
     assert parse_a1("a1") == (0, 0)
-    assert _writer_cell_position("") is None
-    assert _writer_cell_position("1A") is None
+    assert writer_cell_position("") is None
+    assert writer_cell_position("1A") is None
 
 
 def test_unknown_cell_message_shared_sample():
@@ -1331,7 +1331,7 @@ def test_cell_matrix_text_hides_tracked_deletions():
     cell = SimpleNamespace(getString=lambda: "celula novavelha")
     t = FakeTable(1, 1)
     t.getCellByName = lambda name: cell
-    with patch.object(tables, "_cell_hosted_table_names", return_value=[]), \
+    with patch.object(tables, "cell_hosted_table_names", return_value=[]), \
          patch.object(tables, "get_string_without_tracked_deletions", return_value="celula nova") as visible:
         res = tables.TableGetCells().execute(_ctx({"T": t}), name="T")
         assert res["status"] == "ok"
@@ -1349,7 +1349,7 @@ def test_empty_replacement_keeps_a_table_whose_cell_holds_a_pending_deletion():
     cell = SimpleNamespace(getString=lambda: "celula novavelha")
     table = SimpleNamespace(getCellNames=lambda: ["A1"], getCellByName=lambda name: cell)
     found = SimpleNamespace(getString=lambda: "celula nova")
-    with patch.object(apply_document_content, "_cell_hosted_table_names", return_value=[]), \
+    with patch.object(apply_document_content, "cell_hosted_table_names", return_value=[]), \
          patch.object(apply_document_content, "_range_in_cell", return_value=True):
         assert apply_document_content._empty_replacement_clears_table(table, [found]) is False
 
@@ -1480,7 +1480,7 @@ def test_resolve_uno_context():
 
 def test_read_helpers_reraise_disposal():
     from unittest.mock import MagicMock
-    from plugin.writer.table_nesting import _is_text_table, _safe_enumerate, _cell_hosted_table_names
+    from plugin.writer.table_nesting import _is_text_table, _safe_enumerate, cell_hosted_table_names
 
     disposed_obj = MagicMock()
     disposed_obj.supportsService.side_effect = DisposedException("disposed")
@@ -1495,6 +1495,6 @@ def test_read_helpers_reraise_disposal():
     disposed_cell = MagicMock()
     disposed_cell.createEnumeration.side_effect = DisposedException("disposed")
     with pytest.raises(Exception):
-        _cell_hosted_table_names(disposed_cell)
+        cell_hosted_table_names(disposed_cell)
 
 

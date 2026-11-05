@@ -17,8 +17,8 @@
 """Writer and Calc track-changes tools.
 
 Provides the complete suite of specialized track changes tools:
-track_changes_start, track_changes_stop, track_changes_list,
-tracking_manage (accept/reject one or all), and track_changes_show.
+tracking_start, tracking_stop, tracking_list,
+tracking_manage (accept/reject one or all), and tracking_show.
 """
 
 from __future__ import annotations
@@ -146,7 +146,7 @@ def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
     return {"status": "ok", "message": f"{done} recording changes."}
 
 
-_REDLINE_FIELD_UNREADABLE = "track_changes_list: redline field unreadable"
+_REDLINE_FIELD_UNREADABLE = "tracking_list: redline field unreadable"
 
 
 def _redline_text(redline: Any, start: Any = None) -> str:
@@ -215,7 +215,7 @@ class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  #
     """Start recording changes."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "track_changes_start"
+    name: str | None = "tracking_start"
     description: str = "Start recording changes (track changes) in the document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
@@ -228,7 +228,7 @@ class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     """Stop recording changes."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "track_changes_stop"
+    name: str | None = "tracking_stop"
     description: str = "Stop recording changes (track changes) in the document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
@@ -245,7 +245,7 @@ def _agent_review_mode() -> Any | None:
 
         return get_agent_edit_review_mode()
     except Exception:
-        log.exception("track_changes_list: could not read agent review mode")
+        log.exception("tracking_list: could not read agent review mode")
         return None
 
 
@@ -253,7 +253,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     """List all tracked changes (redlines) in the document."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "track_changes_list"
+    name: str | None = "tracking_list"
     description: str = (
         "List all tracked changes (redlines) in the document, including type, author, date, text "
         "and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; "
@@ -278,7 +278,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
             # Why this change fixes it: log exception and report recording: None when unreadable.
             recording = doc.getPropertyValue("RecordChanges")
         except Exception:
-            log.exception("track_changes_list: could not read RecordChanges")
+            log.exception("tracking_list: could not read RecordChanges")
             recording = None
         agent_mode = _agent_review_mode()
 
@@ -292,7 +292,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
                 "track_changes_list_unsupported": True,
                 "message": (
                     "This document does not expose a redlines API, so this is not an empty change list. "
-                    "track_changes_start and track_changes_stop still control recording."
+                    "tracking_start and tracking_stop still control recording."
                 ),
             }
             if agent_mode is not None:
@@ -336,7 +336,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     """Show or hide change markup."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "track_changes_show"
+    name: str | None = "tracking_show"
     description: str = "Show or hide tracked changes markup in the document view (Writer). On Calc, recording still works; this call returns guidance to use LibreOffice menus for show/hide markup until UNO support is implemented."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"show": {"type": "boolean", "description": "True to show changes, False to hide them."}}, "required": ["show"]}
     is_mutation: bool | None = True
@@ -372,7 +372,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         return {
             "status": "ok",
             "message": (
-                "Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. track_changes_start / track_changes_stop still control recording."
+                "Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. tracking_start / tracking_stop still control recording."
             ),
             "calc_track_changes_show_unsupported": True,
         }
@@ -389,8 +389,8 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     name: str | None = "tracking_manage"
     description: str = (
         "Accept or reject tracked changes. action=accept/reject requires index "
-        "(from track_changes_list). That index is stale after any resolve; call "
-        "track_changes_list again before the next accept or reject. action=accept_all/reject_all "
+        "(from tracking_list). That index is stale after any resolve; call "
+        "tracking_list again before the next accept or reject. action=accept_all/reject_all "
         "resolves every change."
     )
     parameters: dict[str, Any] | None = {
@@ -399,7 +399,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             "action": enum_param(["accept", "reject", "accept_all", "reject_all"], "accept/reject one change by index, or accept_all/reject_all."),
             "index": {
                 "type": "integer",
-                "description": "Zero-based index from track_changes_list (required for accept/reject). Call track_changes_list again after each resolve; indexes shift.",
+                "description": "Zero-based index from tracking_list (required for accept/reject). Call tracking_list again after each resolve; indexes shift.",
             },
         },
         "required": ["action"],
@@ -570,7 +570,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             return {
                 "status": "ok",
                 "message": (
-                    "%s tracked change at index %d. Call track_changes_list again before another accept or reject; indexes shift after each resolve."
+                    "%s tracked change at index %d. Call tracking_list again before another accept or reject; indexes shift after each resolve."
                     % (action_str, index)
                 ),
             }

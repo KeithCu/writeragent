@@ -37,7 +37,7 @@ from plugin.doc.peer_prompt import (
     annotate_outer_peer_wait,
     looks_like_peer_work_envelope,
 )
-from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, _catalog_entries_from_base
+from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, catalog_entries_from_base
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
@@ -124,7 +124,7 @@ class DelegateToSpecializedBase(ToolBase):
         # for_discovery=True would put Calc-hidden domains back into the schema.
         self._domains: list[str] = sorted({
             e["domain"]
-            for e in _catalog_entries_from_base(
+            for e in catalog_entries_from_base(
                 agent_label=self._agent_label,
                 ctx=None,
                 for_discovery=False,

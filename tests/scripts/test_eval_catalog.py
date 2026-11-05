@@ -72,7 +72,6 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
     import plugin.app as app
     import plugin.bootstrap as bootstrap
     import plugin.main as main
-    from plugin.bootstrap import BootstrapState
     from unittest.mock import MagicMock
     import tempfile
 
@@ -99,7 +98,7 @@ def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -
 
     eval_catalog._registry = None
     try:
-        bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
+        bootstrap.mark_uninitialized()
         app._services = None
         app._tools = None
         app._modules = []

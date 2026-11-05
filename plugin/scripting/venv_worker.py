@@ -168,13 +168,6 @@ def host_script_session_id(request_session_id: Any, script_session_id: str | Non
     return None
 
 
-def _ipc_stop_checker(cancel: SendCancellation | None) -> Callable[[], bool] | None:
-    """Map a turn's cancel scope to ipc's wait predicate, or None to leave select uncapped."""
-    if cancel is None:
-        return None
-    return cancel.is_cancelled
-
-
 def _maybe_dispatch_intermediate_response(
     response: dict[str, Any],
     *,
@@ -464,7 +457,7 @@ class PythonWorkerManager:
                 with warm.lease(
                     spawn_deadline,
                     wait=wait,
-                    cancel=lambda: is_cancelled(cancel),
+                    cancel=cancel,
                     refuse=self._refuse_lease,
                     poll_sec=_IO_LOCK_POLL_SEC,
                 ) as leased:
@@ -1087,7 +1080,6 @@ class PythonWorkerManager:
         self._is_worker_alive, and forces DEFAULT_MAX_PAYLOAD_BYTES plus
         frame_label="venv worker frame".
         """
-        ipc_stop = _ipc_stop_checker(cancel)
         try:
             payload = read_frame_payload(
                 stdout,
@@ -1097,7 +1089,7 @@ class PythonWorkerManager:
                 frame_label="venv worker frame",
                 cmd=self.exe,
                 is_alive=self._is_worker_alive,
-                stop_checker=ipc_stop,
+                cancel=cancel,
             )
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
             # ipc reports Stop as TimeoutExpired, including a mid-chunk stall

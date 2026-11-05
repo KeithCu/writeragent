@@ -137,6 +137,10 @@ class ServiceRegistry:
         """Get a service by name, or None if not registered."""
         return self._services.get(name)
 
+    def names(self) -> list[str]:
+        """Registered service names in insertion order."""
+        return list(self._services.keys())
+
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):
             raise AttributeError(name)

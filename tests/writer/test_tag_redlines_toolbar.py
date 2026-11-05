@@ -83,7 +83,7 @@ def _before(*ids):
 def test_refreshes_toolbar_when_new_redline_tagged():
     rl_old, rl_new = FakeRedline("old1"), FakeRedline("new1")
     doc = FakeModel(FakeRedlines([rl_old, rl_new]))
-    with patch("plugin.writer.review_view_attachment.refresh_review_toolbar") as refresh:
+    with patch("plugin.writer.edit_review.refresh_review_toolbar") as refresh:
         token = tag_agent_redlines(doc, before_ids=_before("old1"), before_reliable=True)
     assert token is not None
     assert rl_new.comment == token   # only the new redline got tagged
@@ -94,7 +94,7 @@ def test_refreshes_toolbar_when_new_redline_tagged():
 def test_no_refresh_when_nothing_new_tagged():
     rl = FakeRedline("old1")
     doc = FakeModel(FakeRedlines([rl]))
-    with patch("plugin.writer.review_view_attachment.refresh_review_toolbar") as refresh:
+    with patch("plugin.writer.edit_review.refresh_review_toolbar") as refresh:
         token = tag_agent_redlines(doc, before_ids=_before("old1"), before_reliable=True)
     assert token is None
     refresh.assert_not_called()
@@ -163,7 +163,7 @@ def _refusal_single_orphan():
 def test_no_refresh_on_any_refusal_path(build):
     """tag_agent_redlines returns None and never refreshes the toolbar on ANY refusal path."""
     doc, kwargs = build()
-    with patch("plugin.writer.review_view_attachment.refresh_review_toolbar") as refresh:
+    with patch("plugin.writer.edit_review.refresh_review_toolbar") as refresh:
         token = tag_agent_redlines(doc, **kwargs)
     assert token is None
     refresh.assert_not_called()

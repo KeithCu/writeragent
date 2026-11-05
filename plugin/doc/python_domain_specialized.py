@@ -396,7 +396,7 @@ class DelegateToolDomains(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.framework.send_cancellation import SendCancelled
+        from plugin.framework.send_cancellation import SendCancelled, is_cancelled
 
         names, names_err = normalize_domain_list(kwargs.get("domains"))
         if names_err or not names:
@@ -411,8 +411,7 @@ class DelegateToolDomains(ToolBase):
         if message:
             return self._tool_error(message, code=code or "UNKNOWN_SPECIALIZED_DOMAIN")
 
-        scope = getattr(ctx, "send_cancellation", None)
-        if scope is not None and scope.is_cancelled():
+        if is_cancelled(ctx.send_cancellation):
             return user_stopped_payload("Domain tool agent stopped by user.")
 
         try:

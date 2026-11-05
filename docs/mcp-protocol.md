@@ -118,7 +118,7 @@ Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_orig
 
 **Origin ACL (shipped):** If `Origin` is present and **not** `is_safe_origin()`, every method and path (`/mcp`, `/health`, `/debug`, …) returns **HTTP 403**, empty body, **no** `Access-Control-*` headers. Requests with **no** `Origin` (Claude Code, curl, most MCP clients) are unchanged. Loopback and private/LAN defaults stay as above — this is not Nelson’s empty allow list. Implementation: `origin_is_forbidden` / `reject_forbidden_origin` in [`plugin/mcp/cors.py`](../plugin/mcp/cors.py). Tests: [`tests/mcp/test_cors.py`](../tests/mcp/test_cors.py).
 
-**Session (shipped):** One `Mcp-Session-Id` for the whole soffice process, minted on first successful `initialize` and never rotated. Implementation: [`plugin/mcp/mcp_session.py`](../plugin/mcp/mcp_session.py) (`mint_session_id_once`, `_mcp_session_id`, `reject_stale_session`). A notifications-only JSON-RPC batch (HTTP 202, empty body) sends that header the same way a single notification does. `DELETE /mcp` returns **405** (`Allow: GET, POST, OPTIONS`, `handle_mcp_delete` in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py)) and does **not** terminate that id — every client shares it. A later POST/GET whose `Mcp-Session-Id` does not match (LibreOffice restarted) returns **HTTP 404** JSON-RPC `INVALID_REQUEST` (“Session expired… Call initialize again.”); that 404 carries `Mcp-Protocol-Version` and CORS headers but never `Mcp-Session-Id`, so it does not advertise the live id. Spec clients recover on 404, not 409. Missing session header is still allowed (CLI / curl / first contact). `initialize` sent as one JSON-RPC object is always allowed with a stale or missing id (recovery after restart). An `initialize` call must not be part of a JSON-RPC batch; batches containing `initialize` are rejected immediately with HTTP 400 JSON-RPC `INVALID_REQUEST` before processing or session minting. Send `initialize` by itself as a single JSON-RPC object.
+**Session (shipped):** One `Mcp-Session-Id` for the whole soffice process, minted on first successful `initialize` and never rotated. Implementation: [`plugin/mcp/mcp_session.py`](../plugin/mcp/mcp_session.py) (`mint_session_id_once`, `mcp_session_id`, `reject_stale_session`). A notifications-only JSON-RPC batch (HTTP 202, empty body) sends that header the same way a single notification does. `DELETE /mcp` returns **405** (`Allow: GET, POST, OPTIONS`, `handle_mcp_delete` in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py)) and does **not** terminate that id — every client shares it. A later POST/GET whose `Mcp-Session-Id` does not match (LibreOffice restarted) returns **HTTP 404** JSON-RPC `INVALID_REQUEST` (“Session expired… Call initialize again.”); that 404 carries `Mcp-Protocol-Version` and CORS headers but never `Mcp-Session-Id`, so it does not advertise the live id. Spec clients recover on 404, not 409. Missing session header is still allowed (CLI / curl / first contact). `initialize` sent as one JSON-RPC object is always allowed with a stale or missing id (recovery after restart). An `initialize` call must not be part of a JSON-RPC batch; batches containing `initialize` are rejected immediately with HTTP 400 JSON-RPC `INVALID_REQUEST` before processing or session minting. Send `initialize` by itself as a single JSON-RPC object.
 
 **Troubleshooting — OPTIONS succeeds but MCP never connects**
 
@@ -479,7 +479,7 @@ Ported from `libreoffice-mcp-extension/pythonpath/uno_bridge.py` and adapted to 
 |---|---|
 | Styles | `style_list`, `style_get_info` |
 | Comments | `comment_list`, `add_comment`, `comment_delete`; specialized: `comment_scan_tasks`, `comment_workflow_get`, `comment_workflow_set`, `comment_check_stop` |
-| Track changes | `track_changes_start` / `stop` / `list` / `show`, `tracking_manage` |
+| Track changes | `tracking_start` / `stop` / `list` / `show`, `tracking_manage` |
 | Tables | `table_list`, `table_get_cells`, `table_set_cell`, `table_manage_structure` |
 
 ### Updated: `core/document_tools.py`
@@ -679,7 +679,7 @@ to its own embedded AI:
 
 **Writer**: `get_document_content` (`scope`, `max_chars`, `start`/`end`, `include_images` — default strips inline `data:image` base64; `start`/`end` are plain-text offsets in the `document_length` space; `max_chars` counts returned HTML), `apply_document_content`, `find_text`,
 `style_list`, `style_get_info`, `comment_list`, `add_comment`, `comment_delete`,
-`track_changes_start` / `stop` / `list` / `show`, `tracking_manage`,
+`tracking_start` / `stop` / `list` / `show`, `tracking_manage`,
 `table_list`, `table_get_cells`, `table_set_cell`,
 `table_manage_structure`,
 `table_insert`, `table_delete`,

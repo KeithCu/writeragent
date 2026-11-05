@@ -159,10 +159,7 @@ def _ticker_iteration(executor: Any, *, now: float | None = None) -> None:
     global _posted_at, _reenabled
     from plugin.framework import blocking_wait
 
-    if gc.isenabled() and not blocking_wait._gc_suspend_depth:
-        # Do not take blocking_wait._gc_suspend_lock here. While
-        # automatic_gc_suspended is active, gc.enable() under that lock is
-        # intentional; fighting it would set _reenabled and log a false warning.
+    if gc.isenabled() and not blocking_wait.gc_suspended():
         gc.disable()
         _reenabled = True
     if now is None:

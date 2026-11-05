@@ -300,3 +300,18 @@ def test_ticker_iteration_re_disables_gc_before_post(gc_policy_restored, caplog)
         fn(*args, **kwargs)
     assert any("re-enabled" in r.message for r in caplog.records)
     assert not gc_policy._reenabled
+
+
+def test_ticker_skips_disable_while_gc_suspended(gc_policy_restored):
+    from plugin.framework.blocking_wait import automatic_gc_suspended
+
+    gc_policy._main_ident = threading.get_ident()
+    gc.enable()
+    gc_policy._reenabled = False
+    fake = FakeExecutor()
+    gc.set_threshold(0, 10, 10)
+    with automatic_gc_suspended():
+        gc.enable()
+        gc_policy._ticker_iteration(fake, now=1000.0)
+    assert gc.isenabled()
+    assert not gc_policy._reenabled

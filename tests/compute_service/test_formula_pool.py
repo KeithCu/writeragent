@@ -2292,9 +2292,9 @@ def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.Monkey
 
 
 def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.framework import warm_child as process_worker
+    from plugin.framework import warm_child
 
-    real_read = process_worker.read_pickle_frame
+    real_read = warm_child.read_pickle_frame
     armed = False
     read_entered = threading.Event()
 
@@ -2305,7 +2305,7 @@ def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch:
             read_entered.set()
         return real_read(*args, **kwargs)
 
-    monkeypatch.setattr(process_worker, "read_pickle_frame", _read)
+    monkeypatch.setattr(warm_child, "read_pickle_frame", _read)
 
     settings = ComputeSettings(host="127.0.0.1", port=get_free_port(), workers=1, ocr_workers=0, idle_worker_ttl_sec=3600.0)
     pool = get_formula_pool(settings)

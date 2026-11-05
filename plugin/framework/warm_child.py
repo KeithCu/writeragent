@@ -28,6 +28,7 @@ from plugin.framework.ipc import (
 )
 from plugin.framework.process_global import process_global
 from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.worker_pool import run_in_background
 
 log = logging.getLogger(__name__)
@@ -343,7 +344,7 @@ class WarmChild:
         on_death: Callable[[Death], None] | None = None,
     ) -> None:
         self.spec: ChildSpec = spec
-        self._supervisor: Supervisor = supervisor if supervisor is not None else process_global("warm_child_supervisor", Supervisor)
+        self._supervisor: Supervisor = supervisor if supervisor is not None else _default_supervisor()
         self._on_death: Callable[[Death], None] | None = on_death
         self._child: Child | None = None
         self._io_lock: threading.Lock = threading.Lock()
@@ -413,7 +414,7 @@ class WarmChild:
         deadline: Deadline,
         *,
         wait: float | None = None,
-        cancel: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
         refuse: Callable[[], dict[str, Any] | None] | None = None,
         poll_sec: float = 0.05,
     ) -> Generator[Lease | dict[str, Any], None, None]:
@@ -428,7 +429,7 @@ class WarmChild:
         if wait is not None and wait > 0:
             acquire_end = time.monotonic() + wait
         while True:
-            if cancel is not None and cancel() is True:
+            if is_cancelled(cancel):
                 yield error_dict("CANCELLED", "Lease wait cancelled.")
                 return
             if refuse is not None:
@@ -814,6 +815,12 @@ class Supervisor:
 
 
 supervisor = process_global("warm_child_supervisor", Supervisor)
+
+
+def _default_supervisor() -> Supervisor:
+    """Module singleton; avoid ``process_global`` from ``WarmChild.__init__``."""
+    return supervisor
+
 
 __all__ = [
     "Child",

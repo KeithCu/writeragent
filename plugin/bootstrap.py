@@ -30,6 +30,35 @@ def bootstrap_initialized() -> bool:
     return _bootstrap_state is BootstrapState.INITIALIZED
 
 
+def bootstrap_error() -> BaseException | None:
+    """Last bootstrap failure recorded by finish hooks; None when unset."""
+    return _bootstrap_error
+
+
+def mark_initialized() -> None:
+    """Set lifecycle to INITIALIZED. Call only from ``main.py`` / ``main_core.py`` finish hooks."""
+    global _bootstrap_state
+    _bootstrap_state = BootstrapState.INITIALIZED
+
+
+def mark_uninitialized() -> None:
+    """Set lifecycle to UNINITIALIZED. Call only from ``main.py`` / ``main_core.py`` finish hooks."""
+    global _bootstrap_state
+    _bootstrap_state = BootstrapState.UNINITIALIZED
+
+
+def set_bootstrap_error(exc: BaseException) -> None:
+    """Store bootstrap failure; does not change ``BootstrapState``. Finish hooks only."""
+    global _bootstrap_error
+    _bootstrap_error = exc
+
+
+def clear_bootstrap_error() -> None:
+    """Clear stored bootstrap failure. Finish hooks only."""
+    global _bootstrap_error
+    _bootstrap_error = None
+
+
 def bootstrap_extension(
     ctx: Any | None = None,
     *,

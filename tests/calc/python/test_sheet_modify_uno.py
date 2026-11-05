@@ -39,7 +39,16 @@ def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     # be a saved file, and its URL would not match, so the spill would be skipped.
     st = WorkbookState.for_doc(doc)
     assert st is not None
-    perform_deferred_spill(st.key, original_name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet, code=code)
+    perform_deferred_spill(
+        original_name,
+        0,
+        0,
+        [[1, 2], [3, 4]],
+        doc=doc,
+        sheet=sheet,
+        code=code,
+        key=st.key,
+    )
 
     assert sheet.getCellByPosition(1, 0).getValue() == 2.0
     assert sheet.getCellByPosition(0, 1).getValue() == 3.0

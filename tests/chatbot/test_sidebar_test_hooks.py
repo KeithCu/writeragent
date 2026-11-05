@@ -186,6 +186,14 @@ def test_debug_hooks_available_in_dev_tree() -> None:
     assert debug_env_active() is True
 
 
+def test_debug_env_active_follows_is_dev_build_when_dev_guard_off(monkeypatch) -> None:
+    monkeypatch.setattr("plugin.framework.thread_guard.DEV_GUARD", False, raising=False)
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    assert debug_env_active() is False
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    assert debug_env_active() is True
+
+
 class _Panel:
     def __init__(self) -> None:
         self.send_listener = "sl"

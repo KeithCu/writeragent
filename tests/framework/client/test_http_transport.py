@@ -7,7 +7,7 @@ import pytest
 from plugin.framework.client.http_transport import LlmHttpTransport
 from plugin.framework.send_cancellation import SendCancellation
 
-from plugin.framework.client.request_controls import RetryBudget, enable_local_unverified, reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
+from plugin.framework.client.request_controls import enable_local_unverified, reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError
 
 
@@ -151,29 +151,29 @@ def test_transport_stop_checker_suppresses_retry():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     transport._persistent_conn = MagicMock()
 
-    action = transport.handle_connection_error(
-        OSError("closed by stop"),
-        path="/v1/chat/completions",
-        retries_left=1,
-        retry_log_message="retry",
-        cancel=_cancelled_scope(),
-    )
+    with pytest.raises(NetworkError) as err:
+        transport.handle_connection_error(
+            OSError("closed by stop"),
+            path="/v1/chat/completions",
+            retries_left=1,
+            retry_log_message="retry",
+            cancel=_cancelled_scope(),
+        )
 
-    assert action == "stop"
+    assert err.value.code == "STOPPED"
 
 
 def test_transport_connection_retry_waits_with_backoff():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     statuses: list[str] = []
     with patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as wait:
-        action = transport.handle_connection_error(
+        transport.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             status_callback=statuses.append,
         )
-    assert action == "retry"
     wait.assert_called_once()
     assert len(statuses) == 1
     assert "retrying" in statuses[0].lower()
@@ -182,28 +182,30 @@ def test_transport_connection_retry_waits_with_backoff():
 def test_transport_stop_before_retry_does_not_emit_status():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     statuses: list[str] = []
-    action = transport.handle_connection_error(
-        OSError("closed by stop"),
-        path="/v1/chat/completions",
-        retries_left=1,
-        retry_log_message="retry",
-        cancel=_cancelled_scope(),
-        status_callback=statuses.append,
-    )
-    assert action == "stop"
+    with pytest.raises(NetworkError) as err:
+        transport.handle_connection_error(
+            OSError("closed by stop"),
+            path="/v1/chat/completions",
+            retries_left=1,
+            retry_log_message="retry",
+            cancel=_cancelled_scope(),
+            status_callback=statuses.append,
+        )
+    assert err.value.code == "STOPPED"
     assert statuses == []
 
 
 def test_transport_connection_retry_stop_during_wait():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     with patch("plugin.framework.client.http_transport.wait_abortable", return_value=False):
-        action = transport.handle_connection_error(
-            OSError("reset"),
-            path="/v1/chat/completions",
-            retries_left=1,
-            retry_log_message="retry",
-        )
-    assert action == "stop"
+        with pytest.raises(NetworkError) as err:
+            transport.handle_connection_error(
+                OSError("reset"),
+                path="/v1/chat/completions",
+                retries_left=1,
+                retry_log_message="retry",
+            )
+    assert err.value.code == "STOPPED"
 
 
 def test_transport_send_uses_free_pacing_key_for_openrouter_free():
@@ -424,14 +426,13 @@ def test_connection_error_backoff_uses_free_pacing_key_not_paid_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        action = transport.handle_connection_error(
+        transport.handle_connection_error(
             OSError("reset"),
             path="/api/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="deepseek/deepseek-r1:free",
         )
-    assert action == "retry"
     assert _host_gap_sec.get("openrouter.ai:443:free") == 4.0
     assert "openrouter.ai:443" not in _host_gap_sec
 
@@ -444,14 +445,13 @@ def test_explicit_openrouter_flag_uses_free_key_on_custom_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        action1 = t1.handle_connection_error(
+        t1.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="x:free",
         )
-    assert action1 == "retry"
     assert _host_gap_sec.get("proxy.example:443:free") == 4.0
 
     t2 = LlmHttpTransport(lambda: "https://proxy.example/v1", lambda: 30)
@@ -459,14 +459,13 @@ def test_explicit_openrouter_flag_uses_free_key_on_custom_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        action2 = t2.handle_connection_error(
+        t2.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="x:free",
         )
-    assert action2 == "retry"
     assert _host_gap_sec.get("proxy.example:443") == 4.0
 
 
@@ -520,16 +519,16 @@ def test_retry_after_ms_used_when_retry_after_absent():
 
     with (
         patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=fake_backoff),
-        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as mock_wait,
     ):
-        action = transport.handle_http_status(
+        transport.handle_http_status(
             response,
             request_body=b'{"model":"gpt-4o"}',
             path="/v1/chat/completions",
             retries_left=2,
             emitted_any=False,
         )
-    assert action == "retry"
+    mock_wait.assert_called_once()
     assert recorded == [2.0]
 
 
@@ -641,7 +640,6 @@ def test_stream_error_body_read_failure_costs_one_retry():
     import http.client
 
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
-    budget = RetryBudget(transport)
     read_error = http.client.IncompleteRead(b"partial", 40)
     ok = _status_response(200, body=b'{"ok": true}', content_type="application/json")
     sender, calls = _exchange_sender([
@@ -660,7 +658,7 @@ def test_stream_error_body_read_failure_costs_one_retry():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=_delay),
     ):
-        result = transport.stream(budget, "POST", "/v1/chat/completions", b"{}", {}, lambda _resp: "finished")
+        result = transport.stream("POST", "/v1/chat/completions", b"{}", {}, lambda _resp, _budget: "finished")
     assert result == "finished"
     assert calls["n"] == 3
     assert attempts == [1, 2]
@@ -922,20 +920,41 @@ def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
         sock.close()
 
 
+def test_stream_stop_before_send_raises_stopped():
+    """Pre-cancelled scope: stream raises STOPPED without calling send or consume."""
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport.send = MagicMock(side_effect=AssertionError("send must not run"))  # type: ignore[method-assign]
+
+    def consume(_response, _budget):
+        raise AssertionError("consume must not run")
+
+    with pytest.raises(NetworkError) as err:
+        transport.stream(
+            "POST",
+            "/v1/chat/completions",
+            b"{}",
+            {},
+            consume,
+            cancel=_cancelled_scope(),
+        )
+    assert err.value.code == "STOPPED"
+
+
 def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
     """When stopped, handle_connection_error must exit with 'stop' and log at debug rather than error."""
     import logging
 
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
     with caplog.at_level(logging.DEBUG, logger="plugin.framework.client.http_transport"):
-        action = transport.handle_connection_error(
-            BrokenPipeError("broken pipe"),
-            path="/v1/chat/completions",
-            retries_left=2,
-            retry_log_message="retrying",
-            cancel=_cancelled_scope(),
-        )
-    assert action == "stop"
+        with pytest.raises(NetworkError) as err:
+            transport.handle_connection_error(
+                BrokenPipeError("broken pipe"),
+                path="/v1/chat/completions",
+                retries_left=2,
+                retry_log_message="retrying",
+                cancel=_cancelled_scope(),
+            )
+    assert err.value.code == "STOPPED"
     assert not any(r.levelno >= logging.ERROR for r in caplog.records)
     # Release strips log.debug; "stop" and the absence of ERROR must still hold.
     from plugin.framework.client import http_transport as http_transport_mod

@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 
 import plugin.bootstrap as bootstrap
-from plugin.bootstrap import BootstrapState
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.main_shared import get_action_handler
 
@@ -14,8 +13,8 @@ from plugin.framework.main_shared import get_action_handler
 def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
     import plugin.main_core as main_core
 
-    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-    bootstrap._bootstrap_error = None
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
     monkeypatch.setattr(
@@ -35,15 +34,15 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
         assert get_action_handler("main.settings") is not None
         assert get_action_handler("scripting.run_python_dialog") is not None
     finally:
-        bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-        bootstrap._bootstrap_error = None
+        bootstrap.mark_uninitialized()
+        bootstrap.clear_bootstrap_error()
 
 
 def test_bootstrap_defers_settings_import(monkeypatch) -> None:
     import plugin.main_core as main_core
 
-    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-    bootstrap._bootstrap_error = None
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
     monkeypatch.setattr(
@@ -64,15 +63,15 @@ def test_bootstrap_defers_settings_import(monkeypatch) -> None:
         assert get_action_handler("main.settings") is not None
         assert get_action_handler("scripting.run_python_dialog") is not None
     finally:
-        bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-        bootstrap._bootstrap_error = None
+        bootstrap.mark_uninitialized()
+        bootstrap.clear_bootstrap_error()
 
 
 def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
     import plugin.main_core as main_core
 
-    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-    bootstrap._bootstrap_error = None
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
 
     calls = 0
 
@@ -100,12 +99,12 @@ def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
     try:
         main_core.bootstrap(MagicMock())
         assert calls == 1
-        assert bootstrap._bootstrap_state is BootstrapState.INITIALIZED
+        assert bootstrap.bootstrap_initialized()
         assert not hasattr(main_core, "_init_lock")
         assert not hasattr(main_core, "_DISPATCH_PROTOCOL")
     finally:
-        bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-        bootstrap._bootstrap_error = None
+        bootstrap.mark_uninitialized()
+        bootstrap.clear_bootstrap_error()
 
 
 def test_execute_inits_logging_before_bootstrap(monkeypatch) -> None:
@@ -186,7 +185,7 @@ def test_dispatch_command_reports_handler_failure(monkeypatch) -> None:
     monkeypatch.setattr("plugin.main_core.report_action_failure", fake_report)
     monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: None)
 
-    def bad_handler():
+    def bad_handler(_frame=None):
         raise RuntimeError("boom")
 
     register_action_handler("test", "action", bad_handler)
@@ -258,8 +257,8 @@ def test_dispatch_survives_report_failure(monkeypatch) -> None:
 def test_calc_menu_failure_does_not_abort_handlers_or_notebook_wiring(monkeypatch) -> None:
     import plugin.main_core as main_core
 
-    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-    bootstrap._bootstrap_error = None
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
     monkeypatch.setattr(
@@ -284,15 +283,15 @@ def test_calc_menu_failure_does_not_abort_handlers_or_notebook_wiring(monkeypatc
         assert get_action_handler("scripting.run_python_dialog") is not None
         assert notebook_wired == [True]
     finally:
-        bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-        bootstrap._bootstrap_error = None
+        bootstrap.mark_uninitialized()
+        bootstrap.clear_bootstrap_error()
 
 
 def test_bootstrap_off_main_thread_raises():
     """Calling bootstrap off-thread when uninitialized raises BOOTSTRAP_OFF_THREAD."""
     import plugin.main_core as main_core
 
-    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
+    bootstrap.mark_uninitialized()
     caught: list[Exception] = []
 
     def run_boot():
@@ -308,6 +307,6 @@ def test_bootstrap_off_main_thread_raises():
     assert len(caught) == 1
     assert isinstance(caught[0], WriterAgentException)
     assert caught[0].code == "BOOTSTRAP_OFF_THREAD"
-    assert bootstrap._bootstrap_state is BootstrapState.UNINITIALIZED
+    assert not bootstrap.bootstrap_initialized()
 
 

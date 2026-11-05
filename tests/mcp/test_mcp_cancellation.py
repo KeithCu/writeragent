@@ -188,3 +188,27 @@ def test_mcp_protocol_async_tool_non_positive_timeout_errors():
     assert isinstance(prepared, dict)
     assert prepared.get("status") == "error"
     assert prepared.get("code") == "TOOL_EXECUTION_ERROR"
+
+
+def test_tools_call_uses_fresh_cancellation_under_agent_session():
+    from plugin.framework.send_cancellation import SendCancellation, agent_session
+
+    existing = SendCancellation()
+    services_mock = MagicMock()
+    protocol = MCPProtocolHandler(services_mock)
+
+    with patch.object(protocol, "_run_tool", return_value={"status": "ok"}) as mock_run:
+        with patch.object(protocol, "_tool_exposure_mode", return_value="direct_flat"):
+            with agent_session(existing):
+                protocol._process_jsonrpc(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": "ambient",
+                        "method": "tools/call",
+                        "params": {"name": "some_tool", "arguments": {}},
+                    },
+                )
+        cancel = mock_run.call_args.kwargs["cancel"]
+        assert cancel is not existing
+        assert isinstance(cancel, SendCancellation)
+        assert existing.is_cancelled() is False

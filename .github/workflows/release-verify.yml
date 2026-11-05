@@ -56,22 +56,10 @@ jobs:
           Acquire::ftp::Timeout "20";
           EOF
 
-      - name: Cache apt — LibreOffice (Ubuntu)
+      - name: Install LibreOffice (Ubuntu apt cache)
         if: runner.os == 'Linux'
         timeout-minutes: 10
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        uses: awalsh128/cache-apt-pkgs-action@v1.6.1
-        with:
-          version: ${{ env.ImageOS }}-${{ env.ImageVersion }}-lo-v1
-          packages: libreoffice libreoffice-dev python3-uno gettext
-          execute_install_scripts: true
-
-      - name: Log installed LibreOffice version (Ubuntu)
-        if: runner.os == 'Linux'
-        run: |
-          echo "Installed LibreOffice (dpkg): $(dpkg-query -W -f='${Version}' libreoffice)"
-          soffice --version
+        uses: ./.github/actions/ubuntu-libreoffice-apt
 
       - name: Install LibreOffice and system tools (macOS)
         if: runner.os == 'macOS'

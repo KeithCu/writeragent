@@ -31,7 +31,7 @@ from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
-from plugin.writer.tree import _collect_heading_indices, heading_ref
+from plugin.writer.tree import collect_heading_indices, heading_ref
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
 
@@ -112,7 +112,7 @@ class ProximityService(ServiceBase):
 
     def _heading_flat_and_bookmarks(self, doc: Any, para_ranges: Any) -> tuple[list[Any], dict[Any, Any]]:
         tree = self._tree_svc.build_heading_tree(doc, elements=para_ranges)
-        indices = _collect_heading_indices(tree)
+        indices = collect_heading_indices(tree)
         bookmark_map = self._bm_svc.ensure_heading_bookmarks(
             doc, heading_para_indices=indices, para_ranges=para_ranges
         )
