@@ -26,7 +26,6 @@ from typing import Any
 from plugin.framework.errors import ToolExecutionError, best_effort
 from plugin.framework.scratch_writer import clear_writer_body
 from plugin.framework.uno_context import create_property_value, get_desktop, get_service_manager
-from plugin.calc.address_utils import parse_address
 from plugin.calc.bridge import CalcBridge
 import plugin.writer.html_import as html_import
 
@@ -89,7 +88,9 @@ def _release_clipboard_if_holds(uno_ctx: Any, transferable: Any) -> None:
 
 
 def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) -> None:
-    """Replace one cell's text with rich content parsed from *html* (active sheet).
+    """Replace one cell's text with rich content parsed from *html*.
+
+    *cell_address* may include a sheet prefix (resolved via CalcBridge).
 
     *uno_ctx* is the UNO component context (e.g. ``ToolContext.ctx``).
 
@@ -100,9 +101,8 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     if not (html or "").strip():
         raise ToolExecutionError("HTML content is empty")
 
-    col, row = parse_address(cell_address.strip())
-    sheet = CalcBridge(doc).get_active_sheet()
-    cell = sheet.getCellByPosition(col, row)
+    # Cell addresses use the bridge so sheet prefixes resolve (same as other cell tools).
+    cell = CalcBridge(doc).get_cell_by_address(cell_address.strip())
 
     content = html_std.unescape(html)
     prepared = html_import._ensure_html_linebreaks(content)

@@ -36,7 +36,7 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     """
 
     name: str | None = "delegate_to_specialized_draw_toolset"
-    description: str = f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: shapes, tables, images, charts, forms, math, python, vision (return-only OCR), and (Impress only) slide layouts, slide transitions, slide masters, speaker notes, headers/footers."
+    description: str = f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: shapes, tables, images, charts, forms, math, python, page comments, vision (return-only OCR), and (Impress only) slide layouts, slide transitions, slide masters, speaker notes, headers/footers."
 
     uno_services: list[str] | None = DRAW_AND_IMPRESS
     _special_base_class: ClassVar[Type[ToolBase]] = ToolDrawSpecialBase  # type: ignore[type-abstract]

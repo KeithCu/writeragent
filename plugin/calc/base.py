@@ -71,13 +71,18 @@ class ToolCalcCommentBase(ToolCalcSpecialBase):
 class ToolCalcConditionalBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "conditional_formatting"
     specialized_domain_description: ClassVar[str | None] = "Apply rules to format cells based on their values."
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(
+        {"get_sheet_summary", "read_cell_range", "style_list"}
+    )
 
 
 class ToolCalcSheetBase(ToolCalcSpecialBase):
     """Base for sheet operations and sheet filtering (AutoFilter)."""
 
     specialized_domain: ClassVar[str | None] = "sheets"
-    specialized_domain_description: ClassVar[str | None] = "Create, list, switch, protect, rename, and delete sheets; apply/clear AutoFilter operations."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Create, list, switch, copy, move, hide, protect, rename, and delete sheets; apply/clear AutoFilter operations."
+    )
 
 
 class ToolCalcPivotBase(ToolCalcSpecialBase):

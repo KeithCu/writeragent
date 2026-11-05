@@ -472,6 +472,18 @@ def test_insert_cell_html_description_keeps_border_guidance():
     assert "Use set_style for table-wide borders" in InsertCellHtml.description
 
 
+def test_calc_chat_prompt_lists_insert_structure_and_get_image():
+    model = MagicMock()
+
+    def supportsService(service):
+        return service == "com.sun.star.sheet.SpreadsheetDocument"
+
+    model.supportsService.side_effect = supportsService
+    prompt = get_chat_system_prompt_for_document(model)
+    assert "insert_structure" in prompt
+    assert "get_image" in prompt
+
+
 def test_calc_formula_syntax_sheet_dot_not_excel_bang():
     from plugin.framework.prompts import CALC_FORMULA_SYNTAX_TEMPLATE
 

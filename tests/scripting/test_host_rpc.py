@@ -612,6 +612,7 @@ def test_singularize_domain():
         ("slide_masters", "slide_master"),
         ("slide_transitions", "slide_transition"),
         ("speaker_notes", "speaker_note"),
+        ("page_comments", "page_comment"),
         ("tables", "table"),
         ("textframes", "textframe"),
     ):
@@ -647,6 +648,7 @@ def test_singularize_domain():
         ("slide_masters", "slide_master"),
         ("slide_transitions", "slide_transition"),
         ("speaker_notes", "speaker_note"),
+        ("page_comments", "page_comment"),
         ("tables", "table"),
         ("textframes", "textframe"),
     ],

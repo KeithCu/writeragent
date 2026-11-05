@@ -414,10 +414,14 @@ def test_rename_draw_specialized_tools_strip_to_short_proxy_methods():
         ("shape_diagram", "shape", "diagram"),
         ("shape_fill_fields", "shape", "fill_fields"),
         ("math_insert", "math", "insert"),
+        ("page_comment_list", "page_comment", "list"),
+        ("page_comment_add", "page_comment", "add"),
+        ("page_comment_delete", "page_comment", "delete"),
     ]
     domain_map = {
         "shape": "shapes",
         "math": "math",
+        "page_comment": "page_comments",
     }
     tools = []
     for tool_name, ns, method in renamed:

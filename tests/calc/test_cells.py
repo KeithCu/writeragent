@@ -1998,7 +1998,18 @@ def test_merge_cells_validation():
 
         res_ok = MergeCells().execute(ctx, range=["A1:B1"])
         assert res_ok["status"] == "ok"
-        manipulator.merge_cells.assert_called_once_with("A1:B1", center=True)
+        manipulator.merge_cells.assert_called_once_with("A1:B1", center=True, unmerge=False)
+
+
+def test_merge_cells_unmerge_passes_flag():
+    from plugin.calc.cells import MergeCells
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = MergeCells().execute(ctx, range=["A1:B1"], unmerge=True)
+        assert res["status"] == "ok"
+        manipulator.merge_cells.assert_called_once_with("A1:B1", center=True, unmerge=True)
 
 
 def test_sort_range_validation():
@@ -2037,7 +2048,7 @@ def test_string_booleans_accepted():
         manipulator = manipulator_cls.return_value
         res_merge = MergeCells().execute(ctx, range=["A1:B1"], center="true")
         assert res_merge["status"] == "ok"
-        manipulator.merge_cells.assert_called_once_with("A1:B1", center=True)
+        manipulator.merge_cells.assert_called_once_with("A1:B1", center=True, unmerge=False)
 
         manipulator.reset_mock()
         manipulator.range_sort.return_value = "Sorted"
@@ -2082,6 +2093,85 @@ def test_delete_structure_validation():
             assert res["status"] == "error", f"Expected error for count={bad_count!r}"
             assert "count" in res["message"]
             manipulator.delete_structure.assert_not_called()
+
+
+def test_insert_structure_validation_matches_delete():
+    from plugin.calc.cells import InsertStructure
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        manipulator.insert_structure.return_value = "Inserted"
+
+        for bad_row in ("²", "5x", 0, -1):
+            res = InsertStructure().execute(ctx, structure_type="rows", start=bad_row)
+            assert res["status"] == "error"
+            manipulator.insert_structure.assert_not_called()
+
+        InsertStructure().execute(ctx, structure_type="rows", start=5)
+        manipulator.insert_structure.assert_called_with("rows", 5, count=1)
+        manipulator.insert_structure.reset_mock()
+
+        for bad_count in (0, -1, True, "2"):
+            res = InsertStructure().execute(ctx, structure_type="rows", start=5, count=bad_count)
+            assert res["status"] == "error"
+            manipulator.insert_structure.assert_not_called()
+
+
+def test_delete_structure_sheet_prefix_passes_sheet():
+    from plugin.calc.cells import DeleteStructure
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    sheet = MagicMock()
+    with (
+        patch("plugin.calc.cells.CalcBridge") as bridge_cls,
+        patch("plugin.calc.cells.CellManipulator") as manipulator_cls,
+    ):
+        bridge_cls.return_value.get_sheet.return_value = sheet
+        manipulator = manipulator_cls.return_value
+        manipulator.delete_structure.return_value = "ok"
+        DeleteStructure().execute(ctx, structure_type="rows", start="Sheet2.5")
+        manipulator.delete_structure.assert_called_once_with("rows", 5, count=1, sheet=sheet)
+
+
+def test_delete_structure_rejects_internal_sheet_prefix():
+    from plugin.calc.cells import DeleteStructure
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = DeleteStructure().execute(ctx, structure_type="rows", start="_hidden.5")
+        assert res["status"] == "error"
+        assert "internal" in res["message"]
+        manipulator.delete_structure.assert_not_called()
+
+
+def test_delete_structure_missing_sheet_raises():
+    from plugin.calc.cells import DeleteStructure
+    from plugin.framework.errors import UnoObjectError
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge") as bridge_cls,
+        patch("plugin.calc.cells.CellManipulator"),
+    ):
+        bridge_cls.return_value.get_sheet.side_effect = UnoObjectError(
+            "No sheet named 'Missing'.",
+            details={"available": ["Sheet1"]},
+        )
+        with pytest.raises(UnoObjectError):
+            DeleteStructure().execute(ctx, structure_type="rows", start="Missing.5")
+
+
+def test_delete_structure_rejects_cell_address_as_row_start():
+    from plugin.calc.cells import DeleteStructure
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with patch("plugin.calc.cells.CellManipulator") as manipulator_cls:
+        manipulator = manipulator_cls.return_value
+        res = DeleteStructure().execute(ctx, structure_type="rows", start="A1")
+        assert res["status"] == "error"
+        manipulator.delete_structure.assert_not_called()
 
 
 def test_insert_cell_html_execution_and_validation():
