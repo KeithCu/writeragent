@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -19,13 +20,14 @@ def test_export_project_to_doc_missing_directory_does_not_collect_svgs(tmp_path:
     assert "Project path not found" in out.get("message", "")
 
 
-def test_export_project_to_doc_no_svgs_skips_data_root_env(tmp_path: Path) -> None:
+def test_export_project_to_doc_no_svgs_does_not_set_data_root_env(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.delenv("PPT_MASTER_DATA_ROOT", raising=False)
     project = tmp_path / "proj"
     project.mkdir()
-    with patch("plugin.ppt_master.paths.apply_data_root_env") as apply_env:
-        out = client.export_project_to_doc(MagicMock(), project, ctx=MagicMock())
-    apply_env.assert_not_called()
+    (project / "svg_final").mkdir()
+    out = client.export_project_to_doc(MagicMock(), project, ctx=MagicMock())
     assert "No SVG slides" in out.get("message", "")
+    assert os.environ.get("PPT_MASTER_DATA_ROOT") is None
 
 
 def test_apply_template_fill_forwards_to_adapter(tmp_path: Path) -> None:

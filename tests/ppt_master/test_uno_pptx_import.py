@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -702,3 +703,28 @@ def test_copy_shapes_to_page_empty_group_remove_fails_logs_debug(monkeypatch, ca
         assert "remove empty-group clone failed" in caplog.text
     else:
         assert "clone_shape empty group" in caplog.text
+
+
+def test_import_pptx_public_entry_points_raise_off_main(monkeypatch, tmp_path: Path) -> None:
+    import threading
+
+    from plugin.framework import thread_guard as tg
+    from plugin.framework.queue_executor import Policy, main
+    from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp, import_pptx_to_doc
+
+    fake_bg = MagicMock()
+    fake_bg.name = "bg-task"
+    monkeypatch.setattr(threading, "current_thread", lambda: fake_bg)
+    monkeypatch.setattr(main, "is_current", lambda: False)
+    main.install(Policy.test_inline)
+    was = tg.GUARD_ON
+    tg.GUARD_ON = True
+    try:
+        pptx = tmp_path / "deck.pptx"
+        pptx.write_text("x", encoding="utf-8")
+        with pytest.raises(RuntimeError):
+            import_pptx_slide_to_odp(MagicMock(), pptx, 0, tmp_path / "out.odp")
+        with pytest.raises(RuntimeError):
+            import_pptx_to_doc(MagicMock(), MagicMock(), pptx)
+    finally:
+        tg.GUARD_ON = was

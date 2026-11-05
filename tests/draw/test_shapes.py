@@ -858,6 +858,15 @@ def test_apply_shape_properties_former_failed_prop_arms() -> None:
     }
 
     shape = MagicMock()
+    shape.setString.side_effect = RuntimeError("text fail")
+    assert _apply_shape_properties(shape, {"text": "x"}) == ["text"]
+
+    shape = MagicMock()
+    shape.setString.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        _apply_shape_properties(shape, {"text": "x"})
+
+    shape = MagicMock()
     shape.FillStyle = True
     shape.LineStyle = True
     shape.setPropertyValue.side_effect = RuntimeError("fill none fail")

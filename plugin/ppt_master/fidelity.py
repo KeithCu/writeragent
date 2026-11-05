@@ -370,20 +370,6 @@ def pdf_page_to_png(pdf_path: Path, png_path: Path, *, page_1based: int, dpi: in
     return False
 
 
-def import_slide_to_odp(
-    ctx: Any,
-    pptx_path: Path,
-    slide_index: int,
-    odp_path: Path,
-) -> tuple[Any, Any] | None:
-    """Import one PPTX slide via the shipped pipeline; save a one-slide Impress doc."""
-    # Script path's single marshal; on the process main thread main.call runs inline.
-    imported = main.call(lambda: import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path))
-    if imported is None:
-        return None
-    return imported
-
-
 def evaluate_slide_fidelity(
     ctx: Any,
     *,
@@ -410,7 +396,8 @@ def evaluate_slide_fidelity(
     )
 
     odp_path = slide_dir / "imported.odp"
-    imported = import_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
+    # Script path's single marshal; on the process main thread main.call runs inline.
+    imported = main.call(lambda: import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path))
     if imported is None:
         result.errors.append("import_pptx_slide_to_odp failed")
         return result

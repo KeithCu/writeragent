@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
@@ -94,7 +94,7 @@ def test_evaluate_slide_fidelity_closes_target_doc_after_read(monkeypatch, tmp_p
         from plugin.ppt_master.fidelity import StructuralMetrics
         return StructuralMetrics()
 
-    monkeypatch.setattr(fidelity, "import_slide_to_odp", mock_import)
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", mock_import)
     monkeypatch.setattr(fidelity, "structural_metrics_pptx", mock_metrics)
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
 
@@ -256,7 +256,7 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
 
     # Case 1: reference deck PDF missing
     doc1 = DummyDoc()
-    monkeypatch.setattr(fidelity, "import_slide_to_odp", lambda *args, **kwargs: (doc1, DummyPage()))
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", lambda *args, **kwargs: (doc1, DummyPage()))
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: tmp_path / "imp.pdf")
 
     res1 = fidelity.evaluate_slide_fidelity(
@@ -277,7 +277,7 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     doc2 = DummyDoc()
     ref_pdf = tmp_path / "ref.pdf"
     ref_pdf.write_bytes(b"%PDF-1.4 test")
-    monkeypatch.setattr(fidelity, "import_slide_to_odp", lambda *args, **kwargs: (doc2, DummyPage()))
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", lambda *args, **kwargs: (doc2, DummyPage()))
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
 
     res2 = fidelity.evaluate_slide_fidelity(
@@ -296,7 +296,7 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
 
     # Case 3: reference PNG rasterize failed
     doc3 = DummyDoc()
-    monkeypatch.setattr(fidelity, "import_slide_to_odp", lambda *args, **kwargs: (doc3, DummyPage()))
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", lambda *args, **kwargs: (doc3, DummyPage()))
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: tmp_path / "imp.pdf")
     monkeypatch.setattr(fidelity, "pdf_page_to_png", lambda *args, **kwargs: False)
 
@@ -338,23 +338,39 @@ def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path
     assert calls[0][1]["kill_tree"] is True
 
 
-def test_import_slide_to_odp_uses_one_main_call(monkeypatch) -> None:
-    from pathlib import Path
-
+def test_evaluate_slide_fidelity_marshals_pptx_import_once(monkeypatch, tmp_path: Path) -> None:
     from plugin.ppt_master import fidelity
+    from plugin.ppt_master.fidelity import StructuralMetrics
 
-    ctx = object()
-    pptx = Path("/deck.pptx")
-    odp = Path("/out.odp")
-    expected = (object(), object())
+    class DummyPage:
+        def getCount(self):
+            return 1
+
+    doc = MagicMock()
+    page = DummyPage()
+    main_calls = 0
 
     def fake_call(fn, timeout=None):
+        nonlocal main_calls
+        main_calls += 1
         return fn()
 
     monkeypatch.setattr(fidelity.main, "call", fake_call)
+    monkeypatch.setattr(fidelity, "structural_metrics_pptx", lambda *args, **kwargs: StructuralMetrics())
+    monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
 
-    with patch.object(fidelity, "import_pptx_slide_to_odp", return_value=expected) as import_fn:
-        got = fidelity.import_slide_to_odp(ctx, pptx, 2, odp)
+    with patch.object(fidelity, "import_pptx_slide_to_odp", return_value=(doc, page)) as import_fn:
+        fidelity.evaluate_slide_fidelity(
+            None,
+            project_dir=tmp_path,
+            slide_label="test.svg",
+            slide_index=0,
+            pptx_path=tmp_path / "test.pptx",
+            reference_deck_pdf=tmp_path / "ref.pdf",
+            work_dir=tmp_path,
+            soffice="echo",
+            skip_visual=True,
+        )
 
-    import_fn.assert_called_once_with(ctx, pptx, 2, odp)
-    assert got == expected
+    assert main_calls == 1
+    import_fn.assert_called_once()

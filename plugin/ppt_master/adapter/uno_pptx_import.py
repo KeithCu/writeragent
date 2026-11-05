@@ -136,7 +136,6 @@ def _copy_page_notes(source_page: Any, target_page: Any) -> None:
         return
 
 
-@main_thread_only
 def _import_slides_from_source(
     ctx: Any,
     target_doc: Any,
@@ -145,8 +144,6 @@ def _import_slides_from_source(
     slide_indices: list[int] | None = None,
     clear_existing: bool = True,
 ) -> dict[str, Any]:
-    # Tool export is already inside export_project_to_doc's main.call; fidelity wraps
-    # import_pptx_slide_to_odp the same way. Former inner main.call hops ran inline there.
     source_pages = source_doc.getDrawPages()
     source_count = int(source_pages.getCount())
     if source_count < 1:
@@ -193,6 +190,9 @@ def _import_slides_from_source(
     return {"status": "ok", "slides": len(results), "route": "pptx_to_odp", "results": results}
 
 
+# UNO load/save and slide copy; callers off the main thread must not enter here
+# (export_project_to_doc and evaluate_slide_fidelity marshal via main.call).
+@main_thread_only
 def import_pptx_to_doc(
     ctx: Any,
     target_doc: Any,
@@ -221,6 +221,7 @@ def import_pptx_to_doc(
         best_effort(lambda: source_doc.close(True), "close source pptx doc")
 
 
+@main_thread_only
 def import_pptx_slide_to_odp(
     ctx: Any,
     pptx_path: Path,
