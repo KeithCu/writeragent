@@ -103,7 +103,7 @@ def test_stop_requested():
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
     assert not any(isinstance(e, AddMessageEffect) for e in effects)
     assert any(
-        isinstance(e, ToolLoopUIEffect) and e.kind == "status" and e.text == "Stopped" and e.outcome == "stopped"
+        isinstance(e, ToolLoopUIEffect) and e.kind == "status" and e.outcome == "stopped"
         for e in effects
     )
     assert not any(isinstance(e, ToolLoopUIEffect) and e.kind == "append" for e in effects)
@@ -136,7 +136,7 @@ def test_final_done():
 
     assert new_state.status == "Ready"
     ready_status = next(
-        e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.STATUS and e.text == "Ready"
+        e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.STATUS and e.outcome == "ready"
     )
     assert ready_status.outcome == "ready"
     assert any(isinstance(e, ExitLoopEffect) for e in effects)

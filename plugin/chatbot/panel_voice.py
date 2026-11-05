@@ -17,7 +17,8 @@ from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.config import get_api_config
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.send_cancellation import is_cancelled, spawn_scope
+from plugin.framework.send_cancellation import is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.chatbot.tool_loop_actions import assign_send_outcome, send_outcome_is_stopped, send_outcome_terminal_display
 
 log = logging.getLogger(__name__)
@@ -353,6 +354,7 @@ class PanelVoiceController:
 
         self._panel._stt_inflight = True
         try:
+            # Worker closes over this scope; the drain clears host._send_cancellation.
             cancel_scope = spawn_scope(self._panel)
             if is_cancelled(cancel_scope):
                 assign_send_outcome(self._panel, "stopped")

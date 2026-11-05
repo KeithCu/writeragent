@@ -242,7 +242,7 @@ def test_interpreter_handles_session_ui_queue_and_exit_effects():
     interpreter = ToolLoopEffectInterpreter(host)
 
     assert interpreter.execute(ExitLoopEffect()) is True
-    assert interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Ready", outcome="ready")) is False
+    assert interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="ready")) is False
     assert host.statuses == ["Ready"]
     assert send_outcome_terminal_display(host) == "Ready"
     assert current_turn(host).outcome == "ready"
@@ -1945,7 +1945,7 @@ def test_status_effect_stores_outcome_and_ignores_progress_text():
     host = FakeHost()
     interpreter = ToolLoopEffectInterpreter(host)
 
-    interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Stopped", outcome="stopped"))
+    interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="stopped"))
     assert current_turn(host).outcome == "stopped"
     assert send_outcome_terminal_display(host) == "Stopped"
     assert host.statuses == ["Stopped"]

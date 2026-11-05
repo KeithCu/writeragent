@@ -722,19 +722,23 @@ def test_run_slash_compact_sync_invalid_api_key_401():
 def test_compaction_auth_line_client_and_exception():
     import urllib.error
 
-    from plugin.chatbot.slash_commands import compaction_auth_line
+    from plugin.chatbot.compaction import auth_line_for_client, auth_line_for_error
     from plugin.framework.client.auth import AuthError
+    from plugin.framework.client.llm_client import LlmClient
 
-    empty_key_client = SimpleNamespace(config={"api_key": "", "model": "gpt-4o", "endpoint": "https://api.openai.com/v1"})
-    line = compaction_auth_line(empty_key_client)
+    empty_key_client = LlmClient(
+        {"api_key": "", "model": "gpt-4o", "endpoint": "https://api.openai.com/v1"},
+        ctx=None,
+    )
+    line = auth_line_for_client(empty_key_client)
     assert line is not None
     assert "Configure an API key" in line
 
-    other_auth = compaction_auth_line(AuthError("bad key", code="invalid_key"))
+    other_auth = auth_line_for_error(AuthError("bad key", code="invalid_key"))
     assert other_auth is not None
     assert "Configure an API key" not in other_auth
 
-    http401 = compaction_auth_line(
+    http401 = auth_line_for_error(
         urllib.error.HTTPError(
             url="https://api.openai.com/v1/chat/completions",
             code=401,
@@ -745,7 +749,7 @@ def test_compaction_auth_line_client_and_exception():
     )
     assert http401 is not None
 
-    http500 = compaction_auth_line(
+    http500 = auth_line_for_error(
         urllib.error.HTTPError(
             url="https://api.openai.com/v1/chat/completions",
             code=500,
@@ -756,8 +760,7 @@ def test_compaction_auth_line_client_and_exception():
     )
     assert http500 is None
 
-    assert compaction_auth_line(SimpleNamespace(config="not-a-dict")) is None
-    assert compaction_auth_line(RuntimeError("boom")) is None
+    assert auth_line_for_error(RuntimeError("boom")) is None
 
 
 def test_run_remember_writes_user_md(tmp_path, monkeypatch):

@@ -46,7 +46,8 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled, spawn_scope
+from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 from plugin.doc.peer_message import log_peer_tool_on_wire
@@ -456,7 +457,6 @@ class ToolCallingMixin:
         entered = running_turn(self._panel)
         if entered is None:
             return
-        slash_sidebar_only = entered.slash_sidebar_only if entered is not None else False
         try:
             log.debug("_do_send: importing core modules...")
             from plugin.app import get_tools
@@ -491,7 +491,7 @@ class ToolCallingMixin:
             toolkit = get_toolkit(self._panel.ctx)
             if toolkit:
                 pump_ui_idle(toolkit, max_queue_items=4)
-            if slash_sidebar_only:
+            if entered.slash_sidebar_only:
                 # Slash answer presets are sidebar-only; mid-loop refresh must not re-add tools.
                 active_tools: list[Any] = []
             else:
@@ -615,9 +615,6 @@ class ToolCallingMixin:
         log.debug("_do_send: calling AI, use_tools=True, messages=%d" % len(turn_session.messages))
 
         max_tool_rounds = cast("int", api_config["chat_max_tool_rounds"])
-        turn = current_turn(self._panel)
-        if turn is not None:
-            turn.slash_sidebar_only = slash_sidebar_only
         self._start_tool_calling_async(
             client, model, max_tokens, active_tools, execute_fn, max_tool_rounds, query_text=query_text
         )

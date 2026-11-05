@@ -204,13 +204,3 @@ def _restore_send_cancellation(scope: SendCancellation, token: Any, previous_ope
 def is_agent_active() -> bool:
     with _AGENT_ACTIVE_LOCK:
         return bool(_AGENT_OPEN_SCOPES)
-
-
-def spawn_scope(host: Any) -> SendCancellation | None:
-    """Return the send-scoped cancellation object to close over in a worker.
-
-    Read on the send thread immediately before ``run_in_background`` or
-    ``run_blocking_in_thread``. The worker must not re-read ``host._send_cancellation``:
-    the drain clears that field and the next send replaces it.
-    """
-    return host._send_cancellation

@@ -24,6 +24,7 @@ from plugin.chatbot.tool_loop_state import (
     ExitLoopEffect,
     LogAgentEffect,
     MessageRole,
+    OUTCOME_STATUS_TEXT,
     SpawnFinalStreamEffect,
     SpawnLLMWorkerEffect,
     SpawnToolWorkerEffect,
@@ -34,12 +35,6 @@ from plugin.chatbot.tool_loop_state import (
     UpdateActivityStateEffect,
     UpdateDocumentContextEffect,
 )
-
-_OUTCOME_DISPLAY: dict[SendOutcome, str] = {
-    "ready": "Ready",
-    "error": "Error",
-    "stopped": "Stopped",
-}
 from plugin.chatbot.web_research_chat import web_research_cache_chat_text
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.model_fetcher import has_native_vision, set_native_audio_support
@@ -56,7 +51,8 @@ from plugin.framework.errors import (
 )
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import main
-from plugin.framework.send_cancellation import SendCancellation, is_cancelled, spawn_scope
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
@@ -557,7 +553,7 @@ def send_outcome_terminal_display(host: Any) -> str:
         oc = getattr(host, "_orphan_send_outcome", None)
     if oc is None:
         return ""
-    return _OUTCOME_DISPLAY[oc]
+    return OUTCOME_STATUS_TEXT[oc]
 
 
 def send_outcome_is_error(host: Any) -> bool:
@@ -1024,9 +1020,11 @@ class ToolLoopEffectInterpreter:
         if effect.kind == UIEffectKind.APPEND:
             host._append_response(effect.text)
         elif effect.kind == UIEffectKind.STATUS:
-            host._set_status(effect.text)
             if effect.outcome is not None:
+                host._set_status(OUTCOME_STATUS_TEXT[effect.outcome])
                 assign_send_outcome(host, effect.outcome)
+            else:
+                host._set_status(effect.text)
         elif effect.kind == UIEffectKind.TOOL_RUNNING:
             status_text, run_line = format_tool_running_ui(effect.func_name, effect.func_args or {})
             host._set_status(status_text)

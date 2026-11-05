@@ -22,7 +22,8 @@ from typing import Any, Callable, Protocol, Sequence
 
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
-from plugin.framework.send_cancellation import SendCancellation, is_cancelled, spawn_scope
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 
 log = logging.getLogger(__name__)
 
@@ -615,35 +616,6 @@ def _complete_ask_draft(host: SlashHost, name: str) -> None:
     host.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
 
 
-def compaction_auth_line(exc_or_client: BaseException | Any) -> str | None:
-    """Return a sidebar line for auth failures during /compact, else None."""
-    import urllib.error
-
-    from plugin.framework.client.auth import AuthError, resolve_auth_for_config
-    from plugin.framework.errors import format_error_message
-
-    if isinstance(exc_or_client, BaseException):
-        exc = exc_or_client
-        if isinstance(exc, AuthError):
-            if exc.code == "missing_api_key":
-                return "\n" + _("Configure an API key to compact.") + "\n"
-            return "\n" + format_error_message(exc) + "\n"
-        if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
-            return "\n" + format_error_message(exc) + "\n"
-        return None
-
-    cfg = getattr(exc_or_client, "config", None)
-    if not isinstance(cfg, dict):
-        return None
-    try:
-        resolve_auth_for_config(dict(cfg))
-    except AuthError as exc:
-        if exc.code == "missing_api_key":
-            return "\n" + _("Configure an API key to compact.") + "\n"
-        return "\n" + format_error_message(exc) + "\n"
-    return None
-
-
 def _compact_result_line(result: Any) -> str:
     if result.compacted:
         return _("Conversation compacted.")
@@ -745,7 +717,7 @@ def run_slash_compact_sync(
     ``client`` and ``tools`` must come from ``prepare_slash_compact_on_ui_thread`` on
     the UI thread; this worker must not touch UNO, ``msgbox``, or the document.
     """
-    from plugin.chatbot.compaction import compact_session
+    from plugin.chatbot.compaction import auth_line_for_client, auth_line_for_error, compact_session
     from plugin.framework.config import get_config
     from plugin.framework.client.model_fetcher import resolve_context_window
     from plugin.framework.llm_lanes import llm_request_lane
@@ -759,7 +731,7 @@ def run_slash_compact_sync(
     if is_cancelled(cancel):
         return "\n" + _("Compaction cancelled.") + "\n"
 
-    auth_line = compaction_auth_line(client)
+    auth_line = auth_line_for_client(client)
     if auth_line:
         return auth_line
 
@@ -775,7 +747,7 @@ def run_slash_compact_sync(
                 cancel=cancel,
             )
     except Exception as exc:
-        mapped = compaction_auth_line(exc)
+        mapped = auth_line_for_error(exc)
         if mapped:
             return mapped
         log.exception("slash /compact failed")

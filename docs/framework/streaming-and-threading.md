@@ -367,7 +367,7 @@ Two separate bugs caused that:
 
 | Need | Do this |
 |------|---------|
-| Main-thread drain / streaming | `cancel=self._send_cancellation` (or `getattr(self, "_send_cancellation", None)`). |
+| Main-thread drain / streaming | `cancel=self._send_cancellation` on the live panel field (drain thread only). |
 | Background worker (web research, LLM stream, async tool) | On the send thread at spawn, before the thread body: `cancel_scope = spawn_scope(host)`. Close over the scope. The worker must not read `host._send_cancellation`. Pass it into `ToolContext(..., send_cancellation=cancel_scope)`. |
 | Deep-research pool | On Stop, cancel futures that have not started, then join the pool. Workers return when the stop checker captured with the send is true. A worker stuck in HTTP is joined only up to `_STOP_POOL_JOIN_SEC`. Do not use `with ThreadPoolExecutor` (that joins before Stop can cancel). |
 | New `LlmClient` on a worker | `LlmClient(config, ctx, cancellation_scope=ctx.send_cancellation)` (or register manually on the scope). |

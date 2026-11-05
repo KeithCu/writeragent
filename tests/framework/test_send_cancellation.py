@@ -6,7 +6,6 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
-from types import SimpleNamespace
 
 from plugin.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.doc.document_research_specialized import DelegateReadDocument
@@ -506,16 +505,6 @@ def test_is_cancelled_predicate():
     assert is_cancelled(scope) is True
 
 
-def test_spawn_scope_reads_host_field():
-    from plugin.framework.send_cancellation import spawn_scope
-
-    scope = SendCancellation()
-    host = SimpleNamespace(_send_cancellation=scope)
-    assert spawn_scope(host) is scope
-    assert spawn_scope(SimpleNamespace(_send_cancellation=None)) is None
-
-
-def test_send_cancellation_imports_before_queue_executor():
     import subprocess
     import sys
 

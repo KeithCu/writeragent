@@ -34,7 +34,8 @@ from plugin.chatbot.tool_loop_actions import assign_send_outcome
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
 from plugin.framework.queue_executor import MainThread, main
-from plugin.framework.send_cancellation import is_cancelled, spawn_scope
+from plugin.framework.send_cancellation import is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.chatbot.record_gesture import (
     RecordGesture,
     gesture_action,
@@ -1334,7 +1335,6 @@ class SendButtonListener(BaseActionListener):
             return
 
         slash_transcript_line: str | None = None
-        slash_sidebar_only = False
         if slash_cmd is not None and planned is not None:
             if planned is SlashRun.COMPACT:
                 run_slash_compact(self, slash_arg, cancel=spawn_scope(self))
@@ -1350,7 +1350,11 @@ class SendButtonListener(BaseActionListener):
                 slash_transcript_line = peek_text.strip()
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
                 if slash_answer_is_local_only(slash_cmd, model):
-                    slash_sidebar_only = True
+                    from plugin.chatbot.tool_loop_actions import running_turn
+
+                    turn = running_turn(self)
+                    if turn is not None:
+                        turn.slash_sidebar_only = True
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -1388,13 +1392,6 @@ class SendButtonListener(BaseActionListener):
                     restore_query=query_text,
                 )
                 return
-
-            if slash_sidebar_only:
-                from plugin.chatbot.tool_loop_actions import running_turn
-
-                turn = running_turn(self)
-                if turn is not None:
-                    turn.slash_sidebar_only = True
 
             # Regular Chat with Tools or Streams
             self._tool_calling._do_send_chat_with_tools(

@@ -32,7 +32,8 @@ from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import is_cancelled, spawn_scope
+from plugin.framework.send_cancellation import is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.tool_loop import _PanelDescriptor

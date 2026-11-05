@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import format_error_message, reraise_if_disposed
 from plugin.framework.i18n import N_, _
-from plugin.framework.send_cancellation import spawn_scope
+from plugin.chatbot.send_state import spawn_scope
 
 if TYPE_CHECKING:
     from plugin.chatbot.slash_commands import SlashHost

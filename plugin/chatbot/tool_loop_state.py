@@ -24,6 +24,12 @@ from plugin.framework.service import BaseState, FsmTransition
 
 SendOutcome = Literal["ready", "error", "stopped"]
 
+OUTCOME_STATUS_TEXT: dict[SendOutcome, str] = {
+    "ready": "Ready",
+    "error": "Error",
+    "stopped": "Stopped",
+}
+
 
 def object_dict_or_empty(value: object) -> dict[str, Any]:
     """Return *value* when it is a dict; otherwise ``{}`` (post-JSON coerce)."""
@@ -172,6 +178,7 @@ class ToolLoopUIEffect:
     result_data: Optional[Dict[str, Any]] = None
     round_num: int = 0
     response: Optional[Dict[str, Any]] = None
+    # When set, the interpreter sets the status bar from OUTCOME_STATUS_TEXT; text is for progress-only STATUS.
     outcome: SendOutcome | None = None
 
 
@@ -257,7 +264,7 @@ def _field(data: dict[str, Any], key: str, typ: type[_T], default: _T) -> _T:
 
 
 def _ready_transition(state: ToolLoopState, effects: List[Any]) -> FsmTransition[ToolLoopState]:
-    effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Ready", outcome="ready"))
+    effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="ready"))
     effects.append(ExitLoopEffect())
     return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
 
@@ -289,7 +296,7 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             # calls that have no result, and writes the stop line. This
             # transition only latches the loop. Partial tool_calls never
             # reach this event: the worker does not enqueue them.
-            effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Stopped", outcome="stopped"))
+            effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="stopped"))
             effects.append(ExitLoopEffect())
             return FsmTransition(dataclasses.replace(state, is_stopped=True, status="Stopped"), effects)
 
