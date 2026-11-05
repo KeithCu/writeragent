@@ -47,6 +47,7 @@ def _run_embeddings_action(
         domain="embeddings_index",
         helper=helper,
         params=params,
+        # Worker params carry model from each caller; empty slug uses the shared corpus session key.
         session_id=embedding_session_id((model or "").strip() or "corpus"),
         timeout_sec=timeout_sec,
         worker_pool=WORKER_POOL_EMBEDDINGS,

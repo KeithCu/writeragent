@@ -690,6 +690,17 @@ def test_uses_sentence_by_sentence_only_kokoro_and_piper():
     assert uses_sentence_by_sentence("together") is False
 
 
+def test_sentence_speak_enabled_uses_schema_default_on():
+    from plugin.framework.config_schema import resolve_default
+
+    assert resolve_default("audio.tts_sentence_mode") is True
+    with patch(
+        "plugin.audio.tts_service.config.get_config",
+        side_effect=lambda key: resolve_default(key),
+    ):
+        assert sentence_speak_enabled() is True
+
+
 def test_sentence_speak_enabled_unset_is_on_saved_false_stays_off():
     with patch("plugin.audio.tts_service.config.get_config", return_value=True):
         assert sentence_speak_enabled() is True

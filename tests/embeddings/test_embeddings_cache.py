@@ -9,6 +9,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.embeddings import embeddings_cache
 from plugin.embeddings.embeddings_fs import ParagraphChunk, content_hash
 
@@ -502,4 +504,65 @@ def test_folder_store_empty_zvec_does_not_create_parent(tmp_path):
     assert store.is_empty is True
     assert store.search_path is None
     assert not cache_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("mode", "listing_root", "expected", "create_parent_calls"),
+    [
+        ("zvec", None, None, []),
+        ("zvec", "/root", "/ready", [True]),
+        ("lancedb", None, None, []),
+        ("lancedb", "/root", "/ready", [True]),
+        ("hybrid", "/root", "/db", []),
+    ],
+)
+def test_search_path_after_populated_probe(mode, listing_root, expected, create_parent_calls):
+    """Path selection once index_is_empty is false (no second collection probe)."""
+    path_name = "zvec_collection_path" if mode == "zvec" else "lancedb_collection_path"
+
+    def _path(root, *, create_parent):
+        del root
+        return Path("/ready") if create_parent else Path("/probe")
+
+    with patch(f"plugin.embeddings.embeddings_cache.{path_name}", side_effect=_path) as path:
+        got = embeddings_cache._search_path(mode, listing_root, Path("/db"))
+
+    if expected is None:
+        assert got is None
+    else:
+        assert got is not None
+        assert Path(got) == Path(expected)
+    assert [call.kwargs.get("create_parent") for call in path.call_args_list] == create_parent_calls
+
+
+def test_folder_store_zvec_without_listing_root_has_no_search_path(tmp_path):
+    from unittest.mock import patch
+
+    meta_path = tmp_path / "corpus_meta.json"
+    db_path = tmp_path / "corpus.db"
+    with patch.object(embeddings_cache, "index_is_empty", return_value=False):
+        store = embeddings_cache.folder_store(None, meta_path, db_path, mode="zvec")
+    assert store.search_path is None
+
+
+def test_folder_store_lancedb_lists_collection_once(tmp_path):
+    from unittest.mock import patch
+
+    listing = str(tmp_path / "docs")
+    meta_path = embeddings_cache.corpus_meta_path(listing)
+    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
+    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="2", embedding_model="m").save(meta_path)
+    store = embeddings_cache.lancedb_collection_path(listing, create_parent=False)
+    store.mkdir()
+    (store / "data.lance").write_text("rows", encoding="utf-8")
+
+    with patch.object(
+        embeddings_cache,
+        "lancedb_collection_looks_populated",
+        wraps=embeddings_cache.lancedb_collection_looks_populated,
+    ) as probe:
+        folder = embeddings_cache.folder_store(listing, meta_path, db_path, mode="lancedb")
+    probe.assert_called_once()
+    assert folder.is_empty is False
+    assert folder.search_path is not None
 
