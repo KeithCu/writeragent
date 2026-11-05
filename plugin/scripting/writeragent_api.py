@@ -693,7 +693,7 @@ class _CommentProxy:
         Args:
             author_filter (optional): Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.
             start_index (optional): Zero-based row to start this page at (default 0).
-            max_comments (optional): Maximum rows to return (default 100).
+            max_comments (optional): Maximum rows to return (default 100). Values below 1 are treated as 1, like tracking_list.
         """
         return call_host_tool("comment_list", author_filter=author_filter, start_index=start_index, max_comments=max_comments)
 
