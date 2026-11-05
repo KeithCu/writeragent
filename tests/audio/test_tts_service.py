@@ -728,21 +728,23 @@ def test_uses_sentence_by_sentence_only_kokoro_and_piper():
     assert uses_sentence_by_sentence("together") is False
 
 
-def test_sentence_speak_enabled_unset_is_on_saved_false_stays_off():
-    def _lookup(cfg):
-        return lambda key, default=None: cfg.get(key, default)
+def test_sentence_speak_enabled_uses_schema_default_on():
+    from plugin.framework.config_schema import resolve_default
 
-    with patch("plugin.framework.config.get_config", side_effect=_lookup({})):
+    assert resolve_default("audio.tts_sentence_mode") is True
+    with patch(
+        "plugin.audio.tts_service.config.get_config",
+        side_effect=lambda key: resolve_default(key),
+    ):
         assert sentence_speak_enabled() is True
-    with patch(
-        "plugin.framework.config.get_config",
-        side_effect=_lookup({"audio.tts_sentence_mode": False}),
-    ):
+
+
+def test_sentence_speak_enabled_unset_is_on_saved_false_stays_off():
+    with patch("plugin.audio.tts_service.config.get_config", return_value=True):
+        assert sentence_speak_enabled() is True
+    with patch("plugin.audio.tts_service.config.get_config", return_value=False):
         assert sentence_speak_enabled() is False
-    with patch(
-        "plugin.framework.config.get_config",
-        side_effect=_lookup({"audio.tts_sentence_mode": True}),
-    ):
+    with patch("plugin.audio.tts_service.config.get_config", return_value=True):
         assert sentence_speak_enabled() is True
 
 
@@ -772,7 +774,12 @@ def _speak_sentence_case(cfg, *, provider=None, model=None):
         del kwargs
         oneshot[args[0]] = args[1]
 
-    with patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: cfg.get(key, default)), patch(
+    def _get_config(key, default=None):
+        if key == "audio.tts_sentence_mode" and key not in cfg:
+            return True
+        return cfg.get(key, default)
+
+    with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
         "plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kwargs: fn()
     ), patch(
         "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",

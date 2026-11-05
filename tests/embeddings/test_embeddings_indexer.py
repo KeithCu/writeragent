@@ -150,7 +150,7 @@ def test_diff_chunk_rows_detects_change_and_delete(tmp_path):
 def test_enqueue_skipped_when_off():
     with patch("plugin.embeddings.embeddings_indexer.folder_search_enabled", return_value=False):
         with patch("plugin.embeddings.embeddings_indexer.run_in_background") as bg_mock:
-            embeddings_indexer.enqueue_folder_index(MagicMock(), MagicMock(), MagicMock())
+            embeddings_indexer.enqueue_folder_index(MagicMock(), MagicMock())
             bg_mock.assert_not_called()
 
 
@@ -167,7 +167,7 @@ def test_enqueue_skipped_when_inflight():
                     side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
                 ):
                     with patch("plugin.embeddings.embeddings_indexer.run_in_background") as bg_mock:
-                        embeddings_indexer.enqueue_folder_index(ctx, MagicMock(), MagicMock())
+                        embeddings_indexer.enqueue_folder_index(ctx, MagicMock())
                     bg_mock.assert_not_called()
 
 
@@ -194,7 +194,7 @@ def test_enqueue_marshals_resolve_index_context():
                     "plugin.framework.queue_executor.main.call",
                     side_effect=mock_execute,
                 ):
-                    embeddings_indexer.enqueue_folder_index(ctx, MagicMock(), MagicMock())
+                    embeddings_indexer.enqueue_folder_index(ctx, MagicMock())
 
     assert resolve_calls_during_marshal
     assert all(resolve_calls_during_marshal)
@@ -216,11 +216,10 @@ def test_index_worker_calls_maintain_rpc():
 
 
 def test_resolve_search_mode_reads_config():
-    ctx = MagicMock()
     with patch("plugin.embeddings.embeddings_indexer.configured_folder_search_mode", return_value="llama_index"):
-        assert embeddings_indexer._resolve_search_mode(ctx) == "llama_index"
+        assert embeddings_indexer._resolve_search_mode() == "llama_index"
     with patch("plugin.embeddings.embeddings_indexer.configured_folder_search_mode", return_value="none"):
-        assert embeddings_indexer._resolve_search_mode(ctx) == "hybrid"
+        assert embeddings_indexer._resolve_search_mode() == "hybrid"
 
 
 def test_index_worker_clears_inflight_on_failure():
@@ -234,23 +233,21 @@ def test_index_worker_clears_inflight_on_failure():
 
 def test_ensure_index_wakeup_when_cancelled():
     ctx = MagicMock()
-    services = MagicMock()
     model = MagicMock()
     scope = MagicMock()
     scope.is_cancelled.return_value = True
 
     with patch("plugin.embeddings.embeddings_indexer.get_current_send_cancellation", return_value=scope):
         with patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index") as enqueue_mock:
-            embeddings_indexer.ensure_index_wakeup(ctx, services, model)
+            embeddings_indexer.ensure_index_wakeup(ctx, model)
             enqueue_mock.assert_not_called()
 
 
 def test_ensure_index_wakeup_when_not_cancelled():
     ctx = MagicMock()
-    services = MagicMock()
     model = MagicMock()
 
     with patch("plugin.embeddings.embeddings_indexer.get_current_send_cancellation", return_value=None):
         with patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index") as enqueue_mock:
-            embeddings_indexer.ensure_index_wakeup(ctx, services, model)
-            enqueue_mock.assert_called_once_with(ctx, services, model)
+            embeddings_indexer.ensure_index_wakeup(ctx, model)
+            enqueue_mock.assert_called_once_with(ctx, model)

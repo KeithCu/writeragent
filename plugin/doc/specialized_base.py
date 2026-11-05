@@ -217,7 +217,7 @@ class DelegateToSpecializedBase(ToolBase):
                 from plugin.embeddings.embeddings_indexer import enqueue_folder_index
 
                 # Sub-agent runs on a worker thread; resolve_index_context reads the active doc path via UNO.
-                main.call(lambda: enqueue_folder_index(ctx.ctx, ctx.services, ctx.doc))
+                main.call(lambda: enqueue_folder_index(ctx.ctx, ctx.doc))
             except Exception:
                 log.debug("embeddings index wakeup failed", exc_info=True)
 

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.embeddings.embedding_client import _embedding_session_id
+from plugin.embeddings.embedding_client import embedding_session_id
 from plugin.embeddings.embeddings_cache import parse_search_mode
 from plugin.framework.constants import configured_folder_search_mode
 from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
@@ -47,7 +47,8 @@ def _run_embeddings_action(
         domain="embeddings_index",
         helper=helper,
         params=params,
-        session_id=_embedding_session_id(model),
+        # Worker params carry model from each caller; empty slug uses the shared corpus session key.
+        session_id=embedding_session_id((model or "").strip() or "corpus"),
         timeout_sec=timeout_sec,
         worker_pool=WORKER_POOL_EMBEDDINGS,
         allow_heartbeat=allow_heartbeat,
@@ -57,7 +58,6 @@ def _run_embeddings_action(
         cancel=cancel,
     )
     if isinstance(res, dict) and res.get("error"):
-        from plugin.framework.errors import ToolExecutionError
         raise ToolExecutionError(str(res["error"]), code="EMBEDDING_INDEX_ERROR")
     return res
 
@@ -83,7 +83,7 @@ def maintain_folder_index(
         ctx,
         "maintain_folder_index",
         {"listing_root": str(listing_root), "model": model_name, "mode": str(mode or "auto"), "search_mode": resolved_mode},
-        model=model_name or "corpus",
+        model=model_name,
         allow_heartbeat=True,
         heartbeat_fn=heartbeat_fn,
         cancel=cancel,
@@ -121,7 +121,7 @@ def index_paragraphs(
             "build_vectors": build_vectors,
             "search_mode": resolved_mode,
         },
-        model=model_name or "corpus",
+        model=model_name,
         cancel=cancel,
     )
 
@@ -153,7 +153,7 @@ def delete_paragraphs(
             "build_vectors": build_vectors,
             "search_mode": resolved_mode,
         },
-        model=model_name or "corpus",
+        model=model_name,
         cancel=cancel,
     )
 
@@ -238,7 +238,7 @@ def collection_stats(
         ctx,
         "collection_stats",
         {"db_path": str(db_path), "meta_path": str(meta_path), "model": model_name},
-        model=model_name or "stats",
+        model=model_name,
         cancel=cancel,
     )
 

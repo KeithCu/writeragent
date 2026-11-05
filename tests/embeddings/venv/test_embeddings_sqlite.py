@@ -292,11 +292,13 @@ def test_missing_vector_chunks_with_and_without_vec_table(tmp_path):
             """
         )
         conn.commit()
+        assert embeddings_sqlite._vec_table_if_exists(conn, "m1") is None
         all_missing = embeddings_sqlite.missing_vector_chunks(conn, "m1")
         assert len(all_missing) == 1
         assert all_missing[0]["text"] == "hello"
 
         embeddings_sqlite.ensure_schema(conn, dim=4, with_vec=True, model="m1")
+        assert embeddings_sqlite._vec_table_if_exists(conn, "m1") == f"vec_chunks_{embeddings_sqlite.model_slug('m1')}"
         chunk = {
             "doc_url": "file:///b.odt",
             "para_index": 0,

@@ -247,7 +247,6 @@ def test_incremental_same_model_vector_gap_requests_backfill(tmp_path):
     with (
         patch.object(maintain, "connect_corpus_db", return_value=conn),
         patch.object(maintain, "ensure_schema"),
-        patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
         patch.object(maintain, "has_missing_vector_chunks", return_value=True),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
         patch.object(maintain.CorpusMeta, "write_row_count"),
@@ -274,11 +273,34 @@ def test_incremental_skips_backfill_when_vectors_present(tmp_path):
         patch.object(maintain, "connect_corpus_db", return_value=conn),
         patch.object(maintain, "ensure_schema"),
         patch.object(maintain, "get_all_indexed_urls_in_db", return_value=[]),
-        patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
         patch.object(maintain, "has_missing_vector_chunks", return_value=False),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
         patch.object(maintain.CorpusMeta, "write_row_count"),
         patch.object(maintain, "_ingest_rows") as ingest,
+    ):
+        maintain._incremental_refresh(
+            str(tmp_path),
+            "all-MiniLM-L6-v2",
+            [],
+            HeartbeatThrottle(None),
+            build_fts=False,
+            build_vectors=True,
+            search_mode="embeddings",
+        )
+    ingest.assert_not_called()
+
+
+def test_incremental_gap_probe_empty_corpus_without_vec_table(tmp_path):
+    """No vec table and no chunk rows: gap probe must not load sqlite-vec or start gap-fill."""
+    with (
+        patch.object(maintain, "get_all_indexed_urls_in_db", return_value=[]),
+        patch.object(maintain, "corpus_chunk_count", return_value=0),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
+        patch.object(maintain, "_ingest_rows") as ingest,
+        patch(
+            "plugin.embeddings.venv.embeddings_sqlite._load_vec_extension",
+            side_effect=AssertionError("must not load vec when vec table is absent"),
+        ),
     ):
         maintain._incremental_refresh(
             str(tmp_path),

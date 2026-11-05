@@ -22,6 +22,8 @@ from plugin.framework.uno_context import get_runtime_uid
 
 log = logging.getLogger("writeragent.notebook")
 
+_DOC_KEY_UID_PREFIX = "uid:"
+
 STYLE_MD_H1 = "Heading 1"
 STYLE_MD_H2 = "Heading 2"
 STYLE_NOTEBOOK_IN = "WriterAgent Notebook In"
@@ -341,6 +343,13 @@ def insert_code_input_in_flow(
     log_shape_add(step="code_field", name=name, text_chars=raw_chars, truncated=False, shape_h=h, shapes_before=controls_before, create_ms=create_ms, text_ms=text_ms, add_ms=add_ms)
 
 
+def runtime_uid_from_doc_key(key: str) -> str:
+    """Return RuntimeUID from a ``doc_key`` value, or \"\" when the key is not uid-based."""
+    if key.startswith(_DOC_KEY_UID_PREFIX):
+        return key[len(_DOC_KEY_UID_PREFIX) :]
+    return ""
+
+
 def doc_key(doc: Any) -> str:
     """Stable id for listener de-dupe across Python wrappers of the same document.
 
@@ -354,7 +363,7 @@ def doc_key(doc: Any) -> str:
     """
     uid = get_runtime_uid(doc)
     if uid:
-        return f"uid:{uid}"
+        return f"{_DOC_KEY_UID_PREFIX}{uid}"
     return f"id:{id(doc)}"
 
 
@@ -383,6 +392,7 @@ __all__ = [
     "mono_ms",
     "page_style",
     "prepare_display_text",
+    "runtime_uid_from_doc_key",
     "text_area_width_units",
     "text_width_from_style",
 ]

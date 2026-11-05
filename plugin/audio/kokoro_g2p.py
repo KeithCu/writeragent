@@ -31,8 +31,6 @@ Synthesis runs in the venv via ``kokoro_worker.py`` (warm stdio loop, or
 
 from __future__ import annotations
 
-from plugin.framework.send_cancellation import is_cancelled
-
 from dataclasses import dataclass
 from importlib import import_module
 import logging
@@ -42,6 +40,7 @@ import threading
 from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.i18n import _
+from plugin.framework.send_cancellation import is_cancelled
 
 if TYPE_CHECKING:
     from plugin.framework.send_cancellation import SendCancellation
