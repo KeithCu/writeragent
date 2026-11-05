@@ -31,8 +31,8 @@ import sys
 import threading
 import time
 from collections import OrderedDict
-from collections.abc import Callable
-from typing import Any, Generic, TypeVar, Generator
+from collections.abc import Callable, Generator
+from typing import Generic, TypeVar
 
 from compute_service.worker_stdio import COMPUTE_THREAD_ENV_VARS, RestrictedUnpickler, configure_compute_worker_env, run_compute_worker, run_worker_stdio_loop, unpack_restricted_pickle_frame
 from plugin.framework.process_worker import BaseProcessWorker
@@ -54,6 +54,7 @@ __all__ = ["BaseProcessPool", "BaseProcessWorker", "COMPUTE_THREAD_ENV_VARS", "P
 log = logging.getLogger("compute_service.worker")
 
 _PoolT = TypeVar("_PoolT", bound="BaseProcessPool")
+_SettingsT = TypeVar("_SettingsT")
 _ValT = TypeVar("_ValT")
 
 
@@ -124,10 +125,16 @@ class PoolSingleton(Generic[_PoolT]):
             pool.shutdown()
 
 
-def bind_pool_singleton(holder: PoolSingleton[_PoolT], factory: Callable[[Any], _PoolT]) -> tuple[Callable[[Any], _PoolT], Callable[..., None]]:
-    """``get(settings)`` and ``shutdown(*, permanent=False)`` for one process-wide pool."""
+def bind_pool_singleton(
+    holder: PoolSingleton[_PoolT],
+    factory: Callable[[_SettingsT | None], _PoolT],
+) -> tuple[Callable[[_SettingsT | None], _PoolT], Callable[..., None]]:
+    """``get(settings)`` and ``shutdown(*, permanent=False)`` for one process-wide pool.
 
-    def get(settings: Any = None) -> _PoolT:
+    With *permanent* on shutdown, a later ``get`` raises instead of building a new pool.
+    """
+
+    def get(settings: _SettingsT | None = None) -> _PoolT:
         return holder.get(lambda: factory(settings))
 
     def shutdown(*, permanent: bool = False) -> None:

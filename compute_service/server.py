@@ -634,8 +634,8 @@ Handle = Callable[[dict[str, Any], Any, _Admission], list[bytes]]
 class _Route:
     method: str
     is_body_route: bool
-    prepare: Prepare | None = None
-    handle: Handle | None = None
+    prepare: Prepare
+    handle: Handle
     busy_code: str = ec.WORKER_POOL_BUSY
     busy_message: str = "All compute workers are currently busy."
 
@@ -657,7 +657,6 @@ def _gated(
     and returns the admission record. An error response from ``route.prepare`` does
     not take a permit.
     """
-    assert route.prepare is not None and route.handle is not None
     started = False
 
     def _start(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> Any:
@@ -939,7 +938,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         return _handle_vision(environ, start, settings, admission)
 
     routes: dict[str, _Route] = {
-        "/health": _Route("GET", False),
         "/v1/execute": _Route("POST", True, _prepare_execute, _dispatch_execute),
         "/v1/session/reset": _Route("POST", True, _prepare_reset, _dispatch_reset),
         "/v1/vision": _Route("POST", True, _prepare_vision, _dispatch_vision, busy_code=ec.VISION_POOL_BUSY, busy_message="All vision workers are currently busy."),
@@ -948,6 +946,20 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
     def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         path = environ.get("PATH_INFO", "")
         method = environ.get("REQUEST_METHOD", "GET")
+
+        if path == "/health":
+            if method != "GET":
+                if _has_declared_body(environ):
+                    request_conn(environ).close_connection = True
+                body = b"Method Not Allowed"
+                start_response(
+                    "405 Method Not Allowed",
+                    [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", "GET")],
+                )
+                return [body]
+            if _has_declared_body(environ):
+                request_conn(environ).close_connection = True
+            return _health(start_response)
 
         route = routes.get(path)
         if route is None:
@@ -969,8 +981,6 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         if not route.is_body_route and _has_declared_body(environ):
             request_conn(environ).close_connection = True
 
-        if route.prepare is None:
-            return _health(start_response)
         return _gated(environ, start_response, settings, permits, route)
 
     return wsgi_app
