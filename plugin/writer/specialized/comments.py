@@ -85,11 +85,32 @@ class CommentList(ToolWriterCommentBase):
     """List all comments (annotations) in the document."""
 
     name: str | None = "comment_list"
-    description: str = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
+    description: str = (
+        "List all comments/annotations in the document, including author, content, date, resolved status, "
+        "and anchor preview. Use author_filter to see only a specific agent's comments. Returns at most "
+        "max_comments rows (default 100); page through the rest with start_index when has_more is true."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "author_filter": {
+                "type": "string",
+                "description": (
+                    "Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all."
+                ),
+            },
+            "start_index": {"type": "integer", "description": "Zero-based row to start this page at (default 0)."},
+            "max_comments": {"type": "integer", "description": "Maximum rows to return (default 100)."},
+        },
+        "required": [],
+    }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         author_filter = kwargs.get("author_filter")
+        start_index = kwargs.get("start_index", 0)
+        max_comments = kwargs.get("max_comments", 100)
+        start_index = max(0, int(start_index))
+        max_comments = max(1, int(max_comments))
         doc = ctx.doc
         # One field scan first: a comment-free document should not pay for the paragraph map.
         fields = list(_iter_annotations(doc))
@@ -102,7 +123,16 @@ class CommentList(ToolWriterCommentBase):
 
                 comments.append(reader(field))
 
-        result: dict[str, Any] = {"status": "ok", "comments": comments, "count": len(comments)}
+        window = comments[start_index:start_index + max_comments]
+        end = start_index + len(window)
+        result: dict[str, Any] = {
+            "status": "ok",
+            "comments": window,
+            "count": len(window),
+            "has_more": end < len(comments),
+        }
+        if end < len(comments):
+            result["next_index"] = end
         if author_filter:
             result["filtered_by"] = author_filter
         return result
@@ -383,6 +413,57 @@ class CommentResolve(ToolWriterCommentBase):
         if reply_name:
             result["reply_name"] = reply_name
         return result
+
+
+class CommentEdit(ToolWriterCommentBase):
+    """Edit an existing comment's text without changing metadata."""
+
+    name: str | None = "comment_edit"
+    description: str = "Change the content text of an existing comment by name. Does not change author, date, or resolved status."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The 'name' field returned by comment_list."},
+            "content": {"type": "string", "description": "New comment text."},
+        },
+        "required": ["name", "content"],
+    }
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        comment_name = kwargs["name"]
+        content = kwargs["content"]
+        if not content:
+            return self._tool_error("Provide content.")
+
+        doc = ctx.doc
+        target = _find_annotation_by_name(doc, comment_name)
+        if target is None:
+            return _comment_not_found(
+                "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
+                details=_comment_miss_details(doc, comment_name),
+            )
+
+        from ..edit_review import next_agent_edit_undo_title
+
+        undo_title = next_agent_edit_undo_title()
+
+        def mutate() -> dict[str, Any] | None:
+            target.setPropertyValue("Content", content)
+            return None
+
+        err = commit_or_rollback_mutation(
+            self,
+            doc,
+            undo_title,
+            mutate,
+            undo_unavailable_msg="Cannot edit comment atomically (no usable undo context).",
+            rollback_msg="Failed to edit comment; the change was rolled back",
+        )
+        if err is not None:
+            return err
+
+        return {"status": "ok", "comment_name": comment_name, "content": content}
 
 
 _ANNOTATION_PROPERTIES = (

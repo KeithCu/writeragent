@@ -6,7 +6,7 @@
 
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from plugin.framework.errors import DocumentDisposedError
 from plugin.writer.specialized import textframes
@@ -235,3 +235,98 @@ def test_frame_get_info_body_anchor(monkeypatch):
     ctx.services.document.find_paragraph_for_range.return_value = None
     res2 = FrameGetInfo().execute(ctx, name="Box")
     assert res2["paragraph_index"] is None
+
+
+def test_frame_insert_default_size_and_undo_path():
+    from plugin.writer.specialized.textframes import FrameInsert
+
+    doc = MagicMock()
+    _undo = MagicMock()
+    _undo.isLocked.return_value = False
+    doc.getUndoManager.return_value = _undo
+    frame = MagicMock()
+    frame.getPropertyValue.return_value = "MyFrame"
+    frame_text = MagicMock()
+    frame_cursor = MagicMock()
+    frame_text.createTextCursor.return_value = frame_cursor
+    frame.getText.return_value = frame_text
+    doc.createInstance.return_value = frame
+    cursor = MagicMock()
+    host_text = MagicMock()
+    cursor.getText.return_value = host_text
+    ctx = MagicMock(doc=doc)
+
+    captured: dict[str, Any] = {}
+
+    def _commit(_tool, _doc, _title, mutate, *_args, **_kwargs):
+        captured["mutate"] = mutate
+        mutate()
+        return None
+
+    with (
+        patch("plugin.writer.specialized.textframes.resolve_target_cursor", return_value=cursor),
+        patch("plugin.writer.specialized.textframes.commit_or_rollback_mutation", side_effect=_commit),
+        patch("plugin.writer.specialized.textframes.mm_to_unit", side_effect=lambda mm: int(mm * 100)),
+    ):
+        res = FrameInsert().execute(ctx, target="beginning", text="hello", name="MyFrame")
+
+    assert res["status"] == "ok"
+    doc.createInstance.assert_called_with("com.sun.star.text.TextFrame")
+    size_call = frame.setPropertyValue.call_args_list[0]
+    assert size_call[0][0] == "Size"
+    assert size_call[0][1].Width == 8000
+    assert size_call[0][1].Height == 3000
+    host_text.insertTextContent.assert_called_once()
+    frame_text.insertString.assert_called_once_with(frame_cursor, "hello", False)
+
+
+def test_frame_insert_invalid_width_and_anchor():
+    from plugin.writer.specialized.textframes import FrameInsert
+
+    ctx = MagicMock(doc=MagicMock())
+    tool = FrameInsert()
+    bad_w = tool.execute(ctx, width_mm=0)
+    assert bad_w["code"] == "INVALID_PARAMETER"
+    bad_a = tool.execute(ctx, anchor_type=5)
+    assert bad_a["code"] == "INVALID_PARAMETER"
+
+
+def test_frame_delete_remove_text_content():
+    from plugin.writer.specialized.textframes import FrameDelete
+
+    frame = MagicMock()
+    anchor = MagicMock()
+    host = MagicMock()
+    anchor.getText.return_value = host
+    frame.getAnchor.return_value = anchor
+    frames = MagicMock()
+    frames.hasByName.return_value = True
+    frames.getByName.return_value = frame
+    doc = MagicMock()
+    doc.getTextFrames.return_value = frames
+    um = MagicMock()
+    um.isLocked.return_value = False
+    doc.getUndoManager.return_value = um
+    ctx = MagicMock(doc=doc)
+
+    def _commit(_tool, _doc, _title, mutate, *_a, **_k):
+        mutate()
+        return None
+
+    with patch("plugin.writer.specialized.textframes.commit_or_rollback_mutation", side_effect=_commit):
+        res = FrameDelete().execute(ctx, name="Box")
+    assert res["status"] == "ok"
+    host.removeTextContent.assert_called_once_with(frame)
+
+
+def test_frame_delete_unknown_hints_frame_list():
+    from plugin.writer.specialized.textframes import FrameDelete
+
+    frames = MagicMock()
+    frames.hasByName.return_value = False
+    doc = MagicMock()
+    doc.getTextFrames.return_value = frames
+    ctx = MagicMock(doc=doc)
+    res = FrameDelete().execute(ctx, name="Missing")
+    assert res["status"] == "error"
+    assert "frame_list" in res.get("message", "").lower() or res.get("details")

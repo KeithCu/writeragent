@@ -267,10 +267,12 @@ class StatusBarGrammarStatus(GrammarStatus):
     """LibreHarper: update the LibreOffice window status bar using XStatusIndicator."""
 
     _indicator: Any
+    _label: str
 
-    def __init__(self) -> None:
+    def __init__(self, label: str = "LibreHarper") -> None:
         super().__init__()
         self._indicator = None
+        self._label = label
 
     def _deliver(
         self,
@@ -314,11 +316,12 @@ class StatusBarGrammarStatus(GrammarStatus):
 
     def _paint(self, phase: str, result: str = "", routine: bool = False) -> None:
         """Update the LibreOffice window status bar using XStatusIndicator."""
-        msg = f"LibreHarper: {result or 'Checking...'}"
+        prefix = self._label
+        msg = f"{prefix}: {result or 'Checking...'}"
         if phase == "done":
-            msg = "LibreHarper: Grammar check complete"
+            msg = f"{prefix}: Grammar check complete"
         elif phase == "failed":
-            msg = f"LibreHarper: Failed ({result})" if result else "LibreHarper: Grammar check failed"
+            msg = f"{prefix}: Failed ({result})" if result else f"{prefix}: Grammar check failed"
 
         try:
             if routine:
@@ -352,6 +355,59 @@ class StatusBarGrammarStatus(GrammarStatus):
             self._indicator = None
 
 
+class WriterAgentGrammarStatus(GrammarStatus):
+    """WriterAgent: sidebar bus plus optional status-bar fallback."""
+
+    _sidebar: SidebarGrammarStatus
+    _status_bar: StatusBarGrammarStatus
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._sidebar = SidebarGrammarStatus()
+        self._status_bar = StatusBarGrammarStatus(label="Grammar")
+
+    def _deliver(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        self._sidebar._deliver(
+            phase,
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+            routine=routine,
+        )
+        paint_status_bar = phase == "failed"
+        if not paint_status_bar and not get_event_bus().has_subscribers("grammar:status"):
+            paint_status_bar = True
+        if (
+            not paint_status_bar
+            and routine
+            and phase in _TERMINAL_STATUS_PHASES
+            and self._status_bar._indicator is not None
+        ):
+            paint_status_bar = True
+        if paint_status_bar:
+            self._status_bar._deliver(
+                phase,
+                text,
+                result=result,
+                elapsed_ms=elapsed_ms,
+                preview_source=preview_source,
+                length_hint=length_hint,
+                routine=routine,
+            )
+
+
 _STATUS_SINK: GrammarStatus | None = None
 
 
@@ -361,7 +417,7 @@ def get_grammar_status() -> GrammarStatus:
     if _STATUS_SINK is None:
         from plugin.framework.uno_context import is_libreharper
 
-        _STATUS_SINK = StatusBarGrammarStatus() if is_libreharper() else SidebarGrammarStatus()
+        _STATUS_SINK = StatusBarGrammarStatus() if is_libreharper() else WriterAgentGrammarStatus()
     return _STATUS_SINK
 
 

@@ -141,16 +141,18 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "symbolic_math",
     "undo",
     "write_formula_range",
+    "document_properties_get",
+    "document_properties_set",
 })
 
 
 def test_extract_full_calc_layout_count():
-    """Verify that full layout extraction returns all 62 Calc tools across tiers."""
+    """Verify that full layout extraction returns all 64 Calc tools across tiers."""
     layout = extract_full_calc_layout()
 
     all_tool_names = {t.name for t in layout["core_tools"] + layout["specialized_tools"]}
     assert all_tool_names == _EXPECTED_CALC_TOOL_NAMES
-    assert layout["total_count"] == 62
+    assert layout["total_count"] == 64
     assert len(layout["core_tools"]) >= 10
     assert len(layout["specialized_tools"]) >= 39
 

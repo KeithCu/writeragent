@@ -57,6 +57,7 @@ def test_specialized_writer_tools_mutation_and_uno_services_contract():
         comments.AddComment: True,
         comments.CommentDelete: True,
         comments.CommentResolve: True,
+        comments.CommentEdit: True,
         comments.CommentWorkflowSet: True,
         # Bookmarks
         bookmarks.BookmarkList: False,
@@ -1182,7 +1183,13 @@ def test_comment_list_without_annotations_skips_paragraph_scan():
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
     ctx = MagicMock(doc=doc)
     res = CommentList().execute(ctx, author_filter="Rev")
-    assert res == {"status": "ok", "comments": [], "count": 0, "filtered_by": "Rev"}
+    assert res == {
+        "status": "ok",
+        "comments": [],
+        "count": 0,
+        "has_more": False,
+        "filtered_by": "Rev",
+    }
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
@@ -1246,4 +1253,86 @@ def test_add_comment_reply_uses_three_annotation_scans():
     assert res["status"] == "ok", res
     assert res["name"] == "R"
     assert calls["n"] == 3
+
+
+def test_comment_list_paging_and_author_filter_order():
+    from plugin.writer.specialized import comments as comments_mod
+    from plugin.writer.specialized.comments import CommentList
+
+    fields = [
+        _make_comment_field("n0", author="Bot"),
+        _make_comment_field("n1", author="Other"),
+        _make_comment_field("n2", author="Other"),
+    ]
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(fields)
+    ctx = MagicMock(doc=doc)
+
+    def _reader(field: Any) -> dict[str, Any]:
+        return {
+            "name": field.getPropertyValue("Name"),
+            "author": field.getPropertyValue("Author"),
+        }
+
+    with patch.object(comments_mod, "_annotation_reader", lambda _ctx: _reader):
+        page1 = CommentList().execute(ctx, start_index=0, max_comments=2)
+        assert page1["count"] == 2
+        assert page1["has_more"] is True
+        assert page1["next_index"] == 2
+
+        page2 = CommentList().execute(ctx, start_index=2, max_comments=2)
+        assert page2["count"] == 1
+        assert page2["has_more"] is False
+        assert "next_index" not in page2
+
+        filtered = CommentList().execute(ctx, author_filter="Bot", max_comments=1)
+        assert filtered["count"] == 1
+        assert filtered["comments"][0]["author"] == "Bot"
+        assert filtered["has_more"] is False
+
+        clamped = CommentList().execute(ctx, start_index=-5, max_comments=0)
+        assert clamped["count"] == 1
+
+
+def test_comment_edit_sets_content_only():
+    from plugin.writer.specialized.comments import CommentEdit
+
+    field = _make_comment_field("C1", author="A")
+    doc = MagicMock()
+    _setup_mock_undo_manager(doc)
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    ctx = MagicMock(doc=doc)
+
+    res = CommentEdit().execute(ctx, name="C1", content="Updated")
+    assert res["status"] == "ok"
+    field.setPropertyValue.assert_called_with("Content", "Updated")
+
+
+def test_comment_edit_miss_and_empty_content():
+    from plugin.writer.specialized.comments import CommentEdit
+
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    ctx = MagicMock(doc=doc)
+
+    miss = CommentEdit().execute(ctx, name="missing", content="x")
+    assert miss["code"] == "COMMENT_NOT_FOUND"
+
+    empty = CommentEdit().execute(ctx, name="C1", content="")
+    assert empty["status"] == "error"
+
+
+def test_comment_edit_locked_undo_manager():
+    from plugin.writer.specialized.comments import CommentEdit
+
+    doc = MagicMock()
+    mgr = _setup_mock_undo_manager(doc)
+    mgr.isLocked.return_value = True
+    field = _make_comment_field("target")
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    ctx = MagicMock(doc=doc)
+
+    res = CommentEdit().execute(ctx, name="target", content="new")
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    field.setPropertyValue.assert_not_called()
 

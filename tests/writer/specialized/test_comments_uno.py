@@ -6,7 +6,7 @@
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
-from plugin.writer.specialized.comments import AddComment, CommentList, CommentResolve
+from plugin.writer.specialized.comments import AddComment, CommentEdit, CommentList, CommentResolve
 
 
 def _set_body(doc, text_value: str) -> None:
@@ -108,3 +108,30 @@ def test_add_comment_search_hits_nbsp_uno(ctx, doc):
     assert res.get("matched") is True
     assert res.get("comment_added") is True
     assert "text\u00a0with\u00a0nbsp" in res.get("anchor_text", "")
+
+
+@native_test
+@with_native_doc("writer")
+def test_comment_edit_preserves_metadata_uno(ctx, doc):
+    _set_body(doc, "Sentence for comment edit probe.")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    add_res = AddComment().execute(tool_ctx, content="Original note", search="Sentence")
+    assert add_res.get("status") == "ok", add_res
+    name = add_res["name"]
+    assert name
+
+    before = CommentList().execute(tool_ctx)
+    entry = next(c for c in before["comments"] if c.get("name") == name)
+    author = entry.get("author")
+    date_before = entry.get("date")
+    assert entry.get("resolved") is False
+
+    edit_res = CommentEdit().execute(tool_ctx, name=name, content="Edited note")
+    assert edit_res.get("status") == "ok", edit_res
+
+    after = CommentList().execute(tool_ctx)
+    updated = next(c for c in after["comments"] if c.get("name") == name)
+    assert updated.get("content") == "Edited note"
+    assert updated.get("author") == author
+    assert updated.get("resolved") is False
+    assert updated.get("date") == date_before

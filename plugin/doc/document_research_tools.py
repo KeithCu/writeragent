@@ -20,6 +20,14 @@ from plugin.chatbot.agent_manual import (
 )
 from plugin.framework.doc_type import doc_type_of
 from plugin.doc.document_research import get_open_documents, list_nearby_files
+from plugin.doc.udprops import (
+    get_document_property,
+    list_user_defined_document_properties,
+    read_builtin_document_properties,
+    remove_document_property,
+    set_document_property,
+    write_builtin_document_properties,
+)
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancelled
@@ -98,6 +106,194 @@ class ListOpenDocuments(ToolBase):
             docs = get_open_documents(ctx.ctx, ctx.doc)
             # Piggyback clock for MCP hosts that ignore initialize.instructions (#374 Bug 1).
             return {"status": "ok", "documents": docs, "current_local_datetime": _format_mcp_clock_context()}
+
+        try:
+            return main.run(_run)
+        except SendCancelled:
+            return user_stopped_payload()
+
+
+_EXCEL_PY_DAG_META = "ExcelPyDagMeta"
+
+
+def _is_product_udprop(name: str) -> bool:
+    return name.startswith("WriterAgent") or name == _EXCEL_PY_DAG_META
+
+
+class DocumentPropertiesGet(ToolBase):
+    """Read built-in and user-defined document metadata."""
+
+    name: str | None = "document_properties_get"
+    description: str = (
+        "Read document metadata: title, subject, author, description, keywords, and custom "
+        "user-defined properties. Internal WriterAgent product properties are listed by name only."
+    )
+    tier: str = "core"
+    is_mutation: bool | None = False
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        def _run() -> dict[str, Any]:
+            builtins = read_builtin_document_properties(ctx.doc)
+            user_defined: dict[str, str] = {}
+            internal_omitted: list[str] = []
+            for prop_name in list_user_defined_document_properties(ctx.doc):
+                if _is_product_udprop(prop_name):
+                    internal_omitted.append(prop_name)
+                    continue
+                val = get_document_property(ctx.doc, prop_name, default="")
+                user_defined[prop_name] = str(val) if val is not None else ""
+            return {
+                "status": "ok",
+                **builtins,
+                "user_defined": user_defined,
+                "internal_omitted": sorted(internal_omitted),
+            }
+
+        try:
+            return main.run(_run)
+        except SendCancelled:
+            return user_stopped_payload()
+
+
+class DocumentPropertiesSet(ToolBase):
+    """Update built-in and user-defined document metadata."""
+
+    name: str | None = "document_properties_set"
+    description: str = (
+        "Update document metadata. Pass only fields to change. Empty string clears a built-in text "
+        "field; an empty keywords array clears keywords. User-defined values must be strings."
+    )
+    tier: str = "core"
+    is_mutation: bool | None = True
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "title": {"type": "string", "description": "Document title (empty clears)."},
+            "subject": {"type": "string", "description": "Subject (empty clears)."},
+            "author": {"type": "string", "description": "Author (empty clears)."},
+            "description": {"type": "string", "description": "Description (empty clears)."},
+            "keywords": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Keyword list (empty array clears).",
+            },
+            "user_defined": {
+                "type": "object",
+                "additionalProperties": {"type": "string"},
+                "description": "Custom property names and string values to set.",
+            },
+            "remove_user_defined": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Custom property names to remove.",
+            },
+        },
+        "required": [],
+    }
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        title = kwargs.get("title")
+        subject = kwargs.get("subject")
+        author = kwargs.get("author")
+        description = kwargs.get("description")
+        keywords = kwargs.get("keywords")
+        user_defined = kwargs.get("user_defined")
+        remove_user_defined = kwargs.get("remove_user_defined")
+
+        if keywords is not None and not isinstance(keywords, list):
+            return self._tool_error(
+                "keywords must be an array of strings.",
+                code="INVALID_PARAMETER",
+                parameter="keywords",
+            )
+
+        ud_writes: dict[str, str] = {}
+        if user_defined is not None:
+            if not isinstance(user_defined, dict):
+                return self._tool_error(
+                    "user_defined must be an object of string values.",
+                    code="INVALID_PARAMETER",
+                    parameter="user_defined",
+                )
+            for key, val in user_defined.items():
+                if not isinstance(key, str) or not isinstance(val, str):
+                    return self._tool_error(
+                        "user_defined keys and values must be strings.",
+                        code="INVALID_PARAMETER",
+                        parameter="user_defined",
+                    )
+                if _is_product_udprop(key):
+                    return self._tool_error(
+                        "Cannot set internal property %r." % key,
+                        code="INVALID_PARAMETER",
+                        parameter="user_defined",
+                    )
+                ud_writes[key] = val
+
+        ud_removes: list[str] = []
+        if remove_user_defined is not None:
+            if not isinstance(remove_user_defined, list):
+                return self._tool_error(
+                    "remove_user_defined must be an array of property names.",
+                    code="INVALID_PARAMETER",
+                    parameter="remove_user_defined",
+                )
+            for key in remove_user_defined:
+                if not isinstance(key, str):
+                    return self._tool_error(
+                        "remove_user_defined entries must be strings.",
+                        code="INVALID_PARAMETER",
+                        parameter="remove_user_defined",
+                    )
+                if key in ud_writes:
+                    return self._tool_error(
+                        "Cannot set and remove the same user-defined property %r." % key,
+                        code="INVALID_PARAMETER",
+                        parameter="user_defined",
+                    )
+                ud_removes.append(key)
+
+        builtin_fields: dict[str, Any] = {}
+        if title is not None:
+            builtin_fields["title"] = title
+        if subject is not None:
+            builtin_fields["subject"] = subject
+        if author is not None:
+            builtin_fields["author"] = author
+        if description is not None:
+            builtin_fields["description"] = description
+        if keywords is not None:
+            builtin_fields["keywords"] = keywords
+
+        if not builtin_fields and not ud_writes and not ud_removes:
+            return self._tool_error("No properties to set.", code="NO_CHANGES")
+
+        def _run() -> dict[str, Any]:
+            updated: list[str] = list(write_builtin_document_properties(ctx.doc, **builtin_fields))
+            removed: list[str] = []
+            for key, val in ud_writes.items():
+                if not set_document_property(ctx.doc, key, val):
+                    return self._tool_error(
+                        "Could not write user-defined property %r." % key,
+                        code="SET_PROPERTY_FAILED",
+                    )
+                updated.append("user_defined:%s" % key)
+            for key in ud_removes:
+                if _is_product_udprop(key):
+                    return self._tool_error(
+                        "Cannot remove internal property %r." % key,
+                        code="INVALID_PARAMETER",
+                        parameter="remove_user_defined",
+                    )
+                if remove_document_property(ctx.doc, key):
+                    removed.append(key)
+                else:
+                    return self._tool_error(
+                        "Could not remove user-defined property %r." % key,
+                        code="REMOVE_PROPERTY_FAILED",
+                    )
+            return {"status": "ok", "updated": updated, "removed": removed}
 
         try:
             return main.run(_run)

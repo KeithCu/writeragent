@@ -207,8 +207,11 @@ class HarperRuntime:
                     self.state = HarperRuntimeState.READY
             get_grammar_status().request("Harper", result="Harper ready")
             _schedule_proofread_again()
-        except Exception:
+        except Exception as exc:
             log.exception("[harper] Background ensure failed")
+            from plugin.writer.locale.grammar_obs import get_grammar_status
+
+            get_grammar_status().failed("Harper", result=str(exc))
             # An ensure failure always sets FAILED with failed_at. Guarding
             # the transition on "state is not RESOLVING" never records it:
             # harper_ensure_ready_async sets RESOLVING before submitting the
