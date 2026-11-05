@@ -148,7 +148,7 @@ def _insert_named_shape() -> None:
     ``execute_tool`` builds its own ``ToolContext`` from
     ``get_active_document(get_ctx())``. The pin has to make that the
     caller's Writer doc before this runs. This is the venv ``wa.shape``
-    lookup without holding ``PythonWorkerManager`` ``_io_lock``.
+    lookup without holding the warm-child pipe lock.
     """
     from plugin.framework.thread_guard import unwrap_uno
     from plugin.framework.uno_context import get_active_document, get_ctx

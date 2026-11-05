@@ -379,20 +379,14 @@ class PythonWorkerManager:
         self.pool = pool
         self._warm = None
         # Same-thread owner -> WORKER_REENTRY; tool RPC in flight or UI thread while
-        # locked -> busy; UI never blocks (WarmChild lease wait=0). Child._io_owner
-        # and _serving_tool_call are plain GIL-atomic attributes read without the warm
-        # pipe lock on purpose: the holder keeps it across host RPC.
+        # locked -> busy; UI never blocks (WarmChild lease wait=0).
+        # _serving_tool_call is a plain GIL-atomic bool on this manager, read
+        # without the pipe lock: the holder keeps that lock across host RPC, so a
+        # waiter has to see the flag without acquiring it.
         self._serving_tool_call: bool = False
         self._primed = False
         self._primed_generation = -1
         self._retired = False
-
-    @property
-    def _io_lock(self) -> threading.Lock:
-        warm = self._warm
-        if warm is None:
-            raise RuntimeError("Python worker warm child is not initialized")
-        return warm._io_lock
 
     def _on_worker_death(self, death: Death) -> None:
         self._clear_host_state_after_worker_death()
@@ -423,6 +417,10 @@ class PythonWorkerManager:
     @staticmethod
     def _lease_error_to_worker(err: dict[str, Any]) -> dict[str, Any]:
         code = err.get("code")
+        if code == "CANCELLED":
+            return _worker_error("CANCELLED", "Python worker stopped by user")
+        if code == "PIPE_LOCK_BUSY":
+            return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         if code == "SERVICE_SHUTDOWN":
             return _worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
         message = err.get("error") or "Python worker unavailable"
@@ -447,6 +445,13 @@ class PythonWorkerManager:
         acquire_end = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
         spawn_deadline = spawn_deadline or Deadline(float(WARM_WORKER_TIMEOUT_SEC))
         while True:
+            refused: dict[str, Any] | None = None
+
+            def _take_refusal() -> dict[str, Any] | None:
+                nonlocal refused
+                refused = self._refuse_lease()
+                return refused
+
             warm = self._get_warm()
             if warm is None:
                 yield _worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
@@ -458,21 +463,11 @@ class PythonWorkerManager:
                     spawn_deadline,
                     wait=wait,
                     cancel=cancel,
-                    refuse=self._refuse_lease,
+                    refuse=_take_refusal,
                     poll_sec=_IO_LOCK_POLL_SEC,
                 ) as leased:
                     if isinstance(leased, dict):
-                        code = leased.get("code")
-                        if code == "CANCELLED":
-                            yield _worker_error("CANCELLED", "Python worker stopped by user")
-                            return
-                        if code == "PIPE_LOCK_BUSY":
-                            yield _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
-                            return
-                        if code == "WORKER_REENTRY":
-                            yield leased
-                            return
-                        if code == "WORKER_IPC_ERROR" and leased.get("message") == _RETIRED_MESSAGE:
+                        if leased is refused:
                             yield leased
                             return
                         yield self._lease_error_to_worker(leased)
@@ -514,20 +509,16 @@ class PythonWorkerManager:
     ) -> dict[str, Any]:
         """Run *body* while this manager holds the pipe, or return the session error."""
         spawn_deadline = Deadline(float(timeout_sec if timeout_sec is not None else WARM_WORKER_TIMEOUT_SEC))
-        retry: RetryWithNewLease | None = None
         for attempt in range(2):
             with self._io_session(cancel, spawn_deadline=spawn_deadline) as session:
                 if isinstance(session, dict):
                     return session
-                else:
-                    outcome = body(session)
-                    if isinstance(outcome, RetryWithNewLease):
-                        retry = outcome
-                    else:
-                        return outcome
-            if retry is not None and attempt == 1:
-                return retry.error
-        return self._err("WORKER_IPC_ERROR", "Python worker failed after retry")
+                outcome = body(session)
+                if not isinstance(outcome, RetryWithNewLease):
+                    return outcome
+                if attempt == 1:
+                    return outcome.error
+        raise AssertionError("retry loop exited without a result")
 
     @classmethod
     def get(cls, exe: str, env: dict[str, str], *, pool: str = WORKER_POOL_DEFAULT) -> PythonWorkerManager:
@@ -602,6 +593,8 @@ class PythonWorkerManager:
         # sentence is only true when this thread already holds the pipe.
         # The locked() check can pass, then another thread takes the pipe via
         # lease(wait=0); non-blocking acquire closes that race for the UI thread.
+        # Child._io_owner is a plain GIL-atomic int on the child, read here
+        # without the pipe lock: the holder keeps that lock across host RPC.
         if warm is not None and warm.io_owner() == me:
             return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
         if self._serving_tool_call:
@@ -611,17 +604,11 @@ class PythonWorkerManager:
                 return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
 
-    def _ensure_warmed(self) -> dict[str, Any] | None:
-        with self._io_session() as session:
-            if isinstance(session, dict):
-                return session
-            return None
-
     def warm(self) -> None:
         """Spawn the worker and trigger auto-imports (numpy etc.) so the next real execute is instant."""
-        err = self._ensure_warmed()
-        if err is not None:
-            log.warning("Python worker warm failed: %s", err.get("message"))
+        with self._io_session() as session:
+            if isinstance(session, dict):
+                log.warning("Python worker warm failed: %s", session.get("message"))
 
     def _clear_host_state_after_worker_death(self) -> None:
         """IPC is desynced after a kill; only the default pool feeds the Calc cache."""
