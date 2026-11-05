@@ -86,7 +86,7 @@ python run_optimize.py --auto light -j 1 \
   -e table_from_mess,table_engineering --slice apply_html
 ```
 
-Other slices: `writer_core`, `apply_html`, `sort_range`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
+Other slices: `writer_core`, `apply_html`, `range_sort`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
 
 Pick a different model:
 
@@ -171,7 +171,7 @@ DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to r
 
 Production sidebar registration is unchanged. These flags only reshape the **advertised** eval catalog.
 
-**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `sort_range` / ranges-domain schemas.
+**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `range_sort` / ranges-domain schemas.
 
 | Preset | Kind | Outer tools (production names) |
 |--------|------|--------------------------------|

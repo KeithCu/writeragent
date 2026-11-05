@@ -134,6 +134,6 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 
 ## 8. Not AutoFilter
 
-**Standard sheet filtering** (AutoFilter / “hide rows that do not match”) is a **different** UNO surface (`XSheetFilterable`, `FilterOperator2`, `TableFilterField2`) from **conditional formatting** (`TableConditionalFormat`, `ConditionOperator`). It is documented and implemented separately: **[sheet-filter.md](sheet-filter.md)** (`sheet_filter` domain, tools `apply_sheet_filter`, `clear_sheet_filter`, `get_sheet_filter`).
+**Standard sheet filtering** (AutoFilter / “hide rows that do not match”) is a **different** UNO surface (`XSheetFilterable`, `FilterOperator2`, `TableFilterField2`) from **conditional formatting** (`TableConditionalFormat`, `ConditionOperator`). It is documented and implemented separately: **[sheet-filter.md](sheet-filter.md)** (`sheet_filter` domain, tools `sheet_filter_apply`, `sheet_filter_clear`, `sheet_filter_get`).
 
 For **compound logic** in *conditional formatting* rules, use operator **`FORMULA`** with a single Calc expression (e.g. `=AND($A1>5,$A1<10)` relative to the formatted range).

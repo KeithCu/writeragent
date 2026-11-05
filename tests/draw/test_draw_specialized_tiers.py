@@ -68,7 +68,7 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
             },
         ),
         ("slide_masters", {"list_master_slides", "get_slide_master", "set_slide_master"}),
-        ("tables", {"table_insert", "table_list", "table_get_cells", "table_set_cell", "manage_table_structure", "table_delete"}),
+        ("tables", {"table_insert", "table_list", "table_get_cells", "table_set_cell", "table_manage_structure", "table_delete"}),
         ("images", {"image_insert", "image_list", "image_delete", "image_generate"}),
         (
             "shapes",

@@ -205,7 +205,7 @@ def test_resolve_allowed_tools_shapes_and_multi_domain_union():
     assert union is not None
     assert "shape_upsert" in union
     assert "footnotes_insert" in union
-    assert "sort_range" not in union
+    assert "range_sort" not in union
     assert "list_open_documents" in union
     assert union == shapes | resolve_allowed_tools("footnotes")
 

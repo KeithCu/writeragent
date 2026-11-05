@@ -135,7 +135,7 @@ _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("parallel", re.compile(r"\b(two tools|in parallel)\b", re.IGNORECASE)),
     ("mutate", re.compile(r"\b(insert filler|append a paragraph)\b", re.IGNORECASE)),
     ("ping", re.compile(r"\bsse pings\b", re.IGNORECASE)),
-    ("list_sheets", re.compile(r"\blist sheets\b", re.IGNORECASE)),
+    ("sheet_list", re.compile(r"\blist sheets\b", re.IGNORECASE)),
     ("list_pages", re.compile(r"\blist pages\b", re.IGNORECASE)),
     # Packet P: specialized-inner peer (#673). peer_wait locks the Scrolly hang.
     ("peer_wait", re.compile(r"\b(wait after accepted|do not finish peer)\b", re.IGNORECASE)),
@@ -200,7 +200,7 @@ SCENARIO_IDS = frozenset(
         "two_dones",
         "event_ping",
         "ping",
-        "list_sheets",
+        "sheet_list",
         "list_pages",
         "peer_total",
         "peer_wait",
@@ -579,7 +579,7 @@ def _last_user_raw(messages: list[Any]) -> str:
 
 
 def _delegate_for_tools(tool_names: set[str]) -> str | None:
-    calc_tools = {"write_formula_range", "list_sheets", "get_sheet_summary", "set_cell_values", "read_sheet_data"}
+    calc_tools = {"write_formula_range", "sheet_list", "get_sheet_summary", "set_cell_values", "read_sheet_data"}
     if _DELEGATE_CALC in tool_names and (bool(tool_names & calc_tools) or _DELEGATE_WRITER not in tool_names):
         return _DELEGATE_CALC
     for name in (_DELEGATE_WRITER, _DELEGATE_CALC, _DELEGATE_DRAW):
@@ -859,7 +859,7 @@ def _is_main_chat(tool_names: set[str]) -> bool:
             _DELEGATE_CALC,
             _DELEGATE_DRAW,
             "write_formula_range",
-            "list_sheets",
+            "sheet_list",
             "list_pages",
         }
     )
@@ -997,7 +997,7 @@ def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
             f"<p>Specialized agent finished <strong>{safe_user}</strong>.</p>"
             f"<p>{snippet or '(empty)'}</p>"
         )
-    if tool_name in {"search_in_document", "get_document_tree", "list_sheets", "list_pages"}:
+    if tool_name in {"search_in_document", "get_document_tree", "sheet_list", "list_pages"}:
         return (
             f"<p>Ran <code>{html.escape(tool_name)}</code>.</p>"
             f"<p>{snippet or '(empty)'}</p>"
@@ -1552,10 +1552,10 @@ def _scenario_user_turn(
             user_text,
             turn,
         )
-    if scenario == "list_sheets":
-        # list_sheets is specialized-tier (sheets domain). Main Calc chat
+    if scenario == "sheet_list":
+        # sheet_list is specialized-tier (sheets domain). Main Calc chat
         # advertises get_sheet_summary instead — E12 uses that fallback.
-        name = "list_sheets" if "list_sheets" in tool_names else "get_sheet_summary"
+        name = "sheet_list" if "sheet_list" in tool_names else "get_sheet_summary"
         return _tool_or_html(tool_names, name, {}, user_text, turn)
     if scenario == "list_pages":
         return _tool_or_html(tool_names, "list_pages", {}, user_text, turn)

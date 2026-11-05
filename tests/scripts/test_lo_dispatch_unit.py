@@ -44,13 +44,13 @@ def test_write_cell_range_aliases_to_write_formula_range() -> None:
 
 def test_sort_range_name_to_index_and_used_range() -> None:
     name, params = tl.normalize_lo_tool(
-        "sort_range",
+        "range_sort",
         {"sort_column": "Revenue", "ascending": False},
         kind="calc",
         headers=["Product", "Revenue"],
         used_range="A1:B5",
     )
-    assert name == "sort_range"
+    assert name == "range_sort"
     assert params["sort_column"] == 1
     assert params["range"] == ["A1:B5"]
     assert params["ascending"] is False

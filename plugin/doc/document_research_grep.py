@@ -178,7 +178,7 @@ def _grep_text_in_calc(
     cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     # search_spreadsheet_cells stops at max_results with no truncated flag,
-    # and search_in_spreadsheet still needs the list. One extra hit
+    # and search_cells still needs the list. One extra hit
     # distinguishes a full cap from a short sheet. partial here is truncation only.
     fetched = search_spreadsheet_cells(
         model,

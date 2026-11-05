@@ -306,7 +306,7 @@ def test_group_tools_drops_llm_orchestration_tools():
     tools.append(
         _as_tool(
             MockTool(
-                "apply_sheet_filter",
+                "sheet_filter_apply",
                 "Hide rows. delegate_to_specialized_calc_toolset(domain='sheets').",
                 {
                     "type": "object",
@@ -330,7 +330,63 @@ def test_group_tools_drops_llm_orchestration_tools():
         assert f"'{name}'" not in code
         assert f'call_host_tool("{name}"' not in code
     assert "delegate_to_specialized_calc_toolset(domain='sheets')" in code
-    assert "def apply_sheet_filter(" in code
+    assert "def filter_apply(" in code
+
+
+def test_rename_calc_writer_specialized_tools_strip_to_short_proxy_methods():
+    """RENAME-CALC1: domain_verb tool ids group to wa.<domain>.<short> methods."""
+    renamed = [
+        ("sheet_list", "sheet", "list"),
+        ("sheet_switch", "sheet", "switch"),
+        ("sheet_create", "sheet", "create"),
+        ("sheet_rename", "sheet", "rename"),
+        ("sheet_delete", "sheet", "delete"),
+        ("sheet_protect", "sheet", "protect"),
+        ("sheet_filter_apply", "sheet", "filter_apply"),
+        ("sheet_filter_clear", "sheet", "filter_clear"),
+        ("sheet_filter_get", "sheet", "filter_get"),
+        ("search_cells", "search", "cells"),
+        ("search_replace", "search", "replace"),
+        ("range_sort", "range", "sort"),
+        ("error_detect", "error", "detect"),
+        ("table_manage_structure", "table", "manage_structure"),
+        ("tracking_manage", "tracking", "manage"),
+    ]
+    tools = []
+    domain_map = {
+        "sheet": "sheets",
+        "search": "search",
+        "range": "ranges",
+        "error": "errors",
+        "table": "tables",
+        "tracking": "tracking",
+    }
+    for tool_name, ns, method in renamed:
+        domain = domain_map[ns]
+        tools.append(
+            _as_tool(
+                MockTool(
+                    tool_name,
+                    f"Tool {tool_name}.",
+                    {"type": "object", "properties": {}},
+                    specialized_domain=domain,
+                )
+            )
+        )
+    groups = group_tools(tools)
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    ns_exec: dict[str, Any] = {}
+    exec(code, ns_exec)
+    for tool_name, proxy_ns, method in renamed:
+        found = False
+        for short, tool in groups.get(proxy_ns, []):
+            if tool.name == tool_name:
+                assert short == method, f"{tool_name} -> {short}, expected {method}"
+                found = True
+                break
+        assert found, f"{tool_name} missing from groups[{proxy_ns}]"
+        assert ns_exec["TOOL_METHODS"][tool_name] == (proxy_ns, method)
 
 
 def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():

@@ -60,7 +60,7 @@ def test_detect_and_explain_errors(ctx, doc):
     tctx = ToolContext(doc, ctx, "calc", {}, "test")
     res = DetectErrors().execute(tctx, range="I1")
 
-    assert res.get("status") == "ok", f"detect_and_explain_errors failed: {res}"
+    assert res.get("status") == "ok", f"error_detect failed: {res}"
     assert res.get("result", {}).get("error_count", 0) > 0, "No errors detected"
     errors = res.get("result", {}).get("errors", [])
     err0 = errors[0].get("error", {}) if errors else {}
@@ -69,7 +69,7 @@ def test_detect_and_explain_errors(ctx, doc):
     # Test #NAME?
     active_sheet.getCellByPosition(9, 0).setFormula("=UNKNOWN_NAME()")
     res2 = DetectErrors().execute(tctx, range="J1")
-    assert res2.get("status") == "ok", f"detect_and_explain_errors #NAME? failed: {res2}"
+    assert res2.get("status") == "ok", f"error_detect #NAME? failed: {res2}"
     assert res2.get("result", {}).get("error_count", 0) > 0, "No errors detected"
     errors = res2.get("result", {}).get("errors", [])
     err0 = errors[0].get("error", {}) if errors else {}
@@ -78,7 +78,7 @@ def test_detect_and_explain_errors(ctx, doc):
     # Test #REF!
     active_sheet.getCellByPosition(10, 0).setFormula("=#REF!")
     res3 = DetectErrors().execute(tctx, range="K1")
-    assert res3.get("status") == "ok", f"detect_and_explain_errors #REF! failed: {res3}"
+    assert res3.get("status") == "ok", f"error_detect #REF! failed: {res3}"
     assert res3.get("result", {}).get("error_count", 0) > 0, "No #REF! errors detected"
     errors = res3.get("result", {}).get("errors", [])
     err0 = errors[0].get("error", {}) if errors else {}
@@ -228,8 +228,8 @@ def test_write_formula_range_source_cross_sheet(ctx, doc):
         for col in range(3):
             src.getCellByPosition(col, row).setValue(float(row * 3 + col + 1))
 
-    created = _execute_calc_tool(doc, ctx, "create_sheet", {"sheet": "Sample"})
-    assert created.get("status") == "ok", f"create_sheet failed: {created}"
+    created = _execute_calc_tool(doc, ctx, "sheet_create", {"sheet": "Sample"})
+    assert created.get("status") == "ok", f"sheet_create failed: {created}"
     assert "no cells copied" in created.get("message", "")
     sample = sheets.getByName("Sample")
     assert sample.getCellByPosition(0, 0).getValue() == 0.0

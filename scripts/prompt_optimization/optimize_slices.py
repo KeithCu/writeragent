@@ -53,7 +53,7 @@ SLICE_SPECS: dict[str, SliceSpec] = {
         tool_name="write_formula_range",
         param_name="values",
     ),
-    "sort_range": SliceSpec("sort_range", "tool_description", tool_name="sort_range"),
+    "range_sort": SliceSpec("range_sort", "tool_description", tool_name="range_sort"),
     # Fallback: treat the assembled eval prompt as the instruction (opaque).
     "full_prompt": SliceSpec("full_prompt", "full_prompt"),
 }
@@ -88,7 +88,7 @@ def _tool_baseline(tool_name: str, param_name: str = "") -> str:
     cls: Any
     if tool_name == "write_formula_range":
         cls = WriteCellRange
-    elif tool_name == "sort_range":
+    elif tool_name == "range_sort":
         cls = SortRange
     else:
         raise ValueError(f"No baseline class for tool {tool_name!r}")

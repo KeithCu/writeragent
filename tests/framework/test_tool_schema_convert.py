@@ -287,7 +287,7 @@ def test_empty_properties_strips_kwargs_before_any_provider():
     tools = [{
         "type": "function",
         "function": {
-            "name": "list_sheets",
+            "name": "sheet_list",
             "parameters": {"type": "object", "properties": {}},
         },
     }]
@@ -296,7 +296,7 @@ def test_empty_properties_strips_kwargs_before_any_provider():
         "tool_calls": [{
             "id": "c1",
             "type": "function",
-            "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+            "function": {"name": "sheet_list", "arguments": '{"hallucinated": "yes"}'},
         }],
     }]
     out = normalize_outbound_tool_calls(messages, tools)
@@ -311,7 +311,7 @@ def test_normalize_outbound_accepts_tuple_messages_and_tools():
     tools = ({
         "type": "function",
         "function": {
-            "name": "list_sheets",
+            "name": "sheet_list",
             "parameters": {"type": "object", "properties": {}},
         },
     },)
@@ -320,7 +320,7 @@ def test_normalize_outbound_accepts_tuple_messages_and_tools():
         "tool_calls": [{
             "id": "c1",
             "type": "function",
-            "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+            "function": {"name": "sheet_list", "arguments": '{"hallucinated": "yes"}'},
         }],
     },)
     out = normalize_outbound_tool_calls(messages, tools)

@@ -46,7 +46,7 @@ Create `runs/<stamp>-gpt-oss-120b/` (example: `runs/20260909-1530-gpt-oss-120b/`
 | `notes.txt` | Observer notes: wrong factor, pinned formula, empty tabs, timing |
 
 Then score the saved workbook. Ready / STREAM_DONE is ignored — empty
-`create_sheet` tabs fail:
+`sheet_create` tabs fail:
 
 ```bash
 .venv/bin/python scripts/eval_2_headed.py --task calc-primary-model --score runs/<stamp>-gpt-oss-120b/final_workbook.ods

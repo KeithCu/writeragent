@@ -669,7 +669,7 @@ def test_calc_sync_tool_marshals_via_smol_adapter():
 
 
 def test_calc_list_sheets_runs_uno_only_when_current():
-    """Regression: list_sheets touches doc UNO; sub-agent worker must marshal before execute."""
+    """Regression: sheet_list touches doc UNO; sub-agent worker must marshal before execute."""
     session = start_uno_thread_safety_session()
     try:
         raw_sheet = MagicMock()
@@ -730,7 +730,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     _mock_get_config,
     _mock_get_config_val,
 ):
-    """Outer hop payload gets web-research-style `instruction` after create_sheet."""
+    """Outer hop payload gets web-research-style `instruction` after sheet_create."""
     from plugin.calc.sheets import CreateSheet
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
@@ -755,7 +755,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
         if tool_call_handler:
-            tool_call_handler(ToolCall(name="create_sheet", arguments={"sheet": "Q1 Actuals"}, id="1"))
+            tool_call_handler(ToolCall(name="sheet_create", arguments={"sheet": "Q1 Actuals"}, id="1"))
         return {
             "status": "ok",
             "finished": True,

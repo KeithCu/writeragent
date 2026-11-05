@@ -89,7 +89,7 @@ class TestWriterToolsSmoke:
             "track_changes_stop",
             "track_changes_list",
             "track_changes_show",
-            "manage_tracked_changes",
+            "tracking_manage",
         ):
             assert (name) in (names), f"expected tracking tool {name!r}"
         for leftover in (

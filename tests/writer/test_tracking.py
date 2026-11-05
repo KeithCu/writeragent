@@ -82,11 +82,11 @@ def test_track_changes_comment_tools_removed():
     from plugin.scripting import writeragent_api
 
     assert writeragent_api.DOMAIN_TOOLS["tracking"] == [
-        "manage_tracked_changes",
         "track_changes_list",
         "track_changes_show",
         "track_changes_start",
         "track_changes_stop",
+        "tracking_manage",
     ]
     for name in _REMOVED_TRACK_CHANGES_COMMENT_TOOLS:
         assert not hasattr(writeragent_api.tracking, name)
@@ -383,7 +383,7 @@ def test_manage_tracked_changes_self_resolve_undo_fails():
     assert res["status"] == "error"
     assert "Agent edit was resolved, which is forbidden." in res["message"]
     assert "Undo failed; the change is still resolved." in res["message"]
-    mock_log_exc.assert_called_once_with("manage_tracked_changes: undo of a forbidden agent resolution failed")
+    mock_log_exc.assert_called_once_with("tracking_manage: undo of a forbidden agent resolution failed")
 
 def test_manage_tracked_changes_accept():
     ctx, dispatcher, frame, _ = _create_mock_ctx()

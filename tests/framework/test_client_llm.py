@@ -1489,7 +1489,7 @@ def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):
     tools = [{
         "type": "function",
         "function": {
-            "name": "list_sheets",
+            "name": "sheet_list",
             "description": "List sheets",
             "parameters": {"type": "object", "properties": {}},
         },
@@ -1502,7 +1502,7 @@ def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):
             "tool_calls": [{
                 "id": "c1",
                 "type": "function",
-                "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+                "function": {"name": "sheet_list", "arguments": '{"hallucinated": "yes"}'},
             }],
         },
     ]
@@ -1518,7 +1518,7 @@ def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):
             tool_uses = [part for part in assistant["content"] if isinstance(part, dict) and part.get("type") == "tool_use"]
             assert tool_uses
             assert tool_uses[0]["input"] == {}
-            assert tool_uses[0]["name"] == "list_sheets"
+            assert tool_uses[0]["name"] == "sheet_list"
 
 
 def test_anthropic_accepts_openai_shaped_tools(client):

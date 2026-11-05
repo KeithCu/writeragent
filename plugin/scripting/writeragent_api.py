@@ -81,7 +81,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'rename_slide',
                 'set_active_page',
                 'set_placeholder_text'],
-    'error': ['detect_and_explain_errors', 'evaluate_formula'],
+    'error': ['error_detect', 'evaluate_formula'],
     'field': ['fields_delete', 'fields_insert', 'fields_list', 'fields_update_all'],
     'footnote': [   'footnotes_delete',
                     'footnotes_edit',
@@ -138,8 +138,8 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'named_range_edit',
                  'named_range_get_info',
                  'named_range_list',
-                 'sort_range'],
-    'search': ['replace_in_spreadsheet', 'search_in_spreadsheet'],
+                 'range_sort'],
+    'search': ['search_cells', 'search_replace'],
     'shape': [   'align_shapes',
                  'create_diagram',
                  'distribute_shapes',
@@ -149,15 +149,15 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'shape_group',
                  'shape_summary',
                  'shape_upsert'],
-    'sheet': [   'apply_sheet_filter',
-                 'clear_sheet_filter',
-                 'create_sheet',
-                 'delete_sheet',
-                 'get_sheet_filter',
-                 'list_sheets',
-                 'protect_sheet',
-                 'rename_sheet',
-                 'switch_sheet'],
+    'sheet': [   'sheet_create',
+                 'sheet_delete',
+                 'sheet_filter_apply',
+                 'sheet_filter_clear',
+                 'sheet_filter_get',
+                 'sheet_list',
+                 'sheet_protect',
+                 'sheet_rename',
+                 'sheet_switch'],
     'slide_layout': ['get_slide_layout', 'set_slide_layout'],
     'slide_master': ['get_slide_master', 'list_master_slides', 'set_slide_master'],
     'slide_transition': ['get_slide_transition', 'set_slide_transition'],
@@ -169,18 +169,18 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                       'section_list',
                       'section_read'],
     'styles': ['style_clone', 'style_create', 'style_get_info', 'style_import', 'style_list', 'style_update'],
-    'table': [   'manage_table_structure',
-                 'table_delete',
+    'table': [   'table_delete',
                  'table_get_cells',
                  'table_insert',
                  'table_list',
+                 'table_manage_structure',
                  'table_set_cell'],
     'textframe': ['frame_get_info', 'frame_list', 'frame_set_properties'],
-    'tracking': [   'manage_tracked_changes',
-                    'track_changes_list',
+    'tracking': [   'track_changes_list',
                     'track_changes_show',
                     'track_changes_start',
-                    'track_changes_stop'],
+                    'track_changes_stop',
+                    'tracking_manage'],
     'vision': ['extract_structure_from_image'],
     'writer': [   'add_comment',
                   'apply_document_content',
@@ -198,7 +198,6 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'align_shapes': ('shape', 'align_shapes'),
     'apply_design': ('draw', 'apply_design'),
     'apply_document_content': ('writer', 'apply_document_content'),
-    'apply_sheet_filter': ('sheet', 'apply_sheet_filter'),
     'apply_style': ('writer', 'apply_style'),
     'bookmark_cleanup': ('bookmark', 'cleanup'),
     'bookmark_create': ('bookmark', 'create'),
@@ -211,7 +210,6 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'chart_get_info': ('chart', 'get_info'),
     'chart_list': ('chart', 'list'),
     'chart_upsert': ('chart', 'upsert'),
-    'clear_sheet_filter': ('sheet', 'clear_sheet_filter'),
     'comment_check_stop': ('comment', 'check_stop'),
     'comment_delete': ('comment', 'delete'),
     'comment_list': ('comment', 'list'),
@@ -221,15 +219,13 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'comment_workflow_set': ('comment', 'workflow_set'),
     'create_diagram': ('shape', 'create_diagram'),
     'create_pivot_table': ('pivot_table', 'create_pivot_table'),
-    'create_sheet': ('sheet', 'create_sheet'),
     'delete_cell_comment': ('comment', 'delete_cell_comment'),
     'delete_pivot_table': ('pivot_table', 'delete_pivot_table'),
-    'delete_sheet': ('sheet', 'delete_sheet'),
     'delete_slide': ('draw', 'delete_slide'),
     'delete_structure': ('calc', 'delete_structure'),
-    'detect_and_explain_errors': ('error', 'detect_and_explain_errors'),
     'distribute_shapes': ('shape', 'distribute_shapes'),
     'duplicate_slide': ('draw', 'duplicate_slide'),
+    'error_detect': ('error', 'detect'),
     'evaluate_formula': ('error', 'evaluate_formula'),
     'extract_structure_from_image': ('vision', 'extract_structure_from_image'),
     'fields_delete': ('field', 'delete'),
@@ -262,7 +258,6 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'get_page_objects': ('writer', 'get_page_objects'),
     'get_placeholder_text': ('draw', 'get_placeholder_text'),
     'get_presentation_info': ('draw', 'get_presentation_info'),
-    'get_sheet_filter': ('sheet', 'get_sheet_filter'),
     'get_sheet_summary': ('calc', 'get_sheet_summary'),
     'get_slide_layout': ('slide_layout', 'get_slide_layout'),
     'get_slide_master': ('slide_master', 'get_slide_master'),
@@ -298,14 +293,11 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'list_pages': ('draw', 'list_pages'),
     'list_pivot_tables': ('pivot_table', 'list_pivot_tables'),
     'list_placeholders': ('draw', 'list_placeholders'),
-    'list_sheets': ('sheet', 'list_sheets'),
     'mail_merge_insert_field': ('mail_merge', 'insert_field'),
     'mail_merge_list_fields': ('mail_merge', 'list_fields'),
     'mail_merge_list_sources': ('mail_merge', 'list_sources'),
     'mail_merge_register_source': ('mail_merge', 'register_source'),
     'mail_merge_run': ('mail_merge', 'run'),
-    'manage_table_structure': ('table', 'manage_table_structure'),
-    'manage_tracked_changes': ('tracking', 'manage_tracked_changes'),
     'merge_cells': ('calc', 'merge_cells'),
     'move_slide': ('draw', 'move_slide'),
     'named_range_add': ('range', 'named_range_add'),
@@ -326,18 +318,17 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'page_set_columns': ('page', 'set_columns'),
     'page_set_header_footer_text': ('page', 'set_header_footer_text'),
     'page_set_style_properties': ('page', 'set_style_properties'),
-    'protect_sheet': ('sheet', 'protect_sheet'),
     'query_folder_sql': ('python_sql', 'query_folder_sql'),
+    'range_sort': ('range', 'sort'),
     'read_cell_range': ('calc', 'read_cell_range'),
     'read_slide_text': ('draw', 'read_slide_text'),
     'redo': ('core', 'redo'),
     'refresh_pivot_table': ('pivot_table', 'refresh_pivot_table'),
     'remove_conditional_formats': ('conditional_formatting', 'remove_conditional_formats'),
-    'rename_sheet': ('sheet', 'rename_sheet'),
     'rename_slide': ('draw', 'rename_slide'),
-    'replace_in_spreadsheet': ('search', 'replace_in_spreadsheet'),
+    'search_cells': ('search', 'cells'),
     'search_in_document': ('writer', 'search_in_document'),
-    'search_in_spreadsheet': ('search', 'in_spreadsheet'),
+    'search_replace': ('search', 'replace'),
     'section_list': ('structural', 'section_list'),
     'section_read': ('structural', 'section_read'),
     'set_active_page': ('draw', 'set_active_page'),
@@ -354,24 +345,33 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'shape_group': ('shape', 'group'),
     'shape_summary': ('shape', 'summary'),
     'shape_upsert': ('shape', 'upsert'),
-    'sort_range': ('range', 'sort_range'),
+    'sheet_create': ('sheet', 'create'),
+    'sheet_delete': ('sheet', 'delete'),
+    'sheet_filter_apply': ('sheet', 'filter_apply'),
+    'sheet_filter_clear': ('sheet', 'filter_clear'),
+    'sheet_filter_get': ('sheet', 'filter_get'),
+    'sheet_list': ('sheet', 'list'),
+    'sheet_protect': ('sheet', 'protect'),
+    'sheet_rename': ('sheet', 'rename'),
+    'sheet_switch': ('sheet', 'switch'),
     'style_clone': ('styles', 'clone'),
     'style_create': ('styles', 'create'),
     'style_get_info': ('styles', 'get_info'),
     'style_import': ('styles', 'import_'),
     'style_list': ('styles', 'list'),
     'style_update': ('styles', 'update'),
-    'switch_sheet': ('sheet', 'switch_sheet'),
     'symbolic_math': ('python', 'symbolic_math'),
     'table_delete': ('table', 'delete'),
     'table_get_cells': ('table', 'get_cells'),
     'table_insert': ('table', 'insert'),
     'table_list': ('table', 'list'),
+    'table_manage_structure': ('table', 'manage_structure'),
     'table_set_cell': ('table', 'set_cell'),
     'track_changes_list': ('tracking', 'track_changes_list'),
     'track_changes_show': ('tracking', 'track_changes_show'),
     'track_changes_start': ('tracking', 'track_changes_start'),
     'track_changes_stop': ('tracking', 'track_changes_stop'),
+    'tracking_manage': ('tracking', 'manage'),
     'undo': ('core', 'undo'),
     'upsert_memory': ('core', 'upsert_memory'),
     'web_research': ('core', 'web_research'),
@@ -938,13 +938,13 @@ draw = _DrawProxy()
 class _ErrorProxy:
     """Proxy for error tools."""
 
-    def detect_and_explain_errors(self, *, range_name: list[str] | None = None) -> dict[str, Any]:
+    def detect(self, *, range_name: list[str] | None = None) -> dict[str, Any]:
         """Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas. Explanations are capped at 50 per range; truncated and total_error_count report any remainder.
 
         Args:
             range_name (optional): Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.
         """
-        return call_host_tool("detect_and_explain_errors", range=range_name)
+        return call_host_tool("error_detect", range=range_name)
 
     def evaluate_formula(self, formula: str, *, cell: str | None = None) -> dict[str, Any]:
         """Evaluates a Calc formula on a temporary duplicate sheet and returns the result or error, without modifying the active sheets.
@@ -1579,7 +1579,7 @@ class _PivotTableProxy:
     """Proxy for pivot_table tools."""
 
     def create_pivot_table(self, name: str, source_range: str, destination_cell: str, data_fields: list[str], *, source_sheet: str | None = None, destination_sheet: str | None = None, row_fields: list[str] | None = None, column_fields: list[str] | None = None, page_fields: list[str] | None = None, data_functions: dict[str, Any] | None = None, page_filters: dict[str, Any] | None = None) -> dict[str, Any]:
-        """Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via create_sheet first).
+        """Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via sheet_create first).
 
         Args:
             name (required): Unique name for this pivot table in the document.
@@ -1725,8 +1725,8 @@ class _RangeProxy:
         """
         return call_host_tool("named_range_list", scope=scope)
 
-    def sort_range(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None) -> dict[str, Any]:
-        """Stable one-column sort of the specified range(s) by values in one column. Multi-key sorts are multiple calls (two stable one-column passes). Do call sort_range to reorder rows (not rewrite the block with write_formula_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. Supports lists for non-contiguous areas.
+    def sort(self, range_name: list[str], has_header: bool, *, sort_column: int | None = None, ascending: bool | None = None) -> dict[str, Any]:
+        """Stable one-column sort of the specified range(s) by values in one column. Multi-key sorts are multiple calls (two stable one-column passes). Do call range_sort to reorder rows (not rewrite the block with write_formula_range) because hand-written order often leaves labels mid-table. Pick sort_column for the metric to order by (0-based within the range); set ascending=false when largest values should come first. Do pass has_header=true when row 1 is labels because otherwise labels sort as values. Supports lists for non-contiguous areas.
 
         Args:
             range_name (required): Range(s) to sort (e.g. ["A1:D10"] or ["A1:B10", "D1:E10"]).
@@ -1734,7 +1734,7 @@ class _RangeProxy:
             sort_column (optional): 0-based index of the key column inside the range (0 = leftmost; default: 0). Use the numeric/metric column, not the label column, when sorting by amount.
             ascending (optional): true = smallest first (default); false = largest/highest first.
         """
-        return call_host_tool("sort_range", range=range_name, sort_column=sort_column, ascending=ascending, has_header=has_header)
+        return call_host_tool("range_sort", range=range_name, sort_column=sort_column, ascending=ascending, has_header=has_header)
 
 range = _RangeProxy()
 
@@ -1742,7 +1742,7 @@ range = _RangeProxy()
 class _SearchProxy:
     """Proxy for search tools."""
 
-    def in_spreadsheet(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> dict[str, Any]:
+    def cells(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> dict[str, Any]:
         """Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values.
 
         Args:
@@ -1753,9 +1753,9 @@ class _SearchProxy:
             sheet (optional): Sheet to search (active sheet if omitted).
             all_sheets (optional): Search all sheets (default: false).
         """
-        return call_host_tool("search_in_spreadsheet", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, sheet=sheet, all_sheets=all_sheets)
+        return call_host_tool("search_cells", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results, sheet=sheet, all_sheets=all_sheets)
 
-    def replace_in_spreadsheet(self, search: str, replace: str, *, regex: bool | None = None, case_sensitive: bool | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> dict[str, Any]:
+    def replace(self, search: str, replace: str, *, regex: bool | None = None, case_sensitive: bool | None = None, sheet: str | None = None, all_sheets: bool | None = None) -> dict[str, Any]:
         """Find and replace text or values in a Calc spreadsheet. Returns count of replacements made.
 
         Args:
@@ -1766,7 +1766,7 @@ class _SearchProxy:
             sheet (optional): Sheet to operate on (active sheet if omitted).
             all_sheets (optional): Replace across all sheets (default: false).
         """
-        return call_host_tool("replace_in_spreadsheet", search=search, replace=replace, regex=regex, case_sensitive=case_sensitive, sheet=sheet, all_sheets=all_sheets)
+        return call_host_tool("search_replace", search=search, replace=replace, regex=regex, case_sensitive=case_sensitive, sheet=sheet, all_sheets=all_sheets)
 
 search = _SearchProxy()
 
@@ -1883,7 +1883,24 @@ shape = _ShapeProxy()
 class _SheetProxy:
     """Proxy for sheet tools."""
 
-    def apply_sheet_filter(self, range_name: list[str], criteria: list[Any], *, has_header: bool | None = None) -> dict[str, Any]:
+    def create(self, sheet: str, *, position: int | None = None) -> dict[str, Any]:
+        """Creates a new empty sheet (tab exists; no cells copied). sheet_create is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet.
+
+        Args:
+            sheet (required): Exact new sheet title from the request; preserve spaces (do not snake_case or invent aliases).
+            position (optional): Sheet position (0-based). Appended to end if not specified.
+        """
+        return call_host_tool("sheet_create", sheet=sheet, position=position)
+
+    def delete(self, sheet: str) -> dict[str, Any]:
+        """Deletes an existing sheet by name.
+
+        Args:
+            sheet (required): Name of the sheet to delete.
+        """
+        return call_host_tool("sheet_delete", sheet=sheet)
+
+    def filter_apply(self, range_name: builtins.list[str], criteria: builtins.list[Any], *, has_header: bool | None = None) -> dict[str, Any]:
         """Hide rows that do not match a standard Calc filter (not conditional formatting). delegate_to_specialized_calc_toolset(domain='sheets'). One column per criterion; chain with connection (AND default) after the first.
 
         Args:
@@ -1891,71 +1908,54 @@ class _SheetProxy:
             criteria (required): Non-empty ordered conditions; combined left-to-right ((c1) conn2 c2) conn3… like Calc Standard Filter—not arbitrary parentheses. First item: omit connection (ignored). From item 2: omit or AND (default) vs previous, or OR. Examples: [{"field":0,"operator":"EQUAL","value":"X"},{"field":1,"operator":"GREATER","value":"10","is_numeric":true}]; [{"field":1,"operator":"CONTAINS","value":"a"},{"field":3,"operator":"CONTAINS","value":"b","connection":"OR"}].
             has_header (optional): First row is headers only (default true).
         """
-        return call_host_tool("apply_sheet_filter", range=range_name, has_header=has_header, criteria=criteria)
+        return call_host_tool("sheet_filter_apply", range=range_name, has_header=has_header, criteria=criteria)
 
-    def clear_sheet_filter(self, range_name: list[str], *, has_header: bool | None = None) -> dict[str, Any]:
-        """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as apply_sheet_filter. delegate_to_specialized_calc_toolset(domain='sheets').
+    def filter_clear(self, range_name: builtins.list[str], *, has_header: bool | None = None) -> dict[str, Any]:
+        """Remove the active standard sheet filter on a range so all rows show again. Use the same range (and has_header) as sheet_filter_apply. delegate_to_specialized_calc_toolset(domain='sheets').
 
         Args:
             range_name (required): Range to filter (e.g. ["A1:D20"]).
             has_header (optional): First row is headers only (default true).
         """
-        return call_host_tool("clear_sheet_filter", range=range_name, has_header=has_header)
+        return call_host_tool("sheet_filter_clear", range=range_name, has_header=has_header)
 
-    def create_sheet(self, sheet: str, *, position: int | None = None) -> dict[str, Any]:
-        """Creates a new empty sheet (tab exists; no cells copied). create_sheet is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet.
-
-        Args:
-            sheet (required): Exact new sheet title from the request; preserve spaces (do not snake_case or invent aliases).
-            position (optional): Sheet position (0-based). Appended to end if not specified.
-        """
-        return call_host_tool("create_sheet", sheet=sheet, position=position)
-
-    def delete_sheet(self, sheet: str) -> dict[str, Any]:
-        """Deletes an existing sheet by name.
-
-        Args:
-            sheet (required): Name of the sheet to delete.
-        """
-        return call_host_tool("delete_sheet", sheet=sheet)
-
-    def get_sheet_filter(self, range_name: list[str]) -> dict[str, Any]:
+    def filter_get(self, range_name: builtins.list[str]) -> dict[str, Any]:
         """Return active filter criteria and has_header for a range, or empty if none. delegate_to_specialized_calc_toolset(domain='sheets').
 
         Args:
             range_name (required): Range to filter (e.g. ["A1:D20"]).
         """
-        return call_host_tool("get_sheet_filter", range=range_name)
+        return call_host_tool("sheet_filter_get", range=range_name)
 
-    def list_sheets(self) -> dict[str, Any]:
+    def list(self) -> dict[str, Any]:
         """Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."""
-        return call_host_tool("list_sheets")
+        return call_host_tool("sheet_list")
 
-    def protect_sheet(self, *, sheet: str | None = None, protect: bool | None = None) -> dict[str, Any]:
+    def protect(self, *, sheet: str | None = None, protect: bool | None = None) -> dict[str, Any]:
         """Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked.
 
         Args:
             sheet (optional): Sheet name (active sheet if empty).
             protect (optional): True to protect, False to unprotect (default: True).
         """
-        return call_host_tool("protect_sheet", sheet=sheet, protect=protect)
+        return call_host_tool("sheet_protect", sheet=sheet, protect=protect)
 
-    def rename_sheet(self, old_name: str, new_name: str) -> dict[str, Any]:
+    def rename(self, old_name: str, new_name: str) -> dict[str, Any]:
         """Renames an existing sheet.
 
         Args:
             old_name (required): Current name of the sheet.
             new_name (required): New name for the sheet.
         """
-        return call_host_tool("rename_sheet", old_name=old_name, new_name=new_name)
+        return call_host_tool("sheet_rename", old_name=old_name, new_name=new_name)
 
-    def switch_sheet(self, sheet: str) -> dict[str, Any]:
+    def switch(self, sheet: str) -> dict[str, Any]:
         """Switches to the specified sheet (makes it active).
 
         Args:
             sheet (required): Name of the sheet to switch to.
         """
-        return call_host_tool("switch_sheet", sheet=sheet)
+        return call_host_tool("sheet_switch", sheet=sheet)
 
 sheet = _SheetProxy()
 
@@ -2232,7 +2232,7 @@ class _TableProxy:
         """List tables with name, rows, cols, and cell_count. Writer: if cell_count is not rows times cols the table is not a rectangle — use table_get_cells cells. Each row includes nesting (direct parent table/cell) and nested_in_cells (host cells that contain nested tables — table_set_cell keeps those tables; do not delete the host row/column). Draw/Impress: also page and shape index; cell_count is rows times cols."""
         return call_host_tool("table_list")
 
-    def manage_table_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> dict[str, Any]:
+    def manage_structure(self, action: str, axis: str, index: int, *, name: str | None = None, page: int | None = None, shape_index: int | None = None) -> dict[str, Any]:
         """Insert or delete one table row or column. index is 0-based (for insert, equal to the current count appends at the end). Cannot delete the last remaining row or column. Writer: refuses delete if the row/column hosts a nested table (that would destroy it).
 
         Args:
@@ -2243,7 +2243,7 @@ class _TableProxy:
             page (optional): Draw/Impress: 0-based page index.
             shape_index (optional): Draw/Impress: table shape index (not the row/column index).
         """
-        return call_host_tool("manage_table_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index)
+        return call_host_tool("table_manage_structure", action=action, axis=axis, name=name, index=index, page=page, shape_index=shape_index)
 
     def set_cell(self, cell: str, text: str, *, name: str | None = None, page: int | None = None, index: int | None = None) -> dict[str, Any]:
         """Set the plain-text content of ONE table cell, addressed A1-style (e.g. 'B2'). A normal cell is replaced with setString (clears in-cell formatting). A cell that hosts a nested table keeps that table and rewrites only the host paragraphs. Edit the nested table by its own name. Not a tracked change even when review mode is on.
@@ -2294,14 +2294,14 @@ textframe = _TextframeProxy()
 class _TrackingProxy:
     """Proxy for tracking tools."""
 
-    def manage_tracked_changes(self, action: str, *, index: int | None = None) -> dict[str, Any]:
+    def manage(self, action: str, *, index: int | None = None) -> dict[str, Any]:
         """Accept or reject tracked changes. action=accept/reject requires index (from track_changes_list). That index is stale after any resolve; call track_changes_list again before the next accept or reject. action=accept_all/reject_all resolves every change.
 
         Args:
             action (required): accept/reject one change by index, or accept_all/reject_all. One of: accept, reject, accept_all, reject_all.
             index (optional): Zero-based index from track_changes_list (required for accept/reject). Call track_changes_list again after each resolve; indexes shift.
         """
-        return call_host_tool("manage_tracked_changes", action=action, index=index)
+        return call_host_tool("tracking_manage", action=action, index=index)
 
     def track_changes_list(self, *, start_index: int | None = None, max_changes: int | None = None) -> dict[str, Any]:
         """List all tracked changes (redlines) in the document, including type, author, date, text and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; 'agent_review_mode' (off/record/wait) is the user's review setting for AGENT edits — in record/wait your edits become redlines even while recording is false. Returns at most max_changes rows (default 100); page through the rest with start_index when has_more is true.

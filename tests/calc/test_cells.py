@@ -1208,7 +1208,7 @@ def test_sort_range_description_teaches_reorder_key_and_direction():
     from plugin.calc.cells import SortRange
 
     desc = SortRange.description
-    assert "Do call sort_range to reorder rows" in desc
+    assert "Do call range_sort to reorder rows" in desc
     assert "not rewrite the block with write_formula_range" in desc
     assert "labels mid-table" in desc
     assert "Pick sort_column for the metric" in desc
@@ -1822,22 +1822,22 @@ def test_sort_range_validation():
         res_asc = SortRange().execute(ctx, range=["A1:B2"], has_header=True, ascending="invalid")
         assert res_asc["status"] == "error"
         assert "ascending" in res_asc["message"]
-        manipulator.sort_range.assert_not_called()
+        manipulator.range_sort.assert_not_called()
 
         res_sc_bool = SortRange().execute(ctx, range=["A1:B2"], has_header=True, sort_column=True)
         assert res_sc_bool["status"] == "error"
         assert "sort_column" in res_sc_bool["message"]
-        manipulator.sort_range.assert_not_called()
+        manipulator.range_sort.assert_not_called()
 
         res_sc_neg = SortRange().execute(ctx, range=["A1:B2"], has_header=True, sort_column=-1)
         assert res_sc_neg["status"] == "error"
         assert "sort_column" in res_sc_neg["message"]
-        manipulator.sort_range.assert_not_called()
+        manipulator.range_sort.assert_not_called()
 
-        manipulator.sort_range.return_value = "Sorted"
+        manipulator.range_sort.return_value = "Sorted"
         res_ok = SortRange().execute(ctx, range=["A1:B2"], has_header=True)
         assert res_ok["status"] == "ok"
-        manipulator.sort_range.assert_called_once_with("A1:B2", sort_column=0, ascending=True, has_header=True)
+        manipulator.range_sort.assert_called_once_with("A1:B2", sort_column=0, ascending=True, has_header=True)
 
 
 def test_string_booleans_accepted():
@@ -1851,10 +1851,10 @@ def test_string_booleans_accepted():
         manipulator.merge_cells.assert_called_once_with("A1:B1", center=True)
 
         manipulator.reset_mock()
-        manipulator.sort_range.return_value = "Sorted"
+        manipulator.range_sort.return_value = "Sorted"
         res_sort = SortRange().execute(ctx, range=["A1:B2"], has_header=True, ascending="false")
         assert res_sort["status"] == "ok"
-        manipulator.sort_range.assert_called_once_with("A1:B2", sort_column=0, ascending=False, has_header=True)
+        manipulator.range_sort.assert_called_once_with("A1:B2", sort_column=0, ascending=False, has_header=True)
 
 
 def test_delete_structure_validation():

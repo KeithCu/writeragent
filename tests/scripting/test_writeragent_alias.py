@@ -154,11 +154,11 @@ def test_writeragent_api_in_process_rpc():
 
         set_process_role(ROLE_HOST)
         try:
-            res = writeragent.sheet.list_sheets()
+            res = writeragent.sheet.list()
             assert res == "mocked_sheets_list"
             mock_registry.execute.assert_called_once()
             call_args = mock_registry.execute.call_args[0]
-            assert call_args[0] == "list_sheets"
+            assert call_args[0] == "sheet_list"
             assert call_args[1].__class__.__name__ == "ToolContext"
         finally:
             set_process_role(None)
