@@ -232,12 +232,14 @@ def test_fizzbee_trace_initialize_and_session_handshake(writer_mcp_setup):
     assert "result" in init_res
     assert init_res["result"]["serverInfo"]["name"] == "WriterAgent MCP"
 
-    # 3. Resources & Prompts list (empty envelopes per spec)
+    # 3. Resources list (empty) and prompts list (writer manual topics)
     res_list = _call_rpc(handler, {"jsonrpc": "2.0", "id": 3, "method": "resources/list"})
     assert res_list["result"] == {"resources": []}
 
+    from plugin.chatbot.agent_manual import list_topics
+
     prompts_list = _call_rpc(handler, {"jsonrpc": "2.0", "id": 4, "method": "prompts/list"})
-    assert prompts_list["result"] == {"prompts": []}
+    assert [p["name"] for p in prompts_list["result"]["prompts"]] == list_topics("writer")
 
 
 def test_fizzbee_trace_tool_call_dispatch_and_error_invariants(writer_mcp_setup):
@@ -266,6 +268,82 @@ def test_fizzbee_trace_tool_call_dispatch_and_error_invariants(writer_mcp_setup)
     assert find_tools_res.get("isError") is True or (
         isinstance(find_tools_res.get("result"), dict) and find_tools_res["result"].get("isError") is True
     )
+
+
+def test_mcp_prompts_list_no_document_url_returns_generic_topics(writer_mcp_setup):
+    """prompts/list with no active document and no document_url returns generic topics (not an error)."""
+    from plugin.chatbot.agent_manual import list_topics
+
+    handler = writer_mcp_setup["handler"]
+    doc_svc = writer_mcp_setup["services"].get("document")
+    doc_svc.get_active_document.return_value = None
+
+    status, body = handler._process_jsonrpc(
+        {"jsonrpc": "2.0", "id": 60, "method": "prompts/list", "params": {}},
+        document_url=None,
+    )
+    assert status == 200
+    assert "error" not in body
+    assert [p["name"] for p in body["result"]["prompts"]] == list_topics(None)
+
+
+def test_mcp_prompts_list_get_resolution(writer_mcp_setup):
+    from plugin.chatbot.agent_manual import get_section, list_topics
+
+    handler = writer_mcp_setup["handler"]
+    services = writer_mcp_setup["services"]
+    doc_svc = services.get("document")
+
+    doc_svc.get_active_document.return_value = None
+    generic = _call_rpc(handler, {"jsonrpc": "2.0", "id": 50, "method": "prompts/list"})
+    assert [p["name"] for p in generic["result"]["prompts"]] == list_topics(None)
+
+    mock_doc = writer_mcp_setup["doc"]
+    doc_svc.get_active_document.return_value = mock_doc
+    doc_svc.detect_doc_type.return_value = "impress"
+    draw_list = _call_rpc(handler, {"jsonrpc": "2.0", "id": 51, "method": "prompts/list"})
+    assert [p["name"] for p in draw_list["result"]["prompts"]] == list_topics("impress")
+
+    calc_doc = MagicMock()
+    doc_svc.resolve_document_by_url.return_value = (calc_doc, "calc")
+    doc_svc.detect_doc_type.return_value = "calc"
+    calc_list = handler._process_jsonrpc(
+        {"jsonrpc": "2.0", "id": 52, "method": "prompts/list", "params": {}},
+        document_url="file:///tmp/sheet.ods",
+    )
+    assert calc_list is not None
+    _status, calc_body = calc_list
+    assert [p["name"] for p in calc_body["result"]["prompts"]] == list_topics("calc")
+    doc_svc.resolve_document_by_url.assert_called()
+
+    doc_svc.detect_doc_type.return_value = "writer"
+    edit_get = _call_rpc(handler, {
+        "jsonrpc": "2.0",
+        "id": 53,
+        "method": "prompts/get",
+        "params": {"name": "edit"},
+    })
+    assert edit_get["result"]["messages"][0]["content"]["text"] == get_section("edit", "writer")
+
+    doc_svc.detect_doc_type.return_value = "calc"
+    bad_on_calc = handler._process_jsonrpc(
+        {"jsonrpc": "2.0", "id": 54, "method": "prompts/get", "params": {"name": "editing"}},
+        document_url="file:///tmp/sheet.ods",
+    )
+    assert bad_on_calc is not None
+    status, body = bad_on_calc
+    assert status == 400
+    assert body["error"]["code"] == -32602
+
+    missing_name = handler._process_jsonrpc(
+        {"jsonrpc": "2.0", "id": 55, "method": "prompts/get", "params": {}},
+    )
+    assert missing_name is not None
+    _status2, body2 = missing_name
+    assert body2["error"]["code"] == -32602
+
+    resources = _call_rpc(handler, {"jsonrpc": "2.0", "id": 56, "method": "resources/list"})
+    assert resources["result"] == {"resources": []}
 
 
 def test_full_layout_all_tools_executable_dispatch(writer_mcp_setup):

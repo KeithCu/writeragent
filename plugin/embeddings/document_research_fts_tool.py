@@ -18,6 +18,18 @@ _MAX_SEARCH_K = 30
 _DEFAULT_NEAR_SLOP = 10
 
 
+class _FolderHybridSearchCancelled(Exception):
+    """Stop was requested before or during folder hybrid search."""
+
+
+class _FolderHybridSearchFailed(Exception):
+    message: str
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 class SearchNearbyFiles(ToolBase):
     """Hybrid keyword + semantic search over indexed paragraphs in the active document folder."""
 
@@ -174,37 +186,69 @@ class SearchNearbyFiles(ToolBase):
             }
 
         search_path = context_result["search_path"]
-        allowed_urls = context_result["allowed_urls"]
+        filter_urls = context_result["allowed_urls"]
         model = get_embedding_model()
 
         scope = ctx.send_cancellation
-        try:
-            result = hybrid_search(
-                ctx.ctx,
-                search_path,
-                str(query),
-                k,
-                model=model,
-                near_slop=near_slop,
-                cancel=scope,
-            )
-            if result.get("error"):
-                return self._tool_error(result["error"], code="FOLDER_HYBRID_SEARCH_ERROR")
-        except Exception as exc:
-            log.exception("search_nearby_files failed")
-            return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")
+
+        if filter_urls is not None and not filter_urls:
+            return {
+                "status": "ok",
+                "hits": [],
+                "folder_key": context_result["folder_key"],
+                "stale": False,
+            }
 
         def _wakeup() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.doc)
+
+        def _hybrid_hits(doc_url_filter: str | None) -> list[dict[str, Any]]:
+            if is_cancelled(scope):
+                raise _FolderHybridSearchCancelled()
+            # doc_url_filter applies before LIMIT; post-filtering the global top-k loses hits outside that window.
+            try:
+                result = hybrid_search(
+                    ctx.ctx,
+                    search_path,
+                    str(query),
+                    k,
+                    model=model,
+                    near_slop=near_slop,
+                    cancel=scope,
+                    doc_url_filter=doc_url_filter,
+                )
+            except Exception as exc:
+                log.exception("search_nearby_files failed")
+                raise _FolderHybridSearchFailed(str(exc)) from exc
+            if result.get("error"):
+                raise _FolderHybridSearchFailed(str(result["error"]))
+            return list(result.get("hits") or [])
+
+        try:
+            if filter_urls is None:
+                hits = _hybrid_hits(None)
+            elif len(filter_urls) == 1:
+                hits = _hybrid_hits(next(iter(filter_urls)))
+            else:
+                from plugin.doc.document_research_grep import DEFAULT_GREP_MAX_FILES
+
+                subset_urls = sorted(filter_urls)[:DEFAULT_GREP_MAX_FILES]
+                combined: list[dict[str, Any]] = []
+                for doc_url in subset_urls:
+                    combined.extend(_hybrid_hits(doc_url))
+                # Per-file RRF scores are rank-based, not comparable across files; order here is
+                # best-effort until corpus search accepts multiple doc_url filters in one query.
+                combined.sort(key=lambda hit: hit.get("score", 0), reverse=True)
+                hits = combined[:k]
+        except _FolderHybridSearchCancelled:
+            return {"status": "error", "message": "Cancelled"}
+        except _FolderHybridSearchFailed as exc:
+            return self._tool_error(exc.message, code="FOLDER_HYBRID_SEARCH_ERROR")
 
         if main.is_current():
             _wakeup()
         else:
             main.call(_wakeup)
-
-        hits = list(result.get("hits") or [])
-        if allowed_urls is not None:
-            hits = [h for h in hits if h.get("doc_url") in allowed_urls]
 
         return {
             "status": "ok",
