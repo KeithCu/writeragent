@@ -41,8 +41,9 @@ from plugin.framework.ipc import (
 from plugin.framework.warm_child import (
     Child,
     FailPhase,
+    FramedRequestOnFail,
     SPAWN_READY_TIMEOUT_SEC,
-    _STDERR_LOG_CAP,
+    STDERR_LOG_CAP,
     error_dict,
     framed_request_roundtrip,
     spawn_budget,
@@ -54,6 +55,27 @@ __all__ = ["BaseProcessWorker"]
 
 # Same logger the compute tests capture. The class moved; the log name did not.
 log = logging.getLogger("compute_service.worker")
+
+
+def _compute_slot_fail_message(
+    code: str,
+    phase: FailPhase,
+    detail: str,
+    *,
+    worker_name: str,
+    worker_id: int,
+) -> str:
+    """User-facing error text for a compute slot ``framed_request_roundtrip`` failure."""
+    del phase
+    if code == "WORKER_PIPE_BROKEN":
+        return f"Failed to send request to {worker_name} #{worker_id}: {detail}"
+    if code == "WORKER_IPC_ERROR":
+        return f"{worker_name} rejected a response frame: {detail}"
+    if code == "EMPTY_RESPONSE":
+        return f"No response returned from {worker_name}."
+    if code == "WORKER_CRASHED":
+        return f"{worker_name} error: {detail}"
+    raise AssertionError(f"unhandled fail code {code!r}")
 
 # ``kill`` stays a call-site choice. Nothing here increments
 # ``tasks_executed``: only a consumed response does, and a ready
@@ -205,7 +227,7 @@ class BaseProcessWorker:
             base_env=None,
             scrub_env=True,
             optimize_pipes=True,
-            stderr_tail_chars=_STDERR_LOG_CAP,
+            stderr_tail_chars=STDERR_LOG_CAP,
             stderr_name=self._drain_name(),
             label=f"{self.worker_name} #{self.worker_id}",
         )
@@ -505,18 +527,17 @@ class BaseProcessWorker:
 
             def _on_fail(code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]:
                 if code == "EXECUTION_TIMEOUT":
+                    # before_send: nothing was written. after_send/write/read: the child
+                    # already has the frame or is mid-I/O — kill so the slot respawns clean.
                     kill = phase != "before_send"
                     return self._fail_timeout(deadline, pid, kill=kill)
-                if code == "WORKER_PIPE_BROKEN":
-                    msg = f"Failed to send request to {self.worker_name} #{self.worker_id}: {detail}"
-                elif code == "WORKER_IPC_ERROR":
-                    msg = f"{self.worker_name} rejected a response frame: {detail}"
-                elif code == "EMPTY_RESPONSE":
-                    msg = f"No response returned from {self.worker_name}."
-                elif code == "WORKER_CRASHED":
-                    msg = f"{self.worker_name} error: {detail}"
-                else:
-                    msg = detail
+                msg = _compute_slot_fail_message(
+                    code,
+                    phase,
+                    detail,
+                    worker_name=self.worker_name,
+                    worker_id=self.worker_id,
+                )
                 return self._fail_request(code, msg, pid=pid)
 
             try:

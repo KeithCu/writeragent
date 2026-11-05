@@ -15,7 +15,7 @@ import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import IO, Any, Literal
+from typing import IO, Any, Literal, Protocol
 
 from plugin.framework.child_runtime import Deadline, is_ready_payload
 from plugin.framework.ipc import (
@@ -35,11 +35,34 @@ _child_log = logging.getLogger("compute_service.worker")
 
 SPAWN_READY_TIMEOUT_SEC = 15.0
 _STDERR_SNIPPET = 500
-_STDERR_LOG_CAP = 64 * 1024
+STDERR_LOG_CAP = 64 * 1024
 _MIN_SPAWN_REMAINING_SEC = 0.25
 FailPhase = Literal["before_send", "write_timeout", "pipe_broken", "after_send", "read_timeout", "bad_frame", "crashed", "empty"]
 _OMIT_ID = object()
 _SPAWN_SHUTDOWN = object()
+
+
+class FramedRequestOnFail(Protocol):
+    def __call__(self, code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]: ...
+
+
+def fail_phase_message(phase: FailPhase, detail: str) -> str:
+    """User-facing error text for one ``framed_request_roundtrip`` failure (WarmChild lease path)."""
+    if phase == "pipe_broken":
+        return f"Failed to send request: {detail}"
+    if phase == "bad_frame":
+        return f"Invalid response frame: {detail}"
+    if phase == "crashed":
+        return f"Worker error: {detail}"
+    if phase in ("before_send", "after_send"):
+        return "Execution budget exhausted."
+    if phase == "write_timeout":
+        return "Write timed out."
+    if phase == "read_timeout":
+        return "Read timed out."
+    if phase == "empty":
+        return "No response returned from worker."
+    raise AssertionError(f"unhandled FailPhase: {phase!r}")
 
 
 def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, **extra: Any) -> dict[str, Any]:
@@ -219,21 +242,21 @@ def framed_request_roundtrip(
     is_alive: Callable[[], bool],
     max_payload_bytes: int,
     unpacker: Callable[[bytes], Any] | None,
-    on_fail: Callable[..., dict[str, Any]],
+    on_fail: FramedRequestOnFail,
 ) -> dict[str, Any]:
     """Write one packed frame and read the response dict under *deadline*."""
     usable = deadline.usable()
     if usable is None:
-        return on_fail("EXECUTION_TIMEOUT", "Execution budget exhausted.", phase="before_send")
+        return on_fail("EXECUTION_TIMEOUT", "", phase="before_send")
     try:
         write_packed_frame_with_timeout(stdin, frame, usable, is_alive=is_alive)
     except subprocess.TimeoutExpired:
-        return on_fail("EXECUTION_TIMEOUT", "Write timed out.", phase="write_timeout")
+        return on_fail("EXECUTION_TIMEOUT", "", phase="write_timeout")
     except (OSError, TypeError, ValueError) as exc:
         return on_fail("WORKER_PIPE_BROKEN", str(exc), phase="pipe_broken")
     remaining = deadline.left()
     if remaining <= 0:
-        return on_fail("EXECUTION_TIMEOUT", "Execution budget exhausted.", phase="after_send")
+        return on_fail("EXECUTION_TIMEOUT", "", phase="after_send")
     try:
         resp = read_pickle_frame(
             stdout,
@@ -243,13 +266,13 @@ def framed_request_roundtrip(
             unpacker=unpacker,
         )
     except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
-        return on_fail("EXECUTION_TIMEOUT", "Read timed out.", phase="read_timeout")
+        return on_fail("EXECUTION_TIMEOUT", "", phase="read_timeout")
     except ValueError as exc:
         return on_fail("WORKER_IPC_ERROR", str(exc), phase="bad_frame")
     except Exception as exc:
         return on_fail("WORKER_CRASHED", str(exc), phase="crashed")
     if not isinstance(resp, dict):
-        return on_fail("EMPTY_RESPONSE", "No response returned from worker.", phase="empty")
+        return on_fail("EMPTY_RESPONSE", "", phase="empty")
     return resp
 
 
@@ -263,7 +286,7 @@ class ChildSpec:
     command_wrapper: Callable[..., list[str]] | None = None
     ready_timeout_sec: float = 20.0
     idle_ttl_sec: float | None = None
-    stderr_tail_chars: int = _STDERR_LOG_CAP
+    stderr_tail_chars: int = STDERR_LOG_CAP
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
     unpacker: Callable[[bytes], Any] | None = None
     # False keeps a missing interpreter as OSError (venv systemd-run retry depends on it).
@@ -369,22 +392,7 @@ class WarmChild:
         return self._io_lock.locked()
 
     def fail_lease(self, code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]:
-        if phase == "pipe_broken":
-            msg = f"Failed to send request: {detail}"
-        elif phase == "bad_frame":
-            msg = f"Invalid response frame: {detail}"
-        elif phase == "crashed":
-            msg = f"Worker error: {detail}"
-        elif phase in ("before_send", "after_send"):
-            msg = "Execution budget exhausted."
-        elif phase == "write_timeout":
-            msg = "Write timed out."
-        elif phase == "read_timeout":
-            msg = "Read timed out."
-        elif phase == "empty":
-            msg = "No response returned from worker."
-        else:
-            msg = detail
+        msg = fail_phase_message(phase, detail)
         child = self._child
         if child is not None:
             self.kill()
@@ -774,17 +782,17 @@ __all__ = [
     "ChildSpec",
     "Death",
     "FailPhase",
+    "FramedRequestOnFail",
     "Lease",
     "SPAWN_READY_TIMEOUT_SEC",
+    "STDERR_LOG_CAP",
     "Supervisor",
     "WarmChild",
-    "_STDERR_LOG_CAP",
     "error_dict",
+    "fail_phase_message",
     "framed_request_roundtrip",
-    "read_pickle_frame",
     "read_ready_frame_during_io",
     "spawn_budget",
     "spawn_managed_child_with_handshake",
     "supervisor",
-    "write_packed_frame_with_timeout",
 ]

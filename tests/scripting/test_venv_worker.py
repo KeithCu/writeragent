@@ -2512,6 +2512,25 @@ class _MockProc:
     def poll(self) -> int | None:
         return self.returncode
 
+def test_ui_reentry_while_spawn_thread_owns_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UI busy check during spawn must not treat the spawner thread as the UI thread."""
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    mgr = PythonWorkerManager(sys.executable, {})
+    warm = MagicMock()
+    lock = threading.Lock()
+    assert lock.acquire(blocking=False)
+    warm._io_lock = lock
+    warm.io_locked.return_value = True
+    spawn_owner = threading.get_ident() + 1
+    warm.io_owner.return_value = spawn_owner
+    mgr._warm = warm
+    err = mgr._reentry_error()
+    assert err is not None
+    assert err["code"] == "WORKER_REENTRY"
+    assert "busy" in err["message"]
+    lock.release()
+
+
 def test_lease_error_keeps_error_text() -> None:
     err = {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": "handshake boom"}
     mapped = PythonWorkerManager._lease_error_to_worker(err)

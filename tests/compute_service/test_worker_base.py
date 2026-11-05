@@ -2318,20 +2318,20 @@ def test_stderr_drain_keeps_a_bounded_tail(monkeypatch: pytest.MonkeyPatch) -> N
     """A chatty child does not grow the diagnostic tail without a bound.
 
     The drain drops the oldest chunks once the kept text passes
-    ``_STDERR_LOG_CAP``. The snippet attached to an error is the last
+    ``STDERR_LOG_CAP``. The snippet attached to an error is the last
     ``_STDERR_SNIPPET`` of that text. One chunk larger than the cap is
     dropped whole, so the child text arrives in smaller writes.
     """
-    from plugin.framework.warm_child import _STDERR_LOG_CAP, _STDERR_SNIPPET
+    from plugin.framework.warm_child import STDERR_LOG_CAP, _STDERR_SNIPPET
     from plugin.framework.worker_pool import StderrTail
 
-    tail = StderrTail(max_chars=_STDERR_LOG_CAP)
+    tail = StderrTail(max_chars=STDERR_LOG_CAP)
     piece = "x" * 1024
-    for _idx in range((_STDERR_LOG_CAP // len(piece)) + 2):
+    for _idx in range((STDERR_LOG_CAP // len(piece)) + 2):
         tail._append(piece)
     tail._append("END")
     text = tail.text()
-    assert len(text) <= _STDERR_LOG_CAP
+    assert len(text) <= STDERR_LOG_CAP
     assert text.endswith("END")
     worker = _worker_without_spawn(monkeypatch)
     child = _child(object(), tail=tail, worker_name=worker.worker_name, worker_id=worker.worker_id)
