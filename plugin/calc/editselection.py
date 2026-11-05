@@ -76,6 +76,9 @@ def do_calc_extend_edit(
     end_row = min(area.EndRow, used_area.EndRow)
 
     if start_col > end_col or start_row > end_row:
+        if preset_instruction is not None and sidebar_notify is not None:
+            sidebar_notify(_("Select one or more non-empty cells."))
+            return
         msgbox(ctx, title, _("Select one or more non-empty cells."))
         return
 
@@ -121,6 +124,8 @@ def do_calc_extend_edit(
             if saw_nonempty_for_formula_msg and saw_skipped_formula:
                 sidebar_notify(_("Formula cells are skipped."))
                 return
+            sidebar_notify(_("Select one or more non-empty cells."))
+            return
         msgbox(ctx, title, _("Select one or more non-empty cells."))
         return
 
@@ -131,6 +136,9 @@ def do_calc_extend_edit(
     from plugin.doc.agent_undo import record_agent_turn_after, record_agent_turn_before
 
     record_agent_turn_before(model)
+
+    completion_meta: dict[str, Any] = {}
+    produced_text = [False]
 
     def prepare_task(task: StreamCompletionTask) -> tuple[ApplyChunkFn, ErrorFn]:
         col, row, original = task.payload
@@ -150,6 +158,8 @@ def do_calc_extend_edit(
 
         def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
             if not is_thinking:
+                if chunk_text.strip():
+                    produced_text[0] = True
                 accumulated_text[0] += chunk_text
                 _write_cell(strip_echoed_edit_scaffolding(accumulated_text[0]))
 
@@ -168,9 +178,29 @@ def do_calc_extend_edit(
     def on_finished() -> None:
         undo.close()
         record_agent_turn_after(model)
+        if (
+            is_edit
+            and preset_instruction is not None
+            and sidebar_notify is not None
+            and not produced_text[0]
+        ):
+            finish = completion_meta.get("finish_reason")
+            if finish == "length":
+                sidebar_notify(
+                    _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
+                )
+            elif finish == "stop":
+                sidebar_notify(_("The model returned no text. Try again."))
 
     try:
-        stream_completion_tasks(ctx, client, tasks, prepare_task, on_finished)
+        stream_completion_tasks(
+            ctx,
+            client,
+            tasks,
+            prepare_task,
+            on_finished,
+            completion_out=completion_meta,
+        )
     except BaseException:
         undo.close()
         record_agent_turn_after(model)

@@ -491,6 +491,7 @@ class ToolCallingMixin:
             if toolkit:
                 pump_ui_idle(toolkit, max_queue_items=4)
             if slash_sidebar_only:
+                # Slash answer presets are sidebar-only; mid-loop refresh must not re-add tools.
                 active_tools: list[Any] = []
             else:
                 active_tools = get_tools().get_schemas(
@@ -613,7 +614,12 @@ class ToolCallingMixin:
         log.debug("_do_send: calling AI, use_tools=True, messages=%d" % len(turn_session.messages))
 
         max_tool_rounds = cast("int", api_config["chat_max_tool_rounds"])
-        self._start_tool_calling_async(client, model, max_tokens, active_tools, execute_fn, max_tool_rounds, query_text=query_text)
+        turn = current_turn(self._panel)
+        if turn is not None:
+            turn.slash_sidebar_only = slash_sidebar_only
+        self._start_tool_calling_async(
+            client, model, max_tokens, active_tools, execute_fn, max_tool_rounds, query_text=query_text
+        )
 
         log.debug("=== _do_send END (async started, level=logging.INFO) ===")
 
@@ -625,6 +631,10 @@ class ToolCallingMixin:
         """
         turn = current_turn(self._panel)
         if turn is None:
+            return
+        if turn.slash_sidebar_only:
+            # Same rule as _do_send: local-only slash replies keep an empty tool list every round.
+            turn.active_tools = []
             return
         try:
             from plugin.app import get_tools

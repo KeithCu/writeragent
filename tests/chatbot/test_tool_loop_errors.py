@@ -1430,6 +1430,21 @@ def test_slash_sidebar_only_sends_empty_tool_list(test_instance, mock_get_tools)
     assert captured == [[]]
 
 
+def test_slash_sidebar_only_refresh_keeps_empty_tools(test_instance, mock_get_tools):
+    mock_get_tools.get_schemas.return_value = [{"function": {"name": "apply_document_content"}}]
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    turn = current_turn(test_instance)
+    assert turn is not None
+    turn.slash_sidebar_only = True
+    turn.active_tools = []
+
+    test_instance._refresh_active_tools_for_session()
+
+    mock_get_tools.get_schemas.assert_not_called()
+    assert turn.active_tools == []
+
+
 def test_stream_error_keeps_drain_only_for_spawned():
     from plugin.chatbot.tool_loop import StreamErrorOutcome
 

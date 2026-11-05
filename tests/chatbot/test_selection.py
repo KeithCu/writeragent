@@ -106,7 +106,17 @@ def test_stream_completion_tasks_defers_next_task():
     reset_sentry_state()
 
     try:
-        def fake_stream_completion(ctx_arg, client_arg, prompt, sys_prompt, max_tokens, apply_chunk, on_done, on_error):
+        def fake_stream_completion(
+            ctx_arg,
+            client_arg,
+            prompt,
+            sys_prompt,
+            max_tokens,
+            apply_chunk,
+            on_done,
+            on_error,
+            **kwargs,
+        ):
             if get_drain_owner() is not None:
                 on_error(RuntimeError(f"nested drain: {get_drain_owner()}"))
                 return
@@ -171,7 +181,17 @@ def test_stream_completion_tasks_waits_for_existing_owner():
     reset_sentry_state()
 
     try:
-        def fake_stream_completion(ctx_arg, client_arg, prompt, sys_prompt, max_tokens, apply_chunk, on_done, on_error):
+        def fake_stream_completion(
+            ctx_arg,
+            client_arg,
+            prompt,
+            sys_prompt,
+            max_tokens,
+            apply_chunk,
+            on_done,
+            on_error,
+            **kwargs,
+        ):
             if get_drain_owner() is not None:
                 on_error(RuntimeError(f"nested drain: {get_drain_owner()}"))
                 return

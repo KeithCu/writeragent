@@ -632,7 +632,22 @@ class SlashPopupController:
         if parsed is not None:
             cmd, arg = parsed
             if typed.lower() == ("/" + cmd.name) and not slash_ask_past_command_name(raw):
-                _defer_to_next_turn(lambda: run_slash_command(cmd, host, arg, from_popup=False))
+                # Bugfix (QA N1): ANSWER presets return False so Send runs _do_send; without
+                # SEND_CLICKED the draft stays in Ask until a second Enter.
+                def _accept_exact_or_send() -> None:
+                    from plugin.chatbot.send_state import SendEvent, SendEventKind
+                    from plugin.chatbot.slash_commands import SlashResult
+
+                    result = run_slash_command(cmd, host, arg, from_popup=False)
+                    if result is SlashResult.CONTINUE_SEND:
+                        # Bugfix (QA F1): SEND_COMPLETED clears has_text; exact /preset + Enter
+                        # must sync Ask before SEND_CLICKED or send_state ignores the click.
+                        sync = getattr(host, "_sync_has_text_from_query", None)
+                        if callable(sync):
+                            sync()
+                        host.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+
+                _defer_to_next_turn(_accept_exact_or_send)
                 return
         name = self.selected_name
         if not name:

@@ -643,6 +643,82 @@ def test_run_slash_compact_stop_cancels_after_ui_thread_client():
     assert "cancelled" in line.lower()
 
 
+def test_run_slash_compact_sync_without_api_key_still_compacts():
+    from plugin.chatbot.slash_commands import run_slash_compact_sync
+    from plugin.framework.send_cancellation import SendCancellation
+
+    client = SimpleNamespace(config={"api_key": "", "model": "llama3", "endpoint": "http://127.0.0.1:11434/v1"})
+    compact_result = SimpleNamespace(compacted=True, reason="ok")
+    with patch("plugin.framework.config.get_config", return_value=True):
+        with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=8192):
+            with patch("plugin.chatbot.compaction.compact_session", return_value=compact_result):
+                line = run_slash_compact_sync(
+                    focus="",
+                    session=SimpleNamespace(messages=[{"role": "user", "content": "hi"}]),
+                    cancel=SendCancellation(),
+                    client=client,
+                    tools=[],
+                )
+    assert "Configure an API key" not in line
+    assert "compacted" in line.lower()
+
+
+def test_run_slash_compact_sync_empty_api_key():
+    from plugin.chatbot.slash_commands import run_slash_compact_sync
+    from plugin.framework.send_cancellation import SendCancellation
+
+    client = SimpleNamespace(
+        config={"api_key": "", "model": "gpt-4o", "endpoint": "https://api.openai.com/v1"},
+    )
+    with patch("plugin.framework.config.get_config", return_value=True):
+        with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+            line = run_slash_compact_sync(
+                focus="",
+                session=SimpleNamespace(messages=[{"role": "user", "content": "hi"}]),
+                cancel=SendCancellation(),
+                client=client,
+                tools=[],
+            )
+    compact_mod.assert_not_called()
+    assert "Configure an API key" in line
+    assert "not available for this model" not in line
+
+
+def test_run_slash_compact_sync_invalid_api_key_401():
+    import urllib.error
+
+    from plugin.chatbot.slash_commands import run_slash_compact_sync
+    from plugin.framework.send_cancellation import SendCancellation
+
+    client = SimpleNamespace(
+        config={"api_key": "junk", "model": "gpt-4o", "endpoint": "https://api.openai.com/v1"},
+    )
+    with patch("plugin.framework.config.get_config", return_value=True):
+        with patch(
+            "plugin.framework.client.model_fetcher.resolve_context_window",
+            return_value=8192,
+        ):
+            with patch(
+                "plugin.chatbot.compaction.compact_session",
+                side_effect=urllib.error.HTTPError(
+                    url="https://api.openai.com/v1/chat/completions",
+                    code=401,
+                    msg="Unauthorized",
+                    hdrs=None,
+                    fp=None,
+                ),
+            ):
+                line = run_slash_compact_sync(
+                    focus="",
+                    session=SimpleNamespace(messages=[{"role": "user", "content": "hi"}]),
+                    cancel=SendCancellation(),
+                    client=client,
+                    tools=[],
+                )
+    assert "Invalid API Key" in line
+    assert line.strip() != "Compaction failed."
+
+
 def test_run_remember_writes_user_md(tmp_path, monkeypatch):
     from plugin.chatbot.memory import MemoryStore
 
@@ -952,6 +1028,20 @@ def test_slash_local_survives_next_user_message_in_session():
     assert append_slash_local_message(session, "\nSaved to memory: x\n")
     session.messages.append({"role": "user", "content": "next"})
     assert any(m.get(SLASH_LOCAL) for m in session.messages)
+
+
+def test_summary_lines_omit_slash_local():
+    from plugin.chatbot.compaction import _summary_lines
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+
+    lines = _summary_lines(
+        [
+            {"role": "assistant", "content": "Slash commands: /help", SLASH_LOCAL: True},
+            {"role": "user", "content": "hello"},
+        ]
+    )
+    assert lines == ["USER: hello"]
+    assert not any("Slash commands" in line for line in lines)
 
 
 def test_popup_runs_now_names():
