@@ -82,11 +82,11 @@ def test_track_changes_comment_tools_removed():
     from plugin.scripting import writeragent_api
 
     assert writeragent_api.DOMAIN_TOOLS["tracking"] == [
-        "track_changes_list",
-        "track_changes_show",
-        "track_changes_start",
-        "track_changes_stop",
+        "tracking_list",
         "tracking_manage",
+        "tracking_show",
+        "tracking_start",
+        "tracking_stop",
     ]
     for name in _REMOVED_TRACK_CHANGES_COMMENT_TOOLS:
         assert not hasattr(writeragent_api.tracking, name)
@@ -403,7 +403,7 @@ def test_manage_tracked_changes_accept():
 
     res = tool.execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
-    assert "track_changes_list" in res["message"]
+    assert "tracking_list" in res["message"]
     assert "0" in res["message"]
     assert ctx.doc.getCurrentController().select.call_args_list == [
         call(span_cursor),
@@ -430,7 +430,7 @@ def test_manage_tracked_changes_reject():
 
     res = tool.execute(ctx, action="reject", index=0)
     assert res["status"] == "ok"
-    assert "track_changes_list" in res["message"]
+    assert "tracking_list" in res["message"]
     assert "0" in res["message"]
     assert ctx.doc.getCurrentController().select.call_args_list == [
         call(span_cursor),
@@ -590,7 +590,7 @@ def test_single_accept_allowed_on_user_redline():
     dispatcher.executeDispatch.side_effect = lambda *_: items.clear()
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
-    assert "track_changes_list" in res["message"]
+    assert "tracking_list" in res["message"]
     assert "0" in res["message"]
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
 
@@ -611,7 +611,7 @@ def test_single_accept_allowed_on_touching_ranges():
 
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
-    assert "track_changes_list" in res["message"]
+    assert "tracking_list" in res["message"]
     assert "0" in res["message"]
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
 
@@ -693,7 +693,7 @@ def test_track_changes_list_no_get_redlines():
     assert res["track_changes_list_unsupported"] is True
     assert "count" not in res
     assert "changes" not in res
-    assert res["message"] == "This document does not expose a redlines API, so this is not an empty change list. track_changes_start and track_changes_stop still control recording."
+    assert res["message"] == "This document does not expose a redlines API, so this is not an empty change list. tracking_start and tracking_stop still control recording."
 
 
 def test_track_changes_list_record_changes_read_fails():
@@ -710,7 +710,7 @@ def test_track_changes_list_record_changes_read_fails():
     assert res["count"] == 0
     assert res["changes"] == []
     assert "track_changes_list_unsupported" not in res
-    mock_log_exc.assert_called_once_with("track_changes_list: could not read RecordChanges")
+    mock_log_exc.assert_called_once_with("tracking_list: could not read RecordChanges")
 
 
 @pytest.mark.parametrize("action", ["accept_all", "reject_all"])
@@ -813,7 +813,7 @@ def test_single_accept_skips_redline_in_another_text():
 
     res = ManageTrackedChanges().execute(ctx, action="accept", index=0)
     assert res["status"] == "ok"
-    assert "track_changes_list" in res["message"]
+    assert "tracking_list" in res["message"]
     assert "0" in res["message"]
     dispatcher.executeDispatch.assert_called_with(frame, ".uno:AcceptTrackedChange", "", 0, ())
     assert items == [r1]

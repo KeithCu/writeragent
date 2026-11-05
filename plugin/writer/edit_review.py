@@ -63,7 +63,8 @@ from plugin.framework.i18n import N_, _
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
 from plugin.writer.record_changes import is_recording_changes, record_changes
-from plugin.writer.word_diff_split import _DEFAULT_THRESHOLD
+from plugin.writer.review_view_attachment import refresh_review_toolbar
+from plugin.writer.word_diff_split import DEFAULT_THRESHOLD
 
 log = logging.getLogger(__name__)
 
@@ -189,15 +190,6 @@ def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
     return True, 0
 
 
-def _refresh_review_toolbar(doc: Any, fail_message: str) -> None:
-    try:
-        from plugin.writer.review_view_attachment import refresh_review_toolbar
-
-        refresh_review_toolbar(doc)
-    except Exception:
-        log.debug(fail_message, exc_info=True)
-
-
 def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
                        before_reliable: bool = False) -> str | None:
     """Stamp a fresh ``wa-review:<session>:<n>`` token on every redline created since
@@ -239,7 +231,7 @@ def tag_agent_redlines(doc: Any, before_ids: set[Any], change_index: int = 0,
     # Full success. Streamed edit paths tag their redlines here instead of via record_mutation, so
     # this is where they must reveal the review fast-travel toolbar (#2) -- otherwise it never appears
     # for those edits. Best-effort/silent; runs on the edit's (main) thread.
-    _refresh_review_toolbar(doc, "tag_agent_redlines: toolbar refresh failed")
+    refresh_review_toolbar(doc)
     return token
 
 
@@ -509,7 +501,7 @@ class EditReviewSession:
             original_preview or rejected_text, proposed_preview or accepted_text))
         # A new pending change exists -> reveal the review fast-travel toolbar (#2). Runs on the
         # main thread (the edit does), so the LayoutManager call is safe; best-effort/silent.
-        _refresh_review_toolbar(self.doc, "EditReviewSession: toolbar refresh after record failed")
+        refresh_review_toolbar(self.doc)
         return result
 
     # -- review ------------------------------------------------------------------------------
@@ -753,7 +745,7 @@ def _env_num(name: str, default: Any, cast: Any, ok: Any) -> Any:
 
 
 _WORD_DIFF_THRESHOLD = _env_num(
-    "WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD", _DEFAULT_THRESHOLD, float, lambda v: 0.0 <= v <= 1.0)
+    "WRITERAGENT_AGENT_EDIT_DIFF_THRESHOLD", DEFAULT_THRESHOLD, float, lambda v: 0.0 <= v <= 1.0)
 
 _MAX_SURGICAL_RUNS = _env_num(
     "WRITERAGENT_AGENT_EDIT_MAX_SURGICAL_RUNS", 40, int, lambda v: v >= 1)
@@ -1235,10 +1227,7 @@ def _begin_streamed_edit(doc: Any, text_range: Any, title: str) -> tuple[WriterC
     from plugin.doc.compound_undo import WriterCompoundUndo
 
     record_cm = record_changes(doc, False)
-    try:
-        was_recording = record_cm.__enter__()
-    except Exception:
-        raise
+    was_recording = record_cm.__enter__()
     try:
         compound_undo = WriterCompoundUndo(doc, title)
     except Exception:

@@ -12,6 +12,10 @@ import pytest
 from plugin.writer import review_click_popup, review_view_attachment as rva
 
 
+def _click_handlers() -> list[tuple[Any, Any]]:
+    return [(c, h) for att in rva.attachments().values() for c, _i, h in att.controllers]
+
+
 @pytest.fixture(autouse=True)
 def clean_attached() -> Any:
     rva.reset_all()
@@ -216,19 +220,19 @@ def test_registration_dedup_and_detach(monkeypatch: pytest.MonkeyPatch) -> None:
     model.supportsService.return_value = True
     ctrl = FakeController(model=model)
     rva.register_controller(ctrl)
-    assert len(rva.registered_click_handlers()) == 1
+    assert len(_click_handlers()) == 1
     assert ctrl.add_count == 1
 
     # Registering again is a no-op
     rva.register_controller(ctrl)
-    assert len(rva.registered_click_handlers()) == 1
+    assert len(_click_handlers()) == 1
     assert ctrl.add_count == 1
 
     # detach_click_handler
-    handler = rva.registered_click_handlers()[0][1]
+    handler = _click_handlers()[0][1]
     detached_ctrl = rva.detach_click_handler(handler)
     assert detached_ctrl is ctrl
-    assert len(rva.registered_click_handlers()) == 0
+    assert len(_click_handlers()) == 0
 
     # detach_click_handler when not present
     assert rva.detach_click_handler(handler) is None
@@ -244,13 +248,13 @@ def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch: pytest.
     model.supportsService.return_value = True
     ctrl = FakeController(model=model)
     rva.register_controller(ctrl)
-    assert len(rva.registered_click_handlers()) == 1
+    assert len(_click_handlers()) == 1
 
-    handler = rva.registered_click_handlers()[0][1]
+    handler = _click_handlers()[0][1]
     handler.disposing(ctrl)
 
     assert ctrl.remove_count == 1
-    assert len(rva.registered_click_handlers()) == 0
+    assert len(_click_handlers()) == 0
 
 
 def test_cleanup_disposed_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -271,12 +275,12 @@ def test_cleanup_disposed_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
 
     rva.register_controller(live_ctrl)
     key = rva.attachment_key(live_model)
-    rva._attachments[key].controllers.append((dead_ctrl, MagicMock(), FakeHandler(live_model)))
-    assert len(rva.registered_click_handlers()) == 2
+    rva.attachments()[key].controllers.append((dead_ctrl, MagicMock(), FakeHandler(live_model)))
+    assert len(_click_handlers()) == 2
 
     rva.cleanup_disposed_controllers()
-    assert len(rva.registered_click_handlers()) == 1
-    assert rva.registered_click_handlers()[0][0] is live_ctrl
+    assert len(_click_handlers()) == 1
+    assert _click_handlers()[0][0] is live_ctrl
 
 
 def _click(x: int, y: int, count: int) -> Any:

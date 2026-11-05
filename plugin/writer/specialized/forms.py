@@ -235,7 +235,7 @@ def _commit_form_batch(
         outcome.raise_mutate_error()
         error = outcome.error
         if error is not None:
-            error["rolled_back"] = True
+            error["rolled_back"] = outcome.rolled_back
             return error
     except UndoUnavailable:
         return tool._tool_error(undo_message, code="UNDO_UNAVAILABLE")

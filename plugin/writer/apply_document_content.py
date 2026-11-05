@@ -49,7 +49,7 @@ from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
-from plugin.writer.table_nesting import _cell_hosted_table_names
+from plugin.writer.table_nesting import cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
     ToolExecutionError,
@@ -211,7 +211,7 @@ def _empty_replacement_clears_table(table: Any, matches: list[Any]) -> bool:
 
     for cell_name in cell_names:
         cell = uno_read(lambda: table.getCellByName(cell_name), None)
-        if cell is None or _cell_hosted_table_names(cell):
+        if cell is None or cell_hosted_table_names(cell):
             return False
         # Raw text, pending deletions included: a cell that still holds a pending change is
         # not an empty shell, so an empty replacement must not delete the whole table.
@@ -559,7 +559,6 @@ class ApplyDocumentContent(ToolBase):
         The HTML path and a surgical review replace each close their own undo context
         before returning. Without this outer step the URL write would be a second undo.
         """
-        changes_before = len(session.changes)
         reports_holder: list[list[dict[str, Any]]] = []
 
         def mutate() -> None:
@@ -584,7 +583,7 @@ class ApplyDocumentContent(ToolBase):
             exc = outcome.mutate_error
             reraise_if_disposed(exc)
             log.exception("apply_document_content: outline hyperlink update failed")
-            if outcome.rolled_back or len(session.changes) == changes_before:
+            if outcome.nothing_landed:
                 msg = f"Outline hyperlink update failed; the text change was rolled back ({exc})."
             else:
                 msg = f"Outline hyperlink update failed; the text change could not be rolled back and may still be in the document ({exc})."
@@ -966,7 +965,7 @@ class ApplyDocumentContent(ToolBase):
 
         # Stop comes from ctx.send_cancellation; ToolContext has no stop_checker. MCP has no scope (None).
         # still_reviewing: review mode toggled off aborts the wait; that is not a user Stop.
-        scope = getattr(ctx, "send_cancellation", None)
+        scope = ctx.send_cancellation
 
         review = session.wait_for_review(
             timeout=wait_seconds,
@@ -1226,7 +1225,6 @@ class ApplyDocumentContent(ToolBase):
             anchor = collapsed_anchor(anchor_range) if anchor_range is not None else None
         else:
             anchor = collapsed_anchor(ranges[0])
-        changes_before = len(session.changes)
         count = 0
         link_failure_holder: list[dict[str, Any] | None] = [None]
         link_reports: list[dict[str, Any]] = []
@@ -1277,8 +1275,7 @@ class ApplyDocumentContent(ToolBase):
                 payload = dict(link_failure_holder[0])
             else:
                 payload = {"status": "error", "code": "TOOL_EXECUTION_ERROR"}
-            is_rolled_back = bool(outcome.rolled_back or len(session.changes) == changes_before)
-            if is_rolled_back:
+            if outcome.nothing_landed:
                 payload["message"] = "all_matches aborted after %d replacement(s); document rolled back (%s)." % (count, e)
             else:
                 payload["message"] = "all_matches aborted after %d replacement(s); the document could not be rolled back and may be partially edited (%s)." % (count, e)

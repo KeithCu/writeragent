@@ -479,7 +479,7 @@ Ported from `libreoffice-mcp-extension/pythonpath/uno_bridge.py` and adapted to 
 |---|---|
 | Styles | `style_list`, `style_get_info` |
 | Comments | `comment_list`, `add_comment`, `comment_delete`; specialized: `comment_scan_tasks`, `comment_workflow_get`, `comment_workflow_set`, `comment_check_stop` |
-| Track changes | `track_changes_start` / `stop` / `list` / `show`, `tracking_manage` |
+| Track changes | `tracking_start` / `stop` / `list` / `show`, `tracking_manage` |
 | Tables | `table_list`, `table_get_cells`, `table_set_cell`, `table_manage_structure` |
 
 ### Updated: `core/document_tools.py`
@@ -679,7 +679,7 @@ to its own embedded AI:
 
 **Writer**: `get_document_content` (`scope`, `max_chars`, `start`/`end`, `include_images` — default strips inline `data:image` base64; `start`/`end` are plain-text offsets in the `document_length` space; `max_chars` counts returned HTML), `apply_document_content`, `find_text`,
 `style_list`, `style_get_info`, `comment_list`, `add_comment`, `comment_delete`,
-`track_changes_start` / `stop` / `list` / `show`, `tracking_manage`,
+`tracking_start` / `stop` / `list` / `show`, `tracking_manage`,
 `table_list`, `table_get_cells`, `table_set_cell`,
 `table_manage_structure`,
 `table_insert`, `table_delete`,

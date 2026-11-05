@@ -249,7 +249,7 @@ def _is_all_redlines_agent(view: RedlineView) -> bool:
     )
 
 
-# --- Agent-self-resolution guard (used by the agent-facing track_changes_* tools) -------------
+# --- Agent-self-resolution guard (used by the agent-facing tracking_* tools) -------------
 # BUG (reported): the agent accepted its OWN edits. wa-review changes are recorded for the HUMAN
 # to accept/reject in the review UI; the agent must never resolve them. HOW IT HAPPENED:
 # tracking.py's accept/reject tools drive the native .uno:Accept/Reject(All)TrackedChanges, which

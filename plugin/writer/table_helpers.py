@@ -6,6 +6,7 @@
 
 Public surface:
 - ``_set_cell_string``: Set string on a cell (via getText() or setString).
+- ``check_grid``: Validate row/column counts for a 2D grid write.
 - ``fill_table_cells``: Validate and write a 2D grid into a table by column and row coordinates.
 - ``table_dims``: Return (rows, cols) dimensions of a table.
 - ``edit_table_band``: Insert or remove rows/columns on a table band.
@@ -17,6 +18,7 @@ from typing import Any
 
 __all__ = [
     "_set_cell_string",
+    "check_grid",
     "edit_table_band",
     "fill_table_cells",
     "table_dims",
@@ -33,7 +35,7 @@ def _set_cell_string(cell: Any, text: str) -> None:
     cell.setString(text)
 
 
-def _check_grid(data: Any, rows: int, cols: int, *, reject_non_list: bool) -> None:
+def check_grid(data: Any, rows: int, cols: int, *, reject_non_list: bool) -> None:
     if len(data) > rows:
         raise ValueError("data has %d rows but table only has %d." % (len(data), rows))
     for r_idx, row in enumerate(data):
@@ -50,7 +52,7 @@ def fill_table_cells(table: Any, data: Any) -> int:
     # Validate entire grid before mutating so malformed rows are not silently dropped
     # and oversized grids do not leave partially-filled tables.
     rows, cols = table_dims(table)
-    _check_grid(data, rows, cols, reject_non_list=True)
+    check_grid(data, rows, cols, reject_non_list=True)
 
     written = 0
     for r_idx, row in enumerate(data):

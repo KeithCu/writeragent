@@ -48,7 +48,7 @@ DOMAIN_LOOP_HINTS: dict[str, dict[str | None, str]] = {
     },
 }
 
-def _catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
+def catalog_entries_from_base(*, agent_label: str | None = None, ctx: Any = None, for_discovery: bool = False) -> list[dict[str, str]]:
     """Build ``[{domain, description}, …]`` for one specialized base class (delegate/MCP catalog).
 
     ``for_discovery`` skips the exclusions that only shape a chat prompt. CALC_HIDDEN_SPECIALIZED_
@@ -104,7 +104,7 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
     seen: dict[str, str] = {}
     # for_discovery must be forwarded. python is hidden on Calc chat only.
     for label in labels:
-        for entry in _catalog_entries_from_base(
+        for entry in catalog_entries_from_base(
             agent_label=label, ctx=ctx, for_discovery=for_discovery,
         ):
             dom = entry["domain"]
@@ -117,7 +117,7 @@ def get_specialized_domain_catalog(*, agent_label: str | None, ctx: Any = None, 
 def _get_specialized_domains_str(*, agent_label: str | None = None, ctx: Any = None) -> str:
     """Build a compact domain list for delegation hints and MCP schemas."""
     parts = []
-    for entry in sorted(_catalog_entries_from_base(agent_label=agent_label, ctx=ctx), key=lambda e: e["domain"]):
+    for entry in sorted(catalog_entries_from_base(agent_label=agent_label, ctx=ctx), key=lambda e: e["domain"]):
         if entry["description"]:
             parts.append(f"{entry['domain']}: {entry['description']}")
         else:

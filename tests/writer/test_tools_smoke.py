@@ -85,10 +85,10 @@ class TestWriterToolsSmoke:
         doc = WriterDocStub()
         names = {t.name for t in registry.get_tools(doc=doc, active_domain="tracking", exclude_tiers=())}
         for name in (
-            "track_changes_start",
-            "track_changes_stop",
-            "track_changes_list",
-            "track_changes_show",
+            "tracking_start",
+            "tracking_stop",
+            "tracking_list",
+            "tracking_show",
             "tracking_manage",
         ):
             assert (name) in (names), f"expected tracking tool {name!r}"

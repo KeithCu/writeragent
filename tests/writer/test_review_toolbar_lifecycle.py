@@ -41,12 +41,13 @@ def test_disposing_drops_registry_entry():
     model = FakeModel("uid-1")
     rva.ensure_modify_listener(model)
     key = _doc_key("uid-1")
-    assert key in rva.modify_listener_map()
-    listener = rva.modify_listener_map()[key]
+    att = rva.attachments().get(key)
+    assert att is not None and att.modify_listener is not None
+    listener = att.modify_listener
     assert listener in model.listeners
 
     listener.disposing(MagicMock())
-    assert key not in rva.modify_listener_map()
+    assert key not in rva.attachments()
 
 
 def test_unregister_removes_listener_and_entry():
@@ -54,7 +55,7 @@ def test_unregister_removes_listener_and_entry():
     model = FakeModel("uid-2")
     rva.ensure_modify_listener(model)
     rva.release_document(model)
-    assert _doc_key("uid-2") not in rva.modify_listener_map()
+    assert _doc_key("uid-2") not in rva.attachments()
     assert model.listeners == []
 
 
@@ -62,7 +63,7 @@ def test_disposing_is_idempotent_and_safe():
     _clear_registry()
     listener = rva.ReviewModifyListener(_doc_key("uid-3"))
     listener.disposing(MagicMock())
-    assert _doc_key("uid-3") not in rva.modify_listener_map()
+    assert _doc_key("uid-3") not in rva.attachments()
 
 
 def test_disposing_does_not_evict_a_recycled_uid_entry():
@@ -72,7 +73,7 @@ def test_disposing_does_not_evict_a_recycled_uid_entry():
     new = rva.ReviewModifyListener(key)
     rva._attachments[key] = rva.ReviewViewAttachment(key=key, model=object(), modify_listener=new)
     old.disposing(MagicMock())
-    assert rva.modify_listener_map()[key] is new
+    assert rva.attachments()[key].modify_listener is new
 
 
 def test_register_dedups_by_uid():
@@ -80,9 +81,9 @@ def test_register_dedups_by_uid():
     model = FakeModel("uid-4")
     rva.ensure_modify_listener(model)
     key = _doc_key("uid-4")
-    first = rva.modify_listener_map()[key]
+    first = rva.attachments()[key].modify_listener
     rva.ensure_modify_listener(model)
-    assert rva.modify_listener_map()[key] is first
+    assert rva.attachments()[key].modify_listener is first
     assert len(model.listeners) == 1
 
 
@@ -99,7 +100,7 @@ def test_toolbar_docks_once_per_document():
         rva.refresh_review_toolbar(model)
         rva.refresh_review_toolbar(model)
     assert dock.call_count == 1
-    assert rva._attachments[key].toolbar_docked is True
+    assert rva.attachments()[key].toolbar_docked is True
 
 
 def test_disposing_clears_docked_state():
@@ -108,8 +109,7 @@ def test_disposing_clears_docked_state():
     listener = rva.ReviewModifyListener(key)
     rva._attachments[key] = rva.ReviewViewAttachment(key=key, model=object(), modify_listener=listener, toolbar_docked=True)
     listener.disposing(MagicMock())
-    assert key not in rva.modify_listener_map()
-    assert key not in rva._attachments
+    assert key not in rva.attachments()
 
 
 # --- modified() must never recount inside the modify notification ------------
@@ -212,7 +212,7 @@ def test_closing_the_document_cancels_a_queued_recount():
     key = _doc_key("uid-close")
     posted, post_patch = _capture_posts()
     with _visible_toolbar_patch(True), post_patch, patch.object(rva, "refresh_review_toolbar") as refresh:
-        rva.modify_listener_map()[key].modified(_event(model))
+        rva.attachments()[key].modify_listener.modified(_event(model))
         rva.release_document(model)
         fn, args = posted[0]
         fn(*args)  # the queued run arrives after the close
@@ -256,11 +256,11 @@ def test_dock_failure_is_retried_on_the_next_show():
          patch("plugin.writer.review_scan.agent_change_presence",
                side_effect=[(1, True), (0, True), (1, True)]):
         rva.refresh_review_toolbar(model)
-        assert not rva._attachments.get(key, rva.ReviewViewAttachment(key, model)).toolbar_docked
+        assert not rva.attachments().get(key, rva.ReviewViewAttachment(key, model)).toolbar_docked
         rva.refresh_review_toolbar(model)
         rva.refresh_review_toolbar(model)
     assert dock.call_count == 2
-    assert rva._attachments[key].toolbar_docked is True
+    assert rva.attachments()[key].toolbar_docked is True
     _reset()
 
 
