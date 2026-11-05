@@ -119,7 +119,10 @@ def test_slash_commands_filtered_by_doc_type():
         names = _names("/", doc_type=app)
         assert "formula" not in names
         for rewrite in ("proofread", "shorten", "expand", "tone", "translate"):
-            assert rewrite not in names
+            assert rewrite in names
+        help_text = format_help_text(app)
+        for rewrite in ("proofread", "shorten", "expand", "tone", "translate"):
+            assert f"/{rewrite}" in help_text
 
     calc_names = _names("/", doc_type="calc")
     assert "proofread" in calc_names and "formula" in calc_names

@@ -163,7 +163,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         run=SlashRun.REWRITE,
         instruction=N_("Fix spelling, grammar, and punctuation only. Do not change style, tone, or meaning."),
         usage="/proofread",
-        apps=("writer", "calc"),
+        apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
         "shorten",
@@ -171,7 +171,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         run=SlashRun.REWRITE,
         instruction=N_("Make the text shorter while preserving the meaning."),
         usage="/shorten [target]",
-        apps=("writer", "calc"),
+        apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
         "expand",
@@ -179,7 +179,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         run=SlashRun.REWRITE,
         instruction=N_("Expand the text with more detail and clarity."),
         usage="/expand [what]",
-        apps=("writer", "calc"),
+        apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
         "tone",
@@ -188,7 +188,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         instruction=N_("Rewrite the text to match this tone or style: {arg}"),
         requires_arg=True,
         usage="/tone <description>",
-        apps=("writer", "calc"),
+        apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
         "translate",
@@ -197,7 +197,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         instruction=N_("Translate the text into {arg}. Keep formatting and structure."),
         requires_arg=True,
         usage="/translate <language>",
-        apps=("writer", "calc"),
+        apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
         "explain",

@@ -235,6 +235,19 @@ def do_selection_action_for_document(
         )
         return
 
+    if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
+        from plugin.draw.editselection import do_draw_extend_edit
+
+        do_draw_extend_edit(
+            ctx,
+            model,
+            is_edit,
+            preset_instruction=preset_instruction,
+            sidebar_notify=sidebar_notify,
+            allow_whole_document=allow_whole_document,
+        )
+        return
+
     action = _("Edit") if is_edit else _("Extend")
     message = _("{0} selection not supported for this document type").format(action)
     if sidebar_notify is not None:

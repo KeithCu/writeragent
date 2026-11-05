@@ -97,19 +97,19 @@ def test_draw_impress_selection_with_sidebar_notify_does_not_msgbox(doc_label: s
 
     ctx = MagicMock()
     model = MagicMock()
-    lines: list[str] = []
+    doc_type = DocumentType.DRAW if doc_label == "draw" else DocumentType.IMPRESS
 
-    with patch("plugin.chatbot.selection.get_document_type", return_value=DocumentType.DRAW):
+    with patch("plugin.chatbot.selection.get_document_type", return_value=doc_type), \
+         patch("plugin.draw.editselection.do_draw_extend_edit") as draw_edit:
         do_selection_action_for_document(
             ctx,
             model,
             is_edit=True,
             preset_instruction="proofread",
-            sidebar_notify=lines.append,
+            sidebar_notify=lambda s: None,
         )
 
-    assert len(lines) == 1
-    assert "not supported" in lines[0].lower()
+    draw_edit.assert_called_once()
 
 
 def test_draw_selection_without_sidebar_notify_still_msgbox() -> None:
@@ -119,10 +119,12 @@ def test_draw_selection_without_sidebar_notify_still_msgbox() -> None:
     model = MagicMock()
 
     with patch("plugin.chatbot.selection.get_document_type", return_value=DocumentType.DRAW), \
+         patch("plugin.draw.editselection.do_draw_extend_edit") as draw_edit, \
          patch("plugin.chatbot.selection.msgbox") as msgbox:
         do_selection_action_for_document(ctx, model, is_edit=False)
 
-    msgbox.assert_called_once()
+    draw_edit.assert_called_once()
+    msgbox.assert_not_called()
 
 
 from plugin.chatbot.selection import stream_completion_tasks, StreamCompletionTask
