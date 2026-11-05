@@ -33,6 +33,7 @@ from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.llm_lanes import llm_request_lane
 from plugin.framework.send_cancellation import is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.tool_loop import _PanelDescriptor
@@ -328,9 +329,7 @@ class SendHandlersMixin:
         with suppress_disposed("LRU update", logger=log, exc_info=True):
             update_lru_history(base_size_int, "image_base_size_lru", "")
 
-        # Spawn-time scope. The body must not re-read _send_cancellation:
-        # Stop clears the field and the next send replaces it.
-        cancel_scope = self._panel._send_cancellation
+        cancel_scope = spawn_scope(self._panel)
 
         def run_direct_image() -> None:
             doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
@@ -466,9 +465,7 @@ class SendHandlersMixin:
         self._panel._append_response(query_text, role="user")
 
         drain_q, turn = _send_worker_queues(self._panel)
-        # Spawn-time scope. run_agent must not re-read _send_cancellation:
-        # Stop clears the field and the next send replaces it.
-        cancel_scope = self._panel._send_cancellation
+        cancel_scope = spawn_scope(self._panel)
 
         # String-only: classifying the live model hits get_document_type (UNO).
         # run_agent is chatbot-send-handler; do not classify the document here.
@@ -577,9 +574,7 @@ class SendHandlersMixin:
         from plugin.chatbot.web_research_chat import format_sub_agent_conversation_history
 
         history_text = format_sub_agent_conversation_history(self._panel.session, current_query=query_text)
-        # Spawn-time scope. run_search must not re-read _send_cancellation:
-        # Stop clears the field and the next send replaces it.
-        cancel_scope = self._panel._send_cancellation
+        cancel_scope = spawn_scope(self._panel)
 
         doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
 

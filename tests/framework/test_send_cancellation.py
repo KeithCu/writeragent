@@ -505,7 +505,6 @@ def test_is_cancelled_predicate():
     assert is_cancelled(scope) is True
 
 
-def test_send_cancellation_imports_before_queue_executor():
     import subprocess
     import sys
 

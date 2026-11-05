@@ -26,7 +26,7 @@ import threading
 import time
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
 from plugin.chatbot.panel import (
@@ -40,6 +40,9 @@ from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.worker_pool import run_in_background
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 log = logging.getLogger(__name__)
 
@@ -1636,11 +1639,13 @@ def iter_desktop_components(ctx: Any) -> list[Any]:
     comps = getattr(desktop, "getComponents", lambda: None)()
     if comps is None or not hasattr(comps, "createEnumeration"):
         return []
+    from plugin.framework.uno_context import enum_has_more
+
     enum = comps.createEnumeration()
     out: list[Any] = []
     while True:
         try:
-            if not enum.hasMoreElements():
+            if not enum_has_more(enum):
                 break
             out.append(enum.nextElement())
         except Exception:
@@ -2403,7 +2408,7 @@ class _UrpSlashHost:
         self.query_control = query
         self.response_control = response
         self.slash_popup: Any = None
-        self._send_cancellation: Any = None
+        self._send_cancellation: SendCancellation | None = None
         self.cached_doc_type = "writer"
         self.cached_uno_services = None
         self.sidebar_state: Any = SimpleNamespace(
@@ -2417,6 +2422,9 @@ class _UrpSlashHost:
             {"on_action_performed": staticmethod(lambda _ev: uno_click(clear) if clear is not None else None)},
         )()
         self._stop = stop
+
+    def sync_has_text_from_query(self) -> None:
+        return
 
     def dispatch(self, event: Any) -> None:
         return
@@ -2998,8 +3006,10 @@ def list_redlines(doc: Any) -> list[dict[str, Any]]:
     if not hasattr(doc, "getRedlines"):
         return redlines
     rls = doc.getRedlines()
+    from plugin.framework.uno_context import enum_has_more
+
     enum = rls.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         rl = enum.nextElement()
         entry: dict[str, Any] = {}
         for prop in ("RedlineAuthor", "RedlineComment", "RedlineType", "RedlineIdentifier"):

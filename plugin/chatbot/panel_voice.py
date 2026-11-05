@@ -18,6 +18,7 @@ from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.config import get_api_config
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.send_cancellation import is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.chatbot.tool_loop_actions import assign_send_outcome, send_outcome_is_stopped, send_outcome_terminal_display
 
 log = logging.getLogger(__name__)
@@ -322,12 +323,12 @@ class PanelVoiceController:
     def _transcribe_audio(self, wav_path: str, stt_model: str) -> str:
         """Transcribe audio synchronously using event pumping on the main thread.
 
-        The send-scoped checker is taken from ``self._panel._send_cancellation`` on this
+        The send-scoped checker is taken via ``spawn_scope(self._panel)`` on this
         thread before blocking work, and the
         checker is read once more after the transcript returns. Without
         that checker, ``run_blocking_in_thread`` pumps the UI, so Stop can
         cancel the send scope and a nested send can replace
-        ``_send_cancellation``, while Whisper's ``subprocess.run`` still
+        the panel's cancellation field, while Whisper's ``subprocess.run`` still
         waits out 900s and the transcript is posted anyway. Stop does
         not kill local Whisper or close the endpoint socket: transcription
         finishes and ``_do_send`` puts the words back in the Ask box instead
@@ -353,10 +354,8 @@ class PanelVoiceController:
 
         self._panel._stt_inflight = True
         try:
-            # Spawn-time scope. Do not read _send_cancellation inside the
-            # worker: Stop's drain clears the field and the next send replaces it.
-            # Send thread, before run_blocking_in_thread; do not re-read _send_cancellation in the worker.
-            cancel_scope = self._panel._send_cancellation
+            # Worker closes over this scope; the drain clears host._send_cancellation.
+            cancel_scope = spawn_scope(self._panel)
             if is_cancelled(cancel_scope):
                 assign_send_outcome(self._panel, "stopped")
                 return ""
@@ -477,7 +476,7 @@ class PanelVoiceController:
                             new_text = _join_voice_text(typed_after, transcript)
 
                         self._panel._restore_query_text(new_text)
-                        self._panel._sync_has_text_from_query()
+                        self._panel.sync_has_text_from_query()
                         return query_text, True
 
                     user_changed_ask = bool(typed_after and typed_after != query_text)

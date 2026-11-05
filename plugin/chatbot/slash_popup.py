@@ -642,9 +642,7 @@ class SlashPopupController:
                     if result is SlashResult.CONTINUE_SEND:
                         # Bugfix (QA F1): SEND_COMPLETED clears has_text; exact /preset + Enter
                         # must sync Ask before SEND_CLICKED or send_state ignores the click.
-                        sync = getattr(host, "_sync_has_text_from_query", None)
-                        if callable(sync):
-                            sync()
+                        host.sync_has_text_from_query()
                         host.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
                 _defer_to_next_turn(_accept_exact_or_send)

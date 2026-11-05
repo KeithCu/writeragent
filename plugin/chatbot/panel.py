@@ -34,6 +34,8 @@ from plugin.chatbot.tool_loop_actions import assign_send_outcome
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
 from plugin.framework.queue_executor import MainThread, main
+from plugin.framework.send_cancellation import is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.chatbot.record_gesture import (
     RecordGesture,
     gesture_action,
@@ -455,7 +457,7 @@ class SendButtonListener(BaseActionListener):
         # Stop writes cancel on _send_cancellation and sets _stop_requested_fallback;
         # assigning stop_requested is not the cancel API.
         scope = self._send_cancellation
-        if scope is not None and scope.is_cancelled():
+        if is_cancelled(scope):
             return True
         return self._stop_requested_fallback
 
@@ -1006,7 +1008,7 @@ class SendButtonListener(BaseActionListener):
                 return
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
-    def _sync_has_text_from_query(self) -> None:
+    def sync_has_text_from_query(self) -> None:
         """Ask is the source of truth after SEND_COMPLETED forces has_text False.
 
         Ask is the source of truth after completion. Completion always
@@ -1133,7 +1135,7 @@ class SendButtonListener(BaseActionListener):
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 else:
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                    self._sync_has_text_from_query()
+                    self.sync_has_text_from_query()
                     if speak:
                         self._voice.speak_reply(speak=True)
                     elif terminal:
@@ -1301,7 +1303,7 @@ class SendButtonListener(BaseActionListener):
             run_slash_command,
             run_slash_compact,
             slash_answer_is_local_only,
-            slash_continues_send,
+            slash_run_needs_send,
             SlashResult,
         )
 
@@ -1314,9 +1316,11 @@ class SendButtonListener(BaseActionListener):
         parsed = parse_slash_text(peek_text)
         slash_cmd = None
         slash_arg = ""
+        planned = None
         if parsed is not None:
             slash_cmd, slash_arg = parsed
-            if not slash_continues_send(slash_cmd, self):
+            planned = plan_slash(slash_cmd, self)
+            if not slash_run_needs_send(planned):
                 if run_slash_command(slash_cmd, self, slash_arg, from_popup=False) is SlashResult.HANDLED:
                     assign_send_outcome(self, "ready")
                     return
@@ -1331,24 +1335,26 @@ class SendButtonListener(BaseActionListener):
             return
 
         slash_transcript_line: str | None = None
-        slash_sidebar_only = False
-        if slash_cmd is not None:
-            eff = plan_slash(slash_cmd, self)
-            if eff is SlashRun.COMPACT:
-                run_slash_compact(self, slash_arg, cancel=self._send_cancellation)
+        if slash_cmd is not None and planned is not None:
+            if planned is SlashRun.COMPACT:
+                run_slash_compact(self, slash_arg, cancel=spawn_scope(self))
                 return
-            if eff is SlashRun.FORMULA:
+            if planned is SlashRun.FORMULA:
                 from plugin.doc.agent_undo import cancel_pending_agent_turn
 
                 cancel_pending_agent_turn(model)
                 self._skip_agent_undo_after = True
                 self.run_slash_formula(slash_arg)
                 return
-            if eff is SlashRun.ANSWER:
+            if planned is SlashRun.ANSWER:
                 slash_transcript_line = peek_text.strip()
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
                 if slash_answer_is_local_only(slash_cmd, model):
-                    slash_sidebar_only = True
+                    from plugin.chatbot.tool_loop_actions import running_turn
+
+                    turn = running_turn(self)
+                    if turn is not None:
+                        turn.slash_sidebar_only = True
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -1393,7 +1399,6 @@ class SendButtonListener(BaseActionListener):
                 model,
                 doc_type_label,
                 user_transcript_text=slash_transcript_line,
-                slash_sidebar_only=slash_sidebar_only,
             )
 
         except Exception:

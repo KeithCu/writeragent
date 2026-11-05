@@ -102,7 +102,10 @@ def test_stop_requested():
 
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
     assert not any(isinstance(e, AddMessageEffect) for e in effects)
-    assert any(isinstance(e, ToolLoopUIEffect) and e.kind == "status" and e.text == "Stopped" for e in effects)
+    assert any(
+        isinstance(e, ToolLoopUIEffect) and e.kind == "status" and e.outcome == "stopped"
+        for e in effects
+    )
     assert not any(isinstance(e, ToolLoopUIEffect) and e.kind == "append" for e in effects)
 
 
@@ -132,6 +135,10 @@ def test_final_done():
     new_state, effects = tr.state, tr.effects
 
     assert new_state.status == "Ready"
+    ready_status = next(
+        e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.STATUS and e.outcome == "ready"
+    )
+    assert ready_status.outcome == "ready"
     assert any(isinstance(e, ExitLoopEffect) for e in effects)
     
     msg_effect = next(e for e in effects if isinstance(e, AddMessageEffect))
@@ -294,6 +301,9 @@ def test_next_tool_advances_round_and_handles_max_rounds():
     spawn_eff = next((e for e in effects if isinstance(e, SpawnLLMWorkerEffect)), None)
     assert spawn_eff is not None
     assert spawn_eff.round_num == 4
+    status_eff = next(e for e in effects if isinstance(e, ToolLoopUIEffect) and e.kind == UIEffectKind.STATUS)
+    assert status_eff.text == "Sending results to AI..."
+    assert status_eff.outcome is None
     assert not any(isinstance(e, SpawnFinalStreamEffect) for e in effects)
 
     # Exhausted advance

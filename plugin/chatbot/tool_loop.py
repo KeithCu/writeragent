@@ -46,7 +46,8 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation
+from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 from plugin.doc.peer_message import log_peer_tool_on_wire
@@ -449,12 +450,12 @@ class ToolCallingMixin:
         skip_append_user: bool = False,
         *,
         user_transcript_text: str | None = None,
-        slash_sidebar_only: bool = False,
     ) -> None:
         # The send already called begin_send_turn. A mode click inside
         # pump_ui_idle aborts that turn and swaps the session. Do not start
         # another turn here: that rebind wrote this reply onto the other chat.
-        if running_turn(self._panel) is None:
+        entered = running_turn(self._panel)
+        if entered is None:
             return
         try:
             log.debug("_do_send: importing core modules...")
@@ -483,14 +484,14 @@ class ToolCallingMixin:
         try:
             log.debug("_do_send: loading %s schema..." % doc_type_str)
             turn_session = session_for_turn(self._panel)
-            active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
+            active_domain = turn_session.active_specialized_domain if turn_session is not None else None
             python_tool_domain = getattr(turn_session, "python_tool_domain", None) if turn_session is not None else None
             from plugin.framework.queue_executor import pump_ui_idle
 
             toolkit = get_toolkit(self._panel.ctx)
             if toolkit:
                 pump_ui_idle(toolkit, max_queue_items=4)
-            if slash_sidebar_only:
+            if entered.slash_sidebar_only:
                 # Slash answer presets are sidebar-only; mid-loop refresh must not re-add tools.
                 active_tools: list[Any] = []
             else:
@@ -515,9 +516,9 @@ class ToolCallingMixin:
         if synced_model:
             log.debug("_do_send: text model updated to %s" % synced_model)
         if self._panel.image_model_selector:
-            from plugin.framework.model_lru import _sanitize_model_combobox_value
+            from plugin.framework.model_lru import sanitize_model_combobox_value
 
-            selected_image_model = _sanitize_model_combobox_value(str(self._panel.image_model_selector.getText() or ""))
+            selected_image_model = sanitize_model_combobox_value(str(self._panel.image_model_selector.getText() or ""))
             if selected_image_model:
                 set_image_model(selected_image_model)
                 log.debug("_do_send: image model updated to %s" % selected_image_model)
@@ -614,9 +615,6 @@ class ToolCallingMixin:
         log.debug("_do_send: calling AI, use_tools=True, messages=%d" % len(turn_session.messages))
 
         max_tool_rounds = cast("int", api_config["chat_max_tool_rounds"])
-        turn = current_turn(self._panel)
-        if turn is not None:
-            turn.slash_sidebar_only = slash_sidebar_only
         self._start_tool_calling_async(
             client, model, max_tokens, active_tools, execute_fn, max_tool_rounds, query_text=query_text
         )
@@ -640,7 +638,7 @@ class ToolCallingMixin:
             from plugin.app import get_tools
 
             turn_session = session_for_turn(self._panel)
-            active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
+            active_domain = turn_session.active_specialized_domain if turn_session is not None else None
             refresh_doc = turn.model
             if refresh_doc is None:
                 refresh_doc = self._panel._get_document_model()
@@ -662,14 +660,13 @@ class ToolCallingMixin:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
-        # Spawn-time scope on the send thread; worker must not re-read _send_cancellation (drain clears it).
-        bound_scope = self._panel._send_cancellation
+        bound_scope = spawn_scope(self._panel)
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)
 
         def stopped_for_this_send() -> bool:
-            return (bound_scope is not None and bound_scope.is_cancelled()) or client.stopped() is True
+            return is_cancelled(bound_scope) or client.stopped() is True
 
         return turn, bound_session, bound_scope, emit, stopped_for_this_send
 
@@ -1022,7 +1019,7 @@ class ToolCallingMixin:
         return StreamErrorOutcome.END
 
     def _on_stream_error_keeps_drain(self, payload: Any) -> bool:
-        """Drain on_error contract: returning True keeps the drain; anything else ends it."""
+        """``async_stream`` ``on_error`` still takes a bool; ``True`` keeps the drain."""
         return stream_error_keeps_drain(self._handle_stream_error(payload))
 
     def _on_tool_loop_approval_required(self, item: Any) -> None:

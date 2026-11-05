@@ -897,20 +897,20 @@ class TestParseOllamaRuntimeNumCtx:
 
 class TestFilterFetchedModels:
     def test_audio_filter_includes_asr_models(self):
-        from plugin.framework.client.model_fetcher import _filter_fetched_models
+        from plugin.framework.client.model_fetcher import filter_fetched_models
 
         models = ["glm-5.2", "glm-asr-2512", "whisper-1", "gpt-4o"]
-        out = _filter_fetched_models(models, "audio")
+        out = filter_fetched_models(models, "audio")
         assert ("glm-asr-2512") in (out)
         assert ("whisper-1") in (out)
         assert ("glm-5.2") not in (out)
         assert ("gpt-4o") not in (out)
 
     def test_text_filter_keeps_vision_and_coder_chat_models(self):
-        from plugin.framework.client.model_fetcher import _filter_fetched_models
+        from plugin.framework.client.model_fetcher import filter_fetched_models
 
         models = ["qwen2.5-coder", "llava", "gpt-4-vision", "whisper-1", "text-embedding-3-small", "deepseek-coder", "gpt-4o"]
-        out = _filter_fetched_models(models, "text")
+        out = filter_fetched_models(models, "text")
         assert "qwen2.5-coder" in out
         assert "llava" in out
         assert "gpt-4-vision" in out

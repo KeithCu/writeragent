@@ -12,23 +12,7 @@ import logging
 import os
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Protocol
-
-SendOutcome = Literal["ready", "error", "stopped"]
-
-_OUTCOME_DISPLAY: dict[SendOutcome, str] = {
-    "ready": "Ready",
-    "error": "Error",
-    "stopped": "Stopped",
-}
-
-
-def _outcome_for_status_text(text: str) -> SendOutcome | None:
-    # FSM STATUS effects still carry English bar text only; map the three terminals until a typed outcome effect exists.
-    for outcome, display in _OUTCOME_DISPLAY.items():
-        if text == display:
-            return outcome
-    return None
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
@@ -40,9 +24,11 @@ from plugin.chatbot.tool_loop_state import (
     ExitLoopEffect,
     LogAgentEffect,
     MessageRole,
+    OUTCOME_STATUS_TEXT,
     SpawnFinalStreamEffect,
     SpawnLLMWorkerEffect,
     SpawnToolWorkerEffect,
+    SendOutcome,
     ToolLoopUIEffect,
     TriggerNextToolEffect,
     UIEffectKind,
@@ -66,6 +52,7 @@ from plugin.framework.errors import (
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
@@ -566,7 +553,7 @@ def send_outcome_terminal_display(host: Any) -> str:
         oc = getattr(host, "_orphan_send_outcome", None)
     if oc is None:
         return ""
-    return _OUTCOME_DISPLAY[oc]
+    return OUTCOME_STATUS_TEXT[oc]
 
 
 def send_outcome_is_error(host: Any) -> bool:
@@ -1033,10 +1020,11 @@ class ToolLoopEffectInterpreter:
         if effect.kind == UIEffectKind.APPEND:
             host._append_response(effect.text)
         elif effect.kind == UIEffectKind.STATUS:
-            host._set_status(effect.text)
-            outcome = _outcome_for_status_text(effect.text)
-            if outcome is not None:
-                assign_send_outcome(host, outcome)
+            if effect.outcome is not None:
+                host._set_status(OUTCOME_STATUS_TEXT[effect.outcome])
+                assign_send_outcome(host, effect.outcome)
+            else:
+                host._set_status(effect.text)
         elif effect.kind == UIEffectKind.TOOL_RUNNING:
             status_text, run_line = format_tool_running_ui(effect.func_name, effect.func_args or {})
             host._set_status(status_text)
@@ -1124,8 +1112,7 @@ class ToolLoopEffectInterpreter:
         supports_status = turn.active_supports_status
         # Scope from this send. execute_fn must not read the
         # panel field when the tool later runs.
-        # Send thread, before run_in_background; worker must not re-read _send_cancellation (drain clears it).
-        bound_scope = host._send_cancellation
+        bound_scope = spawn_scope(host)
 
         # Bugfix: getText ran for every tool whenever the sidebar combobox
         # existed, and main.call re-raises, so a disposed or

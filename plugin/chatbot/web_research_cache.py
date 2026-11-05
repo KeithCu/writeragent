@@ -84,7 +84,9 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
     """Read first-paragraph CharLocale from *doc*. Main thread only (UNO)."""
     text = doc.getText()
     enum = text.createEnumeration()
-    if not enum.hasMoreElements():
+    from plugin.framework.uno_context import enum_has_more
+
+    if not enum_has_more(enum):
         return None
     first_para = enum.nextElement()
     char_locale = first_para.getPropertyValue("CharLocale")
@@ -156,17 +158,17 @@ def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
         return cached
 
     from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
-    from plugin.writer.locale.linguistic_index import _raw_tokens
+    from plugin.writer.locale.linguistic_index import raw_tokens
     from plugin.writer.locale.stop_words import stop_words_for_snowball
 
     fluff: set[str] = set()
     for phrase in translated_research_cache_fluff():
-        fluff.update(_raw_tokens(phrase))
+        fluff.update(raw_tokens(phrase))
     # Stop words are stored with their accents ("até", "chère"); query tokens
-    # come from _raw_tokens, which lowercases and deaccents, so union the
+    # come from raw_tokens, which lowercases and deaccents, so union the
     # normalized form or accented stop words never filter.
     for stop_word in stop_words_for_snowball(snowball_lang):
-        fluff.update(_raw_tokens(stop_word))
+        fluff.update(raw_tokens(stop_word))
     result = frozenset(fluff)
     _FLUFF_WORDS_CACHE[cache_key] = result
     return result
@@ -176,12 +178,12 @@ def ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]: 
     """Fluff-filtered tokens, first-seen order. Storage keys sort a copy of this list."""
     if not query:
         return []
-    from plugin.writer.locale.linguistic_index import _raw_tokens
+    from plugin.writer.locale.linguistic_index import raw_tokens
 
     fluff = get_research_fluff_words(snowball_lang=snowball_lang)
     seen: set[str] = set()
     ordered: list[str] = []
-    for token in _raw_tokens(query):
+    for token in raw_tokens(query):
         if token in fluff or len(token) < _MIN_TOKEN_LEN or token in seen:
             continue
         seen.add(token)

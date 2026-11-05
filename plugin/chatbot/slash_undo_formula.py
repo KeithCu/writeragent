@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import format_error_message, reraise_if_disposed
 from plugin.framework.i18n import N_, _
+from plugin.chatbot.send_state import spawn_scope
 
 if TYPE_CHECKING:
     from plugin.chatbot.slash_commands import SlashHost
@@ -186,8 +187,7 @@ def run_slash_formula_worker(host: SlashHost, *, ctx: Any, model: Any, descripti
     )
     max_tokens = get_config("chatbot.extend_selection_max_tokens")
     chunks: list[str] = []
-    # Send thread, before stream; worker must not re-read host._send_cancellation (drain clears it).
-    cancel = host._send_cancellation
+    cancel = spawn_scope(host)
 
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
         if not is_thinking:

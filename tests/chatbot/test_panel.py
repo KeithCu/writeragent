@@ -528,7 +528,7 @@ class TestSendDispose:
         assign_send_outcome(listener, "ready")
         listener.ctx = MagicMock()
         listener._panel_teardown = False
-        listener._send_cancellation = MagicMock()
+        listener._send_cancellation = SendCancellation()
 
         class MockSession:
             def __init__(self, messages):
@@ -537,6 +537,11 @@ class TestSendDispose:
             messages=[{"role": "assistant", "content": _STOP_LINE}]
         )
 
+        listener.cached_doc_type = "writer"
+        listener._get_document_model = MagicMock(return_value=MagicMock())
+        listener.query_control = MagicMock()
+        listener.query_control.getModel.return_value = MagicMock()
+
         # Test that `_pump_completion` finally block runs drop_turn even when TTS is empty and enabled.
         with patch("plugin.chatbot.panel.update_activity_state"):
             with patch("plugin.framework.config.get_config", return_value=True):
@@ -544,22 +549,23 @@ class TestSendDispose:
                     with patch("plugin.chatbot.tool_loop_actions.drop_turn") as mock_drop:
                         with patch("plugin.doc.peer_message.kick_pending_peer_starts") as mock_kick:
                             with patch.object(listener, "dispatch"):
-                                with patch.object(listener, "_sync_has_text_from_query"):
+                                with patch.object(listener, "sync_has_text_from_query"):
                                     with patch.object(listener, "_set_status"):
-                                        with patch.object(listener._voice, "_flush_sticky_restart") as mock_flush:
-                                            # simulate the execution of _pump_completion generator body being completely skipped/failed
-                                            # causing the finally block to execute
-                                            # we want to run the finally block of _run_send_drain
-                                            with patch("plugin.chatbot.panel.SendButtonListener._sync_has_text_from_query"):
-                                                try:
-                                                    # Make it fail early to hit the finally block
-                                                    with patch("plugin.chatbot.panel.SendButtonListener._set_status", side_effect=ValueError("fail")):
-                                                        listener._run_send_drain()
-                                                except ValueError:
-                                                    pass
-                                            mock_drop.assert_called_once_with(listener)
-                                            mock_kick.assert_called_once()
-                                            mock_flush.assert_called_once()
+                                        with patch.object(listener._voice, "speak_reply"):
+                                            with patch.object(listener._voice, "_flush_sticky_restart") as mock_flush:
+                                                with patch("plugin.chatbot.panel.SendButtonListener.sync_has_text_from_query"):
+                                                    with patch.object(listener, "_do_send"):
+                                                        try:
+                                                            with patch(
+                                                                "plugin.chatbot.panel.SendButtonListener._set_status",
+                                                                side_effect=ValueError("fail"),
+                                                            ):
+                                                                listener._run_send_drain()
+                                                        except ValueError:
+                                                            pass
+                                                mock_drop.assert_called_once_with(listener)
+                                                mock_kick.assert_called_once()
+                                                mock_flush.assert_called_once()
 
     def test_drain_during_dispose_keeps_cancelled_scope(self) -> None:
         listener = _make_send_listener()
@@ -1030,7 +1036,7 @@ class TestTtsStopInteraction:
             assign_send_outcome(listener, "ready")
             listener._send_cancellation = None
             listener._panel_teardown = False
-            listener._sync_has_text_from_query = MagicMock()
+            listener.sync_has_text_from_query = MagicMock()
             listener.dispatch = MagicMock()
 
             # The exact block for TTS in processEventsToIdle
@@ -1063,7 +1069,7 @@ class TestTtsStopInteraction:
             assign_send_outcome(listener, "ready")
             listener._send_cancellation = None
             listener._panel_teardown = False
-            listener._sync_has_text_from_query = MagicMock()
+            listener.sync_has_text_from_query = MagicMock()
             listener.dispatch = MagicMock()
             listener._run_send_drain()
 
@@ -1421,7 +1427,7 @@ class TestHandsFreeRecord:
             tool_loop=None,
         )
         assign_send_outcome(listener, "ready")
-        listener._sync_has_text_from_query = MagicMock()
+        listener.sync_has_text_from_query = MagicMock()
         listener.queue_executor.post = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         spoken = MagicMock()
         spoken.messages = []
@@ -1461,7 +1467,7 @@ class TestHandsFreeRecord:
             tool_loop=None,
         )
         assign_send_outcome(listener, "ready")
-        listener._sync_has_text_from_query = MagicMock()
+        listener.sync_has_text_from_query = MagicMock()
         listener.queue_executor.post = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         spoken = MagicMock()
         spoken.messages = []
@@ -2465,7 +2471,6 @@ class TestPanelR14Fixes:
             skip_append_user: bool = False,
             *,
             user_transcript_text: str | None = None,
-            slash_sidebar_only: bool = False,
         ) -> None:
             display = user_transcript_text if user_transcript_text else query
             listener.session.messages.append({"role": "user", "content": display})

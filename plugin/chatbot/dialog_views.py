@@ -56,7 +56,7 @@ from plugin.framework.client.model_fetcher import (
     settings_catalog_is_warm,
 )
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
-from plugin.framework.model_lru import _sanitize_model_combobox_value
+from plugin.framework.model_lru import sanitize_model_combobox_value
 from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
 from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control
@@ -1084,7 +1084,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 if not same_provider:
                     current = ""
                 else:
-                    current = _sanitize_model_combobox_value(str(ctrl.getText() or "")) or fallback
+                    current = sanitize_model_combobox_value(str(ctrl.getText() or "")) or fallback
                 populate_combobox_with_lru(
                     ctrl,
                     current,

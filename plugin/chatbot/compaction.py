@@ -31,13 +31,55 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from plugin.chatbot.chat_session import message_text, request_tail
+from plugin.framework.send_cancellation import is_cancelled
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from plugin.framework.client.llm_client import LlmClient
     from plugin.framework.send_cancellation import SendCancellation
 
 
 log = logging.getLogger(__name__)
+
+
+def _auth_error_line(exc: BaseException) -> str:
+    from plugin.framework.client.auth import AuthError
+    from plugin.framework.errors import format_error_message
+    from plugin.framework.i18n import _
+
+    if not isinstance(exc, AuthError):
+        raise TypeError("expected AuthError")
+    if exc.code == "missing_api_key":
+        return "\n" + _("Configure an API key to compact.") + "\n"
+    return "\n" + format_error_message(exc) + "\n"
+
+
+def auth_line_for_error(exc: BaseException) -> str | None:
+    """Sidebar line for auth failures from compaction HTTP, else None."""
+    import urllib.error
+
+    from plugin.framework.client.auth import AuthError
+    from plugin.framework.errors import format_error_message
+
+    if isinstance(exc, AuthError):
+        return _auth_error_line(exc)
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
+        return "\n" + format_error_message(exc) + "\n"
+    return None
+
+
+def auth_line_for_client(client: "LlmClient") -> str | None:
+    """Pre-check auth before ``compact_session``; None when the client can call the API."""
+    from plugin.framework.client.auth import AuthError, resolve_auth_for_config
+
+    cfg = client.config
+    if not isinstance(cfg, dict):
+        return None
+    try:
+        resolve_auth_for_config(dict(cfg))
+    except AuthError as exc:
+        return _auth_error_line(exc)
+    return None
 
 CHARS_PER_TOKEN = 4
 # Tier constants. COMPACTION_RATIO_SMALL is the llama.cpp product number.
@@ -807,7 +849,7 @@ def _summarize_bounded(
     idx = 0
 
     while idx < len(lines):
-        if (cancel is not None and cancel.is_cancelled()) or stale():
+        if is_cancelled(cancel) or stale():
             return None, "aborted"
 
         next_chunk = _next_summary_chunk(
@@ -826,31 +868,19 @@ def _summarize_bounded(
 
         summarizer_extra = {"reasoning": {"effort": "low"}}
 
-        def _request_summary(max_tokens_out: int) -> dict[str, Any] | None:
-            import urllib.error
-
-            from plugin.framework.client.auth import AuthError
-
-            try:
-                return client.request_with_tools(
-                    [
-                        {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
-                        {"role": "user", "content": user_body},
-                    ],
-                    max_tokens=max_tokens_out,
-                    tools=None,
-                    stream=False,
-                    cancel=cancel,
-                    prepend_dev_build_system_prefix=False,
-                    chat_extra=summarizer_extra,
-                )
-            except AuthError:
-                raise
-            except Exception as exc:
-                if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
-                    raise
-                log.exception("Compaction failed")
-                return None
+        def _request_summary(max_tokens_out: int) -> dict[str, Any]:
+            return client.request_with_tools(
+                [
+                    {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_body},
+                ],
+                max_tokens=max_tokens_out,
+                tools=None,
+                stream=False,
+                cancel=cancel,
+                prepend_dev_build_system_prefix=False,
+                chat_extra=summarizer_extra,
+            )
 
         # Reasoning models may burn max_tokens on thinking and return empty content.
         retry_cap = min(max(max_out * 2, 2048), 8192, window)
@@ -859,8 +889,14 @@ def _summarize_bounded(
         content = ""
         finish_reason: str | None = None
         for attempt_idx, max_tokens_out in enumerate(attempt_outs):
-            result = _request_summary(max_tokens_out)
-            if cancel is not None and cancel.is_cancelled():
+            try:
+                result = _request_summary(max_tokens_out)
+            except Exception as exc:
+                if auth_line_for_error(exc) is not None:
+                    raise
+                log.exception("Compaction failed")
+                return None, "failed"
+            if is_cancelled(cancel):
                 return None, "aborted"
             if result is None:
                 return None, "failed"

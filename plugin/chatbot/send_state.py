@@ -3,7 +3,14 @@ from __future__ import annotations
 import dataclasses
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, assert_never
+from typing import TYPE_CHECKING, Any, Protocol, assert_never
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
+
+
+class HasSendCancellation(Protocol):
+    _send_cancellation: "SendCancellation | None"
 
 from plugin.framework.service import BaseState, FsmTransition
 from plugin.framework.deal_shim import deal
@@ -323,7 +330,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
                 return _noop(state)
 
             # Completion clears typed text and has_audio; the panel's
-            # _sync_has_text_from_query puts back text typed during the turn.
+            # sync_has_text_from_query puts back text typed during the turn.
             return _return_idle(state, "Ready", clear_text=True)
 
         case SendEventKind.ERROR_OCCURRED:
@@ -342,3 +349,13 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
 
         case _:
             assert_never(event.kind)
+
+
+def spawn_scope(host: HasSendCancellation) -> "SendCancellation | None":
+    """Return the send-scoped cancellation object to close over in a worker.
+
+    Read on the send thread immediately before ``run_in_background`` or
+    ``run_blocking_in_thread``. The worker must not re-read ``host._send_cancellation``:
+    the drain clears that field and the next send replaces it.
+    """
+    return host._send_cancellation
