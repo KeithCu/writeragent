@@ -26,7 +26,8 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Mapping
 from compute_service import error_codes as ec
-from plugin.framework.warm_child import error_dict
+# Settings load must not import the warm-child supervisor.
+from plugin.framework.child_runtime import error_dict
 
 log = logging.getLogger("compute_service.config")
 

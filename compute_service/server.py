@@ -622,15 +622,22 @@ def _admit_vision(
         settings,
         start_response,
         default_timeout_sec=settings.ocr_timeout_sec,
-        load=lambda env, st, start: _load_parts(
-            env,
-            st,
-            start,
-            parse_multipart_vision,
-            multipart_error="Invalid multipart vision body",
-            other_error="Invalid vision body",
-        ),
+        load=_load_vision,
     )
+
+
+Prepare = Callable[[dict[str, Any], Any], tuple[_Admission | None, list[bytes] | None]]
+Handle = Callable[[dict[str, Any], Any, _Admission], list[bytes]]
+
+
+@dataclass(frozen=True, slots=True)
+class _Route:
+    method: str
+    is_body_route: bool
+    prepare: Prepare
+    handle: Handle
+    busy_code: str = ec.WORKER_POOL_BUSY
+    busy_message: str = "All compute workers are currently busy."
 
 
 def _gated(
@@ -638,20 +645,16 @@ def _gated(
     start_response: Any,
     settings: ComputeSettings,
     semaphore: threading.Semaphore,
-    *,
-    route_fn: Callable[[Any, _Admission], list[bytes]],
-    prepare: Callable[[Any], tuple[_Admission | None, list[bytes] | None]],
-    busy_code: str = ec.WORKER_POOL_BUSY,
-    busy_message: str = "All compute workers are currently busy.",
+    route: _Route,
 ) -> list[bytes]:
-    """Execute route_fn guarded by auth, concurrency permit, try/finally, and 500 fallback.
+    """Execute route.handle guarded by auth, concurrency permit, try/finally, and 500 fallback.
 
-    ``route_fn`` receives the tracking ``start_response`` and the admission record.
+    ``route.handle`` receives environ, the tracking ``start_response``, and the admission record.
     A second call is illegal in wsgiref, so a failure after headers are sent is logged
     and returns an empty body instead of another status line.
 
-    ``prepare`` runs after auth and before the permit. It reads the body
-    and returns the admission record. An error response from ``prepare`` does
+    ``route.prepare`` runs after auth and before the permit. It reads the body
+    and returns the admission record. An error response from ``route.prepare`` does
     not take a permit.
     """
     started = False
@@ -673,7 +676,7 @@ def _gated(
     acquired = False
     path = environ.get("PATH_INFO", "")
     try:
-        admission, prep_err = prepare(_start)
+        admission, prep_err = route.prepare(environ, _start)
         if prep_err is not None:
             return prep_err
         assert admission is not None
@@ -685,12 +688,12 @@ def _gated(
             return _error(_start, ec.QUEUE_TIMEOUT, "Request deadline expired before execution.", req_id=req_id, extra_headers=[("Retry-After", "1")])
 
         if not semaphore.acquire(timeout=remaining):
-            return _error(_start, busy_code, busy_message, req_id=req_id, extra_headers=[("Retry-After", "1")])
+            return _error(_start, route.busy_code, route.busy_message, req_id=req_id, extra_headers=[("Retry-After", "1")])
         acquired = True
 
         log.debug("exec %s id=%r", path, req_id)
         start_t = time.perf_counter()
-        res = route_fn(_start, admission)
+        res = route.handle(environ, _start, admission)
         duration_ms = (time.perf_counter() - start_t) * 1000.0
         log.info("done %s id=%r duration=%.2fms", path, req_id, duration_ms)
         return res
@@ -728,6 +731,40 @@ def _load_parts(
         err = multipart_error if is_multipart_content_type(content_type) else other_error
         return None, _error(start_response, ec.BAD_REQUEST_BODY, err)
     return parts, None
+
+
+def _health(start_response: Any) -> list[bytes]:
+    return _start_json(start_response, "200 OK", {"status": "healthy", "service": "python-compute", "version": __version__})
+
+
+def _load_execute(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[Any, list[bytes] | None]:
+    return _load_parts(
+        environ,
+        settings,
+        start_response,
+        parse_execute_request,
+        multipart_error="Invalid multipart execute body",
+        other_error="Invalid JSON",
+    )
+
+
+def _load_vision(
+    environ: dict[str, Any],
+    settings: ComputeSettings,
+    start_response: Any,
+) -> tuple[Any, list[bytes] | None]:
+    return _load_parts(
+        environ,
+        settings,
+        start_response,
+        parse_multipart_vision,
+        multipart_error="Invalid multipart vision body",
+        other_error="Invalid vision body",
+    )
 
 
 def _handle_execute(environ: dict[str, Any], start_response: Any, settings: ComputeSettings, run_execute: ExecuteFn, admission: _Admission) -> list[bytes]:
@@ -848,13 +885,6 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     return _send_execution_result(start_response, result_payload, req_id)
 
 
-@dataclass(frozen=True, slots=True)
-class _Route:
-    method: str
-    is_body_route: bool
-    handler: Callable[[dict[str, Any], Any], list[bytes]]
-
-
 def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None = None, reset_fn: ResetFn | None = None, semaphore: threading.Semaphore | None = None) -> Callable[[dict[str, Any], Any], list[bytes]]:
     """Build a WSGI app bound to *settings* (and optional test hooks).
 
@@ -889,74 +919,47 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
             return reset_fn
         return _current_formula_pool().reset_session
 
-    def _enter_health(_env: dict[str, Any], start: Any) -> list[bytes]:
-        return _start_json(start, "200 OK", {"status": "healthy", "service": "python-compute", "version": __version__})
+    def _prepare_execute(environ: dict[str, Any], start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+        return _admit_body(environ, settings, start, load=_load_execute)
 
-    def _gate(
-        env: dict[str, Any],
-        start: Any,
-        route_fn: Callable[[Any, _Admission], list[bytes]],
-        prepare: Callable[[Any], tuple[_Admission | None, list[bytes] | None]],
-        **kw: Any,
-    ) -> list[bytes]:
-        return _gated(
-            env,
-            start,
-            settings,
-            permits,
-            route_fn=route_fn,
-            prepare=prepare,
-            **kw,
-        )
+    def _dispatch_execute(environ: dict[str, Any], start: Any, admission: _Admission) -> list[bytes]:
+        return _handle_execute(environ, start, settings, _get_execute(), admission)
 
-    def _enter_execute(env: dict[str, Any], start: Any) -> list[bytes]:
-        return _gate(
-            env,
-            start,
-            route_fn=lambda s, admission: _handle_execute(env, s, settings, _get_execute(), admission),
-            prepare=lambda s: _admit_body(
-                env,
-                settings,
-                s,
-                load=lambda env, st, start: _load_parts(
-                    env,
-                    st,
-                    start,
-                    parse_execute_request,
-                    multipart_error="Invalid multipart execute body",
-                    other_error="Invalid JSON",
-                ),
-            ),
-        )
+    def _prepare_reset(environ: dict[str, Any], start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+        return _admit_reset(environ, settings, start)
 
-    def _enter_reset(env: dict[str, Any], start: Any) -> list[bytes]:
-        return _gate(
-            env,
-            start,
-            route_fn=lambda s, admission: _handle_session_reset(env, s, settings, _get_reset(), admission),
-            prepare=lambda s: _admit_reset(env, settings, s),
-        )
+    def _dispatch_reset(environ: dict[str, Any], start: Any, admission: _Admission) -> list[bytes]:
+        return _handle_session_reset(environ, start, settings, _get_reset(), admission)
 
-    def _enter_vision(env: dict[str, Any], start: Any) -> list[bytes]:
-        return _gate(
-            env,
-            start,
-            busy_code=ec.VISION_POOL_BUSY,
-            busy_message="All vision workers are currently busy.",
-            route_fn=lambda s, admission: _handle_vision(env, s, settings, admission),
-            prepare=lambda s: _admit_vision(env, settings, s),
-        )
+    def _prepare_vision(environ: dict[str, Any], start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+        return _admit_vision(environ, settings, start)
+
+    def _dispatch_vision(environ: dict[str, Any], start: Any, admission: _Admission) -> list[bytes]:
+        return _handle_vision(environ, start, settings, admission)
 
     routes: dict[str, _Route] = {
-        "/health": _Route("GET", False, _enter_health),
-        "/v1/execute": _Route("POST", True, _enter_execute),
-        "/v1/session/reset": _Route("POST", True, _enter_reset),
-        "/v1/vision": _Route("POST", True, _enter_vision),
+        "/v1/execute": _Route("POST", True, _prepare_execute, _dispatch_execute),
+        "/v1/session/reset": _Route("POST", True, _prepare_reset, _dispatch_reset),
+        "/v1/vision": _Route("POST", True, _prepare_vision, _dispatch_vision, busy_code=ec.VISION_POOL_BUSY, busy_message="All vision workers are currently busy."),
     }
 
     def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
         path = environ.get("PATH_INFO", "")
         method = environ.get("REQUEST_METHOD", "GET")
+
+        if path == "/health":
+            if method != "GET":
+                if _has_declared_body(environ):
+                    request_conn(environ).close_connection = True
+                body = b"Method Not Allowed"
+                start_response(
+                    "405 Method Not Allowed",
+                    [("Content-Type", "text/plain"), ("Content-Length", str(len(body))), ("Allow", "GET")],
+                )
+                return [body]
+            if _has_declared_body(environ):
+                request_conn(environ).close_connection = True
+            return _health(start_response)
 
         route = routes.get(path)
         if route is None:
@@ -978,7 +981,7 @@ def create_wsgi_app(settings: ComputeSettings, *, execute_fn: ExecuteFn | None =
         if not route.is_body_route and _has_declared_body(environ):
             request_conn(environ).close_connection = True
 
-        return route.handler(environ, start_response)
+        return _gated(environ, start_response, settings, permits, route)
 
     return wsgi_app
 
@@ -1025,6 +1028,8 @@ def run_server(settings: ComputeSettings) -> None:
                 log.warning("Received repeated signal %s, aborting immediately...", sig_name)
                 os._exit(1)
             log.info("Received signal %s, initiating graceful shutdown...", sig_name)
+            # shutdown() waits until serve_forever returns (socketserver.TCPServer.shutdown),
+            # so the signal handler must not call it on this thread.
             threading.Thread(target=server.shutdown, daemon=True).start()
 
         try:

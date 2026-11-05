@@ -26,9 +26,9 @@ if _PROJECT_ROOT not in sys.path:
 from compute_service import error_codes as ec
 from compute_service.config import ComputeSettings, MAX_BODY_BYTES, read_allowlisted_file
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from compute_service.worker_base import BaseProcessPool, PoolSingleton, resolve_override, run_compute_worker
+from compute_service.worker_base import BaseProcessPool, PoolSingleton, bind_pool_singleton, resolve_override, run_compute_worker
 from plugin.framework.child_runtime import Deadline
-from plugin.framework.warm_child import error_dict
+from plugin.framework.child_runtime import error_dict
 
 log = logging.getLogger("compute_service.vision")
 
@@ -91,18 +91,11 @@ class VisionProcessPool(BaseProcessPool):
 _POOL_SINGLETON: PoolSingleton[VisionProcessPool] = PoolSingleton()
 
 
-def get_vision_pool(settings: ComputeSettings | None = None) -> VisionProcessPool:
-    """Retrieve or initialize the global vision process pool."""
-    return _POOL_SINGLETON.get(lambda: VisionProcessPool(settings=settings))
+def _new_vision_pool(settings: ComputeSettings | None = None) -> VisionProcessPool:
+    return VisionProcessPool(settings=settings)
 
 
-def shutdown_vision_pool(*, permanent: bool = False) -> None:
-    """Shut down the global vision process pool.
-
-    *permanent* is the server-exit path. A later ``get_vision_pool`` raises
-    instead of spawning a new pool.
-    """
-    _POOL_SINGLETON.shutdown(permanent=permanent)
+get_vision_pool, shutdown_vision_pool = bind_pool_singleton(_POOL_SINGLETON, _new_vision_pool)
 
 
 # ---------------------------------------------------------------------------

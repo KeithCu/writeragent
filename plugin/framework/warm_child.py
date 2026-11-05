@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import IO, Any, Literal, Protocol
 
-from plugin.framework.child_runtime import Deadline, is_ready_payload
+from plugin.framework.child_runtime import Deadline, error_dict, is_ready_payload
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
@@ -39,7 +39,6 @@ _STDERR_SNIPPET = 500
 STDERR_LOG_CAP = 64 * 1024
 _MIN_SPAWN_REMAINING_SEC = 0.25
 FailPhase = Literal["before_send", "write_timeout", "pipe_broken", "after_send", "read_timeout", "bad_frame", "crashed", "empty"]
-_OMIT_ID = object()
 _SPAWN_SHUTDOWN = object()
 
 
@@ -64,16 +63,6 @@ def fail_phase_message(phase: FailPhase, detail: str) -> str:
     if phase == "empty":
         return "No response returned from worker."
     raise AssertionError(f"unhandled FailPhase: {phase!r}")
-
-
-def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, **extra: Any) -> dict[str, Any]:
-    """Build ``{"status": "error", "code", "error"}``."""
-    res: dict[str, Any] = {"status": "error", "code": code, "error": error}
-    if req_id is not _OMIT_ID:
-        res["id"] = req_id
-    if extra:
-        res.update(extra)
-    return res
 
 
 def spawn_budget(deadline: Deadline) -> float | None:
@@ -833,7 +822,6 @@ __all__ = [
     "STDERR_LOG_CAP",
     "Supervisor",
     "WarmChild",
-    "error_dict",
     "fail_phase_message",
     "framed_request_roundtrip",
     "read_ready_frame_during_io",

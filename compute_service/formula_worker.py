@@ -29,7 +29,7 @@ from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 from compute_service.json_forward import json_forward_envelope
 from compute_service.worker_base import configure_compute_worker_env, run_compute_worker
-from plugin.framework.warm_child import error_dict
+from plugin.framework.child_runtime import error_dict
 from plugin.scripting.session_key import SessionKey, SessionKind
 
 # Default math/OpenMP thread pools to 1 thread early before any heavy math imports.

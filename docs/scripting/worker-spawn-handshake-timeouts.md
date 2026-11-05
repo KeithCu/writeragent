@@ -246,7 +246,7 @@ Revert the `Makefile` `test-run` `PYTEST_WORKERS=6` cap if it was only a workaro
 
 | File | Why |
 |------|-----|
-| [`compute_service/worker_base.py`](../../compute_service/worker_base.py) | `_spawn`, handshake, fail-open, missing stderr on timeout |
+| [`compute_service/worker_base.py`](../../compute_service/worker_base.py) | Pool, lease, singleton; spawn/handshake via ``warm_child.spawn_managed_child_with_handshake`` and ``child_runtime.announce_ready`` from ``process_worker.BaseProcessWorker.respawn`` |
 | [`compute_service/formula_worker.py`](../../compute_service/formula_worker.py) | Import + Cython before ready |
 | [`compute_service/vision.py`](../../compute_service/vision.py) | Same loop, lighter imports |
 | [`plugin/scripting/ipc.py`](../../plugin/scripting/ipc.py) | `read_pickle_frame`, empty-read → EOF, `max_payload_bytes` |

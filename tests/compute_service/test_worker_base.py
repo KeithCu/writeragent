@@ -2526,7 +2526,7 @@ def test_idle_scan_before_ttl_does_not_kill(monkeypatch: pytest.MonkeyPatch) -> 
 
 def test_error_dict_keeps_optional_id() -> None:
     """``id`` is present when passed, including None. No ``message`` key."""
-    from plugin.framework.warm_child import error_dict
+    from plugin.framework.child_runtime import error_dict
 
     bare = error_dict("PAYLOAD_TOO_LARGE", "too big")
     assert bare == {"status": "error", "code": "PAYLOAD_TOO_LARGE", "error": "too big"}
