@@ -351,6 +351,16 @@ def test_rename_calc_writer_specialized_tools_strip_to_short_proxy_methods():
         ("error_detect", "error", "detect"),
         ("table_manage_structure", "table", "manage_structure"),
         ("tracking_manage", "tracking", "manage"),
+        ("pivot_table_create", "pivot_table", "create"),
+        ("pivot_table_refresh", "pivot_table", "refresh"),
+        ("pivot_table_delete", "pivot_table", "delete"),
+        ("pivot_table_list", "pivot_table", "list"),
+        ("conditional_formatting_list", "conditional_formatting", "list"),
+        ("conditional_formatting_add", "conditional_formatting", "add"),
+        ("conditional_formatting_remove", "conditional_formatting", "remove"),
+        ("cell_comment_list", "cell_comment", "list"),
+        ("cell_comment_add", "cell_comment", "add"),
+        ("cell_comment_delete", "cell_comment", "delete"),
     ]
     tools = []
     domain_map = {
@@ -360,6 +370,9 @@ def test_rename_calc_writer_specialized_tools_strip_to_short_proxy_methods():
         "error": "errors",
         "table": "tables",
         "tracking": "tracking",
+        "pivot_table": "pivot_tables",
+        "conditional_formatting": "conditional_formatting",
+        "cell_comment": "cell_comments",
     }
     for tool_name, ns, method in renamed:
         domain = domain_map[ns]

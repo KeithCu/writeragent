@@ -23,17 +23,17 @@ def test_calc_conditional_formatting(ctx, doc):
     ]})
 
     # 1. Add conditional formatting rule: highlight cells greater than 15
-    res_add = _execute_calc_tool(doc, ctx, "add_conditional_format", {
+    res_add = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
         "range": ["C20:C22"],
         "operator": "GREATER",
         "formula1": "15",
         "style": "Result"
     })
-    assert res_add.get("status") == "ok", f"add_conditional_format failed: {res_add}"
+    assert res_add.get("status") == "ok", f"conditional_formatting_add failed: {res_add}"
 
     # 2. List formats to verify
-    res_list = _execute_calc_tool(doc, ctx, "list_conditional_formats", {"range": ["C20:C22"]})
-    assert res_list.get("status") == "ok", f"list_conditional_formats failed: {res_list}"
+    res_list = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["C20:C22"]})
+    assert res_list.get("status") == "ok", f"conditional_formatting_list failed: {res_list}"
     rules = res_list.get("rules", [])
     assert len(rules) == 1, f"Expected 1 conditional formatting rule, found {len(rules)}"
 
@@ -43,35 +43,35 @@ def test_calc_conditional_formatting(ctx, doc):
     assert rule.get("style") == "Result", f"Expected Result, got {rule.get('style')}"
 
     # 3. Clear formats (using new unified tool)
-    res_clear = _execute_calc_tool(doc, ctx, "remove_conditional_formats", {"range": ["C20:C22"]})
-    assert res_clear.get("status") == "ok", f"remove_conditional_formats (clear) failed: {res_clear}"
+    res_clear = _execute_calc_tool(doc, ctx, "conditional_formatting_remove", {"range": ["C20:C22"]})
+    assert res_clear.get("status") == "ok", f"conditional_formatting_remove (clear) failed: {res_clear}"
 
     # 4. Verify cleared
-    res_list_after = _execute_calc_tool(doc, ctx, "list_conditional_formats", {"range": ["C20:C22"]})
+    res_list_after = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["C20:C22"]})
     rules_after = res_list_after.get("rules", [])
     assert len(rules_after) == 0, f"Expected rules to be cleared, but found {len(rules_after)}"
 
     # 5. Add two rules to test removing by index
-    _execute_calc_tool(doc, ctx, "add_conditional_format", {
+    _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
         "range": ["C20:C22"], "operator": "GREATER", "formula1": "10", "style": "Result"
     })
-    _execute_calc_tool(doc, ctx, "add_conditional_format", {
+    _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
         "range": ["C20:C22"], "operator": "LESS", "formula1": "5", "style": "Result"
     })
 
     # 6. Remove the first rule by index
-    res_remove_idx = _execute_calc_tool(doc, ctx, "remove_conditional_formats", {"range": ["C20:C22"], "rule_index": 0})
-    assert res_remove_idx.get("status") == "ok", f"remove_conditional_formats (index) failed: {res_remove_idx}"
+    res_remove_idx = _execute_calc_tool(doc, ctx, "conditional_formatting_remove", {"range": ["C20:C22"], "rule_index": 0})
+    assert res_remove_idx.get("status") == "ok", f"conditional_formatting_remove (index) failed: {res_remove_idx}"
 
     # 7. Verify only 1 rule remains
-    res_list_final = _execute_calc_tool(doc, ctx, "list_conditional_formats", {"range": ["C20:C22"]})
+    res_list_final = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["C20:C22"]})
     rules_final = res_list_final.get("rules", [])
     assert len(rules_final) == 1, f"Expected 1 rule remaining after removing by index, found {len(rules_final)}"
 
     # 8. BETWEEN + list round-trip (extended operator uses operator_code in list when available)
-    _execute_calc_tool(doc, ctx, "remove_conditional_formats", {"range": ["C20:C22"]})
+    _execute_calc_tool(doc, ctx, "conditional_formatting_remove", {"range": ["C20:C22"]})
     _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["C20:C22"], "values": [[5], [10], [15]]})
-    res_between = _execute_calc_tool(doc, ctx, "add_conditional_format", {
+    res_between = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
         "range": ["C20:C22"],
         "operator": "BETWEEN",
         "formula1": "6",
@@ -79,21 +79,21 @@ def test_calc_conditional_formatting(ctx, doc):
         "style": "Result",
     })
     assert res_between.get("status") == "ok", f"BETWEEN add failed: {res_between}"
-    res_lb = _execute_calc_tool(doc, ctx, "list_conditional_formats", {"range": ["C20:C22"]})
+    res_lb = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["C20:C22"]})
     br = res_lb.get("rules", [])
     assert len(br) == 1 and br[0].get("operator") == "BETWEEN", br
     assert br[0].get("formula1") == "6" and br[0].get("formula2") == "12", br[0]
 
     # 9. DUPLICATE (LibreOffice ConditionOperator2) — empty formula1
-    _execute_calc_tool(doc, ctx, "remove_conditional_formats", {"range": ["E20:E22"]})
+    _execute_calc_tool(doc, ctx, "conditional_formatting_remove", {"range": ["E20:E22"]})
     _execute_calc_tool(doc, ctx, "write_formula_range", {"range": ["E20:E22"], "values": [[1], [1], [2]]})
-    res_dup = _execute_calc_tool(doc, ctx, "add_conditional_format", {
+    res_dup = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
         "range": ["E20:E22"],
         "operator": "DUPLICATE",
         "style": "Result",
     })
     assert res_dup.get("status") == "ok", f"DUPLICATE add failed: {res_dup}"
-    res_ld = _execute_calc_tool(doc, ctx, "list_conditional_formats", {"range": ["E20:E22"]})
+    res_ld = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["E20:E22"]})
     dr = res_ld.get("rules", [])
     assert len(dr) == 1, dr
     assert dr[0].get("operator") == "DUPLICATE", dr[0]
@@ -107,14 +107,14 @@ def test_calc_conditional_formula_source_position(ctx, doc):
         "range": ["C5:C9"],
         "values": [[50], [150], [80], [200], [90]],
     })
-    res_add = _execute_calc_tool(doc, ctx, "add_conditional_format", {
+    res_add = _execute_calc_tool(doc, ctx, "conditional_formatting_add", {
         "range": ["C5:C9"],
         "operator": "FORMULA",
         "formula1": "C5>100",
         "style": "Result",
     })
     assert res_add.get("status") == "ok"
-    res_list = _execute_calc_tool(doc, ctx, "list_conditional_formats", {"range": ["C5:C9"]})
+    res_list = _execute_calc_tool(doc, ctx, "conditional_formatting_list", {"range": ["C5:C9"]})
     rules = res_list.get("rules", [])
     assert len(rules) == 1
     assert rules[0]["operator"] == "FORMULA"

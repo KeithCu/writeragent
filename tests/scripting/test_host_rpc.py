@@ -597,6 +597,7 @@ def test_singularize_domain():
     for plural, singular in (
         ("bookmarks", "bookmark"),
         ("charts", "chart"),
+        ("cell_comments", "cell_comment"),
         ("comments", "comment"),
         ("errors", "error"),
         ("fields", "field"),
@@ -631,6 +632,7 @@ def test_singularize_domain():
     [
         ("bookmarks", "bookmark"),
         ("charts", "chart"),
+        ("cell_comments", "cell_comment"),
         ("comments", "comment"),
         ("errors", "error"),
         ("fields", "field"),

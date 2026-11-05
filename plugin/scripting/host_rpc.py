@@ -66,6 +66,7 @@ def _domain_tools_map() -> dict[str, list[str]] | None:
 _DOMAIN_NAMESPACE: dict[str, str] = {
     "bookmarks": "bookmark",
     "charts": "chart",
+    "cell_comments": "cell_comment",
     "comments": "comment",
     "errors": "error",
     "fields": "field",
