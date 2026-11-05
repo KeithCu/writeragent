@@ -84,6 +84,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'search_slides',
                 'set_active_page',
                 'set_placeholder_text'],
+    'embedded': ['embedded_insert'],
     'error': ['error_detect', 'evaluate_formula'],
     'field': [   'document_properties_get',
                  'document_properties_set',
@@ -234,6 +235,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'document_properties_get': ('field', 'document_properties_get'),
     'document_properties_set': ('field', 'document_properties_set'),
     'duplicate_slide': ('draw', 'duplicate_slide'),
+    'embedded_insert': ('embedded', 'insert'),
     'error_detect': ('error', 'detect'),
     'evaluate_formula': ('error', 'evaluate_formula'),
     'extract_structure_from_image': ('vision', 'extract_structure_from_image'),
@@ -409,6 +411,7 @@ __all__ = [   'DOMAIN_TOOLS',
     'conditional_formatting',
     'core',
     'draw',
+    'embedded',
     'error',
     'field',
     'footnote',
@@ -997,6 +1000,26 @@ class _DrawProxy:
         return call_host_tool("set_placeholder_text", text=text, role=role, index=index, page=page)
 
 draw = _DrawProxy()
+
+
+class _EmbeddedProxy:
+    """Proxy for embedded tools."""
+
+    def insert(self, object_type: str, *, data: list[Any] | None = None, name: str | None = None, width: int | None = None, height: int | None = None, target: str | None = None, old_content: str | None = None) -> dict[str, Any]:
+        """Insert a Calc spreadsheet OLE into the active Writer document (object_type='spreadsheet' only). Use target='beginning', 'end', 'selection', 'full_document', or 'search' with old_content. Optional data fills cells from A1; optional width and height are 1/100 mm (both or neither). Saving as .docx keeps cell values and formulas as an embedded xlsx but drops the object name and the exact visible width.
+
+        Args:
+            object_type (required): Embedded object type (Calc spreadsheet only). One of: spreadsheet.
+            data (optional): Optional rows of cell values (string, number, or null). Default empty sheet.
+            name (optional): Optional container name in getEmbeddedObjects().
+            width (optional): Frame width in 1/100 mm (requires height).
+            height (optional): Frame height in 1/100 mm (requires width).
+            target (optional): Where to insert the embedded spreadsheet. One of: beginning, end, selection, full_document, search.
+            old_content (optional): Text to find and replace if target = 'search'.
+        """
+        return call_host_tool("embedded_insert", object_type=object_type, data=data, name=name, width=width, height=height, target=target, old_content=old_content)
+
+embedded = _EmbeddedProxy()
 
 
 class _ErrorProxy:

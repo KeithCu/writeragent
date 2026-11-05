@@ -123,9 +123,10 @@ class ToolWriterTextFramesBase(ToolWriterSpecialBase):
 
 
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
-    # Parked (B3-A3): both embedded tools are ToolBaseDummy stubs, so no domain in the catalog.
-    specialized_domain: ClassVar[str | None] = None
-    specialized_domain_description: ClassVar[str | None] = "OLE in active doc only (not sibling files on disk)."
+    specialized_domain: ClassVar[str | None] = "embedded"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Insert a Calc spreadsheet OLE in the active Writer document only."
+    )
 
 
 class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
