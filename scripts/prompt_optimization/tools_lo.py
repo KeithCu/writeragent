@@ -15,7 +15,7 @@ Eval tools use ``bypass_thread_guard=True`` because ``_lo_thread`` is not
 ``get_ctx()`` is pinned to the remote office context for the life of the
 backend (``set_fallback_ctx``). Each queued ``call`` activates that caller's
 document on ``_lo_desktop`` so ``host_rpc`` / ``get_active_document`` see it.
-The warm-venv ``_io_lock`` still serializes a whole script.
+The warm-child pipe lock (``WarmChild._io_lock``) still serializes a whole script.
 """
 from __future__ import annotations
 

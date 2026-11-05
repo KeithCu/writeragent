@@ -598,7 +598,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         # _register_load_session replaces existing.on_save for the same target
         # (a clean buffer proceeds; Don't save proceeds; Save queues
         # request_save, and the synchronous save path then activates the new
-        # callback). PythonWorkerManager._io_session releases _io_lock before
+        # callback). PythonWorkerManager._io_session releases the warm-child pipe lock before
         # execute returns, so _finish_rps_execution runs after the lock is
         # free. A second background run can enter the venv during that insert,
         # or wait up to _IO_LOCK_ACQUIRE_TIMEOUT_SEC (600s) if the first venv

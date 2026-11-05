@@ -14,7 +14,7 @@ Thread B, while A is in the non-UNO
 sleep that stands in for an LLM wait, ``setString``s its own document.
 
 Pass: B's text is intact, A's exported ``.odt`` contains the shape name,
-B's ``.odt`` does not. This does not take the warm-venv ``_io_lock``;
+B's ``.odt`` does not. This does not take the warm-child pipe lock;
 two real flag scripts still run one after another.
 
 Usage (from the repo root; ``make manifest`` once so ``plugin/_manifest.py`` exists):
@@ -148,7 +148,7 @@ def _insert_named_shape() -> None:
     ``execute_tool`` builds its own ``ToolContext`` from
     ``get_active_document(get_ctx())``. The pin has to make that the
     caller's Writer doc before this runs. This is the venv ``wa.shape``
-    lookup without holding ``PythonWorkerManager`` ``_io_lock``.
+    lookup without holding the warm-child pipe lock.
     """
     from plugin.framework.thread_guard import unwrap_uno
     from plugin.framework.uno_context import get_active_document, get_ctx
