@@ -49,7 +49,7 @@ else:
 
 from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.errors import is_disposal, reraise_if_disposed
+from plugin.framework.errors import is_disposal, reraise_if_disposed, similar_names
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
 from .page import get_page_style_properties
@@ -486,7 +486,9 @@ def _close_style_names(wanted: str, names: list[str]) -> list[str]:
         return prefix
     contains = [n for n in names if low in n.lower()]
     contains.sort(key=len)
-    return contains
+    if contains:
+        return contains
+    return similar_names(wanted, names)
 
 
 def _missing_style_error(tool: Any, style_name: str, family: str, style_family: Any, *, label: str = "Style") -> dict[str, Any]:

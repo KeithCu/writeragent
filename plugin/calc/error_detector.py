@@ -253,8 +253,8 @@ class ErrorDetector:
             **(
                 {
                     "hint": (
-                        "First 50 of %d. Pass a range that starts after the last address in errors."
-                        % len(errors)
+                        "First %d of %d. Pass a range that starts after the last address in errors."
+                        % (_MAX_EXPLAINED_ERRORS, len(errors))
                     )
                 }
                 if truncated

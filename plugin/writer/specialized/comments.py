@@ -148,7 +148,7 @@ class AddComment(ToolBase):
                 return _comment_not_found(
                     "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
                     comment_added=False,
-                    details=name_miss_details(parent_name, [], "comment_list"),
+                    details=_comment_miss_details(ctx.doc, parent_name),
                 )
             try:
                 reply_name = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
@@ -292,8 +292,7 @@ class CommentDelete(ToolWriterCommentBase):
             what = ("comment_name '%s'" % comment_name) if comment_name else ("author '%s'" % author)
             details = None
             if comment_name:
-                ann_names = [str(name) for _field, name, _author in ordered if name]
-                details = name_miss_details(comment_name, ann_names, "comment_list")
+                details = _comment_miss_details(doc, comment_name)
             return _comment_not_found(
                 "No comment matched %s. Call comment_list to see the current names and authors." % what,
                 details=details,
@@ -351,7 +350,7 @@ class CommentResolve(ToolWriterCommentBase):
         if target is None:
             return _comment_not_found(
                 "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
-                details=name_miss_details(comment_name, [], "comment_list"),
+                details=_comment_miss_details(doc, comment_name),
             )
 
         from ..edit_review import next_agent_edit_undo_title
@@ -548,6 +547,12 @@ def _annotation_name(field: Any) -> str:
 def _annotation_field_names(doc: Any) -> list[str]:
     """Name of each Annotation on *doc* (empty string when Name is unset)."""
     return [_annotation_name(field) for field in _iter_annotations(doc)]
+
+
+def _comment_miss_details(doc: Any, wanted: str) -> dict[str, Any]:
+    """Miss payload for a comment name lookup (uses the same name list as comment_list)."""
+    names = [n for n in _annotation_field_names(doc) if n]
+    return name_miss_details(wanted, names, "comment_list")
 
 
 def _ensure_annotation_name(field: Any, names: list[str]) -> str:

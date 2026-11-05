@@ -29,7 +29,7 @@ from plugin.calc.base import ToolCalcErrorBase
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
-from plugin.calc.error_detector import ErrorDetector
+from plugin.calc.error_detector import ErrorDetector, _MAX_EXPLAINED_ERRORS
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -77,7 +77,8 @@ class DetectErrors(ToolCalcErrorBase):
         }
         if truncated:
             combined["hint"] = (
-                "First 50 of %d. Pass a range that starts after the last address in errors." % total
+                "First %d of %d. Pass a range that starts after the last address in errors."
+                % (_MAX_EXPLAINED_ERRORS, total)
             )
         return {
             "status": "ok",
