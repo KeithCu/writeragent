@@ -26,7 +26,7 @@ def test_udprop_set_twice_get_and_idempotent_remove(ctx, doc):
 @with_native_doc("writer")
 def test_udprops_read_write_roundtrip_writer(ctx, doc):
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    from plugin.doc.document_research_tools import DocumentPropertiesGet, DocumentPropertiesSet
+    from plugin.writer.specialized.fields import DocumentPropertiesGet, DocumentPropertiesSet
 
     set_res = DocumentPropertiesSet().execute(
         tool_ctx,

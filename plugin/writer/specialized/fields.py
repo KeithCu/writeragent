@@ -358,6 +358,7 @@ def _is_product_udprop(name: str) -> bool:
 
 class DocumentPropertiesGet(ToolBase):
     """Read built-in and user-defined document metadata."""
+    # Subclasses ToolBase (not ToolWriterFieldBase) because document properties work across all apps (Writer/Calc/Draw).
 
     name: str | None = "document_properties_get"
     description: str = (
@@ -404,6 +405,7 @@ class DocumentPropertiesGet(ToolBase):
 
 class DocumentPropertiesSet(ToolBase):
     """Update built-in and user-defined document metadata."""
+    # Subclasses ToolBase (not ToolWriterFieldBase) because document properties work across all apps (Writer/Calc/Draw).
 
     name: str | None = "document_properties_set"
     description: str = (
