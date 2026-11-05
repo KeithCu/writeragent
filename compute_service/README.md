@@ -121,7 +121,7 @@ request shapes, why multipart exists, and the plan to retire peel.
     "stdout": ""
   }
   ```
-  *(If Matplotlib plots are generated, they are returned in `images: [{"format": "png", "data_b64": "..."}]`)*
+  *(If Matplotlib plots are generated, they are returned in `images: [{"format": "svg", "data_b64": "..."}]` by default — see [`to_wire.py`](../plugin/scripting/venv/to_wire.py). [`json_egress.py`](json_egress.py) falls back to `png` only when a payload omits `format`.)*
 
 - **Evaluation Error Response (`200 OK`)**:
   Evaluation errors (e.g. `SyntaxError`, `ZeroDivisionError`, unauthorized imports) return `200 OK` with `status: "error"` so HTTP transport is distinguished from evaluated code errors:

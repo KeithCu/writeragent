@@ -116,12 +116,12 @@ WriterAgent's `write_formula_range` tool takes a different design approach than 
 | **Formulas & Error Detection** | ✅ Implemented | `cells.py` (`write_formula_range` + compound undo); `list_calc_functions` / `evaluate_formula`; `error_detect` ([`calc_error_detector.py`](../../plugin/calc/error_detector.py)); `FormulaDepChain` ([`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py)) | Formula evaluation, error explanation (`#N/A`, `#VALUE!`, `#REF!`, `#NAME?`), dependency tracking. The formula-query fallback snapshots at most 80 precedent cells, sets `truncated` when a range is larger, and reports `total_cells`. `evaluate_formula` reports Calc 503 as `#NUM!`, 532 as `#DIV/0!`, 519 as `#VALUE!`, and 522 as a circular reference. It uses a hidden undo context or clears the empty stack and restores `isModified()` on success, leaving workbook history and clean state unchanged. It writes the formula with `getCellByPosition` on the temporary copy only: a sheet prefix is dropped and a defined name is rejected, so the live sheet is not edited. A numeric formula result stays a float, including 0. The formula-query dependency fallback reads `CellRangeAddress.Sheet` and includes that sheet in the precedent address. `error_detect` caps explanations at 50 per call and returns `total_error_count` and `truncated` (a multi-range call aggregates both); addresses are sheet-qualified (`Sheet2.A1`). |
 | **Charts** | ✅ Implemented | `charts.py`: `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` (shared with Writer and Draw) | Four skinny tools; `chart_upsert` create/edit by name lookup |
 | **Named Ranges** | ✅ Implemented | [`named_ranges.py`](../../plugin/calc/named_ranges.py): `named_range_list`, `named_range_get_info`, `named_range_add`, `named_range_edit`, `named_range_delete`, `named_range_create_from_titles` | Domain-first naming. Global and sheet-local scopes, `NamedRangeFlag` bitmasks (print area, filter criteria), base position parsing, dynamic formulas, header-based creation (`Border.TOP/BOTTOM/LEFT/RIGHT`), and transparent resolution in `read_cell_range` / `write_formula_range`. An unknown sheet prefix on `base_cell` is an error (it used to anchor the name on sheet 0). Add and rename both check `ScRangeData::IsNameValid` before touching the range and return `INVALID_NAME`; unknown or out-of-mask flags return `INVALID_FLAGS`. A bare name prefers the active sheet's local range over a same-spelled global name; `scope="global"` or a sheet name forces that container. `named_range_list(scope="all")` and the unqualified sheet fallback skip `_`-prefixed generated sheets. `query_folder_sql` and `CalcBridge.resolve_range_or_address` use `find_named_range` in this order. |
-| **Data Validation** | ✅ Implemented | `validation.py`: SetDataValidation, GetDataValidationRules | Specialized tier |
+| **Data Validation** | ❌ Not implemented | — | No `validation.py` / `SetDataValidation` in tree |
 | **Conditional Formatting** | ✅ Implemented | [`conditional.py`](../../plugin/calc/conditional.py): `conditional_formatting_add`, `conditional_formatting_list`, `conditional_formatting_remove` — [UNO / roadmap](conditional-formatting.md) | Specialized tier |
 | **Analysis** | Hidden from chat | [`analysis.py`](../../plugin/calc/analysis.py) etc. | LLM tools are `ToolBaseDummy`. Calc chat compute is `=PY()` (live formula into empty cells). Helpers remain for Run Python Script / tests. |
 | **Pivot Tables** | ✅ Implemented | `pivot.py`: `pivot_table_create`, `pivot_table_refresh`, `pivot_table_delete`, `pivot_table_list` | Specialized tier |
-| **Tables** | ✅ Implemented | `tables.py`: CreateTable, GetTableInfo, SetTableStyle | — |
-| **Shapes** | ✅ Implemented | `shapes.py`: Create/Edit/DeleteShape (shared with Writer/Draw) | — |
+| **Tables** | ❌ Not implemented | — | Writer/Draw `table_*` tools exist; not a Calc domain (`CreateTable` / `GetTableInfo` / `SetTableStyle` are not registered names) |
+| **Shapes** | ✅ Implemented | `draw/shapes.py` + Writer/Calc wrappers: `shape_upsert`, `shape_delete`, `shape_connect`, `shape_group`, `shape_align`, `shape_distribute`, `shape_diagram`, `shape_summary` | Shared draw-page tools; not Calc-only modules named `CreateShape` |
 | **Comments** | ✅ Implemented | `comments.py`: ListCellComments, AddCellComment, DeleteCellComment | Specialized tier. `cell_comment_list` returns the formatted string from `XSheetAnnotation.getDate()`; a DateTime struct is still formatted if a bridge returns one. |
 | **Forms** | ✅ Implemented | `plugin/writer/specialized/forms.py`: FormCreate, FormGenerate, FormListControls, FormCreateControl, FormEditControl, FormDeleteControl (shared with Writer) | Specialized tier. Supports list box; control type table is `CONTROL_TYPE_MAP` in `plugin/draw/tree.py`. Calc label text is written only into an empty or text cell, so a formula or number in the active cell is left alone. `form_create` and `form_generate` return an error when a field fails. |
 
@@ -134,20 +134,20 @@ WriterAgent's `write_formula_range` tool takes a different design approach than 
 | **Solver** | ✅ Implemented | Optimization scenarios, constraint solving |
 | **Scenarios** | ❌ Not implemented | Scenario manager, what-if analysis |
 | **Data Tables** | ❌ Not implemented | One-way and two-way data tables |
-| **External Data** | ❌ Not implemented | Database connections, SQL queries, web queries |
+| **External Data** | ⚠️ Partial | [`duckdb_tools.py`](../../plugin/calc/duckdb_tools.py): `query_folder_sql` on sibling files | DB links and web queries still open |
 | **Advanced Forms** | ❌ Not implemented | Advanced form features, database integration, complex validation |
 | **Advanced Chart Features** | ✅ Partial | Trend lines, error bars, secondary axes |
 | **Pivot Chart Creation** | ❌ Not implemented | Direct pivot chart creation from data |
 | **Dynamic Named Ranges** | ✅ Implemented | Formula-based range definitions and sheet-scoped names supported |
 | **Array Formulas** | ✅ Partial | Basic support, matrix operations TBD |
 | **Structured References** | ❌ Not implemented | Table-based formula references |
-| **Table Slicers** | ❌ Not implemented | Interactive filtering controls |
-| **Sheet Protection** | ❌ Not implemented | Cell/range locking, password protection |
-| **Change Tracking** | ❌ Not implemented | Collaborative editing, comment history |
+| **Table Slicers** | ❌ Not implemented | LibreOffice has no slicer object; AutoFilter (`sheet_filter_*`) is shipped |
+| **Sheet Protection** | ⚠️ Partial | [`sheets.py`](../../plugin/calc/sheets.py): `sheet_protect` | Per-cell unlock / `CellProtection` tools absent |
+| **Change Tracking** | ⚠️ Partial | Writer tracking tools on SpreadsheetDocument: `tracking_start` / `stop` / `list` / `show` / `manage` ([`plugin/writer/tracking.py`](../../plugin/writer/tracking.py)) | On Calc, `tracking_list` returns `track_changes_list_unsupported` when `getRedlines` is absent; start/stop still toggle recording — not a full redline UI on every build |
 
 ### 3.3 Cross-cutting improvements
 
-- **MCP / API opt-in:** Config or query parameter to list `specialized` tools on `tools/list`
+- **MCP / API exposure:** Shipped as `mcp.tool_exposure_mode` (`delegate` / `direct_flat` / `direct_discovery`) — see [MCP protocol](../mcp-protocol.md#exposing-specialized-tools-directly-mcptool_exposure_mode-experimental).
 - **Performance tuning:** Timeouts and step limits for sub-agent execution
 - **Telemetry:** Track domain usage to prioritize development
 - **Documentation:** Keep [`AGENTS.md`](../../AGENTS.md) synchronized

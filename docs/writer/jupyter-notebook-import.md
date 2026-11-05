@@ -166,8 +166,9 @@ flowchart TB
 ### Phase 5: Export to `.ipynb` — **Planned**
 - Serializer walking document cell registry and text fields to generate valid `.ipynb` nbformat v4 files.
 
-### Phase 6 (Deferred): In-Kernel Host RPC Proxy — **Planned**
-- Bridge allowing notebook Python code to invoke WriterAgent tools securely via host proxy calls.
+### Phase 6: In-Kernel Host RPC Proxy — **Shipped**
+
+Notebook code cells call [`run_code_in_user_venv`](../../plugin/notebook/notebook_runner.py) (no `python_tool_domain` restriction); [`host_rpc.py`](../../plugin/scripting/host_rpc.py) treats `None` domain as unrestricted host RPC (re-entry guard only).
 
 ---
 

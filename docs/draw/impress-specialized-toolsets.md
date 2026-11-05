@@ -62,16 +62,16 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 
 | Tool | Domain | Module | Purpose | Services |
 |------|--------|--------|---------|---------|
-| `shape_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | Drawing+Presentation |
-| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index. `line` may have a zero width or height | Drawing+Presentation |
-| `shape_fill_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, path_index, or `label_hint` | Drawing+Presentation |
-| `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by page index, dotted path, or **Name** | Drawing+Presentation (+ Writer/Calc via shape wrappers) |
-| `shape_connect` | `shapes` | `draw/shapes.py` | Connect two shapes with a connector line | Drawing+Presentation |
-| `shape_group` | `shapes` | `draw/shapes.py` | Group multiple shapes | Drawing+Presentation |
-| `shape_align` | `shapes` | `draw/shapes.py` | Align shapes to an edge or center (Writer/Calc/Draw/Impress) | Drawing+Presentation (+ Writer/Calc) |
-| `shape_distribute` | `shapes` | `draw/shapes.py` | Evenly space shapes along an axis (Writer/Calc/Draw/Impress) | Drawing+Presentation (+ Writer/Calc) |
-| `shape_diagram` | `shapes` | `draw/shapes.py` | Batch nodes + connectors (Writer/Calc/Draw/Impress) | Drawing+Presentation (+ Writer/Calc) |
-| `image_insert` / `image_list` / `image_delete` / `image_generate` | `images` | `writer/images/images.py` | Same image tools as Writer/Calc; Draw/Impress uses millimetres (`page`, `x_mm`, `y_mm`) | Drawing+Presentation |
+| `shape_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | `com.sun.star.text.TextDocument`, `com.sun.star.sheet.SpreadsheetDocument`, `com.sun.star.drawing.DrawingDocument`, `com.sun.star.presentation.PresentationDocument` |
+| `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index. `line` may have a zero width or height | same four document services |
+| `shape_fill_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, path_index, or `label_hint` | `com.sun.star.drawing.DrawingDocument`, `com.sun.star.presentation.PresentationDocument` |
+| `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by page index, dotted path, or **Name** | same four document services |
+| `shape_connect` | `shapes` | `draw/shapes.py` | Connect two shapes with a connector line | same four document services |
+| `shape_group` | `shapes` | `draw/shapes.py` | Group multiple shapes | same four document services |
+| `shape_align` | `shapes` | `draw/shapes.py` | Align shapes to an edge or center (Writer/Calc/Draw/Impress) | same four document services |
+| `shape_distribute` | `shapes` | `draw/shapes.py` | Evenly space shapes along an axis (Writer/Calc/Draw/Impress) | same four document services |
+| `shape_diagram` | `shapes` | `draw/shapes.py` | Batch nodes + connectors (Writer/Calc/Draw/Impress) | same four document services |
+| `image_crop_and_highlight`, `image_delete`, `image_download`, `image_generate`, `image_get_info`, `image_insert`, `image_list`, `image_list_nearby_files`, `image_replace`, `image_set_properties` | `images` | `writer/images/images.py` | Same registered names as Writer/Calc; Draw/Impress placement uses millimetres (`page`, `x_mm`, `y_mm`) | same four document services |
 | `table_insert` / `table_delete` / `table_list` / `table_get_cells` / `table_set_cell` / `table_manage_structure` | `tables` | `writer/specialized/tables.py` + `draw/tables.py` | Same names as Writer; Draw uses TableShape | Drawing+Presentation |
 | `slide_transition_get` | `slide_transitions` | `draw/transitions.py` | Get transition effect/speed/duration | Presentation |
 | `slide_transition_set` | `slide_transitions` | `draw/transitions.py` | Set transition effect/speed/duration | Presentation |
@@ -230,12 +230,9 @@ These are **two different problems**. The old “Forms ✅ Complete” row only 
 
 ### 4.1 `uno_services` Fix Applied ✅
 
-**Completed**: Added `"com.sun.star.presentation.PresentationDocument"` to `uno_services` for 9 core tools:
+**Completed**: Added `"com.sun.star.presentation.PresentationDocument"` to `uno_services` for core page/summary tools. Shape specialized tools use the four document services from [`SHAPE_TOOL_UNO_SERVICES`](../../plugin/doc/visual_helpers.py) (`shape_upsert`, `shape_delete`, `shape_connect`, `shape_group`, `shape_summary`, `shape_align`, `shape_distribute`, `shape_diagram`); `shape_fill_fields` stays Draw+Impress only.
 
-- `ListPages`, `GetDrawSummary`, `CreateShape`, `EditShape`, `ConnectShapes`, `GroupShapes`, `DeleteShape` (in `shapes.py`)
-- `ReadSlideText`, `GetPresentationInfo` (in `pages.py`)
-
-These tools now work with both Draw and Impress documents.
+Legacy class names in this section (`CreateShape`, `EditShape`, …) map to registered tools: **`shape_upsert`**, **`shape_delete`**, **`shape_connect`**, **`shape_group`** (implementation classes may still be named `ConnectShapes`, `GroupShapes`, `DeleteShape`).
 
 ### 4.2 Impress-Only vs Delegated APIs
 

@@ -277,7 +277,7 @@ Reference PDF is LO’s render of the **PPTX slide**. Imported PDF is the same s
 | Route | Implementation | Notes |
 |-------|----------------|-------|
 | Main export | `export_presentation_project` → `uno_pptx_import` | PPTX → ODP via LO (default) |
-| template-fill | `apply_ppt_master_template_fill` → `uno_template_fill` | Incremental stub |
+| template-fill | `apply_ppt_master_template_fill` → `uno_template_fill` | Incremental: creates slides and sets placeholder text via `setString` / `_find_placeholder` (export-after-SVG remains full fidelity) |
 | native-enhance | `apply_ppt_master_native_enhance` → `uno_enhance` | `enhancement_plan.json` |
 | beautify | venv `pptx_to_svg` + re-import | Not wired end-to-end yet |
 
@@ -351,10 +351,9 @@ Backlog for PPT-Master integration work. **Priority order matters** — validate
 |------|--------|--------|
 | LO PPTX import fidelity | **Good** | PPTX→ODP via native filter; fidelity script compares PDF pages |
 | Speaker notes from project `notes/` on build | **Partial** | Notes in PPTX export when upstream `svg_to_pptx` runs; import copies from PPTX slides |
-| template-fill route | **Stub** | Creates slides; does not call `set_placeholder_text` |
+| template-fill route | **Partial** | [`apply_fill_plan_to_doc`](../../plugin/ppt_master/adapter/uno_template_fill.py) creates slides and fills placeholders with `setString`; still incremental vs SVG export |
 | beautify route | **Not wired** | `pptx_to_svg` → SVG pipeline absent |
 | Browser-grade SVG reference | **Optional** | Upstream [`visual_review.py`](../ppt-master/skills/ppt-master/scripts/visual_review.py) (Playwright); not wired to fidelity script |
-| `make test` typecheck | **Known issue** | `SendHandlerHost._in_ppt_master_mode` unresolved in [`send_handlers.py`](../plugin/chatbot/send_handlers.py) |
 
 ### Architecture decision log (do not re-litigate without cause)
 
@@ -443,7 +442,7 @@ Primary files: [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_impo
 
 | Route | Tool | Adapter | Work |
 |-------|------|---------|------|
-| template-fill | `apply_ppt_master_template_fill` | [`uno_template_fill.py`](../plugin/ppt_master/adapter/uno_template_fill.py) | Wire `set_placeholder_text` via DrawBridge / existing draw tools; parse `fill_plan.json` |
+| template-fill | `apply_ppt_master_template_fill` | [`uno_template_fill.py`](../plugin/ppt_master/adapter/uno_template_fill.py) | Parse `fill_plan.json`; `apply_fill_plan_to_doc` creates slides and sets placeholder text (incremental path) |
 | native-enhance | `apply_ppt_master_native_enhance` | [`uno_enhance.py`](../plugin/ppt_master/adapter/uno_enhance.py) | Extend when using `enhancement_plan.json` in practice |
 | beautify | (none) | — | Design: venv `pptx_to_svg` → existing SVG pipeline; not started |
 
@@ -457,7 +456,6 @@ Primary files: [`uno_pptx_import.py`](../plugin/ppt_master/adapter/uno_pptx_impo
 |------|---------|-----------|
 | Multi-slide UNO export | [`test_ppt_master_pptx_import_uno.py`](../tests/ppt_master/test_ppt_master_pptx_import_uno.py) | ✅ 3 slides, shape checks |
 | Import fidelity CLI | [`scripts/ppt_master_import_fidelity.py`](../scripts/ppt_master_import_fidelity.py) | ✅ PDF diff + `report.json` |
-| Fix `ty` on PPT-Master send path | [`send_handlers.py`](../plugin/chatbot/send_handlers.py) | Declare `_in_ppt_master_mode: bool` on host class; `make test` typecheck passes |
 | Regression fixtures | `tests/fixtures/ppt_master_*` | Minimal shipped; add realistic SVGs from failing slides |
 | Example project baseline | `ppt169_attention_is_all_you_need` | Cover ~0.086 @ 300 dpi; slide 2 ~0.094 @ 150 dpi; slide 6 ~0.094 @ 150 dpi (from ~0.258 pre-fix) |
 

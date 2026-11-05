@@ -2,7 +2,7 @@
 
 **Status:** **Phase 1 + Phase 1b (Calc) + Phase 2 + Phase 3 + Phase 6 partial (LLM `extract_structure`) shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`, `[Vision] extract_structure`) on **Writer, Calc, Draw, and Impress** (Draw/Impress return text only; no document insert). Chat **`domain=vision`** + **`extract_structure_from_image`** when Settings → Python venv has Docling/Paddle + css-inline (gated — hidden when stack missing). Draw/Impress text-box egress → **Phase 1b.2** (deferred). Full **`analyze_image`** multi-helper / multimodal chat image parts → later.
 
-WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, screenshots, chart photos, slide exports, logos. **LibreOffice handles graphics I/O** (export, insert, replace, dimensions). **Recognition** (OCR, layout, object detection) runs in the user's venv via the same trusted-module pattern as [`analysis.py`](../../plugin/scripting/analysis.py) and [`embeddings_index.py`](../../plugin/scripting/embeddings_index.py).
+WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, screenshots, chart photos, slide exports, logos. **LibreOffice handles graphics I/O** (export, insert, replace, dimensions). **Recognition** (OCR, layout, object detection) runs in the user's venv via the same trusted-module pattern as [`analysis.py`](../../plugin/scripting/analysis.py) and [`embeddings_index.py`](../../plugin/embeddings/venv/embeddings_index.py).
 
 **Priority:** Ship **direct user access** first (Settings + **Run Python Script → Vision Helpers**). Wire the same helpers to the chat agent (`analyze_image`) only after the manual path works.
 
@@ -93,7 +93,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 | **Picker section** | **Vision Helpers →** e.g. `[Vision] extract_text`, `[Vision] extract_structure`, … |
 | **Templates** | [`vision_templates.py`](../../plugin/vision/vision_templates.py) with `# writeragent:vision helper=… params=…` header; params include optional **`image_name`** (from `image_list`) |
 | **Input** | User **selects an embedded graphic**, or sets **`image_name`** in params; host exports PNG bytes |
-| **Run** | Fast path in `execute_and_insert_result` → `run_trusted_vision` → `vision_client.run_vision` |
+| **Run** | Fast path in `execute_and_insert_result` → `run_trusted_vision` → [`run_vision`](../../plugin/scripting/client.py) |
 | **App scope** | **Writer, Calc, Draw, Impress** — Vision Helpers when [`supports_vision_manual`](plugin/vision/vision_runner.py); Draw/Impress OCR is return-only (no insert). Text-box egress → **Phase 1b.2** |
 
 **Monaco toolbar:** Phase 3 uses **`image_name` in template params** (empty = selection). A dedicated **Image:** toolbar field remains optional follow-on.
@@ -152,7 +152,7 @@ Docling pipeline defaults live in a **separate modeless dialog**, not on the cro
 | `scripting.python_venv_path` | Must point at venv with Docling (+ optional Paddle fallback; + Ultralytics when using detection helpers) |
 | `scripting.python_exec_timeout` | User script limit only — Vision (and other long trusted helpers like spaCy/SymPy) use the single internal long trusted budget (see `LONG_TRUSTED_WORKER_TIMEOUT_SEC` and the list in scripting/client.py). `vision.worker_timeout_sec` still allows per-vision override. |
 
-At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors `vision.worker_timeout_sec` when set ([`vision_client.py`](../../plugin/framework/client/vision_client.py)).
+At OCR run time, [`merge_vision_params`](../../plugin/vision/vision_common.py) merges persisted `vision.*` defaults with template `params` (template wins on conflict). Host RPC timeout honors `vision.worker_timeout_sec` when set ([`run_vision`](../../plugin/scripting/client.py)).
 
 Schema source: [`plugin/vision/module.yaml`](../../plugin/vision/module.yaml); runtime loader: [`module_config_dialog.py`](../../plugin/chatbot/module_config_dialog.py).
 
@@ -184,7 +184,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 
 | Area | Files |
 |------|--------|
-| **Vision trusted stack + host wiring** | [`vision.py`](../../plugin/vision/venv/vision.py) (dispatcher), [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py) (Docling default), [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) (fallback), [`vision_common.py`](../../plugin/vision/vision_common.py), [`vision_client.py`](../../plugin/framework/client/vision_client.py), [`vision_runner.py`](../../plugin/vision/vision_runner.py) (`resolve_vision_image_bytes`, `run_and_insert_vision_for_selection`, `supports_vision_manual`), [`vision_templates.py`](../../plugin/vision/vision_templates.py), [`vision_egress.py`](../../plugin/vision/vision_egress.py) (Writer) |
+| **Vision trusted stack + host wiring** | [`vision.py`](../../plugin/vision/venv/vision.py) (dispatcher), [`vision_docling.py`](../../plugin/vision/venv/vision_docling.py) (Docling default), [`vision_paddle.py`](../../plugin/vision/venv/vision_paddle.py) (fallback), [`vision_common.py`](../../plugin/vision/vision_common.py), [`client.run_vision`](../../plugin/scripting/client.py), [`vision_runner.py`](../../plugin/vision/vision_runner.py) (`resolve_vision_image_bytes`, `run_and_insert_vision_for_selection`, `supports_vision_manual`), [`vision_templates.py`](../../plugin/vision/vision_templates.py), [`vision_egress.py`](../../plugin/vision/vision_egress.py) (Writer) |
 | Image export (selection + name) | [`export_graphic_object_to_bytes`](../../plugin/writer/images/image_tools.py), [`resolve_vision_image_bytes`](../../plugin/vision/vision_runner.py), [`graphic_objects_in_selection`](../../plugin/doc/visual_helpers.py), [`get_graphic_object_by_name`](../../plugin/doc/visual_helpers.py) |
 | Run Python vision fast path | [`python_runner.py`](../../plugin/scripting/python_runner.py) — `insert_vision_result` (Writer + Calc) |
 | Calc vision egress | [`plugin/calc/vision_egress.py`](../../plugin/calc/vision_egress.py) — `calc_output_anchor_from_graphic`, `insert_vision_html_into_calc` |
@@ -193,7 +193,7 @@ Mirror [../calc/analysis-sub-agent.md § Current Code State](../calc/analysis-su
 | Monaco built-in guards | [`scripts_manager.js`](../../plugin/contrib/scripting/assets/editor/scripts_manager.js) — Attach/Save/Delete disabled for `origin === "vision"` |
 | Analysis trusted stack (reference) | [`analysis.py`](../../plugin/scripting/analysis.py), [`client.py`](../../plugin/scripting/client.py), [`analysis_runner.py`](../../plugin/calc/analysis_runner.py) |
 | Calc analysis egress | [`analysis_egress.py`](../../plugin/calc/analysis_egress.py) — `is_analysis_result`, `insert_analysis_result_into_calc` |
-| **Vision LLM tools (partial)** | [`vision_tools.py`](../../plugin/vision/vision_tools.py) (`extract_structure_from_image`), [`vision_availability.py`](../../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase` / `ToolCalcVisionBase`](../../plugin/writer/specialized_base.py) |
+| **Vision LLM tools (partial)** | [`vision_tools.py`](../../plugin/vision/vision_tools.py) (`extract_structure_from_image`), [`vision_availability.py`](../../plugin/vision/vision_availability.py) (venv gating), [`ToolWriterVisionBase`](../../plugin/writer/specialized_base.py) / [`ToolCalcVisionBase`](../../plugin/calc/base.py) |
 | Tests | [`test_vision*.py`](../../tests/vision/), [`test_vision_tools.py`](../../tests/vision/test_vision_tools.py), [`test_python_runner_vision.py`](../../tests/scripting/test_python_runner_vision.py), [`test_vision_egress.py`](../../tests/calc/test_vision_egress.py), [`test_format_uno.py`](../../tests/writer/test_format_uno.py), [`test_vision_graphic_insert_uno.py`](../../tests/writer/test_vision_graphic_insert_uno.py), [`test_vision_ocr_mock_uno.py`](../../tests/writer/test_vision_ocr_mock_uno.py) (Writer UNO: patches host `run_vision`, unique OCR tokens, document order with text between images; no Docling/Paddle in CI), [`test_document_scripts.py`](../../tests/scripting/test_document_scripts.py) (vision section tests) |
 
 ### Gaps (post–Phase 3)
@@ -220,7 +220,7 @@ sequenceDiagram
   participant RPS as RunPythonScript
   participant Host as python_runner
   participant Export as vision_runner
-  participant VC as vision_client
+  participant VC as scripting.client
   participant Venv as vision.py
 
   User->>RPS: Vision Helpers extract_text Run
@@ -240,12 +240,12 @@ sequenceDiagram
 | File | Role |
 |------|------|
 | [`plugin/vision/venv/vision.py`](../../plugin/vision/venv/vision.py) | `HELPER_NAMES`, `run_vision`, `_extract_text` via PaddleOCR (lazy engine singleton per worker) |
-| [`plugin/framework/client/vision_client.py`](../../plugin/framework/client/vision_client.py) | Fixed stub like [`client.py`](../../plugin/scripting/client.py); session id `writeragent:vision` |
+| [`plugin/scripting/client.py`](../../plugin/scripting/client.py) | Host entry `run_vision`; fixed stub IPC like analysis |
 | [`plugin/vision/vision_templates.py`](../../plugin/vision/vision_templates.py) | `# writeragent:vision helper=… params=…`; Phase 1 template: **`extract_text` only** |
 | [`plugin/vision/vision_runner.py`](../../plugin/vision/vision_runner.py) | `get_selected_image_bytes(ctx, doc)`, `run_trusted_vision(...)` — host-side export + RPC |
 | [`plugin/vision/vision_egress.py`](../../plugin/vision/vision_egress.py) | `is_vision_result`, `vision_html_from_result`, `insert_vision_result` |
 
-**`vision_client.py` stub (match analysis pattern):**
+**Host RPC (`run_vision` in [`client.py`](../../plugin/scripting/client.py)) — match analysis pattern:**
 
 ```python
 _VISION_STUB = """\
@@ -401,7 +401,7 @@ Extended [`test_vision.py`](../../tests/vision/venv/test_vision.py), [`test_visi
 | Module | Role |
 |--------|------|
 | [`plugin/vision/venv/vision.py`](../../plugin/vision/venv/vision.py) | Trusted helpers |
-| [`plugin/framework/client/vision_client.py`](../../plugin/framework/client/vision_client.py) | Fixed RPC stub |
+| [`plugin/scripting/client.py`](../../plugin/scripting/client.py) | Host `run_vision` RPC |
 | [`plugin/vision/vision_templates.py`](../../plugin/vision/vision_templates.py) | Run Python Script templates |
 | [`plugin/vision/vision_runner.py`](../../plugin/vision/vision_runner.py) | Host-side export + `run_trusted_vision` |
 

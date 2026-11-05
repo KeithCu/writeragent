@@ -1,4 +1,6 @@
-# Section Replace and get_markdown(scope="range") — Options
+# Section replace options (historical tool names)
+
+> **Status (2026-11-05):** This note describes flows that used **`find_text`**, **`get_markdown`**, and **`apply_markdown`**. Those names are **not** registered tools today. Use **`search_in_document`**, **`get_document_content`**, **`apply_document_content`**, and **`apply_style`** instead. The option list below is kept as a **historical** design note about those removed names — not a current API spec.
 
 This document summarizes the failure when the model uses **find_text + get_markdown(scope="range")** for section replacement, and lists several possible approaches to fix or work around it. No single approach is implemented here; pick one (or combine) when you’re ready.
 
