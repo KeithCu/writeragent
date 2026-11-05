@@ -224,6 +224,8 @@ class TestI18n:
         assert (normalize_backend_id("claude")) == ("claude")
         assert (normalize_backend_id("gemini")) == ("builtin")
         assert (normalize_backend_id("opencode")) == ("opencode")
+        assert (normalize_backend_id("antigravity")) == ("antigravity")
+        assert (normalize_backend_id("Antigravity")) == ("antigravity")
         assert (normalize_backend_id("Built-in")) == ("builtin")
         assert (normalize_backend_id("Eingebaut")) == ("builtin")
         assert (normalize_backend_id("Integriert")) == ("builtin")

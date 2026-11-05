@@ -504,7 +504,11 @@ class SlashPopupController:
             # VCL. _defer_to_next_turn logs the failure and does not run them.
             _defer_to_next_turn(self.hide)
             return False
-        matches = filter_slash_commands(text, load_slash_lru())
+        matches = filter_slash_commands(
+            text,
+            load_slash_lru(),
+            getattr(self.send_listener, "cached_doc_type", None),
+        )
         _ovlog("on_query_text matches=%s names=%s", len(matches), [c.name for c in matches[:8]])
         if not matches:
             _ovlog("on_query_text hide (no matches)")
