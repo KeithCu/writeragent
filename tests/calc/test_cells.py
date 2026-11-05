@@ -547,6 +547,7 @@ def test_read_cell_range_tool_opts_into_format_info():
     assert not result.get("truncated")
     payload = result["result"][0]
     assert payload["origin"] == "A1"
+    assert payload["range"] == "A1"
     assert payload["rows"] == [[1.0]]
     assert "formulas" not in payload
     assert "types" not in payload
@@ -566,8 +567,9 @@ def test_grid_to_rows_synthetic():
             {"address": "B2", "value": 3.0, "formula": "=A1+1", "type": "formula"},
         ],
     ]
-    payload = grid_to_rows(grid)
+    payload = grid_to_rows(grid, range_name="A1:B2")
     assert payload["origin"] == "A1"
+    assert payload["range"] == "A1:B2"
     assert payload["rows"] == [["Col1", None], ["2026-08-03", 3.0]]
     assert payload["formulas"] == {"B2": "=A1+1"}
     assert payload["types"] == {"A2": "date"}
@@ -627,9 +629,9 @@ def test_read_cell_range_tool_truncates_large_range():
 
     assert result["status"] == "ok"
     assert result["truncated"] is True
-    assert result["cells"] == 4000
-    assert result["rows"] == 500
-    assert result["columns"] == 8
+    assert result["cell_count"] == 4000
+    assert result["row_count"] == 500
+    assert result["column_count"] == 8
     assert result["preview_range"] == "A1:H10"
     assert result["message"] == _READ_CELL_RANGE_TRUNCATED_MSG.format(
         rows=500, columns=8, cells=4000
@@ -682,9 +684,9 @@ def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
 
     assert result["status"] == "ok"
     assert result["truncated"] is True
-    assert result["cells"] == 81
-    assert result["rows"] == 9
-    assert result["columns"] == 9
+    assert result["cell_count"] == 81
+    assert result["row_count"] == 9
+    assert result["column_count"] == 9
     assert result["range"] == range_name
     assert result["message"] == _READ_CELL_RANGE_TRUNCATED_MSG.format(
         rows=9, columns=9, cells=81

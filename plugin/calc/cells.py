@@ -409,10 +409,15 @@ class ReadCellRange(ToolBase):
             return {"status": "ok", "result": [item["result"][0] for item in results]}
         return {"status": "ok", "result": results}
 
-    def _wire_result(self, grid: list[list[dict[str, Any]]], wire_format: str) -> list[Any]:
+    def _wire_result(
+        self,
+        grid: list[list[dict[str, Any]]],
+        wire_format: str,
+        range_name: str,
+    ) -> list[Any]:
         if wire_format == "cells":
             return [grid]
-        return [grid_to_rows(grid)]
+        return [grid_to_rows(grid, range_name=range_name)]
 
     def _read_one(self, bridge: Any, inspector: Any, range_name: str, wire_format: str) -> dict[str, Any]:
         """Read one range; preview-only when the full grid would swamp chat context."""
@@ -420,18 +425,19 @@ class ReadCellRange(ToolBase):
             preview = _preview_if_large(bridge, range_name)
             if preview is None:
                 grid = inspector.read_range(range_name, include_format_info=True)
-                return {"status": "ok", "result": self._wire_result(grid, wire_format), "range": range_name}
+                return {"status": "ok", "result": self._wire_result(grid, wire_format, range_name), "range": range_name}
             grid = inspector.read_range(preview["preview_range"], include_format_info=True)
+            # Size metadata uses row_count/column_count/cell_count so it cannot collide with result[0]["rows"] (2D values).
             payload: dict[str, Any] = {
                 "status": "ok",
                 "truncated": True,
                 "message": _READ_CELL_RANGE_TRUNCATED_MSG.format(rows=preview["rows"], columns=preview["columns"], cells=preview["cells"]),
                 "range": range_name,
                 "preview_range": preview["preview_range"],
-                "rows": preview["rows"],
-                "columns": preview["columns"],
-                "cells": preview["cells"],
-                "result": self._wire_result(grid, wire_format),
+                "row_count": preview["rows"],
+                "column_count": preview["columns"],
+                "cell_count": preview["cells"],
+                "result": self._wire_result(grid, wire_format, range_name),
             }
             distincts = _try_column_distinct_peek(bridge, range_name, preview)
             if distincts:

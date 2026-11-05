@@ -74,6 +74,7 @@ def test_read_cell_range(ctx, doc):
 
     payload = result_data[0]
     assert payload["origin"] == "A1"
+    assert payload["range"] == "A1:C3"
     assert len(payload["rows"]) == 3
     assert len(payload["rows"][0]) == 3
 
