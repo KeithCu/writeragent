@@ -136,6 +136,22 @@ def _teardown_peer():
             wait_idle(listener=sl, timeout=15.0)
         except Exception:
             pass
+    # Clear leftover peer transcript so Packet F (sidebar suite, runs after peer
+    # alphabetically) does not start with BudgetPeer / apply_document_content residue.
+    for which in ("writer", "calc"):
+        try:
+            _clear_chat(which)
+        except Exception:
+            pass
+    try:
+        from plugin.chatbot.sidebar_test_hooks import wait_idle
+
+        for doc in (_writer_doc, _calc_doc):
+            sl = send_listener_for_doc(doc) if doc is not None else None
+            if sl is not None:
+                wait_idle(listener=sl, timeout=8.0)
+    except Exception:
+        pass
     stop_mock_sidebar_session(_session)
     from plugin.chatbot.sidebar_test_hooks import close_component
 

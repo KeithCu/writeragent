@@ -1475,10 +1475,19 @@ def test_execute_python_addin_from_background_thread_shared_fallback(monkeypatch
 
 
 def test_off_main_spill_timer_does_not_register_empty_lkey(caplog: pytest.LogCaptureFixture) -> None:
-    doc = None
-    with caplog.at_level(logging.DEBUG, logger="plugin.calc.python.spill"):
-        python_function._queue_off_main_auto_spill(None, "code", [[1, 2]], doc)
-    assert "skipping off-main auto-spill" in caplog.text
+    """Missing doc must not arm a debounce slot; log is stripped in release bundles."""
+    from plugin.calc.python.workbook_state import WorkbookState
+    from tests.harness.strip_bundle import is_release_build
+
+    _clear_spill_timer_registry()
+    try:
+        with caplog.at_level(logging.DEBUG, logger="plugin.calc.python.spill"):
+            python_function._queue_off_main_auto_spill(None, "code", [[1, 2]], None)
+        assert WorkbookState.known(None) is None
+        if not is_release_build():
+            assert "skipping off-main auto-spill" in caplog.text
+    finally:
+        _clear_spill_timer_registry()
 
 
 def test_matrix_cache_staleness_after_gap(monkeypatch: pytest.MonkeyPatch) -> None:
