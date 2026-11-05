@@ -18,8 +18,6 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
     page = doc.getDrawPages().getByIndex(0)
     shape = doc.createInstance("com.sun.star.drawing.TextShape")
     shape.setString("Hello")
-    shape.setSize(doc.createInstance("com.sun.star.awt.Size", Width=8000, Height=2000))
-    shape.setPosition(doc.createInstance("com.sun.star.awt.Point", X=1000, Y=1000))
     page.add(shape)
     controller = doc.getCurrentController()
     controller.select(shape)
@@ -44,17 +42,17 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
 @native_test
 @with_native_doc("draw")
 def test_draw_table_selection_saw_table_no_targets(ctx: Any, doc: Any) -> None:
-    import json
-
-    res = json.loads(
-        TestingFactory.execute_tool(
-            doc,
-            ctx,
-            "table_insert",
-            {"rows": 2, "columns": 2, "data": [["A", "B"], ["C", "D"]]},
-            doc_type="draw",
-        )
+    res = TestingFactory.execute_tool(
+        doc,
+        ctx,
+        "table_insert",
+        {"rows": 2, "columns": 2, "data": [["A", "B"], ["C", "D"]]},
+        doc_type="draw",
     )
+    if not isinstance(res, dict):
+        import json
+
+        res = json.loads(res)
     assert res.get("status") == "ok", res
 
     page = doc.getDrawPages().getByIndex(0)
