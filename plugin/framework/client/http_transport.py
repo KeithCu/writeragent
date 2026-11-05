@@ -44,7 +44,6 @@ from . import http_security
 from .errors import RETRYABLE_HTTP_STATUS, format_http_error_response
 from .provider_detection import is_openrouter_endpoint
 from .request_controls import (
-    RETRY_MAX_ATTEMPTS,
     RETRY_MAX_DELAY_SEC,
     RequestPacer,
     RetryBudget,
@@ -521,9 +520,7 @@ class LlmHttpTransport:
                     return "again", new_body
 
             if status != 200:
-                budget.sends_left -= 1
-                budget.attempt_charged = True
-                attempt = RETRY_MAX_ATTEMPTS - budget.sends_left
+                attempt = budget.charge_send(status=True)
                 self.handle_http_status(
                     response,
                     request_body=current_body,
@@ -578,9 +575,8 @@ class LlmHttpTransport:
     ) -> str | None:
         """SSE streaming with the shared retry loop; dispatch lives on the transport like ``exchange``.
 
-        Builds the ``RetryBudget``. Stop before ``consume`` returns ``None``.
+        Builds the ``RetryBudget``. Stop raises ``stopped_error()``; ``_run_streaming_loop`` maps that to finish reason ``stop``.
         ``consume``'s return value passes through, including a model finish_reason of ``stop``.
-        ``None`` after a latched Stop is mapped to finish reason ``stop`` in ``_run_streaming_loop``.
         """
         budget = RetryBudget(
             self,
@@ -620,9 +616,7 @@ class LlmHttpTransport:
                 status_callback=status_callback,
             )
             if response.status != 200:
-                budget.sends_left -= 1
-                budget.attempt_charged = True
-                attempt = RETRY_MAX_ATTEMPTS - budget.sends_left
+                attempt = budget.charge_send(status=True)
                 self.handle_http_status(
                     response,
                     request_body=current_body,
@@ -645,8 +639,7 @@ class LlmHttpTransport:
             except StreamOverload:
                 if budget.emitted_any or budget.sends_left <= 0:
                     raise
-                budget.sends_left -= 1
-                attempt = RETRY_MAX_ATTEMPTS - budget.sends_left
+                attempt = budget.charge_send(status=False)
                 delay = backoff_delay_sec(attempt=attempt)
                 remember_host_gap(
                     self.pacing_key_for_model(current_model),
@@ -657,12 +650,7 @@ class LlmHttpTransport:
                     raise stopped_error()
                 return "again", current_body
 
-        try:
-            return budget.run_with_retries(body, dispatch, on_connection_error)
-        except NetworkError as exc:
-            if getattr(exc, "code", None) == "STOPPED":
-                return None
-            raise
+        return budget.run_with_retries(body, dispatch, on_connection_error)
 
     def handle_connection_error(
         self,

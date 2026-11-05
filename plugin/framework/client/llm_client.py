@@ -446,13 +446,13 @@ class LlmClient:
         on_retry: Any = None,
         wrap_unexpected: bool = False,
         failure_log: str = "JSON request failed",
-    ) -> tuple[str, Any]:
+    ) -> Any:
         """One non-streaming JSON exchange with the shared retry budget."""
         active = self._request_scope(cancel)
         try:
             if is_cancelled(active):
                 self._close_connection()
-                return "stop", None
+                raise stopped_error()
             api_key = str(self.config.get("api_key") or "").strip()
             first_body = body if isinstance(body, (bytes, bytearray)) else body
             slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
@@ -477,9 +477,7 @@ class LlmClient:
                     retry_log_message=retry_log_message,
                     on_bad_request=on_bad_request,
                 )
-            except NetworkError as exc:
-                if getattr(exc, "code", None) == "STOPPED":
-                    return "stop", None
+            except NetworkError:
                 raise
             except Exception as exc:
                 if not wrap_unexpected:
@@ -491,7 +489,7 @@ class LlmClient:
                 fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
                 lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
                 remember_accepted_effort(self._endpoint(), fb, lb)
-            return "ok", parse_provider_envelope(result.body, path, api_key=api_key)
+            return parse_provider_envelope(result.body, path, api_key=api_key)
         finally:
             self._release_request_scope(cancel)
 
@@ -503,10 +501,15 @@ class LlmClient:
         ``cancel`` / ``status_callback`` match the sync chat path: a 429
         wait ends when the caller stops, and the sidebar sees the retry line.
         """
-        action, parsed = self._exchange_json(method, path, body, headers, cancel=cancel, status_callback=status_callback, retry_log_message="Retrying JSON request on fresh connection")
-        if action == "stop":
-            raise stopped_error()
-        return parsed
+        return self._exchange_json(
+            method,
+            path,
+            body,
+            headers,
+            cancel=cancel,
+            status_callback=status_callback,
+            retry_log_message="Retrying JSON request on fresh connection",
+        )
 
     def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
@@ -931,7 +934,7 @@ class LlmClient:
             return last_finish_reason
 
         try:
-            result = self._transport.stream(
+            return self._transport.stream(
                 method,
                 path,
                 body,
@@ -942,11 +945,10 @@ class LlmClient:
                 wire_secrets=self._wire_secrets(),
                 on_bad_request=on_bad_request,
             )
-            if result is None and self._stop_latched(active):
+        except NetworkError as exc:
+            if getattr(exc, "code", None) == "STOPPED":
                 log.debug("streaming_loop: Stop requested")
                 return "stop"
-            return result
-        except NetworkError:
             raise
         except Exception as e:
             if isinstance(e, WriterAgentException) or is_disposal(e):
@@ -1094,20 +1096,23 @@ class LlmClient:
                     log.warning("Could not log redacted outgoing messages: %s", log_exc)
 
             body = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
-            action, result = self._exchange_json(
-                method,
-                path,
-                body,
-                headers,
-                cancel=cancel,
-                status_callback=status_callback,
-                retry_log_message="Retrying request_with_tools on fresh connection",
-                on_retry=_log_outgoing_on_retry,
-                wrap_unexpected=True,
-                failure_log="request_with_tools failed",
-            )
-            if action == "stop":
-                return stopped_result
+            try:
+                result = self._exchange_json(
+                    method,
+                    path,
+                    body,
+                    headers,
+                    cancel=cancel,
+                    status_callback=status_callback,
+                    retry_log_message="Retrying request_with_tools on fresh connection",
+                    on_retry=_log_outgoing_on_retry,
+                    wrap_unexpected=True,
+                    failure_log="request_with_tools failed",
+                )
+            except NetworkError as exc:
+                if getattr(exc, "code", None) == "STOPPED":
+                    return stopped_result
+                raise
 
             if log.isEnabledFor(logging.DEBUG):
                 log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))

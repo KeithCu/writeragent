@@ -167,14 +167,13 @@ def test_transport_connection_retry_waits_with_backoff():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     statuses: list[str] = []
     with patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as wait:
-        result = transport.handle_connection_error(
+        transport.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             status_callback=statuses.append,
         )
-    assert result is None
     wait.assert_called_once()
     assert len(statuses) == 1
     assert "retrying" in statuses[0].lower()
@@ -427,14 +426,13 @@ def test_connection_error_backoff_uses_free_pacing_key_not_paid_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        result = transport.handle_connection_error(
+        transport.handle_connection_error(
             OSError("reset"),
             path="/api/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="deepseek/deepseek-r1:free",
         )
-    assert result is None
     assert _host_gap_sec.get("openrouter.ai:443:free") == 4.0
     assert "openrouter.ai:443" not in _host_gap_sec
 
@@ -447,14 +445,13 @@ def test_explicit_openrouter_flag_uses_free_key_on_custom_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        result1 = t1.handle_connection_error(
+        t1.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="x:free",
         )
-    assert result1 is None
     assert _host_gap_sec.get("proxy.example:443:free") == 4.0
 
     t2 = LlmHttpTransport(lambda: "https://proxy.example/v1", lambda: 30)
@@ -462,14 +459,13 @@ def test_explicit_openrouter_flag_uses_free_key_on_custom_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        result2 = t2.handle_connection_error(
+        t2.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="x:free",
         )
-    assert result2 is None
     assert _host_gap_sec.get("proxy.example:443") == 4.0
 
 
@@ -523,16 +519,16 @@ def test_retry_after_ms_used_when_retry_after_absent():
 
     with (
         patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=fake_backoff),
-        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as mock_wait,
     ):
-        result = transport.handle_http_status(
+        transport.handle_http_status(
             response,
             request_body=b'{"model":"gpt-4o"}',
             path="/v1/chat/completions",
             retries_left=2,
             emitted_any=False,
         )
-    assert result is None
+    mock_wait.assert_called_once()
     assert recorded == [2.0]
 
 
@@ -924,23 +920,24 @@ def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
         sock.close()
 
 
-def test_stream_stop_before_send_returns_none():
-    """Pre-cancelled scope: stream returns None without calling send or consume."""
+def test_stream_stop_before_send_raises_stopped():
+    """Pre-cancelled scope: stream raises STOPPED without calling send or consume."""
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
     transport.send = MagicMock(side_effect=AssertionError("send must not run"))  # type: ignore[method-assign]
 
     def consume(_response, _budget):
         raise AssertionError("consume must not run")
 
-    result = transport.stream(
-        "POST",
-        "/v1/chat/completions",
-        b"{}",
-        {},
-        consume,
-        cancel=_cancelled_scope(),
-    )
-    assert result is None
+    with pytest.raises(NetworkError) as err:
+        transport.stream(
+            "POST",
+            "/v1/chat/completions",
+            b"{}",
+            {},
+            consume,
+            cancel=_cancelled_scope(),
+        )
+    assert err.value.code == "STOPPED"
 
 
 def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):

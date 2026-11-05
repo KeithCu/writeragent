@@ -343,3 +343,16 @@ class TestOverloadDetection:
         assert _structured_error_is_overload({"error": {"code": "rate_limit_exceeded"}}) is True
         assert _structured_error_is_overload({"error": {"code": 400, "message": "limit is 503 tokens"}}) is False
         assert stream_error_is_overload({"error": {"message": "limit is 503 tokens"}}) is False
+
+
+def test_retry_budget_charge_send():
+    from unittest.mock import MagicMock
+
+    from plugin.framework.client.request_controls import RETRY_MAX_ATTEMPTS, RetryBudget
+
+    budget = RetryBudget(MagicMock())
+    assert budget.charge_send(status=True) == 1
+    assert budget.sends_left == RETRY_MAX_ATTEMPTS - 1
+    assert budget.attempt_charged is True
+    assert budget.charge_send(status=False) == 2
+    assert budget.attempt_charged is True

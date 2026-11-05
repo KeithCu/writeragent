@@ -448,6 +448,13 @@ class RetryBudget:
         if self.sends_left == RETRY_MAX_ATTEMPTS:
             clear_host_gap(self._transport.pacing_key_for_model(model))
 
+    def charge_send(self, *, status: bool) -> int:
+        """Consume one send attempt. ``status`` True marks ``attempt_charged`` (HTTP status path)."""
+        self.sends_left -= 1
+        if status:
+            self.attempt_charged = True
+        return RETRY_MAX_ATTEMPTS - self.sends_left
+
     def rejected_effort(self, exc: BaseException) -> bool:
         details = getattr(exc, "details", None)
         return (
@@ -496,11 +503,12 @@ class RetryBudget:
         # branch above already decremented sends_left. Charging
         # again would consume two of the three attempts for one
         # failed read, and the last try would never run.
-        if not attempt_charged:
-            self.sends_left -= 1
+        if attempt_charged:
+            attempt = RETRY_MAX_ATTEMPTS - self.sends_left
+        else:
+            attempt = self.charge_send(status=False)
 
         target = http_security.public_target(path)
-        attempt = RETRY_MAX_ATTEMPTS - self.sends_left
         self._transport.handle_connection_error(
             exc,
             path=target,

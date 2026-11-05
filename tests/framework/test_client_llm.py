@@ -2335,16 +2335,17 @@ def test_http_429_does_not_log_500_request_diag(client, caplog, _fast_retry_wait
         429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests"
     )
     caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
-    action = client._transport.handle_http_status(
-        resp,
-        request_body=body,
-        path="/v1/chat/completions",
-        retries_left=2,
-        emitted_any=False,
-        cancel=None,
-        observe_http_error=client._observe_provider_http_error,
-    )
-    assert action is None
+    with patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as mock_wait:
+        client._transport.handle_http_status(
+            resp,
+            request_body=body,
+            path="/v1/chat/completions",
+            retries_left=2,
+            emitted_any=False,
+            cancel=None,
+            observe_http_error=client._observe_provider_http_error,
+        )
+    mock_wait.assert_called_once()
     joined = "\n".join(r.getMessage() for r in caplog.records)
     assert "HTTP 500 request diagnostic:" not in joined
     assert "UNIQUE_PROMPT_BLOB_FOR_429_NO_500_DIAG" not in joined
@@ -3631,7 +3632,7 @@ def test_image_rejected_params_logs_truncated_body(client, caplog):
 
 def test_sync_request_with_tools_wraps_parse_sync_response_error(client):
     """parse_sync_response exceptions (bad JSON / unexpected shape) must be wrapped in NetworkError with code BAD_RESPONSE."""
-    with patch.object(client, "_exchange_json", return_value=("ok", {"unexpected": "structure"})):
+    with patch.object(client, "_exchange_json", return_value={"unexpected": "structure"}):
         with patch.object(client._get_shim(), "parse_sync_response", side_effect=KeyError("choices")):
             with pytest.raises(NetworkError) as exc_info:
                 client.request_with_tools([{"role": "user", "content": "Hello"}], stream=False)
