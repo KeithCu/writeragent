@@ -163,15 +163,15 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 ### Python compute service
 
 - Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `wsgi_server.py`, `config.py`, `formula_worker.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
-- Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
-- `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
+- Listen with **`WSGIDualStackServer`** ([`compute_service/wsgi_server.py`](../../compute_service/wsgi_server.py)) on **`DualStackThreadPoolHTTPServer`** ([`plugin/framework/http_server.py`](../../plugin/framework/http_server.py)).
+- `GET /health` → `{"status":"healthy","service":"python-compute","version":"<EXTENSION_VERSION>"}` where `version` is [`EXTENSION_VERSION`](../../plugin/version.py) (same as the WriterAgent OXT; unauthenticated for orchestrator liveness/readiness probes).
 - `POST /v1/execute[?session_id=...]` accepts **both** ingresses (`Content-Type` dispatch). Peel of `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` is today’s kit contract and will be retired after kit moves to `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional raw `data`). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` — worker-dumped, host-forwarded. Details: [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
 - `POST /v1/session/reset?session_id=...` — same Bearer auth as execute. `session_id` is **URL query only** (L7 sticky; reject if only in the JSON body). Optional body `{ "id?" }` is a correlation echo. Response `200` `{ "id?", "status": "ok" }` is **idempotent** (unknown / already-gone still `ok`). Reuses pool `reset_session` / LibrePy `reset_sandbox_session`. The supervisor drops its session map only when that worker reset returns `status: ok`; a failed reset is logged and the map stays, because the process may still hold the namespace. Intended caller: coolwsd on DocumentBroker destroy / last view leave. This lands ahead of Online shared; Online still hard-codes `isolated` and does not call reset yet. Idle TTL remains the safety net if reset is missed.
 - **Dumb JSON egress only** toward kit/coolwsd: the worker dumps kit-safe JSON once (`allow_nan=False`, NaN/Inf → `null`); the HTTP host forwards those bytes. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
 - `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
 - Reuse desktop sandbox: [`venv_sandbox`](../../plugin/scripting/venv/venv_sandbox.py), import blocklist (`policy_blocked_imports`/`DANGEROUS_MODULES`), curated Docker image (pinned numpy/pandas/**Pillow**/…).
-- Prefer an **in-process executor in the service** first (fewer hops). Add Pickle5 warm workers later only if the service host needs ABI isolation.
+- **`POST /v1/execute`** runs user code in a **bounded pool of formula worker subprocesses** ([`formula_pool.py`](../../compute_service/formula_pool.py); optional dedicated OCR workers when `ocr_workers > 0`). The HTTP listener stays in-process; crashes and timeouts are isolated in child processes.
 
 ### C++ hooks (deliberately dumb)
 
@@ -433,7 +433,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 **Implemented:**
 
 1. **Configurable / Safe Binding**: `server.py` defaults to binding to `127.0.0.1` (loopback only) instead of wildcard, preventing external exposure by default. It supports configuring the host via the `PYTHON_COMPUTE_HOST` environment variable.
-2. **Dual-Stack & IPv6**: Server binds using a dual-stack configuration (`DualStackThreadingHTTPServer`), allowing concurrent IPv4 and IPv6 connections on supported systems with graceful fallback.
+2. **Dual-Stack & IPv6**: `WSGIDualStackServer` binds using a dual-stack configuration (`DualStackThreadPoolHTTPServer`), allowing concurrent IPv4 and IPv6 connections on supported systems with graceful fallback.
 3. **Multi-stage Dockerfile**: The [`compute_service/Dockerfile`](../../compute_service/Dockerfile) installs the pinned stack with `pip --only-binary=:all:` into `/app/pkgs`. Neither stage installs a compiler. A source build would link against libraries the runner never copies. The runner image has no compiler, which keeps that attack surface out of the runtime container.
 4. **Startup Dependency Check**: The server runs a pre-check to ensure required libraries like `sympy` are importable, failing fast at startup if dependencies are missing.
 5. **Runtime flags (recommended for ops):**

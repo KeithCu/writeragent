@@ -41,7 +41,7 @@ The first search may return **“index building in the background — retry shor
 
 ### Search Nearby Files menu
 
-**WriterAgent → Search Nearby Files…** opens a modeless dialog ([`search_ui.py`](../plugin/embeddings/search_ui.py), [`SearchDialog.xdl`](../extension/WriterAgentDialogs/SearchDialog.xdl)) that runs the same hybrid path as the agent tool. It shows cache status, ranked hits, and a **Rebuild** button to cold-reindex the folder.
+**WriterAgent → Search Nearby Files…** opens a modeless dialog ([`search_ui.py`](../plugin/embeddings/search_ui.py), [`SearchDialog.xdl`](../extension/Dialogs/SearchDialog.xdl)) that runs the same hybrid path as the agent tool. It shows cache status, ranked hits, and a **Rebuild** button to cold-reindex the folder.
 
 ### What gets indexed
 
@@ -52,7 +52,7 @@ Same extensions as `list_nearby_files` / maintain ([`embeddings_fs.py`](../plugi
 | ODF | `.odt`, `.ods`, `.odp`, `.odg`, `.ots`, `.fods`, … |
 | OOXML | `.docx`, `.xlsx`, `.pptx` |
 | Legacy binary | `.doc`, `.xls`, `.ppt` (headless `soffice --convert-to` → temp ODF) |
-| Plain | `.csv`, `.txt`, `.rtf` |
+| Plain | `.csv`, `.txt`, `.rtf`, `.md` |
 
 **PDF** is not indexed yet.
 

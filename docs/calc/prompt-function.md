@@ -86,7 +86,7 @@ The second example is the Code Oracle pattern: natural language in, pasteable `=
 
 ## Proposed: range arguments
 
-**Status: design only — not shipped.**
+**Status: design only — not shipped (deferred 2026-11-05).**
 
 `=PY()` later grew trailing ranges. `=PROMPT()` should be able to take the same kind of live grid and append it to the user message as text, without `TEXTJOIN`.
 

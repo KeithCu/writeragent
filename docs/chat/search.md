@@ -175,7 +175,7 @@ Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
 
 ## 7. Document full-text index (`advanced_search`)
 
-`IndexService` ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py), service `writer_index`) backs the Writer `advanced_search` and `get_index_stats` tools.
+`IndexService` ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py), service `writer_index`) backs the Writer **`advanced_search`** and **`get_index_stats`** tool names in older docs. Those classes are **`ToolBaseDummy`** only ([`search.py`](../../plugin/writer/search.py)) — **parked 2026-11-05**; use **`search_in_document`** (no second search tool).
 
 - Coverage is body paragraphs of the top-level text enumeration. A table keeps its slot as the literal text `"[Table]"` and its cell text is not indexed; text frames, headers/footers, and drawing shapes are not walked. Use `search_in_document` for text in those places.
 - Language: the document-level `CharLocale` wins; otherwise the first non-empty body paragraph with a usable locale (tables and blank paragraphs are skipped, `zxx` is ignored). The response reports `detected_language` (the tag as read), `language` (the Snowball algorithm actually used; still `english` when unsupported) and `stem_fallback: true` when the detected tag has no Snowball algorithm.

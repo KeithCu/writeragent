@@ -30,7 +30,7 @@ The project is distributed as three standalone extension packages (*install only
 
 ### 🤖 Local-First Agentic AI & Writing (Writer)
 
-- **Sidebar Chat with Multi-turn Tool Calling** — Edit, restructure, or expand documents using natural language. 9 core tools plus dozens of [specialized sub-agents](docs/writer/specialized-toolsets.md) for page layout, footnotes, bookmarks, revisions, and forms.
+- **Sidebar Chat with Multi-turn Tool Calling** — Edit, restructure, or expand documents using natural language. **17** sidebar tools on Writer (chat-tier peer tools included; MCP tier excluded) plus dozens of [specialized sub-agents](docs/writer/specialized-toolsets.md) for page layout, footnotes, bookmarks, revisions, and forms.
 - **Two-Way Voice Interaction (STT & TTS)** — Dictate prompts directly to your document agent and listen to responses spoken aloud (local via Kokoro or Piper, or via your LLM endpoint).
 - **Format-Preserving Edits** — Surgical redlines and section rewrites maintain your existing formatting (bold, italics, highlights, font sizes, tables, and nested lists) without clobbering styles.
 - **Web Research** — Integrated private [smolagents](https://github.com/huggingface/smolagents) loop with DuckDuckGo. Synthesizes multiple web sources and updates open documents with real-time facts and citations. [Agent Search](docs/chat/search.md)
@@ -163,7 +163,7 @@ Distance-to-frontier view: [docs/eval/pareto-distance.svg](docs/eval/pareto-dist
 | **Model Context Protocol (MCP)** | [docs/mcp-protocol.md](docs/mcp-protocol.md) |
 | **Embeddings & Search** | [docs/embeddings.md](docs/embeddings.md) |
 | **Benchmarks** | [docs/eval/benchmarks.md](docs/eval/benchmarks.md) |
-| **Localization (35 Locales)** | [docs/framework/localization.md](docs/framework/localization.md) |
+| **Localization (34 translated + English source)** | [docs/framework/localization.md](docs/framework/localization.md) |
 | **Code Explorer** | [DeepWiki](https://deepwiki.com/KeithCu/writeragent) |
 | **Cursor / Agent Skills** | [cursor-libreoffice](https://github.com/KeithCu/cursor-libreoffice) · [libreoffice-skill](https://github.com/KeithCu/libreoffice-skill) |
 
