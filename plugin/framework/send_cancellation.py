@@ -51,7 +51,7 @@ def wait_for_approval(event: threading.Event, cancel: SendCancellation | None, t
     A set event wins a race with stop.
     """
     while not event.is_set():
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             return False
         event.wait(timeout)
     return True

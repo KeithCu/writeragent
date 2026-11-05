@@ -58,14 +58,12 @@ log = logging.getLogger("compute_service.worker")
 
 def _compute_slot_fail_message(
     code: str,
-    phase: FailPhase,
     detail: str,
     *,
     worker_name: str,
     worker_id: int,
 ) -> str:
     """User-facing error text for a compute slot ``framed_request_roundtrip`` failure."""
-    del phase
     if code == "WORKER_PIPE_BROKEN":
         return f"Failed to send request to {worker_name} #{worker_id}: {detail}"
     if code == "WORKER_IPC_ERROR":
@@ -76,9 +74,6 @@ def _compute_slot_fail_message(
         return f"{worker_name} error: {detail}"
     raise AssertionError(f"unhandled fail code {code!r}")
 
-# ``kill`` stays a call-site choice. Nothing here increments
-# ``tasks_executed``: only a consumed response does, and a ready
-# handshake resets that count.
 # A killing failure while the slot is stopping. _fail_request reports
 # SERVICE_SHUTDOWN instead, and does not kill again. A spent clock passes
 # kill=False and stays EXECUTION_TIMEOUT. HTTP 500 or 200 here would hide a stop.
@@ -532,7 +527,6 @@ class BaseProcessWorker:
                     return self._fail_timeout(deadline, pid, kill=kill)
                 msg = _compute_slot_fail_message(
                     code,
-                    phase,
                     detail,
                     worker_name=self.worker_name,
                     worker_id=self.worker_id,

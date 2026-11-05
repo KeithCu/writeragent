@@ -42,6 +42,13 @@ _gc_suspend_depth = 0
 _gc_suspend_was_enabled = False
 
 
+def gc_suspended() -> bool:
+    """True while any ``automatic_gc_suspended`` context is active."""
+    # Do not take _gc_suspend_lock; gc.enable() under that lock while
+    # automatic_gc_suspended is active is intentional.
+    return _gc_suspend_depth != 0
+
+
 @contextlib.contextmanager
 def automatic_gc_suspended() -> Generator[None, None, None]:
     """Keep automatic cyclic GC off while the caller holds SolarMutex and waits.
