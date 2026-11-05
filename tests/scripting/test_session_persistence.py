@@ -10,15 +10,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
+from plugin.scripting.venv.venv_sandbox import SESSIONS, reset_sandbox_session, run_sandboxed_code
 from plugin.scripting.venv.worker_harness import _handle_request
 
 
 @pytest.fixture(autouse=True)
 def _clear_sessions():
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     yield
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 def test_shared_session_persists_variables():

@@ -489,7 +489,7 @@ Registered tables are snapshots: a cell that passes `data` and re-registers refr
 
 **Related:** `[WorkerResultSession](../plugin/calc/python/function.py)` is a **separate** thread-local cache for matrix list results within one recalc pass — it does not hold cross-cell Python globals. See [Matrix Formula Optimization](#matrix-formula-optimization-fast-path).
 
-**Implementation:** `[session_manager.py](../plugin/scripting/session_manager.py)`, `[venv/venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` (`_SESSION_EXECUTORS`), `[venv/duckdb_sql.py](../plugin/scripting/venv/duckdb_sql.py)` (session catalog).
+**Implementation:** `[session_manager.py](../plugin/scripting/session_manager.py)`, `[venv/venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` (`SessionStore` / `SESSIONS`), `[venv/duckdb_sql.py](../plugin/scripting/venv/duckdb_sql.py)` (session catalog).
 
 #### `result` vs `print()` (egress model) {#result-vs-print-egress-model}
 
