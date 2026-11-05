@@ -1192,6 +1192,10 @@ def _play_ready_queue(
             clip = ready.get(cancel)
             if clip is None:
                 break
+            # Stop can win after get() dequeues a clip but before playback starts.
+            if is_cancelled(cancel):
+                _release_temp(clip.path)
+                break
             try:
                 played = clip.path and _play_audio_file(clip.path, cancel=cancel)
                 if not played and not is_cancelled(cancel):
