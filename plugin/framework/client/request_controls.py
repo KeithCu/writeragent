@@ -36,7 +36,7 @@ import time
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
-    from .http_transport import LlmHttpTransport
+    from .http_transport import LlmHttpTransport  # http_transport imports this module at runtime.
 
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.framework.i18n import _

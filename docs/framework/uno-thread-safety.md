@@ -85,7 +85,7 @@ A Blue context may transition to Red across an explicit recoloring boundary (`ma
 | **BLUE** | Background Workers (`run_in_background`) | Network I/O, LLM calls, venv IPC, disk access. | Direct PyUNO access (must marshal to Red via `main.call`). |
 | **YELLOW** | Synchronous Host Dispatch Context | In-memory computation, venv execution, non-blocking `main.post`. | Calling `main.call` (deadlocks against waiting main thread). |
 
-**Note on Yellow as a Context**: Yellow is a dynamic **thread execution context**, not a static property of a function. Functions like `session_key()`, `confirm_unsaved_cell_edit()`, or helper routines may be executed on the main UI thread during user interaction (Red) or on a remote bridge worker thread during formula recalculation (Yellow). The runtime flag `in_sync_host_dispatch()` tracks whether the current thread is currently executing inside a synchronous host dispatch.
+**Note on Yellow as a Context**: Yellow is a dynamic **thread execution context**, not a static property of a function. Functions like `build_cell_context`, `confirm_unsaved_cell_edit()`, or helper routines may be executed on the main UI thread during user interaction (Red) or on a remote bridge worker thread during formula recalculation (Yellow). The runtime flag `in_sync_host_dispatch()` tracks whether the current thread is currently executing inside a synchronous host dispatch.
 
 ### The Two Foundational Facts That Make Enforcement Tractable
 
@@ -270,7 +270,7 @@ Null checks check for None. Live disposal is `DisposedException` / `is_disposal`
   1. The remote UNO dispatch executed Calc formula recalculation synchronously on a remote PyUNO bridge worker thread (`Dummy-2`).
   2. `workbook_session_id()` called `main.call(_workbook_session_id_impl)` (waiting up to 30s).
   3. LibreOffice's main thread was synchronously blocked waiting for the remote UNO RPC dispatch to finish, so it could not pump the `MainThread` work queue.
-  4. `session_key()`, `get_python_init_kwargs()`, and `diagnostics_workbook_key()` called `get_desktop` without checking `main.is_current()`, tripping the Layer A guard.
+  4. Those lookups were `session_key()` and `get_python_init_kwargs()` at the time of #402; both are gone. Current capture is `build_cell_context`. `diagnostics_workbook_key()` called `get_desktop` without checking `main.is_current()`, tripping the Layer A guard.
   5. The runtime guard's `_notify_thread_violation()` attempted a blocking `main.call(_show_popup, timeout=5.0)`, freezing the thread.
   6. When 30s elapsed, `_format_error_for_display()` mapped the timeout to a misleading `"Error: Python timed out. Open Settings → Python..."` message.
 - **The Fix Applied**:
@@ -289,7 +289,7 @@ Null checks check for None. Live disposal is `DisposedException` / `is_disposal`
 - **The Fix Applied**:
   - **Yellow context desktop query prohibition**: Formula execution under `sync_host_dispatch()` is strictly forbidden from querying `desktop.getCurrentComponent()` or `desktop.getComponents()`.
   - **Calling document from the add-in caller argument**: `=PY()` / `=PYTHON()` take LibreOffice's hidden caller argument (the `XPropertySet` first parameter in `XPythonFunction.idl`), which is the document whose cell is being calculated. That is the only document source: no front-window guess, no open-documents search, and no host-side last-active-workbook cache. A missing caller returns `Error: no calling document`. On the UI thread the shared-kernel session id, init kwargs, and `scoped_dir` are read from that document. Off-main the document is only passed through to UI-thread spill callbacks, so that evaluation runs with no shared session id and no init kwargs rather than borrowing another workbook's.
-  - **Proxy Unwrapping & Fallback Resilience**: `_workbook_session_key()` unwraps `_UnoThreadGuardProxy` (`unwrap_uno(doc)`) before accessing `getURL()` / custom document properties, avoiding nested proxy failures.
+  - **Proxy Unwrapping & Fallback Resilience**: `session_manager.mint_document_key` (`unwrap_uno` before URL / user-defined properties) avoids nested proxy failures when reading document identity.
   - **Immediate Init Script & Helper Re-Seed**: `reset_workbook_python_session()` clears both the base `calc:…` and `:init` companion session in the worker sandbox, and immediately re-evaluates the init script to restore custom tools (`custom_tools`) and bindings across both shared and isolated sessions.
   - **`uno_read` Distinction**: `uno_read` re-raises `DocumentDisposedError` / `DisposedException` while returning `default` for non-disposal bridge failures.
 

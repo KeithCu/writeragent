@@ -459,7 +459,7 @@ def document_is_disposed(doc: Any) -> bool:
         return is_disposal(exc)
 
 
-def _uno_disposal_message(exc: BaseException) -> str:  # pyright: ignore[reportUnusedFunction]  # imported by uno_context.py and scratch_writer.py
+def _uno_disposal_message(exc: BaseException) -> str:  # pyright: ignore[reportUnusedFunction]  # private; the only callers are other modules, so this file looks unused
     """Resolve exception text, falling back to standard UNO disposal sentence."""
     msg = resolve_exception_message(exc)
     if msg == type(exc).__name__:

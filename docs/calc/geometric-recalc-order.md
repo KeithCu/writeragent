@@ -171,7 +171,7 @@ Today ([data shapes](py-data-shapes.md)):
 
 `PythonFunction.python` / `execute_python_addin` receive `(code, data)` values only (`addin_impl.py`). `split_python_addin_data_args` and `calc_addin_args_from_split` never see addresses or “this arg is a PY cell.”
 
-A rule like “if the last arg is a 1×1 PY cell, drop it” is therefore unimplementable. `locate_formula_cell_in_doc` (`function.py` `session_key`) is **not** a fix: it returns `None` on 0 or 2+ matches, and cannot disambiguate `=PY("f(data)"; A1)` when A1 is both predecessor and user data.
+A rule like “if the last arg is a 1×1 PY cell, drop it” is therefore unimplementable. `locate_formula_cell_in_doc` lives in `formula_locator_cache` and is called from `function._session_key_tuple`; it returns `None` on 0 or 2+ matches, and cannot disambiguate `=PY("f(data)"; A1)` when A1 is both predecessor and user data.
 
 The last-row idea “user already passed the previous PY cell as real data → no-op, satisfied either way” is **wrong** under a shape-strip: it would drop real user data. Under the map, that row is: **do not record as ours, do not strip** ([§9.5](#95-marker-is-the-udprop--in-memory-map) table).
 
@@ -261,7 +261,7 @@ Desktop LibrePy phases 1–4 are **landed** on master. The notes below are what 
 
 **Phase 1 — Pure list + formula splice.** **Landed** in `plugin/calc/python/geometric_recalc_core.py` (re-exported by `geometric_recalc.py`, tested in `tests/calc/python/test_geometric_recalc.py`). Unit tests only: given a list of addresses + current formulas + the in-memory record, compute the patch and the eval-index bools. No UNO. Encodes the [§9.5](#95-marker-is-the-udprop--in-memory-map) table, including **remove-field**, code-in-cell splice from the raw formula (`rebuild_python_formula_with_code_ref`), fill-down unanimous-ours, mixed poison, one-hop Err:522 skip, and cap-hit skip (now via `truncated`). Cap-hit also returns a user-visible message; `notify_geometric_cap_hit` shows one `msgbox` per skipped sheet on the UI thread. Eval-index computation strictly verifies that each cell's last argument is a single cell matching the attached predecessor (`same_cell_ref`).
 
-**Phase 2 — Flag + attach on save / flag-on.** **Landed on master** (with Phase 4). Monaco and native cell save call the splicer; apply on the UI thread after save (save is already outside recalc). Settings default off. Flag-on walks **all sheets**. Persist / load the UDProp like spill. UI load/repair keys the map with `geometric_workbook_key(doc)` (`calc:` + `_workbook_session_key`, the same string eval reads; never `""`). Only patches successfully applied by `_apply_patches_to_sheet` update records; unapplied patches preserve their pre-patch state.
+**Phase 2 — Flag + attach on save / flag-on.** **Landed on master** (with Phase 4). Monaco and native cell save call the splicer; apply on the UI thread after save (save is already outside recalc). Settings default off. Flag-on walks **all sheets**. Persist / load the UDProp like spill. UI load/repair keys the map with `geometric_workbook_key(doc)` → `calc_workbook_base_session_id` → `SessionKey.of(CALC, mint_document_key(doc)).wire()` (never `""`). Unsaved files use the persisted unsaved id. Only patches successfully applied by `_apply_patches_to_sheet` update records; unapplied patches preserve their pre-patch state.
 
 **Phase 3 — Deferred repair on insert/delete.** **Landed.** Shared trigger (`SheetModifyDispatcher` in `sheet_modify.py`) + spill-like 0.1s timer + re-entrancy flag. The dispatcher and its debounce timer are keyed by the workbook lifecycle id (RuntimeUID), not the file URL, so two unsaved workbooks do not share one listener and Save-As does not attach a second one. `modified` reconciles the document that owns the sheet, not the active window. Spill orphan cleanup is still `cleanup_orphans` on `state.spills` only, and its undo lock plus `WriterAgentSpillRegistry` save use that same sheet owner (not the focused window). Geometric repair runs its own `list_python_cells_on_sheet`. Insert/delete/clear retargets without waiting for save; a data-edit that changes the PY list rebuilds the strip-safe index. Discovery `truncated` flag: exact 100 is chained; #101 or the 50k scan cap skips the sheet. UNO tests: three-cell column, insert PY in the middle, successor’s field updates; delete (including successor-becomes-first → remove-field); undo. Cap-hit sheet is left unchained.
 
@@ -348,13 +348,13 @@ At **repair time** (UI thread, we have addresses), compute an eval-index bool pe
 
 **3. Cap-hit:** `discover_python_cells_on_sheet` returns at most 100 and sets `truncated` when the 100-cell find cap or the 50k scan cap stopped the walk. You cannot prove unanimous on a truncated list. Skip-sheet is the current fail-safe; do **not** mark those triples strip-safe. An exact 100 that finished the scan is complete and is chained.
 
-#### `workbook_key` (blocking — do not cite `get_python_init_kwargs`)
+#### `workbook_key` (blocking — do not cite `build_python_eval_init_kwargs`)
 
-`get_python_init_kwargs` does **not** carry `doc_url`, and no session cache feeds the strip.
+`build_python_eval_init_kwargs` returns only `init_script`, `init_session_id`, and `init_script_hash` — no `doc_url`. Do not take the workbook key from that helper or from `CellContext` init kwargs.
 
 **Eval `workbook_key`:** on the **UI thread**, `maybe_strip_geometric_eval_args(..., doc=target_doc)` uses `geometric_workbook_key(doc)` where `target_doc` is the add-in caller argument (the calling document). **Off-main** the doc is only passed through (no UNO), so no key is read and nothing strips. A leftover `;pred` after a failed strip is often peeled as `index_arg` (silent wrong numbers), not a list in `np.mean(data)`.
 
-On the **UI-thread** load / repair path, write that same key into the geometric map: `calc:` + `_workbook_session_key` (never `""`). Do **not** invent a second Isolated key. Sibling of `load_spill_registry_for_doc`. Unsaved files must not use empty URL — same #402 hole as `session_key` / `_workbook_session_key` (URL, else a persisted unsaved id, never `""`).
+On the **UI-thread** load / repair path, write the same wire id into the geometric map: `geometric_workbook_key(doc)` → `calc_workbook_base_session_id` → `SessionKey.of(CALC, mint_document_key(doc)).wire()` (never `""`). Do **not** invent a second Isolated key. Sibling of `load_spill_registry_for_doc`. Unsaved files use the persisted unsaved id, never `""`.
 
 #### Remove-field
 

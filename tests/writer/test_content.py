@@ -14,7 +14,7 @@ def _edit_ctx():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     # dry_run sweeps shapes/comments; bare MagicMock enumerations never terminate.
-    # Outline-hyperlink preview also walks portions; that stop is `_enum_has_more`
+    # Outline-hyperlink preview also walks portions; that stop is `enum_has_more`
     # (UNO True only), not this stub.
     ctx.doc.getDrawPage.return_value = []
     ctx.doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False

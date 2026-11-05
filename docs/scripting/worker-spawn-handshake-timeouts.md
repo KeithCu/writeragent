@@ -164,7 +164,7 @@ Work these as **separate** experiments. Intermittency is the point.
 1. **Full xdist vs subset.** Other tests spawn Harper, embeddings, MCP, extra venv workers. FD count, import of the same `.pyc`/`.so`, and inherited env only collide in the full graph.
 2. **Stdout is not pickle.** Any `print`, warning, or logging to stdout before the ready frame desyncs the length prefix. Default logging is stderr; `WRITERAGENT_DEBUG_LOG_PATH`, pytest-cov, or `WRITERAGENT_PYTEST_PROGRESS` inherited by the child could change that. Compute Popen does **not** use `scrub_subprocess_env` (venv host does).
 3. **Import-before-ready.** `formula_worker` does a large import graph first; for `worker_harness` the initial import graph is small and `venv_sandbox` loads on the first execute. Usually <1s; under lock/contention it can exceed 15s with little CPU.
-4. **`select` + `read` treating empty as EOF.** In `read_pickle_frame_with_timeout`, `read()` returning `b''` after `select` ready returns a short header → `None`, not always `TimeoutExpired`. Fail-open spawn then looks like a later execute failure.
+4. **`read_frame_payload` in `plugin/framework/ipc.py`.** `b''` on a partial header is `IpcFrameReadError`. `None` is only zero bytes at a frame boundary. A deadline mid-frame is `IpcPartialFrameTimeout`.
 5. **Idle reaper + stale `last_active`.** Only if TTL is short or tests mutate it. Check settings JSON / env on the failing machine.
 6. **xdist worker reuse / leaked pools.** `test_formula_pool.py` autouse-calls `shutdown_formula_pool`; `test_compute_service.py` HTTP tests may leave a global pool. Cross-module order on one gw can matter (`--dist=loadgroup` keeps a module on one worker, not the whole suite).
 
