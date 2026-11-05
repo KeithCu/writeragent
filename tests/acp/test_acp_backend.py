@@ -17,7 +17,7 @@ import pytest
 
 from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args, _tool_stream_kind
 from plugin.acp.acp_connection import ACPTimeoutError
-from plugin.acp.registry import ClaudeBackend, GrokBackend, HermesBackend, OpenCodeBackend
+from plugin.acp.registry import ClaudeBackend, GrokBackend, HermesBackend, OpenCodeBackend, AntigravityBackend
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.version import EXTENSION_VERSION
@@ -157,6 +157,24 @@ class TestDefaultExtraArgs:
             backend = OpenCodeBackend()
         assert (backend._extra_args) == (["serve", "--port", "4096"])
 
+    def test_antigravity_defaults_when_settings_args_empty(self):
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/agy", args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = AntigravityBackend()
+        assert (backend._extra_args) == (["acp"])
+
+    def test_antigravity_settings_args_win(self):
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/agy", args="serve --port 4096")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+        ):
+            backend = AntigravityBackend()
+        assert (backend._extra_args) == (["serve", "--port", "4096"])
+
     def test_grok_defaults_when_settings_args_empty(self):
         with (
             patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/grok", args="")),
@@ -195,7 +213,14 @@ class TestDefaultExtraArgs:
         assert (backend._extra_args) == ([])
         assert backend.default_extra_args == ()
 
-    @pytest.mark.parametrize("backend_cls,binary", [(HermesBackend, "hermes"), (OpenCodeBackend, "opencode")])
+    @pytest.mark.parametrize(
+        "backend_cls,binary",
+        [
+            (HermesBackend, "hermes"),
+            (OpenCodeBackend, "opencode"),
+            (AntigravityBackend, "agy"),
+        ],
+    )
     @pytest.mark.parametrize("suffix", [".exe", ".cmd", ".bat", ".EXE"])
     def test_windows_suffix_applies_default_extra_args(self, backend_cls, binary, suffix):
         """shutil.which on Windows returns name.exe / .cmd / .bat, not the bare name."""
@@ -243,6 +268,7 @@ class TestDefaultExtraArgs:
     def test_default_extra_args_are_immutable_tuples(self):
         assert isinstance(HermesBackend.default_extra_args, tuple)
         assert isinstance(OpenCodeBackend.default_extra_args, tuple)
+        assert isinstance(AntigravityBackend.default_extra_args, tuple)
         assert isinstance(GrokBackend.default_extra_args, tuple)
         assert isinstance(ACPBackend.default_extra_args, tuple)
 
@@ -268,6 +294,16 @@ class TestBinaryDiscovery:
         ):
             backend = OpenCodeBackend()
         assert (backend._binary_path) == ("/usr/bin/opencode")
+        assert (backend._extra_args) == (["acp"])
+
+    def test_which_used_when_config_path_empty_antigravity(self):
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="", args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value="/usr/bin/agy"),
+        ):
+            backend = AntigravityBackend()
+        assert (backend._binary_path) == ("/usr/bin/agy")
         assert (backend._extra_args) == (["acp"])
 
     def test_missing_config_path_warns_and_falls_back(self, caplog):
