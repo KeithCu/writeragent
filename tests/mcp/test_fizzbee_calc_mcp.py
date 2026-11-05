@@ -148,8 +148,7 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "symbolic_math",
     "undo",
     "write_formula_range",
-    "document_properties_get",
-    "document_properties_set",
+    # document_properties_get and document_properties_set moved to fields specialized domain
 })
 
 
