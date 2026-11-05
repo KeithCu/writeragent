@@ -41,7 +41,15 @@ def gc_policy_restored():
     main_ident = gc_policy._main_ident
     posted_at = gc_policy._posted_at
     last_full = gc_policy._last_full
-    off_main = list(gc_policy._off_main)
+    off_main_count = gc_policy._off_main_count
+    off_main_samples = list(gc_policy._off_main_samples)
+    refused = gc_policy._refused
+    reenabled = gc_policy._reenabled
+    pl_key = "pythonloader"
+    had_pythonloader = pl_key in sys.modules
+    saved_pythonloader = sys.modules.get(pl_key)
+    if not had_pythonloader:
+        sys.modules[pl_key] = types.ModuleType(pl_key)
     gc_mod.enable()
     try:
         yield
@@ -49,7 +57,15 @@ def gc_policy_restored():
         gc_policy._main_ident = main_ident
         gc_policy._posted_at = posted_at
         gc_policy._last_full = last_full
-        gc_policy._off_main[:] = off_main
+        gc_policy._off_main_count = off_main_count
+        gc_policy._off_main_samples[:] = off_main_samples
+        gc_policy._refused = refused
+        gc_policy._reenabled = reenabled
+        if had_pythonloader:
+            if saved_pythonloader is not None:
+                sys.modules[pl_key] = saved_pythonloader
+        else:
+            sys.modules.pop(pl_key, None)
         gc_mod.callbacks[:] = callbacks
         gc_mod.set_threshold(*thresholds)
         if was_enabled:

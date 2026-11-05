@@ -3,7 +3,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Cyclic GC runs only on the LibreOffice main thread.
+"""Cyclic GC runs only on the LibreOffice main thread (inside soffice).
+
+Scope: active only when loaded via LibreOffice's pythonloader (``pythonloader``
+in ``sys.modules``). URP clients such as ``testing_runner`` call the same
+bootstrap but keep automatic GC enabled.
 
 Why: an automatic collection runs on whichever thread crosses the allocation
 threshold. When it frees a cycle that holds a PyUNO proxy, PyUNO_del
@@ -18,7 +22,7 @@ count and posts _collect_on_main. That runs inside the AsyncCallback notify,
 which already owns SolarMutex (recursive), so PyUNO_del cannot block. The
 ticker itself never collects (GC is off) and only calls main.post.
 
-Refcount frees on workers are not changed. Workers must not own UNO refs
+Refcount frees on workers are safe only because workers must not own UNO refs
 (see uno-thread-safety.md).
 """
 
@@ -27,31 +31,44 @@ from __future__ import annotations
 import gc
 import logging
 import os
+import sys
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from types import FrameType
 
 log = logging.getLogger(__name__)
 
 _TICK_SEC = 0.5
 _FULL_EVERY_SEC = 60.0
 _REPOST_AFTER_SEC = 5.0  # a tick dropped by Stop/cancel must not wedge us
+_OFF_MAIN_SAMPLE_CAP = 16
+_OFF_MAIN_STACK_LINES = 3
+_STACK_FRAMES = 8
 
 _main_ident: int | None = None
 _posted_at = 0.0  # monotonic time of the outstanding post, 0 = none
 _last_full = 0.0
-_off_main: list[int] = []  # thread idents seen collecting off-main (sentinel)
+_off_main_count = 0  # off-main collections seen by sentinel (all, not capped)
+_off_main_samples: list[tuple[int, int, bool, tuple[tuple[str, int, str], ...]]] = []
+_refused = 0  # _collect_on_main invoked off-main (AsyncCallback on wrong thread)
+_reenabled = False  # ticker saw gc.enable() since last main collect
 
 
 def install(executor: Any) -> bool:
     """Call once, on the main thread, right after executor.set_context(ctx).
 
-    Skipped when AsyncCallback is unavailable (eval harness, no VCL): then
-    nothing could run the collect job, and automatic GC stays on as today.
+    Skipped outside soffice (no pythonloader) or when AsyncCallback is
+    unavailable (eval harness, no VCL): automatic GC stays on as today.
     """
     global _main_ident
     if _main_ident is not None:
         return True
+    if "pythonloader" not in sys.modules:
+        log.info("gc_policy: skipped (not inside soffice)")
+        return False
     if not executor.has_async_callback():
         log.info("gc_policy: skipped (no AsyncCallback)")
         return False
@@ -68,11 +85,59 @@ def install(executor: Any) -> bool:
     return True
 
 
+def _compact_stack() -> tuple[tuple[str, int, str], ...]:
+    frames: list[tuple[str, int, str]] = []
+    frame: FrameType | None = sys._getframe(1)
+    while frame is not None and len(frames) < _STACK_FRAMES:
+        code = frame.f_code
+        frames.append((code.co_filename, frame.f_lineno, code.co_name))
+        frame = frame.f_back
+    return tuple(frames)
+
+
 def _sentinel(phase: str, info: dict[str, Any]) -> None:
     # Runs inside the collection on the collecting thread: no logging, no locks.
-    # list.append is atomic under the GIL.
     if phase == "start" and threading.get_ident() != _main_ident:
-        _off_main.append(threading.get_ident())
+        global _off_main_count
+        _off_main_count += 1
+        if len(_off_main_samples) < _OFF_MAIN_SAMPLE_CAP:
+            _off_main_samples.append(
+                (threading.get_ident(), info["generation"], gc.isenabled(), _compact_stack())
+            )
+
+
+def _thread_name(ident: int) -> str:
+    for thread in threading.enumerate():
+        if thread.ident == ident:
+            return thread.name
+    return f"ident-{ident}"
+
+
+def _log_off_main_samples() -> None:
+    global _off_main_count, _off_main_samples
+    if not _off_main_count:
+        return
+    log.warning("gc_policy: %d collection(s) ran off the main thread", _off_main_count)
+    seen_stacks: set[tuple[tuple[str, int, str], ...]] = set()
+    lines = 0
+    for ident, generation, enabled, stack in _off_main_samples:
+        if stack in seen_stacks:
+            continue
+        seen_stacks.add(stack)
+        if lines >= _OFF_MAIN_STACK_LINES:
+            break
+        gc_state = "enabled=True" if enabled else "enabled=False"
+        stack_text = " <- ".join(f"{name}:{lineno}({func})" for name, lineno, func in stack)
+        log.warning(
+            "gc_policy: off-main collector thread=%s gen=%s %s stack=%s",
+            _thread_name(ident),
+            generation,
+            gc_state,
+            stack_text,
+        )
+        lines += 1
+    _off_main_count = 0
+    _off_main_samples.clear()
 
 
 def _due(now: float) -> bool:
@@ -87,7 +152,10 @@ def _ticker_loop(executor: Any) -> None:
 
 def _ticker_iteration(executor: Any, *, now: float | None = None) -> None:
     """One ticker wake (test seam). Supply *now* to avoid sleeping."""
-    global _posted_at
+    global _posted_at, _reenabled
+    if gc.isenabled():
+        gc.disable()
+        _reenabled = True
     if now is None:
         now = time.monotonic()
     if _posted_at and now - _posted_at < _REPOST_AFTER_SEC:
@@ -103,16 +171,19 @@ def _ticker_iteration(executor: Any, *, now: float | None = None) -> None:
 
 def _collect_on_main() -> None:
     """Runs on the main thread under SolarMutex (AsyncCallback notify)."""
-    global _posted_at, _last_full
+    global _posted_at, _last_full, _refused, _reenabled
     _posted_at = 0.0
-    if gc.isenabled():
-        # Third-party gc.enable(), or automatic_gc_suspended restoring a state
-        # recorded before install(). Put the policy back.
+    if threading.get_ident() != _main_ident:
+        _refused += 1
+        return
+    if _refused:
+        log.warning("gc_policy: %d scheduled collection(s) did not run on the main thread", _refused)
+        _refused = 0
+    if _reenabled or gc.isenabled():
         gc.disable()
         log.warning("gc_policy: automatic GC was re-enabled; disabled again")
-    if _off_main:
-        log.warning("gc_policy: %d collection(s) ran off the main thread", len(_off_main))
-        _off_main.clear()
+        _reenabled = False
+    _log_off_main_samples()
     now = time.monotonic()
     if now - _last_full >= _FULL_EVERY_SEC:
         gc.collect()
@@ -120,6 +191,6 @@ def _collect_on_main() -> None:
     else:
         count, thr = gc.get_count(), gc.get_threshold()
         # Manual gc.collect(g) still bumps count[g+1] with GC disabled
-        # (3.11-3.13), so this matches CPython's own gen-1 schedule.
+        # (3.11+), so this matches CPython's own gen-1 schedule.
         # Gen 2 is time-based (above) instead of the long-lived heuristic.
         gc.collect(1 if count[1] >= thr[1] else 0)
