@@ -6,10 +6,11 @@ import ast
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 
-from plugin.bootstrap import BootstrapState, bootstrap_extension
+from plugin.bootstrap import bootstrap_extension
 from plugin.framework.queue_executor import main as main_thread
 
 
@@ -74,7 +75,7 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
     prev_services = app._services
     prev_tools = app._tools
     prev_modules = list(app._modules)
-    prev_state = bootstrap.bootstrap_state()
+    prev_initialized = bootstrap.bootstrap_initialized()
     prev_err = bootstrap.bootstrap_error()
     bootstrap.mark_uninitialized()
     bootstrap.clear_bootstrap_error()
@@ -112,12 +113,12 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
         app._tools = prev_tools
         app._modules.clear()
         app._modules.extend(prev_modules)
-        if prev_state is BootstrapState.INITIALIZED:
+        if prev_initialized:
             bootstrap.mark_initialized()
         else:
             bootstrap.mark_uninitialized()
         if prev_err is not None:
-            bootstrap.mark_failed(prev_err)
+            bootstrap.set_bootstrap_error(prev_err)
         else:
             bootstrap.clear_bootstrap_error()
 
@@ -138,7 +139,7 @@ else:
     raise SystemExit("expected WriterAgentException")
 assert "plugin.main" not in sys.modules
 from plugin import bootstrap as bootstrap_mod
-assert bootstrap_mod.bootstrap_state() is BootstrapState.UNINITIALIZED
+assert not bootstrap_mod.bootstrap_initialized()
 """
     proc = subprocess.run(
         [sys.executable, "-c", code],
@@ -168,15 +169,35 @@ def test_app_py_does_not_import_plugin_main():
 
 
 def test_is_dev_build_eq_one_only(monkeypatch):
-    import plugin.app as app
+    from plugin.framework import dev_build
 
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    assert app.is_dev_build() is False
+    assert dev_build.is_dev_build() is False
     monkeypatch.setenv("WRITERAGENT_TESTING", "0")
-    assert app.is_dev_build() is False
+    assert dev_build.is_dev_build() is False
     monkeypatch.setenv("WRITERAGENT_TESTING", "true")
-    assert app.is_dev_build() is False
+    assert dev_build.is_dev_build() is False
     monkeypatch.setenv("WRITERAGENT_TESTING", "")
-    assert app.is_dev_build() is False
+    assert dev_build.is_dev_build() is False
     monkeypatch.setenv("WRITERAGENT_TESTING", "1")
-    assert app.is_dev_build() is True
+    assert dev_build.is_dev_build() is True
+
+
+def test_register_action_handler_stores_handler_callable_with_frame():
+    from plugin.framework.main_shared import _ACTION_HANDLERS, get_action_handler, register_action_handler
+
+    calls: list[Any] = []
+
+    def sample(frame=None):
+        calls.append(frame)
+
+    register_action_handler("test", "frame_arg", sample)
+    try:
+        handler = get_action_handler("test.frame_arg")
+        assert handler is sample
+        handler()
+        frame = object()
+        handler(frame)
+        assert calls == [None, frame]
+    finally:
+        _ACTION_HANDLERS.pop("test.frame_arg", None)

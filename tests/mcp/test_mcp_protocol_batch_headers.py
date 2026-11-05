@@ -8,7 +8,7 @@ def test_batch_jsonrpc_includes_mcp_session_id():
     handler = MCPProtocolHandler(services)
 
     # We patch mcp_session_id to simulate an initialized session
-    mcp_session.mcp_session_id = "test-session-id"
+    mcp_session.set_session_id_for_tests("test-session-id")
 
     mock_http_handler = MagicMock()
     mock_http_handler.headers = {"Mcp-Session-Id": "test-session-id"}

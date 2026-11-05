@@ -274,7 +274,7 @@ class AudioRecorder:
     def _execute_effect(self, effect: object) -> None:
         import wave
 
-        from plugin.app import is_dev_build
+        from plugin.framework.dev_build import is_dev_build
 
         testing = is_dev_build()
         if isinstance(effect, InitializeDeviceEffect):

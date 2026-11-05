@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 
 
 import plugin.bootstrap as bootstrap
-from plugin.bootstrap import BootstrapState
 from plugin.framework.errors import WriterAgentException
 from plugin.framework.main_shared import get_action_handler
 
@@ -308,6 +307,6 @@ def test_bootstrap_off_main_thread_raises():
     assert len(caught) == 1
     assert isinstance(caught[0], WriterAgentException)
     assert caught[0].code == "BOOTSTRAP_OFF_THREAD"
-    assert bootstrap.bootstrap_state() is BootstrapState.UNINITIALIZED
+    assert not bootstrap.bootstrap_initialized()
 
 

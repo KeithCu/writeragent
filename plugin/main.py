@@ -171,7 +171,7 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
     except Exception as exc:
         module_phase_failed = True
         log.exception("bootstrap failed while loading modules")
-        bootstrap.mark_failed(exc)
+        bootstrap.set_bootstrap_error(exc)
         # What was wrong: bootstrap flag remained INITIALIZED even if module loading failed,
         # wedging startup so later calls returned immediately.
         # How it happened: INITIALIZED was set early to block re-entry during imports.
@@ -188,7 +188,7 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
             module_phase_failed = True
             log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
             if bootstrap.bootstrap_error() is None:
-                bootstrap.mark_failed(exc)
+                bootstrap.set_bootstrap_error(exc)
 
     try:
         # Subscribe to menu:update for dynamic menu text + icons.
@@ -213,7 +213,7 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
     except Exception as exc:
         log.exception("bootstrap failed after the init flag was set")
         if bootstrap.bootstrap_error() is None:
-            bootstrap.mark_failed(exc)
+            bootstrap.set_bootstrap_error(exc)
         return
 
     if not module_phase_failed:

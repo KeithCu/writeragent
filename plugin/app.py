@@ -49,13 +49,6 @@ def is_bound() -> bool:
     return _finish is not None
 
 
-def is_dev_build() -> bool:
-    """True when WRITERAGENT_TESTING is exactly ``1`` (live env read, not cached)."""
-    import os
-
-    return os.environ.get("WRITERAGENT_TESTING") == "1"
-
-
 def bootstrap(ctx: Any | None = None) -> None:
     """Bootstraps the service container and modules.
 

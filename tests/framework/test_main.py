@@ -148,7 +148,7 @@ def test_bootstrap_load_modules_failure_resets_initialized(monkeypatch):
 
     # First call: load_modules raises
     app.bootstrap(MagicMock())
-    assert bootstrap.bootstrap_state() is BootstrapState.UNINITIALIZED
+    assert not bootstrap.bootstrap_initialized()
     assert isinstance(bootstrap.bootstrap_error(), RuntimeError)
 
     # Second call: retry succeeds
@@ -360,7 +360,7 @@ def test_terminate_listener_cooperative_hook_before_supervisor_sweep(monkeypatch
 def test_dispatch_command_unhandled_raises_when_bootstrap_failed():
     """dispatch_command raises BOOTSTRAP_FAILED only when a command is unhandled."""
     bootstrap.mark_initialized()
-    bootstrap.mark_failed(RuntimeError("fatal startup error"))
+    bootstrap.set_bootstrap_error(RuntimeError("fatal startup error"))
 
     # Handled command does not raise WriterAgentException
     handled_ran = False
@@ -403,7 +403,7 @@ def test_bootstrap_off_main_thread_raises_bootstrap_off_thread():
     assert len(caught) == 1
     assert isinstance(caught[0], WriterAgentException)
     assert caught[0].code == "BOOTSTRAP_OFF_THREAD"
-    assert bootstrap.bootstrap_state() is BootstrapState.UNINITIALIZED
+    assert not bootstrap.bootstrap_initialized()
 
 
 def test_get_tools_off_main_thread_when_initialized():
@@ -1140,7 +1140,6 @@ def test_register_core_handlers_continues_after_optional_import_failure(
 
 def test_bootstrap_state_enum(monkeypatch):
     """BootstrapState enum tracks bootstrap lifecycle states."""
-    from plugin.bootstrap import BootstrapState
 
     assert BootstrapState.UNINITIALIZED.value == "uninitialized"
     assert BootstrapState.BOOTSTRAPPING.value == "bootstrapping"
@@ -1155,7 +1154,7 @@ def test_bootstrap_state_enum(monkeypatch):
     monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", lambda services: [])
 
     bootstrap.mark_uninitialized()
-    assert bootstrap.bootstrap_state() is BootstrapState.UNINITIALIZED
+    assert not bootstrap.bootstrap_initialized()
 
     app.bootstrap(MagicMock())
     assert bootstrap.bootstrap_initialized()

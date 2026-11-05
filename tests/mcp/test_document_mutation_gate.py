@@ -98,7 +98,7 @@ def test_document_mutation_gate_timeout_raises_busy_error_and_logs(caplog: pytes
         assert exc_info.value.code == "SERVER_BUSY"
         assert key not in str(exc_info.value)
         assert any(
-            "MCP _document_mutation_gate timed out" in record.message and key in record.message
+            "MCP document_mutation_gate timed out" in record.message and key in record.message
             for record in caplog.records
         )
     finally:

@@ -44,7 +44,7 @@ def debug_env_active() -> bool:
 
     if getattr(tg, "DEV_GUARD", False):
         return True
-    from plugin.app import is_dev_build
+    from plugin.framework.dev_build import is_dev_build
 
     return is_dev_build()
 

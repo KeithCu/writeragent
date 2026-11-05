@@ -1153,8 +1153,8 @@ class MCPProtocolHandler:
 
     def _send_empty(self, handler: Any, status: int) -> None:
         """Send an empty response via an HTTP handler."""
-        write_http_empty(handler, status, extra_headers=lambda h: mcp_session.send_mcp_response_headers(h, session_id=mcp_session.mcp_session_id))
+        write_http_empty(handler, status, extra_headers=lambda h: mcp_session.send_mcp_response_headers(h, session_id=mcp_session.current_session_id()))
 
     def _send_json(self, handler: Any, status: int, data: Any) -> None:
         """Send a JSON response via an HTTP handler."""
-        write_http_json(handler, status, data, extra_headers=lambda h: mcp_session.send_mcp_response_headers(h, session_id=mcp_session.mcp_session_id))
+        write_http_json(handler, status, data, extra_headers=lambda h: mcp_session.send_mcp_response_headers(h, session_id=mcp_session.current_session_id()))

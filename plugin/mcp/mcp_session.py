@@ -17,6 +17,7 @@
 
 One session id for the whole soffice process, shared by every MCP client.
 Minted on first successful initialize; never rotated; never cleared on DELETE.
+Stale session ids return HTTP 404, which never repeats the live id.
 """
 
 from __future__ import annotations
@@ -32,6 +33,10 @@ from plugin.mcp.server import write_http_json
 
 log = logging.getLogger(__name__)
 
+_mcp_session_id: str | None = None
+_mcp_session_lock = threading.Lock()
+_SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
+
 
 def get_request_session_id(handler: Any) -> str | None:
     value = handler.headers.get("Mcp-Session-Id")
@@ -46,18 +51,32 @@ def send_mcp_response_headers(handler: Any, *, session_id: str | None = None) ->
         handler.send_header("Mcp-Session-Id", session_id)
 
 
-mcp_session_id: str | None = None
-_mcp_session_lock = threading.Lock()
-_SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
+def current_session_id() -> str | None:
+    """Process-wide MCP session id, or None before the first successful initialize."""
+    return _mcp_session_id
+
+
+def reset_session_id_for_tests() -> None:
+    """Clear the session id (tests simulating LibreOffice restart)."""
+    global _mcp_session_id
+    with _mcp_session_lock:
+        _mcp_session_id = None
+
+
+def set_session_id_for_tests(session_id: str | None) -> None:
+    """Assign the process session id directly (tests only)."""
+    global _mcp_session_id
+    with _mcp_session_lock:
+        _mcp_session_id = session_id
 
 
 def mint_session_id_once() -> str:
     """Assign uuid4 on first successful initialize; later calls keep that id."""
-    global mcp_session_id
+    global _mcp_session_id
     with _mcp_session_lock:
-        if mcp_session_id is None:
-            mcp_session_id = str(uuid.uuid4())
-        return mcp_session_id
+        if _mcp_session_id is None:
+            _mcp_session_id = str(uuid.uuid4())
+        return _mcp_session_id
 
 
 def reject_stale_session(handler: Any, msg: Any = None) -> bool:
@@ -70,7 +89,7 @@ def reject_stale_session(handler: Any, msg: Any = None) -> bool:
     gone, so it sends Mcp-Protocol-Version and CORS but not Mcp-Session-Id.
     """
     incoming = get_request_session_id(handler)
-    current = mcp_session_id
+    current = _mcp_session_id
     if incoming is None or incoming == current:
         return False
     if isinstance(msg, dict) and msg.get("method") == "initialize":

@@ -53,7 +53,7 @@ def get_document_mutation_gate(doc_key: str) -> threading.Lock:
 def document_mutation_gate(doc_key: str, *, timeout: float = 30.0) -> Generator[None, None, None]:
     gate = get_document_mutation_gate(doc_key)
     if not gate.acquire(timeout=timeout):
-        log.warning("MCP _document_mutation_gate timed out after %.2fs waiting for %s", timeout, doc_key)
+        log.warning("MCP document_mutation_gate timed out after %.2fs waiting for %s", timeout, doc_key)
         raise BusyError("Timed out waiting for another edit to this document. Retry in a moment.")
     try:
         yield

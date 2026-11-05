@@ -1808,7 +1808,6 @@ def main() -> int:
 
     _office.options.filters = list(_parse_cli_args(sys.argv[1:]))
 
-    #
     # WRITERAGENT_TESTING only short-circuits MainThread inline execution; it does
     # NOT disable Layer A (WRITERAGENT_UNO_THREAD_GUARD). Use make lo-test-threadguard
     # to run this suite with the viral UNO proxy so worker-thread violations fail loudly.
