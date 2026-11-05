@@ -350,9 +350,9 @@ def test_align_and_insert_table(ctx, doc):
 @with_native_doc("draw")
 def test_master_slides(ctx, doc):
     # 1. List master slides
-    result = _exec_tool(doc, ctx, "list_master_slides", {})
+    result = _exec_tool(doc, ctx, "slide_master_list", {})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"list_master_slides failed: {result}"
+    assert data.get("status") == "ok", f"slide_master_list failed: {result}"
     master_slides = data.get("master_slides", [])
     assert len(master_slides) > 0, "No master slides found"
 
@@ -360,19 +360,19 @@ def test_master_slides(ctx, doc):
     assert first_master_name is not None, "Master slide name is missing"
 
     # 2. Get slide master for page 0
-    result = _exec_tool(doc, ctx, "get_slide_master", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_master_get", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"get_slide_master failed: {result}"
+    assert data.get("status") == "ok", f"slide_master_get failed: {result}"
 
     # 3. Set slide master for page 0 to the first master we found
-    result = _exec_tool(doc, ctx, "set_slide_master", {"page": 0, "master": first_master_name})
+    result = _exec_tool(doc, ctx, "slide_master_set", {"page": 0, "master": first_master_name})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"set_slide_master failed: {result}"
+    assert data.get("status") == "ok", f"slide_master_set failed: {result}"
 
     # 4. Verify it was set
-    result = _exec_tool(doc, ctx, "get_slide_master", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_master_get", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"get_slide_master verify failed: {result}"
+    assert data.get("status") == "ok", f"slide_master_get verify failed: {result}"
     assert data.get("master") == first_master_name, f"Master name mismatch: {data.get('master')}"
 
 

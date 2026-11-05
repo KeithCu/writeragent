@@ -57,6 +57,8 @@ These tools are **always available** to the main agent for Draw/Impress document
 
 These are available only via `delegate_to_specialized_draw_toolset`:
 
+Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps (see [Writer specialized toolsets](../writer/specialized-toolsets.md)).
+
 | Tool | Domain | Module | Purpose | Services |
 |------|--------|--------|---------|---------|
 | `shape_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | Drawing+Presentation |
@@ -70,17 +72,17 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `shape_diagram` | `shapes` | `draw/shapes.py` | Batch nodes + connectors (flowchart) | Drawing+Presentation |
 | `image_insert` / `image_list` / `image_delete` / `image_generate` | `images` | `writer/images/images.py` | Same image tools as Writer/Calc; Draw/Impress uses millimetres (`page`, `x_mm`, `y_mm`) | Drawing+Presentation |
 | `table_insert` / `table_delete` / `table_list` / `table_get_cells` / `table_set_cell` / `table_manage_structure` | `tables` | `writer/specialized/tables.py` + `draw/tables.py` | Same names as Writer; Draw uses TableShape | Drawing+Presentation |
-| `get_slide_transition` | `slide_transitions` | `draw/transitions.py` | Get transition effect/speed/duration | Presentation |
-| `set_slide_transition` | `slide_transitions` | `draw/transitions.py` | Set transition effect/speed/duration | Presentation |
-| `get_slide_layout` | `slide_layouts` | `draw/transitions.py` | Get current slide layout | Presentation |
-| `set_slide_layout` | `slide_layouts` | `draw/transitions.py` | Set slide layout by name | Presentation |
-| `list_master_slides` | `slide_masters` | `draw/masters.py` | List all master slides | Drawing+Presentation |
-| `get_slide_master` | `slide_masters` | `draw/masters.py` | Get master for a slide | Drawing+Presentation |
-| `set_slide_master` | `slide_masters` | `draw/masters.py` | Assign a master to a slide | Drawing+Presentation |
-| `get_speaker_notes` | `speaker_notes` | `draw/notes.py` | Read speaker notes (Impress) | Presentation |
-| `set_speaker_notes` | `speaker_notes` | `draw/notes.py` | Set speaker notes (Impress) | Presentation |
-| `get_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
-| `set_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
+| `slide_transition_get` | `slide_transitions` | `draw/transitions.py` | Get transition effect/speed/duration | Presentation |
+| `slide_transition_set` | `slide_transitions` | `draw/transitions.py` | Set transition effect/speed/duration | Presentation |
+| `slide_layout_get` | `slide_layouts` | `draw/transitions.py` | Get current slide layout | Presentation |
+| `slide_layout_set` | `slide_layouts` | `draw/transitions.py` | Set slide layout by name | Presentation |
+| `slide_master_list` | `slide_masters` | `draw/masters.py` | List all master slides | Drawing+Presentation |
+| `slide_master_get` | `slide_masters` | `draw/masters.py` | Get master for a slide | Drawing+Presentation |
+| `slide_master_set` | `slide_masters` | `draw/masters.py` | Assign a master to a slide | Drawing+Presentation |
+| `speaker_notes_get` | `speaker_notes` | `draw/notes.py` | Read speaker notes (Impress) | Presentation |
+| `speaker_notes_set` | `speaker_notes` | `draw/notes.py` | Set speaker notes (Impress) | Presentation |
+| `headers_footers_get` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
+| `headers_footers_set` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
 | `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | `charts` | `draw/charts.py` | Charts CRUD (four tools) | Drawing+Presentation |
 | `form_*` (6 tools) | `forms` | `writer/specialized/forms.py` | Live ControlShape widgets (name-addressable; checkbox/radio State) | Drawing+Presentation+Spreadsheet+Text |
 | `math_insert` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
@@ -176,7 +178,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Timings** | ❌ Missing | — | Rehearse, auto-advance |
 | **Themes** | ❌ No Theme API | — | M0′: master `XTheme.getColorSet` is a palette hook, **not** apply-design. No list/apply theme wrappers. See [M0′ results](impress-lo-first-m0-probe-results.md). |
 | **Templates / design** | ✅ current-doc only | `list_designs`, `apply_design` | `apply_design` Hidden-opens the listed `.otp`, **clones** its master into the **open** deck (`createInstance` + add + Size/Position after add; Graphic via `Graphic`), then assigns `page.MasterPage` to every slide. Does **not** open a new presentation (a second Impress window would spawn a fresh sidebar agent). Does **not** use the system clipboard — headed #791 DiaMode Paste pulled desktop junk and imported no master. Create-from-template (`loadComponentFromURL` + `AsTemplate`) remains an **internal/test helper** (`create_presentation_from_design`); start from a blank deck or File→Templates, then `list_designs` → `apply_design`. **`list_designs` adds a short `look` string** derived from the `.otp` ZIP (`Thumbnails/thumbnail.png`, `Pictures/`, `styles.xml` fallback) so small models can pick dark/tech vs candy/illustrated. Do **not** use `.uno:PresentationLayout` PropertyValues (SDI empty; silent no-op) or DiaMode Copy/Paste. Partial slide assignments roll back and report slides updated/restored. When apply succeeds with partial chrome, the message notes how many chrome shapes imported. The result includes `source_master` and `selection`; a fallback warning names the master when several untitled masters tie. Draw → not-Impress. |
-| **Headers/Footers (specialized)** | ✅ Complete | 2 tools | `get_headers_footers`, `set_headers_footers` (Impress only) |
+| **Headers/Footers (specialized)** | ✅ Complete | 2 tools | `headers_footers_get`, `headers_footers_set` (Impress only) |
 | **Tables** | ✅ | same names as Writer | `table_insert`, `table_delete`, list/get/set, `table_manage_structure` on TableShape |
 | **3D Shapes** | ❌ Missing | — | 3D objects and scenes |
 | **Guides/Grid** | ❌ Missing | — | Snap settings, custom guides |
@@ -234,7 +236,7 @@ These tools now work with both Draw and Impress documents.
 
 The following are **Impress-only** (Draw has no equivalent): speaker notes, slide transitions, and Impress slide layouts. Notes, transitions, and layouts are exposed via **`delegate_to_specialized_draw_toolset`** (domains `speaker_notes`, `slide_transitions`, `slide_layouts`) and are not on the default main-agent tool list. Slide placeholders are Impress-only and stay on the default list.
 
-**Slide master** tools (`list_master_slides`, `get_slide_master`, `set_slide_master`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `get_presentation_info` summarizes.
+**Slide master** tools (`slide_master_list`, `slide_master_get`, `slide_master_set`) work in both Draw and Impress but are **`slide_masters`** specialized tools—delegate when the user needs master assignment or listing beyond what `get_presentation_info` summarizes.
 
 Core **placeholders** remain on the default list (`list_placeholders`, `get_placeholder_text`, `set_placeholder_text`).
 
@@ -398,11 +400,11 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 | `images` | `image_insert`, `image_list`, `image_delete`, `image_generate` (`source_image='selection'` edits in place) | Images on slides (millimetres) |
 | `tables` | `table_insert`, `table_delete`, `table_list`, `table_get_cells`, `table_set_cell`, `table_manage_structure` | Slide tables |
 | `animations` | `get_animations`, `set_animations`, `add_animation` | Element entrance/motion builds |
-| `slide_transitions` | `get_slide_transition`, `set_slide_transition` | Slide-to-slide advance effects |
-| `slide_layouts` | `get_slide_layout`, `set_slide_layout` | Impress slide layouts |
-| `slide_masters` | `list_master_slides`, `get_slide_master`, `set_slide_master` | Presentation templates |
-| `speaker_notes` | `get_speaker_notes`, `set_speaker_notes` | Presenter talking points |
-| `headers_footers` | `get_headers_footers`, `set_headers_footers` | Page numbers, dates, footers |
+| `slide_transitions` | `slide_transition_get`, `slide_transition_set` | Slide-to-slide advance effects |
+| `slide_layouts` | `slide_layout_get`, `slide_layout_set` | Impress slide layouts |
+| `slide_masters` | `slide_master_list`, `slide_master_get`, `slide_master_set` | Presentation templates |
+| `speaker_notes` | `speaker_notes_get`, `speaker_notes_set` | Presenter talking points |
+| `headers_footers` | `headers_footers_get`, `headers_footers_set` | Page numbers, dates, footers |
 | `charts` | `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | Data visualizations |
 | `media` | `insert_audio`, `insert_video`, `control_media` | Multimedia presentations |
 | `export` | `export_pdf`, `export_image`, `export_video` | Document output |

@@ -95,7 +95,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'form_edit_control',
                  'form_generate',
                  'form_list_controls'],
-    'headers_footer': ['get_headers_footers', 'set_headers_footers'],
+    'headers_footer': ['headers_footers_get', 'headers_footers_set'],
     'images': [   'image_crop_and_highlight',
                   'image_delete',
                   'image_download',
@@ -158,10 +158,10 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'sheet_protect',
                  'sheet_rename',
                  'sheet_switch'],
-    'slide_layout': ['get_slide_layout', 'set_slide_layout'],
-    'slide_master': ['get_slide_master', 'list_master_slides', 'set_slide_master'],
-    'slide_transition': ['get_slide_transition', 'set_slide_transition'],
-    'speaker_note': ['get_speaker_notes', 'set_speaker_notes'],
+    'slide_layout': ['slide_layout_get', 'slide_layout_set'],
+    'slide_master': ['slide_master_get', 'slide_master_list', 'slide_master_set'],
+    'slide_transition': ['slide_transition_get', 'slide_transition_set'],
+    'speaker_note': ['speaker_notes_get', 'speaker_notes_set'],
     'structural': [   'nav_goto_page',
                       'nav_heading',
                       'nav_heading_children',
@@ -250,16 +250,13 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'get_document_tree': ('writer', 'get_document_tree'),
     'get_draw_tree': ('draw', 'get_draw_tree'),
     'get_guidance': ('core', 'get_guidance'),
-    'get_headers_footers': ('headers_footer', 'get_headers_footers'),
     'get_image': ('core', 'get_image'),
     'get_page_objects': ('writer', 'get_page_objects'),
     'get_placeholder_text': ('draw', 'get_placeholder_text'),
     'get_presentation_info': ('draw', 'get_presentation_info'),
     'get_sheet_summary': ('calc', 'get_sheet_summary'),
-    'get_slide_layout': ('slide_layout', 'get_slide_layout'),
-    'get_slide_master': ('slide_master', 'get_slide_master'),
-    'get_slide_transition': ('slide_transition', 'get_slide_transition'),
-    'get_speaker_notes': ('speaker_note', 'get_speaker_notes'),
+    'headers_footers_get': ('headers_footer', 'get'),
+    'headers_footers_set': ('headers_footer', 'set'),
     'image_crop_and_highlight': ('images', 'crop_and_highlight'),
     'image_delete': ('images', 'delete'),
     'image_download': ('images', 'download'),
@@ -282,7 +279,6 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'insert_cell_html': ('calc', 'insert_cell_html'),
     'list_calc_functions': ('calc', 'list_calc_functions'),
     'list_designs': ('draw', 'list_designs'),
-    'list_master_slides': ('slide_master', 'list_master_slides'),
     'list_open_documents': ('core', 'list_open_documents'),
     'list_pages': ('draw', 'list_pages'),
     'list_placeholders': ('draw', 'list_placeholders'),
@@ -328,13 +324,8 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'section_list': ('structural', 'section_list'),
     'section_read': ('structural', 'section_read'),
     'set_active_page': ('draw', 'set_active_page'),
-    'set_headers_footers': ('headers_footer', 'set_headers_footers'),
     'set_placeholder_text': ('draw', 'set_placeholder_text'),
     'set_selection': ('writer', 'set_selection'),
-    'set_slide_layout': ('slide_layout', 'set_slide_layout'),
-    'set_slide_master': ('slide_master', 'set_slide_master'),
-    'set_slide_transition': ('slide_transition', 'set_slide_transition'),
-    'set_speaker_notes': ('speaker_note', 'set_speaker_notes'),
     'set_style': ('calc', 'set_style'),
     'shape_align': ('shape', 'align'),
     'shape_connect': ('shape', 'connect'),
@@ -354,6 +345,15 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'sheet_protect': ('sheet', 'protect'),
     'sheet_rename': ('sheet', 'rename'),
     'sheet_switch': ('sheet', 'switch'),
+    'slide_layout_get': ('slide_layout', 'get'),
+    'slide_layout_set': ('slide_layout', 'set'),
+    'slide_master_get': ('slide_master', 'get'),
+    'slide_master_list': ('slide_master', 'list'),
+    'slide_master_set': ('slide_master', 'set'),
+    'slide_transition_get': ('slide_transition', 'get'),
+    'slide_transition_set': ('slide_transition', 'set'),
+    'speaker_notes_get': ('speaker_note', 'get'),
+    'speaker_notes_set': ('speaker_note', 'set'),
     'style_clone': ('styles', 'clone'),
     'style_create': ('styles', 'create'),
     'style_get_info': ('styles', 'get_info'),
@@ -1143,16 +1143,16 @@ forms = _FormsProxy()
 class _HeadersFooterProxy:
     """Proxy for headers_footer tools."""
 
-    def get_headers_footers(self, page: int, *, is_master_page: bool | None = None) -> dict[str, Any]:
+    def get(self, page: int, *, is_master_page: bool | None = None) -> dict[str, Any]:
         """Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation.
 
         Args:
             page (required): 0-based slide index. When is_master_page is false, reads that slide. When true, reads the master page assigned to that slide (not the master list index).
             is_master_page (optional): If True, read the master page linked to the slide at page. Defaults to False.
         """
-        return call_host_tool("get_headers_footers", page=page, is_master_page=is_master_page)
+        return call_host_tool("headers_footers_get", page=page, is_master_page=is_master_page)
 
-    def set_headers_footers(self, page: int, *, is_master_page: bool | None = None, header: str | None = None, footer: str | None = None, date_time: str | None = None, header_visible: bool | None = None, footer_visible: bool | None = None, page_number_visible: bool | None = None, date_time_visible: bool | None = None, date_time_fixed: bool | None = None) -> dict[str, Any]:
+    def set(self, page: int, *, is_master_page: bool | None = None, header: str | None = None, footer: str | None = None, date_time: str | None = None, header_visible: bool | None = None, footer_visible: bool | None = None, page_number_visible: bool | None = None, date_time_visible: bool | None = None, date_time_fixed: bool | None = None) -> dict[str, Any]:
         """Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation.
 
         Args:
@@ -1167,7 +1167,7 @@ class _HeadersFooterProxy:
             date_time_visible (optional): Whether the date/time is visible.
             date_time_fixed (optional): If True, uses 'date_time'. If False, LibreOffice automatically updates it. Slide property only; a master DateTimeShape has no fixed-date flag.
         """
-        return call_host_tool("set_headers_footers", page=page, is_master_page=is_master_page, header=header, footer=footer, date_time=date_time, header_visible=header_visible, footer_visible=footer_visible, page_number_visible=page_number_visible, date_time_visible=date_time_visible, date_time_fixed=date_time_fixed)
+        return call_host_tool("headers_footers_set", page=page, is_master_page=is_master_page, header=header, footer=footer, date_time=date_time, header_visible=header_visible, footer_visible=footer_visible, page_number_visible=page_number_visible, date_time_visible=date_time_visible, date_time_fixed=date_time_fixed)
 
 headers_footer = _HeadersFooterProxy()
 
@@ -1970,22 +1970,22 @@ sheet = _SheetProxy()
 class _SlideLayoutProxy:
     """Proxy for slide_layout tools."""
 
-    def get_slide_layout(self, *, page: int | None = None) -> dict[str, Any]:
+    def get(self, *, page: int | None = None) -> dict[str, Any]:
         """Get the layout type of an Impress slide. Returns the layout ID and a human-readable name.
 
         Args:
             page (optional): 0-based slide index (active slide if omitted).
         """
-        return call_host_tool("get_slide_layout", page=page)
+        return call_host_tool("slide_layout_get", page=page)
 
-    def set_slide_layout(self, layout: str, *, page: int | None = None) -> dict[str, Any]:
-        """Set the layout of an Impress slide. Layouts: blank, title, text, title_only, two_column_text, text_and_chart, chart, text_and_object, object, text_and_clipart, large_object, four_objects, vertical_text, two_objects, and more. Use get_slide_layout to see all available layout names.
+    def set(self, layout: str, *, page: int | None = None) -> dict[str, Any]:
+        """Set the layout of an Impress slide. Layouts: blank, title, text, title_only, two_column_text, text_and_chart, chart, text_and_object, object, text_and_clipart, large_object, four_objects, vertical_text, two_objects, and more. Use slide_layout_get to see all available layout names.
 
         Args:
             layout (required): Layout name (e.g. 'blank', 'title', 'text_and_object').
             page (optional): 0-based slide index (active slide if omitted).
         """
-        return call_host_tool("set_slide_layout", page=page, layout=layout)
+        return call_host_tool("slide_layout_set", page=page, layout=layout)
 
 slide_layout = _SlideLayoutProxy()
 
@@ -1993,26 +1993,26 @@ slide_layout = _SlideLayoutProxy()
 class _SlideMasterProxy:
     """Proxy for slide_master tools."""
 
-    def get_slide_master(self, *, page: int | None = None) -> dict[str, Any]:
+    def get(self, *, page: int | None = None) -> dict[str, Any]:
         """Get the master slide assigned to a specific slide. Returns the master slide name.
 
         Args:
             page (optional): 0-based slide index (active slide if omitted).
         """
-        return call_host_tool("get_slide_master", page=page)
+        return call_host_tool("slide_master_get", page=page)
 
-    def list_master_slides(self) -> dict[str, Any]:
+    def list(self) -> dict[str, Any]:
         """List all master slides (master pages) in the document with name and dimensions."""
-        return call_host_tool("list_master_slides")
+        return call_host_tool("slide_master_list")
 
-    def set_slide_master(self, master: str, *, page: int | None = None) -> dict[str, Any]:
-        """Assign a master slide to a specific slide by master name. Use list_master_slides to see available masters.
+    def set(self, master: str, *, page: int | None = None) -> dict[str, Any]:
+        """Assign a master slide to a specific slide by master name. Use slide_master_list to see available masters.
 
         Args:
             master (required): Name of the master slide to assign.
             page (optional): 0-based slide index (active slide if omitted).
         """
-        return call_host_tool("set_slide_master", page=page, master=master)
+        return call_host_tool("slide_master_set", page=page, master=master)
 
 slide_master = _SlideMasterProxy()
 
@@ -2020,15 +2020,15 @@ slide_master = _SlideMasterProxy()
 class _SlideTransitionProxy:
     """Proxy for slide_transition tools."""
 
-    def get_slide_transition(self, *, page: int | None = None) -> dict[str, Any]:
+    def get(self, *, page: int | None = None) -> dict[str, Any]:
         """Get the transition effect, speed, duration, and advance mode for an Impress slide.
 
         Args:
             page (optional): 0-based slide index (active slide if omitted).
         """
-        return call_host_tool("get_slide_transition", page=page)
+        return call_host_tool("slide_transition_get", page=page)
 
-    def set_slide_transition(self, *, page: int | None = None, effect: str | None = None, speed: str | None = None, duration: int | None = None, transition_duration: float | None = None, advance: str | None = None) -> dict[str, Any]:
+    def set(self, *, page: int | None = None, effect: str | None = None, speed: str | None = None, duration: int | None = None, transition_duration: float | None = None, advance: str | None = None) -> dict[str, Any]:
         """Set the transition effect on an Impress slide. Effects: none, fade_from_left/top/right/bottom, move_from_left/top/right/bottom, dissolve, random, open_vertical/horizontal, close_vertical/horizontal, roll_from_left/top/right/bottom, uncover_to_left/top/right/bottom, fade_to_center, fade_from_center. Speed: slow, medium, fast. Advance: on_click, auto, semi_auto (set duration for auto-advance).
 
         Args:
@@ -2039,7 +2039,7 @@ class _SlideTransitionProxy:
             transition_duration (optional): Transition animation time in seconds (e.g. 1.5).
             advance (optional): How to advance: on_click (default), auto, or semi_auto (object effects run automatically, click still changes the page). One of: on_click, auto, semi_auto.
         """
-        return call_host_tool("set_slide_transition", page=page, effect=effect, speed=speed, duration=duration, transition_duration=transition_duration, advance=advance)
+        return call_host_tool("slide_transition_set", page=page, effect=effect, speed=speed, duration=duration, transition_duration=transition_duration, advance=advance)
 
 slide_transition = _SlideTransitionProxy()
 
@@ -2047,15 +2047,15 @@ slide_transition = _SlideTransitionProxy()
 class _SpeakerNoteProxy:
     """Proxy for speaker_note tools."""
 
-    def get_speaker_notes(self, *, page: int | None = None) -> dict[str, Any]:
+    def get(self, *, page: int | None = None) -> dict[str, Any]:
         """Read speaker notes from an Impress slide. Returns the notes text.
 
         Args:
             page (optional): 0-based slide index (active slide if omitted).
         """
-        return call_host_tool("get_speaker_notes", page=page)
+        return call_host_tool("speaker_notes_get", page=page)
 
-    def set_speaker_notes(self, text: str, *, page: int | None = None, append: bool | None = None) -> dict[str, Any]:
+    def set(self, text: str, *, page: int | None = None, append: bool | None = None) -> dict[str, Any]:
         """Set or replace speaker notes on an Impress slide.
 
         Args:
@@ -2063,7 +2063,7 @@ class _SpeakerNoteProxy:
             page (optional): 0-based slide index (active slide if omitted).
             append (optional): Append to existing notes instead of replacing (default: false).
         """
-        return call_host_tool("set_speaker_notes", text=text, page=page, append=append)
+        return call_host_tool("speaker_notes_set", text=text, page=page, append=append)
 
 speaker_note = _SpeakerNoteProxy()
 
