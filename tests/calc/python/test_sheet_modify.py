@@ -274,7 +274,7 @@ def test_rekeyed_pending_timer_drops_on_fire(monkeypatch: pytest.MonkeyPatch) ->
 
     passed_kwargs: dict[str, object] = {}
 
-    def fake_run_sheet_modify_pass(ctx, d, s, *, doc_url="", sheet_name=""):
+    def fake_run_sheet_modify_pass(ctx, d, s, *, doc_url="", sheet_name="", workbook_key=""):
         passed_kwargs["doc_url"] = doc_url
         passed_kwargs["sheet_name"] = sheet_name
 
