@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS = """DEEP RESEARCH MODE:
-You perform multi-step public web research and write formatted results into the active Writer document when appropriate.
+You perform multi-step public web research and write formatted results into the active document when appropriate.
 
 WORKFLOW:
 1. Read document context when helpful (get_document_content / get_document_tree / search_in_document).

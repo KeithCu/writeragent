@@ -294,6 +294,75 @@ def test_calc_selection_outside_used_area_shows_message():
     run.assert_not_called()
 
 
+def test_calc_edit_outside_used_area_with_whole_document_edits_used_range():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("hello",),))
+    model.CurrentController.Selection = sheet.getCellRangeByPosition(5, 5, 5, 5)
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.stream_completion_tasks", new=MagicMock()) as run, \
+         patch("plugin.calc.editselection.msgbox") as msgbox:
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=True,
+            preset_instruction="proofread",
+            allow_whole_document=True,
+        )
+
+    msgbox.assert_not_called()
+    tasks = run.call_args.args[2]
+    assert len(tasks) == 1
+    assert "hello" in tasks[0].prompt
+
+
+def test_calc_extend_ignores_whole_document_flag_outside_used_area():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("hello",),))
+    model.CurrentController.Selection = sheet.getCellRangeByPosition(5, 5, 5, 5)
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.msgbox") as msgbox, \
+         patch("plugin.calc.editselection.stream_completion_tasks") as run:
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=False,
+            allow_whole_document=True,
+        )
+
+    msgbox.assert_called_once()
+    run.assert_not_called()
+
+
+def test_calc_edit_blank_cell_in_used_area_does_not_whole_sheet_jump():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("hello", ""),))
+    model.CurrentController.Selection = sheet.getCellRangeByPosition(1, 0, 1, 0)
+    sidebar_lines: list[str] = []
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.stream_completion_tasks") as run, \
+         patch("plugin.calc.editselection.msgbox") as msgbox:
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=True,
+            preset_instruction="proofread",
+            sidebar_notify=sidebar_lines.append,
+            allow_whole_document=True,
+        )
+
+    assert sidebar_lines == ["Select one or more non-empty cells."]
+    msgbox.assert_not_called()
+    run.assert_not_called()
+
+
 class _UndoManager:
     def __init__(self, events: list | None = None) -> None:
         self.open = False

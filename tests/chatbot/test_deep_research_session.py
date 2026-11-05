@@ -68,6 +68,38 @@ class _GetDocumentContentStub(ToolBase):
         return {"status": "ok", "content": ""}
 
 
+def test_deep_research_instructions_mention_active_document_not_writer_only():
+    first_line = DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS.split("\n", 2)[1]
+    assert "active document" in first_line
+    assert "Writer document" not in first_line
+
+
+def test_collect_deep_research_tools_calc_omits_apply_document_content():
+    class _ApplyStub(ToolBase):
+        name = "apply_document_content"
+        description = "stub"
+        tier = "core"
+        uno_services = ["com.sun.star.text.TextDocument"]
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    registry = ToolRegistry(services={})
+    registry.register(DeepResearchWebTool())
+    registry.register(_ApplyStub())
+
+    ctx = ToolContext(
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        doc_type="calc",
+        services={"tools": registry},
+    )
+    names = {t.name for t in collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)}
+    assert "deep_research_web" in names
+    assert "apply_document_content" not in names
+
+
 def test_collect_deep_research_tools_includes_apply_on_writer():
     registry = ToolRegistry(services={})
     registry.register(DeepResearchWebTool())

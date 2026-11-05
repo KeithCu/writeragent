@@ -17,24 +17,6 @@ config:
     widget: number
     label: Max Tool Rounds
 
-  context_strategy:
-    type: string
-    default: "auto"
-    widget: select
-    label: Document Context Strategy
-    helper: "How much document content to include in LLM context"
-    options:
-      - value: auto
-        label: Auto (by document size)
-      - value: full
-        label: Full document text
-      - value: page
-        label: Pages around cursor
-      - value: tree
-        label: Outline + excerpt
-      - value: stats
-        label: Stats + outline only
-
   extend_selection_max_tokens:
     type: int
     default: 1000
@@ -164,16 +146,6 @@ config:
     helper: "Sub-queries per depth level when Deep Research sidebar mode is used (internal)."
     internal: true
 
-  deep_research_depth:
-    type: int
-    default: 2
-    min: 1
-    max: 4
-    widget: number
-    label: Deep Research Depth
-    helper: "Legacy alias for max_rounds (internal)."
-    internal: true
-
   deep_research_concurrency:
     type: int
     default: 2
@@ -201,7 +173,7 @@ config:
     max: 6
     widget: number
     label: Deep Research Max Rounds
-    helper: "Adaptive research rounds; deep_research_depth JSON override maps here if max_rounds unset (internal)."
+    helper: "Adaptive research rounds (internal)."
     internal: true
 
   deep_research_quality_threshold:

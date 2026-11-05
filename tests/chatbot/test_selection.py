@@ -7,9 +7,14 @@
 from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
+import pytest
 from types import SimpleNamespace
 
-from plugin.chatbot.selection import action_edit_selection, action_extend_selection
+from plugin.chatbot.selection import (
+    action_edit_selection,
+    action_extend_selection,
+    do_selection_action_for_document,
+)
 
 
 def _services(active):
@@ -84,6 +89,41 @@ def test_registered_handler_passes_frame(monkeypatch) -> None:
     finally:
         _ACTION_HANDLERS.clear()
         _ACTION_HANDLERS.update(saved)
+
+
+@pytest.mark.parametrize("doc_label", ["draw", "impress"])
+def test_draw_impress_selection_with_sidebar_notify_does_not_msgbox(doc_label: str) -> None:
+    from plugin.framework.doc_type import DocumentType
+
+    ctx = MagicMock()
+    model = MagicMock()
+    lines: list[str] = []
+
+    with patch("plugin.chatbot.selection.get_document_type", return_value=DocumentType.DRAW):
+        do_selection_action_for_document(
+            ctx,
+            model,
+            is_edit=True,
+            preset_instruction="proofread",
+            sidebar_notify=lines.append,
+        )
+
+    assert len(lines) == 1
+    assert "not supported" in lines[0].lower()
+
+
+def test_draw_selection_without_sidebar_notify_still_msgbox() -> None:
+    from plugin.framework.doc_type import DocumentType
+
+    ctx = MagicMock()
+    model = MagicMock()
+
+    with patch("plugin.chatbot.selection.get_document_type", return_value=DocumentType.DRAW), \
+         patch("plugin.chatbot.selection.msgbox") as msgbox:
+        do_selection_action_for_document(ctx, model, is_edit=False)
+
+    msgbox.assert_called_once()
+
 
 from plugin.chatbot.selection import stream_completion_tasks, StreamCompletionTask
 

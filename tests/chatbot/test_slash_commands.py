@@ -54,8 +54,8 @@ def _cmd(name: str):
     return cmd
 
 
-def _names(typed: str, lru: list[str] | None = None) -> list[str]:
-    return [cmd.name for cmd in filter_slash_commands(typed, lru)]
+def _names(typed: str, lru: list[str] | None = None, doc_type: str | None = None) -> list[str]:
+    return [cmd.name for cmd in filter_slash_commands(typed, lru, doc_type)]
 
 
 def test_slash_typed_prefix_full_list_and_narrow():
@@ -107,6 +107,48 @@ def test_classify_slash_keys():
     assert classify_slash_key(KEY_DOWN) == "down"
     assert classify_slash_key(KEY_TAB) == "tab"
     assert classify_slash_key(65) is None
+
+
+def test_slash_commands_filtered_by_doc_type():
+    assert "formula" not in _names("/", doc_type="writer")
+    assert "proofread" in _names("/", doc_type="writer")
+    assert "/formula" not in format_help_text("writer")
+    assert "/proofread" in format_help_text("writer")
+
+    for app in ("draw", "impress"):
+        names = _names("/", doc_type=app)
+        assert "formula" not in names
+        for rewrite in ("proofread", "shorten", "expand", "tone", "translate"):
+            assert rewrite not in names
+
+    calc_names = _names("/", doc_type="calc")
+    assert "proofread" in calc_names and "formula" in calc_names
+
+    unknown = _names("/", doc_type="unknown")
+    assert "formula" not in unknown and "proofread" not in unknown
+
+
+def test_run_slash_formula_ignores_apps_filter():
+    host = SimpleNamespace(
+        hide_popup=MagicMock(),
+        clear_ask=MagicMock(),
+        append_output=MagicMock(),
+        cached_doc_type="writer",
+        slash_run_formula=MagicMock(),
+        session=SimpleNamespace(messages=[]),
+        sidebar_state=SimpleNamespace(tool_loop=None),
+        _send_cancellation=None,
+        query_control=MagicMock(),
+        dispatch=MagicMock(),
+        _set_status=MagicMock(),
+        slash_document_model=MagicMock(return_value=MagicMock()),
+        slash_agent_edit_in_flight=lambda: False,
+        sync_has_text_from_query=MagicMock(),
+    )
+    cmd = _cmd("formula")
+    assert cmd.apps == ("calc",)
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        assert run_slash_command(cmd, host, "sum column") is SlashResult.CONTINUE_SEND
 
 
 def test_help_text_lists_wired_and_mocks():

@@ -93,11 +93,12 @@ class SlashCommand:
     requires_arg: bool = False
     usage: str = ""
     handler: Callable[[SlashHost, SlashCommand, str], None] | None = None
+    apps: tuple[str, ...] | None = None
 
 
 def _run_help(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
     host.clear_ask()
-    host.append_output("\n" + format_help_text() + "\n")
+    host.append_output("\n" + format_help_text(getattr(host, "cached_doc_type", None)) + "\n")
 
 
 def _run_clear(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
@@ -162,6 +163,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         run=SlashRun.REWRITE,
         instruction=N_("Fix spelling, grammar, and punctuation only. Do not change style, tone, or meaning."),
         usage="/proofread",
+        apps=("writer", "calc"),
     ),
     SlashCommand(
         "shorten",
@@ -169,6 +171,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         run=SlashRun.REWRITE,
         instruction=N_("Make the text shorter while preserving the meaning."),
         usage="/shorten [target]",
+        apps=("writer", "calc"),
     ),
     SlashCommand(
         "expand",
@@ -176,6 +179,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         run=SlashRun.REWRITE,
         instruction=N_("Expand the text with more detail and clarity."),
         usage="/expand [what]",
+        apps=("writer", "calc"),
     ),
     SlashCommand(
         "tone",
@@ -184,6 +188,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         instruction=N_("Rewrite the text to match this tone or style: {arg}"),
         requires_arg=True,
         usage="/tone <description>",
+        apps=("writer", "calc"),
     ),
     SlashCommand(
         "translate",
@@ -192,6 +197,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         instruction=N_("Translate the text into {arg}. Keep formatting and structure."),
         requires_arg=True,
         usage="/translate <language>",
+        apps=("writer", "calc"),
     ),
     SlashCommand(
         "explain",
@@ -227,6 +233,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         requires_arg=True,
         usage="/formula <description>",
         handler=None,  # FORMULA: no popup/local handler
+        apps=("calc",),
     ),
 )
 
@@ -314,9 +321,19 @@ def slash_typed_prefix(text: str) -> str | None:
     return first[1:].lower()
 
 
+def slash_visible_for_doc(cmd: SlashCommand, doc_type: str | None) -> bool:
+    """True when ``cmd`` should appear in the popup and /help for this document label."""
+    if cmd.apps is None:
+        return True
+    if doc_type is None or not str(doc_type).strip():
+        return True
+    return doc_type.strip().lower() in cmd.apps
+
+
 def filter_slash_commands(
     typed: str,
     lru: Sequence[str] | None = None,
+    doc_type: str | None = None,
 ) -> list[SlashCommand]:
     """Prefix-filter ``commands`` and rank by LRU then registry order.
 
@@ -328,7 +345,11 @@ def filter_slash_commands(
     prefix = slash_typed_prefix(typed)
     if prefix is None:
         return []
-    matches = [cmd for cmd in registry if cmd.name.startswith(prefix)]
+    matches = [
+        cmd
+        for cmd in registry
+        if cmd.name.startswith(prefix) and slash_visible_for_doc(cmd, doc_type)
+    ]
     seq = tuple(lru or ())
     lru_index = {n: i for i, n in enumerate(seq)}
     return sorted(matches, key=lambda cmd: lru_index.get(cmd.name, len(seq)))
@@ -381,10 +402,11 @@ def format_slash_popup_item(cmd: SlashCommand) -> str:
     return "/%s%s — %s" % (cmd.name, tag, desc)
 
 
-def format_help_text() -> str:
+def format_help_text(doc_type: str | None = None) -> str:
     lines = [_("Slash commands:")]
     for cmd in registered_slash_commands():
-        lines.append("  " + format_slash_item(cmd))
+        if slash_visible_for_doc(cmd, doc_type):
+            lines.append("  " + format_slash_item(cmd))
     return "\n".join(lines)
 
 
