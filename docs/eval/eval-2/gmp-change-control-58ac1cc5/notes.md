@@ -19,7 +19,7 @@ anchors. Do **not** add a one-liner that says “don’t invent COA numbers”
 — the oracle fail-closes on those anchors instead.
 
 The Writer prompt does **not** name product internals (`send_peer_work/send_peer_result`,
-`fill_draw_fields`, specialized-domain tags). GMP / change-control wording
+`shape_fill_fields`, specialized-domain tags). GMP / change-control wording
 is the gold claim.
 
 ## Pre-open recipe (v1 cheat)

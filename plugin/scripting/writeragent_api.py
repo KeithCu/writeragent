@@ -120,7 +120,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                       'mail_merge_list_sources',
                       'mail_merge_register_source',
                       'mail_merge_run'],
-    'math': ['insert_math'],
+    'math': ['math_insert'],
     'page': [   'page_get_columns',
                 'page_get_header_footer_text',
                 'page_get_style_properties',
@@ -140,12 +140,12 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'named_range_list',
                  'range_sort'],
     'search': ['search_cells', 'search_replace'],
-    'shape': [   'align_shapes',
-                 'create_diagram',
-                 'distribute_shapes',
-                 'fill_draw_fields',
+    'shape': [   'shape_align',
                  'shape_connect',
                  'shape_delete',
+                 'shape_diagram',
+                 'shape_distribute',
+                 'shape_fill_fields',
                  'shape_group',
                  'shape_summary',
                  'shape_upsert'],
@@ -193,7 +193,6 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
 
 TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'add_slide': ('draw', 'add_slide'),
-    'align_shapes': ('shape', 'align_shapes'),
     'apply_design': ('draw', 'apply_design'),
     'apply_document_content': ('writer', 'apply_document_content'),
     'apply_style': ('writer', 'apply_style'),
@@ -221,10 +220,8 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'conditional_formatting_add': ('conditional_formatting', 'add'),
     'conditional_formatting_list': ('conditional_formatting', 'list'),
     'conditional_formatting_remove': ('conditional_formatting', 'remove'),
-    'create_diagram': ('shape', 'create_diagram'),
     'delete_slide': ('draw', 'delete_slide'),
     'delete_structure': ('calc', 'delete_structure'),
-    'distribute_shapes': ('shape', 'distribute_shapes'),
     'duplicate_slide': ('draw', 'duplicate_slide'),
     'error_detect': ('error', 'detect'),
     'evaluate_formula': ('error', 'evaluate_formula'),
@@ -233,7 +230,6 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'fields_insert': ('field', 'insert'),
     'fields_list': ('field', 'list'),
     'fields_update_all': ('field', 'update_all'),
-    'fill_draw_fields': ('shape', 'fill_draw_fields'),
     'find_tools': ('core', 'find_tools'),
     'footnotes_delete': ('footnote', 'delete'),
     'footnotes_edit': ('footnote', 'edit'),
@@ -284,7 +280,6 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'indexes_refresh_toc_entry': ('index', 'refresh_toc_entry'),
     'indexes_update_all': ('index', 'update_all'),
     'insert_cell_html': ('calc', 'insert_cell_html'),
-    'insert_math': ('math', 'insert_math'),
     'list_calc_functions': ('calc', 'list_calc_functions'),
     'list_designs': ('draw', 'list_designs'),
     'list_master_slides': ('slide_master', 'list_master_slides'),
@@ -296,6 +291,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'mail_merge_list_sources': ('mail_merge', 'list_sources'),
     'mail_merge_register_source': ('mail_merge', 'register_source'),
     'mail_merge_run': ('mail_merge', 'run'),
+    'math_insert': ('math', 'insert'),
     'merge_cells': ('calc', 'merge_cells'),
     'move_slide': ('draw', 'move_slide'),
     'named_range_add': ('range', 'named_range_add'),
@@ -340,8 +336,12 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'set_slide_transition': ('slide_transition', 'set_slide_transition'),
     'set_speaker_notes': ('speaker_note', 'set_speaker_notes'),
     'set_style': ('calc', 'set_style'),
+    'shape_align': ('shape', 'align'),
     'shape_connect': ('shape', 'connect'),
     'shape_delete': ('shape', 'delete'),
+    'shape_diagram': ('shape', 'diagram'),
+    'shape_distribute': ('shape', 'distribute'),
+    'shape_fill_fields': ('shape', 'fill_fields'),
     'shape_group': ('shape', 'group'),
     'shape_summary': ('shape', 'summary'),
     'shape_upsert': ('shape', 'upsert'),
@@ -1075,7 +1075,7 @@ class _FormsProxy:
         return call_host_tool("form_create", fields=fields)
 
     def create_control(self, control: str, name: str, *, label: str | None = None, group_name: str | None = None, items: list[str] | None = None, placeholder: str | None = None, default_value: str | None = None, width: int | None = None, height: int | None = None, page: int | None = None) -> dict[str, Any]:
-        """Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets.
+        """Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). Do not use this to fill paper-form blanks (empty TextShapes) — those are shape_fill_fields / shape_upsert targets.
 
         Args:
             control (required): The type of form control to create. One of: checkbox, text, radio, date, combobox, button, listbox.
@@ -1456,7 +1456,7 @@ mail_merge = _MailMergeProxy()
 class _MathProxy:
     """Proxy for math tools."""
 
-    def insert_math(self, formula_type: str, formula: str, page: int, x: int, y: int) -> dict[str, Any]:
+    def insert(self, formula_type: str, formula: str, page: int, x: int, y: int) -> dict[str, Any]:
         """Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x, y (100ths of mm). Size is derived from the formula when possible.
 
         Args:
@@ -1466,7 +1466,7 @@ class _MathProxy:
             x (required): X position of the shape (100ths of mm).
             y (required): Y position of the shape (100ths of mm).
         """
-        return call_host_tool("insert_math", formula_type=formula_type, formula=formula, page=page, x=x, y=y)
+        return call_host_tool("math_insert", formula_type=formula_type, formula=formula, page=page, x=x, y=y)
 
 math = _MathProxy()
 
@@ -1781,7 +1781,7 @@ search = _SearchProxy()
 class _ShapeProxy:
     """Proxy for shape tools."""
 
-    def align_shapes(self, indices: list[Any], alignment: str, *, page: int | None = None) -> dict[str, Any]:
+    def align(self, indices: list[Any], alignment: str, *, page: int | None = None) -> dict[str, Any]:
         """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices.
 
         Args:
@@ -1789,7 +1789,7 @@ class _ShapeProxy:
             alignment (required): Alignment axis. One of: left, center_horizontal, right, top, center_vertical, bottom.
             page (optional): 0-based page index (active page if omitted).
         """
-        return call_host_tool("align_shapes", page=page, indices=indices, alignment=alignment)
+        return call_host_tool("shape_align", page=page, indices=indices, alignment=alignment)
 
     def connect(self, start: int, end: int, *, page: int | None = None, line_color: str | None = None, line_width: int | None = None) -> dict[str, Any]:
         """Connect two shapes on the same page with a connector.
@@ -1803,17 +1803,6 @@ class _ShapeProxy:
         """
         return call_host_tool("shape_connect", start=start, end=end, page=page, line_color=line_color, line_width=line_width)
 
-    def create_diagram(self, nodes: list[Any], *, page: int | None = None, layout: str | None = None, connections: list[Any] | None = None) -> dict[str, Any]:
-        """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
-
-        Args:
-            nodes (required):
-            page (optional): 0-based page index (active page if omitted).
-            layout (optional): How to place nodes (default: horizontal_flow). One of: horizontal_flow, vertical_flow, grid, custom.
-            connections (optional):
-        """
-        return call_host_tool("create_diagram", page=page, layout=layout, nodes=nodes, connections=connections)
-
     def delete(self, index: int | str, *, page: int | None = None) -> dict[str, Any]:
         """Deletes a shape by page index or dotted path.
 
@@ -1823,7 +1812,18 @@ class _ShapeProxy:
         """
         return call_host_tool("shape_delete", index=index, page=page)
 
-    def distribute_shapes(self, indices: list[Any], axis: str, *, page: int | None = None) -> dict[str, Any]:
+    def diagram(self, nodes: list[Any], *, page: int | None = None, layout: str | None = None, connections: list[Any] | None = None) -> dict[str, Any]:
+        """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
+
+        Args:
+            nodes (required):
+            page (optional): 0-based page index (active page if omitted).
+            layout (optional): How to place nodes (default: horizontal_flow). One of: horizontal_flow, vertical_flow, grid, custom.
+            connections (optional):
+        """
+        return call_host_tool("shape_diagram", page=page, layout=layout, nodes=nodes, connections=connections)
+
+    def distribute(self, indices: list[Any], axis: str, *, page: int | None = None) -> dict[str, Any]:
         """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm.
 
         Args:
@@ -1831,16 +1831,16 @@ class _ShapeProxy:
             axis (required): Distribution axis. One of: horizontal, vertical.
             page (optional): 0-based page index (active page if omitted).
         """
-        return call_host_tool("distribute_shapes", page=page, indices=indices, axis=axis)
+        return call_host_tool("shape_distribute", page=page, indices=indices, axis=axis)
 
-    def fill_draw_fields(self, fields: list[Any], *, page: int | None = None) -> dict[str, Any]:
+    def fill_fields(self, fields: list[Any], *, page: int | None = None) -> dict[str, Any]:
         """Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create new ControlShapes unless the user asked for live form widgets. Resolve each field by name (preferred), draw-page index, path_index for group children, or label_hint from get_draw_tree. Returns per-field ok/fail so you can recover. Not a PDF/AcroForm API.
 
         Args:
             fields (required): Fields to write. Target precedence: name (preferred; disambiguated by path_index or index), path_index, index, or label_hint. Each item needs a value.
             page (optional): 0-based page index (active page if omitted).
         """
-        return call_host_tool("fill_draw_fields", page=page, fields=fields)
+        return call_host_tool("shape_fill_fields", page=page, fields=fields)
 
     def group(self, indices: list[Any], *, page: int | None = None) -> dict[str, Any]:
         """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit).

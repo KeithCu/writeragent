@@ -72,7 +72,7 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
         ("images", {"image_insert", "image_list", "image_delete", "image_generate"}),
         (
             "shapes",
-            {"align_shapes", "distribute_shapes", "create_diagram", "fill_draw_fields"},
+            {"shape_align", "shape_distribute", "shape_diagram", "shape_fill_fields"},
         ),
     ],
 )

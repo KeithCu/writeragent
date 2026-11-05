@@ -115,7 +115,7 @@ def test_fill_draw_fields_happy_and_miss(ctx, doc):
         "page": page_idx,
     })
 
-    res = _exec_tool(doc, ctx, "fill_draw_fields", {
+    res = _exec_tool(doc, ctx, "shape_fill_fields", {
         "page": page_idx,
         "fields": [
             {"name": "fld_lot", "value": "LOT-42"},

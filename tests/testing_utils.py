@@ -940,7 +940,7 @@ def _windows_should_skip_math_ole_close(uid: str = "") -> bool:
     """True when Windows must not ``close_doc`` this marked Math OLE uid.
 
     What was wrong: GHA 34607010446 (master ``3720c175``) closed a Draw
-    after ``insert_math`` and soffice exited 0. GHA 34612145495 then
+    after ``math_insert`` and soffice exited 0. GHA 34612145495 then
     died on the *first* Draw forms ``close(True)`` after this helper
     walked pages/shapes and ``_native_doc_svc`` probed the model.
     Master closed ordinary Draw docs without that extra UNO.

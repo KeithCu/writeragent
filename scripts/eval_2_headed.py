@@ -161,7 +161,7 @@ PYTHON_SHAPES_ODT_NAME = "American Flag.odt"
 # Stamp copy. --score copies Thumbnails/thumbnail.png out as preview.png.
 PYTHON_SHAPES_STAMP_ODT = "final_flag.odt"
 # Form-920 Section 1 blanks. Labels sit to the left so get_draw_tree
-# can attach label_hint. Names stay stable for fill_draw_fields / oracle.
+# can attach label_hint. Names stay stable for shape_fill_fields / oracle.
 GMP_FILLABLE_FIELDS: tuple[tuple[str, str], ...] = (
     ("fld_change_title", "Change Title"),
     ("fld_champion", "Change Control Champion"),
@@ -501,7 +501,7 @@ def _xml_escape(text: str) -> str:
 def write_gmp_change_control_odg(path: Path) -> Path:
     """Editable Draw Form-920 stand-in: labels + empty named text boxes.
 
-    Not the gold PDF. Empty ``fld_*`` frames are fill_draw_fields targets.
+    Not the gold PDF. Empty ``fld_*`` frames are shape_fill_fields targets.
     """
     frames: list[str] = []
     frames.append(

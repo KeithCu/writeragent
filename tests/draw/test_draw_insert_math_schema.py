@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""insert_math JSON schema matches smolagents WrappedSmolTool validation."""
+"""math_insert JSON schema matches smolagents WrappedSmolTool validation."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class _InsertMathSmolStubTool(Tool):
     skip_forward_signature_validation = True
 
     def __init__(self, inputs: dict[str, dict]) -> None:
-        self.name = "insert_math"
+        self.name = "math_insert"
         self.description = "stub for schema validation"
         self.inputs = inputs
         self.output_type = "object"

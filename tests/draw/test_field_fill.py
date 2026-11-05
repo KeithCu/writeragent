@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for fill_draw_fields resolution and value apply (no soffice)."""
+"""Unit tests for shape_fill_fields resolution and value apply (no soffice)."""
 
 from __future__ import annotations
 

@@ -645,7 +645,7 @@ Do not explain - do the operation directly using tools. Perform as many steps as
 WORKFLOW:
 1. Understand the user's request.
 2. If needed, use list_pages, read_slide_text, or get_presentation_info to understand current slides and layout.
-3. Use the specialized delegation tool to perform shape operations (create, edit, group, paper-form fill via fill_draw_fields), transitions, masters, notes, or charts.
+3. Use the specialized delegation tool to perform shape operations (create, edit, group, paper-form fill via shape_fill_fields), transitions, masters, notes, or charts.
 4. Give a short confirmation; when you changed pages/shapes, mention them.
 
 IMPRESS TEXT FILLS:
