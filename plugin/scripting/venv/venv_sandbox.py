@@ -34,8 +34,8 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Same one-second lift as ``plugin.framework.child_runtime.Deadline.run_for``;
-# LibrePy does not ship ``process_worker`` (compute-only IPC stack).
+# ``LocalPythonExecutor.timeout()`` needs ``int | None`` (at least 1, or None when spent).
+# ``child_runtime.Deadline.run_for()`` returns a float; ceil with a one-second floor matches alarm semantics.
 _EXECUTOR_ALARM_MIN_SEC = 1.0
 
 from plugin.contrib.smolagents.local_python_executor import (
@@ -96,8 +96,20 @@ class SessionStore:
         self._records: dict[SessionKey, SessionRecord] = {}
         self._isolated_init_lru: OrderedDict[SessionKey, None] = OrderedDict()
 
-    def _record(self, session_id: str) -> SessionRecord | None:
-        return self._records.get(SessionKey.parse(session_id))
+    @staticmethod
+    def _policy_current(
+        rec: SessionRecord | None, policy: SandboxPolicy | None
+    ) -> bool:
+        # None policy means the caller does not care, so never drop for policy alone.
+        if rec is None or rec.executor is None or policy is None:
+            return True
+        return rec.executor._sandbox_policy == policy
+
+    def _drop_if_policy_mismatch_unlocked(
+        self, key: SessionKey, policy: SandboxPolicy | None
+    ) -> None:
+        if not self._policy_current(self._records.get(key), policy):
+            self._drop_unlocked(key)
 
     def _maybe_drop_record(self, key: SessionKey) -> None:
         rec = self._records.get(key)
@@ -119,17 +131,17 @@ class SessionStore:
 
     def executor(self, session_id: str) -> LocalPythonExecutor | None:
         with self._lock:
-            rec = self._record(session_id)
+            rec = self._records.get(SessionKey.parse(session_id))
             return rec.executor if rec else None
 
     def init_script_hash(self, session_id: str) -> str | None:
         with self._lock:
-            rec = self._record(session_id)
+            rec = self._records.get(SessionKey.parse(session_id))
             return rec.init_script_hash if rec else None
 
     def seeded_digest(self, session_id: str) -> str | None:
         with self._lock:
-            rec = self._record(session_id)
+            rec = self._records.get(SessionKey.parse(session_id))
             return rec.seeded_digest if rec else None
 
     def isolated_lru_len(self) -> int:
@@ -148,22 +160,17 @@ class SessionStore:
     ) -> bool:
         """Return True when init already ran for *script_digest* (refresh isolated LRU)."""
         with self._lock:
-            prior = self._record(init_session_id)
+            key = SessionKey.parse(init_session_id)
+            prior = self._records.get(key)
             prior_hash = prior.init_script_hash if prior else None
             cached_exec = prior.executor if prior else None
-            if (
-                (prior_hash is not None and prior_hash != script_digest)
-                or (
-                    cached_exec is not None
-                    and policy is not None
-                    and cached_exec._sandbox_policy != policy
-                )
-            ):
-                self._clear_init_unlocked(init_session_id)
+            hash_stale = prior_hash is not None and prior_hash != script_digest
+            if hash_stale or not self._policy_current(prior, policy):
+                self._clear_init_unlocked(key)
                 return False
             if prior_hash == script_digest and cached_exec is not None:
-                if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
-                    self._note_isolated_access_unlocked(init_session_id)
+                if key.kind is SessionKind.ISOLATED:
+                    self._note_isolated_access_unlocked(key)
                 return True
             return False
 
@@ -173,11 +180,11 @@ class SessionStore:
             rec = self._records.setdefault(key, SessionRecord())
             rec.init_script_hash = script_digest
             if key.kind is SessionKind.ISOLATED:
-                self._note_isolated_access_unlocked(init_session_id)
+                self._note_isolated_access_unlocked(key)
 
     def abort_init(self, init_session_id: str) -> None:
         with self._lock:
-            self._clear_init_unlocked(init_session_id)
+            self._clear_init_unlocked(SessionKey.parse(init_session_id))
 
     def get_or_create(
         self,
@@ -188,13 +195,9 @@ class SessionStore:
     ) -> tuple[LocalPythonExecutor, bool]:
         with self._lock:
             key = SessionKey.parse(session_id)
+            self._drop_if_policy_mismatch_unlocked(key, policy)
             rec = self._records.get(key)
             executor = rec.executor if rec else None
-            if executor is not None and policy is not None:
-                if executor._sandbox_policy != policy:
-                    self._drop_unlocked(session_id)
-                    rec = self._records.get(key)
-                    executor = rec.executor if rec else None
 
             created = False
             if executor is None:
@@ -224,22 +227,19 @@ class SessionStore:
 
     def note_isolated_access(self, init_session_id: str) -> None:
         with self._lock:
-            self._note_isolated_access_unlocked(init_session_id)
+            self._note_isolated_access_unlocked(SessionKey.parse(init_session_id))
 
-    def _note_isolated_access_unlocked(self, init_session_id: str) -> None:
-        key = SessionKey.parse(init_session_id)
+    def _note_isolated_access_unlocked(self, key: SessionKey) -> None:
         self._isolated_init_lru[key] = None
         self._isolated_init_lru.move_to_end(key)
         while len(self._isolated_init_lru) > _MAX_ISOLATED_INIT_SNAPSHOTS:
             oldest_key = next(iter(self._isolated_init_lru))
-            oldest_wire = oldest_key.wire()
             # Same path as an explicit reset: executor, hash, DuckDB, and the LRU slot.
             # The pop after clear is what stops the loop if the id is not isolated.
-            self._clear_init_unlocked(oldest_wire)
+            self._clear_init_unlocked(oldest_key)
             self._isolated_init_lru.pop(oldest_key, None)
 
-    def _clear_init_unlocked(self, init_session_id: str) -> None:
-        key = SessionKey.parse(init_session_id)
+    def _clear_init_unlocked(self, key: SessionKey) -> None:
         cell_sid = key.without_init().wire() if key.init else None
         rec = self._records.get(key)
         if rec is not None:
@@ -248,21 +248,20 @@ class SessionStore:
             if key.kind is SessionKind.ISOLATED:
                 self._isolated_init_lru.pop(key, None)
             self._maybe_drop_record(key)
-        _reset_session_duckdb(init_session_id)
+        _reset_session_duckdb(key.wire())
         if cell_sid:
-            self._forget_cell_unlocked(SessionKey.parse(cell_sid))
+            self._forget_cell_unlocked(key.without_init())
             # Init-hash change drops the workbook kernel; DuckDB tables must go too.
             _reset_session_duckdb(cell_sid)
 
-    def _drop_unlocked(self, session_id: str) -> None:
+    def _drop_unlocked(self, key: SessionKey) -> None:
         # Desktop workbooks use calc:… and compute uses the raw Online session id;
         # both store the init executor at {id}:init. Reset drops both.
-        key = SessionKey.parse(session_id)
         if key.init:
-            self._clear_init_unlocked(session_id)
+            self._clear_init_unlocked(key)
         else:
             self._forget_cell_unlocked(key)
-            self._clear_init_unlocked(key.with_init_suffix().wire())
+            self._clear_init_unlocked(key.with_init_suffix())
 
     def reset(self, session_id: str) -> dict[str, Any]:
         """Drop cached executors for *session_id* and reset DuckDB tables.
@@ -275,7 +274,7 @@ class SessionStore:
         if not (session_id or "").strip():
             return {"status": "error", "message": "No session_id provided."}
         with self._lock:
-            self._drop_unlocked(session_id)
+            self._drop_unlocked(SessionKey.parse(session_id))
         return {"status": "ok"}
 
     def clear_all(self) -> None:
@@ -287,10 +286,9 @@ class SessionStore:
 
     def drop_if_policy_mismatch(self, session_id: str, policy: SandboxPolicy) -> None:
         with self._lock:
-            rec = self._record(session_id)
-            cached = rec.executor if rec else None
-            if cached is not None and cached._sandbox_policy != policy:
-                self._drop_unlocked(session_id)
+            self._drop_if_policy_mismatch_unlocked(
+                SessionKey.parse(session_id), policy
+            )
 
 
 SESSIONS = SessionStore()
@@ -810,20 +808,15 @@ def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) 
 
 
 def reset_sandbox_session(session_id: str) -> dict[str, Any]:
-    """Drop any cached executor for *session_id* and reset DuckDB tables.
-
-    Also clears the ``{id}:init`` companion when *session_id* is a cell id,
-    and clears the cell session companion when *session_id* is an init id.
-    ``SessionStore._clear_init_unlocked`` closes DuckDB for this id and for the
-    :init companion. Do not close again after the lock.
-    """
+    """Forward to SessionStore.reset."""
     return SESSIONS.reset(session_id)
 
 
 def _executor_alarm_seconds(deadline_end: float) -> int | None:
-    """Whole seconds for the child executor alarm, or None when the budget is spent.
+    """Whole seconds for ``LocalPythonExecutor.timeout()``, or None when the budget is spent.
 
-    Matches ``Deadline.run_for()`` (at least one second; ``alarm(0)`` cancels).
+    The executor rejects non-int timeouts and values below 1; ``signal.alarm(0)`` cancels.
+    A one-second floor matches ``child_runtime.Deadline.run_for()`` without using its float API.
     """
     left = deadline_end - time.monotonic()
     if left <= 0:
@@ -930,10 +923,10 @@ def _inject_bindings(executor: LocalPythonExecutor, bindings: dict[str, Any] | N
 
 _RESULT_MISSING = object()
 # Intentional check-then-set with no lock: LibrePy/WriterAgent venv workers are
-# one thread per process (execution is serialized; ``SESSIONS._lock`` is for
+# one thread per process (execution is serialized; ``SessionStore._lock`` is for
 # session state, not this). ``matplotlib.use("Agg")`` twice is harmless. Do not
 # add a threading.Lock here unless the worker becomes multi-threaded; then this
-# flag needs a lock (or to move under ``SESSIONS._lock``).
+# flag needs a lock (or to move under ``SessionStore._lock``).
 _MPL_AGG_SET = False
 _MPL_AGG_FAILED = False
 

@@ -5,7 +5,7 @@ import os
 # Add core to path
 sys.path.insert(0, os.getcwd())
 
-from plugin.writer.html_export import _strip_html_boilerplate
+from plugin.writer.html_export import strip_html_boilerplate
 from plugin.writer.html_import import _ensure_html_linebreaks
 
 def test_conversion():
@@ -37,13 +37,13 @@ def test_stripping():
     # 5. Full HTML document stripping
     inp = '<html><head><style>body { color: red; }</style></head><body lang="en-US"><h1>Hello</h1><p>World</p></body></html>'
     expected = '<h1>Hello</h1><p>World</p>'
-    result = _strip_html_boilerplate(inp)
+    result = strip_html_boilerplate(inp)
     assert result == expected, f"Test 5 failed: expected {repr(expected)}, got {repr(result)}"
     
     # 6. Upper case tags
     inp = '<BODY>Upper Case</BODY>'
     expected = 'Upper Case'
-    result = _strip_html_boilerplate(inp)
+    result = strip_html_boilerplate(inp)
     assert result == expected, f"Test 6 failed: expected {repr(expected)}, got {repr(result)}"
 
 

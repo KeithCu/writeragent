@@ -32,7 +32,7 @@ from plugin.scripting.calc_range import (
     pack_calc_range_envelope,
     CalcRange,
 )
-from plugin.scripting.venv.coerce import _dedupe_column_names
+from plugin.scripting.venv.coerce import dedupe_column_names
 
 
 def test_import_policy_contracts() -> None:
@@ -102,7 +102,7 @@ def test_ensure_rectangular_2d_invariants(grid) -> None:
 
 @given(names=st.lists(st.text(max_size=DEAL_MAX_TOKEN), max_size=DEAL_MAX_SHAPE_DIM))
 def test_dedupe_column_names_uniqueness(names: list[str]) -> None:
-    deduped = _dedupe_column_names(names)
+    deduped = dedupe_column_names(names)
     assert isinstance(deduped, list)
     assert len(deduped) == len(names)
     assert len(set(deduped)) == len(deduped)
@@ -110,8 +110,8 @@ def test_dedupe_column_names_uniqueness(names: list[str]) -> None:
 
 def test_dedupe_column_names_suffix_skips_later_raw_header() -> None:
     """A generated suffix must not collide with a header that is already that suffix."""
-    assert _dedupe_column_names(["a", "a", "a_1"]) == ["a", "a_1", "a_1_1"]
-    assert _dedupe_column_names(["a", "a", "a"]) == ["a", "a_1", "a_2"]
+    assert dedupe_column_names(["a", "a", "a_1"]) == ["a", "a_1", "a_1_1"]
+    assert dedupe_column_names(["a", "a", "a"]) == ["a", "a_1", "a_2"]
 
 
 def test_ensure_rectangular_2d_string_row_is_one_cell() -> None:

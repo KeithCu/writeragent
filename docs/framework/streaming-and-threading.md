@@ -349,7 +349,7 @@ Two separate bugs caused that:
 
    The worker still used `stop_checker=lambda: self.stop_requested`. After the scope pointer was cleared, `stop_requested` fell back to **`_stop_requested_fallback`**, which was still **False** (only `scope.cancel()` had run—it does not set the fallback unless Stop goes through the panel path). So from step 5 onward the sub-agent’s `SmolAgentExecutor` loop thought nothing was cancelled and kept calling the model.
 
-   **Fix:** on the send thread before starting the worker, set `cancel_scope = self._send_cancellation` and close over it. Do not re-read `panel._send_cancellation` from the worker after the drain exits.
+   **Fix:** on the send thread before starting the worker, use `spawn_scope(host)` and close over it. Do not re-read `panel._send_cancellation` from the worker after the drain exits.
 
    Re-reading `_send_cancellation` inside the worker body is the same bug one step later. The drain has cleared the field, the next send has stored a new scope, and the late body binds that new scope. The old Stop is missed, and the old worker can cancel the new send. `run_in_background` copies contextvars at submit, so `get_current_send_cancellation()` is the submit-time scope. Do not replace that with a panel read when the job runs.
 
@@ -367,8 +367,8 @@ Two separate bugs caused that:
 
 | Need | Do this |
 |------|---------|
-| Main-thread drain / streaming | `cancel=self._send_cancellation` (or `getattr(self, "_send_cancellation", None)`). |
-| Background worker (web research, LLM stream, async tool) | On the send thread at spawn, before the thread body: `cancel_scope = host._send_cancellation`. Close over the scope. The worker must not read `host._send_cancellation`. Pass it into `ToolContext(..., send_cancellation=cancel_scope)`. |
+| Main-thread drain / streaming | `cancel=self._send_cancellation` on the live panel field (drain thread only). |
+| Background worker (web research, LLM stream, async tool) | On the send thread at spawn, before the thread body: `cancel_scope = spawn_scope(host)`. Close over the scope. The worker must not read `host._send_cancellation`. Pass it into `ToolContext(..., send_cancellation=cancel_scope)`. |
 | Deep-research pool | On Stop, cancel futures that have not started, then join the pool. Workers return when the stop checker captured with the send is true. A worker stuck in HTTP is joined only up to `_STOP_POOL_JOIN_SEC`. Do not use `with ThreadPoolExecutor` (that joins before Stop can cancel). |
 | New `LlmClient` on a worker | `LlmClient(config, ctx, cancellation_scope=ctx.send_cancellation)` (or register manually on the scope). |
 | Long-running smol sub-agent | Use [`SmolAgentExecutor`](../../plugin/chatbot/smol_agent.py); do not hand-roll `agent.run` without the same stop/interrupt behavior. |
