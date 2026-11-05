@@ -38,7 +38,7 @@ from plugin.calc.address_utils import format_range_address, parse_address, split
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.errors import DocumentDisposedError, document_is_disposed, is_disposal
+from plugin.framework.errors import DocumentDisposedError, document_is_disposed, is_disposal, name_miss_details
 from plugin.framework.uno_context import get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
@@ -1508,6 +1508,19 @@ def _lookup_chart(
     return ChartLookup() if host is None else host.find(name, sheet=sheet, page=page)
 
 
+def _chart_list_names(host: Any | None) -> list[str]:
+    """Chart names for ``chart_list``-style hints; re-raises disposal."""
+    if host is None:
+        return []
+    try:
+        return sorted(str(n) for n in host.names())
+    except Exception as exc:
+        if is_disposal(exc):
+            raise
+        log.debug("chart_list_names: host.names() failed", exc_info=True)
+        return []
+
+
 def _require_chart(
     tool: Any,
     doc: Any,
@@ -1518,7 +1531,10 @@ def _require_chart(
     if lookup.error:
         return tool._tool_error(lookup.error, code="CHART_AMBIGUOUS")
     if not lookup.ref:
-        return tool._tool_error(f"Chart '{chart_name}' not found.")
+        return tool._tool_error(
+            f"Chart '{chart_name}' not found.",
+            **name_miss_details(chart_name, _chart_list_names(chart_host(doc)), "chart_list"),
+        )
     return chart_name, lookup.ref
 
 
@@ -1699,7 +1715,10 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
         req_err = _create_requirements_error(kwargs, is_calc=is_calc)
         if req_err:
-            return tool._tool_error(_named_chart_miss_message(chart_name, req_err, kwargs, is_calc=is_calc))
+            return tool._tool_error(
+                _named_chart_miss_message(chart_name, req_err, kwargs, is_calc=is_calc),
+                **name_miss_details(chart_name, _chart_list_names(host), "chart_list"),
+            )
         if host is None:
             return tool._tool_error("Unsupported document type for chart creation.")
         return _mark_chart_created(_create_chart(tool, ctx, host, **kwargs))

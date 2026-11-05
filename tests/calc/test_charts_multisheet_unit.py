@@ -1100,6 +1100,7 @@ def test_chart_upsert_name_miss_without_create_fields_not_found():
         res_no_range = upsert_chart(tool, ctx, name="Sales", chart_type="bar")
     assert res_nf["status"] == "error"
     assert res_nf["message"] == "Chart 'Sales' not found."
+    assert "chart_list" in res_nf["details"]["hint"]
     assert res_no_range["status"] == "error"
     assert "to create it also pass data_range" in res_no_range["message"]
     charts.addNewByName.assert_not_called()

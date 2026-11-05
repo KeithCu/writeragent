@@ -30,7 +30,7 @@ from plugin.calc.address_utils import (
 )
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, find_named_range, is_agent_visible_sheet
-from plugin.framework.errors import UnoObjectError, uno_read
+from plugin.framework.errors import UnoObjectError, name_miss_details, uno_read
 
 from com.sun.star.lang import IllegalArgumentException
 
@@ -161,12 +161,26 @@ def _resolve_named_range_target(
     if scope_text:
         container, effective_scope, sheet_obj = _resolve_container(doc, scope_text)
         if not container.hasByName(name):
-            return tool._tool_error(f"No named range found with name '{name}' in scope '{effective_scope}'.", code="NAMED_RANGE_NOT_FOUND")
+            names = [str(n) for n in container.getElementNames()]
+            return tool._tool_error(
+                f"No named range found with name '{name}' in scope '{effective_scope}'.",
+                code="NAMED_RANGE_NOT_FOUND",
+                **name_miss_details(name, names, "named_range_list"),
+            )
         return NamedRangeHit(container, effective_scope, sheet_obj, container.getByName(name))
 
     found = find_named_range(doc, name)
     if found is None:
-        return tool._tool_error(f"No named range found with name '{name}'.", code="NAMED_RANGE_NOT_FOUND")
+        listed: list[str] = []
+        try:
+            listed.extend(str(n) for n in doc.NamedRanges.getElementNames())
+        except Exception:
+            listed = []
+        return tool._tool_error(
+            f"No named range found with name '{name}'.",
+            code="NAMED_RANGE_NOT_FOUND",
+            **name_miss_details(name, listed, "named_range_list"),
+        )
     return found
 
 

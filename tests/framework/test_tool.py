@@ -298,6 +298,28 @@ def test_get_item():
     res = tool.get_item(doc, "getMyItems", "item1")
     assert res == "val1"
 
+def test_similar_names_caps_and_cutoff():
+    from plugin.framework.errors import similar_names
+
+    names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"]
+    assert similar_names("", names) == []
+    close = similar_names("Alfa", names)
+    assert "Alpha" in close
+    assert len(close) <= 5
+    assert "Zeta" not in similar_names("Alfa", ["Zeta"])
+    assert similar_names("totally_unrelated_xyz", names) == []
+
+
+def test_get_item_miss_includes_hint_and_similar():
+    tool = ValidTool()
+    doc = TestingFactory.create_doc(doc_type="writer", items={"Frame1": "v1", "Frame2": "v2"})
+
+    res = tool.get_item(doc, "getMyItems", "Fram1", list_tool="frame_list")
+    assert res["status"] == "error"
+    assert res["details"]["available"]
+    assert "frame_list" in res["details"]["hint"]
+    assert "Frame1" in res["details"]["similar"]
+
 # ── Tool Registry Tests ─────────────────────────────────────────────
 
 class FakeTool(ToolBase):

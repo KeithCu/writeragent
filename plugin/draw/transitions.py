@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.layouts import available_layout_names, layout_id, layout_name
-from plugin.framework.errors import is_disposal, uno_read
+from plugin.framework.errors import available_miss_details, is_disposal, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -132,7 +132,12 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         if effect is not None:
             effect_key = str(effect).strip().lower()
             if effect_key not in _FADE_EFFECTS:
-                return self._tool_error("Unknown effect: %s" % effect, available=sorted(_FADE_EFFECTS))
+                avail = sorted(_FADE_EFFECTS)
+                return self._tool_error(
+                    "Unknown effect: %s" % effect,
+                    available=avail,
+                    **available_miss_details(str(effect), avail),
+                )
             ops.append(("effect", "Effect", effect_key.upper()))
 
         # Speed and TransitionDuration are one LibreOffice double.
@@ -149,7 +154,12 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         elif speed is not None:
             speed_key = str(speed).lower()
             if speed_key not in _SPEED_ENUM:
-                return self._tool_error("Unknown speed: %s" % speed, available=sorted(_SPEED_ENUM))
+                avail = sorted(_SPEED_ENUM)
+                return self._tool_error(
+                    "Unknown speed: %s" % speed,
+                    available=avail,
+                    **available_miss_details(str(speed), avail),
+                )
             ops.append(("speed", "Speed", speed_key.upper()))
 
         duration = kwargs.get("duration")
@@ -163,7 +173,12 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         if advance is not None:
             change = _ADVANCE_CHANGES.get(advance)
             if change is None:
-                return self._tool_error("Unknown advance: %s" % advance, available=sorted(_ADVANCE_CHANGES))
+                avail = sorted(_ADVANCE_CHANGES)
+                return self._tool_error(
+                    "Unknown advance: %s" % advance,
+                    available=avail,
+                    **available_miss_details(str(advance), avail),
+                )
             ops.append(("advance", "Change", change))
 
         updated: list[str] = []
@@ -210,7 +225,12 @@ class SetSlideLayout(ToolDrawSlideLayoutBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         layout_name = kwargs["layout"].strip().lower()
         if layout_id(layout_name) is None:
-            return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
+            avail = available_layout_names()
+            return self._tool_error(
+                "Unknown layout: %s" % layout_name,
+                available=avail,
+                **available_miss_details(str(layout_name), avail),
+            )
         page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         applied = apply_slide_layout(page, layout_name)
         return {"status": "ok", "page": page_idx, "layout": applied}

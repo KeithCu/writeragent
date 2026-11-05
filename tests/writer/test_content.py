@@ -420,9 +420,13 @@ def test_truncated_flag_on_get_document_content():
                       return_value="<p>short</p>\n\n[... truncated ...]"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
     assert res.get("truncated") is True
+    assert "scope='range'" in res.get("hint", "")
+    assert "document_length" in res.get("hint", "")
+    assert "next_range" not in res
     with patch.object(format_support, "document_to_content", return_value="<p>all</p>"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
     assert "truncated" not in res
+    assert "hint" not in res
 
 
 def test_get_document_content_surfaces_portion_walk_warning():

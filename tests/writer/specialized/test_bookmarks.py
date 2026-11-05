@@ -132,6 +132,19 @@ def test_get_bookmark(mock_ctx):
     assert res["bookmark"]["text"] == "Spanned Text Here"
 
 
+def test_get_bookmark_miss_includes_hint_and_similar(mock_ctx):
+    doc = mock_ctx.doc
+    mock_bookmarks = MagicMock()
+    doc.getBookmarks.return_value = mock_bookmarks
+    mock_bookmarks.hasByName.return_value = False
+    mock_bookmarks.getElementNames.return_value = ("InfoBM", "Other")
+
+    res = BookmarkGet().execute(mock_ctx, name="InfoB")
+    assert res["status"] == "error"
+    assert "bookmark_list" in res["details"]["hint"]
+    assert "InfoBM" in res["details"]["similar"]
+
+
 def test_list_bookmarks(mock_ctx):
     doc = mock_ctx.doc
     mock_bookmarks = MagicMock()

@@ -149,6 +149,7 @@ def _nlp_result(text: str, lang: str | None, context: dict[str, Any] | None, ext
         truncated = {
             "analyzed_chars": _MAX_ANALYZED_CHARS,
             "total_chars": len(text),
+            "hint": "Analysis used the first analyzed_chars of total_chars.",
         }
         text = text[:_MAX_ANALYZED_CHARS]
     doc = nlp(text)

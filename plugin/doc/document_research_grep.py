@@ -501,4 +501,8 @@ def grep_nearby_files(
     }
     if errors:
         result["errors"] = errors
+    if truncated_files or stopped_early:
+        result["hint"] = (
+            "File list or snippet list hit its cap. Narrow filter, pattern, or file_subset."
+        )
     return result

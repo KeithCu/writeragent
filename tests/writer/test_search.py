@@ -171,6 +171,8 @@ def test_search_in_document_default_max_results_is_20():
     assert res["returned"] == 20
     assert res["count"] == 25
     assert "truncated" not in res
+    assert "hint" in res
+    assert "25" in res["hint"]
 
 
 def test_find_next_after_match_stops_on_empty_string():

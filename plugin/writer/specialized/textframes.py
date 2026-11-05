@@ -57,6 +57,7 @@ def _frame_or_error(tool: Any, ctx: Any, name: str | None) -> Any:
         name,
         missing_msg="Document does not support text frames.",
         not_found_msg="Text frame '%s' not found." % name,
+        list_tool="frame_list",
     )
 
 
@@ -136,6 +137,17 @@ class FrameGetInfo(ToolWriterTextFramesBase):
             "content_length": content_length,
             "truncated": truncated,
             "paragraph_index": paragraph_index,
+            **(
+                {
+                    "hint": (
+                        "content is the first 4000 of %d characters. This tool has no offset. "
+                        "Read the body with get_document_content scope='range'."
+                        % content_length
+                    )
+                }
+                if truncated
+                else {}
+            ),
         }
 
 

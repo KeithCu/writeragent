@@ -193,6 +193,8 @@ def test_frame_get_info_truncation_and_non_body_anchor(monkeypatch):
     assert len(res["content"]) == 4000
     assert res["content_length"] == 5000
     assert res["truncated"] is True
+    assert "4000" in res["hint"]
+    assert "get_document_content" in res["hint"]
     assert res["paragraph_index"] is None
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 

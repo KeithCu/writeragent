@@ -49,6 +49,7 @@ from plugin.framework.errors import (
     format_error_payload,
     is_disposal,
     make_tool_error,
+    name_miss_details,
     resolve_exception_message,
 )
 from plugin.framework.json_utils import safe_json_loads
@@ -418,7 +419,15 @@ class ToolBase(_ToolErrorMixin, ABC):
             return self._tool_error(msg, code="UNO_OBJECT_ERROR", getter_name=getter_name)
         return getattr(doc, getter_name)()
 
-    def get_item(self, doc: Any, getter_name: str, item_name: str, missing_msg: str | None = None, not_found_msg: str | None = None) -> Any:
+    def get_item(
+        self,
+        doc: Any,
+        getter_name: str,
+        item_name: str,
+        missing_msg: str | None = None,
+        not_found_msg: str | None = None,
+        list_tool: str | None = None,
+    ) -> Any:
         """Helper to fetch a specific item from a document's collection.
 
         Args:
@@ -427,6 +436,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             item_name: Name of the item to retrieve.
             missing_msg: Error message if the collection getter is missing.
             not_found_msg: Error message if the item doesn't exist.
+            list_tool: When set, adds ``details.hint`` / ``details.similar`` on a name miss.
 
         Returns:
             The UNO item object, or a dict with {"status": "error", "message": ..., "available": [...]}
@@ -438,7 +448,14 @@ class ToolBase(_ToolErrorMixin, ABC):
         if not collection.hasByName(item_name):
             available = list(collection.getElementNames())
             msg = not_found_msg or f"Item '{item_name}' not found."
-            return self._tool_error(msg, code="UNO_OBJECT_ERROR", item_name=item_name, getter_name=getter_name, available=available)
+            extra: dict[str, Any] = {
+                "item_name": item_name,
+                "getter_name": getter_name,
+                "available": available,
+            }
+            if list_tool:
+                extra.update(name_miss_details(item_name, [str(n) for n in available], list_tool))
+            return self._tool_error(msg, code="UNO_OBJECT_ERROR", **extra)
 
         return collection.getByName(item_name)
 

@@ -24,7 +24,7 @@ plugin framework.
 
 from typing import Any, NamedTuple
 
-from plugin.framework.errors import UnoObjectError, uno_read
+from plugin.framework.errors import UnoObjectError, name_miss_details, uno_read
 from plugin.calc.address_utils import (
     format_range_address,
     parse_address,
@@ -170,7 +170,10 @@ class CalcBridge:
         if not sheets.hasByName(name):
             available = filter_agent_sheet_names(sheets.getElementNames())
             # Sheet tools propagate this UnoObjectError; execute_safe keeps WriterAgentException text.
-            raise UnoObjectError("No sheet named '%s'. Available: %s" % (name, ", ".join(available)))
+            raise UnoObjectError(
+                "No sheet named '%s'. Available: %s" % (name, ", ".join(available)),
+                details=name_miss_details(name, available, "sheet_list"),
+            )
         return sheets.getByName(name)
 
     def resolve(self, ref: str, sheet_name: str | None = None) -> tuple[Any, str]:

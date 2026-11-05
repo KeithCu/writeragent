@@ -1013,6 +1013,12 @@ class SearchInDocument(ToolBase):
             result["truncated"] = True
             result["warning"] = warning
 
+        returned = len(matches)
+        if returned < total_count and warning is None:
+            result["hint"] = (
+                "Showing %d of %d. Narrow the query. This tool has no offset." % (returned, total_count)
+            )
+
         return result
 
 

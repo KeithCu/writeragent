@@ -26,6 +26,7 @@ import uno
 from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
+from plugin.framework.errors import name_miss_details
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
@@ -69,8 +70,11 @@ class _ReplyNotRegistered(Exception):
     pass
 
 
-def _comment_not_found(message: str, **extra: Any) -> dict[str, Any]:
-    return {"status": "error", "code": "COMMENT_NOT_FOUND", "message": message, **extra}
+def _comment_not_found(message: str, *, details: dict[str, Any] | None = None, **extra: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"status": "error", "code": "COMMENT_NOT_FOUND", "message": message, **extra}
+    if details:
+        payload["details"] = details
+    return payload
 
 
 def _reply_error(message: str, parent_name: str, **extra: Any) -> dict[str, Any]:
@@ -144,6 +148,7 @@ class AddComment(ToolBase):
                 return _comment_not_found(
                     "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
                     comment_added=False,
+                    details=_comment_miss_details(ctx.doc, parent_name),
                 )
             try:
                 reply_name = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
@@ -285,8 +290,12 @@ class CommentDelete(ToolWriterCommentBase):
             # A miss must be an ERROR: "ok, deleted: 0" reads as success and the agent then
             # reports a deletion that never happened.
             what = ("comment_name '%s'" % comment_name) if comment_name else ("author '%s'" % author)
+            details = None
+            if comment_name:
+                details = _comment_miss_details(doc, comment_name)
             return _comment_not_found(
                 "No comment matched %s. Call comment_list to see the current names and authors." % what,
+                details=details,
                 deleted=0,
             )
 
@@ -341,6 +350,7 @@ class CommentResolve(ToolWriterCommentBase):
         if target is None:
             return _comment_not_found(
                 "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
+                details=_comment_miss_details(doc, comment_name),
             )
 
         from ..edit_review import next_agent_edit_undo_title
@@ -537,6 +547,12 @@ def _annotation_name(field: Any) -> str:
 def _annotation_field_names(doc: Any) -> list[str]:
     """Name of each Annotation on *doc* (empty string when Name is unset)."""
     return [_annotation_name(field) for field in _iter_annotations(doc)]
+
+
+def _comment_miss_details(doc: Any, wanted: str) -> dict[str, Any]:
+    """Miss payload for a comment name lookup (uses the same name list as comment_list)."""
+    names = [n for n in _annotation_field_names(doc) if n]
+    return name_miss_details(wanted, names, "comment_list")
 
 
 def _ensure_annotation_name(field: Any, names: list[str]) -> str:
