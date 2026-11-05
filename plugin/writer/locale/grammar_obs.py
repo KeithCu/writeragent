@@ -183,6 +183,28 @@ class GrammarStatus:
     def failed(self, text: str, *, result: str = "") -> None:
         self._deliver("failed", text, result=result)
 
+    def relay_status_update(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        """Deliver one status phase without touching begin/end cycle counters (composite sinks)."""
+        self._deliver(
+            phase,
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+            routine=routine,
+        )
+
     def begin_status_cycle(self) -> None:
         """Mark one batch in flight (sidebar/status-bar done is deferred)."""
         with self._lock:
@@ -274,6 +296,10 @@ class StatusBarGrammarStatus(GrammarStatus):
         self._indicator = None
         self._label = label
 
+    def is_active(self) -> bool:
+        """True when an XStatusIndicator session is open on the status bar."""
+        return self._indicator is not None
+
     def _deliver(
         self,
         phase: str,
@@ -355,6 +381,32 @@ class StatusBarGrammarStatus(GrammarStatus):
             self._indicator = None
 
 
+def _should_paint_writeragent_status_bar(
+    phase: str,
+    routine: bool,
+    status_bar: StatusBarGrammarStatus,
+    *,
+    bus_has_subscribers: bool,
+) -> bool:
+    """Whether WriterAgent should mirror this grammar update on the LO status bar.
+
+    Failures always paint. When nobody listens on ``grammar:status`` (e.g. Calc
+    sidebar drops the event), paint so progress is still visible. For routine
+    terminal phases, paint only when a bar indicator is already active so a
+    progress line can end cleanly instead of leaving a stale bar (issue #768).
+
+    ``bus_has_subscribers`` can change before delivery; an extra or missed bar
+    paint is benign.
+    """
+    if phase == "failed":
+        return True
+    if not bus_has_subscribers:
+        return True
+    if routine and phase in _TERMINAL_STATUS_PHASES and status_bar.is_active():
+        return True
+    return False
+
+
 class WriterAgentGrammarStatus(GrammarStatus):
     """WriterAgent: sidebar bus plus optional status-bar fallback."""
 
@@ -377,7 +429,7 @@ class WriterAgentGrammarStatus(GrammarStatus):
         length_hint: int | None = None,
         routine: bool = False,
     ) -> None:
-        self._sidebar._deliver(
+        self._sidebar.relay_status_update(
             phase,
             text,
             result=result,
@@ -386,18 +438,13 @@ class WriterAgentGrammarStatus(GrammarStatus):
             length_hint=length_hint,
             routine=routine,
         )
-        paint_status_bar = phase == "failed"
-        if not paint_status_bar and not get_event_bus().has_subscribers("grammar:status"):
-            paint_status_bar = True
-        if (
-            not paint_status_bar
-            and routine
-            and phase in _TERMINAL_STATUS_PHASES
-            and self._status_bar._indicator is not None
+        if _should_paint_writeragent_status_bar(
+            phase,
+            routine,
+            self._status_bar,
+            bus_has_subscribers=get_event_bus().has_subscribers("grammar:status"),
         ):
-            paint_status_bar = True
-        if paint_status_bar:
-            self._status_bar._deliver(
+            self._status_bar.relay_status_update(
                 phase,
                 text,
                 result=result,
