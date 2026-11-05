@@ -73,11 +73,20 @@ def _text_surfaces(shape: Any) -> list[Any]:
 
 
 def _append_text_target(targets: list[Any], shape: Any) -> None:
-    for surface in _text_surfaces(shape):
+    surfaces = _text_surfaces(shape)
+    non_empty: list[tuple[Any, str]] = []
+    for surface in surfaces:
         text = _read_text(surface)
         if text:
+            non_empty.append((surface, text))
+    if not non_empty:
+        return
+    # Prefer the shape object when it holds the same text; Impress undo stacks more reliably on the shape.
+    for surface, unused_text in non_empty:
+        if surface is shape:
             targets.append(surface)
             return
+    targets.append(non_empty[0][0])
 
 
 def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool]) -> None:

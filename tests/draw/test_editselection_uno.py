@@ -22,6 +22,13 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
     shape = doc.createInstance("com.sun.star.drawing.TextShape")
     page.add(shape)
     _set_shape_text(shape, "Hello")
+    if hasattr(shape, "setString"):
+        try:
+            synced = shape.getString() or shape.getText().getString()
+            if synced:
+                shape.setString(synced)
+        except Exception:
+            pass
     controller = doc.getCurrentController()
     if hasattr(controller, "setCurrentPage"):
         controller.setCurrentPage(page)
@@ -34,12 +41,16 @@ def test_impress_text_shape_selection_target(ctx: Any, doc: Any) -> None:
 
     title = _("WriterAgent: Edit Selection (Draw)")
     undo = WriterCompoundUndo(doc, title)
+    assert undo.entered, "compound undo should enter on Impress"
     targets[0].setString("Hi")
     undo.close()
 
     undo_mgr = doc.getUndoManager()
-    titles = undo_mgr.getAllUndoActionTitles()
-    assert titles[0] == title
+    titles = list(undo_mgr.getAllUndoActionTitles())
+    assert titles, "expected an undo action after edit selection"
+    newest = titles[0]
+    label = getattr(newest, "Title", newest)
+    assert str(label) == title
     undo_mgr.undo()
     assert targets[0].getString() == "Hello"
 
