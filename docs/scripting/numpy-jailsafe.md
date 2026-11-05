@@ -790,7 +790,7 @@ Code / product gaps still relevant for a Collabora-facing PR (overlaps the open 
 | 2 | **Authoring UX** | Browser Monaco / Run Script / diagnostics. Not pywebview in the jail. |
 | 3 | **Excel files** | Use the LibrePy OOXML rewriter; Online calls convert on open/save (or a thin filter hook). |
 | 4 | **OCR** | Expose LibrePy-style local OCR, plus a config settings UI. |
-| 5 | **Science** | Helper analysis tools; admin-baked domain stacks in the image. |
+| 5 | **Science** | Helper analysis tools; admin-baked domain stacks in the image. Viz, symbolic, units, and quant run in the compute image; the calc facade stays out. |
 
 ### Baby steps
 

@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
 
 class AgentBackend:
-    """Contract for pluggable agent backends (builtin plus the five ACP backends).
+    """Contract for pluggable agent backends (builtin plus the six ACP backends).
 
     Inputs: user_message, document_context, document_url (for MCP targeting),
     optional system_prompt.

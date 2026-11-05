@@ -206,11 +206,65 @@ def test_extract_structure_return_only_skips_insert(
 
 
 def test_extract_structure_rejects_unsupported_doc(tool_ctx):
-    tool_ctx.doc_type = "draw"
+    tool_ctx.doc_type = "notebook"
     tool = ExtractStructureFromImage()
     result = tool.execute(tool_ctx)
     assert result["status"] == "error"
-    assert "Writer or Calc" in result.get("message", "")
+    assert "Draw" in result.get("message", "")
+
+
+@patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
+def test_extract_structure_draw_omitted_insert_is_return_only(mock_run, tool_ctx):
+    mock_run.return_value = {"status": "ok", "full_text": "scan", "inserted": False}
+    tool = ExtractStructureFromImage()
+    for doc_type in ("draw", "impress"):
+        tool_ctx.doc_type = doc_type
+        result = tool.execute(tool_ctx)
+        assert result["status"] == "ok"
+        assert mock_run.call_args.kwargs["insert_into_document"] is False
+
+
+@patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
+def test_extract_structure_draw_true_is_vision_error(mock_run, tool_ctx):
+    tool_ctx.doc_type = "draw"
+    result = ExtractStructureFromImage().execute(tool_ctx, insert_into_document=True)
+    assert result["status"] == "error"
+    assert result.get("code") == "VISION_ERROR"
+    mock_run.assert_not_called()
+
+
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
+@patch.object(ExtractStructureFromImage, "execute", return_value={"status": "ok"})
+def test_delegate_draw_vision_passes_insert_false(mock_execute, _avail):
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.doc_type = "draw"
+    out = DelegateToSpecializedDraw().execute(ctx, domain="vision", task="")
+    assert out["status"] == "ok"
+    mock_execute.assert_called_once()
+    assert mock_execute.call_args.kwargs["insert_into_document"] is False
+
+
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
+def test_vision_directive_draw_names_draw_gateway(_mock_avail):
+    from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE
+    from plugin.vision.vision_availability import get_vision_core_directive
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda svc: svc in (DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
+    text = get_vision_core_directive(doc, MagicMock())
+    assert 'delegate_to_specialized_draw_toolset(domain="vision"' in text
+    assert "nothing is inserted" in text.lower()
+
+
+def test_supports_vision_manual_true_for_draw():
+    from plugin.vision.vision_runner import supports_vision_manual
+
+    doc = MagicMock()
+    with patch("plugin.vision.vision_runner.is_draw", return_value=True):
+        assert supports_vision_manual(doc) is True
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)

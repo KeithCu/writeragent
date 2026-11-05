@@ -111,8 +111,8 @@ def _infrastructure_status(payload: dict[str, Any]) -> str | None:
     503 is only the miss-and-retry set. A crash, an empty frame, or a
     dict-shaped worker fault (``WORKER_EXECUTION_ERROR``,
     ``VISION_WORKER_ERROR``) is 500. Bad vision input and a denied OCR
-    path are 400. OCR disabled is 501. Raw ``result_json`` never reaches
-    this map.
+    path are 400. OCR disabled or a missing OCR backend module is 501.
+    Raw ``result_json`` never reaches this map.
     """
     if payload.get("status") != "error":
         return None

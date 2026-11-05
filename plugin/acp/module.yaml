@@ -22,6 +22,8 @@ config:
         label: Grok Build
       - value: opencode
         label: OpenCode
+      - value: antigravity
+        label: Antigravity
 
   path:
     type: string

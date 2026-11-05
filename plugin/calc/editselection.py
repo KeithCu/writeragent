@@ -39,6 +39,7 @@ def do_calc_extend_edit(
     *,
     preset_instruction: str | None = None,
     sidebar_notify: Callable[[str], None] | None = None,
+    allow_whole_document: bool = False,
 ) -> None:
     sheet = model.CurrentController.ActiveSheet
     selection = model.CurrentController.Selection
@@ -76,11 +77,21 @@ def do_calc_extend_edit(
     end_row = min(area.EndRow, used_area.EndRow)
 
     if start_col > end_col or start_row > end_row:
-        if preset_instruction is not None and sidebar_notify is not None:
-            sidebar_notify(_("Select one or more non-empty cells."))
+        # Calc always has an active cell; slash edit with allow_whole_document uses the used
+        # range when the selection misses the data rectangle (same flag as Writer whole-body edit).
+        # The edit is one compound undo step (same as other Calc cell edits) and still capped at
+        # _MAX_CELLS non-empty cells below.
+        if is_edit and allow_whole_document:
+            start_col = used_area.StartColumn
+            end_col = used_area.EndColumn
+            start_row = used_area.StartRow
+            end_row = used_area.EndRow
+        if start_col > end_col or start_row > end_row:
+            if preset_instruction is not None and sidebar_notify is not None:
+                sidebar_notify(_("Select one or more non-empty cells."))
+                return
+            msgbox(ctx, title, _("Select one or more non-empty cells."))
             return
-        msgbox(ctx, title, _("Select one or more non-empty cells."))
-        return
 
     cell_range = sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row)
     formula_array = cell_range.getFormulaArray()

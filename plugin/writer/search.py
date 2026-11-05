@@ -103,6 +103,11 @@ def invalid_regex_tool_message(rex_msg: str) -> str:
     )
 
 
+def search_results_cap_hint(returned: int, total_count: int) -> str:
+    """Hint when a capped search omits matches (no offset pagination)."""
+    return "Showing %d of %d. Narrow the query. This tool has no offset." % (returned, total_count)
+
+
 def normalize_search_string_for_find(s: str) -> str:
     """Collapse horizontal whitespace (incl. NBSP); preserve newlines for literal find."""
     return re_mod.sub(HORIZONTAL_SPACE_CLASS + "+", " ", s).strip()
@@ -1015,9 +1020,7 @@ class SearchInDocument(ToolBase):
 
         returned = len(matches)
         if returned < total_count and warning is None:
-            result["hint"] = (
-                "Showing %d of %d. Narrow the query. This tool has no offset." % (returned, total_count)
-            )
+            result["hint"] = search_results_cap_hint(returned, total_count)
 
         return result
 

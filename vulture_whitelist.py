@@ -263,6 +263,7 @@ _.ProtectSheet  # class: plugin/calc/sheets.py:156
 _.QueryFolderSqlTool  # class: plugin/calc/duckdb_tools.py:37
 _.ReadCellRange  # class: plugin/calc/cells.py:412
 _.ReadSlideText  # class: plugin/draw/pages.py:189
+_.SearchSlides  # class: plugin/draw/pages.py
 _.Redo  # class: plugin/doc/undo.py:142
 _.RefreshPivotTable  # class: plugin/calc/pivot.py:208
 _.RegisterDataSource  # class: plugin/writer/specialized/mail_merge.py:167

@@ -304,3 +304,15 @@ def test_text_analytics_sentiment_engine_is_not_a_config_field() -> None:
     assert "text_analytics_sentiment_engine" not in field_names
     assert "text_analytics_sentiment_model" in field_names
 
+
+def test_removed_chatbot_context_and_depth_schema_keys() -> None:
+    from plugin.framework.config_schema import get_config_schema
+
+    assert get_config_schema("chatbot.context_strategy") is None
+    assert get_config_schema("chatbot.deep_research_depth") is None
+    rounds = get_config_schema("chatbot.deep_research_max_rounds")
+    assert rounds is not None
+    assert rounds.get("min") == 1
+    assert rounds.get("max") == 6
+    assert rounds.get("default") == 3
+

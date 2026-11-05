@@ -17,16 +17,25 @@
 """Page/slide management tools for Draw/Impress documents."""
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from plugin.framework.doc_type import is_impress
 from plugin.draw.bridge import DrawBridge, page_size
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.masters import iter_masters
-from plugin.framework.errors import is_disposal
+from plugin.draw.tables import table_cells_for_shape, table_matrix_to_tsv
+from plugin.draw.tree import is_group, iter_shape_addresses
+from plugin.framework.errors import available_miss_details, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.errors import available_miss_details
 from plugin.framework.uno_context import uno_same
+from plugin.writer.search import (
+    DEFAULT_SEARCH_RESULTS,
+    MAX_SEARCH_HITS,
+    invalid_regex_tool_message,
+    search_results_cap_hint,
+    shape_text_hits,
+    validate_regex_pattern,
+)
 
 log = logging.getLogger("writeragent.draw.pages")
 
@@ -216,37 +225,164 @@ class ListPages(ToolBase):
         return {"status": "ok", "pages": labels, "count": count, "active_page_index": active_idx}
 
 
+def _shape_tree_address(path: str) -> int | str:
+    return int(path) if "." not in path else path
+
+
+def iter_shape_text_units(page: Any, *, table_mode: Literal["per_cell", "tsv"] = "per_cell"):
+    """Yield (address, shape_name, text) for read/search over shape text.
+
+    Skips group containers. Tables use ``table_mode``: one TSV blob (read) or one
+    yield per non-empty cell (search). Disposal propagates; other failures skip
+    the shape and log at debug.
+    """
+    for path, shape, _parent in iter_shape_addresses(page):
+        if is_group(shape):
+            continue
+        addr = _shape_tree_address(path)
+        shape_name = str(getattr(shape, "Name", "") or "")
+        matrix = table_cells_for_shape(shape)
+        if matrix is not None:
+            if table_mode == "tsv":
+                tsv = table_matrix_to_tsv(matrix)
+                if tsv:
+                    yield addr, shape_name, tsv
+            else:
+                for row in matrix:
+                    for cell in row:
+                        text = cell.strip()
+                        if text:
+                            yield addr, shape_name, text
+            continue
+        try:
+            text = shape.getString()
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            log.debug("iter_shape_text_units getString failed", exc_info=True)
+            continue
+        if text and str(text).strip():
+            yield addr, shape_name, str(text).strip()
+
+
 class ReadSlideText(ToolBase):
     """Read all text content from a slide plus speaker notes."""
 
     name: str | None = "read_slide_text"
-    description: str = "Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape."
+    description: str = (
+        "Read text from shapes on a slide (including grouped descendants and table cells as TSV) "
+        "and speaker notes. Returns structured text per shape or table."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
     uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import notes_text
-        from plugin.framework.errors import is_disposal
 
         bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
-        texts = []
-        for i in range(page.getCount()):
-            shape = page.getByIndex(i)
-            try:
-                txt = shape.getString()
-                if txt and txt.strip():
-                    texts.append({"index": i, "text": txt, "shape_name": shape.Name})
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
+        texts: list[dict[str, Any]] = []
+        for addr, shape_name, text in iter_shape_text_units(page, table_mode="tsv"):
+            texts.append({"index": addr, "text": text, "shape_name": shape_name})
 
         nt = notes_text(page)
         notes_str = "" if nt is None else nt
 
         return {"status": "ok", "page": actual_idx, "texts": texts, "notes": notes_str}
+
+
+class SearchSlides(ToolBase):
+    """Search shape text and speaker notes across Draw/Impress slides."""
+
+    name: str | None = "search_slides"
+    description: str = (
+        "Search text in slide shapes (including grouped descendants and table cells) and speaker notes. "
+        "Each match reports the page, shape name, matched text, and shape index when available."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "description": "Search string or regex pattern."},
+            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
+            "max_results": {
+                "type": "integer",
+                "description": "Maximum results to return (default: %d). Must be a positive integer." % DEFAULT_SEARCH_RESULTS,
+            },
+        },
+        "required": ["pattern"],
+    }
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
+    doc_types: list[str] | None = ["draw", "impress"]
+    tier: str = "core"
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        from plugin.draw.bridge import notes_text
+
+        raw_max = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
+        if type(raw_max) is not int or raw_max < 1:
+            return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
+        max_results = raw_max
+
+        pattern = kwargs["pattern"]
+        assert isinstance(pattern, str)
+        if not pattern:
+            return self._tool_error("pattern is required.")
+
+        use_regex = kwargs.get("regex", False)
+        case_sensitive = kwargs.get("case_sensitive", False)
+
+        if use_regex:
+            rex_err = validate_regex_pattern(pattern)
+            if rex_err:
+                return self._tool_error(invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
+
+        bridge = DrawBridge(ctx.doc)
+        pages = bridge.get_pages()
+        matches: list[dict[str, Any]] = []
+        total_count = 0
+
+        def append_hit(page_idx: int, shape_name: str, hit_text: str, index: int | str | None) -> None:
+            nonlocal total_count
+            if total_count >= MAX_SEARCH_HITS:
+                return
+            total_count += 1
+            if len(matches) < max_results:
+                entry: dict[str, Any] = {"page": page_idx, "shape_name": shape_name, "text": hit_text}
+                if index is not None:
+                    entry["index"] = index
+                matches.append(entry)
+
+        page_count = pages.getCount()
+        for page_idx in range(page_count):
+            if total_count >= MAX_SEARCH_HITS:
+                break
+            page = pages.getByIndex(page_idx)
+            for addr, shape_name, unit_text in iter_shape_text_units(page, table_mode="per_cell"):
+                if total_count >= MAX_SEARCH_HITS:
+                    break
+                for hit in shape_text_hits(unit_text, pattern, use_regex, case_sensitive):
+                    append_hit(page_idx, shape_name, hit, addr)
+                    if total_count >= MAX_SEARCH_HITS or len(matches) >= max_results:
+                        break
+            notes = notes_text(page)
+            if notes and total_count < MAX_SEARCH_HITS:
+                for hit in shape_text_hits(notes, pattern, use_regex, case_sensitive):
+                    append_hit(page_idx, "Notes", hit, None)
+                    if total_count >= MAX_SEARCH_HITS or len(matches) >= max_results:
+                        break
+
+        result: dict[str, Any] = {
+            "status": "ok",
+            "matches": matches,
+            "count": total_count,
+            "returned": len(matches),
+        }
+        if len(matches) < total_count:
+            result["hint"] = search_results_cap_hint(len(matches), total_count)
+        return result
 
 
 class GetPresentationInfo(ToolBase):

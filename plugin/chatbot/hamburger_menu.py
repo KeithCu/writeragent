@@ -75,9 +75,10 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
             menu.insertSeparator(pos)
             return pos + 1
 
-        # 1. Edit / Extend selection
-        pos = add_item(popup, _("Extend Selection"), "chatbot.extend_selection", pos)
-        pos = add_item(popup, _("Edit Selection"), "chatbot.edit_selection", pos)
+        # 1. Edit / Extend selection (Draw/Impress: menubar Addons.xcu still offers these with msgbox)
+        if not is_draw_doc:
+            pos = add_item(popup, _("Extend Selection"), "chatbot.extend_selection", pos)
+            pos = add_item(popup, _("Edit Selection"), "chatbot.edit_selection", pos)
 
         # 2. Separator
         pos = add_separator(popup, pos)

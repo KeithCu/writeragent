@@ -1,6 +1,6 @@
 # Image Recognition — Design (Local OCR & Detection)
 
-**Status:** **Phase 1 + Phase 1b (Calc) + Phase 2 + Phase 3 + Phase 6 partial (LLM `extract_structure`) shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`, `[Vision] extract_structure`) on **Writer and Calc**; chat **`domain=vision`** + **`extract_structure_from_image`** when Settings → Python venv has Docling/Paddle + css-inline (gated — hidden when stack missing). Draw/Impress egress → **Phase 1b.2** (deferred). Full **`analyze_image`** multi-helper / multimodal chat image parts → later.
+**Status:** **Phase 1 + Phase 1b (Calc) + Phase 2 + Phase 3 + Phase 6 partial (LLM `extract_structure`) shipped** — Run Python Script **Vision Helpers** (`[Vision] extract_text`, `[Vision] extract_structure`) on **Writer, Calc, Draw, and Impress** (Draw/Impress return text only; no document insert). Chat **`domain=vision`** + **`extract_structure_from_image`** when Settings → Python venv has Docling/Paddle + css-inline (gated — hidden when stack missing). Draw/Impress text-box egress → **Phase 1b.2** (deferred). Full **`analyze_image`** multi-helper / multimodal chat image parts → later.
 
 WriterAgent documents (Writer, Calc, Draw/Impress) embed raster images: scans, screenshots, chart photos, slide exports, logos. **LibreOffice handles graphics I/O** (export, insert, replace, dimensions). **Recognition** (OCR, layout, object detection) runs in the user's venv via the same trusted-module pattern as [`analysis.py`](../../plugin/scripting/analysis.py) and [`embeddings_index.py`](../../plugin/scripting/embeddings_index.py).
 
@@ -60,7 +60,7 @@ Users may `pip install` anything else for ad hoc scripts. WriterAgent **document
 
 **Exposure model (in order):**
 
-1. **Manual:** curated **Vision Helpers** in **Tools → Run Python Script…** (**Writer + Calc** shipped; Draw/Impress in **Phase 1b.2**).
+1. **Manual:** curated **Vision Helpers** in **Tools → Run Python Script…** (**Writer, Calc, Draw, and Impress** — Draw/Impress return text only; text-box insert deferred to **Phase 1b.2**).
 2. **Setup:** Settings → Python venv path + **Test** for docling/rapidocr/paddle/ultralytics (**shipped**).
 3. **Later:** one LLM tool (`analyze_image`) calling the same `run_vision` backend — not a separate CV stack.
 
@@ -94,7 +94,7 @@ Mirror [**Analysis Helpers**](../calc/analysis-tools.md#1b-run-python-script--an
 | **Templates** | [`vision_templates.py`](../../plugin/vision/vision_templates.py) with `# writeragent:vision helper=… params=…` header; params include optional **`image_name`** (from `image_list`) |
 | **Input** | User **selects an embedded graphic**, or sets **`image_name`** in params; host exports PNG bytes |
 | **Run** | Fast path in `execute_and_insert_result` → `run_trusted_vision` → `vision_client.run_vision` |
-| **App scope** | **Writer + Calc** — Vision Helpers when [`supports_vision_manual`](plugin/vision/vision_runner.py); Draw/Impress in **Phase 1b.2** |
+| **App scope** | **Writer, Calc, Draw, Impress** — Vision Helpers when [`supports_vision_manual`](plugin/vision/vision_runner.py); Draw/Impress OCR is return-only (no insert). Text-box egress → **Phase 1b.2** |
 
 **Monaco toolbar:** Phase 3 uses **`image_name` in template params** (empty = selection). A dedicated **Image:** toolbar field remains optional follow-on.
 
@@ -132,7 +132,7 @@ First Docling/Paddle model download uses the long trusted worker budget (Docling
 | **Writer** | **1** | Insert pre-built **`html`** immediately after each selected graphic anchor. With **`vision.insert_mode=structured`**, layout HTML is built in the **venv worker** (needs css-inline there), not in LibreOffice's bundled Python |
 | **Writer** | later | Optional **`image_set_properties`** description from OCR summary |
 | **Calc** | **1b** | Default: insert **`html`** into cell below graphic anchor. **`vision.insert_mode=structured`** + **`extract_structure`**: write `tables[]` (and prose `blocks[]`) as a multi-cell grid via [`insert_vision_structure_into_calc`](../../plugin/calc/vision_egress.py) |
-| **Draw / Impress** | **1b.2** | Text box near selected graphic; shape annotations later |
+| **Draw / Impress** | **1b (return-only OCR)** | Chat tool + Run Python Script return text; text box insert near graphic → **Phase 1b.2** |
 
 **Selection vs output anchor:** On **Writer**, select one **image**, multi-select graphics, or a **text range containing images**; OCR runs per graphic and HTML is inserted **after each** graphic (host collapses the selection before insert so a range selection cannot replace intervening text). On **Calc**, the selected graphic's **anchor cell** defines the sheet insert row (one row below on the graphic's own sheet; the HTML path activates that sheet); the image must be cell-anchored (single graphic only).
 

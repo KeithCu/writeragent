@@ -279,3 +279,45 @@ def test_draw_nested_group_shapes_summary_edit_delete(ctx, doc):
     summary4_indices = [s["index"] for s in summary4["shapes"]]
     assert target_path not in summary4_indices
 
+
+@native_test
+@with_native_doc("writer", reuse=False)
+def test_writer_align_two_rectangles(ctx, doc):
+    from plugin.draw.shapes import AlignShapes, UpsertShape
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="writer", services=None, caller="test")
+    page = doc.getDrawPages().getByIndex(0)
+    start = page.getCount()
+    upsert = UpsertShape()
+    for x in (1000, 6000):
+        out = upsert.execute(
+            tctx,
+            action="create",
+            shape_type="rectangle",
+            page=0,
+            x=x,
+            y=1000,
+            width=2000,
+            height=1500,
+        )
+        assert out.get("status") == "ok", out
+    aligned = AlignShapes().execute(tctx, indices=[start, start + 1], alignment="left", page=0)
+    assert aligned.get("status") == "ok", aligned
+
+
+@native_test
+@with_native_doc("calc", reuse=False)
+def test_calc_shape_diagram_one_node(ctx, doc):
+    from plugin.draw.shapes import CreateDiagram
+    from plugin.framework.tool import ToolContext
+
+    tctx = ToolContext(doc=doc, ctx=ctx, doc_type="calc", services=None, caller="test")
+    out = CreateDiagram().execute(
+        tctx,
+        page=0,
+        layout="horizontal_flow",
+        nodes=[{"id": "a", "text": "Only"}],
+    )
+    assert out.get("status") == "ok", out
+

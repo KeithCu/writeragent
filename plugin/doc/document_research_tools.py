@@ -12,6 +12,8 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from plugin.chatbot.agent_manual import (
+    calc_topic_list_text,
+    draw_topic_list_text,
     get_section,
     list_topics,
     manual_index,
@@ -320,7 +322,9 @@ class GetGuidance(ToolBase):
     description: str = (
         "Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; "
         "call with a topic to read just that section (so you don't load everything). Topics follow the "
-        f"open document's type (for Writer: {writer_topic_list_text()}). Use this when unsure how an edit, the review modes, search, or image ops work. "
+        f"open document's type (for Writer: {writer_topic_list_text()}). "
+        f"Calc: {calc_topic_list_text()}. Draw and Impress: {draw_topic_list_text()}. "
+        "Use this when unsure how an edit, the review modes, search, or image ops work. "
         "The no-topic index also returns current_local_datetime."
     )
     # Core, not mcp-exclusive: the sidebar's HYBRID prompt keeps search/navigation/images out of

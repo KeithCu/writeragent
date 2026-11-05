@@ -5,7 +5,7 @@
 """Tests for FizzBee formal modeling and full-layout MCP testing for Calc tools.
 
 Covers:
-- Full Calc layout extraction (all 62 tools across core and 12 specialized domains)
+- Full Calc layout extraction (all 67 tools across core and 12 specialized domains)
 - Full MCP schema validation for every Calc tool
 - Tool exposure mode filtering (direct_flat, delegate, direct_discovery)
 - Calc state transition trace replay against MCP protocol handler
@@ -131,8 +131,11 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "run_venv_python_script",
     "search_cells",
     "set_style",
+    "shape_align",
     "shape_connect",
     "shape_delete",
+    "shape_diagram",
+    "shape_distribute",
     "shape_group",
     "shape_summary",
     "shape_upsert",
@@ -147,14 +150,14 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
 
 
 def test_extract_full_calc_layout_count():
-    """Verify that full layout extraction returns all 64 Calc tools across tiers."""
+    """Verify that full layout extraction returns all 67 Calc tools across tiers."""
     layout = extract_full_calc_layout()
 
     all_tool_names = {t.name for t in layout["core_tools"] + layout["specialized_tools"]}
     assert all_tool_names == _EXPECTED_CALC_TOOL_NAMES
-    assert layout["total_count"] == 64
+    assert layout["total_count"] == 67
     assert len(layout["core_tools"]) >= 10
-    assert len(layout["specialized_tools"]) >= 39
+    assert len(layout["specialized_tools"]) >= 42
 
     # Check key core tools
     core_names = {t.name for t in layout["core_tools"]}

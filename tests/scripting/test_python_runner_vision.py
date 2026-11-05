@@ -132,7 +132,7 @@ def test_execute_and_insert_vision_rejects_unsupported_doc(mock_venv):
         outcome = execute_and_insert_result(ctx, doc, code)
 
     assert outcome["ok"] is False
-    assert "Writer or Calc" in outcome["message"]
+    assert "Draw" in outcome["message"]
     mock_venv.assert_not_called()
 
 
@@ -373,6 +373,32 @@ def test_execute_and_insert_vision_inserts_each_individual_result():
     assert second_call_dict["image_name"] == "B"
     assert "images_processed" not in first_call_dict
     assert "images_processed" not in second_call_dict
+
+
+def test_rps_finish_vision_skips_insert_on_draw():
+    from plugin.scripting.python_runner import _finish_vision_execution
+
+    prepared = {
+        "t0": 0.0,
+        "doc": MagicMock(),
+        "ctx": MagicMock(),
+        "helper_name": "extract_structure",
+        "params": {},
+    }
+    response = {
+        "vision_selection_result": {
+            "status": "ok",
+            "images_processed": 1,
+            "individual_results": [{"status": "ok", "helper": "extract_structure", "html": "<p>x</p>"}],
+        }
+    }
+    with patch("plugin.framework.doc_type.is_draw", return_value=True), patch(
+        "plugin.vision.vision_egress.insert_vision_result"
+    ) as mock_insert:
+        out = _finish_vision_execution(prepared, response)
+    assert out["ok"] is True
+    assert "not inserted" in out["status_ok_text"].lower()
+    mock_insert.assert_not_called()
 
 
 def test_execute_and_insert_vision_does_not_read_results_key():

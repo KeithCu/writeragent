@@ -24,3 +24,11 @@ def test_replace_text_in_shape_returns_false_on_ordinary_error():
     shape = MagicMock()
     shape.getText.side_effect = RuntimeError("boom")
     assert replace_text_in_shape(shape, "a", "b") is False
+
+
+def test_writer_layout_tool_names():
+    from plugin.writer.specialized import shapes as writer_shapes
+
+    assert writer_shapes.AlignShapes.name == "shape_align"
+    assert writer_shapes.DistributeShapes.name == "shape_distribute"
+    assert writer_shapes.CreateDiagram.name == "shape_diagram"

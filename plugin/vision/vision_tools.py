@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcVisionBase
+from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.framework.config_schema import as_bool
 from plugin.framework.errors import DocumentDisposedError, ToolExecutionError
 from plugin.framework.i18n import _
@@ -17,8 +18,12 @@ from plugin.vision.vision_runner import run_and_insert_vision_for_selection
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-_VISION_DOC_TYPES = frozenset({"writer", "calc"})
-_VISION_DOCS = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
+_VISION_DOC_TYPES = frozenset({"writer", "calc", "draw", "impress"})
+_VISION_DOCS = [
+    "com.sun.star.text.TextDocument",
+    "com.sun.star.sheet.SpreadsheetDocument",
+    *DRAW_AND_IMPRESS,
+]
 
 
 class ExtractStructureFromImage(ToolCalcVisionBase):
@@ -36,7 +41,13 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         "type": "object",
         "properties": {
             "image_name": {"type": "string", "description": "Graphic name from image_list (images domain). Empty = selected graphic(s)."},
-            "insert_into_document": {"type": "boolean", "description": ("When true (default), insert a high-quality representation into the document. When false, return extracted content only.")},
+            "insert_into_document": {
+                "type": "boolean",
+                "description": (
+                    "When true (default), insert a high-quality representation into the document. "
+                    "When false, return extracted content only. Draw and Impress refuse true."
+                ),
+            },
             "params": {"type": "object", "description": "Optional vision helper overrides (engine, lang, ocr_backend, …)."},
         },
         "required": [],
@@ -52,16 +63,27 @@ class ExtractStructureFromImage(ToolCalcVisionBase):
         # Do not marshal this whole call: venv OCR can take ~120s and would freeze the UI.
         # run_and_insert_vision_for_selection marshals only the UNO export/insert parts.
         if ctx.doc_type not in _VISION_DOC_TYPES:
-            return self._tool_error(_("Vision OCR requires a Writer or Calc document."), code="VISION_ERROR")
+            return self._tool_error(
+                _("Vision OCR requires a Writer, Calc, Draw, or Impress document."),
+                code="VISION_ERROR",
+            )
 
-        doc = ctx.doc
-        insert_into_document = as_bool(kwargs.get("insert_into_document", True))
+        if ctx.doc_type in ("draw", "impress"):
+            if "insert_into_document" in kwargs and as_bool(kwargs["insert_into_document"]):
+                return self._tool_error(
+                    _("Draw and Impress return vision text only; omit insert_into_document or set it to false."),
+                    code="VISION_ERROR",
+                )
+            insert_into_document = False
+        else:
+            insert_into_document = as_bool(kwargs.get("insert_into_document", True))
         params_raw = kwargs.get("params")
         params_dict: dict[str, Any] = dict(params_raw) if params_raw is not None else {}
         image_name = str(kwargs.get("image_name") or "").strip()
         if image_name:
             params_dict["image_name"] = image_name
 
+        doc = ctx.doc
         scope = ctx.send_cancellation
 
         try:
