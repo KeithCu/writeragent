@@ -93,8 +93,8 @@ def test_sort_two_pass_stable_device_before_widget() -> None:
     calc = CalcWorld(
         "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t1200\nAardvark\tn/a"
     )
-    calc.sort_range(sort_column=0, ascending=True, has_header=True)
-    calc.sort_range(sort_column=1, ascending=False, has_header=True)
+    calc.range_sort(sort_column=0, ascending=True, has_header=True)
+    calc.range_sort(sort_column=1, ascending=False, has_header=True)
     names = [row[0] for row in calc._grid[1:]]
     assert names == ["Tool", "Device", "Widget", "Gadget", "Aardvark"]
 

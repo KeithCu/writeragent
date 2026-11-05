@@ -51,7 +51,7 @@ Collabora registers **11 LLM tools** in `AIChatSession::buildToolDefinitions` (`
 | `list_calc_functions` | **Implemented** | [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py) | `.uno:CalcFunctionList` |
 | `evaluate_formula` | **Implemented** | [`plugin/calc/formulas.py`](../../plugin/calc/formulas.py) (moved to specialized `errors` tier to avoid chatbot context pollution, allowing LLMs to try it in planning flows) | `.uno:EvaluateFormula` |
 | `set_cell_formula` | **Partial** | [`write_formula_range`](../../plugin/calc/cells.py) | Approval + `.uno:GoToCell` / `.uno:EnterString` batch |
-| Formula diagnosis | **Partial** | [`detect_and_explain_errors`](../../plugin/calc/errors.py), [`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py) | Browser `.uno:FormulaDepChain` + `helpfixformulaerror` |
+| Formula diagnosis | **Partial** | [`error_detect`](../../plugin/calc/errors.py), [`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py) | Browser `.uno:FormulaDepChain` + `helpfixformulaerror` |
 | `fetch_models` | **Implemented** | [`plugin/framework/client/model_fetcher.py`](../../plugin/framework/client/model_fetcher.py) | `wsd/FileServer.cpp` `/fetch-models` |
 | SSRF / endpoint validation | **Implemented** | `model_fetcher.py`, [`llm_client.py`](../../plugin/framework/client/llm_client.py) | `KIT_HOST_ALLOWLIST` env regex |
 | Undo grouping | **Partial** | [`WriterCompoundUndo`](../../plugin/doc/compound_undo.py) on `write_formula_range`; edit-selection / transform | LOKit batch dispatches; chat/tools not fully grouped |
@@ -135,7 +135,7 @@ Collabora Online has implemented several robust, structured AI interactions. Sin
 ### 11. Formula Dependency Diagnosis (`.uno:FormulaDepChain`)
 
 *   **Collabora**: `Control.AIChatSidebar.ts` — `fetchFormulaDependencyChain`, `diagnoseFormulaError`, entry `helpfixformulaerror` / formula error menu.
-*   **WriterAgent**: Complement `detect_and_explain_errors` with UNO dependency JSON → structured user message (appendix K).
+*   **WriterAgent**: Complement `error_detect` with UNO dependency JSON → structured user message (appendix K).
 *   **Priority**: P0.
 
 ### 12. Rich Impress Slide DSL (`EditTextObject`, extended `SlideCommands`)

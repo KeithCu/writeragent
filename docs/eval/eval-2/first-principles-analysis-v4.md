@@ -17,7 +17,7 @@ Six CLEAN Ready runs finished the chat loop; **zero** produced a rubric-credible
 
 1. **Can’t see the table** — `read_cell_range` caps at 80 cells; truncated message + `WriteCellRange` / `CALC_WORKFLOW` **teach `=PY`**.  
 2. **Wrong actuation** — `=PY` tourism, or native `write_formula_range` that **pins** one formula across 1516 rows (`manipulator.py`: `values = [formula] * total_cells`, then identical `setFormula` per cell).  
-3. **False progress** — `create_sheet` returns ok with an empty tab; create looks like the deliverable.  
+3. **False progress** — `sheet_create` returns ok with an empty tab; create looks like the deliverable.  
 4. **Ready** — `STREAM_DONE` with no `tool_calls` → status Ready (`tool_loop_state.py`); round exhaustion still ends Ready via `SpawnFinalStreamEffect`. No document gate.
 
 Deal-unblocking made runs finish. It did not make the task solvable under current chrome.
@@ -103,7 +103,7 @@ Keep these separate so a later PR does not reintroduce specialized postcondition
 
 1. **First:** make create’s contract unmistakable — description + ok payload (“sheet created; no cells copied”) and a CALC_WORKFLOW one-liner: create ≠ Sample deliverable.  
 2. **Then:** generic **`copy_range`** (source → target sheet/start, optional header, `{rows_copied}`) — copies **whatever range the caller passes**. Do **not** bake “must include J/K” into the tool.  
-3. **Optional later:** put `create_sheet` on the core list if delegation tax still shows up in trials after (1)–(2). That is an **experiment**, not a prerequisite (§5).
+3. **Optional later:** put `sheet_create` on the core list if delegation tax still shows up in trials after (1)–(2). That is an **experiment**, not a prerequisite (§5).
 
 **Eval strategy note (not a tool law):** a strong AFC pattern is write J/K formulas on Sheet1 (fill-down), then `copy_range` of `A1:K…` (or A:H + later fill on Sample) onto Sample. Oracle should check flags **where the deliverable lives** (Sample sheet for eval-2). Alternate patterns exist — see §5.
 
@@ -239,15 +239,15 @@ Several places have **more than one defensible solution**. Don’t collapse them
 
 **Watch:** unit-test cost; headed flake; same-sheet pin fix rate. Prefer B1 unless B2 is clearly cheaper and green.
 
-### Exp C — create_sheet discoverability
+### Exp C — sheet_create discoverability
 
 | Arm | Change |
 |-----|--------|
 | C1 | **Teach only** — description + ok payload “no cells copied” + workflow line (preferred first) |
 | C2 | C1 + create on **core** tool list |
-| C3 | C1 + create stays specialized, but core list gets a one-line pointer (“sheets domain: create_sheet”) |
+| C3 | C1 + create stays specialized, but core list gets a one-line pointer (“sheets domain: sheet_create”) |
 
-**Watch:** rounds to first `create_sheet`; empty-Sample Ready rate after copy exists. **Hypothesis:** C1 is enough; C2 is optional tax cut, not the main bug.
+**Watch:** rounds to first `sheet_create`; empty-Sample Ready rate after copy exists. **Hypothesis:** C1 is enough; C2 is optional tax cut, not the main bug.
 
 ### Exp D — Sample population strategy (prompt/notes, not tool shape)
 
@@ -297,7 +297,7 @@ Several places have **more than one defensible solution**. Don’t collapse them
 | Fill-down of `=PY` / adjusting DataRange across a multi-cell write | risk if fill is naive | New husk class; =PY belongs in one dest cell. |
 | Prefer LO fill API over Python A1-adjust as default | DeepSeek inverse of earlier draft | We **prefer Python first** (unit-testable, no soffice). LO fill is Exp B, not the committed default. |
 | Require day-one support for every sheet-ref dialect before merge | DeepSeek tone | Common `Sheet.H2` / quoted / `$` yes; don’t block actuation on exotic refs. |
-| Promote `create_sheet` to core as the first/primary fix | earlier draft / DeepSeek emphasis | Specialized isn’t the main bug; **teach create≠populate first** (Keith). Core move = Exp C. |
+| Promote `sheet_create` to core as the first/primary fix | earlier draft / DeepSeek emphasis | Specialized isn’t the main bug; **teach create≠populate first** (Keith). Core move = Exp C. |
 | Bake “copy must include J/K” into `copy_range` | DeepSeek | Tool copies the range you pass. J/K strategy is prompt/oracle (Exp D), not tool schema. |
 | `copy/filter-to-sheet` mega-tool | rejected earlier | Filter scope creeps; flags/formulas do selection. |
 | Specialized `rows_written` / completion postconditions | rejected earlier | Gameable, AFC-shaped. |

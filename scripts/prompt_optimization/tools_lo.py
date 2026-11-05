@@ -649,7 +649,7 @@ def normalize_lo_tool(
         elif isinstance(values, (int, float)) and not isinstance(values, bool):
             params["values"] = str(values)
 
-    if prod == "sort_range":
+    if prod == "range_sort":
         col = params.get("sort_column")
         if isinstance(col, str) and headers:
             try:
@@ -682,7 +682,7 @@ def _execute_lo_tool_impl(
     doc = LOBackend.acquire_document()
     headers = None
     used = None
-    if kind == "calc" and name in ("sort_range", "write_cell_range", "write_formula_range", "get_sheet_summary"):
+    if kind == "calc" and name in ("range_sort", "write_cell_range", "write_formula_range", "get_sheet_summary"):
         try:
             headers, used = _sheet_headers_and_used(doc)
         except Exception:

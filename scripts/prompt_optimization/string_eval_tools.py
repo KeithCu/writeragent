@@ -71,7 +71,7 @@ _DRAW_IMPL: dict[str, Callable[[DrawWorld, dict[str, Any]], dict[str, Any]]] = {
 }
 
 _CALC_IMPL: dict[str, Callable[[CalcWorld, dict[str, Any]], dict[str, Any]]] = {
-    "sort_range": lambda s, a: s.sort_range(**a),
+    "range_sort": lambda s, a: s.range_sort(**a),
     "write_formula_range": lambda s, a: s.write_formula_range(**a),
     "write_cell_range": lambda s, a: s.write_formula_range(**a),
     "get_sheet_summary": lambda s, a: s.get_sheet_summary(**a),

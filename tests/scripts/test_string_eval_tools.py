@@ -152,14 +152,14 @@ def test_dispatch_unsupported_writer_tool():
 
 def test_calc_sort_range_integer_column():
     state = CalcStringState("Product\tRevenue\nWidget\t1200\nTool\t2100")
-    res = state.sort_range(sort_column=1, ascending=False)
+    res = state.range_sort(sort_column=1, ascending=False)
     assert res["status"] == "ok"
     assert state._grid[1][0] == "Tool"
 
 
 def test_calc_sort_mixed_types_non_numeric_last() -> None:
     state = CalcStringState("Product\tRevenue\nWidget\t1200\nAardvark\tn/a\nTool\t2100")
-    res = state.sort_range(sort_column=1, ascending=False)
+    res = state.range_sort(sort_column=1, ascending=False)
     assert res["status"] == "ok"
     names = [row[0] for row in state._grid[1:]]
     assert names[-1] == "Aardvark"

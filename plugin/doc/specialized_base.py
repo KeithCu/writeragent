@@ -273,7 +273,7 @@ class DelegateToSpecializedBase(ToolBase):
         ctx.active_domain = domain
         # When an accepted inner peer send ran, the outer must Ready (not keep tooling).
         # Inner tool results that already carry web-research-style `instruction`
-        # (create_sheet, etc.) so specialized finish can forward them to the outer.
+        # (sheet_create, etc.) so specialized finish can forward them to the outer.
         cap = SimpleNamespace(
             peer_send_invoked=False,
             peer_result_send_invoked=False,
@@ -377,7 +377,7 @@ class DelegateToSpecializedBase(ToolBase):
             examples_key = f"{self._agent_label.lower()}:{domain}"
 
             def tool_call_handler(step: Any) -> None:
-                if step.name == "create_sheet":
+                if step.name == "sheet_create":
                     cap.create_sheet_ran = True
                 # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
                 # the tool return, not from this pre-execution call.
@@ -415,7 +415,7 @@ class DelegateToSpecializedBase(ToolBase):
             payload = dict(final_ans)
         else:
             payload = {"status": "ok", "message": _("Specialized task ({domain}) completed.").format(domain=domain), "result": str(final_ans)}
-        # Outer never sees create_sheet's inner-only ok string; forward the same
+        # Outer never sees sheet_create's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
         if domain == "sheets" or cap.create_sheet_ran or cap.captured_tool_results:
             payload = attach_sheets_create_completion_instruction(

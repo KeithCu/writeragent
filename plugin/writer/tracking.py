@@ -18,7 +18,7 @@
 
 Provides the complete suite of specialized track changes tools:
 track_changes_start, track_changes_stop, track_changes_list,
-manage_tracked_changes (accept/reject one or all), and track_changes_show.
+tracking_manage (accept/reject one or all), and track_changes_show.
 """
 
 from __future__ import annotations
@@ -386,7 +386,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "manage_tracked_changes"
+    name: str | None = "tracking_manage"
     description: str = (
         "Accept or reject tracked changes. action=accept/reject requires index "
         "(from track_changes_list). That index is stale after any resolve; call "
@@ -417,7 +417,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         return self._execute_single(ctx, index, is_accept=(action == "accept"))
 
     def _undo_error(self, ctx: ToolContext, problem: str,
-                    log_message: str = "manage_tracked_changes: undo of a bad resolve failed",
+                    log_message: str = "tracking_manage: undo of a bad resolve failed",
                     failed_suffix: str = " Undo failed; the document was still changed.") -> dict[str, Any]:
         """Undo the last resolve, then report *problem* plus whether the undo worked."""
         try:
@@ -523,7 +523,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 cur.gotoRange(end, True)
         except Exception:
             # collapsed span (e.g. a deletion) — selecting the start point suffices
-            log.debug("manage_tracked_changes: RedlineEnd unreadable; selecting the start point", exc_info=True)
+            log.debug("tracking_manage: RedlineEnd unreadable; selecting the start point", exc_info=True)
 
         refusal = _overlap_refusal(index, objs, start, end)
         if refusal is not None:
@@ -534,7 +534,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         try:
             previous = controller.getSelection()
         except Exception:
-            log.debug("manage_tracked_changes: could not read the view selection", exc_info=True)
+            log.debug("tracking_manage: could not read the view selection", exc_info=True)
             previous = None
 
         controller.select(cur)
@@ -556,7 +556,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 return self._undo_error(
                     ctx,
                     "Agent edit was resolved, which is forbidden.",
-                    "manage_tracked_changes: undo of a forbidden agent resolution failed",
+                    "tracking_manage: undo of a forbidden agent resolution failed",
                     " Undo failed; the change is still resolved.",
                 )
 
@@ -579,4 +579,4 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 try:
                     controller.select(previous)
                 except Exception:
-                    log.exception("manage_tracked_changes: could not restore the view selection")
+                    log.exception("tracking_manage: could not restore the view selection")

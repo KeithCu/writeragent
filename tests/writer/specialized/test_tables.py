@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""The 'tables' specialized domain: list/get/set cells + insert/delete + manage_table_structure.
+"""The 'tables' specialized domain: list/get/set cells + insert/delete + table_manage_structure.
 Fakes implement the minimal XTextTable protocol; no LibreOffice required."""
 from types import SimpleNamespace
 

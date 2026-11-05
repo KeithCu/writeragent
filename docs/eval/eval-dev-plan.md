@@ -17,8 +17,8 @@ This plan covers the WriterAgent prompt optimization + evaluation system (`scrip
 
 The evaluation system lives in `scripts/prompt_optimization/`:
 - `run_eval.py` / `run_eval_multi.py`: Main entrypoints (`LlmClient` + tool loop from `llm_chat_eval.py`). Eval does not set sampling temperature (LlmClient / provider default). `run_eval_multi.py` **refuses** a full catalog sweep unless `--models` or `--yes-all-models` is set. `--gold-model` runs only with `--generate-golds`. Live `--tools` / `--schema-density` reshape the advertised catalog only (see `eval_catalog` + the prompt_optimization README); they do not change sidebar registration.
-- `run_optimize.py`: MIPROv2 **offline** optimizer. Default `--student llm` wraps that same `llm_chat_eval` loop and rewrites a **named slice** (`calc_core`, `writer_core`, `apply_html`, `sort_range`, …), not the whole ambient prompt. `--student react-mock` is the old DSPy ReAct + `tools_lo` comparison path. Instruction-only (`max_*_demos=0`); does not auto-merge into `prompts.py` / `cells.py`.
-- Default: `--backend string` (Writer/Draw/Calc worlds in `eval_worlds.py` via `string_eval_tools.py`). Skips `backend=lo` rows so the 17-task board stays comparable. Core schemas from `ToolRegistry.get_schemas`. Flowchart uses `delegate_to_specialized_draw_toolset(domain="shapes")`; sort uses `delegate_to_specialized_calc_toolset(domain="ranges")` then one-column `sort_range` (two stable passes for Product then Revenue).
+- `run_optimize.py`: MIPROv2 **offline** optimizer. Default `--student llm` wraps that same `llm_chat_eval` loop and rewrites a **named slice** (`calc_core`, `writer_core`, `apply_html`, `range_sort`, …), not the whole ambient prompt. `--student react-mock` is the old DSPy ReAct + `tools_lo` comparison path. Instruction-only (`max_*_demos=0`); does not auto-merge into `prompts.py` / `cells.py`.
+- Default: `--backend string` (Writer/Draw/Calc worlds in `eval_worlds.py` via `string_eval_tools.py`). Skips `backend=lo` rows so the 17-task board stays comparable. Core schemas from `ToolRegistry.get_schemas`. Flowchart uses `delegate_to_specialized_draw_toolset(domain="shapes")`; sort uses `delegate_to_specialized_calc_toolset(domain="ranges")` then one-column `range_sort` (two stable passes for Product then Revenue).
 - `--backend lo`: Headless UNO via `tools_lo.py` (fidelity smoke, not the ranking board). `--backend auto`: per-row backend. String rows use a pool; LO rows share an agent pool (`--lo-workers`, default 4, cap 5) so LLM waits overlap, and UNO stays serial on one `_lo_thread`. One soffice.
 - Judging: Hard gate is substring + **result oracles** + **process oracles**. Quality LLM-as-judge runs **after** the hard gate for resume, rewriting, summarization, and the two table tasks. Creative weights are accuracy-first (50/20/30); tables are formatting-heavy after the gate (20/80). Unparseable judge JSON retries once, then keeps the hard pass (`judge_score=None`). Rank by hard pass / agent score / quality; C²/$ is secondary.
 - Dataset: 19 tasks in `dataset.py` `ALL_EXAMPLES`. The first 17 omit `backend` (string). `python_shapes_flag` and `org_chart_gen` set `backend=lo` and is scored from the harness trace plus an exported Writer `.odt` (not `writeragent_debug.log`). `gold_standards.json` is hand-written from the rubrics.
@@ -107,8 +107,8 @@ Source plan: [`oss-20b-eval.md`](oss-20b-eval.md). Scores:
 
 #### What is true now
 
-- Sort goes specialized Calc `domain="ranges"` then `sort_range`, not
-  in-place `=PY`. `sort_range` **requires** `has_header`.
+- Sort goes specialized Calc `domain="ranges"` then `range_sort`, not
+  in-place `=PY`. `range_sort` **requires** `has_header`.
 - `CALC_CORE_DIRECTIVES` is structured: `FORMULAS:` (per-row relative
   Do-because) then `SORT:` last (routing + plain `has_header`
   constraint). The sort because-clause does **not** name

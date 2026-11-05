@@ -455,7 +455,7 @@ class CellManipulator:
             cell_range.setPropertyValue("HoriJustify", CENTER)
             cell_range.setPropertyValue("VertJustify", V_CENTER)
 
-    def sort_range(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True) -> str:
+    def range_sort(self, range_str: str, sort_column: int = 0, ascending: bool = True, has_header: bool = True) -> str:
         """Sort a range.
 
         Args:

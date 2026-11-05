@@ -176,10 +176,10 @@
     "trace_names": [
       "get_sheet_summary",
       "read_cell_range",
-      "sort_range",
-      "sort_range",
+      "range_sort",
+      "range_sort",
       "read_cell_range",
-      "sort_range",
+      "range_sort",
       "specialized_workflow_finished",
       "delegate_to_specialized_calc_toolset",
       "read_cell_range",

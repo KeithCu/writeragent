@@ -44,7 +44,7 @@ _BANNED_PRODUCT_INTERNALS = (
     "fill_draw_fields",
     "document_research",
     "specialized_workflow_finished",
-    "create_sheet",
+    "sheet_create",
     "write_formula_range",
 )
 _FIXTURE_KEYS = (
