@@ -4,10 +4,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """One-sheet modify dispatcher — shared trigger for spill cleanup and geometric repair.
 
-``CalcSpillModifyListener.modified`` walks ``SPILL_REGISTRY`` only. Geometric
+Spill orphan cleanup is ``cleanup_orphans`` on ``state.spills`` only. Geometric
 repair cannot piggyback on that walk (it does not scan formula cells) and must
 not register a sibling ``CalcGeometricModifyListener``. This module is the
-single ``addModifyListener`` per sheet: it shares the 0.1s timer, UI-thread
+only ``addModifyListener`` per sheet: it shares the 0.1s timer, UI-thread
 drain, ``_undo_lock``, and re-entrancy flag. After the debounce, spill cleanup
 and geometric repair run as separate jobs — geometric then does its own
 ``discover_python_cells_on_sheet``.
@@ -214,7 +214,7 @@ def _skip_sheet_modify() -> bool:
 def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
-    Spill: ``CalcSpillModifyListener.modified`` (``state.spills`` walk only).
+    Spill: ``cleanup_orphans`` on ``state.spills`` only.
     Geometric: own ``discover_python_cells_on_sheet`` via ``reconcile_geometric_sheet``.
     """
     if _skip_sheet_modify():

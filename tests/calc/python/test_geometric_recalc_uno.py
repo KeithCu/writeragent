@@ -671,13 +671,13 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
         assert st is not None
         doc_url = st.key
         perform_deferred_spill(
-            doc_url,
             sheet.Name,
             2,
             0,
             [[10, 20], [30, 40]],
             doc=doc,
             code=spill_code,
+            key=doc_url,
         )
         assert a3.getString() != "#SPILL!", a3.getString()
         assert sheet.getCellByPosition(1, 2).getValue() == 20.0
