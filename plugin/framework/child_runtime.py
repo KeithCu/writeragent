@@ -5,8 +5,8 @@
 """Child-side helpers for warm worker subprocesses (stdlib only).
 
 ``Deadline`` / ``MIN_REQUEST_SEC`` are the shared request clock (importable
-without the compute host pool). ``die_with_parent`` stays stdlib-only.
-``announce_ready`` is the only import of ``ipc`` here.
+without the compute host pool). ``error_dict`` and ``die_with_parent`` stay
+stdlib-only. ``announce_ready`` is the only lazy import of ``ipc`` here.
 """
 
 from __future__ import annotations
@@ -15,11 +15,22 @@ import logging
 import os
 import sys
 import time
-from typing import IO
+from typing import IO, Any
 
 log = logging.getLogger(__name__)
 
 MIN_REQUEST_SEC = 1.0
+_OMIT_ID = object()
+
+
+def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, **extra: Any) -> dict[str, Any]:
+    """Build ``{"status": "error", "code", "error"}``. Pass req_id to set ``id``, including None."""
+    res: dict[str, Any] = {"status": "error", "code": code, "error": error}
+    if req_id is not _OMIT_ID:
+        res["id"] = req_id
+    if extra:
+        res.update(extra)
+    return res
 
 
 class Deadline:

@@ -1,9 +1,10 @@
-"""Every error ``code`` the compute service sends, each next to its HTTP status.
+"""Every error ``code`` this service or ``BaseProcessWorker`` can put on a payload.
 
 ``HTTP_STATUS`` is the one map: the server statuses a worker error payload
 from it, and ``tests/compute_service/test_error_codes.py`` checks the README
-status table against it. A code at 200 leaves the route default in charge
-(200 on execute and vision, 500 on session reset).
+status table against it. A code at 200 means route default (200 on execute and
+vision, 500 on session reset). ``CANCELLED`` and ``PIPE_LOCK_BUSY`` are
+``WarmChild.lease`` only and are omitted here.
 """
 
 from __future__ import annotations
@@ -16,8 +17,11 @@ def _code(name: str, status: str) -> str:
     return name
 
 
-# 200: an evaluation result the sheet shows as text.
+# 200: route default (execute/vision 200, reset 500 via error_status).
 EXECUTION_TIMEOUT = _code("EXECUTION_TIMEOUT", "200 OK")
+REQUEST_NOT_SERIALIZABLE = _code("REQUEST_NOT_SERIALIZABLE", "200 OK")
+MISSING_DEPENDENCIES = _code("MISSING_DEPENDENCIES", "200 OK")
+MISSING_CODE = _code("MISSING_CODE", "200 OK")
 
 # 400: the client sent something the service rejects.
 BAD_REQUEST_BODY = _code("BAD_REQUEST_BODY", "400 Bad Request")

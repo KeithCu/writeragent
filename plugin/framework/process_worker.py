@@ -31,7 +31,7 @@ from typing import IO, TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-from plugin.framework.child_runtime import Deadline
+from plugin.framework.child_runtime import Deadline, error_dict
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
@@ -43,7 +43,6 @@ from plugin.framework.warm_child import (
     FailPhase,
     SPAWN_READY_TIMEOUT_SEC,
     STDERR_LOG_CAP,
-    error_dict,
     framed_request_roundtrip,
     spawn_budget,
     spawn_managed_child_with_handshake,

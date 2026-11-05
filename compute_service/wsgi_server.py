@@ -193,7 +193,14 @@ class DeadlineRequestHandler(WSGIRequestHandler):
             self.rfile.close()
 
     def handle(self) -> None:
-        """Read the request line and headers, then run the app. Every early return closes the connection."""
+        """Read the request line and headers, then run the app. Every early return closes the connection.
+
+        One request per call, modeled on ``BaseHTTPRequestHandler.handle_one_request``
+        (``http/server.py:406``) and ``handle`` (``:443``), and
+        ``WSGIRequestHandler.handle`` (``wsgiref/simple_server.py:111``). The stdlib
+        ``while not close_connection`` loop is not used; idle sockets are parked by the
+        accept thread.
+        """
         self.close_connection = True
         self.raw_requestline = self.rfile.readline(65537)
         if not self.raw_requestline:

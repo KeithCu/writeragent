@@ -4,10 +4,12 @@
 """
 Process pool supervisor for a bounded set of child workers.
 
-The child itself — spawn, handshake, framed request, and reap — lives in
-``plugin.framework.process_worker``. Formula and vision share
-``BaseProcessWorker``. Kokoro uses ``warm_child.WarmChild``. This module keeps the
-multi-slot pool and the process-wide singleton.
+Spawn, handshake, framed request, and reap live in ``plugin.framework.warm_child``
+(``spawn_managed_child_with_handshake``, ``framed_request_roundtrip``) and
+``plugin.framework.child_runtime`` (``Deadline``, ``announce_ready``, ``error_dict``).
+``process_worker.BaseProcessWorker`` is the slot that calls them. Formula and vision
+share that slot. Kokoro uses ``warm_child.WarmChild``. This module is the multi-slot
+pool and the process-wide singleton.
 
 Provides:
 - Exclusive worker occupancy. Idle means the process completed a handshake or
@@ -18,7 +20,6 @@ Provides:
 
 Child stdio framing (``RestrictedUnpickler``, ``run_worker_stdio_loop``) lives in
 ``worker_stdio``; ``die_with_parent`` from ``child_runtime`` runs at loop start.
-``Deadline`` lives in ``child_runtime``; ``error_dict`` in ``warm_child``.
 """
 
 from __future__ import annotations
@@ -30,10 +31,8 @@ import sys
 import threading
 import time
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Generic, TypeVar
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+from collections.abc import Callable
+from typing import Any, Generic, TypeVar, Generator
 
 from compute_service.worker_stdio import COMPUTE_THREAD_ENV_VARS, RestrictedUnpickler, configure_compute_worker_env, run_compute_worker, run_worker_stdio_loop, unpack_restricted_pickle_frame
 from plugin.framework.process_worker import BaseProcessWorker
@@ -50,7 +49,7 @@ def install_image_pkgs(project_root: str) -> None:
 
 install_image_pkgs(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-__all__ = ["BaseProcessPool", "BaseProcessWorker", "COMPUTE_THREAD_ENV_VARS", "PoolSingleton", "RestrictedUnpickler", "configure_compute_worker_env", "install_image_pkgs", "resolve_override", "run_compute_worker", "run_worker_stdio_loop", "unpack_restricted_pickle_frame"]
+__all__ = ["BaseProcessPool", "BaseProcessWorker", "COMPUTE_THREAD_ENV_VARS", "PoolSingleton", "RestrictedUnpickler", "bind_pool_singleton", "configure_compute_worker_env", "install_image_pkgs", "resolve_override", "run_compute_worker", "run_worker_stdio_loop", "unpack_restricted_pickle_frame"]
 
 log = logging.getLogger("compute_service.worker")
 
@@ -123,6 +122,18 @@ class PoolSingleton(Generic[_PoolT]):
             self._cv.notify_all()
         if pool is not None:
             pool.shutdown()
+
+
+def bind_pool_singleton(holder: PoolSingleton[_PoolT], factory: Callable[[Any], _PoolT]) -> tuple[Callable[[Any], _PoolT], Callable[..., None]]:
+    """``get(settings)`` and ``shutdown(*, permanent=False)`` for one process-wide pool."""
+
+    def get(settings: Any = None) -> _PoolT:
+        return holder.get(lambda: factory(settings))
+
+    def shutdown(*, permanent: bool = False) -> None:
+        holder.shutdown(permanent=permanent)
+
+    return get, shutdown
 
 
 class BaseProcessPool:

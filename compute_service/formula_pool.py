@@ -12,7 +12,7 @@ Maintains a bounded pool of warm subprocesses. Provides:
 - Clean workers preferred for isolated work; falls back to fewest-sessions if all idle workers hold sessions
 - A shared session dies with its child; a replaced or exited child drops that session
 - After max_tasks the slot is killed and left dead; the next lease respawns it
-- Active shared sessions are not capped: there is no per-host cap on active shared sessions
+- Active shared sessions are not capped per host.
 """
 
 from __future__ import annotations
@@ -30,9 +30,9 @@ from typing import Any, Generator
 from compute_service import error_codes as ec
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, validate_session_id
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, resolve_override
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, bind_pool_singleton, resolve_override
 from plugin.framework.child_runtime import Deadline
-from plugin.framework.warm_child import error_dict
+from plugin.framework.child_runtime import error_dict
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
@@ -353,8 +353,7 @@ class FormulaProcessPool(BaseProcessPool):
                 if sess.worker not in self.workers:
                     # execute() checks self.workers outside _cond. shutdown()
                     # clears that list under _cond, so this can still fire.
-                    # The wrapper is gone. Do not mark lost: the caller treats
-                    # this as a new reservation on a live worker.
+                    # Pop the row; do not set stale_since: the caller reserves again on a live worker.
                     self._drop_session(session_id)
                     sess = None
                 else:
@@ -559,15 +558,8 @@ class FormulaProcessPool(BaseProcessPool):
 _POOL_SINGLETON: PoolSingleton[FormulaProcessPool] = PoolSingleton()
 
 
-def get_formula_pool(settings: ComputeSettings | None = None) -> FormulaProcessPool:
-    """Retrieve or initialize the global formula process pool."""
-    return _POOL_SINGLETON.get(lambda: FormulaProcessPool(settings=settings))
+def _new_formula_pool(settings: ComputeSettings | None = None) -> FormulaProcessPool:
+    return FormulaProcessPool(settings=settings)
 
 
-def shutdown_formula_pool(*, permanent: bool = False) -> None:
-    """Shut down the global formula process pool.
-
-    *permanent* is the server-exit path. A later ``get_formula_pool`` raises
-    instead of spawning a new pool.
-    """
-    _POOL_SINGLETON.shutdown(permanent=permanent)
+get_formula_pool, shutdown_formula_pool = bind_pool_singleton(_POOL_SINGLETON, _new_formula_pool)

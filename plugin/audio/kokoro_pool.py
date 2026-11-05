@@ -26,7 +26,8 @@ from typing import TYPE_CHECKING, Any
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.send_cancellation import is_cancelled
 from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, error_dict, supervisor as warm_supervisor
+from plugin.framework.child_runtime import error_dict
+from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, supervisor as warm_supervisor
 from plugin.scripting.sandbox import resolve_venv_python
 
 if TYPE_CHECKING:

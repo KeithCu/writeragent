@@ -2635,7 +2635,7 @@ def test_ui_reentry_while_spawn_thread_owns_io(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_lease_error_keeps_error_text() -> None:
-    from plugin.framework.warm_child import error_dict
+    from plugin.framework.child_runtime import error_dict
 
     err = {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": "handshake boom"}
     mapped = PythonWorkerManager._lease_error_to_worker(err)

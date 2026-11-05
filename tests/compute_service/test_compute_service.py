@@ -3270,7 +3270,7 @@ def test_wsgi_app_uses_the_current_formula_pool() -> None:
 
 def test_run_with_logging_deadline_errors_before_headers() -> None:
     """A raise before headers sends one JSON 500 and releases the permit."""
-    from compute_service.server import _Admission, _gated
+    from compute_service.server import _Admission, _Route, _gated
     from plugin.framework.child_runtime import Deadline
 
     calls: list[str] = []
@@ -3279,19 +3279,20 @@ def test_run_with_logging_deadline_errors_before_headers() -> None:
         del headers, exc_info
         calls.append(status)
 
-    def route_fn(_start: Any, _adm: Any) -> list[bytes]:
+    def handle(_environ: Any, _start: Any, _adm: Any) -> list[bytes]:
         raise RuntimeError("early")
 
+    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+        return (_Admission(deadline=Deadline(5.0), parsed={"id": "early"}, req_id="early"), None)
+
     sem = threading.Semaphore(1)
+    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     body = _gated(
         {"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"},
         start_response,
         ComputeSettings(),
         sem,
-        busy_code="WORKER_POOL_BUSY",
-        busy_message="busy",
-        route_fn=route_fn,
-        prepare=lambda _s: (_Admission(deadline=Deadline(5.0), parsed={"id": "early"}, req_id="early"), None),
+        route,
     )
     assert calls == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
@@ -3884,7 +3885,7 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
     What was wrong: prepare ran before the try that maps route failures to
     INTERNAL_ERROR, so a body-read bug escaped as an HTML 500.
     """
-    from compute_service.server import _Admission, _gated
+    from compute_service.server import _Admission, _Route, _gated
 
     statuses: list[str] = []
 
@@ -3892,19 +3893,20 @@ def test_gated_prepare_exception_is_json_internal_error() -> None:
         del headers, exc_info
         statuses.append(status)
 
-    def prepare(_start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
         raise RuntimeError("prepare blew up")
 
+    def handle(_environ: Any, _start: Any, _admission: _Admission) -> list[bytes]:
+        return []
+
     sem = threading.Semaphore(1)
+    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     body = _gated(
         {"PATH_INFO": "/v1/execute", "HTTP_HOST": "127.0.0.1"},
         start_response,
         ComputeSettings(),
         sem,
-        busy_code="WORKER_POOL_BUSY",
-        busy_message="busy",
-        route_fn=lambda _start, _admission: [],
-        prepare=prepare,
+        route,
     )
     assert statuses == ["500 Internal Server Error"]
     assert b"INTERNAL_ERROR" in b"".join(body)
@@ -4238,7 +4240,7 @@ def test_wsgi_chunked_401_closes_connection() -> None:
 
 
 def test_reset_queue_timeout_closes_connection() -> None:
-    from compute_service.server import _Admission, _gated
+    from compute_service.server import _Admission, _Route, _gated
     from plugin.framework.child_runtime import Deadline
 
     # Gated route timing out before execution.
@@ -4247,6 +4249,12 @@ def test_reset_queue_timeout_closes_connection() -> None:
 
     def start_response(status: str, headers: list[tuple[str, str]], exc_info: Any = None) -> None:
         statuses.append(status)
+
+    def prepare(_environ: Any, _start: Any) -> tuple[_Admission | None, list[bytes] | None]:
+        return (_Admission(deadline=Deadline.from_absolute(1.0, 1.0), parsed={}), None)
+
+    def handle(_environ: Any, _start: Any, _admission: _Admission) -> list[bytes]:
+        return []
 
     sem = threading.Semaphore(1)
     env = {
@@ -4258,15 +4266,13 @@ def test_reset_queue_timeout_closes_connection() -> None:
         "wsgi.input": stream,
     }
     request_conn(env).accept_time = 0.0
+    route = _Route("POST", True, prepare, handle, busy_code="WORKER_POOL_BUSY", busy_message="busy")
     res = _gated(
         env,
         start_response,
         ComputeSettings(),
         sem,
-        busy_code="WORKER_POOL_BUSY",
-        busy_message="busy",
-        route_fn=lambda s, a: [],
-        prepare=lambda _s: (_Admission(deadline=Deadline.from_absolute(1.0, 1.0), parsed={}), None),
+        route,
     )
     payload = json.loads(b"".join(res).decode("utf-8"))
     assert statuses[0].startswith("503")
