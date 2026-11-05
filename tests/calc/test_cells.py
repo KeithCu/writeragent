@@ -1370,6 +1370,29 @@ def test_write_formula_range_rejects_dict_cell_before_manipulator():
     manip_cls.return_value.write_formula_range.assert_not_called()
 
 
+def test_write_formula_range_rejects_mixed_grid_rows_before_manipulator():
+    from plugin.calc.cells import WriteCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge"),
+        patch("plugin.calc.cells.CellManipulator") as manip_cls,
+    ):
+        result = WriteCellRange().execute(ctx, range=["A1"], values=[["a"], "b"])
+
+    assert result["status"] == "error"
+    assert "boolean, or null" in result["message"]
+    manip_cls.return_value.write_formula_range.assert_not_called()
+
+
+def test_write_values_grid_cell_error_rejects_mixed_rows():
+    from plugin.calc.cells import _write_values_grid_cell_error
+
+    assert _write_values_grid_cell_error([["a"], "b"]) is not None
+    assert _write_values_grid_cell_error([{"x": 1}]) is not None
+    assert _write_values_grid_cell_error([["a", True]]) is None
+
+
 def test_sort_range_description_teaches_reorder_key_and_direction():
     from plugin.calc.cells import SortRange
 

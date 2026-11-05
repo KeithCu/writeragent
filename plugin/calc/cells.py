@@ -25,8 +25,8 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 from __future__ import annotations
 
 import logging
+from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable
-
 from plugin.framework.errors import ToolExecutionError, is_disposal, uno_call, uno_read
 from plugin.framework.tool import ToolBase
 
@@ -43,35 +43,31 @@ from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import parse_color_to_uno_int
 
 
+_WRITE_VALUES_CELL_ERR = (
+    "Each cell in values must be string, number, boolean, or null; got {kind}."
+)
+
+
 def _write_values_cell_ok(cell: Any) -> bool:
     if cell is None:
         return True
-    if isinstance(cell, bool):
-        return True
-    return isinstance(cell, (str, int, float))
+    return isinstance(cell, (str, int, float, bool))
 
 
 def _write_values_grid_cell_error(parsed_vals: list[Any]) -> str | None:
-    """Reject nested structures before UNO; bool must be checked before int."""
+    """Reject nested structures before UNO."""
     if not parsed_vals:
         return None
     if isinstance(parsed_vals[0], (list, tuple)):
         for row in parsed_vals:
             if not isinstance(row, (list, tuple)):
-                continue
-            for cell in row:
-                if not _write_values_cell_ok(cell):
-                    return (
-                        "Each cell in values must be string, number, boolean, or null; "
-                        f"got {type(cell).__name__}."
-                    )
+                return _WRITE_VALUES_CELL_ERR.format(kind=type(row).__name__)
+        cells: Any = chain.from_iterable(parsed_vals)
     else:
-        for cell in parsed_vals:
-            if not _write_values_cell_ok(cell):
-                return (
-                    "Each cell in values must be string, number, boolean, or null; "
-                    f"got {type(cell).__name__}."
-                )
+        cells = parsed_vals
+    for cell in cells:
+        if not _write_values_cell_ok(cell):
+            return _WRITE_VALUES_CELL_ERR.format(kind=type(cell).__name__)
     return None
 
 # Verbose per-cell dicts blow chat/tool context (issue 405: A1:H500 → HTTP 400).
@@ -529,10 +525,12 @@ class WriteCellRange(ToolBase):
             # and not the main tool description). #657 replaced the old
             # pin-workaround with fill-down teaching; a JSON array of copied
             # =B2*… still pins every row to the first ref.
+            # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
+            # keeps real unions (same pattern as apply_document_content content).
             "values": {
                 "type": ["string", "array", "null"],
                 "items": {
-                    "type": "array",
+                    "type": ["array", "string", "number", "boolean", "null"],
                     "items": {"type": ["string", "number", "boolean", "null"]},
                 },
                 "description": (
@@ -605,11 +603,9 @@ class WriteCellRange(ToolBase):
         # source-only calls pass validate). Missing must not fall through as clear.
         if fov is None:
             return self._tool_error("values is required when source is omitted")
-        # Bugfix: top-level bool in values was converted to string "True"/"False"
-        # instead of being rejected to match the tool parameter schema.
         if isinstance(fov, bool):
             return self._tool_error("values must be a string, number, or array, not a boolean")
-        # Normalize: schema is string for Gemini; accept number/list from other providers
+        # Bare number → string for fill; native list passes through unchanged.
         if isinstance(fov, (int, float)):
             fov = str(fov)
 

@@ -371,7 +371,7 @@ def test_coerce_call_args_wraps_array_range_and_formula_values():
         "values": {
             "type": ["string", "array", "null"],
             "items": {
-                "type": "array",
+                "type": ["array", "string", "number", "boolean", "null"],
                 "items": {"type": ["string", "number", "boolean", "null"]},
             },
         },
@@ -388,15 +388,16 @@ def test_coerce_call_args_wraps_array_range_and_formula_values():
 
 
 def test_write_formula_range_values_schema_string_array_union():
-    """Chat and MCP share the source values union (string, 2-D array, null)."""
+    """Chat and MCP share the source values union (same guard as apply_document_content)."""
     from plugin.calc.cells import WriteCellRange
 
     tool = WriteCellRange()
     openai = to_openai_schema(tool)["function"]["parameters"]["properties"]["values"]
     mcp = to_mcp_schema(tool)["inputSchema"]["properties"]["values"]
+    item_types = ["array", "string", "number", "boolean", "null"]
     for schema in (openai, mcp):
         assert schema["type"] == ["string", "array", "null"]
-        assert schema["items"]["type"] == "array"
+        assert schema["items"]["type"] == item_types
         assert schema["items"]["items"]["type"] == ["string", "number", "boolean", "null"]
     dumped = json.dumps(to_openai_schema(tool))
     assert "anyOf" not in dumped
