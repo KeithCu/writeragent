@@ -472,7 +472,7 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
             if graphic is None:
                 return []
             name = _graphic_object_name(graphic)
-            return [(name, graphic)] if name else []
+            return [(name, graphic)]
 
         if hasattr(selection, "getCount"):
             graphics_from_sel: list[tuple[str, Any]] = []

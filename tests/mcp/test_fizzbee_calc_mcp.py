@@ -131,8 +131,11 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "run_venv_python_script",
     "search_cells",
     "set_style",
+    "shape_align",
     "shape_connect",
     "shape_delete",
+    "shape_diagram",
+    "shape_distribute",
     "shape_group",
     "shape_summary",
     "shape_upsert",
@@ -145,14 +148,14 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
 
 
 def test_extract_full_calc_layout_count():
-    """Verify that full layout extraction returns all 62 Calc tools across tiers."""
+    """Verify that full layout extraction returns all 65 Calc tools across tiers."""
     layout = extract_full_calc_layout()
 
     all_tool_names = {t.name for t in layout["core_tools"] + layout["specialized_tools"]}
     assert all_tool_names == _EXPECTED_CALC_TOOL_NAMES
-    assert layout["total_count"] == 62
+    assert layout["total_count"] == 65
     assert len(layout["core_tools"]) >= 10
-    assert len(layout["specialized_tools"]) >= 39
+    assert len(layout["specialized_tools"]) >= 42
 
     # Check key core tools
     core_names = {t.name for t in layout["core_tools"]}

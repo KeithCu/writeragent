@@ -42,7 +42,8 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `move_slide` | `pages.py` | Drawing+Presentation | Reorder slides by 0-based index |
 | `rename_slide` | `pages.py` | Drawing+Presentation | Set the slide Name |
 | `set_active_page` | `pages.py` | Drawing+Presentation | Switch current view (not a mutation) |
-| `read_slide_text` | `pages.py` | Drawing+Presentation | Extract text from all shapes on a page |
+| `read_slide_text` | `pages.py` | Drawing+Presentation | Text from shapes (grouped descendants, tables as TSV) and speaker notes |
+| `search_slides` | `pages.py` | Drawing+Presentation | Search shape text and speaker notes across slides |
 | `get_presentation_info` | `pages.py` | Drawing+Presentation | Metadata: slide count, dimensions, masters |
 | `list_designs` | `designs.py` | Drawing+Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix). Each entry includes a short `look` vibe string from the template ZIP thumbnail (mood, accent hues, illustrated / graphic chrome). Thumbnails whose width×height exceeds the decoder pixel cap are skipped before one RGB tuple is allocated per pixel (a few-KB 1-bit PNG must not expand into millions of tuples); look then uses the styles.xml / SVG hex fallback. ZIP member reads (thumbnail, styles.xml, Pictures/*.svg) do not trust the declared uncompressed size — a forged ``file_size`` used to inflate up to ``ZipExtFile.MAX_N`` before the member-byte cap — and 1/2/4-bit grayscale samples are scaled to 0–255 so an all-white thumbnail stays a light background. |
 | `apply_design` | `designs.py` | Drawing+Presentation | Restyle the **open** Impress deck: Hidden `.otp` master clone + assign-all (no system clipboard, no new window). The master matching the deck's aspect ratio and design name is cloned and assigned to every slide; other layout masters are not imported. Groups, custom-shape geometry, polygons, rotation, gradient and hatch structs, solid master backgrounds, line and character properties, and pictures are cloned; bitmap fills and presentation style families are not (copying them shares the hidden source pool and aborts LibreOffice). The result may include `clone_warnings` when a property is rejected, an aspect ratio mismatch occurs, or a bitmap fill was not reproduced. The result includes `source_master` and `selection`; a fallback warning names the master when several untitled masters tie. Existing placeholder text stays on current styles; reapplying the same design replaces the previously imported master of that name. Partial slide assignments roll back and report slides updated/restored. When apply succeeds with partial chrome, the message notes how many chrome shapes imported. Draw → not-Impress |
@@ -64,12 +65,12 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 | `shape_summary` | `shapes` | `draw/shapes.py` | Summary of shapes on page | Drawing+Presentation |
 | `shape_upsert` | `shapes` | `draw/shapes.py` | Create or edit shapes (1/100mm); edit by **name** or index. `line` may have a zero width or height | Drawing+Presentation |
 | `shape_fill_fields` | `shapes` | `draw/field_fill.py` | Batch-fill paper-form blanks / ControlShape values by name, index, path_index, or `label_hint` | Drawing+Presentation |
-| `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by page index or dotted path | Drawing+Presentation |
+| `shape_delete` | `shapes` | `draw/shapes.py` | Delete a shape by page index, dotted path, or **Name** | Drawing+Presentation (+ Writer/Calc via shape wrappers) |
 | `shape_connect` | `shapes` | `draw/shapes.py` | Connect two shapes with a connector line | Drawing+Presentation |
 | `shape_group` | `shapes` | `draw/shapes.py` | Group multiple shapes | Drawing+Presentation |
-| `shape_align` | `shapes` | `draw/shapes.py` | Align shapes to an edge or center | Drawing+Presentation |
-| `shape_distribute` | `shapes` | `draw/shapes.py` | Evenly space shapes along an axis | Drawing+Presentation |
-| `shape_diagram` | `shapes` | `draw/shapes.py` | Batch nodes + connectors (flowchart) | Drawing+Presentation |
+| `shape_align` | `shapes` | `draw/shapes.py` | Align shapes to an edge or center (Writer/Calc/Draw/Impress) | Drawing+Presentation (+ Writer/Calc) |
+| `shape_distribute` | `shapes` | `draw/shapes.py` | Evenly space shapes along an axis (Writer/Calc/Draw/Impress) | Drawing+Presentation (+ Writer/Calc) |
+| `shape_diagram` | `shapes` | `draw/shapes.py` | Batch nodes + connectors (Writer/Calc/Draw/Impress) | Drawing+Presentation (+ Writer/Calc) |
 | `image_insert` / `image_list` / `image_delete` / `image_generate` | `images` | `writer/images/images.py` | Same image tools as Writer/Calc; Draw/Impress uses millimetres (`page`, `x_mm`, `y_mm`) | Drawing+Presentation |
 | `table_insert` / `table_delete` / `table_list` / `table_get_cells` / `table_set_cell` / `table_manage_structure` | `tables` | `writer/specialized/tables.py` + `draw/tables.py` | Same names as Writer; Draw uses TableShape | Drawing+Presentation |
 | `slide_transition_get` | `slide_transitions` | `draw/transitions.py` | Get transition effect/speed/duration | Presentation |

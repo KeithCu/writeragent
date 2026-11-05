@@ -81,13 +81,20 @@ def filter_vision_delegate_schemas(schemas: list[dict[str, Any]], ctx: Any = Non
 
 
 def get_vision_core_directive(model: Any, ctx: Any) -> str:
-    """OCR delegation hint when local vision stack is configured (Writer/Calc only)."""
+    """OCR delegation hint when local vision stack is configured."""
     if ctx is None:
         return ""
     from plugin.framework import doc_type as _doc_type
 
     if not vision_venv_configured(ctx):
         return ""
+    if _doc_type.is_draw(model):
+        return (
+            'When the user wants OCR or content from an embedded image, '
+            'delegate_to_specialized_draw_toolset(domain="vision", task=""). '
+            "That extracts text and structure from the selected graphic and returns the text only "
+            "(nothing is inserted into the slide). You must use this call to perform OCR."
+        )
     if not (_doc_type.is_writer(model) or _doc_type.is_calc(model)):
         return ""
     delegate = "delegate_to_specialized_calc_toolset" if _doc_type.is_calc(model) else "delegate_to_specialized_writer_toolset"

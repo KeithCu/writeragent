@@ -204,7 +204,7 @@ def test_calc_base_does_not_import_writer_or_draw():
 _MARKER_ALLOWLIST = {
     "Writer": frozenset({"document_research", "python", "vision", "web_research"}),
     "Calc": frozenset({"document_research", "web_research", "vision", "images"}),
-    "Draw": frozenset({"document_research", "python", "web_research"}),
+    "Draw": frozenset({"document_research", "python", "vision", "web_research"}),
 }
 
 

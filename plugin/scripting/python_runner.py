@@ -254,7 +254,7 @@ def _prepare_vision(ctx: Any, doc: Any, code: str, t0: float, *, facts: ScriptFa
     from plugin.vision.vision_runner import supports_vision_manual
 
     if not supports_vision_manual(doc):
-        return {"early_outcome": {"ok": False, "message": _("Vision helpers require a Writer or Calc document.")}}
+        return {"early_outcome": {"ok": False, "message": _("Vision helpers require a Writer, Calc, Draw, or Impress document.")}}
     call_spec = facts.first_run_spec("run_vision") or {}
     raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
     params = merge_vision_params(ctx, raw_params)
@@ -374,21 +374,23 @@ def _run_prepared_rps(prepared: dict[str, Any]) -> dict[str, Any]:
 
 def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any]) -> dict[str, Any]:
     """Main-thread result insert for vision helpers."""
+    from plugin.framework.doc_type import is_draw
     from plugin.vision.vision_egress import insert_vision_result
 
     t0 = prepared["t0"]
     result = response.get("vision_selection_result") or {}
 
-    # Perform UNO document mutations on main thread
-    indiv_results = result.get("individual_results", [])
-    for indiv_res in indiv_results:
-        # insert_vision_result requires the image_name to be set in params for correct insertion
-        # The background thread set it in the response context or we pass it
-        img_name = indiv_res.get("image_name") or indiv_res.get("context", {}).get("image_name")
-        insert_params = dict(prepared.get("params") or {})
-        if img_name:
-            insert_params["image_name"] = img_name
-        insert_vision_result(prepared["ctx"], prepared["doc"], indiv_res, params=insert_params)
+    if not is_draw(prepared["doc"]):
+        # Perform UNO document mutations on main thread
+        indiv_results = result.get("individual_results", [])
+        for indiv_res in indiv_results:
+            # insert_vision_result requires the image_name to be set in params for correct insertion
+            # The background thread set it in the response context or we pass it
+            img_name = indiv_res.get("image_name") or indiv_res.get("context", {}).get("image_name")
+            insert_params = dict(prepared.get("params") or {})
+            if img_name:
+                insert_params["image_name"] = img_name
+            insert_vision_result(prepared["ctx"], prepared["doc"], indiv_res, params=insert_params)
 
     # A multi-image vision run that fails on image N must still insert
     # results 1..N-1. Returning only the error dict dropped them.
@@ -398,10 +400,24 @@ def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any])
     helper_name = prepared["helper_name"]
     formatted_time = format_elapsed_time(time.perf_counter() - t0)
     count = int(result.get("images_processed") or 0)
+    inserted = not is_draw(prepared["doc"])
     if count > 1:
-        status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(helper=helper_name, count=count, time=formatted_time)
+        if inserted:
+            status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(
+                helper=helper_name, count=count, time=formatted_time
+            )
+        else:
+            status_ok = _(
+                "Vision '{helper}' completed for {count} images. Text returned only (not inserted). (took {time})"
+            ).format(helper=helper_name, count=count, time=formatted_time)
+    elif inserted:
+        status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
+            helper=helper_name, time=formatted_time
+        )
     else:
-        status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(helper=helper_name, time=formatted_time)
+        status_ok = _("Vision '{helper}' completed. Text returned only (not inserted). (took {time})").format(
+            helper=helper_name, time=formatted_time
+        )
     return rps_ok_outcome(status_ok, result=result, stdout=None)
 
 
