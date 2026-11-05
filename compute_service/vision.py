@@ -131,7 +131,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     try:
         from plugin.vision.venv.vision import run_vision
     except (ModuleNotFoundError, ImportError):
-        return {"id": req_id, "status": "error", "code": ec.VISION_UNAVAILABLE, "error": "OCR is not installed in this server"}
+        return error_dict(ec.VISION_UNAVAILABLE, "OCR is not installed in this server", req_id=req_id)
 
     try:
         spec = {"helper": helper, "params": params}
@@ -141,7 +141,7 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         return res
     except Exception as exc:
         # Omit traceback — server paths on the kit wire; see formula_worker.py.
-        return {"id": req_id, "status": "error", "code": ec.VISION_WORKER_ERROR, "error": str(exc)}
+        return error_dict(ec.VISION_WORKER_ERROR, str(exc), req_id=req_id)
 
 
 def main() -> int:
