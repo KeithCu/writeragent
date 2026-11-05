@@ -117,9 +117,6 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        if build_vectors:
-            from plugin.embeddings.venv.embeddings_sqlite import _load_vec_extension
-            _load_vec_extension(conn)
         meta = CorpusMeta.load(str(state.get("meta_path") or ""))
         schema_dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
 
@@ -129,6 +126,7 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
         with_vec = build_vectors and schema_dim is not None
         ensure_schema(conn, dim=schema_dim, with_fts=build_fts, with_vec=with_vec, model=model)
 
+        # FTS-only ingest must not re-upsert chunks that merely lack a vector.
         missing_chunks = missing_vector_chunks(conn, model) if build_vectors else []
 
         # Merge incoming chunks with missing chunks

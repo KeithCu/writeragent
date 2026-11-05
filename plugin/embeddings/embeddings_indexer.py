@@ -17,7 +17,7 @@ from plugin.embeddings.embeddings_cache import parse_search_mode, resolve_index_
 from plugin.embeddings.embedding_client import get_embedding_model
 from plugin.embeddings.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
 from plugin.framework.constants import configured_folder_search_mode, folder_search_enabled
-from plugin.framework.send_cancellation import get_current_send_cancellation
+from plugin.framework.send_cancellation import get_current_send_cancellation, is_cancelled
 from plugin.framework.worker_pool import run_in_background
 
 __all__ = ["enqueue_folder_index", "ensure_index_wakeup"]
@@ -41,7 +41,7 @@ def _clear_enqueue(folder_key: str) -> None:
         _inflight.discard(folder_key)
 
 
-def _resolve_search_mode(ctx: Any) -> str:
+def _resolve_search_mode() -> str:
     """Map Settings cross-file search mode to venv maintain/search backend."""
     return parse_search_mode(configured_folder_search_mode())
 
@@ -54,7 +54,7 @@ def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
             listing_root,
             model=model,
             mode="auto",
-            search_mode=_resolve_search_mode(ctx),
+            search_mode=_resolve_search_mode(),
         )
     except Exception:
         log.exception("Background corpus index failed for folder %s", folder_key)
@@ -62,9 +62,8 @@ def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
         _clear_enqueue(folder_key)
 
 
-def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
+def enqueue_folder_index(ctx: Any, model: Any) -> None:
     """Schedule background corpus maintenance for the active document folder."""
-    del services  # venv maintain does not use UNO services
     if not folder_search_enabled():
         return
     from plugin.framework.queue_executor import main
@@ -85,10 +84,9 @@ def enqueue_folder_index(ctx: Any, services: Any, model: Any) -> None:
     run_in_background(_run, name=f"corpus-index-{folder_key[:8]}", dedicated=True)
 
 
-def ensure_index_wakeup(ctx: Any, services: Any, model: Any) -> None:
+def ensure_index_wakeup(ctx: Any, model: Any) -> None:
     """Non-blocking wakeup when search runs against a missing or stale cache."""
     # TurnController has no cancellation scope. Stop latches SendCancellation.
-    scope = get_current_send_cancellation()
-    if scope is not None and scope.is_cancelled():
+    if is_cancelled(get_current_send_cancellation()):
         return
-    enqueue_folder_index(ctx, services, model)
+    enqueue_folder_index(ctx, model)

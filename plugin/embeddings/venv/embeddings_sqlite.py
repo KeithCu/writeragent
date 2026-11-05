@@ -283,6 +283,18 @@ def _missing_vector_chunk_row(row: Any) -> dict[str, Any]:
     }
 
 
+def _vec_table_if_exists(conn: sqlite3.Connection, model: str) -> str | None:
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (tbl_name,),
+    ).fetchone()
+    if not has_table:
+        return None
+    return tbl_name
+
+
 def missing_vector_chunks(
     conn: sqlite3.Connection,
     model: str,
@@ -291,13 +303,9 @@ def missing_vector_chunks(
 
     When the vec table does not exist yet, every chunk row is returned (cold corpus).
     """
-    slug = model_slug(model)
-    tbl_name = f"vec_chunks_{slug}"
-    has_table = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (tbl_name,),
-    ).fetchone()
-    if has_table:
+    tbl_name = _vec_table_if_exists(conn, model)
+    if tbl_name:
+        _load_vec_extension(conn)
         sql = f"""
             SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
             FROM chunks
@@ -314,13 +322,9 @@ def missing_vector_chunks(
 
 def has_missing_vector_chunks(conn: sqlite3.Connection, model: str) -> bool:
     """True when at least one chunk row lacks a vector for *model*."""
-    slug = model_slug(model)
-    tbl_name = f"vec_chunks_{slug}"
-    has_table = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-        (tbl_name,),
-    ).fetchone()
-    if has_table:
+    tbl_name = _vec_table_if_exists(conn, model)
+    if tbl_name:
+        _load_vec_extension(conn)
         row = conn.execute(
             f"""
             SELECT 1 FROM chunks

@@ -846,7 +846,11 @@ def timeout(timeout_seconds: Any):
                     # and nested timeouts. Raise immediately; finalize_thread_pool_timeout()
                     # decides abandonment in venv/sandbox paths (CI 41712352052).
                     _pending_timeout_future = future
-                    _pending_timeout_grace_sec = float(timeout_seconds)
+                    # Grace must exceed the typical overrun of a soft timeout (e.g.
+                    # time.sleep slightly above the budget on Windows). A grace of
+                    # exactly timeout_seconds races the timer and sets abandoned_timeout,
+                    # which makes worker_harness os._exit and drops shared sessions.
+                    _pending_timeout_grace_sec = float(timeout_seconds) + 2.0
                     _pending_timeout_executor = executor
                     raise ExecutionTimeoutError(
                         f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"

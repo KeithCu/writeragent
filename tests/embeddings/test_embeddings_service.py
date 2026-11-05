@@ -102,12 +102,15 @@ def test_index_paragraphs_worker_error(ctx, tmp_path):
 
 
 def test_collection_stats_rpc(ctx, tmp_path):
+    from plugin.embeddings.embedding_client import embedding_session_id
+
     corpus_db = str(tmp_path / "corpus.db")
     meta_json = str(tmp_path / "meta.json")
-    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"chunk_count": 5}):
+    with patch("plugin.embeddings.embeddings_service.run_trusted_worker_action", return_value={"chunk_count": 5}) as mock_run:
         with patch("plugin.embeddings.embeddings_service.embeddings_worker_timeout_sec", return_value=120):
             result = embeddings_service.collection_stats(ctx, corpus_db, meta_json)
     assert result["chunk_count"] == 5
+    assert mock_run.call_args.kwargs["session_id"] == embedding_session_id("corpus")
 
 
 def test_maintain_folder_index_uses_heartbeat_rpc(ctx, tmp_path):

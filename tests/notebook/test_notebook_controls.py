@@ -151,6 +151,13 @@ def test_ensure_form_design_mode_off_with_controller():
     assert doc.ApplyFormDesignMode is False
     controller.setFormDesignMode.assert_called_once_with(False)
 
+def test_runtime_uid_from_doc_key():
+    from plugin.notebook.layout import runtime_uid_from_doc_key
+
+    assert runtime_uid_from_doc_key("uid:abc") == "abc"
+    assert runtime_uid_from_doc_key("id:1") == ""
+
+
 def test_notebook_run_button_listener_resolves_by_runtime_uid():
     ctx = MagicMock()
     doc = MagicMock()

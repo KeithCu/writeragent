@@ -394,7 +394,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
     result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
 
     assert result["status"] == "incomplete"
-    mock_enqueue_index.assert_called_once_with(ctx.ctx, ctx.services, mock_doc)
+    mock_enqueue_index.assert_called_once_with(ctx.ctx, mock_doc)
     # Open-docs context plus list_v1_peers (peer catalog / inner ASK vs REPLY hint),
     # both gathered on the main thread with get_tools.
     assert mock_get_open_docs.call_count >= 1

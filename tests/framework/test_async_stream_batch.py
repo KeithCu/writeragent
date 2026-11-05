@@ -822,11 +822,12 @@ def test_deadline_thread_rearm_moves_deadline() -> None:
 
     timer = DeadlineThread(on_fire, name="test-timer-rearm")
     try:
-        timer.arm(0.04)
-        time.sleep(0.02)
+        timer.arm(0.5)
         timer.arm(0.06)
-        assert done.wait(timeout=1.0)
-        assert fired_at[0] - t0 >= 0.07
+        assert done.wait(timeout=5.0), "rearmed callback never ran"
+        elapsed = fired_at[0] - t0
+        assert elapsed >= 0.05
+        assert elapsed < 0.35
     finally:
         timer.stop()
 
@@ -842,22 +843,24 @@ def test_deadline_thread_stop_prevents_fire() -> None:
 
 def test_deadline_thread_survives_callback_exception() -> None:
     calls = 0
+    first_fired = threading.Event()
     second_fired = threading.Event()
 
     def faulty_fire() -> None:
         nonlocal calls
         calls += 1
         if calls == 1:
+            first_fired.set()
             raise RuntimeError("first fire failed")
         second_fired.set()
 
     timer = DeadlineThread(faulty_fire, name="test-timer-faulty")
     try:
         timer.arm(0.02)
-        time.sleep(0.05)
+        assert first_fired.wait(timeout=5.0), "first callback never ran"
         assert calls == 1
         timer.arm(0.02)
-        assert second_fired.wait(timeout=1.0)
+        assert second_fired.wait(timeout=5.0), "second callback never ran"
         assert calls == 2
     finally:
         timer.stop()
