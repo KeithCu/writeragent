@@ -186,6 +186,7 @@ def test_run_help_prints_static_list():
         hide_popup=MagicMock(),
         clear_ask=MagicMock(),
         append_output=MagicMock(),
+        cached_doc_type=None,
     )
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         assert run_slash_command(_cmd("help"), host) is SlashResult.HANDLED
@@ -224,6 +225,7 @@ def test_set_config_raising_still_runs_help():
         hide_popup=MagicMock(),
         clear_ask=MagicMock(),
         append_output=MagicMock(),
+        cached_doc_type=None,
     )
     with patch("plugin.framework.model_lru.save", side_effect=OSError("write failed")):
         assert run_slash_command(_cmd("help"), host) is SlashResult.HANDLED

@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.deep_research_session import (
     DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS,
+    compose_deep_research_mode_instructions,
     DeepResearchSessionTool,
     DeepResearchWebTool,
 )
@@ -24,10 +25,24 @@ def test_deep_research_not_in_writer_delegate_enum():
     assert "deep_research" not in domains
 
 
-def test_deep_research_instructions_include_apply_document_content():
-    text = get_sub_agent_instructions(DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS)
+def test_deep_research_instructions_include_apply_document_content_when_writer_tools():
+    tool_names = ["deep_research_web", "apply_document_content", "reply_to_user"]
+    mode = compose_deep_research_mode_instructions(tool_names)
+    text = get_sub_agent_instructions(mode, tool_names=tool_names)
     assert "apply_document_content" in text
     assert "deep_research_web" in text
+
+
+def test_deep_research_calc_instructions_omit_apply_document_content():
+    tool_names = ["deep_research_web", "reply_to_user", "get_document_content"]
+    mode = compose_deep_research_mode_instructions(tool_names)
+    text = get_sub_agent_instructions(mode, tool_names=tool_names)
+    assert "apply_document_content" not in text
+    assert "only output the user receives" in text
+
+
+def test_deep_research_base_instructions_omit_apply_document_content():
+    assert "apply_document_content" not in DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS
 
 
 def test_deep_research_examples_include_apply_document_content():

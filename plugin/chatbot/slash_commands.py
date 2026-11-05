@@ -98,7 +98,7 @@ class SlashCommand:
 
 def _run_help(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
     host.clear_ask()
-    host.append_output("\n" + format_help_text(getattr(host, "cached_doc_type", None)) + "\n")
+    host.append_output("\n" + format_help_text(host.cached_doc_type) + "\n")
 
 
 def _run_clear(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
@@ -326,6 +326,8 @@ def slash_visible_for_doc(cmd: SlashCommand, doc_type: str | None) -> bool:
     if cmd.apps is None:
         return True
     if doc_type is None or not str(doc_type).strip():
+        # Panel may not have cached_doc_type yet; show the full list. Typed slash routing
+        # still enforces app rules (e.g. /formula outside Calc errors on Send).
         return True
     return doc_type.strip().lower() in cmd.apps
 

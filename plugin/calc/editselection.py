@@ -79,6 +79,8 @@ def do_calc_extend_edit(
     if start_col > end_col or start_row > end_row:
         # Calc always has an active cell; slash edit with allow_whole_document uses the used
         # range when the selection misses the data rectangle (same flag as Writer whole-body edit).
+        # The edit is one compound undo step (same as other Calc cell edits) and still capped at
+        # _MAX_CELLS non-empty cells below.
         if is_edit and allow_whole_document:
             start_col = used_area.StartColumn
             end_col = used_area.EndColumn
