@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.framework.blocking_wait import automatic_gc_suspended, run_blocking_in_thread
+from plugin.framework.blocking_wait import automatic_gc_suspended, gc_suspended, run_blocking_in_thread
 
 
 class DummyToolkit:
@@ -227,11 +227,15 @@ def gc_enabled_restored():
 def test_automatic_gc_suspended_nested_keeps_gc_off_until_outer_exit(gc_enabled_restored):
     with automatic_gc_suspended():
         assert not gc.isenabled()
+        assert gc_suspended()
         with automatic_gc_suspended():
             assert not gc.isenabled()
+            assert gc_suspended()
         # The inner call found GC already off, so it must not turn it back on.
         assert not gc.isenabled()
+        assert gc_suspended()
     assert gc.isenabled()
+    assert not gc_suspended()
 
 
 def test_automatic_gc_suspended_leaves_disabled_gc_disabled(gc_enabled_restored):

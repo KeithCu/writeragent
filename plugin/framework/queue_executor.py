@@ -52,6 +52,7 @@ from plugin.framework.send_cancellation import (
     _ScopeUnset,
     get_current_send_cancellation,
     is_agent_active,
+    is_cancelled,
 )
 
 log = logging.getLogger("writeragent.framework.queue_executor")
@@ -465,7 +466,7 @@ class MainThread:
             except queue.Empty:
                 return
             scope = item.scope
-            if item.cancelled or (scope is not None and scope.is_cancelled()):
+            if item.cancelled or is_cancelled(scope):
                 self._abandon_unstarted(item)
                 skipped = True
             else:
@@ -481,7 +482,7 @@ class MainThread:
             # cannot see it (already off the queue). Stop tolerates that.
             # A function that has already started is waited out by the caller.
             with self._claim_lock:
-                if item.cancelled or (scope is not None and scope.is_cancelled()):
+                if item.cancelled or is_cancelled(scope):
                     item._claimed = False
                     self._abandon_unstarted(item)
                     skipped = True
