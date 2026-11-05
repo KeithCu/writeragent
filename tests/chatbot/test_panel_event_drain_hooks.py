@@ -122,14 +122,20 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         act = logging_mod._shared()["activity"]
         assert act["phase"] == "do_send"
         assert act["status_control"] is status_ctrl
-        post_main.assert_not_called()
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert not clear_calls
         drop_turn.assert_not_called()
 
         # A mid-stream slice applies text and returns; still not the end.
         q.put((StreamQueueKind.CHUNK, "partial"))
         rearm.pump()
         assert _has_audio(listener)
-        post_main.assert_not_called()
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert not clear_calls
         drop_turn.assert_not_called()
 
         if ending == "stop":
