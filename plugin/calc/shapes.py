@@ -10,6 +10,9 @@ from plugin.draw.shapes import DeleteShape as DrawDeleteShape
 from plugin.draw.shapes import GetDrawSummary as DrawGetDrawSummary
 from plugin.draw.shapes import ConnectShapes as DrawConnectShapes
 from plugin.draw.shapes import GroupShapes as DrawGroupShapes
+from plugin.draw.shapes import AlignShapes as DrawAlignShapes
+from plugin.draw.shapes import DistributeShapes as DrawDistributeShapes
+from plugin.draw.shapes import CreateDiagram as DrawCreateDiagram
 
 
 class UpsertShape(DrawUpsertShape, ToolCalcShapeBase):
@@ -29,4 +32,16 @@ class ConnectShapes(DrawConnectShapes, ToolCalcShapeBase):
 
 
 class GroupShapes(DrawGroupShapes, ToolCalcShapeBase):
+    pass
+
+
+class AlignShapes(DrawAlignShapes, ToolCalcShapeBase):
+    pass
+
+
+class DistributeShapes(DrawDistributeShapes, ToolCalcShapeBase):
+    pass
+
+
+class CreateDiagram(DrawCreateDiagram, ToolCalcShapeBase):
     pass

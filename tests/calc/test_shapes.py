@@ -52,6 +52,9 @@ def test_calc_shapes_wrapper_contract():
         GetDrawSummary,
         ConnectShapes,
         GroupShapes,
+        AlignShapes,
+        DistributeShapes,
+        CreateDiagram,
     )
 
     expected = [
@@ -60,6 +63,9 @@ def test_calc_shapes_wrapper_contract():
         (GetDrawSummary, "shape_summary"),
         (ConnectShapes, "shape_connect"),
         (GroupShapes, "shape_group"),
+        (AlignShapes, "shape_align"),
+        (DistributeShapes, "shape_distribute"),
+        (CreateDiagram, "shape_diagram"),
     ]
 
     for cls, name in expected:

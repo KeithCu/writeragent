@@ -279,6 +279,34 @@ class TestVisionPoolSupervisor:
         assert ok.get("status") == "ok"
         assert run.call_args.kwargs["image"] == b"png-bytes"
 
+    def test_worker_missing_ocr_backend_module(self) -> None:
+        docling = "plugin.vision.venv.vision_docling"
+        swallowed = {
+            "status": "error",
+            "code": "VISION_ERROR",
+            "message": f"No module named '{docling}'",
+            "helper": "extract_text",
+            "details": {"missing_module": docling},
+        }
+        with patch("plugin.vision.venv.vision.run_vision", return_value=swallowed):
+            out2 = _handle_request({"id": "miss-dict", "helper": "extract_text", "image_bytes": b"x"})
+        assert out2.get("code") == "VISION_BACKEND_MISSING"
+        assert docling in str(out2.get("error"))
+
+        boom = {
+            "status": "error",
+            "code": "VISION_ERROR",
+            "message": "boom",
+            "helper": "extract_text",
+        }
+        with patch("plugin.vision.venv.vision.run_vision", return_value=boom):
+            out3 = _handle_request({"id": "vision-err", "helper": "extract_text", "image_bytes": b"x"})
+        assert out3.get("code") == "VISION_ERROR"
+
+        with patch("plugin.vision.venv.vision.run_vision", side_effect=RuntimeError("boom")):
+            out4 = _handle_request({"id": "worker-boom", "helper": "extract_text", "image_bytes": b"x"})
+        assert out4.get("code") == "VISION_WORKER_ERROR"
+
     def test_symlink_swapped_between_check_and_open_is_not_read(self, tmp_path) -> None:
         """A name that was inside the allowlist can point outside before open.
 

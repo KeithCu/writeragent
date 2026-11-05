@@ -38,6 +38,7 @@ class _Shape:
 def test_align_shapes_left():
     shapes = [_Shape(100, 0, 50, 10), _Shape(200, 5, 50, 10)]
     page = MagicMock()
+    page.getCount.return_value = 2
     page.getByIndex.side_effect = lambda i: shapes[i]
     ctx = MagicMock()
     ctx.active_page_index = 0
@@ -157,6 +158,7 @@ class DisposedException(Exception):
 
 def _align_page(side_effect):
     page = MagicMock()
+    page.getCount.return_value = 2
     page.getByIndex.side_effect = side_effect
     ctx = MagicMock()
     ctx.active_page_index = 0
@@ -177,8 +179,8 @@ def test_align_shapes_bad_index_propagates():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
-        with pytest.raises(IndexError):
-            AlignShapes().execute(ctx, indices=[0, 1], alignment="left")
+        out = AlignShapes().execute(ctx, indices=[0, 1], alignment="left")
+    assert out["status"] == "error"
 
 
 def test_distribute_shapes_disposed_propagates():
@@ -191,6 +193,7 @@ def test_distribute_shapes_disposed_propagates():
         return shapes[i]
 
     page.getByIndex.side_effect = get_by_index
+    page.getCount.return_value = 3
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
@@ -289,6 +292,8 @@ def test_connect_shapes_failure_removes_connector_and_raises():
     from plugin.draw.shapes import ConnectShapes
 
     page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: MagicMock()
     connector = MagicMock()
     connector.setPropertyValue.side_effect = ValueError("bad end shape")
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch("plugin.draw.shapes.DrawShapes") as ds_cls:
