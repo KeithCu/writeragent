@@ -184,7 +184,7 @@ Do not broaden write parsing to locale display forms. §8 shows `08/05/2026` res
 
 **Shipped:** OpenAI/Gemini tool schemas keep `"type": "string"` on `values` (Gemini-friendly; fill-all via a single string). MCP `tools/list` → `inputSchema` widens to `["string","array"]` with flat `items: ["string","number"]` in [`to_mcp_schema`](../../plugin/framework/tool_schema.py) **after** `_normalize_schema_for_strict_providers`. `execute` already coerces lists via `json.dumps`.
 
-The same post-normalize pass widens **top-level** array-typed `range` to `["string","array"]` (items stay string). OpenAI/Gemini stay `"array"`. Execute already coerces a bare string to `[str]`. Nested string ranges (e.g. DuckDB `tables.*.range`) are not widened. `list_conditional_formats` and sheet-filter tools use the same array `range` schema as other Calc range tools.
+The same post-normalize pass widens **top-level** array-typed `range` to `["string","array"]` (items stay string). OpenAI/Gemini stay `"array"`. Execute already coerces a bare string to `[str]`. Nested string ranges (e.g. DuckDB `tables.*.range`) are not widened. `conditional_formatting_list` and sheet-filter tools use the same array `range` schema as other Calc range tools.
 
 **Why:** MCP hosts validate arguments against `inputSchema` before `tools/call`. A native JSON array was rejected at the host even though execute accepted lists; a bare `"A1:D10"` was rejected the same way for `range`. Putting `["string","array"]` on the source schema is not enough — normalize collapses that union to `"array"` only, which would break string fill-all on `values`. The MCP-only post-normalize override preserves both shapes on MCP while leaving chat/OpenAI on the Gemini-safe single type.
 

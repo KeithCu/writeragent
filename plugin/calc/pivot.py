@@ -211,7 +211,7 @@ def _resolve_qualified_ref(
 class CreatePivotTable(ToolCalcPivotBase):
     """Create a DataPilot (pivot) table from a rectangular source range."""
 
-    name: str | None = "create_pivot_table"
+    name: str | None = "pivot_table_create"
     description: str = "Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via sheet_create first)."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -362,7 +362,7 @@ class CreatePivotTable(ToolCalcPivotBase):
 class RefreshPivotTable(ToolCalcPivotBase):
     """Refresh a DataPilot table from its current source range."""
 
-    name: str | None = "refresh_pivot_table"
+    name: str | None = "pivot_table_refresh"
     description: str = "Reload pivot table data from the source range. If sheet is omitted, searches all sheets for name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the pivot table."}, "sheet": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."}}, "required": ["name"]}
     is_mutation: bool | None = True
@@ -390,7 +390,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
 class DeletePivotTable(ToolCalcPivotBase):
     """Delete a DataPilot (pivot) table."""
 
-    name: str | None = "delete_pivot_table"
+    name: str | None = "pivot_table_delete"
     description: str = "Delete a pivot table by name. If sheet is omitted, searches all sheets for name."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -421,7 +421,7 @@ class DeletePivotTable(ToolCalcPivotBase):
 class ListPivotTables(ToolCalcPivotBase):
     """List DataPilot tables and their output locations."""
 
-    name: str | None = "list_pivot_tables"
+    name: str | None = "pivot_table_list"
     description: str = "List pivot tables in the spreadsheet, optionally limited to one sheet."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "If set, only list pivot tables on this sheet."}}, "required": []}
     is_mutation: bool | None = False

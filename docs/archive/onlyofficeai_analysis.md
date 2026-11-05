@@ -27,7 +27,7 @@ This section is the **forward-looking backlog** implied by the comparison. Items
 | Medium | **Deterministic `highlightDuplicates` / anomaly helpers** | OO often uses **LLM** to decide duplicates/outliers; for correctness, prefer **Python/UNO** detection + one pass of `set_style` or conditional formatting; use OO only for **validation messages** and highlight application ideas. |
 | Medium | **Pivot: NL-only layout and pivot charts** | WriterAgent already has DataPilot tools in [`plugin/calc/pivot.py`](plugin/calc/pivot.py). OO’s `insertPivotTable` is still useful for **natural-language → field indices** prompts and error copy. **Pivot charts** and layout without explicit headers are **not** implemented (see [`AGENTS.md`](AGENTS.md) §5 and header of `pivot.py`). |
 | Medium | **Expand `create_chart` type enum** using OO’s long `chartType` list | Reduces model hallucination; must still match what UNO actually supports in [`plugin/calc/charts.py`](plugin/calc/charts.py). |
-| Lower / research | **Conditional-formatting preset parity** (`addDataBars`, `addIconSet`, `addColorScale`, top-10, etc.) | WriterAgent’s [`add_conditional_format`](plugin/calc/conditional.py) is **classic** operator + cell style. Excel-style presets need **LibreOffice UNO** research, not JS porting. Use OO enums as a **checklist** only. |
+| Lower / research | **Conditional-formatting preset parity** (`addDataBars`, `addIconSet`, `addColorScale`, top-10, etc.) | WriterAgent’s [`conditional_formatting_add`](plugin/calc/conditional.py) is **classic** operator + cell style. Excel-style presets need **LibreOffice UNO** research, not JS porting. Use OO enums as a **checklist** only. |
 | Lower | **`formatTable`-style “format as table”** | Only partial overlap with [`set_style`](plugin/calc/cells.py) and structure tools; add only if product definition matches. |
 | Avoid | **`writeMacro` / arbitrary JS** | Same as Word: **not** a WriterAgent direction—security and portability. |
 
@@ -155,8 +155,8 @@ OnlyOffice uses **`StartAction` / `EndAction`** and **`GroupActions`** so multi-
 |-----------------------------|----------------------|-------------|
 | `addChart` | Chart from range, rich `chartType` enum | [`create_chart`](plugin/calc/charts.py) — smaller `chart_type` enum; list/edit/delete + `get_chart_info` |
 | `setSort` / `setMultiSort` | Range sort | [`range_sort`](plugin/calc/cells.py) |
-| `addConditionalFormatting` / granular rules | Many presets | [`add_conditional_format`](plugin/calc/conditional.py), [`list_conditional_formats`](plugin/calc/conditional.py), [`remove_conditional_formats`](plugin/calc/conditional.py) |
-| `clearConditionalFormatting` | Clear CF | `remove_conditional_formats` |
+| `addConditionalFormatting` / granular rules | Many presets | [`conditional_formatting_add`](plugin/calc/conditional.py), [`conditional_formatting_list`](plugin/calc/conditional.py), [`conditional_formatting_remove`](plugin/calc/conditional.py) |
+| `clearConditionalFormatting` | Clear CF | `conditional_formatting_remove` |
 | `explainFormula` | LLM explains formula | [`error_detect`](plugin/calc/formulas.py) + [`error_detector.py`](plugin/calc/error_detector.py) / [`inspector.py`](plugin/calc/inspector.py) |
 | `formatTable` | Table-like formatting | Partial: [`set_style`](plugin/calc/cells.py), merge/sort/delete structure |
 | `changeTextStyle` (cell) | Char/cell styling | [`set_style`](plugin/calc/cells.py) |

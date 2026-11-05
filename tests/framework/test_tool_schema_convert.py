@@ -418,8 +418,8 @@ def test_mcp_string_range_stays_string():
     assert nested["type"] == "string"
 
 
-def test_list_conditional_formats_range_is_array_mcp_widens():
-    """list_conditional_formats uses the same array range schema as other Calc tools."""
+def test_conditional_formatting_list_range_is_array_mcp_widens():
+    """conditional_formatting_list uses the same array range schema as other Calc tools."""
     from plugin.calc.conditional import ListConditionalFormats
 
     tool = ListConditionalFormats()

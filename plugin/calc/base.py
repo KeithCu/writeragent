@@ -64,7 +64,7 @@ class ToolCalcDocumentResearchBase(ToolCalcSpecialBase):
 
 
 class ToolCalcCommentBase(ToolCalcSpecialBase):
-    specialized_domain: ClassVar[str | None] = "comments"
+    specialized_domain: ClassVar[str | None] = "cell_comments"
     specialized_domain_description: ClassVar[str | None] = "View, add, and manage cell comments and feedback."
 
 
