@@ -552,6 +552,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     # --- XSupportedLocales ---
     def _normalize_locale(self, a_locale: Any) -> str | None:
         """Return the grammar locale used by this proofreader implementation."""
+        profile = self._resolved_profile()
+        if profile.provider == "harper":
+            # Harper is English-only; keep hasLocale and doProofreading on one path.
+            from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
+
+            return normalize_harper_locale_to_bcp47(a_locale)
         return normalize_uno_locale_to_bcp47(a_locale)
 
     def hasLocale(self, aLocale: Any) -> bool:
@@ -588,15 +594,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         if grammar_bcp47 is None:
             grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
             return None
-
-        if profile.provider == "harper":
-            from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
-
-            harper_bcp47 = normalize_harper_locale_to_bcp47(a_locale)
-            if harper_bcp47 is None:
-                grammar_obs("do_proofreading_skip", reason="locale_not_registered", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, locale_raw=loc_raw)
-                return None
-            grammar_bcp47 = harper_bcp47
 
         grammar_obs("do_proofreading_entry", doc_id=a_doc_id, len_aText=len(a_text), n_start_lo=n_start, n_suggested_behind_end=n_suggested_end, grammar_bcp47=grammar_bcp47, locale_raw=loc_raw, text_preview=slice_preview_debug(a_text))
         return grammar_bcp47
