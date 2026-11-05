@@ -1211,6 +1211,25 @@ def test_shape_group_nested_ref_does_not_group():
     page.group.assert_not_called()
 
 
+def test_shape_group_rejects_duplicate_indices():
+    left = MagicMock()
+    left.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.getByIndex.return_value = left
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = GroupShapes().execute(ctx, indices=[0, 0])
+    assert out["status"] == "error"
+    page.group.assert_not_called()
+
+
 def test_digit_string_ref_is_index():
     page = MagicMock()
     shape = MagicMock()

@@ -247,8 +247,8 @@ def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
         yield i, shape
 
 
-def _is_group(shape: Any) -> bool:
-    """GroupShape test for the address walk. Re-raise disposal; any other getShapeType failure is not a group."""
+def is_group(shape: Any) -> bool:
+    """True when *shape* is a GroupShape (disposal from getShapeType propagates)."""
     try:
         shape_type = shape.getShapeType()
     except Exception as exc:
@@ -256,6 +256,11 @@ def _is_group(shape: Any) -> bool:
             raise
         return False
     return "GroupShape" in str(shape_type)
+
+
+def _is_group(shape: Any) -> bool:
+    """Alias for internal tree walks; prefer :func:`is_group`."""
+    return is_group(shape)
 
 
 def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:

@@ -126,7 +126,10 @@ class ToolDrawTableBase(ToolDrawSpecialBase):
 
 
 class ToolDrawVisionBase(ToolDrawSpecialBase):
-    """Marker for Draw/Impress vision delegation (return text only; no document insert)."""
+    """Catalog marker only: lists the vision domain on Draw/Impress; no tool class derives from this.
+
+    OCR runs through ``ExtractStructureFromImage`` (Calc vision base) and the delegate gateway.
+    """
 
     specialized_domain: ClassVar[str | None] = "vision"
     specialized_domain_description: ClassVar[str | None] = (

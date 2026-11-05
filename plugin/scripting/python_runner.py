@@ -400,20 +400,24 @@ def _finish_vision_execution(prepared: dict[str, Any], response: dict[str, Any])
     helper_name = prepared["helper_name"]
     formatted_time = format_elapsed_time(time.perf_counter() - t0)
     count = int(result.get("images_processed") or 0)
-    if is_draw(prepared["doc"]):
-        if count > 1:
+    inserted = not is_draw(prepared["doc"])
+    if count > 1:
+        if inserted:
+            status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(
+                helper=helper_name, count=count, time=formatted_time
+            )
+        else:
             status_ok = _(
                 "Vision '{helper}' completed for {count} images. Text returned only (not inserted). (took {time})"
             ).format(helper=helper_name, count=count, time=formatted_time)
-        else:
-            status_ok = _("Vision '{helper}' completed. Text returned only (not inserted). (took {time})").format(
-                helper=helper_name, time=formatted_time
-            )
-        return rps_ok_outcome(status_ok, result=result, stdout=None)
-    if count > 1:
-        status_ok = _("Vision '{helper}' completed. Inserted formatted HTML for {count} images. (took {time})").format(helper=helper_name, count=count, time=formatted_time)
+    elif inserted:
+        status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(
+            helper=helper_name, time=formatted_time
+        )
     else:
-        status_ok = _("Vision '{helper}' completed. Inserted formatted HTML. (took {time})").format(helper=helper_name, time=formatted_time)
+        status_ok = _("Vision '{helper}' completed. Text returned only (not inserted). (took {time})").format(
+            helper=helper_name, time=formatted_time
+        )
     return rps_ok_outcome(status_ok, result=result, stdout=None)
 
 

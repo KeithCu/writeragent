@@ -17,16 +17,25 @@
 """Page/slide management tools for Draw/Impress documents."""
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from plugin.framework.doc_type import is_impress
 from plugin.draw.bridge import DrawBridge, page_size
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.masters import iter_masters
+from plugin.draw.tables import table_cells_for_shape, table_matrix_to_tsv
+from plugin.draw.tree import is_group, iter_shape_addresses
 from plugin.framework.errors import available_miss_details, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import uno_same
-from plugin.writer.search import DEFAULT_SEARCH_RESULTS
+from plugin.writer.search import (
+    DEFAULT_SEARCH_RESULTS,
+    MAX_SEARCH_HITS,
+    invalid_regex_tool_message,
+    search_results_cap_hint,
+    shape_text_hits,
+    validate_regex_pattern,
+)
 
 log = logging.getLogger("writeragent.draw.pages")
 
@@ -220,56 +229,37 @@ def _shape_tree_address(path: str) -> int | str:
     return int(path) if "." not in path else path
 
 
-def _table_tsv_record(shape: Any) -> str | None:
-    from plugin.draw.tables import _is_table_shape, _table_model, get_draw_cells
+def iter_shape_text_units(page: Any, *, table_mode: Literal["per_cell", "tsv"] = "per_cell"):
+    """Yield (address, shape_name, text) for read/search over shape text.
 
-    if not _is_table_shape(shape):
-        return None
-    model = _table_model(shape)
-    if model is None:
-        return None
-    matrix = get_draw_cells({"model": model})
-    lines: list[str] = []
-    for row in matrix:
-        if not any(cell.strip() for cell in row):
-            continue
-        lines.append("\t".join(cell.strip() for cell in row))
-    if not lines:
-        return None
-    return "\n".join(lines)
-
-
-def iter_shape_text_units(page: Any):
-    """Yield (address, shape_name, text) for searchable / readable shape text units."""
-    from plugin.draw.tree import _is_group, iter_shape_addresses
-    from plugin.draw.tables import _is_table_shape, _table_model, get_draw_cells
-
+    Skips group containers. Tables use ``table_mode``: one TSV blob (read) or one
+    yield per non-empty cell (search). Disposal propagates; other failures skip
+    the shape and log at debug.
+    """
     for path, shape, _parent in iter_shape_addresses(page):
-        if _is_group(shape):
+        if is_group(shape):
             continue
         addr = _shape_tree_address(path)
         shape_name = str(getattr(shape, "Name", "") or "")
-        if _is_table_shape(shape):
-            model = _table_model(shape)
-            if model is None:
-                continue
-            try:
-                matrix = get_draw_cells({"model": model})
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                continue
-            for row in matrix:
-                for cell in row:
-                    text = cell.strip()
-                    if text:
-                        yield addr, shape_name, text
+        matrix = table_cells_for_shape(shape)
+        if matrix is not None:
+            if table_mode == "tsv":
+                tsv = table_matrix_to_tsv(matrix)
+                if tsv:
+                    yield addr, shape_name, tsv
+            else:
+                for row in matrix:
+                    for cell in row:
+                        text = cell.strip()
+                        if text:
+                            yield addr, shape_name, text
             continue
         try:
             text = shape.getString()
         except Exception as exc:
             if is_disposal(exc):
                 raise
+            log.debug("iter_shape_text_units getString failed", exc_info=True)
             continue
         if text and str(text).strip():
             yield addr, shape_name, str(text).strip()
@@ -289,29 +279,13 @@ class ReadSlideText(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import notes_text
-        from plugin.draw.tree import _is_group, iter_shape_addresses
 
         bridge = DrawBridge(ctx.doc)
         page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         texts: list[dict[str, Any]] = []
-        for path, shape, _parent in iter_shape_addresses(page):
-            if _is_group(shape):
-                continue
-            addr = _shape_tree_address(path)
-            shape_name = str(getattr(shape, "Name", "") or "")
-            tsv = _table_tsv_record(shape)
-            if tsv is not None:
-                texts.append({"index": addr, "text": tsv, "shape_name": shape_name})
-                continue
-            try:
-                txt = shape.getString()
-            except Exception as exc:
-                if is_disposal(exc):
-                    raise
-                continue
-            if txt and str(txt).strip():
-                texts.append({"index": addr, "text": str(txt).strip(), "shape_name": shape_name})
+        for addr, shape_name, text in iter_shape_text_units(page, table_mode="tsv"):
+            texts.append({"index": addr, "text": text, "shape_name": shape_name})
 
         nt = notes_text(page)
         notes_str = "" if nt is None else nt
@@ -346,12 +320,6 @@ class SearchSlides(ToolBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import notes_text
-        from plugin.writer.search import (
-            MAX_SEARCH_HITS,
-            invalid_regex_tool_message,
-            shape_text_hits,
-            validate_regex_pattern,
-        )
 
         raw_max = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
         if type(raw_max) is not int or raw_max < 1:
@@ -392,7 +360,7 @@ class SearchSlides(ToolBase):
             if total_count >= MAX_SEARCH_HITS:
                 break
             page = pages.getByIndex(page_idx)
-            for addr, shape_name, unit_text in iter_shape_text_units(page):
+            for addr, shape_name, unit_text in iter_shape_text_units(page, table_mode="per_cell"):
                 if total_count >= MAX_SEARCH_HITS:
                     break
                 for hit in shape_text_hits(unit_text, pattern, use_regex, case_sensitive):
@@ -413,9 +381,7 @@ class SearchSlides(ToolBase):
             "returned": len(matches),
         }
         if len(matches) < total_count:
-            result["hint"] = (
-                "Showing %d of %d. Narrow the query. This tool has no offset." % (len(matches), total_count)
-            )
+            result["hint"] = search_results_cap_hint(len(matches), total_count)
         return result
 
 

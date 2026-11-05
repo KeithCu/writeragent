@@ -253,10 +253,9 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         from plugin.doc.visual_helpers import graphic_objects_in_selection
 
         pairs = graphic_objects_in_selection(doc)
-        found = [n for n, _unused in pairs if n]
-        if not found:
+        if not pairs:
             raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
-        return found
+        return [name for name, _unused in pairs]
 
     batch = VisionBatch(helper=name, insert_into_document=insert_into_document)
     try:

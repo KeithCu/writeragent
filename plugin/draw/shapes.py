@@ -84,6 +84,21 @@ def _lookup_ref(
     return addr, shape, parent, None
 
 
+def _reject_duplicate_shapes(tool: ToolBase, shapes: list[Any]) -> dict[str, Any] | None:
+    seen: set[int] = set()
+    for shape in shapes:
+        token = id(shape)
+        if token in seen:
+            return tool._tool_error("Duplicate shape in indices; pass each shape once.")
+        seen.add(token)
+    return None
+
+
+_DIGIT_REF_SCHEMA_NOTE = (
+    " All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names)."
+)
+
+
 # LibreOffice interprets CustomShapeGeometry as EnhancedCustomShapeGeometry when this engine is set.
 _ENHANCED_CUSTOM_SHAPE_ENGINE = "com.sun.star.drawing.EnhancedCustomShapeEngine"
 
@@ -702,7 +717,10 @@ class ConnectShapes(_AnyDocumentShapeTool):
     """Connect two shapes with a connector."""
 
     name: str | None = "shape_connect"
-    description: str = "Connect two shapes on the same page with a connector."
+    description: str = (
+        "Connect two shapes on the same page with a connector."
+        + _DIGIT_REF_SCHEMA_NOTE
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -810,6 +828,7 @@ class GroupShapes(_AnyDocumentShapeTool):
         "ALWAYS call this before finishing — leaving loose parts is wrong. "
         "Pass every related shape index. "
         "The result is one group shape you can move with shape_upsert (action edit)."
+        + _DIGIT_REF_SCHEMA_NOTE
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": ["integer", "string"]}, "description": "List of shape indices or Names to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
     is_mutation: bool | None = True
@@ -826,6 +845,7 @@ class GroupShapes(_AnyDocumentShapeTool):
             return self._tool_error("At least two shape indices are required to group.")
 
         shape_collection = _create_shape_collection(ctx.ctx)
+        resolved_shapes: list[Any] = []
         for ref in indices:
             addr, shape, parent, err_res = _lookup_ref(self, page, ref)
             if err_res is not None:
@@ -835,7 +855,13 @@ class GroupShapes(_AnyDocumentShapeTool):
                 return self._tool_error(
                     "Cannot group shape %s: it is not a top-level shape on the page." % addr,
                 )
+            resolved_shapes.append(shape)
+        dup_err = _reject_duplicate_shapes(self, resolved_shapes)
+        if dup_err is not None:
+            return dup_err
+        for shape in resolved_shapes:
             shape_collection.add(shape)
+        # page.group is the first page mutation; failure propagates to execute_safe.
         page.group(shape_collection)
 
         return {
@@ -876,6 +902,9 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
         assert shape is not None and addr is not None
         shapes.append(shape)
         resolved_indices.append(addr)
+    dup_err = _reject_duplicate_shapes(tool, shapes)
+    if dup_err is not None:
+        return dup_err
     new_boxes = layout_fn([_shape_box(s) for s in shapes], layout_arg)
     for shape, box in zip(shapes, new_boxes):
         _apply_box(shape, box)
@@ -887,7 +916,11 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
 
 class AlignShapes(_AnyDocumentShapeTool):
     name: str | None = "shape_align"
-    description: str = "Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices or Names."
+    description: str = (
+        "Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. "
+        "Needs at least two indices or Names."
+        + _DIGIT_REF_SCHEMA_NOTE
+    )
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -909,7 +942,7 @@ class AlignShapes(_AnyDocumentShapeTool):
 
 class DistributeShapes(_AnyDocumentShapeTool):
     name: str | None = "shape_distribute"
-    description: str = "Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm."
+    description: str = "Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm." + _DIGIT_REF_SCHEMA_NOTE
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {

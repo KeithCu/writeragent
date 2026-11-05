@@ -654,7 +654,7 @@ def test_read_slide_text_group_child_and_table():
     with (
         patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.bridge.find_notes_shape", return_value=None),
-        patch("plugin.draw.pages._table_tsv_record", side_effect=lambda shape: "A\tB\n1\t2" if getattr(shape, "Name", None) == "DataTable" else None),
+        patch("plugin.draw.pages.table_cells_for_shape", side_effect=lambda shape: [["A", "B"], ["1", "2"]] if getattr(shape, "Name", None) == "DataTable" else None),
     ):
         bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = ReadSlideText().execute(ctx)
