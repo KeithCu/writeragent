@@ -37,6 +37,8 @@ configure_compute_worker_env()
 
 from plugin.framework.uno_bootstrap import register_alias_importer
 
+# Sandboxed writeragent.scripting.* imports need AliasImporter on sys.meta_path;
+# install_alias_authorizer alone only wires the sandbox gate.
 register_alias_importer()
 
 # ast sandboxing is loaded lazily on the first execution so the ready

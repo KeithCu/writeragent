@@ -143,6 +143,11 @@ def run_vision(
     try:
         result = _dispatch_helper(helper, image, params)
         return apply_structured_insert_html(result, params)
+    except ModuleNotFoundError as exc:
+        log.exception("Vision helper %s failed", helper)
+        name = exc.name if isinstance(exc.name, str) and exc.name else None
+        details = {"missing_module": name} if name else None
+        return error_result("VISION_ERROR", str(exc), helper=helper, details=details)
     except Exception as exc:
         log.exception("Vision helper %s failed", helper)
         return error_result("VISION_ERROR", str(exc), helper=helper)

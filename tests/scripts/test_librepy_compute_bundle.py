@@ -356,7 +356,7 @@ assert res.get("result") == 1, res
     assert res2.returncode == 0, f"Deal blocker test failed:\nSTDOUT:\n{res2.stdout}\nSTDERR:\n{res2.stderr}"
 
 
-def test_compute_bundle_symbolic_domain(tmp_path: Path):
+def test_compute_bundle_helper_domains(tmp_path: Path):
     dest = tmp_path / "bundle-compute"
     assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
 
@@ -389,13 +389,26 @@ sys.path = [staged] + filtered_path
 
 from compute_service.formula_worker import _handle_request
 
-cell = '''
+def run_cell(code):
+    return json.loads(_handle_request({"code": code})["result_json"])
+
+sym = run_cell('''
 from writeragent.scripting.symbolic import run_symbolic
 result = run_symbolic({"helper": "symbolic_simplify", "params": {"expression": "x+x"}}, None, {})["text"]
-'''
-payload = json.loads(_handle_request({"code": cell})["result_json"])
-assert payload.get("status") == "ok", payload
-assert payload.get("result") == "2*x", payload
+''')
+assert sym.get("status") == "ok", sym
+assert sym.get("result") == "2*x", sym
+
+run_cell("import writeragent.scripting.viz")
+run_cell("import writeragent.scripting.quant")
+
+units = run_cell('''
+from writeragent.scripting.units import run_units
+result = run_units({"helper": "convert_quantity", "params": {"value": 1, "from_unit": "m", "to_unit": "ft"}}, None, {})["text"]
+''')
+assert units.get("status") == "ok", units
+assert units.get("result"), units
+
 assert "uno" not in sys.modules
 """
 
@@ -405,4 +418,4 @@ assert "uno" not in sys.modules
         text=True,
         check=False,
     )
-    assert res.returncode == 0, f"Symbolic domain test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
+    assert res.returncode == 0, f"Helper domain test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"

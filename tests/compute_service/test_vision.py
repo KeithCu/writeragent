@@ -281,19 +281,12 @@ class TestVisionPoolSupervisor:
 
     def test_worker_missing_ocr_backend_module(self) -> None:
         docling = "plugin.vision.venv.vision_docling"
-        with patch(
-            "plugin.vision.venv.vision.run_vision",
-            side_effect=ModuleNotFoundError(f"No module named '{docling}'", name=docling),
-        ):
-            out = _handle_request({"id": "miss-import", "helper": "extract_text", "image_bytes": b"x"})
-        assert out.get("code") == "VISION_BACKEND_MISSING"
-        assert docling in str(out.get("error"))
-
         swallowed = {
             "status": "error",
             "code": "VISION_ERROR",
             "message": f"No module named '{docling}'",
             "helper": "extract_text",
+            "details": {"missing_module": docling},
         }
         with patch("plugin.vision.venv.vision.run_vision", return_value=swallowed):
             out2 = _handle_request({"id": "miss-dict", "helper": "extract_text", "image_bytes": b"x"})
