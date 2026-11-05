@@ -3,11 +3,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Cyclic GC runs only on the LibreOffice main thread (inside soffice).
+"""Cyclic GC runs only on the LibreOffice main thread when the policy installs.
 
-Scope: active only when loaded via LibreOffice's pythonloader (``pythonloader``
-in ``sys.modules``). URP clients such as ``testing_runner`` call the same
-bootstrap but keep automatic GC enabled.
+Scope: ``pythonloader`` is in ``sys.modules`` and AsyncCallback is available.
+That means the UNO python loader hosted this process, not that VCL is present
+(``uno.bin --singleaccept`` also loads pythonloader). URP clients such as
+``testing_runner`` call the same bootstrap but keep automatic GC enabled.
 
 Why: an automatic collection runs on whichever thread crosses the allocation
 threshold. When it frees a cycle that holds a PyUNO proxy, PyUNO_del
@@ -60,14 +61,17 @@ _reenabled = False  # ticker saw gc.enable() since last main collect
 def install(executor: Any) -> bool:
     """Call once, on the main thread, right after executor.set_context(ctx).
 
-    Skipped outside soffice (no pythonloader) or when AsyncCallback is
-    unavailable (eval harness, no VCL): automatic GC stays on as today.
+    Skipped when pythonloader is not loaded or AsyncCallback is unavailable
+    (eval harness, no VCL): automatic GC stays on as today.
     """
     global _main_ident
     if _main_ident is not None:
         return True
+    # Cheap, import-time signal that the UNO python loader hosted us (not argv-
+    # dependent). True for real soffice and uno.bin helpers; AsyncCallback below
+    # is still required for a working main-thread collect path.
     if "pythonloader" not in sys.modules:
-        log.info("gc_policy: skipped (not inside soffice)")
+        log.info("gc_policy: skipped (pythonloader not loaded)")
         return False
     if not executor.has_async_callback():
         log.info("gc_policy: skipped (no AsyncCallback)")
@@ -153,7 +157,12 @@ def _ticker_loop(executor: Any) -> None:
 def _ticker_iteration(executor: Any, *, now: float | None = None) -> None:
     """One ticker wake (test seam). Supply *now* to avoid sleeping."""
     global _posted_at, _reenabled
-    if gc.isenabled():
+    from plugin.framework import blocking_wait
+
+    if gc.isenabled() and not blocking_wait._gc_suspend_depth:
+        # Do not take blocking_wait._gc_suspend_lock here. While
+        # automatic_gc_suspended is active, gc.enable() under that lock is
+        # intentional; fighting it would set _reenabled and log a false warning.
         gc.disable()
         _reenabled = True
     if now is None:
@@ -175,12 +184,22 @@ def _collect_on_main() -> None:
     _posted_at = 0.0
     if threading.get_ident() != _main_ident:
         _refused += 1
+        if _refused == 1:
+            log.warning(
+                "gc_policy: scheduled collection did not run on the main thread "
+                "(AsyncCallback delivered off-main)"
+            )
         return
-    if _refused:
-        log.warning("gc_policy: %d scheduled collection(s) did not run on the main thread", _refused)
-        _refused = 0
+    if _refused > 1:
+        log.warning(
+            "gc_policy: %d scheduled collection(s) did not run on the main thread",
+            _refused,
+        )
+    _refused = 0
     if _reenabled or gc.isenabled():
         gc.disable()
+        # Third-party gc.enable(), or automatic_gc_suspended restoring a state
+        # recorded before install(). Put the policy back.
         log.warning("gc_policy: automatic GC was re-enabled; disabled again")
         _reenabled = False
     _log_off_main_samples()
@@ -191,6 +210,6 @@ def _collect_on_main() -> None:
     else:
         count, thr = gc.get_count(), gc.get_threshold()
         # Manual gc.collect(g) still bumps count[g+1] with GC disabled
-        # (3.11+), so this matches CPython's own gen-1 schedule.
+        # (3.11-3.13 verified), so this matches CPython's own gen-1 schedule.
         # Gen 2 is time-based (above) instead of the long-lived heuristic.
         gc.collect(1 if count[1] >= thr[1] else 0)

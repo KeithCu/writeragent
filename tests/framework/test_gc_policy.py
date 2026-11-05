@@ -245,7 +245,8 @@ def test_collect_on_main_off_main_refused_and_logged(gc_policy_restored, caplog)
 
     def off_main_collect() -> None:
         wrong_ident.append(threading.get_ident())
-        gc_policy._collect_on_main()
+        with caplog.at_level(logging.WARNING):
+            gc_policy._collect_on_main()
 
     worker = threading.Thread(target=off_main_collect, daemon=True)
     worker.start()
@@ -253,12 +254,12 @@ def test_collect_on_main_off_main_refused_and_logged(gc_policy_restored, caplog)
     assert wrong_ident and wrong_ident[0] != gc_policy._main_ident
     assert gc_policy._posted_at == 0.0
     assert gc_policy._refused == 1
+    assert any("did not run on the main thread" in r.message for r in caplog.records)
 
     caplog.clear()
-    with caplog.at_level(logging.WARNING):
-        gc_policy._collect_on_main()
-    assert any("did not run on the main thread" in r.message for r in caplog.records)
+    gc_policy._collect_on_main()
     assert gc_policy._refused == 0
+    assert not any("did not run on the main thread" in r.message for r in caplog.records)
 
 
 def test_sentinel_records_worker_gc_collect_stack(gc_policy_restored):
