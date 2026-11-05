@@ -39,12 +39,14 @@ log = logging.getLogger(__name__)
 
 
 def debug_env_active() -> bool:
-    """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``)."""
+    """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1`` via ``is_dev_build()``)."""
     from plugin.framework import thread_guard as tg
 
     if getattr(tg, "DEV_GUARD", False):
         return True
-    return os.environ.get("WRITERAGENT_TESTING") == "1"
+    from plugin.framework.dev_build import is_dev_build
+
+    return is_dev_build()
 
 _CONTROL_INIT_STARTED: set[int] = set()
 _IN_SCROLL_TO_TAIL: set[int] = set()

@@ -1,7 +1,9 @@
 """WriterAgent extension state and bootstrap entry (import-only; no plugin.main).
 
-Out-of-office scripts and pytest call ``plugin.main.bind()`` before ``bootstrap()`` or
-``get_tools()``; inside LibreOffice the pythonloader exec binds via the same ``bind()``.
+``bind_writeragent`` stores the finish hook from the pythonloader exec module.
+``plugin.main.bind()`` runs at pythonloader import and from the pytest autouse
+fixture in ``tests/conftest.py``. ``bootstrap()`` and ``get_tools()`` raise
+``WriterAgentException`` with code ``BOOTSTRAP_FAILED`` until that bind.
 """
 
 from __future__ import annotations
@@ -40,6 +42,11 @@ def bind_writeragent(
         return
     _finish = finish
     _prompt_hooks = register_prompt_hooks
+
+
+def is_bound() -> bool:
+    """True when a finish handler was registered via bind_writeragent."""
+    return _finish is not None
 
 
 def bootstrap(ctx: Any | None = None) -> None:
@@ -152,7 +159,7 @@ def dispatch_command(command: str) -> None:
         mod.on_action(action)
         return
 
-    bootstrap_error = bootstrap_mod._bootstrap_error
+    bootstrap_error = bootstrap_mod.bootstrap_error()
     if bootstrap_error is not None:
         from plugin.framework.errors import WriterAgentException
 

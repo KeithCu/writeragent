@@ -16,11 +16,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Built-in backend: no-op. Sidebar uses the existing in-process LlmClient path."""
 
-from typing import Any, ClassVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.errors import format_error_payload
 from plugin.acp.base import AgentBackend
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 
 class BuiltinBackend(AgentBackend):
@@ -35,7 +40,7 @@ class BuiltinBackend(AgentBackend):
         document_url: str | None,
         system_prompt: str | None = None,
         mcp_url: str | None = None,
-        cancel: Any = None,
+        cancel: SendCancellation | None = None,
     ) -> None:
         # Should not be called; sidebar branches away when backend is builtin.
         queue.put((StreamQueueKind.ERROR, format_error_payload(RuntimeError("Built-in backend should not receive send()"))))

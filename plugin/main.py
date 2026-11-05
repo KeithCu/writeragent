@@ -80,7 +80,6 @@ EXTENSION_ID = EXTENSION_ID_WRITERAGENT
 log = logging.getLogger(__name__)
 
 from plugin.bootstrap import (
-    BootstrapState,
     MainBootstrapJob as BaseMainBootstrapJob,
 )
 from plugin.framework.main_shared import ExtensionProtocolHandler, report_action_failure
@@ -162,7 +161,7 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
     app._services.register("tools", app._tools)
     app._services.register("main_thread", main)
 
-    bootstrap._bootstrap_state = BootstrapState.INITIALIZED
+    bootstrap.mark_initialized()
 
     from plugin.framework.module_base import ModuleLoader
 
@@ -172,14 +171,14 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
     except Exception as exc:
         module_phase_failed = True
         log.exception("bootstrap failed while loading modules")
-        bootstrap._bootstrap_error = exc
+        bootstrap.set_bootstrap_error(exc)
         # What was wrong: bootstrap flag remained INITIALIZED even if module loading failed,
         # wedging startup so later calls returned immediately.
         # How it happened: INITIALIZED was set early to block re-entry during imports.
         # Why this change: reset only when app._modules is still empty so a retry does not
         # build a second registry.
         if not app._modules:
-            bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
+            bootstrap.mark_uninitialized()
             return
 
     for mod in app._modules:
@@ -188,8 +187,8 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
         except Exception as exc:
             module_phase_failed = True
             log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
-            if bootstrap._bootstrap_error is None:
-                bootstrap._bootstrap_error = exc
+            if bootstrap.bootstrap_error() is None:
+                bootstrap.set_bootstrap_error(exc)
 
     try:
         # Subscribe to menu:update for dynamic menu text + icons.
@@ -213,12 +212,12 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
             register_core_handlers()
     except Exception as exc:
         log.exception("bootstrap failed after the init flag was set")
-        if bootstrap._bootstrap_error is None:
-            bootstrap._bootstrap_error = exc
+        if bootstrap.bootstrap_error() is None:
+            bootstrap.set_bootstrap_error(exc)
         return
 
     if not module_phase_failed:
-        bootstrap._bootstrap_error = None
+        bootstrap.clear_bootstrap_error()
 
 
 def _show_tests_unavailable(test_name: str) -> None:
@@ -311,15 +310,7 @@ def register_core_handlers() -> None:
 
     register_action_handler("embeddings", "search_dialog", _open_search_dialog)
 
-    def _refresh_review_toolbar(model: Any) -> None:
-        """Re-evaluate the review toolbar's visibility (hide once nothing is left to review).
-        Also a catch-up point if changes were resolved via LibreOffice's native UI."""
-        try:
-            from plugin.writer.review_view_attachment import refresh_review_toolbar
-
-            refresh_review_toolbar(model)
-        except Exception:  # UNO boundary: refresh_review_toolbar layout/controller access
-            log.debug("review toolbar refresh failed", exc_info=True)
+    from plugin.writer.review_view_attachment import refresh_review_toolbar
 
     def _resolve_change_at_cursor(accept: bool) -> None:
         from plugin.writer.inline_review import resolve_change_at_cursor, show_review_message
@@ -331,7 +322,7 @@ def register_core_handlers() -> None:
             log.debug("inline review: accept=%s -> ok=%s msg=%s", accept, ok, msg)
             if not ok:
                 show_review_message(c, msg)
-            _refresh_review_toolbar(model)
+            refresh_review_toolbar(model)
         else:
             log.debug("inline review: no current component")
 
@@ -347,7 +338,7 @@ def register_core_handlers() -> None:
             n, msg = resolve_all_with_feedback(model, c, accept)
             log.debug("inline review: resolve-all accept=%s -> %d changes", accept, n)
             show_review_message(c, msg)
-            _refresh_review_toolbar(model)
+            refresh_review_toolbar(model)
 
     register_action_handler("writer", "review_accept_all", lambda frame=None: _resolve_all_agent(True))
     register_action_handler("writer", "review_reject_all", lambda frame=None: _resolve_all_agent(False))
@@ -363,7 +354,7 @@ def register_core_handlers() -> None:
             return
         token = goto_adjacent_agent_change(model, forward)
         log.debug("review nav: forward=%s -> token=%s", forward, token)
-        _refresh_review_toolbar(model)
+        refresh_review_toolbar(model)
 
     register_action_handler("writer", "review_next", lambda frame=None: _goto_adjacent_change(True))
     register_action_handler("writer", "review_prev", lambda frame=None: _goto_adjacent_change(False))

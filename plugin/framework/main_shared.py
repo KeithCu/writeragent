@@ -72,8 +72,8 @@ class ExtensionProtocolHandler(unohelper.Base, XDispatch, XDispatchProvider, XIn
         pass
 
 
-def register_action_handler(module_name: str, action_name: str, handler_func: Callable[..., Any]) -> None:
-    """Register an action handler function."""
+def register_action_handler(module_name: str, action_name: str, handler_func: Callable[..., None]) -> None:
+    """Register an action handler; must accept the sidebar frame (menus pass no args — use ``frame=None``)."""
     _ACTION_HANDLERS[f"{module_name}.{action_name}"] = handler_func
 
 
