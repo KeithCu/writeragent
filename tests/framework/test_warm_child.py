@@ -479,6 +479,77 @@ def test_spawn_helper_read_exception_clears_io_owner(monkeypatch: pytest.MonkeyP
     assert spawned._io_owner is None
 
 
+def test_lease_cancel_aborts_wait_within_poll(tmp_path: Any, supervisor: Supervisor) -> None:
+    script = _stdio_worker(tmp_path)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
+    holder_ready = threading.Event()
+    release_holder = threading.Event()
+
+    def holder() -> None:
+        with warm.lease(Deadline(30)) as leased:
+            if isinstance(leased, dict):
+                return
+            holder_ready.set()
+            release_holder.wait(timeout=30)
+
+    holder_thread = threading.Thread(target=holder, name="lease-holder")
+    holder_thread.start()
+    assert holder_ready.wait(timeout=15)
+    cancelled = {"v": False}
+
+    def flip() -> None:
+        time.sleep(0.1)
+        cancelled["v"] = True
+
+    threading.Thread(target=flip, daemon=True).start()
+    try:
+        with warm.lease(
+            Deadline(30),
+            wait=30,
+            cancel=lambda: cancelled["v"] is True,
+            poll_sec=0.05,
+        ) as leased:
+            assert isinstance(leased, dict)
+            assert leased.get("code") == "CANCELLED"
+    finally:
+        release_holder.set()
+        holder_thread.join(timeout=15)
+        warm.retire()
+
+
+def test_lease_refuse_aborts_wait_within_poll(tmp_path: Any, supervisor: Supervisor) -> None:
+    script = _stdio_worker(tmp_path)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
+    holder_ready = threading.Event()
+    release_holder = threading.Event()
+
+    def holder() -> None:
+        with warm.lease(Deadline(30)) as leased:
+            if isinstance(leased, dict):
+                return
+            holder_ready.set()
+            release_holder.wait(timeout=30)
+
+    holder_thread = threading.Thread(target=holder, name="lease-holder")
+    holder_thread.start()
+    assert holder_ready.wait(timeout=15)
+    refuse_at = time.monotonic() + 0.1
+    err = {"status": "error", "code": "TEST", "error": "nope"}
+
+    def refuse() -> dict[str, Any] | None:
+        if time.monotonic() >= refuse_at:
+            return err
+        return None
+
+    try:
+        with warm.lease(Deadline(30), wait=30, refuse=refuse, poll_sec=0.05) as leased:
+            assert leased == err
+    finally:
+        release_holder.set()
+        holder_thread.join(timeout=15)
+        warm.retire()
+
+
 def test_missing_interpreter_lease_raises_oserror(supervisor: Supervisor) -> None:
     env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
     spec = ChildSpec(

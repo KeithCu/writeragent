@@ -551,6 +551,7 @@ def _bare_backend():
     backend._state_lock = threading.Lock()
     backend._send_lock = threading.Lock()
     backend._pending_permissions = {}
+    backend._session_cancel_notified = False
     backend.display_name = "Test"
     backend.binary_name = "test-agent"
     return backend
@@ -2263,6 +2264,7 @@ def test_stop_during_begin_request_cannot_queue_cancel_first():
 
     entered_begin = threading.Event()
     release_begin = threading.Event()
+    cancel_sent = threading.Event()
     events_log = []
 
     class FakeConn:
@@ -2280,6 +2282,8 @@ def test_stop_during_begin_request_cannot_queue_cancel_first():
 
         def send_notification(self, method, params=None):
             events_log.append(("notify", method))
+            if method == "session/cancel":
+                cancel_sent.set()
 
         def set_notification_callback(self, callback):
             pass
@@ -2305,6 +2309,7 @@ def test_stop_during_begin_request_cannot_queue_cancel_first():
     assert ("notify", "session/cancel") not in events_log
 
     release_begin.set()
+    assert cancel_sent.wait(timeout=5)
     t_stop.join(timeout=5)
     t_send.join(timeout=5)
 
@@ -2315,6 +2320,59 @@ def test_stop_during_begin_request_cannot_queue_cancel_first():
     idx_begin = events_log.index(("begin", "session/prompt"))
     idx_cancel = events_log.index(("notify", "session/cancel"))
     assert idx_begin < idx_cancel
+    assert events_log.count(("notify", "session/cancel")) == 1
+
+
+def test_stop_after_prompt_response_does_not_send_session_cancel():
+    backend = _bare_backend()
+    backend._session_id = "sess-1"
+    backend._ensure_connection = lambda cancel=None: None
+    backend._ensure_session = lambda **kwargs: None
+
+    await_entered = threading.Event()
+    release_await = threading.Event()
+
+    class FakeConn:
+        is_alive = True
+        is_healthy = True
+
+        def begin_request(self, method, params=None):
+            return (method, params)
+
+        def await_response(self, handle, timeout=120):
+            await_entered.set()
+            release_await.wait(timeout=5)
+            return {"stopReason": "end_turn"}
+
+        def send_notification(self, method, params=None):
+            raise AssertionError(f"unexpected notification: {method}")
+
+        def set_notification_callback(self, callback):
+            pass
+
+        def stop(self):
+            pass
+
+    conn = FakeConn()
+    backend._conn = conn
+    q = queue.Queue()
+    scope = SendCancellation()
+    worker = threading.Thread(
+        target=lambda: backend.send(
+            queue=q,
+            user_message="hi",
+            document_context=None,
+            document_url=None,
+            cancel=scope,
+        ),
+    )
+    worker.start()
+    assert await_entered.wait(timeout=5)
+    release_await.set()
+    backend.stop()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert scope.is_cancelled()
 
 
 def test_send_prompt_timeout_shuts_down_connection():

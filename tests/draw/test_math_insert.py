@@ -40,7 +40,7 @@ class _ContentEmbed:
 
 def test_content_size_uses_embedded_object_property_not_get_embedded_object() -> None:
     # Draw OLE2Shape has no getEmbeddedObject(); that call used to return
-    # None and insert_math always fell through to the length heuristic.
+    # None and math_insert always fell through to the length heuristic.
     calls = {"getEmbeddedObject": 0}
 
     class Shape:

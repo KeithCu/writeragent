@@ -53,7 +53,7 @@ _STUB_FILES = (
 _BANNED_PRODUCT_INTERNALS = (
     "send_peer_work",
     "send_peer_result",
-    "fill_draw_fields",
+    "shape_fill_fields",
     "document_research",
     "specialized_workflow_finished",
     "peer_inner",

@@ -20,7 +20,7 @@ from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, Ipc
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.session_key import SessionKey
-from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
+from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RetryWithNewLease, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
@@ -37,18 +37,54 @@ def _mgr_proc(mgr: PythonWorkerManager) -> Any:
 
 def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
     """Attach a mock Popen to *mgr* for unit tests that stub IPC."""
-    warm = MagicMock()
+    from plugin.framework.warm_child import ChildSpec, WarmChild
+
+    env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
+    env.setdefault("PATH", "/usr/bin")
+    spec = ChildSpec(
+        name="test-venv",
+        argv=[sys.executable, "-c", "pass"],
+        env=env,
+        log_start_failure=False,
+    )
+    warm = WarmChild(spec)
+    managed = MagicMock()
+    managed.popen = proc
     child = MagicMock()
-    child.managed.popen = proc
+    child.managed = managed
+    io_owner_holder: list[int | None] = [None]
+
+    def begin_io() -> None:
+        io_owner_holder[0] = threading.get_ident()
+
+    def end_io() -> bool:
+        io_owner_holder[0] = None
+        return False
+
+    child.begin_io = begin_io
+    child.end_io = end_io
     warm._child = child
-    warm._io_lock = threading.Lock()
-    warm.is_alive.return_value = proc.poll() is None if callable(getattr(proc, 'poll', None)) else True
-    warm.io_owner.return_value = None
-    warm.io_locked.side_effect = lambda: warm._io_lock.locked()
-    warm.diagnostic_tail.return_value = ""
+    warm._generation = 0
+    warm._fake_io_owner: int | None = None
+
+    def ensure_live(_deadline: object) -> None:
+        return None
+
+    warm._ensure_live = ensure_live  # type: ignore[method-assign]
+    poll_fn = getattr(proc, "poll", None)
+    warm.is_alive = lambda: poll_fn() is None if callable(poll_fn) else True
+    warm.io_owner = lambda: warm._fake_io_owner if warm._fake_io_owner is not None else io_owner_holder[0]
+    warm.io_locked = warm._io_lock.locked
+    warm.diagnostic_tail = lambda: ""
     mgr._warm = warm
     mgr._primed = True
     mgr._primed_generation = 0
+
+def _session_ok(mgr: PythonWorkerManager) -> bool:
+    from plugin.framework.warm_child import Lease
+
+    with mgr._io_session() as session:
+        return isinstance(session, Lease)
 
 def _lease_from_proc(mgr: PythonWorkerManager, proc: Any, *, generation: int=0) -> Any:
     from plugin.framework.warm_child import Lease
@@ -286,6 +322,7 @@ def test_worker_crash_mid_request_retries_and_recovers(tmp_path, monkeypatch):
     monkeypatch.setattr(venv_worker_module, '_HARNESS_PATH', str(child))
     monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
+    mgr._ensure_warmed_unlocked = lambda leased: None
     try:
         result = mgr.execute('result = 42', timeout_sec=5)
         assert result['status'] == 'ok'
@@ -411,7 +448,7 @@ def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
     monkeypatch.setattr(mgr, '_ensure_warmed_unlocked', lambda leased: None)
     gpid = None
     try:
-        mgr._ensure_running()
+        _session_ok(mgr)
         deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             drain = _mgr_stderr_tail(mgr)
@@ -478,7 +515,7 @@ def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     assert mgr._warm is not None
-    mgr._warm.io_owner.return_value = threading.get_ident()
+    mgr._warm._fake_io_owner = threading.get_ident()
     result = mgr.execute('result = 1', timeout_sec=1)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_REENTRY'
@@ -499,7 +536,6 @@ def test_initial_write_timeout_retries_once():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
     mgr._terminate_worker = MagicMock()
     result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
@@ -518,7 +554,6 @@ def test_ppt_master_write_timeout_does_not_replay(monkeypatch):
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._write_packed_frame_with_timeout = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
     response_payload = pickle.dumps({'status': 'host_request'}, protocol=5)
@@ -548,7 +583,6 @@ def test_tool_call_then_broken_stdout_does_not_replay(monkeypatch):
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     response_payload = pickle.dumps({'status': 'host_request'}, protocol=5)
     mgr._read_response_bytes = MagicMock(side_effect=[response_payload, RuntimeError('Worker closed stdout')])
@@ -578,7 +612,6 @@ def test_tool_call_raise_without_exec_started_does_not_replay(monkeypatch, frame
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'type': frame_type, 'id': 't1', 'tool': 'apply_document_content', 'args': {}}, protocol=5))
     mgr._terminate_worker = MagicMock()
@@ -602,7 +635,6 @@ def test_stdout_close_before_start_retries_once():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=b'')
     mgr._drain_stderr = MagicMock(return_value='')
@@ -622,7 +654,6 @@ def test_truncated_header_before_exec_started_fails_without_replay():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO(b'\x00\x00')
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._drain_stderr = MagicMock(return_value='')
     mgr._terminate_worker = MagicMock()
@@ -641,7 +672,6 @@ def test_runtime_error_before_exec_started_retries_once():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=RuntimeError('pipe died'))
     mgr._terminate_worker = MagicMock()
@@ -660,7 +690,6 @@ def test_runtime_error_after_exec_started_does_not_replay():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     captured: dict[str, dict] = {}
 
     def _write_frame(stdin, request, **kwargs):
@@ -691,7 +720,6 @@ def test_stdout_close_after_exec_started_does_not_replay():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     captured: dict[str, dict] = {}
 
     def _write_frame(stdin, request, **kwargs):
@@ -724,7 +752,6 @@ def test_exec_started_wrong_id_is_refused_without_replay():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'type': 'exec_started', 'id': 'someone-else'}, protocol=5))
     mgr._terminate_worker = MagicMock()
@@ -742,7 +769,6 @@ def test_host_read_timeout_does_not_retry():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=subprocess.TimeoutExpired(cmd=sys.executable, timeout=1))
     mgr._terminate_worker = MagicMock()
@@ -767,7 +793,6 @@ def test_partial_frame_timeout_does_not_replay():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(side_effect=IpcPartialFrameTimeout('python stream desynchronized: timeout mid-frame'))
     mgr._terminate_worker = MagicMock()
@@ -928,7 +953,6 @@ def test_bad_result_after_tool_call_does_not_replay(monkeypatch, exc_type):
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     captured: dict[str, dict] = {}
 
     def _write_frame(stdin, request, **kwargs):
@@ -998,7 +1022,7 @@ def test_retired_worker_does_not_respawn():
         PythonWorkerManager.get('/tmp/python-new-path', {'PATH': '/usr/bin'}, pool=WORKER_POOL_DEFAULT)
         assert first._retired is True
         mock_warm.retire.assert_called_once()
-        assert first._ensure_running() is False
+        assert not _session_ok(first)
         assert _mgr_proc(first) is None
     finally:
         shutdown_venv_workers_for_tests()
@@ -1062,7 +1086,6 @@ def _ipc_one_tool_call(*, session_id, script_session_id):
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     captured: dict[str, dict] = {}
 
     def _write_frame(stdin, request, **kwargs):
@@ -1375,8 +1398,7 @@ def test_io_session_body_oserror_does_not_disable_systemd_scope():
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     warm = MagicMock()
     warm._io_lock = threading.Lock()
-    warm.io_owner.return_value = None
-    warm.io_locked.return_value = False
+    mgr._warm = warm
 
     @contextlib.contextmanager
     def fake_lease(*args: object, **kwargs: object):
@@ -1411,8 +1433,8 @@ def test_io_session_spawn_oserror_retries_without_systemd_scope(monkeypatch: pyt
     lease_calls = [0]
 
     @contextlib.contextmanager
-    def counting_lease(self: WarmChild, deadline: object, wait: float | None = None) -> Generator[Lease, None, None]:
-        del deadline, wait
+    def counting_lease(self: WarmChild, deadline: object, wait: float | None = None, **kwargs: object) -> Generator[Lease, None, None]:
+        del deadline, wait, kwargs
         lease_calls[0] += 1
         if lease_calls[0] == 1:
             raise OSError(2, "No such file or directory", "fake-spawn")
@@ -1431,6 +1453,41 @@ def test_io_session_spawn_oserror_retries_without_systemd_scope(monkeypatch: pyt
         assert lease_calls[0] == 2
     finally:
         venv_worker_module._systemd_scope_disabled = orig_disabled
+
+def test_retry_with_new_lease_second_error_is_returned() -> None:
+    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    proc.stdout = io.BytesIO()
+    leased = _lease_from_proc(mgr, proc)
+    _install_mock_proc(mgr, proc)
+
+    def fail_write(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        raise OSError('first failure')
+
+    mgr._write_frame_with_timeout = fail_write  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+    outcome = mgr._execute_ipc_unlocked(_ExecRequest('result = 1', timeout_sec=1), leased=leased)
+    assert isinstance(outcome, RetryWithNewLease)
+    assert outcome.error['code'] == 'WORKER_IPC_ERROR'
+    assert outcome.error['details']['attempt'] == 2
+
+    calls = [0]
+
+    def fail_twice(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        calls[0] += 1
+        raise OSError('first failure' if calls[0] == 1 else 'second failure')
+
+    mgr._write_frame_with_timeout = fail_twice  # type: ignore[method-assign]
+    mgr._terminate_worker = MagicMock()  # type: ignore[method-assign]
+    result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
+    assert result['status'] == 'error'
+    assert calls[0] == 2
+    assert 'second failure' in result['message']
+    assert 'first failure' not in result['message']
 
 class TestExecuteOSErrorRetry:
     """Verify that OSError on the initial write triggers one lease retry."""
@@ -1555,8 +1612,8 @@ def test_run_code_and_reset_session_missing_inputs_include_code():
 def test_reset_python_session_does_not_spawn_when_worker_is_dead(monkeypatch: pytest.MonkeyPatch) -> None:
     """OnUnload calls reset on the UNO thread. A dead child must not execute().
 
-    execute() warms via _ensure_running -> _start_child, and the caller blocks
-    on venv-worker-spawn. Before the guard this records one reset_session call.
+    reset_python_session returns ok without calling execute when no worker is
+    alive, so OnUnload does not spawn a child.
     """
     from plugin.scripting import venv_worker as venv_worker_module
     calls: list[str | None] = []
@@ -1631,8 +1688,7 @@ def test_execute_ui_thread_returns_busy_when_pipe_lock_held(monkeypatch):
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     assert mgr._io_lock.acquire(timeout=1)
     assert mgr._warm is not None
-    mgr._warm.io_owner.return_value = threading.get_ident() + 1
-    mgr._warm.io_locked.return_value = True
+    mgr._warm._fake_io_owner = threading.get_ident() + 1
     try:
         started = time.monotonic()
         result = mgr.execute('result = 1', timeout_sec=1)
@@ -1640,8 +1696,7 @@ def test_execute_ui_thread_returns_busy_when_pipe_lock_held(monkeypatch):
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
-        mgr._warm.io_owner.return_value = None
-        mgr._warm.io_locked.return_value = False
+        mgr._warm._fake_io_owner = None
         mgr._io_lock.release()
 
 def test_execute_refuses_other_thread_during_tool_rpc():
@@ -1649,10 +1704,42 @@ def test_execute_refuses_other_thread_during_tool_rpc():
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     mgr._serving_tool_call = True
     assert mgr._warm is not None
-    mgr._warm.io_owner.return_value = threading.get_ident() + 1
+    mgr._warm._fake_io_owner = threading.get_ident() + 1
     result = mgr.execute('result = 1', timeout_sec=1)
     assert result['code'] == 'WORKER_REENTRY'
     assert 'busy' in result['message']
+
+def test_execute_leaves_when_holder_enters_tool_rpc(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
+    mgr = PythonWorkerManager(sys.executable, {})
+    _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
+    assert mgr._io_lock.acquire(timeout=1)
+
+    def set_tool_rpc() -> None:
+        time.sleep(0.1)
+        mgr._serving_tool_call = True
+
+    threading.Thread(target=set_tool_rpc, daemon=True).start()
+    try:
+        result = mgr.execute('result = 1', timeout_sec=1)
+        assert result['code'] == 'WORKER_REENTRY'
+        assert 'busy' in result['message']
+    finally:
+        mgr._serving_tool_call = False
+        mgr._io_lock.release()
+
+def test_execute_lock_budget_is_worker_reentry(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
+    monkeypatch.setattr(venv_worker_module, '_IO_LOCK_ACQUIRE_TIMEOUT_SEC', 0.25)
+    mgr = PythonWorkerManager(sys.executable, {})
+    _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
+    assert mgr._io_lock.acquire(timeout=1)
+    try:
+        result = mgr.execute('result = 1', timeout_sec=1)
+        assert result['code'] == 'WORKER_REENTRY'
+        assert 'busy' in result['message']
+    finally:
+        mgr._io_lock.release()
 
 def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {})
@@ -1660,7 +1747,7 @@ def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     _install_mock_proc(mgr, proc)
     assert mgr._io_lock.acquire(timeout=1)
     assert mgr._warm is not None
-    mgr._warm.io_owner.return_value = threading.get_ident()
+    mgr._warm._fake_io_owner = threading.get_ident()
     outcome: list[dict[str, Any]] = []
 
     def _other() -> None:
@@ -1674,13 +1761,13 @@ def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     waiter = threading.Thread(target=_other)
     waiter.start()
     time.sleep(0.1)
-    mgr._warm.io_owner.return_value = None
+    mgr._warm._fake_io_owner = None
     mgr._io_lock.release()
     waiter.join(timeout=2)
     assert not waiter.is_alive()
     assert outcome and outcome[0]['status'] == 'ok'
 
-def test_ensure_running_starts_new_session_without_preexec(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_io_session_starts_new_session_without_preexec(monkeypatch: pytest.MonkeyPatch) -> None:
     """setsid belongs on the C spawn path, not a Python preexec_fn."""
     import plugin.framework.managed_subprocess as ms
     import plugin.scripting.venv_worker as venv_worker_module
@@ -1708,7 +1795,7 @@ def test_ensure_running_starts_new_session_without_preexec(monkeypatch: pytest.M
     mgr = PythonWorkerManager(sys.executable, {})
     monkeypatch.setattr(mgr, '_ensure_warmed_unlocked', lambda leased: None)
     try:
-        mgr._ensure_running()
+        _session_ok(mgr)
         call_args, kwargs = popen.call_args
         assert call_args[0] == [mgr.exe, _HARNESS_PATH]
         assert 'preexec_fn' not in kwargs
@@ -1735,7 +1822,7 @@ def test_ensure_running_starts_new_session_without_preexec(monkeypatch: pytest.M
     finally:
         mgr._terminate_worker()
 
-def test_ensure_running_does_not_merge_parent_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_io_session_does_not_merge_parent_env(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
     captured_kwargs: list[dict[str, Any]] = []
     proc = MagicMock()
@@ -1761,7 +1848,7 @@ def test_ensure_running_does_not_merge_parent_env(monkeypatch: pytest.MonkeyPatc
     old_val = os.environ.get('WRITERAGENT_SPAWN_SENTINEL')
     os.environ['WRITERAGENT_SPAWN_SENTINEL'] = 'secret'
     try:
-        mgr._ensure_running()
+        _session_ok(mgr)
         recorded_env = captured_kwargs[0]['env']
         assert recorded_env == mgr.env
         assert 'WRITERAGENT_SPAWN_SENTINEL' not in recorded_env
@@ -1773,7 +1860,7 @@ def test_ensure_running_does_not_merge_parent_env(monkeypatch: pytest.MonkeyPatc
             os.environ['WRITERAGENT_SPAWN_SENTINEL'] = old_val
         mgr._terminate_worker()
 
-def test_ensure_running_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_io_session_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
     import logging
     import plugin.framework.managed_subprocess as ms
 
@@ -1783,7 +1870,7 @@ def test_ensure_running_popen_oserror_is_not_wrapped(monkeypatch: pytest.MonkeyP
     mgr = PythonWorkerManager(sys.executable, {})
     monkeypatch.setattr(mgr, '_ensure_warmed_unlocked', lambda leased: None)
     with caplog.at_level(logging.ERROR, logger='plugin.framework.managed_subprocess'):
-        assert mgr._ensure_running() is False
+        assert _session_ok(mgr) is False
     assert 'Failed to start managed subprocess' not in caplog.text
     assert _mgr_proc(mgr) is None
     assert _mgr_stderr_tail(mgr) is None
@@ -1845,7 +1932,7 @@ def test_pool_key_change_retires_old_warm_child(monkeypatch: pytest.MonkeyPatch)
     shutdown_venv_workers_for_tests()
     try:
         first = PythonWorkerManager.get(sys.executable, {'PATH': os.environ.get('PATH', '/usr/bin:/bin')})
-        assert first._ensure_running()
+        assert _session_ok(first)
         warm = first._warm
         assert warm is not None
         with warm.lease(Deadline(30)) as leased:
@@ -1861,7 +1948,7 @@ def test_pool_key_change_retires_old_warm_child(monkeypatch: pytest.MonkeyPatch)
             time.sleep(0.05)
         assert not pid_is_alive(old_pid)
         second.exe = sys.executable
-        assert second._ensure_running()
+        assert _session_ok(second)
         new_proc = _mgr_proc(second)
         assert new_proc is not None
         assert new_proc.pid != old_pid
@@ -1999,7 +2086,6 @@ def test_host_pack_oversize_returns_error_without_terminate(monkeypatch):
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._terminate_worker = MagicMock()
     result = _run_ipc_with_mock(mgr, _ExecRequest('result = 1', timeout_sec=1), proc)
     assert result['status'] == 'error'
@@ -2031,7 +2117,6 @@ def test_cancel_returns_cancelled_code():
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._terminate_worker = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=FailedAfterStart(RuntimeError('Python worker stopped by user'), 'cancel'))
@@ -2304,7 +2389,6 @@ def test_allowed_tools_resolved_before_request_write(monkeypatch: pytest.MonkeyP
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     events: list[str] = []
 
     def _resolve(domain: str | None) -> frozenset[str]:
@@ -2331,7 +2415,6 @@ def test_resolve_allowed_tools_failure_does_not_write(monkeypatch: pytest.Monkey
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
 
     def _fail_resolve(domain: str | None) -> frozenset[str]:
         raise RuntimeError('domain map failed')
@@ -2352,7 +2435,6 @@ def test_invalid_pickle_request_frame_keeps_worker(monkeypatch: pytest.MonkeyPat
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     mgr._write_frame_with_timeout = MagicMock()
     mgr._terminate_worker = MagicMock()
     mgr._read_response_bytes = MagicMock(return_value=pickle.dumps({'id': '', 'status': 'error', 'message': 'Invalid pickle request: nope'}, protocol=5))
@@ -2373,7 +2455,6 @@ def test_empty_id_error_after_exec_started_still_kills() -> None:
     proc.stdin = io.BytesIO()
     proc.stdout = io.BytesIO()
     _install_mock_proc(mgr, proc)
-    mgr._ensure_running = MagicMock()
     captured: dict[str, dict[str, Any]] = {}
     writes = {'n': 0}
 
@@ -2398,7 +2479,7 @@ def test_empty_id_error_after_exec_started_still_kills() -> None:
     assert mgr._terminate_worker.call_count == 1
     assert mgr._terminate_worker.call_args_list == [call()]
 
-def test_ensure_running_popen_runs_on_supervisor_spawner_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_io_session_popen_runs_on_supervisor_spawner_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     import plugin.framework.managed_subprocess as ms
     recorded_ident: int | None = None
 
@@ -2425,7 +2506,7 @@ def test_ensure_running_popen_runs_on_supervisor_spawner_thread(monkeypatch: pyt
     def helper_run() -> None:
         nonlocal helper_ident
         helper_ident = threading.get_ident()
-        mgr._ensure_running()
+        _session_ok(mgr)
     try:
         assert supervisor.spawner_ident is not None
         t = threading.Thread(target=helper_run)
@@ -2448,7 +2529,7 @@ def test_caller_thread_exit_does_not_pdeathsig_the_worker() -> None:
     def run_start() -> None:
         nonlocal helper_err
         try:
-            mgr._ensure_running()
+            _session_ok(mgr)
         except BaseException as exc:
             helper_err = exc
     try:
@@ -2520,9 +2601,9 @@ def test_ui_reentry_while_spawn_thread_owns_io(monkeypatch: pytest.MonkeyPatch) 
     lock = threading.Lock()
     assert lock.acquire(blocking=False)
     warm._io_lock = lock
-    warm.io_locked.return_value = True
     spawn_owner = threading.get_ident() + 1
     warm.io_owner.return_value = spawn_owner
+    warm.io_locked.return_value = True
     mgr._warm = warm
     err = mgr._reentry_error()
     assert err is not None
@@ -2557,16 +2638,16 @@ def test_execute_cancel_returns_cancelled_before_io(monkeypatch):
     res = mgr.execute('result = 1', timeout_sec=1, cancel=_cancelled_scope())
     assert res['code'] == 'CANCELLED'
 
-def test_ensure_running_does_not_respawn_live_child(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_io_session_does_not_respawn_live_child(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(venv_worker_module, 'wrap_command_for_sandbox', lambda cmd, **_kwargs: cmd)
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
-    assert mgr._ensure_running()
+    assert _session_ok(mgr)
     pid1 = _mgr_proc(mgr).pid
     assert pid1 is not None
     warm = mgr._warm
     assert warm is not None
     with patch.object(warm._supervisor, 'spawn') as mock_spawn:
-        assert mgr._ensure_running()
+        assert _session_ok(mgr)
         mock_spawn.assert_not_called()
     assert _mgr_proc(mgr).pid == pid1
     mgr._terminate_worker()

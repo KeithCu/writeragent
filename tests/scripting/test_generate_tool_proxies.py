@@ -402,6 +402,48 @@ def test_rename_calc_writer_specialized_tools_strip_to_short_proxy_methods():
         assert ns_exec["TOOL_METHODS"][tool_name] == (proxy_ns, method)
 
 
+def test_rename_draw_specialized_tools_strip_to_short_proxy_methods():
+    """RENAME-DRAW1: shape_* and math_insert tool ids group to wa.<domain>.<short> methods."""
+    renamed = [
+        ("shape_align", "shape", "align"),
+        ("shape_distribute", "shape", "distribute"),
+        ("shape_diagram", "shape", "diagram"),
+        ("shape_fill_fields", "shape", "fill_fields"),
+        ("math_insert", "math", "insert"),
+    ]
+    domain_map = {
+        "shape": "shapes",
+        "math": "math",
+    }
+    tools = []
+    for tool_name, ns, method in renamed:
+        domain = domain_map[ns]
+        tools.append(
+            _as_tool(
+                MockTool(
+                    tool_name,
+                    f"Tool {tool_name}.",
+                    {"type": "object", "properties": {}},
+                    specialized_domain=domain,
+                )
+            )
+        )
+    groups = group_tools(tools)
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    ns_exec: dict[str, Any] = {}
+    exec(code, ns_exec)
+    for tool_name, proxy_ns, method in renamed:
+        found = False
+        for short, tool in groups.get(proxy_ns, []):
+            if tool.name == tool_name:
+                assert short == method, f"{tool_name} -> {short}, expected {method}"
+                found = True
+                break
+        assert found, f"{tool_name} missing from groups[{proxy_ns}]"
+        assert ns_exec["TOOL_METHODS"][tool_name] == (proxy_ns, method)
+
+
 def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
     """Committed proxy: shape_upsert Args text, chat-mode domains gone, shapes/footnotes kept.
 
@@ -463,6 +505,29 @@ def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
         assert f'call_host_tool("{name}"' not in source
     # Copied sheet-filter descriptions; not a method.
     assert "delegate_to_specialized_calc_toolset(domain='sheets')" in source
+    for draw_tool in (
+        "shape_align",
+        "shape_distribute",
+        "shape_diagram",
+        "shape_fill_fields",
+        "math_insert",
+    ):
+        assert f'call_host_tool("{draw_tool}"' in source
+    for old_method in (
+        "def " + "align" + "_shapes(",
+        "def " + "distribute" + "_shapes(",
+        "def " + "create" + "_diagram(",
+        "def " + "fill" + "_draw_fields(",
+        "def " + "insert" + "_math(",
+    ):
+        assert old_method not in source
+    for ppt_tool in (
+        "export_presentation_project",
+        "validate_ppt_master_project",
+        "apply_ppt_master_template_fill",
+        "apply_ppt_master_native_enhance",
+    ):
+        assert ppt_tool not in source
 
 
 def test_range_schema_becomes_range_name_python_param():

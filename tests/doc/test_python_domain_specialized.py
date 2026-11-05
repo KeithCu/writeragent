@@ -187,11 +187,17 @@ def test_domain_loop_hints_include_footnotes_and_charts_lines():
 def test_shapes_mutators_are_script_only_other_domains_keep_tools():
     """Shapes LLM list drops proxy mutators; footnotes and sheets do not."""
     hidden = script_only_llm_tool_names("shapes")
-    assert "shape_upsert" in hidden
-    assert "shape_delete" in hidden
-    assert "shape_connect" in hidden
-    assert "shape_group" in hidden
-    assert "align_shapes" in hidden
+    expected_mutators = frozenset({
+        "shape_upsert",
+        "shape_delete",
+        "shape_connect",
+        "shape_group",
+        "shape_align",
+        "shape_distribute",
+        "shape_diagram",
+        "shape_fill_fields",
+    })
+    assert expected_mutators <= hidden
     assert "shape_summary" not in hidden
     assert script_only_llm_tool_names("footnotes") == frozenset()
     assert script_only_llm_tool_names("sheets") == frozenset()

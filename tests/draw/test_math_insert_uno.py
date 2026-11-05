@@ -1,4 +1,4 @@
-# WriterAgent — Draw insert_math sizes the OLE from the formula, not text length.
+# WriterAgent — Draw math_insert sizes the OLE from the formula, not text length.
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ def test_insert_math_sizes_from_visual_area(ctx, doc):
     """A stacked fraction must use the OLE visual area, not the length box.
 
     ``getEmbeddedObject()`` is absent on Draw ``OLE2Shape``, so the old
-    helper always returned None and ``insert_math`` used ``_heuristic_size_hmm``.
+    helper always returned None and ``math_insert`` used ``_heuristic_size_hmm``.
     """
     from plugin.draw.math_insert import _heuristic_size_hmm, _try_ole_shape_content_size_hmm
     from plugin.app import get_tools
@@ -24,7 +24,7 @@ def test_insert_math_sizes_from_visual_area(ctx, doc):
 
     formula = r"\frac{a}{\frac{b}{\frac{c}{d}}}"
     tctx = ToolContext(doc, ctx, "draw", get_tools()._services, "test", active_page_index=0)
-    res = get_tools().execute("insert_math", tctx, formula_type="latex", formula=formula, page=0, x=1500, y=1500)
+    res = get_tools().execute("math_insert", tctx, formula_type="latex", formula=formula, page=0, x=1500, y=1500)
     data = res if isinstance(res, dict) else json.loads(res)
     assert data.get("status") == "ok", data
 

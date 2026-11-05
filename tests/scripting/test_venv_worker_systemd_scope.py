@@ -107,8 +107,8 @@ def test_spawn_retries_plain_when_scoped_start_raises(monkeypatch):
     attempts = {"n": 0}
 
     @contextlib.contextmanager
-    def lease_stub(self, spawn_deadline, wait=0.0):
-        del spawn_deadline, wait
+    def lease_stub(self, spawn_deadline, wait=0.0, **kwargs):
+        del spawn_deadline, wait, kwargs
         attempts["n"] += 1
         if attempts["n"] == 1:
             raise OSError("systemd-run vanished")

@@ -50,7 +50,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
     # Draw and Impress are doc_type "draw", and run_domain accepts
     # only Writer and Calc, so the tool was offered and then failed with
     # "Symbolic helpers require a Writer or Calc document." Draw and Impress
-    # insert formulas with insert_math.
+    # insert formulas with math_insert.
     uno_services: list[str] | None = [
         "com.sun.star.sheet.SpreadsheetDocument",
         "com.sun.star.text.TextDocument",
