@@ -525,3 +525,59 @@ def test_calc_preset_length_empty_notifies_sidebar():
     assert sidebar_lines
     assert "tokens" in sidebar_lines[0].lower()
     assert sheet.getCellByPosition(0, 0).getString() == "hello wrld"
+
+
+def test_calc_slash_preset_empty_selection_notifies_sidebar():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, _sheet = _model_for_data((("",),))
+    sidebar_lines: list[str] = []
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.msgbox") as msgbox:
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=True,
+            preset_instruction="proofread",
+            sidebar_notify=sidebar_lines.append,
+        )
+
+    assert sidebar_lines == ["Select one or more non-empty cells."]
+    msgbox.assert_not_called()
+
+
+def test_calc_preset_stop_empty_notifies_sidebar():
+    from plugin.calc.editselection import do_calc_extend_edit
+
+    model, sheet = _model_for_data((("hello wrld",),))
+    sidebar_lines: list[str] = []
+
+    def fake_stream_completion_tasks(
+        ctx,
+        client,
+        tasks,
+        prepare_task,
+        on_finished,
+        *,
+        completion_out=None,
+    ):
+        assert completion_out is not None
+        completion_out["finish_reason"] = "stop"
+        on_finished()
+
+    with patch("plugin.calc.editselection.get_config", side_effect=_config), \
+         patch("plugin.calc.editselection.create_validated_client", return_value=object()), \
+         patch("plugin.calc.editselection.stream_completion_tasks", side_effect=fake_stream_completion_tasks):
+        do_calc_extend_edit(
+            MagicMock(),
+            model,
+            is_edit=True,
+            preset_instruction="proofread",
+            sidebar_notify=sidebar_lines.append,
+        )
+
+    assert sidebar_lines
+    assert "no text" in sidebar_lines[0].lower()
+    assert sheet.getCellByPosition(0, 0).getString() == "hello wrld"

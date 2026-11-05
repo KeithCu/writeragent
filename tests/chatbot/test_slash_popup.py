@@ -323,6 +323,7 @@ def test_enter_on_exact_explain_runs_not_completes_draft():
     query = popup.query_control
     query.text = "/explain"
     send.dispatch = MagicMock()
+    send._sync_has_text_from_query = MagicMock()
     send.append_output = MagicMock()
     send.clear_ask = MagicMock()
     send.hide_popup = MagicMock(side_effect=popup.hide)
@@ -337,10 +338,58 @@ def test_enter_on_exact_explain_runs_not_completes_draft():
                     assert run_cmd.call_args.args[0].name == "explain"
                     run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
                     set_text.assert_not_called()
+                    send._sync_has_text_from_query.assert_called_once()
                     send.dispatch.assert_called_once()
                     from plugin.chatbot.send_state import SendEventKind
 
                     assert send.dispatch.call_args[0][0].kind == SendEventKind.SEND_CLICKED
+
+
+def test_enter_exact_continue_send_starts_send_when_has_text_was_false():
+    """QA F1: one Enter after exact /preset must sync Ask then SEND_CLICKED."""
+    from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, SendMode, next_state
+
+    popup, _box = _controller()
+    send = popup.send_listener
+    query = popup.query_control
+    query.text = "/summarize"
+    send.sidebar_state = SimpleNamespace(
+        send=SendButtonState(SendMode.IDLE, has_text=False, has_audio=False, audio_supported=True)
+    )
+
+    def sync_has_text() -> None:
+        send.sidebar_state = SimpleNamespace(
+            send=next_state(
+                send.sidebar_state.send,
+                SendEvent(SendEventKind.TEXT_UPDATED, has_text=True),
+            ).state
+        )
+
+    send._sync_has_text_from_query = sync_has_text
+    events: list[SendEvent] = []
+
+    def capture(event: SendEvent) -> None:
+        events.append(event)
+        if event.kind == SendEventKind.SEND_CLICKED:
+            tr = next_state(send.sidebar_state.send, event)
+            send.sidebar_state = SimpleNamespace(send=tr.state)
+
+    send.dispatch = capture
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
+    popup._open = True
+    from plugin.chatbot.slash_commands import filter_slash_commands
+
+    popup._matches = filter_slash_commands("/summarize")
+    popup._selected = 0
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND):
+                popup.accept_selected()
+
+    assert [event.kind for event in events] == [SendEventKind.SEND_CLICKED]
+    assert send.sidebar_state.send.is_busy is True
 
 
 def test_enter_on_exact_translate_runs_with_empty_arg():

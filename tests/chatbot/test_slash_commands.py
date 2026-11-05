@@ -650,7 +650,28 @@ def test_run_slash_compact_sync_without_api_key_still_compacts():
     client = SimpleNamespace(config={"api_key": "", "model": "llama3", "endpoint": "http://127.0.0.1:11434/v1"})
     compact_result = SimpleNamespace(compacted=True, reason="ok")
     with patch("plugin.framework.config.get_config", return_value=True):
-        with patch("plugin.chatbot.compaction.compact_session", return_value=compact_result):
+        with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=8192):
+            with patch("plugin.chatbot.compaction.compact_session", return_value=compact_result):
+                line = run_slash_compact_sync(
+                    focus="",
+                    session=SimpleNamespace(messages=[{"role": "user", "content": "hi"}]),
+                    cancel=SendCancellation(),
+                    client=client,
+                    tools=[],
+                )
+    assert "Configure an API key" not in line
+    assert "compacted" in line.lower()
+
+
+def test_run_slash_compact_sync_empty_api_key():
+    from plugin.chatbot.slash_commands import run_slash_compact_sync
+    from plugin.framework.send_cancellation import SendCancellation
+
+    client = SimpleNamespace(
+        config={"api_key": "", "model": "gpt-4o", "endpoint": "https://api.openai.com/v1"},
+    )
+    with patch("plugin.framework.config.get_config", return_value=True):
+        with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
             line = run_slash_compact_sync(
                 focus="",
                 session=SimpleNamespace(messages=[{"role": "user", "content": "hi"}]),
@@ -658,8 +679,44 @@ def test_run_slash_compact_sync_without_api_key_still_compacts():
                 client=client,
                 tools=[],
             )
-    assert "Configure an API key" not in line
-    assert "compacted" in line.lower()
+    compact_mod.assert_not_called()
+    assert "Configure an API key" in line
+    assert "not available for this model" not in line
+
+
+def test_run_slash_compact_sync_invalid_api_key_401():
+    import urllib.error
+
+    from plugin.chatbot.slash_commands import run_slash_compact_sync
+    from plugin.framework.send_cancellation import SendCancellation
+
+    client = SimpleNamespace(
+        config={"api_key": "junk", "model": "gpt-4o", "endpoint": "https://api.openai.com/v1"},
+    )
+    with patch("plugin.framework.config.get_config", return_value=True):
+        with patch(
+            "plugin.framework.client.model_fetcher.resolve_context_window",
+            return_value=8192,
+        ):
+            with patch(
+                "plugin.chatbot.compaction.compact_session",
+                side_effect=urllib.error.HTTPError(
+                    url="https://api.openai.com/v1/chat/completions",
+                    code=401,
+                    msg="Unauthorized",
+                    hdrs=None,
+                    fp=None,
+                ),
+            ):
+                line = run_slash_compact_sync(
+                    focus="",
+                    session=SimpleNamespace(messages=[{"role": "user", "content": "hi"}]),
+                    cancel=SendCancellation(),
+                    client=client,
+                    tools=[],
+                )
+    assert "Invalid API Key" in line
+    assert line.strip() != "Compaction failed."
 
 
 def test_run_remember_writes_user_md(tmp_path, monkeypatch):

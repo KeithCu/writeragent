@@ -76,6 +76,9 @@ def do_calc_extend_edit(
     end_row = min(area.EndRow, used_area.EndRow)
 
     if start_col > end_col or start_row > end_row:
+        if preset_instruction is not None and sidebar_notify is not None:
+            sidebar_notify(_("Select one or more non-empty cells."))
+            return
         msgbox(ctx, title, _("Select one or more non-empty cells."))
         return
 
@@ -121,6 +124,8 @@ def do_calc_extend_edit(
             if saw_nonempty_for_formula_msg and saw_skipped_formula:
                 sidebar_notify(_("Formula cells are skipped."))
                 return
+            sidebar_notify(_("Select one or more non-empty cells."))
+            return
         msgbox(ctx, title, _("Select one or more non-empty cells."))
         return
 
@@ -177,12 +182,15 @@ def do_calc_extend_edit(
             is_edit
             and preset_instruction is not None
             and sidebar_notify is not None
-            and completion_meta.get("finish_reason") == "length"
             and not produced_text[0]
         ):
-            sidebar_notify(
-                _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
-            )
+            finish = completion_meta.get("finish_reason")
+            if finish == "length":
+                sidebar_notify(
+                    _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
+                )
+            elif finish == "stop":
+                sidebar_notify(_("The model returned no text. Try again."))
 
     try:
         stream_completion_tasks(

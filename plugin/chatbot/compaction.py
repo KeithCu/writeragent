@@ -827,6 +827,10 @@ def _summarize_bounded(
         summarizer_extra = {"reasoning": {"effort": "low"}}
 
         def _request_summary(max_tokens_out: int) -> dict[str, Any] | None:
+            import urllib.error
+
+            from plugin.framework.client.auth import AuthError
+
             try:
                 return client.request_with_tools(
                     [
@@ -840,7 +844,11 @@ def _summarize_bounded(
                     prepend_dev_build_system_prefix=False,
                     chat_extra=summarizer_extra,
                 )
-            except Exception:
+            except AuthError:
+                raise
+            except Exception as exc:
+                if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
+                    raise
                 log.exception("Compaction failed")
                 return None
 

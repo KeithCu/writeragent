@@ -609,6 +609,39 @@ def _complete_ask_draft(host: SlashHost, name: str) -> None:
     host.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
 
 
+def _slash_compact_auth_line(client: Any) -> str | None:
+    """Return a sidebar line when /compact cannot authenticate, else None."""
+    from plugin.framework.client.auth import AuthError, resolve_auth_for_config
+    from plugin.framework.errors import format_error_message
+
+    cfg = getattr(client, "config", None)
+    if not isinstance(cfg, dict):
+        return None
+    try:
+        resolve_auth_for_config(dict(cfg))
+    except AuthError as exc:
+        if exc.code == "missing_api_key":
+            return "\n" + _("Configure an API key to compact.") + "\n"
+        return "\n" + format_error_message(exc) + "\n"
+    return None
+
+
+def _slash_compact_exception_line(exc: BaseException) -> str | None:
+    """Map auth failures from compact workers to sidebar text, else None."""
+    import urllib.error
+
+    from plugin.framework.client.auth import AuthError
+    from plugin.framework.errors import format_error_message
+
+    if isinstance(exc, AuthError):
+        if exc.code == "missing_api_key":
+            return "\n" + _("Configure an API key to compact.") + "\n"
+        return "\n" + format_error_message(exc) + "\n"
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
+        return "\n" + format_error_message(exc) + "\n"
+    return None
+
+
 def _compact_result_line(result: Any) -> str:
     if result.compacted:
         return _("Conversation compacted.")
@@ -725,6 +758,10 @@ def run_slash_compact_sync(
     if is_cancelled(cancel):
         return "\n" + _("Compaction cancelled.") + "\n"
 
+    auth_line = _slash_compact_auth_line(client)
+    if auth_line:
+        return auth_line
+
     try:
         with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
             result = compact_session(
@@ -736,7 +773,10 @@ def run_slash_compact_sync(
                 focus=focus or None,
                 cancel=cancel,
             )
-    except Exception:
+    except Exception as exc:
+        mapped = _slash_compact_exception_line(exc)
+        if mapped:
+            return mapped
         log.exception("slash /compact failed")
         return "\n" + _("Compaction failed.") + "\n"
 
