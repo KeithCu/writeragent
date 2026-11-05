@@ -21,7 +21,11 @@ import plugin.calc.python.sheet_modify as _sheet_modify
 import plugin.calc.python.spill as _spill
 import plugin.calc.python.undo as _undo
 from plugin.calc.python.addin_values import to_calc_compatible
-from plugin.calc.python.function import finalize_python_return
+from plugin.calc.python.function import build_cell_context, finalize_python_return
+
+
+def _cell(ctx: Any, code: str, doc: Any = None, *, on_main: bool | None = None):
+    return build_cell_context(ctx, doc, code, on_main=on_main)
 
 
 class _PythonFunctionProxy:
@@ -125,7 +129,7 @@ def test_finalize_python_return_scalar_nan_becomes_error() -> None:
     class _Ctx:
         pass
 
-    val = finalize_python_return(_Ctx(), "c", float("nan"))
+    val = finalize_python_return(_cell(_Ctx(), "c"), float("nan"))
     assert math.isnan(val)
 
 
@@ -137,7 +141,7 @@ def test_finalize_python_return_list_nan_becomes_error() -> None:
     # Also exercise finalize with a fresh context (no prior session) for a single nan scalar
     class _Ctx:
         pass
-    val = finalize_python_return(_Ctx(), "c2", float("nan"))
+    val = finalize_python_return(_cell(_Ctx(), "c2"), float("nan"))
     assert math.isnan(val)
 
 
@@ -406,7 +410,7 @@ def test_finalize_python_return_triggers_spill(monkeypatch: pytest.MonkeyPatch) 
     )
 
     result = [10.0, 20.0]  # 1D list, will be treated as shape (2, 1)
-    val = finalize_python_return(ctx, "test_code", result, doc=doc)
+    val = finalize_python_return(_cell(ctx, "test_code", doc), result)
 
     assert val == 10.0
     # B2 is the formula cell (left alone); spill writes B3 via setDataArray.
@@ -436,7 +440,7 @@ def test_finalize_python_return_spills_on_secondary_sheet(monkeypatch: pytest.Mo
     )
 
     result = [100.0, 200.0]
-    val = finalize_python_return(ctx, "secondary_code", result, doc=doc)
+    val = finalize_python_return(_cell(ctx, "secondary_code", doc), result)
 
     assert val == 100.0
     assert sheet2.getCellByPosition(1, 2).getValue() == 200.0
@@ -458,7 +462,7 @@ def test_finalize_python_return_matrix_formula_does_not_spill() -> None:
     ctx = _ctx_with_doc(doc)
 
     result = [[1.0, 2.0], [3.0, 4.0]]
-    val = finalize_python_return(ctx, "test_code_matrix", result)
+    val = finalize_python_return(_cell(ctx, "test_code_matrix", None), result)
 
     # Should fall back to standard scalar/session returns for matrix formula
     assert val == 1.0
@@ -475,7 +479,7 @@ def test_spill_collision_detection(monkeypatch: pytest.MonkeyPatch) -> None:
 
     reset_calc_workbook_states()
 
-    val = finalize_python_return(ctx, "test_code_spill_blocked", [[100], [200]], doc=doc)
+    val = finalize_python_return(_cell(ctx, "test_code_spill_blocked", doc), [[100], [200]])
 
     assert val == "#SPILL!"
     key = ("file:///fake.ods", "Sheet1", 1, 1)
@@ -513,8 +517,11 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///fake_doc.ods")
 
     reset_calc_workbook_states()
+    from plugin.calc.python.workbook_state import WorkbookState
 
-    python_function.load_spill_registry_for_doc(doc)
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    python_function.load_spill_registry_for_doc(doc, st)
     key = ("file:///fake_doc.ods", "Sheet1", 1, 1)
     assert key in SPILL_REGISTRY
     rec = SPILL_REGISTRY[key]
@@ -527,7 +534,7 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
         code="some_code",
         cells=[SpillCell(2, 1, "n", 20.0), SpillCell(3, 1, "n", 30.0)],
     )
-    python_function.save_spill_registry_for_doc(doc)
+    python_function.save_spill_registry_for_doc(doc, st)
 
     assert saved_payload is not None
     data = json.loads(saved_payload)
@@ -541,7 +548,9 @@ def test_load_and_save_spill_registry(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Add a second load of that object JSON
     reset_calc_workbook_states()
-    python_function.load_spill_registry_for_doc(doc)
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    python_function.load_spill_registry_for_doc(doc, st)
     rec2 = SPILL_REGISTRY[key]
     assert rec2.spills == [(2, 1), (3, 1)]
     assert rec2.code == "some_code"
@@ -593,7 +602,9 @@ def test_nonfinite_spill_values_round_trip_through_document_property(monkeypatch
         ]
 
         reset_calc_workbook_states()
-        python_function.load_spill_registry_for_doc(doc)
+        st2 = WorkbookState.for_doc(doc)
+        assert st2 is not None
+        python_function.load_spill_registry_for_doc(doc, st2)
         rec = SPILL_REGISTRY[key]
         assert all(c.kind == "n" for c in rec.cells)
         assert math.isnan(rec.cells[0].value)
@@ -717,7 +728,7 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
             code="untitled_spill_a",
             cells=[SpillCell(2, 1, "n", 2.0), SpillCell(3, 1, "n", 3.0)],
         )
-        python_function.save_spill_registry_for_doc(doc1)
+        python_function.save_spill_registry_for_doc(doc1, WorkbookState.for_doc(doc1))
         assert json.loads(stored[id(doc1)]) == {
             "Sheet1:1,1": {
                 "code": "untitled_spill_a",
@@ -767,21 +778,18 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         reset_calc_workbook_states()
 
 
-def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_off_main_skips_uno_for_sk_and_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.framework.queue_executor import Policy, main
 
     main.install(Policy.test_inline)
 
-    # When off main thread, session_key and get_python_init_kwargs must not touch UNO
-    # or cause thread safety violations / recursion (Issue #402).
+    # Off main thread, build_cell_context must not touch UNO (Issue #402).
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     ctx = MagicMock()
-    key = python_function.session_key(ctx, "print('hello')")
-    assert key == ("", "", "", "print('hello')", "")
-
-    kwargs = python_function.get_python_init_kwargs(ctx)
-    assert kwargs == {}
+    cell = _cell(ctx, "print('hello')")
+    assert cell.sk == ("", "", "", "print('hello')", "")
+    assert cell.init_kwargs == {}
 
 
 def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -800,7 +808,7 @@ def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatc
     )
 
     result = [[10.0, 20.0], [30.0, 40.0]]
-    val = finalize_python_return(ctx, "test_code_2d", result, doc=doc)
+    val = finalize_python_return(_cell(ctx, "test_code_2d", doc), result)
 
     assert val == 10.0
     assert sheet.getCellByPosition(2, 1).getValue() == 20.0  # C2
@@ -863,7 +871,7 @@ def test_spilltest_a1_off_main_paints_full_grid(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: None)
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
-    val = finalize_python_return(ctx, spilltest_code, [[11, 22], [33, 44]], doc=doc)
+    val = finalize_python_return(_cell(ctx, spilltest_code, doc), [[11, 22], [33, 44]])
 
     assert val == 11
     assert sheet.getCellByPosition(1, 0).getValue() == 22  # B1
@@ -899,7 +907,7 @@ def test_finalize_python_return_spills_off_main_into_caller_doc(
     )
     _install_immediate_spill_timer(monkeypatch, on_main_after_start=on_main)
 
-    val = finalize_python_return(ctx, "off_main_spill", [[11, 22], [33, 44]], doc=doc)
+    val = finalize_python_return(_cell(ctx, "off_main_spill", doc), [[11, 22], [33, 44]])
 
     assert val == 11
     assert sheet.getCellByPosition(2, 1).getValue() == 22  # C2
@@ -936,7 +944,7 @@ def test_finalize_python_return_spills_dataframe_payload_off_main(
         "columns": ["Region", "Channel"],
         "data": [["North", "Search"], ["South", "Email"]],
     }
-    val = finalize_python_return(ctx, "df_spill", payload, doc=doc)
+    val = finalize_python_return(_cell(ctx, "df_spill", doc), payload)
 
     assert val == "Region"
     assert sheet.getCellByPosition(1, 0).getString() == "Channel"
@@ -973,7 +981,7 @@ def test_finalize_python_return_off_main_no_spill_without_doc(
 
     monkeypatch.setattr(python_function.threading, "Timer", _NoStartTimer)
 
-    val = finalize_python_return(ctx, "ambig_spill", [[11, 22], [33, 44]], doc=None)
+    val = finalize_python_return(_cell(ctx, "ambig_spill", None), [[11, 22], [33, 44]])
 
     assert val == 11
     assert spill_started["n"] == 0
@@ -991,7 +999,7 @@ def test_calc_spill_modify_listener_cleanup(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda ctx: doc)
 
     saved = []
-    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: saved.append(d))
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d, st: saved.append(d))
 
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -1048,7 +1056,7 @@ def test_spill_orphan_cleanup_saves_sheet_owner_not_active_doc(monkeypatch: pyte
 
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda _ctx: active)
     saved: list[Any] = []
-    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda doc: saved.append(doc))
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda doc, st: saved.append(doc))
 
     st = WorkbookState.for_doc(owner)
     assert st is not None
@@ -1074,7 +1082,7 @@ def test_calc_spill_modify_listener_clears_when_formula_only_contains_py(monkeyp
     sheet = MagicMock()
     doc = CalcDocStub(url="file:///fake_pymt.ods")
     monkeypatch.setattr(python_function, "_get_calc_doc", lambda ctx: doc)
-    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d: None)
+    monkeypatch.setattr(python_function, "save_spill_registry_for_doc", lambda d, st: None)
 
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -1137,7 +1145,7 @@ def test_spill_timers_prune_on_fire_register_and_cancel() -> None:
     assert "live" not in debounce
 
 
-def test_off_main_spill_timer_registers_cached_lifecycle_key(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_off_main_spill_timer_registers_cached_workbook_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Unload cancel must see off-main timers; registering them must not call UNO."""
     from plugin.calc.python.workbook_state import WorkbookState
 
@@ -1198,12 +1206,12 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
         _clear_spill_timer_registry()
 
 
-def test_session_key_off_main_ignores_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_off_main_skips_session_key_tuple_on_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     doc = MagicMock()
     doc.getURL.side_effect = AssertionError("getURL off main")
-    key = python_function.session_key(MagicMock(), "print('hello')", doc=doc)
-    assert key == ("", "", "", "print('hello')", "")
+    cell = _cell(MagicMock(), "print('hello')", doc, on_main=False)
+    assert cell.sk == ("", "", "", "print('hello')", "")
     doc.getURL.assert_not_called()
 
 
@@ -1213,7 +1221,7 @@ def test_finalize_python_return_off_main_skips_session_key_on_cached_doc(monkeyp
     monkeypatch.setattr("plugin.framework.config.get_config", lambda _key: False)
     doc = MagicMock()
     doc.getURL.side_effect = AssertionError("getURL off main")
-    val = finalize_python_return(MagicMock(), "c", [10, 20, 30], doc=doc)
+    val = finalize_python_return(_cell(MagicMock(), "c", doc, on_main=False), [10, 20, 30])
     assert val == 10.0
     doc.getURL.assert_not_called()
 
@@ -1333,7 +1341,7 @@ def test_execute_python_addin_maps_missing_venv_error(monkeypatch) -> None:
         },
     )
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
     out = python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "1+1")
     assert "Settings" in out
@@ -1352,7 +1360,7 @@ def test_execute_python_addin_maps_timeout_error(monkeypatch) -> None:
         },
     )
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
     out = python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "1+1")
     assert out.startswith("Error:")
@@ -1374,10 +1382,35 @@ def test_perform_deferred_spill_aborts_when_formula_replaced(monkeypatch: pytest
 def test_scalar_for_list_result_no_share_without_unique_origin() -> None:
     ctx = _ctx_with_doc(CalcDocStub())
     python_function.clear_python_addin_cache()
-    a = python_function.scalar_for_list_result(ctx, "dup", [10, 20, 30])
-    b = python_function.scalar_for_list_result(ctx, "dup", [10, 20, 30])
+    a = python_function.scalar_for_list_result(_cell(ctx, "dup", None), [10, 20, 30])
+    b = python_function.scalar_for_list_result(_cell(ctx, "dup", None), [10, 20, 30])
     assert a == 10
     assert b == 10
+
+
+def test_finalize_python_return_located_array_does_not_break_scalar_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bugfix: unpacking locate_formula_cell_in_doc must not shadow the CellContext parameter."""
+    from unittest.mock import patch
+
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    sheet = doc.getSheets().getByName("Sheet1")
+    formula_cell = sheet.getCellByPosition(0, 0)
+    python_function.clear_python_addin_cache()
+    monkeypatch.setattr("plugin.framework.config.get_config", lambda _k: True)
+    monkeypatch.setattr(
+        "plugin.calc.python.function._session_key_tuple",
+        lambda *_a, **_k: ("file:///u.ods", "Sheet1", "sid", "dup", "0,0"),
+    )
+    with patch(
+        "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+        return_value=(sheet, formula_cell, (0, 0)),
+    ):
+        monkeypatch.setattr(python_function, "_cell_is_matrix", lambda _s, _c: True)
+        a = python_function.finalize_python_return(_cell(ctx, "dup", doc), [10, 20, 30])
+        b = python_function.finalize_python_return(_cell(ctx, "dup", doc), [10, 20, 30])
+    assert a == 10
+    assert b == 20
 
 
 def test_scalar_for_list_result_increments_with_unique_origin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1385,13 +1418,12 @@ def test_scalar_for_list_result_increments_with_unique_origin(monkeypatch: pytes
     ctx = _ctx_with_doc(doc)
     python_function.clear_python_addin_cache()
     monkeypatch.setattr(
-        python_function,
-        "session_key",
+        "plugin.calc.python.function._session_key_tuple",
         lambda *_a, **_k: ("file:///u.ods", "Sheet1", "sid", "dup", "0,0"),
     )
-    a = python_function.scalar_for_list_result(ctx, "dup", [10, 20, 30], doc=doc)
-    b = python_function.scalar_for_list_result(ctx, "dup", [10, 20, 30], doc=doc)
-    c = python_function.scalar_for_list_result(ctx, "dup", [10, 20, 30], doc=doc)
+    a = python_function.scalar_for_list_result(_cell(ctx, "dup", doc), [10, 20, 30])
+    b = python_function.scalar_for_list_result(_cell(ctx, "dup", doc), [10, 20, 30])
+    c = python_function.scalar_for_list_result(_cell(ctx, "dup", doc), [10, 20, 30])
     assert a == 10
     assert b == 20
     assert c == 30
@@ -1520,8 +1552,7 @@ def test_matrix_cache_staleness_after_gap(monkeypatch: pytest.MonkeyPatch) -> No
     curr_time = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: curr_time[0])
     monkeypatch.setattr(
-        python_function,
-        "session_key",
+        "plugin.calc.python.function._session_key_tuple",
         lambda *_a, **_k: ("file:///doc.ods", "Sheet1", "sid", "code_gap", "0,0"),
     )
 
@@ -1563,19 +1594,18 @@ def test_scalar_for_list_result_stale_after_gap(monkeypatch: pytest.MonkeyPatch)
     curr_time = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: curr_time[0])
     monkeypatch.setattr(
-        python_function,
-        "session_key",
+        "plugin.calc.python.function._session_key_tuple",
         lambda *_a, **_k: ("file:///doc.ods", "Sheet1", "sid", "code_gap2", "0,0"),
     )
 
-    a = python_function.scalar_for_list_result(ctx, "code_gap2", [1, 2, 3], doc=doc)
+    a = python_function.scalar_for_list_result(_cell(ctx, "code_gap2", doc), [1, 2, 3])
     assert a == 1.0
     curr_time[0] += 0.5
-    b = python_function.scalar_for_list_result(ctx, "code_gap2", [1, 2, 3], doc=doc)
+    b = python_function.scalar_for_list_result(_cell(ctx, "code_gap2", doc), [1, 2, 3])
     assert b == 2.0
 
     curr_time[0] += 3.0  # > _PY_PASS_GAP_SEC
-    c = python_function.scalar_for_list_result(ctx, "code_gap2", [1, 2, 3], doc=doc)
+    c = python_function.scalar_for_list_result(_cell(ctx, "code_gap2", doc), [1, 2, 3])
     assert c == 1.0
 
 
@@ -1727,7 +1757,7 @@ def test_ragged_results_handling() -> None:
 
 
 
-def test_get_python_init_kwargs_off_main_returns_empty_without_touching_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_off_main_returns_empty_init_kwargs_without_touching_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     """Off-main the caller doc is only passed through: its init script is UNO."""
 
     def boom(_doc: object) -> dict[str, Any]:
@@ -1735,10 +1765,11 @@ def test_get_python_init_kwargs_off_main_returns_empty_without_touching_doc(monk
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", boom)
-    assert python_function.get_python_init_kwargs(MagicMock(), doc=CalcDocStub()) == {}
+    cell = _cell(MagicMock(), "", CalcDocStub(), on_main=False)
+    assert cell.init_kwargs == {}
 
 
-def test_get_python_init_kwargs_without_doc_does_not_guess(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_without_doc_does_not_guess_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     """No caller document means no init kwargs; the front window is not consulted."""
 
     def boom(_ctx: object) -> object:
@@ -1746,10 +1777,10 @@ def test_get_python_init_kwargs_without_doc_does_not_guess(monkeypatch: pytest.M
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.scripting.document_scripts.get_calc_document_from_ctx", boom)
-    assert python_function.get_python_init_kwargs(MagicMock()) == {}
+    assert _cell(MagicMock(), "").init_kwargs == {}
 
 
-def test_get_python_init_kwargs_registers_unload_listener(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_registers_unload_listener_on_for_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///fake_lifecycle.ods")
     calls: list[tuple] = []
 
@@ -1757,19 +1788,20 @@ def test_get_python_init_kwargs_registers_unload_listener(monkeypatch: pytest.Mo
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
-        lambda ctx, workbook: calls.append((ctx, workbook)),
+        lambda ctx, doc, *, state: calls.append((ctx, doc, state)),
     )
 
     ctx = MagicMock()
-    kwargs = python_function.get_python_init_kwargs(ctx, doc=doc)
-    assert kwargs == {"dummy": True}
-    assert calls == [(ctx, doc)]
+    cell = build_cell_context(ctx, doc, "x")
+    assert cell.init_kwargs == {"dummy": True}
+    assert len(calls) == 1
+    assert calls[0][1] is doc
 
 
-def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_survives_listener_install_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///fake_lifecycle_fail.ods")
 
-    def _boom(_ctx, _doc):
+    def _boom(_ctx, _doc, *, state):
         raise RuntimeError("listener failed")
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
@@ -1778,14 +1810,15 @@ def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: p
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
         _boom,
     )
-    assert python_function.get_python_init_kwargs(MagicMock(), doc=doc) == {"dummy": True}
+    cell = build_cell_context(MagicMock(), doc, "x")
+    assert cell.init_kwargs == {"dummy": True}
 
 
-def test_py_scoped_dir_bindings_none_doc() -> None:
-    assert python_function._py_scoped_dir_bindings(None) == {"scoped_dir": None}
+def test_build_cell_context_scoped_dir_none_without_doc() -> None:
+    assert _cell(MagicMock(), "").scoped_dir is None
 
 
-def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_scoped_dir_off_main_skips_document_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """Yellow / #402: off-main recalc must not call getURL() on the caller doc."""
     called: list[int] = []
 
@@ -1795,11 +1828,11 @@ def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
-    assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": None}
+    assert _cell(MagicMock(), "", object(), on_main=False).scoped_dir is None
     assert called == []
 
 
-def test_py_scoped_dir_bindings_on_main_uses_document_directory(
+def test_build_cell_context_scoped_dir_on_main_uses_document_directory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
@@ -1807,7 +1840,8 @@ def test_py_scoped_dir_bindings_on_main_uses_document_directory(
         "plugin.doc.document_research.get_document_directory",
         lambda doc: "/tmp/workbook-dir",
     )
-    assert python_function._py_scoped_dir_bindings(object()) == {"scoped_dir": "/tmp/workbook-dir"}
+    doc = CalcDocStub()
+    assert _cell(MagicMock(), "", doc).scoped_dir == "/tmp/workbook-dir"
 
 
 def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1825,7 +1859,7 @@ def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) 
     )
     monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
     doc = CalcDocStub()
     out = python_function.execute_python_addin(_ctx_with_doc(doc), "1+1", doc=doc)
@@ -1852,7 +1886,7 @@ def test_execute_python_addin_reuses_session_key_sid(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr(python_function, "run_code_in_user_venv", fake_run)
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", mock_session_id)
     monkeypatch.setattr("plugin.scripting.session_manager.workbook_session_id", mock_session_id)
 
@@ -2186,7 +2220,7 @@ def test_selection_does_not_suppress_spill(monkeypatch: pytest.MonkeyPatch) -> N
         "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
         return_value=(sheet, formula_cell, (0, 0)),
     ):
-        val = python_function.finalize_python_return(ctx, "code_single", [10, 20, 30], doc=doc)
+        val = python_function.finalize_python_return(_cell(ctx, "code_single", doc), [10, 20, 30])
 
     assert val == 10
     assert sheet.getCellByPosition(0, 1).getValue() == 20
@@ -2199,7 +2233,7 @@ def test_selection_does_not_suppress_spill(monkeypatch: pytest.MonkeyPatch) -> N
         "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
         return_value=None,
     ):
-        val_fallback = python_function.finalize_python_return(ctx, "code_fallback", [10, 20, 30], doc=doc)
+        val_fallback = python_function.finalize_python_return(_cell(ctx, "code_fallback", doc), [10, 20, 30])
     # When is_matrix is true, returns scalar without queuing spill
     assert val_fallback == 10
 
@@ -2235,10 +2269,10 @@ def test_matrix_sessions_expire() -> None:
         st.matrix[stale_key] = python_function.WorkerResultSession([1], [1], timestamp=old_time)
 
     with patch(
-        "plugin.calc.python.function.session_key",
+        "plugin.calc.python.function._session_key_tuple",
         return_value=("file:///d.ods", "S", "sid", "c_new", "2,2"),
     ):
-        python_function.scalar_for_list_result(ctx, "c_new", [10, 20], doc=doc)
+        python_function.scalar_for_list_result(_cell(ctx, "c_new", doc), [10, 20])
 
     with python_function._MATRIX_SCALAR_SESSIONS_LOCK:
         assert stale_key not in st.matrix
@@ -2345,7 +2379,7 @@ def test_execute_python_addin_worker_errors(monkeypatch: pytest.MonkeyPatch, cap
     python_function.clear_python_addin_cache()
     doc = CalcDocStub()
     ctx = _ctx_with_doc(doc)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
 
     # 1. ValueError-shaped worker dict -> the 519 double, not a string
@@ -2586,7 +2620,7 @@ def test_execute_python_addin_helper_error_dict(monkeypatch: pytest.MonkeyPatch,
     python_function.clear_python_addin_cache()
     doc = CalcDocStub()
     ctx = _ctx_with_doc(doc)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
     rec_diag = MagicMock()
     monkeypatch.setattr(python_function, "_record_py_diagnostic", rec_diag)
@@ -2689,15 +2723,14 @@ def test_flat_result_equal_and_scalar_matrix_session(monkeypatch: pytest.MonkeyP
     # Call scalar_for_list_result twice on ["#VALUE!", "#DIV/0!"]
     code = "test_matrix_session_err"
     monkeypatch.setattr(
-        python_function,
-        "session_key",
+        "plugin.calc.python.function._session_key_tuple",
         lambda *_a, **_k: ("u", "Sheet1", "sid", code, "0,0"),
     )
     ctx = MagicMock()
     doc = CalcDocStub()
     try:
-        ret1 = python_function.scalar_for_list_result(ctx, code, ["#VALUE!", "#DIV/0!"], doc=doc)
-        ret2 = python_function.scalar_for_list_result(ctx, code, ["#VALUE!", "#DIV/0!"], doc=doc)
+        ret1 = python_function.scalar_for_list_result(_cell(ctx, code, doc), ["#VALUE!", "#DIV/0!"])
+        ret2 = python_function.scalar_for_list_result(_cell(ctx, code, doc), ["#VALUE!", "#DIV/0!"])
         assert isinstance(ret1, float)
         assert struct.unpack("Q", struct.pack("d", ret1))[0] & 0xFFFF == 519
         assert isinstance(ret2, float)
@@ -2733,7 +2766,7 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     ctx = _ctx_with_doc(doc)
 
     col_result = [1, "#VALUE!", "#DIV/0!", "#N/A"]
-    ret_corner = python_function.finalize_python_return(ctx, "col_err_test", col_result, doc=doc)
+    ret_corner = python_function.finalize_python_return(_cell(ctx, "col_err_test", doc), col_result)
     state = WorkbookState.for_doc(doc)
     assert state is not None
     state.debounce.flush("spill:Sheet1:0:0")
@@ -2761,7 +2794,7 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     ctx2 = _ctx_with_doc(doc2)
 
     grid_result = [[1, "#NUM!"], ["#REF!", "#NAME?"]]
-    ret_corner2 = python_function.finalize_python_return(ctx2, "grid_2x2_test", grid_result, doc=doc2)
+    ret_corner2 = python_function.finalize_python_return(_cell(ctx2, "grid_2x2_test", doc2), grid_result)
     state2 = WorkbookState.for_doc(doc2)
     assert state2 is not None
     state2.debounce.flush("spill:Sheet1:0:0")
@@ -2778,18 +2811,18 @@ def test_spill_with_calc_error_tokens(monkeypatch: pytest.MonkeyPatch) -> None:
     sheet3 = doc3.getSheets().getByName("Sheet1")
     sheet3.getCellByPosition(0, 0).setFormula('=PYTHON("one_cell_test")')
     ctx3 = _ctx_with_doc(doc3)
-    ret_corner3 = python_function.finalize_python_return(ctx3, "one_cell_test", [["#NULL!"]], doc=doc3)
+    ret_corner3 = python_function.finalize_python_return(_cell(ctx3, "one_cell_test", doc3), [["#NULL!"]])
     assert isinstance(ret_corner3, float)
     assert struct.unpack("Q", struct.pack("d", ret_corner3))[0] & 0xFFFF == 521
     assert sheet3.getCellByPosition(1, 0).getFormula() == ""
     assert sheet3.getCellByPosition(0, 1).getFormula() == ""
 
-    # 4. Index path: finalize_python_return(..., ["a", "#NUM!"], index_arg=1) is the 503 double.
+    # 4. Index path: finalize_python_return(_cell(..., ["a", None), "#NUM!"], index_arg=1 is the 503 double.)
     # index_arg=5 on a 2-element list is still the Error: index … string.
-    val_idx = python_function.finalize_python_return(ctx3, "idx_code", ["a", "#NUM!"], index_arg=1)
+    val_idx = python_function.finalize_python_return(_cell(ctx3, "idx_code", None), ["a", "#NUM!"], index_arg=1)
     assert isinstance(val_idx, float)
     assert struct.unpack("Q", struct.pack("d", val_idx))[0] & 0xFFFF == 503
-    val_idx_err = python_function.finalize_python_return(ctx3, "idx_code", ["a", "#NUM!"], index_arg=5)
+    val_idx_err = python_function.finalize_python_return(_cell(ctx3, "idx_code", None), ["a", "#NUM!"], index_arg=5)
     assert isinstance(val_idx_err, str)
     assert "Error: index 5 out of range" in val_idx_err
 
@@ -2830,12 +2863,11 @@ def test_load_spill_registry_skips_malformed_entry(monkeypatch: pytest.MonkeyPat
     doc = CalcDocStub(url="file:///fake_malformed.ods")
 
     reset_calc_workbook_states()
-
-    python_function.load_spill_registry_for_doc(doc)
     from plugin.calc.python.workbook_state import WorkbookState
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
+    python_function.load_spill_registry_for_doc(doc, st)
     doc_key = st.key
     assert (doc_key, "Sheet1", 1, 1) not in SPILL_REGISTRY
     assert (doc_key, "Sheet1", 4, 4) in SPILL_REGISTRY
@@ -2856,7 +2888,7 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
         st.debounce.cancel_all()
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    val = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
+    val = finalize_python_return(_cell(ctx, "empty_row", doc), [[]])
     assert val == ""
     assert ("file:///empty-row.ods", "Sheet1", 0, 0) not in SPILL_REGISTRY
     assert st is not None
@@ -2866,7 +2898,7 @@ def test_finalize_python_return_empty_row_does_not_spill(monkeypatch: pytest.Mon
     queue_mock = MagicMock()
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.calc.python.function._queue_off_main_auto_spill", queue_mock)
-    val_off = finalize_python_return(ctx, "empty_row", [[]], doc=doc)
+    val_off = finalize_python_return(_cell(ctx, "empty_row", doc), [[]])
     assert val_off == ""
     queue_mock.assert_not_called()
 
@@ -2877,7 +2909,7 @@ def test_scalar_for_list_result_uses_supplied_data_token(monkeypatch: pytest.Mon
     python_function.clear_python_addin_cache()
 
     monkeypatch.setattr(
-        "plugin.calc.python.function.session_key",
+        "plugin.calc.python.function._session_key_tuple",
         lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_token", "0,0"),
     )
     token_calls = []
@@ -2892,7 +2924,7 @@ def test_scalar_for_list_result_uses_supplied_data_token(monkeypatch: pytest.Mon
 
     st = WorkbookState.for_doc(doc)
     assert st is not None
-    res = python_function.scalar_for_list_result(ctx, "code_token", [10, 20], worker_data={"x": 1}, doc=doc, data_token="preset")
+    res = python_function.scalar_for_list_result(_cell(ctx, "code_token", doc), [10, 20], worker_data={"x": 1}, data_token="preset")
     assert res == 10
     assert len(token_calls) == 0
     with python_function._MATRIX_SCALAR_SESSIONS_LOCK:
@@ -2907,7 +2939,7 @@ def test_execute_python_addin_hashes_worker_data_once(monkeypatch: pytest.Monkey
     python_function.clear_python_addin_cache()
 
     monkeypatch.setattr(
-        "plugin.calc.python.function.session_key",
+        "plugin.calc.python.function._session_key_tuple",
         lambda *args, **kwargs: ("file:///doc.ods", "Sheet1", "sid", "code_once", "1,1"),
     )
     monkeypatch.setattr(
@@ -3018,6 +3050,6 @@ def test_execute_python_addin_string_result_returns_text(monkeypatch) -> None:
     python_function.clear_python_addin_cache()
     monkeypatch.setattr(python_function, "run_code_in_user_venv", lambda *_a, **_k: {"status": "ok", "result": "hi"})
     monkeypatch.setattr(python_function, "_record_py_diagnostic", lambda *_a, **_k: None)
-    monkeypatch.setattr(python_function, "get_python_init_kwargs", lambda *_a, **_k: {})
+    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda *_a, **_k: {})
     monkeypatch.setattr(python_function, "workbook_session_id", lambda *_a, **_k: None)
     assert python_function.execute_python_addin(_ctx_with_doc(CalcDocStub()), "'hi'", ((10.0,),)) == "hi"

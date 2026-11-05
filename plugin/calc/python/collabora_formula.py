@@ -42,6 +42,7 @@ from typing import Any
 
 from plugin.calc.python.formula_edit import _PY_CALLS
 from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
+from plugin.calc.python.undo import undo_lock
 from plugin.framework.errors import best_effort, reraise_if_disposed
 
 log = logging.getLogger(__name__)
@@ -150,9 +151,7 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     doc.lockControllers()
     try:
         # Reuses the shared hidden/locked undo context; do not create a new undo-context module.
-        from plugin.calc.python.undo import _undo_lock
-
-        with _undo_lock(doc):
+        with undo_lock(doc):
             sheets = doc.getSheets()
             for i in range(int(sheets.getCount())):
                 changed += _rewrite_sheet_formulas(sheets.getByIndex(i))

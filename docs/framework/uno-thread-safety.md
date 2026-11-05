@@ -275,7 +275,7 @@ Null checks check for None. Live disposal is `DisposedException` / `is_disposal`
   6. When 30s elapsed, `_format_error_for_display()` mapped the timeout to a misleading `"Error: Python timed out. Open Settings → Python..."` message.
 - **The Fix Applied**:
   - **Config-first mode check**: `workbook_session_id()` checks `python_session_mode()` before touching threads or marshalling.
-  - **Off-main guard on all add-in UNO lookups**: `session_key()`, `get_python_init_kwargs()`, and `diagnostics_workbook_key()` check `main.is_current()` and return safe no-UNO defaults off-main.
+  - **Off-main guard on all add-in UNO lookups**: Off-main `=PY()` captures session metadata in `build_cell_context` (empty session key and init kwargs without UNO); `diagnostics_workbook_key()` still checks `main.is_current()` and returns safe defaults off-main.
   - **Yellow context refusal**: `sync_host_dispatch()` context manager marks Yellow thread state; `main.call` immediately refuses blocking calls off-main.
   - **Non-blocking guard notifications**: `_notify_thread_violation()` uses non-blocking `main.post()` only when `AsyncCallback` is ready, and never blocks the worker thread.
   - **Distinct timeout classification**: `TimeoutError` from host execution formats distinctly from venv worker execution timeouts.

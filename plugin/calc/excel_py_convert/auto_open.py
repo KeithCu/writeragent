@@ -46,9 +46,9 @@ def _geometric_open_job(ctx: Any, doc: Any) -> None:
     # Wire OnUnload here so closing the workbook resets its kernel and
     # geometric state; client-side clear cannot reach soffice.
     if _is_calc_doc(doc):
-        from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+        from plugin.calc.python.workbook_state import WorkbookState
 
-        best_effort(lambda: ensure_calc_workbook_unload_resets_python(ctx, doc), "excel_py lifecycle: unload listener install")
+        best_effort(lambda: WorkbookState.for_doc(doc), "excel_py lifecycle: unload listener install")
 
 
 def _is_calc_doc(doc: Any) -> bool:

@@ -27,9 +27,11 @@ from plugin.calc.python.addin_values import (
     _spill_value_from_json,
 )
 from plugin.calc.python.formula_locator_cache import is_matching_py_formula, locate_formula_cell_in_doc, search_sheet_for_formula
-from plugin.calc.python.undo import _undo_lock
+from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import uno_read
+from plugin.framework.queue_executor import main
+
 log = logging.getLogger(__name__)
 
 # CellFlags bitmask: VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16) | HARDATTR (32) = 55.
@@ -102,8 +104,6 @@ def cleanup_orphans(
 ) -> None:
     """Orphaned-spill cleanup: remap moved formula cells or clear deleted spill cells."""
     try:
-        from plugin.framework.queue_executor import main
-
         if not main.is_current():
             return
         if sheet is None:
@@ -166,7 +166,7 @@ def cleanup_orphans(
                         log.debug("Failed to inspect formula cell %r", (effective_sheet_name, frow, fcol), exc_info=True)
 
             if to_remove or to_remap:
-                with _undo_lock(target_doc):
+                with undo_lock(target_doc):
                     for key in to_remove:
                         removed_rec = st.spills.pop(key, None)
                         if removed_rec is not None:
@@ -184,15 +184,12 @@ def cleanup_orphans(
                         st.spills.pop(old_k, None)
                         st.spills[new_k] = new_rec
                     if target_doc is not None:
-                        try:
-                            save_spill_registry_for_doc(target_doc, st)
-                        except TypeError:
-                            save_spill_registry_for_doc(target_doc)
+                        save_spill_registry_for_doc(target_doc, st)
     except Exception:
         log.exception("Error in cleanup_orphans")
 
 
-def load_spill_registry_for_doc(doc: Any, state: WorkbookState | None = None) -> None:
+def load_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
         from plugin.doc.udprops import get_document_property
@@ -201,9 +198,7 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState | None = None) ->
         if not isinstance(raw, str) or not raw.strip():
             return
         data = json.loads(raw)
-        if state is None:
-            state = WorkbookState.for_doc(doc)
-        if state is None or not state.key:
+        if not state.key:
             return
         for key, value in data.items():
             try:
@@ -232,14 +227,12 @@ def load_spill_registry_for_doc(doc: Any, state: WorkbookState | None = None) ->
         log.exception("Failed to load spill registry from document property")
 
 
-def save_spill_registry_for_doc(doc: Any, state: WorkbookState | None = None) -> None:
+def save_spill_registry_for_doc(doc: Any, state: WorkbookState) -> None:
     """Save the document's spill registry to its UserDefinedProperties."""
     try:
         from plugin.doc.udprops import set_document_property
 
-        if state is None:
-            state = WorkbookState.for_doc(doc)
-        if state is None or not state.key:
+        if not state.key:
             return
         doc_spills: dict[str, Any] = {}
         for (sheet_name, frow, fcol), record in state.spills.items():
@@ -274,8 +267,6 @@ def perform_deferred_spill(
 ) -> None:
     """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
     try:
-        from plugin.framework.queue_executor import main
-
         if not main.is_current() or doc is None:
             return
 
@@ -283,7 +274,7 @@ def perform_deferred_spill(
         if state is None:
             return
 
-        with _undo_lock(doc):
+        with undo_lock(doc):
             scheduled = key
             if scheduled:
                 if not state.scheduled_key_matches(scheduled):
@@ -607,8 +598,6 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
     only passed through to the UI-thread callback. Collision ``#SPILL!`` is too
     late to change the add-in return; the deferred path just skips the write.
     """
-    from plugin.framework.queue_executor import main
-
     log.debug("Spill: scheduling off-main deferred locate code=%r", code)
 
     def _on_main() -> None:
@@ -632,11 +621,8 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
         )
 
     def _arm_on_ui() -> None:
-        # Bugfix: off-main =PY() runs before any UI-thread for_doc(); known() was
-        # always None so multi-document spill never scheduled (CI test_py_multi_document_spill_and_plot).
-        state = WorkbookState.known(doc)
-        if state is None and main.is_current():
-            state = WorkbookState.for_doc(doc)
+        # UI callback must create state when known is empty (multi-doc spill).
+        state = WorkbookState.lookup(doc)
         if state is None or not state.key:
             log.debug("Spill: no workbook state on UI thread; skipping off-main auto-spill")
             return

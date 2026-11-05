@@ -8,7 +8,7 @@ Spill orphan cleanup is ``cleanup_orphans`` on ``state.spills`` only. Geometric
 repair cannot piggyback on that walk (it does not scan formula cells) and must
 not register a sibling ``CalcGeometricModifyListener``. This module is the
 only ``addModifyListener`` per sheet: it shares the 0.1s timer, UI-thread
-drain, ``_undo_lock``, and re-entrancy flag. After the debounce, spill cleanup
+drain, ``undo_lock``, and re-entrancy flag. After the debounce, spill cleanup
 and geometric repair run as separate jobs — geometric then does its own
 ``discover_python_cells_on_sheet``.
 
@@ -27,7 +27,9 @@ from contextlib import contextmanager
 import logging
 from typing import Any, Generator
 
+from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import best_effort, uno_read
+from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseModifyListener
 
@@ -52,7 +54,6 @@ def sheet_modify_scope() -> Generator[None, None, None]:
 def reset_sheet_modify_runtime_for_tests() -> None:
     """Drop debounce timers and the re-entrancy flag. Tests only."""
     global _DISPATCH_DEPTH
-    from plugin.calc.python.workbook_state import WorkbookState
 
     for s in WorkbookState.all_states():
         s.debounce.cancel_all()
@@ -98,10 +99,7 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
     name = sheet_name or _sheet_name_of(sheet)
     if not name:
         return
-    from plugin.calc.python.workbook_state import WorkbookState
-    from plugin.framework.queue_executor import main
-
-    state = WorkbookState.for_doc(doc) if main.is_current() else WorkbookState.known(doc)
+    state = WorkbookState.lookup(doc)
     if state is None or not state.key:
         return
 
@@ -125,10 +123,7 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
 def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
     """Cancel debounce and run the pass on this thread. Tests only."""
     name = sheet_name or _sheet_name_of(sheet)
-    from plugin.calc.python.workbook_state import WorkbookState
-    from plugin.framework.queue_executor import main
-
-    state = WorkbookState.for_doc(doc) if main.is_current() else WorkbookState.known(doc)
+    state = WorkbookState.lookup(doc)
     if state is not None:
         state.debounce.cancel(f"sheet:{name}")
     run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=name)
@@ -147,10 +142,7 @@ def migrate_sheet_rename(
     if not old_sheet_name or not new_sheet_name or old_sheet_name == new_sheet_name:
         return
 
-    from plugin.calc.python.workbook_state import WorkbookState
-    from plugin.framework.queue_executor import main
-
-    state = WorkbookState.for_doc(doc) if main.is_current() else WorkbookState.known(doc)
+    state = WorkbookState.lookup(doc)
     # Bugfix: What was wrong: migrate_sheet_rename migrated keys across unrelated workbooks when doc_key or identity was empty.
     # How it happened: The filter expression used (not doc_key or k[0] in ...) and (not identity or ...), treating an empty identity as a wildcard matching all keys.
     # Why this change fixes it: We collect non-empty IDs; if no valid IDs exist for the document, we log a warning and skip that map without rekeying other workbooks' entries.
@@ -206,12 +198,18 @@ def migrate_sheet_rename(
 
 def _skip_sheet_modify() -> bool:
     from plugin.calc.python.geometric_recalc import is_geometric_repairing
-    from plugin.framework.queue_executor import main
 
     return (not main.is_current()) or _DISPATCH_DEPTH > 0 or is_geometric_repairing()
 
 
-def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "") -> None:
+def run_sheet_modify_pass(
+    ctx: Any,
+    doc: Any,
+    sheet: Any,
+    *,
+    doc_url: str = "",
+    sheet_name: str = "",
+) -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
     Spill: ``cleanup_orphans`` on ``state.spills`` only.
@@ -226,14 +224,8 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
         log.debug("run_sheet_modify_pass: unreadable sheet name; skipping")
         return
     with sheet_modify_scope():
-        from plugin.calc.python.workbook_state import WorkbookState
-        from plugin.framework.queue_executor import main
-
-        state = None
-        if doc is not None:
-            state = WorkbookState.known(doc)
-            if state is None and main.is_current():
-                state = WorkbookState.for_doc(doc)
+        # for_doc (not known) so RuntimeUID rekey runs; UI thread only (_skip_sheet_modify guards).
+        state = WorkbookState.for_doc(doc) if doc is not None else None
         # Job 1 — spill orphan cleanup. Walks state.spills only.
         try:
             from plugin.calc.python.spill import cleanup_orphans
@@ -292,8 +284,6 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     name = _sheet_name_of(sheet)
     if not name:
         return None
-    from plugin.calc.python.workbook_state import WorkbookState
-
     state = WorkbookState.for_doc(doc)
     if state is None:
         return None
@@ -340,8 +330,6 @@ class SheetModifyDispatcher(BaseModifyListener):
             log.exception("Error in SheetModifyDispatcher.modified")
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        from plugin.calc.python.workbook_state import WorkbookState
-
         state = WorkbookState.known(self.doc)
         if state is not None:
             if state.listeners.get(self.sheet_name) is self:

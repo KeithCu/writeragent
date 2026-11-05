@@ -128,14 +128,14 @@ Row insert that only **moves** existing PY cells: Calc’s own reference adjust 
 
 - Do not mutate other cells from `execute_python_addin` / `finalize_python_return`.
 - Do not `processEventsToIdle` during recalc (re-enters the engine → `#VALUE!`).
-- Auto-spill already defers neighbor writes: collision check sync, then `WorkbookState.debounce` (0.1s) → `perform_deferred_spill` on the **UI thread**, inside `_undo_lock`.
+- Auto-spill already defers neighbor writes: collision check sync, then `WorkbookState.debounce` (0.1s) → `perform_deferred_spill` on the **UI thread**, inside `undo_lock`.
 
 Geometric rewrites use that same shape (and the prototype does):
 
 1. **Detect** (shared modify/save trigger, Monaco/formula save, flag toggle) that the geometric list changed.
 2. **Compute** a small patch: cells whose predecessor field is wrong.
 3. **Schedule** a deferred UI-thread job (reuse `WorkbookState` debounce / drain pattern; do not start a raw thread — `run_in_background` + main-thread apply via `state.debounce`).
-4. **Apply** `setFormula` under `_undo_lock`. `_undo_lock` calls `enterHiddenUndoContext` only when `um.isUndoPossible()`; otherwise `um.lock()`. User edits hide under the existing undo action. Flag-on / document-open reconcile with no prior edit is **one locked unit**, not a hidden-under-nothing no-op. `SheetModifyDispatcher` shares debounce, UI drain, and re-entrancy across spill and geometric. Current prototype: `_undo_lock` is **not** one wrap around both jobs — spill and geometric each take it (two sequential units).
+4. **Apply** `setFormula` under `undo_lock`. `undo_lock` calls `enterHiddenUndoContext` only when `um.isUndoPossible()`; otherwise `um.lock()`. User edits hide under the existing undo action. Flag-on / document-open reconcile with no prior edit is **one locked unit**, not a hidden-under-nothing no-op. `SheetModifyDispatcher` shares debounce, UI drain, and re-entrancy across spill and geometric. Current prototype: `undo_lock` is **not** one wrap around both jobs — spill and geometric each take it (two sequential units).
 5. **Guard** like spill: same doc URL / lifecycle key; skip if the origin formula is no longer what we expected. **Re-entrancy:** an explicit flag so `setFormula` → `modified` cannot run repair inside repair. A rewrite pass that finds nothing to do is a no-op.
 
 Yellow recalc / off-main formula groups: same contract as spill and session lookup — **no UNO desktop/document queries from a recalc worker**. Discovery + rewrite only on the UI thread after the pass. Eval-time strip reads the already-loaded in-memory map only. The strip-safe index is written on the UI thread and read from the recalc worker. Do not mutate it in place like `SPILL_REGISTRY` (unlocked). Swap in an immutable snapshot (frozenset). GIL-atomic bind is enough; no UNO, no per-cell lookup. A dedicated lock is optional, not required if you only rebind the name.
@@ -147,7 +147,7 @@ Yellow recalc / off-main formula groups: same contract as spill and session look
 | Flag turned **on** | One-shot attach for **all sheets**, each chained independently |
 | Flag turned **off** | Stop maintaining refs; **leave** existing geometric fields; leave the map (do not strip-on-disable) |
 | Monaco / native **Save** of a PY cell | Primary attach path — save is already outside recalc (`editor.py` `_apply_cell_save` / native Save). New or edited formula may need a predecessor; neighbors may need retarget. Do **not** collapse everything onto modify-only. |
-| Sheet `XModifyListener` (shared trigger) | Insert/delete/clear. **Do not** add a sibling `CalcGeometricModifyListener`. Spill orphan cleanup is `cleanup_orphans` on `state.spills` for that sheet only — it does **not** scan formula cells, so geometric repair cannot piggyback on that walk. Share the **trigger / debounce** (0.1s timer, drain, UI thread, `_undo_lock`) and the re-entrancy flag. Geometric repair then runs its own `list_python_cells_on_sheet`. Factor a one-sheet dispatcher if a second `addModifyListener` is undesirable; do not merge the two jobs into one class. |
+| Sheet `XModifyListener` (shared trigger) | Insert/delete/clear. **Do not** add a sibling `CalcGeometricModifyListener`. Spill orphan cleanup is `cleanup_orphans` on `state.spills` for that sheet only — it does **not** scan formula cells, so geometric repair cannot piggyback on that walk. Share the **trigger / debounce** (0.1s timer, drain, UI thread, `undo_lock`) and the re-entrancy flag. Geometric repair then runs its own `list_python_cells_on_sheet`. Factor a one-sheet dispatcher if a second `addModifyListener` is undesirable; do not merge the two jobs into one class. |
 | Document open | If flag on, load the UDProp into the in-memory map (like `load_spill_registry_for_doc`) and reconcile once so files authored with the flag stay consistent |
 
 Do **not** rewrite from inside the add-in just because this cell is evaluating.
@@ -213,7 +213,7 @@ What the desktop prototype reused (already landed):
 | Discover PY cells in order | Phase 3: `truncated` | `discover_python_cells_on_sheet` / `list_python_cells_on_sheet` — exact 100 is complete; the prototype does not raise the cap |
 | Parse / rebuild `=PY(code; args)` | Small splice + remove-field | `formula_edit.py` — `PyFormula.parse` / `PyFormula.compose` / `rebuild_formula_with_data_args` |
 | Marker | ~1 extra day | Copy `WriterAgentSpillRegistry` / `load_spill_registry_for_doc` / `SPILL_REGISTRY` (`udprops`). Record `workbook_key` even in Isolated. Unanimous-ours eval index — not uniqueness, not ≥1-hit. |
-| Deferred UI-thread writes + undo | Small | `perform_deferred_spill`, `_undo_lock`, Timer 0.1s — share debounce; explicit re-entrancy flag |
+| Deferred UI-thread writes + undo | Small | `perform_deferred_spill`, `undo_lock`, Timer 0.1s — share debounce; explicit re-entrancy flag |
 | Sheet modify | Small | **Shared trigger**, not a sibling listener; geometric job does its own PY discovery |
 | Strip geometric arg from worker `data` | Medium | `_execute_python_addin_impl` — map lookup **before** the index heuristic and **before** `calc_addin_args_from_split` |
 | Insert-in-middle repair | Medium | Pure list-diff + `setFormula` |
@@ -242,7 +242,7 @@ Compare to **full Excel co-volatility:** multiple engineer-months in `sc/`, high
 | Keying the token `$A$1` | Eval `code` is resolved source (`execute_python_addin`); repair must read the code cell |
 | Naive `;` arity | Repair `n_args` must match `split_python_addin_data_args`, not a semicolon count |
 | Rewrite during recalc | Same ban as spill; deferred only |
-| Undo fragmentation | `_undo_lock`: hidden when `isUndoPossible()`, else `lock()`; flag-on reconcile is one locked unit |
+| Undo fragmentation | `undo_lock`: hidden when `isUndoPossible()`, else `lock()`; flag-on reconcile is one locked unit |
 | Infinite rewrite loop | Idempotent desired-vs-actual; re-entrancy flag; skip if already correct |
 | Calc already adjusted refs on row insert | Repair pass compares desired predecessor, does not blindly rewrite |
 | User already passed the previous cell as **data** | Do not record as ours; do not strip ([§9.5](#95-marker-is-the-udprop--in-memory-map)) |
@@ -520,7 +520,7 @@ In WriterAgent Desktop LibrePy, `=PY()` is a **synchronous** UNO add-in: evaluat
 | **1. Execution model** | **Synchronous** add-in (`python()` blocks) | **Asynchronous** add-in (`getPy` returns `XVolatileResult` `#BUSY!`) | **Async race:** A and B can both emit HTTP on the first pass. A finishing dirties **direct listeners** (B), which may emit again. A predecessor-only chain is closer to **$2N-1$** requests, not $\frac{N(N+1)}{2}$ (that is a worst case if leftover listeners re-dirty the whole suffix). Still worth gating. |
 | **2. Listener lifecycle** | None in `sc/` (handled via formula text) | Direct `StartListeningCell` in `sc/` | **Dangling Pointer Memory Corruption:** `ScFormulaCell::EndListeningTo()` only walks RPN tokens. An ad-hoc listener attached to predecessor A is **not** unregistered when B is edited or deleted, leaving a dangling pointer in A's broadcaster slot that crashes on A's next broadcast. |
 | **3. Shared formula groups** | Formula text modified cell-by-cell | `CompileXML` groups identical formulas (`mxGroup`) | **Formula Group Fragmentation:** Appending unique `;A1`, `;A2`, `;A3` fields shatters grouped formulas into individual cells, destroying vectorization and inflating token storage. |
-| **4. Undo & Collaborative editing** | Local single-user `_undo_lock` | LOKit tile-based collaborative undo | **Undo Stack Corruption:** Deferred `SetFormula` rewrites pollute the LOKit undo stack with synthetic edits and conflict with live multi-user typing. |
+| **4. Undo & Collaborative editing** | Local single-user `undo_lock` | LOKit tile-based collaborative undo | **Undo Stack Corruption:** Deferred `SetFormula` rewrites pollute the LOKit undo stack with synthetic edits and conflict with live multi-user typing. |
 
 **The Core Realization:** Dependency in Calc’s recalculation DAG (whether via `;A1` or via `StartListeningCell`) only orders the **invocation** of `Interpret()`. In an asynchronous engine, `Interpret()` returns `#BUSY!` immediately. **A formula DAG edge alone does not serialize HTTP execution.**
 

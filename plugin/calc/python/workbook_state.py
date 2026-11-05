@@ -13,7 +13,7 @@ import weakref
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
 from plugin.framework.stream_batch import DeadlineThread
-from plugin.framework.thread_guard import unwrap_uno
+from plugin.framework.thread_guard import main_thread_only, unwrap_uno
 from plugin.framework.uno_context import get_runtime_uid
 
 if TYPE_CHECKING:
@@ -181,6 +181,30 @@ class WorkbookState:
                 st.clear()
 
     @classmethod
+    def by_key(cls, key: str) -> WorkbookState | None:
+        """Return the state whose lifecycle key matches *key* (exact or scheduled alias)."""
+        if not key:
+            return None
+        with _LOCK:
+            seen: set[int] = set()
+            for st in _STATES.values():
+                oid = id(st)
+                if oid in seen:
+                    continue
+                seen.add(oid)
+                if st.key == key or st.scheduled_key_matches(key):
+                    return st
+            for entry in _STATE_BY_DOC_ID.values():
+                st = entry[0]
+                oid = id(st)
+                if oid in seen:
+                    continue
+                seen.add(oid)
+                if st.key == key or st.scheduled_key_matches(key):
+                    return st
+        return None
+
+    @classmethod
     def all_states(cls) -> list[WorkbookState]:
         """Return all active WorkbookState instances across all open documents."""
         with _LOCK:
@@ -203,6 +227,23 @@ class WorkbookState:
         with _LOCK:
             _STATES.clear()
             _STATE_BY_DOC_ID.clear()
+
+    @classmethod
+    def lookup(cls, doc: Any | None) -> WorkbookState | None:
+        """Return workbook state, creating or rekeying on the UI thread when needed."""
+        return cls.for_doc(doc) or cls.known(doc)
+
+    @classmethod
+    @main_thread_only
+    def _install_unload_listener(cls, doc: Any, state: WorkbookState) -> None:
+        # Lazy import: workbook_lifecycle imports WorkbookState at module level.
+        from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+        from plugin.framework.uno_context import get_ctx
+
+        best_effort(
+            lambda: ensure_calc_workbook_unload_resets_python(get_ctx(), doc, state=state),
+            "python workbook unload listener install",
+        )
 
     @classmethod
     def known(cls, doc: Any | None) -> WorkbookState | None:
@@ -237,6 +278,7 @@ class WorkbookState:
                 from plugin.calc.python.workbook_lifecycle import rekey_listener
 
                 rekey_listener(old_key, uid)
+            cls._install_unload_listener(doc, state)
             return state
 
         # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute
@@ -251,15 +293,14 @@ class WorkbookState:
 
             key = _wb_lc.calc_workbook_base_session_id(doc)
 
+        existing = cls.by_key(key)
+        if existing is not None:
+            cls._remember(doc, existing)
+            cls._install_unload_listener(doc, existing)
+            return existing
+
         state = cls(key=key)
         cls._remember(doc, state)
 
-        # Register unload listener the first time the state is created
-        from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
-        from plugin.framework.uno_context import get_ctx
-
-        best_effort(
-            lambda: ensure_calc_workbook_unload_resets_python(get_ctx(), doc, state=state),
-            "python workbook unload listener install",
-        )
+        cls._install_unload_listener(doc, state)
         return state

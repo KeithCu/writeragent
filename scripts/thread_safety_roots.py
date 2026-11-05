@@ -23,7 +23,6 @@ SYNC_HOST_ENTRYPOINTS: frozenset[str] = frozenset({
     "py",
     "python",
     "prompt",
-    "session_key",
     "_notify_thread_violation",
 })
 

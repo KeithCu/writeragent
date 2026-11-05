@@ -29,6 +29,13 @@ from plugin.calc.python.workbook_lifecycle import (
 from plugin.tests.testing_utils import CalcDocStub
 
 
+def _ensure_calc_unload(ctx: Any, doc: Any) -> WorkbookState:
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    ensure_calc_workbook_unload_resets_python(ctx, doc, state=st)
+    return st
+
+
 @pytest.fixture(autouse=True)
 def _reset_lifecycle_registry():
     WorkbookState.reset_for_tests()
@@ -38,7 +45,20 @@ def _reset_lifecycle_registry():
     lifecycle._LISTENERS.clear()
 
 
-def test_unload_forgets_cached_lifecycle_key():
+def test_for_doc_reuses_state_by_runtime_key_when_known_misses() -> None:
+    """Weakref/id lookup can miss a new doc handle; for_doc must not mint an empty duplicate state."""
+    doc_a = CalcDocStub(props={"RuntimeUID": "uid-reuse-state"})
+    st = WorkbookState(key="uid-reuse-state")
+    st.spills[("Sheet1", 0, 0)] = SpillRecord(code="", cells=[])
+    WorkbookState._remember(doc_a, st)
+    doc_b = CalcDocStub(props={"RuntimeUID": "uid-reuse-state"})
+    assert WorkbookState.known(doc_b) is None
+    reused = WorkbookState.for_doc(doc_b)
+    assert reused is st
+    assert ("Sheet1", 0, 0) in reused.spills
+
+
+def test_unload_forgets_cached_workbook_key():
     """Off-main spill lookup must not keep a closed workbook's id."""
     doc = CalcDocStub(props={"RuntimeUID": "uid-forget"})
     st = WorkbookState(key="uid-forget")
@@ -127,8 +147,8 @@ def test_ensure_registers_listener_once():
     ctx = MagicMock()
     doc = CalcDocStub(props={"RuntimeUID": "uid-reg"})
     with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
-        ensure_calc_workbook_unload_resets_python(ctx, doc)
-        ensure_calc_workbook_unload_resets_python(ctx, doc)
+        _ensure_calc_unload(ctx, doc)
+        _ensure_calc_unload(ctx, doc)
     assert len(doc._document_event_listeners) == 1
 
 
@@ -139,13 +159,13 @@ def test_unload_clears_registration_so_reopen_can_reregister():
     with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
         with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
             mock_reset.return_value = {"status": "ok"}
-            ensure_calc_workbook_unload_resets_python(ctx, doc)
+            _ensure_calc_unload(ctx, doc)
             assert "uid-reopen" in lifecycle._LISTENERS
             doc._document_event_listeners[0].on_document_event(MagicMock(EventName="OnUnload"))
             assert "uid-reopen" not in lifecycle._LISTENERS
             mock_reset.assert_called_once()
 
-            ensure_calc_workbook_unload_resets_python(ctx, doc)
+            _ensure_calc_unload(ctx, doc)
             assert len(doc._document_event_listeners) == 2
             assert "uid-reopen" in lifecycle._LISTENERS
 
@@ -155,17 +175,60 @@ def test_save_notes_new_session_id_reset_on_unload():
     ctx = MagicMock()
     doc = CalcDocStub(props={"RuntimeUID": "uid-save"}, url="")
     with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
-        with patch("plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id", side_effect=["calc:uuid-1", "calc:file:///saved.ods"]):
+        with patch("plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id", side_effect=[
+            "calc:uuid-1",
+            "calc:uuid-1",
+            "calc:file:///saved.ods",
+            "calc:file:///saved.ods",
+            "calc:file:///saved.ods",
+        ]):
             with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
                 mock_reset.return_value = {"status": "ok"}
-                ensure_calc_workbook_unload_resets_python(ctx, doc)
+                _ensure_calc_unload(ctx, doc)
                 doc.url = "file:///saved.ods"
-                ensure_calc_workbook_unload_resets_python(ctx, doc)
+                _ensure_calc_unload(ctx, doc)
                 assert len(doc._document_event_listeners) == 1
                 doc._document_event_listeners[0].on_document_event(MagicMock(EventName="OnUnload"))
     reset_ids = {call.args[0] for call in mock_reset.call_args_list}
     assert reset_ids == {"calc:uuid-1", "calc:file:///saved.ods"}
     assert "uid-save" not in lifecycle._LISTENERS
+
+
+def test_for_doc_notes_session_id_on_second_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each UI-thread for_doc refreshes the unload listener (note_calc_identity on Save)."""
+    doc = CalcDocStub(props={"RuntimeUID": "uid-save"}, url="")
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
+    with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
+        with patch(
+            "plugin.calc.python.workbook_lifecycle.calc_workbook_base_session_id",
+            side_effect=["calc:uuid-1", "calc:file:///saved.ods", "calc:file:///saved.ods"],
+        ):
+            with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+                mock_reset.return_value = {"status": "ok"}
+                WorkbookState.for_doc(doc)
+                doc.url = "file:///saved.ods"
+                WorkbookState.for_doc(doc)
+                assert len(doc._document_event_listeners) == 1
+                doc._document_event_listeners[0].on_document_event(MagicMock(EventName="OnUnload"))
+    reset_ids = {call.args[0] for call in mock_reset.call_args_list}
+    assert reset_ids == {"calc:uuid-1", "calc:file:///saved.ods"}
+
+
+def test_unload_clears_only_that_workbook_matrix(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.calc.python.function import WorkerResultSession
+
+    doc_a = CalcDocStub(props={"RuntimeUID": "uid-a"})
+    doc_b = CalcDocStub(props={"RuntimeUID": "uid-b"})
+    st_a = WorkbookState.for_doc(doc_a)
+    st_b = WorkbookState.for_doc(doc_b)
+    assert st_a is not None and st_b is not None
+    st_a.matrix[(1, ("k",), "tok")] = WorkerResultSession([], (), timestamp=0.0)
+    st_b.matrix[(2, ("k",), "tok")] = WorkerResultSession([], (), timestamp=0.0)
+    listener = _CalcPythonUnloadListener(MagicMock(), "calc:a", st_a)
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", return_value={"status": "ok"}):
+        listener.on_document_event(MagicMock(EventName="OnUnload"))
+    assert st_a.matrix == {}
+    assert len(st_b.matrix) == 1
 
 
 def test_unload_resets_worker_when_busy():
@@ -278,9 +341,9 @@ def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch)
         lambda _doc: "calc:unsaved:1",
     )
     with patch("plugin.calc.python.workbook_lifecycle._HAVE_UNO_DOC_EVENTS", True):
-        ensure_calc_workbook_unload_resets_python(ctx, doc)
+        _ensure_calc_unload(ctx, doc)
         doc.setPropertyValue("RuntimeUID", "uid-upgrade")
-        ensure_calc_workbook_unload_resets_python(ctx, doc)
+        _ensure_calc_unload(ctx, doc)
 
         assert len(doc._document_event_listeners) == 1
         assert set(lifecycle._LISTENERS) == {"uid-upgrade"}
@@ -296,7 +359,7 @@ def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch)
             assert WorkbookState.all_states() == []
             mock_reset.assert_called_once_with("calc:unsaved:1")
 
-        ensure_calc_workbook_unload_resets_python(ctx, doc)
+        _ensure_calc_unload(ctx, doc)
         assert len(doc._document_event_listeners) == 2
 
 

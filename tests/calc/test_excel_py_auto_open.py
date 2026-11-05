@@ -588,12 +588,12 @@ def test_geometric_open_job_wires_unload_listener():
     with (
         patch("plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open") as open_geo,
         patch(
-            "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python"
-        ) as ensure_unload,
+            "plugin.calc.python.workbook_state.WorkbookState.for_doc",
+        ) as for_doc_mock,
     ):
         mod._geometric_open_job(ctx, doc)
     open_geo.assert_called_once_with(ctx, doc)
-    ensure_unload.assert_called_once_with(ctx, doc)
+    for_doc_mock.assert_called_once_with(doc)
 
 
 def test_onnew_records_geometric_session_via_call():

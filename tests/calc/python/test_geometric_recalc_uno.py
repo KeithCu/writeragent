@@ -702,7 +702,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
     """§10 Undo: rewrite hides under a user edit; flag-on reconcile is one lock().
 
     Same shape as ``test_calc_spill_undo_lock``: when ``isUndoPossible()``,
-    ``_undo_lock`` uses ``enterHiddenUndoContext`` so the geometric
+    ``undo_lock`` uses ``enterHiddenUndoContext`` so the geometric
     ``setFormula`` is not a second undo step. Flag-on / open reconcile with
     an empty stack is one locked unit (spec §5: may appear as one undo
     action), not a hidden-under-nothing no-op and not a fragment per cell.
@@ -722,7 +722,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
         a3 = sheet.getCellByPosition(0, 2)
-        # Same unwrap as ``function._undo_lock`` — a wrapped manager's
+        # Same unwrap as ``undo.undo_lock`` — a wrapped manager's
         # ``lock()`` is a no-op and ``setFormula`` still records ``Input``.
         um = unwrap_uno(doc).getUndoManager()
         assert um is not None

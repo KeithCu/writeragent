@@ -568,13 +568,15 @@ def test_get_chart_info_ranges_disposal_propagates():
     chart_obj = MagicMock()
     chart_obj.getRanges.side_effect = DisposedException("gone")
     ctx: Any = SimpleNamespace(doc=MagicMock())
-    with patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "calc_sheet"))):
+    host = MagicMock()
+    ref = ChartRef(chart_obj, MagicMock(), "calc_sheet")
+    with patch("plugin.calc.charts._require_chart", return_value=("Chart_1", ref, host)):
         with pytest.raises(DisposedException):
             get_chart_info(ChartGetInfo(), ctx, name="Chart_1")
 
     chart_obj.getRanges.side_effect = RuntimeException("ranges gone")
     with (
-        patch("plugin.calc.charts._lookup_chart", return_value=ChartLookup(ref=ChartRef(chart_obj, MagicMock(), "calc_sheet"))),
+        patch("plugin.calc.charts._require_chart", return_value=("Chart_1", ref, host)),
         patch("plugin.calc.charts._chart_document_from_host", return_value=None),
     ):
         res = get_chart_info(ChartGetInfo(), ctx, name="Chart_1")
@@ -793,9 +795,9 @@ def test_writer_create_enumeration_disposed_propagates():
     text.insertTextContent.assert_not_called()
 
 
-def test_writer_default_mock_enumeration_skips_break():
+def test_writer_default_mock_enumeration_counts_as_empty():
     text = MagicMock()
-    assert _writer_body_has_no_text(text) is False
+    assert _writer_body_has_no_text(text) is True
     text.getString.assert_not_called()
 
 

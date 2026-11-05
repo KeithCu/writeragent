@@ -3,7 +3,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""=PY() / =PYTHON() add-in entry: execute_python_addin, finalize_python_return, session_key, WorkerResultSession."""
+"""=PY() / =PYTHON() add-in entry: execute_python_addin, finalize_python_return, WorkerResultSession."""
 # pyright: reportUnusedFunction=false
 
 from __future__ import annotations
@@ -48,6 +48,7 @@ from plugin.calc.python.spill import (
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
+from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 from plugin.scripting.calc_range import result_to_calc_grid
 from plugin.scripting.config_limits import configured_python_max_data_cells
@@ -127,6 +128,7 @@ def _worker_data_token(worker_data: Any) -> str:
 
 @dataclass(frozen=True, slots=True)
 class CellContext:
+    ctx: Any
     on_main: bool
     doc: Any
     state: WorkbookState | None  # for_doc(doc) when on_main and doc is not None, else known(doc)
@@ -137,19 +139,52 @@ class CellContext:
     workbook_key: str = ""  # calc_workbook_base_session_id(doc) when on_main and doc is not None, else ""
     diag_workbook_key: str = "unknown"  # existing_calc_session_id(doc) or "unknown" when on_main, else "unknown"
     sk: tuple[str, ...] = ()
+    code: str = ""
+
+
+def _session_key_tuple(ctx: Any, code: str, doc: Any | None, *, on_main: bool) -> tuple[str, ...]:
+    if not on_main:
+        return ("", "", "", code, "")
+    doc_url = ""
+    sheet_name = ""
+    sid = ""
+    origin = ""
+    try:
+        target = doc
+        if target is not None:
+            url_val = getattr(target, "getURL", lambda: "")()
+            doc_url = url_val if isinstance(url_val, str) else ""
+            sid = workbook_session_id(ctx, doc=target) or ""
+            from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
+
+            located = locate_formula_cell_in_doc(target, code)
+            if located is not None:
+                sheet, _cell, coord = located
+                name_val = getattr(sheet, "getName", lambda: "")()
+                sheet_name = name_val if isinstance(name_val, str) else ""
+                origin = f"{coord[0]},{coord[1]}"
+
+    except Exception:
+        log.debug("session_key inline metadata lookup exception", exc_info=True)
+    return (doc_url, sheet_name, sid, code, origin)
+
+
+def _init_kwargs_for_doc(doc: Any) -> dict[str, Any]:
+    from plugin.scripting.document_scripts import build_python_eval_init_kwargs
+
+    return best_effort(lambda: build_python_eval_init_kwargs(doc), "get_python_init_kwargs", {}) or {}
 
 
 def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = None) -> CellContext:
     if on_main is None:
-        from plugin.framework.queue_executor import main
-
         on_main = main.is_current()
     if on_main:
+        # Explicit on_main: use for_doc on UI thread; off-main callers use known() only (no UNO create).
         state = WorkbookState.for_doc(doc) if doc is not None else None
-        sk = session_key(ctx, code, doc=doc, on_main=True)
+        sk = _session_key_tuple(ctx, code, doc, on_main=True)
         session_id = sk[2] or None
         origin = sk[4]
-        init_kwargs = get_python_init_kwargs(ctx, doc=doc, on_main=True) if doc is not None else {}
+        init_kwargs = _init_kwargs_for_doc(doc) if doc is not None else {}
         scoped_dir = None
         if doc is not None:
             try:
@@ -177,6 +212,7 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = 
         workbook_key = ""
         diag_workbook_key = "unknown"
     return CellContext(
+        ctx=ctx,
         on_main=on_main,
         doc=doc,
         state=state,
@@ -187,11 +223,11 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = 
         workbook_key=workbook_key,
         diag_workbook_key=diag_workbook_key,
         sk=sk,
+        code=code,
     )
 
 
 def _get_calc_doc(ctx: Any) -> Any | None:
-    from plugin.framework.queue_executor import main
     from plugin.framework.thread_guard import guard_uno
 
     if not main.is_current():
@@ -208,93 +244,39 @@ def _get_calc_doc(ctx: Any) -> Any | None:
     return uno_read(_probe, None)
 
 
-def session_key(ctx: Any, code: str, doc: Any | None = None, *, on_main: bool | None = None) -> tuple[str, ...]:
-    # Bugfix (#402, #411): Include workbook session_id in key so unsaved documents
-    # (where doc_url="") do not collide in the in-memory formula result cache.
-    # Do not use getActiveSheet(): full recalc's active sheet is not the formula cell
-    # (XAddIn has no calling cell). Unique locate fills sheet+origin; otherwise
-    # callers must not share WorkerResultSession.
-    if on_main is None:
-        if isinstance(ctx, CellContext):
-            on_main = ctx.on_main
-        elif hasattr(ctx, "on_main") and isinstance(ctx.on_main, bool):
-            on_main = ctx.on_main
-        else:
-            from plugin.framework.queue_executor import main
-
-            on_main = main.is_current()
-
-    if not on_main:
-        return ("", "", "", code, "")
-    doc_url = ""
-    sheet_name = ""
-    sid = ""
-    origin = ""
-    try:
-        target = doc
-        if target is not None:
-            url_val = getattr(target, "getURL", lambda: "")()
-            doc_url = url_val if isinstance(url_val, str) else ""
-            sid = workbook_session_id(ctx, doc=target) or ""
-            from plugin.calc.python.formula_locator_cache import locate_formula_cell_in_doc
-
-            located = locate_formula_cell_in_doc(target, code)
-            if located is not None:
-                sheet, _cell, coord = located
-                name_val = getattr(sheet, "getName", lambda: "")()
-                sheet_name = name_val if isinstance(name_val, str) else ""
-                origin = f"{coord[0]},{coord[1]}"
-
-    except Exception:
-        log.debug("session_key inline metadata lookup exception", exc_info=True)
-    return (doc_url, sheet_name, sid, code, origin)
+def _expire_matrix_sessions(matrix: dict[tuple[Any, ...], WorkerResultSession], now: float) -> None:
+    stale = [
+        k for k, session in matrix.items()
+        if (now - session.timestamp) > _PY_PASS_GAP_SEC
+    ]
+    for k in stale:
+        matrix.pop(k, None)
 
 
 def scalar_for_list_result(
-    ctx: Any,
-    code: str,
+    cell: CellContext,
     result: Any,
     *,
     worker_data: Any = None,
-    doc: Any | None = None,
     data_token: str | None = None,
-    on_main: bool | None = None,
 ) -> float | str | bool:
     """Return one Calc scalar per invocation when the worker produced a list."""
     flat: tuple[Any, ...] = tuple(py_addin_cell_value(v) for v in flatten_result_values(result))
     if not flat:
         return ""
-    if on_main is None:
-        if isinstance(ctx, CellContext):
-            on_main = ctx.on_main
-        elif hasattr(ctx, "on_main") and isinstance(ctx.on_main, bool):
-            on_main = ctx.on_main
-        else:
-            from plugin.framework.queue_executor import main
-
-            on_main = main.is_current()
-    tid = threading.get_ident()
-    sk = session_key(ctx, code, doc=doc, on_main=on_main)
+    sk = cell.sk
     if not sk[4]:
         return flat[0]
     token = data_token if data_token is not None else _worker_data_token(worker_data)
-    key = (tid, sk, token)
+    key = (threading.get_ident(), sk, token)
     now = time.monotonic()
 
-    target_doc = doc
-    wb_state = None
-    if target_doc is not None:
-        wb_state = WorkbookState.for_doc(target_doc) if on_main else WorkbookState.known(target_doc)
+    wb_state = cell.state
     if wb_state is None:
         return flat[0]
 
     with _MATRIX_SCALAR_SESSIONS_LOCK:
-        stale = [
-            k for k, session in wb_state.matrix.items()
-            if (now - session.timestamp) > _PY_PASS_GAP_SEC
-        ]
-        for k in stale:
-            wb_state.matrix.pop(k, None)
+        _expire_matrix_sessions(wb_state.matrix, now)
         state = wb_state.matrix.get(key)
         if state is None or not _flat_result_equal(state.flat, flat):
             state = WorkerResultSession(result, flat, timestamp=now)
@@ -305,51 +287,6 @@ def scalar_for_list_result(
         if state.next_index >= len(state.flat):
             wb_state.matrix.pop(key, None)
     return state.flat[idx]
-
-
-def get_python_init_kwargs(ctx: Any, doc: Any | None = None, *, on_main: bool | None = None) -> dict[str, Any]:
-    """Init-script kwargs for the calling document, read on the UI thread."""
-    if on_main is None:
-        if isinstance(ctx, CellContext):
-            on_main = ctx.on_main
-        elif hasattr(ctx, "on_main") and isinstance(ctx.on_main, bool):
-            on_main = ctx.on_main
-        else:
-            from plugin.framework.queue_executor import main
-
-            on_main = main.is_current()
-
-    if doc is None or not on_main:
-        return {}
-
-    from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
-    from plugin.scripting.document_scripts import build_python_eval_init_kwargs
-
-    best_effort(lambda: ensure_calc_workbook_unload_resets_python(ctx, doc), "python workbook unload listener install")
-    return best_effort(lambda: build_python_eval_init_kwargs(doc), "get_python_init_kwargs", {}) or {}
-
-
-def _py_scoped_dir_bindings(doc_or_ctx: Any | None) -> dict[str, Any]:
-    """Document folder for in-cell folder SQL."""
-    if isinstance(doc_or_ctx, CellContext):
-        return {"scoped_dir": doc_or_ctx.scoped_dir}
-    if hasattr(doc_or_ctx, "scoped_dir") and not hasattr(doc_or_ctx, "getURL"):
-        return {"scoped_dir": getattr(doc_or_ctx, "scoped_dir", None)}
-
-    doc = doc_or_ctx
-    from plugin.framework.queue_executor import main
-
-    if doc is not None and main.is_current():
-        try:
-            from plugin.doc.document_research import get_document_directory
-
-            folder = get_document_directory(doc)
-        except Exception:
-            log.debug("scoped_dir binding failed", exc_info=True)
-            folder = None
-        if folder:
-            return {"scoped_dir": folder}
-    return {"scoped_dir": None}
 
 
 def clear_python_addin_cache() -> None:
@@ -402,27 +339,18 @@ def _record_py_diagnostic(
 
 
 def finalize_python_return(
-    ctx: Any,
-    code: str,
+    cell: CellContext,
     result: Any,
     *,
     index_arg: Any = None,
     worker_data: Any = None,
-    doc: Any | None = None,
     data_token: str | None = None,
-    cell_ctx: CellContext | None = None,
 ) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
-    if cell_ctx is not None:
-        on_main = cell_ctx.on_main
-    elif isinstance(ctx, CellContext):
-        on_main = ctx.on_main
-    elif hasattr(ctx, "on_main") and isinstance(ctx.on_main, bool):
-        on_main = ctx.on_main
-    else:
-        from plugin.framework.queue_executor import main
-
-        on_main = main.is_current()
+    on_main = cell.on_main
+    code = cell.code
+    doc = cell.doc
+    ctx = cell.ctx
 
     result = result_to_calc_grid(result)
 
@@ -438,8 +366,8 @@ def finalize_python_return(
 
                         located = locate_formula_cell_in_doc(doc, code)
                         if located is not None:
-                            sheet, cell, _coord = located
-                            is_matrix = _cell_is_matrix(sheet, cell)
+                            sheet, formula_cell, _coord = located
+                            is_matrix = _cell_is_matrix(sheet, formula_cell)
                         else:
                             is_matrix = _selection_is_multi_cell(doc)
                 except Exception:
@@ -474,8 +402,7 @@ def finalize_python_return(
                 return f"Error: index {idx} out of range (result length {len(flat)})"
             return py_addin_cell_value(flat[idx])
 
-        scalar_doc = doc if on_main else None
-        return scalar_for_list_result(ctx, code, result, worker_data=worker_data, doc=scalar_doc, data_token=data_token, on_main=on_main)
+        return scalar_for_list_result(cell, result, worker_data=worker_data, data_token=data_token)
 
     return py_addin_cell_value(result)
 
@@ -492,8 +419,6 @@ def execute_python_addin(ctx: Any, code: str, data: Any = None, *, doc: Any | No
 
 def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: Any | None = None) -> Any:
     target_doc: Any = doc
-    from plugin.framework.queue_executor import main
-
     on_main = main.is_current()
     cell_ctx = build_cell_context(ctx, target_doc, code, on_main=on_main)
 
@@ -547,12 +472,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             wb_state = cell_ctx.state
             if wb_state is not None:
                 with _MATRIX_SCALAR_SESSIONS_LOCK:
-                    stale = [
-                        k for k, session in wb_state.matrix.items()
-                        if (now - session.timestamp) > _PY_PASS_GAP_SEC
-                    ]
-                    for k in stale:
-                        wb_state.matrix.pop(k, None)
+                    _expire_matrix_sessions(wb_state.matrix, now)
                     cached = wb_state.matrix.get(cache_key)
         if isinstance(cached, WorkerResultSession) and cached.next_index < len(cached.flat):
             res = {"status": "ok", "result": cached.raw}
@@ -573,7 +493,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             res = run_code_in_user_venv(
                 code,
                 data=worker_data,
-                bindings=_py_scoped_dir_bindings(cell_ctx),
+                bindings={"scoped_dir": cell_ctx.scoped_dir},
                 session_id=session_id,
                 python_tool_domain="",
                 **init_kwargs,
@@ -582,22 +502,22 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             result = res.get("result")
             if isinstance(result, dict) and _is_helper_error_dict(result):
                 err_text = _helper_error_log_message(result)
-                cell = py_addin_cell_value(result)
+                addin_val = py_addin_cell_value(result)
                 _record_py_diagnostic(ctx, code, res, status="error", message=err_text, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
-                return cell
+                return addin_val
             _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
             images = find_image_payloads(result)
             if images:
                 for i, img in enumerate(images):
-                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True, on_main=cell_ctx.on_main)
+                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
-            return finalize_python_return(ctx, code, result, index_arg=index_arg, worker_data=worker_data, doc=target_doc, data_token=data_token, cell_ctx=cell_ctx)
+            return finalize_python_return(cell_ctx, result, index_arg=index_arg, worker_data=worker_data, data_token=data_token)
 
         raw_message = str(res.get("message") or res.get("error") or "")
-        cell = _addin_result_for_worker_status(res)
-        message = cell if isinstance(cell, str) else raw_message
+        addin_cell = _addin_result_for_worker_status(res)
+        message = addin_cell if isinstance(addin_cell, str) else raw_message
         _record_py_diagnostic(ctx, code, res, status="error", message=message, doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
-        return cell
+        return addin_cell
     except Exception as e:
         log.exception("PYTHON unexpected error during execution")
         err_msg = _format_error_for_display(e)

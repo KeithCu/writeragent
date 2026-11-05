@@ -26,6 +26,7 @@ from plugin.calc.python.cell_discovery import (
 )
 from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.address_utils import local_a1, parse_local
+from plugin.calc.python.undo import undo_lock
 from plugin.calc.python.geometric_recalc_core import (
     CONFIG_KEY,
     FEATURE_TITLE,
@@ -39,6 +40,7 @@ from plugin.calc.python.geometric_recalc_core import (
 )
 from plugin.framework.errors import best_effort, is_disposal, uno_read
 from plugin.framework.i18n import _
+from plugin.framework.queue_executor import main
 
 log = logging.getLogger(__name__)
 
@@ -196,8 +198,6 @@ def notify_geometric_cap_hit(ctx: Any, sheet_name: str, *, workbook_key: str = "
     ) % {"sheet": sheet_name, "cap": _MAX_PYTHON_CELLS_FOUND}
     log.error("Geometric Recalc Order: %s", message)
 
-    from plugin.framework.queue_executor import main
-
     if not main.is_current():
         # Off-main still logs. Do not persist — a later UI-thread call
         # must still be able to show the first box.
@@ -227,19 +227,16 @@ def maybe_strip_geometric_eval_args(
     """
     if not args:
         return args
-    ctx_obj = cell_ctx if cell_ctx is not None else (doc if hasattr(doc, "on_main") else None)
-    if ctx_obj is not None:
-        if not ctx_obj.on_main:
+    if cell_ctx is not None:
+        if not cell_ctx.on_main:
             return args
-        target_doc = ctx_obj.doc
+        target_doc = cell_ctx.doc
         if target_doc is None:
             return args
-        workbook_key = ctx_obj.workbook_key
+        workbook_key = cell_ctx.workbook_key
     else:
         if doc is None:
             return args
-        from plugin.framework.queue_executor import main
-
         if not main.is_current():
             return args
         workbook_key = geometric_workbook_key(doc)
@@ -339,7 +336,7 @@ def _cell_on_sheet(sheet: Any, address: str) -> Any | None:
 
 
 def _apply_patches_to_sheet(sheet: Any, patches: tuple[GeometricPatch, ...]) -> set[str]:
-    """``setFormula`` for each patch. Caller holds ``_undo_lock`` + re-entrancy."""
+    """``setFormula`` for each patch. Caller holds ``undo_lock`` + re-entrancy."""
     applied: set[str] = set()
     for patch in patches:
         cell = _cell_on_sheet(sheet, patch.address)
@@ -451,10 +448,9 @@ def reconcile(
     _RUNTIME.repairing = True
     repaired_sheets: dict[str, list[GeometricCell]] = {}
     try:
-        from plugin.calc.python.undo import _undo_lock
         from plugin.calc.python.sheet_modify import ensure_sheet_modify_listener
 
-        with _undo_lock(doc):
+        with undo_lock(doc):
             sheet_list = _iter_sheets(doc) if sheet is None else [sheet]
             for sheet in sheet_list:
                 ensure_sheet_modify_listener(ctx, doc, sheet)
@@ -477,7 +473,6 @@ def after_py_cell_save(doc: Any, cell: Any, ctx: Any = None) -> None:
     if not geometric_flag_enabled() or doc is None:
         return
     if ctx is None:
-        from plugin.framework.queue_executor import main
         from plugin.framework.uno_context import get_ctx
 
         if main.is_current():
@@ -506,19 +501,16 @@ def ensure_geometric_strip_index_for_eval(
     cell_ctx: Any = None,
 ) -> None:
     """UI-thread only: rebuild ``_STRIP_SAFE`` from UDProp before packing ``data``."""
-    ctx_obj = cell_ctx if cell_ctx is not None else (doc if hasattr(doc, "on_main") else None)
-    if ctx_obj is not None:
-        if not ctx_obj.on_main:
+    if cell_ctx is not None:
+        if not cell_ctx.on_main:
             return
-        target_doc = ctx_obj.doc
+        target_doc = cell_ctx.doc
         if target_doc is None:
             return
-        workbook_key = ctx_obj.workbook_key
+        workbook_key = cell_ctx.workbook_key
     else:
         if doc is None:
             return
-        from plugin.framework.queue_executor import main
-
         if not main.is_current():
             return
         target_doc = doc
