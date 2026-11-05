@@ -1391,6 +1391,31 @@ def test_scalar_for_list_result_no_share_without_unique_origin() -> None:
     assert b == 10
 
 
+def test_finalize_python_return_located_array_does_not_break_scalar_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bugfix: unpacking locate_formula_cell_in_doc must not shadow the CellContext parameter."""
+    from unittest.mock import patch
+
+    doc = CalcDocStub()
+    ctx = _ctx_with_doc(doc)
+    sheet = doc.getSheets().getByName("Sheet1")
+    formula_cell = sheet.getCellByPosition(0, 0)
+    python_function.clear_python_addin_cache()
+    monkeypatch.setattr("plugin.framework.config.get_config", lambda _k: True)
+    monkeypatch.setattr(
+        "plugin.calc.python.function._session_key_tuple",
+        lambda *_a, **_k: ("file:///u.ods", "Sheet1", "sid", "dup", "0,0"),
+    )
+    with patch(
+        "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+        return_value=(sheet, formula_cell, (0, 0)),
+    ):
+        monkeypatch.setattr(python_function, "_cell_is_matrix", lambda _s, _c: True)
+        a = python_function.finalize_python_return(_cell(ctx, "dup", doc), [10, 20, 30])
+        b = python_function.finalize_python_return(_cell(ctx, "dup", doc), [10, 20, 30])
+    assert a == 10
+    assert b == 20
+
+
 def test_scalar_for_list_result_increments_with_unique_origin(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub()
     ctx = _ctx_with_doc(doc)

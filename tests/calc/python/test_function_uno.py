@@ -355,7 +355,8 @@ def test_py_multi_document_spill_and_plot(ctx):
 @native_test
 def test_row_insert_does_not_clear_moved_spill(ctx):
     """Row insertion shifts =PY() formula and its spill; modify listener remaps without clearing."""
-    from plugin.calc.python.sheet_modify import reset_sheet_modify_runtime_for_tests
+    from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
+    from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests, reset_sheet_modify_runtime_for_tests
     from plugin.framework.queue_executor import pump_main_thread_work_queue
 
     # Prior =PY() UNO tests schedule 0.1s sheet/spill debounces; drain before this case.
@@ -363,6 +364,7 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
     time.sleep(0.35)
     pump_main_thread_work_queue(max_items=50)
     reset_sheet_modify_runtime_for_tests()
+    reset_geometric_runtime_for_tests()
     reset_calc_workbook_states()
 
     desktop = get_desktop(ctx)
@@ -382,11 +384,11 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
         cells = [SpillCell(row=r, col=0, kind="n", value=float(r - 4)) for r in range(5, 10)]
         SPILL_REGISTRY[(doc_key, "Sheet1", 4, 0)] = SpillRecord(code=code, cells=cells)
 
-        from plugin.calc.python.sheet_modify import run_sheet_modify_pass
+        from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
 
         sheet.getRows().insertByIndex(0, 1)
 
-        run_sheet_modify_pass(ctx, doc, sheet, sheet_name="Sheet1")
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name="Sheet1")
 
         a6_formula = sheet.getCellByPosition(0, 5).getFormula()
         assert "PY" in a6_formula, f"Expected PY in A6 formula, got {a6_formula!r}"

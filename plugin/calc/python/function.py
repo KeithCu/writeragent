@@ -378,8 +378,8 @@ def finalize_python_return(
 
                         located = locate_formula_cell_in_doc(doc, code)
                         if located is not None:
-                            sheet, cell, _coord = located
-                            is_matrix = _cell_is_matrix(sheet, cell)
+                            sheet, formula_cell, _coord = located
+                            is_matrix = _cell_is_matrix(sheet, formula_cell)
                         else:
                             is_matrix = _selection_is_multi_cell(doc)
                 except Exception:
