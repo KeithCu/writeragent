@@ -22,6 +22,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import plugin.framework.ipc
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
@@ -548,8 +549,8 @@ def test_json_line_timeout_on_pipe():
         os.close(write_fd)
 
 
-def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
-    """A raising stop_checker is not a stop; the peek loop still returns the bytes."""
+def test_win32_read_raising_cancel_keeps_reading(monkeypatch):
+    """A raising cancel scope is not a stop; the peek loop still returns the bytes."""
     import struct
     from plugin.framework import ipc
 
@@ -561,53 +562,55 @@ def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
     monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
     seen: list[BaseException] = []
 
-    def stop_checker() -> bool:
-        if not seen:
-            err = KeyError("stop_checker blew up")
-            seen.append(err)
-            raise err
-        return False
+    class _RaisingCancel(SendCancellation):
+        def is_cancelled(self) -> bool:
+            if not seen:
+                err = KeyError("is_cancelled blew up")
+                seen.append(err)
+                raise err
+            return False
 
     data = ipc.read_frame_payload(
-        stream, 10.0, cmd="frame", stop_checker=stop_checker
+        stream, 10.0, cmd="frame", cancel=_RaisingCancel()
     )
     assert data == b"abcd"
     assert seen
 
 
-def _raising_then_false_stop_checker():
+def _raising_then_false_cancel_scope():
     seen: list[BaseException] = []
 
-    def stop_checker() -> bool:
-        if not seen:
-            err = KeyError("stop_checker blew up")
-            seen.append(err)
-            raise err
-        return False
+    class _RaisingCancel(SendCancellation):
+        def is_cancelled(self) -> bool:
+            if not seen:
+                err = KeyError("is_cancelled blew up")
+                seen.append(err)
+                raise err
+            return False
 
-    return seen, stop_checker
+    return seen, _RaisingCancel()
 
 
-def test_read_frame_payload_raising_stop_checker_threaded_path_returns_frame():
-    """A broken stop_checker must not escape or abandon the queued frame (no-fd)."""
+def test_read_frame_payload_raising_cancel_threaded_path_returns_frame():
+    """A broken cancel scope must not escape or abandon the queued frame (no-fd)."""
     frame = pack_pickle_frame({"status": "ok", "result": 1})
     stream = io.BytesIO(frame)
-    seen, stop_checker = _raising_then_false_stop_checker()
-    payload = read_frame_payload(stream, 5.0, stop_checker=stop_checker)
+    seen, cancel = _raising_then_false_cancel_scope()
+    payload = read_frame_payload(stream, 5.0, cancel=cancel)
     assert seen
     assert unpack_pickle_frame(payload) == {"status": "ok", "result": 1}
 
 
-def test_read_frame_payload_raising_stop_checker_select_path_returns_frame():
-    """A broken stop_checker must not escape or abandon the queued frame (fd path)."""
+def test_read_frame_payload_raising_cancel_select_path_returns_frame():
+    """A broken cancel scope must not escape or abandon the queued frame (fd path)."""
     frame = pack_pickle_frame({"status": "ok", "result": 1})
     r_fd, w_fd = os.pipe()
     os.write(w_fd, frame)
     os.close(w_fd)
     reader = os.fdopen(r_fd, "rb", buffering=0)
-    seen, stop_checker = _raising_then_false_stop_checker()
+    seen, cancel = _raising_then_false_cancel_scope()
     try:
-        payload = read_frame_payload(reader, 5.0, stop_checker=stop_checker)
+        payload = read_frame_payload(reader, 5.0, cancel=cancel)
     finally:
         reader.close()
     assert seen
@@ -1731,9 +1734,11 @@ def test_read_frame_payload_stop_checker_raises_timeout_expired():
     try:
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
+            scope = SendCancellation()
+            scope.cancel()
             t0 = time.monotonic()
             with pytest.raises(subprocess.TimeoutExpired) as exc_info:
-                read_frame_payload(reader, 30.0, stop_checker=lambda: True)
+                read_frame_payload(reader, 30.0, cancel=scope)
             assert exc_info.value.timeout == 30.0
             assert time.monotonic() - t0 < 1.0
         finally:
@@ -1788,20 +1793,20 @@ def test_read_frame_payload_posix_select_slices(monkeypatch):
     try:
         reader = os.fdopen(r_fd, "rb", buffering=0)
         try:
-            # stop_checker=False -> slices <= 0.2, at least one >= 0.1
+            # active cancel scope -> slices <= 0.2, at least one >= 0.1
             with pytest.raises(subprocess.TimeoutExpired):
                 read_frame_payload(
-                    reader, 30.0, deadline=time.monotonic() + 0.5, stop_checker=lambda: False
+                    reader, 30.0, deadline=time.monotonic() + 0.5, cancel=SendCancellation()
                 )
             assert recorded_timeouts
             assert all(t <= 0.2 for t in recorded_timeouts)
             assert any(t >= 0.1 for t in recorded_timeouts)
 
-            # stop_checker=None -> single wait > 0.2
+            # cancel=None -> single wait > 0.2
             recorded_timeouts.clear()
             with pytest.raises(subprocess.TimeoutExpired):
                 read_frame_payload(
-                    reader, 30.0, deadline=time.monotonic() + 0.5, stop_checker=None
+                    reader, 30.0, deadline=time.monotonic() + 0.5, cancel=None
                 )
             assert recorded_timeouts
             assert recorded_timeouts[0] > 0.2
