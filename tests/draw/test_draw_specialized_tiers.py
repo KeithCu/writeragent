@@ -32,6 +32,9 @@ _SLIDE_SPECIALIZED_NAMES = frozenset(
         "slide_master_list",
         "slide_master_get",
         "slide_master_set",
+        "page_comment_list",
+        "page_comment_add",
+        "page_comment_delete",
     }
 )
 
@@ -68,6 +71,14 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
             },
         ),
         ("slide_masters", {"slide_master_list", "slide_master_get", "slide_master_set"}),
+        (
+            "page_comments",
+            {
+                "page_comment_list",
+                "page_comment_add",
+                "page_comment_delete",
+            },
+        ),
         ("tables", {"table_insert", "table_list", "table_get_cells", "table_set_cell", "table_manage_structure", "table_delete"}),
         ("images", {"image_insert", "image_list", "image_delete", "image_generate"}),
         (
@@ -105,4 +116,4 @@ def test_draw_gateway_description_names_real_domains() -> None:
         "headers",
     ]:
         assert domain in desc
-
+    assert "page comments" in desc

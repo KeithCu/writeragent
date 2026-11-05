@@ -14,6 +14,7 @@ from plugin.chatbot.agent_manual import (
     _WRITER_TOPICS,
     full_manual,
     get_section,
+    list_topic_entries,
     list_topics,
     manual_index,
     normalize_topic,
@@ -41,7 +42,11 @@ class FakeCtx:
         self.doc = doc
 
 
-# ---- sections / topics -----------------------------------------------------
+def test_list_topic_entries_matches_list_topics():
+    for doc_type in ("writer", "calc", "draw", None):
+        ids_from_entries = [topic_id for topic_id, _summary in list_topic_entries(doc_type)]
+        assert ids_from_entries == list_topics(doc_type)
+
 
 def test_topics_and_sections_align():
     topics = list_topics("writer")

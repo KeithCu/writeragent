@@ -183,6 +183,28 @@ class GrammarStatus:
     def failed(self, text: str, *, result: str = "") -> None:
         self._deliver("failed", text, result=result)
 
+    def relay_status_update(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        """Deliver one status phase without touching begin/end cycle counters (composite sinks)."""
+        self._deliver(
+            phase,
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+            routine=routine,
+        )
+
     def begin_status_cycle(self) -> None:
         """Mark one batch in flight (sidebar/status-bar done is deferred)."""
         with self._lock:
@@ -267,10 +289,16 @@ class StatusBarGrammarStatus(GrammarStatus):
     """LibreHarper: update the LibreOffice window status bar using XStatusIndicator."""
 
     _indicator: Any
+    _label: str
 
-    def __init__(self) -> None:
+    def __init__(self, label: str = "LibreHarper") -> None:
         super().__init__()
         self._indicator = None
+        self._label = label
+
+    def is_active(self) -> bool:
+        """True when an XStatusIndicator session is open on the status bar."""
+        return self._indicator is not None
 
     def _deliver(
         self,
@@ -314,11 +342,12 @@ class StatusBarGrammarStatus(GrammarStatus):
 
     def _paint(self, phase: str, result: str = "", routine: bool = False) -> None:
         """Update the LibreOffice window status bar using XStatusIndicator."""
-        msg = f"LibreHarper: {result or 'Checking...'}"
+        prefix = self._label
+        msg = f"{prefix}: {result or 'Checking...'}"
         if phase == "done":
-            msg = "LibreHarper: Grammar check complete"
+            msg = f"{prefix}: Grammar check complete"
         elif phase == "failed":
-            msg = f"LibreHarper: Failed ({result})" if result else "LibreHarper: Grammar check failed"
+            msg = f"{prefix}: Failed ({result})" if result else f"{prefix}: Grammar check failed"
 
         try:
             if routine:
@@ -352,6 +381,80 @@ class StatusBarGrammarStatus(GrammarStatus):
             self._indicator = None
 
 
+def _should_paint_writeragent_status_bar(
+    phase: str,
+    routine: bool,
+    status_bar: StatusBarGrammarStatus,
+    *,
+    bus_has_subscribers: bool,
+) -> bool:
+    """Whether WriterAgent should mirror this grammar update on the LO status bar.
+
+    Failures always paint. When nobody listens on ``grammar:status`` (e.g. Calc
+    sidebar drops the event), paint so progress is still visible. For routine
+    terminal phases, paint only when a bar indicator is already active so a
+    progress line can end cleanly instead of leaving a stale bar (issue #768).
+
+    ``bus_has_subscribers`` can change before delivery; an extra or missed bar
+    paint is benign.
+    """
+    if phase == "failed":
+        return True
+    if not bus_has_subscribers:
+        return True
+    if routine and phase in _TERMINAL_STATUS_PHASES and status_bar.is_active():
+        return True
+    return False
+
+
+class WriterAgentGrammarStatus(GrammarStatus):
+    """WriterAgent: sidebar bus plus optional status-bar fallback."""
+
+    _sidebar: SidebarGrammarStatus
+    _status_bar: StatusBarGrammarStatus
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._sidebar = SidebarGrammarStatus()
+        self._status_bar = StatusBarGrammarStatus(label="Grammar")
+
+    def _deliver(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        self._sidebar.relay_status_update(
+            phase,
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+            routine=routine,
+        )
+        if _should_paint_writeragent_status_bar(
+            phase,
+            routine,
+            self._status_bar,
+            bus_has_subscribers=get_event_bus().has_subscribers("grammar:status"),
+        ):
+            self._status_bar.relay_status_update(
+                phase,
+                text,
+                result=result,
+                elapsed_ms=elapsed_ms,
+                preview_source=preview_source,
+                length_hint=length_hint,
+                routine=routine,
+            )
+
+
 _STATUS_SINK: GrammarStatus | None = None
 
 
@@ -361,7 +464,7 @@ def get_grammar_status() -> GrammarStatus:
     if _STATUS_SINK is None:
         from plugin.framework.uno_context import is_libreharper
 
-        _STATUS_SINK = StatusBarGrammarStatus() if is_libreharper() else SidebarGrammarStatus()
+        _STATUS_SINK = StatusBarGrammarStatus() if is_libreharper() else WriterAgentGrammarStatus()
     return _STATUS_SINK
 
 

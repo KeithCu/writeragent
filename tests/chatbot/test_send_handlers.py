@@ -95,9 +95,14 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
     panel._get_mcp_url = lambda: "http://localhost:18765/mcp"  # type: ignore
     adapter = MagicMock()
     adapter.is_available.return_value = True
+    status_texts: list[str] = []
 
     def fake_drain(q, run_agent, *args, **kwargs):
         run_agent()
+        while not q.empty():
+            item = q.get()
+            if item[0] == StreamQueueKind.STATUS:
+                status_texts.append(item[1])
 
     panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
     with (
@@ -111,7 +116,12 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
     adapter.send.assert_called_once()
     assert adapter.send.call_args.kwargs["mcp_url"] is None
     system_prompt = adapter.send.call_args.kwargs["system_prompt"]
+    assert "HOW TO WORK WITH THE DOCUMENT" in system_prompt
     assert "[MCP SERVER AVAILABLE]" not in system_prompt
+    assert "X-Document-URL" not in system_prompt
+    assert len(status_texts) == 1
+    assert "Enable MCP Server" in status_texts[0]
+    assert "mcp.mcp_enabled" not in status_texts[0]
 
 
 def test_agent_backend_prompt_includes_mcp_when_server_running():
@@ -119,9 +129,14 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
     panel._get_mcp_url = lambda: "http://localhost:18765/mcp"  # type: ignore
     adapter = MagicMock()
     adapter.is_available.return_value = True
+    status_texts: list[str] = []
 
     def fake_drain(q, run_agent, *args, **kwargs):
         run_agent()
+        while not q.empty():
+            item = q.get()
+            if item[0] == StreamQueueKind.STATUS:
+                status_texts.append(item[1])
 
     panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
     with (
@@ -136,6 +151,9 @@ def test_agent_backend_prompt_includes_mcp_when_server_running():
     assert adapter.send.call_args.kwargs["mcp_url"] == "http://localhost:18765/mcp"
     system_prompt = adapter.send.call_args.kwargs["system_prompt"]
     assert "[MCP SERVER AVAILABLE]" in system_prompt
+    assert "document_url" in system_prompt
+    assert "X-Document-URL" not in system_prompt
+    assert not any("mcp.mcp_enabled" in text for text in status_texts)
 
 
 
@@ -1810,9 +1828,11 @@ def test_agent_backend_drops_output_after_abort():
         panel._execute_agent_backend_effect("hi", model, "writer")
 
     assert StreamQueueKind.CHUNK not in kinds
-    assert StreamQueueKind.STATUS not in kinds
     assert StreamQueueKind.STOPPED not in kinds
-    assert panel.status_history == []
+    assert len([k for k in kinds if k == StreamQueueKind.STATUS]) == 1
+    assert panel.status_history and "Enable MCP Server" in panel.status_history[0]
+    assert "mcp.mcp_enabled" not in panel.status_history[0]
+    assert not any("agent-status" in text for text in panel.status_history)
     assert not any("late-agent" in text for text in panel.responses)
     assert panel.session.stored == []
 

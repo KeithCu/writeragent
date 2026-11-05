@@ -88,6 +88,12 @@ class ToolDrawSpeakerNotesBase(ToolDrawSpecialBase):
     uno_services: list[str] | None = _IMPRESS_ONLY
 
 
+class ToolDrawCommentBase(ToolDrawSpecialBase):
+    specialized_domain: ClassVar[str | None] = "page_comments"
+    specialized_domain_description: ClassVar[str | None] = "List, add, and delete comments on Draw and Impress pages."
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
+
+
 class ToolDrawSlideTransitionsBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "slide_transitions"
     specialized_domain_description: ClassVar[str | None] = "Slide transition effects, timing, and Impress slide layouts."
@@ -122,6 +128,19 @@ class ToolDrawImageBase(ToolDrawSpecialBase):
 class ToolDrawTableBase(ToolDrawSpecialBase):
     specialized_domain: ClassVar[str | None] = "tables"
     specialized_domain_description: ClassVar[str | None] = "Insert and edit tables on Draw/Impress pages (same table_* tools as Writer)."
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
+
+
+class ToolDrawVisionBase(ToolDrawSpecialBase):
+    """Catalog marker only: lists the vision domain on Draw/Impress; no tool class derives from this.
+
+    OCR runs through ``ExtractStructureFromImage`` (Calc vision base) and the delegate gateway.
+    """
+
+    specialized_domain: ClassVar[str | None] = "vision"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Extract text and structure from embedded graphics; results are returned only (not inserted)."
+    )
     uno_services: list[str] | None = DRAW_AND_IMPRESS
 
 

@@ -1525,3 +1525,34 @@ def test_read_helpers_reraise_disposed():
     with pytest.raises(DocumentDisposedError):
         _struct_to_json("com.sun.star.table.BorderLine2", _BoomStruct())
 
+
+def test_style_list_calc_omit_returns_cell_styles_only():
+    families = MagicMock()
+    families.hasByName.return_value = True
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value = families
+    ctx = TestingFactory.create_context(doc=doc, doc_type="calc")
+    res = StyleList().execute(ctx)
+    assert res["families"] == ["CellStyles"]
+
+
+def test_style_list_calc_paragraph_family_errors_with_available():
+    families = MagicMock()
+    families.hasByName.return_value = True
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value = families
+    ctx = TestingFactory.create_context(doc=doc, doc_type="calc")
+    res = StyleList().execute(ctx, family="ParagraphStyles")
+    assert res["status"] == "error"
+    assert res.get("details", {}).get("similar") == ["CellStyles"]
+
+
+def test_style_list_calc_cell_styles_returns_entries():
+    cell_style = create_mock_style("Good", is_in_use=True)
+    ctx = _ctx_with_families(CellStyles=_style_family({"Good": cell_style}))
+    ctx.doc_type = "calc"
+    res = StyleList().execute(ctx, family="CellStyles")
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    assert res["styles"][0]["name"] == "Good"
+

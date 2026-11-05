@@ -552,6 +552,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     # --- XSupportedLocales ---
     def _normalize_locale(self, a_locale: Any) -> str | None:
         """Return the grammar locale used by this proofreader implementation."""
+        profile = self._resolved_profile()
+        if profile.provider == "harper":
+            # Harper is English-only; keep hasLocale and doProofreading on one path.
+            from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
+
+            return normalize_harper_locale_to_bcp47(a_locale)
         return normalize_uno_locale_to_bcp47(a_locale)
 
     def hasLocale(self, aLocale: Any) -> bool:

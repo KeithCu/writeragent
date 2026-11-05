@@ -79,3 +79,12 @@ def test_get_image_impress_page_png(ctx, doc):
     page1 = _assert_png_result(_exec(doc, ctx, "impress", page=0), "page 0")
     page2 = _assert_png_result(_exec(doc, ctx, "impress", page=1), "page 1")
     assert page1 != page2, "page=0 and page=1 must render different Impress slides"
+
+
+@native_test
+@with_native_doc("calc")
+def test_get_image_calc_page_errors(ctx, doc):
+    page_res = _exec(doc, ctx, "calc", page=0)
+    assert page_res.get("status") == "error"
+    assert "Writer, Draw, or Impress" in page_res.get("message", "")
+

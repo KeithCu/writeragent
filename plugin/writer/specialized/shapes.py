@@ -25,6 +25,9 @@ from plugin.draw.shapes import DeleteShape as DrawDeleteShape
 from plugin.draw.shapes import GetDrawSummary as DrawGetDrawSummary
 from plugin.draw.shapes import ConnectShapes as DrawConnectShapes
 from plugin.draw.shapes import GroupShapes as DrawGroupShapes
+from plugin.draw.shapes import AlignShapes as DrawAlignShapes
+from plugin.draw.shapes import DistributeShapes as DrawDistributeShapes
+from plugin.draw.shapes import CreateDiagram as DrawCreateDiagram
 
 
 class UpsertShape(DrawUpsertShape, ToolWriterShapeBase):
@@ -47,6 +50,18 @@ class ConnectShapes(DrawConnectShapes, ToolWriterShapeBase):
 
 class GroupShapes(DrawGroupShapes, ToolWriterShapeBase):
     name: str | None = "shape_group"
+
+
+class AlignShapes(DrawAlignShapes, ToolWriterShapeBase):
+    name: str | None = "shape_align"
+
+
+class DistributeShapes(DrawDistributeShapes, ToolWriterShapeBase):
+    name: str | None = "shape_distribute"
+
+
+class CreateDiagram(DrawCreateDiagram, ToolWriterShapeBase):
+    name: str | None = "shape_diagram"
 
 
 def replace_text_in_shape(shape: Any, old: str, new: str) -> bool:

@@ -214,3 +214,21 @@ def test_insert_cell_html(ctx, doc):
         "insert_cell_html: getDocumentProperties probe done props=%s"
         % (props is not None,)
     )
+
+
+@native_test
+@with_native_doc("calc")
+def test_insert_cell_html_sheet_prefix_without_switching(ctx, doc):
+    sheets = doc.getSheets()
+    sheets.insertNewByName("Sheet2", sheets.getCount())
+    active = doc.getCurrentController().getActiveSheet()
+    assert active.getName() != "Sheet2"
+    res = _execute_calc_tool(
+        doc,
+        ctx,
+        "insert_cell_html",
+        {"cell": "Sheet2.A1", "html": "<b>remote</b>"},
+    )
+    assert res.get("status") == "ok", res
+    cell = sheets.getByName("Sheet2").getCellByPosition(0, 0)
+    assert "remote" in cell.getString()

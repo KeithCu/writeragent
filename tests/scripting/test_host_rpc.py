@@ -95,7 +95,7 @@ def test_shape_group_proxy_docstring_says_why_to_group():
     assert "Pass every related shape index" in doc
     assert "shape_upsert (action edit)" in doc
     # Args stay the generated schema text.
-    assert "indices (required): List of shape indices to group." in doc
+    assert "indices (required): List of shape indices or Names to group." in doc
     assert "page (optional): Page index containing the shapes." in doc
     # Writer and Calc re-export Draw's class and do not own a second description.
     assert WriterGroupShapes.description == GroupShapes.description
@@ -612,6 +612,7 @@ def test_singularize_domain():
         ("slide_masters", "slide_master"),
         ("slide_transitions", "slide_transition"),
         ("speaker_notes", "speaker_note"),
+        ("page_comments", "page_comment"),
         ("tables", "table"),
         ("textframes", "textframe"),
     ):
@@ -647,6 +648,7 @@ def test_singularize_domain():
         ("slide_masters", "slide_master"),
         ("slide_transitions", "slide_transition"),
         ("speaker_notes", "speaker_note"),
+        ("page_comments", "page_comment"),
         ("tables", "table"),
         ("textframes", "textframe"),
     ],

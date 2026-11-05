@@ -73,6 +73,7 @@ _DOMAIN_NAMESPACE: dict[str, str] = {
     "footnotes": "footnote",
     "headers_footers": "headers_footer",
     "indexes": "index",
+    "page_comments": "page_comment",
     "pivot_tables": "pivot_table",
     "ranges": "range",
     "shapes": "shape",

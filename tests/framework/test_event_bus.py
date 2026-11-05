@@ -455,3 +455,18 @@ def test_emit_positional_only_payload_keys_event_and_self():
     bus.emit("x", event="payload", self="also")
     assert received == {"event": "payload", "self": "also"}
 
+
+def test_has_subscribers_false_for_dead_weak_subscriber():
+    bus = EventBus()
+
+    class Target:
+        def handler(self, **_kwargs):
+            pass
+
+    target = Target()
+    bus.subscribe("gone", target.handler, weak=True)
+    assert bus.has_subscribers("gone") is True
+    target = None
+    gc.collect()
+    assert bus.has_subscribers("gone") is False
+

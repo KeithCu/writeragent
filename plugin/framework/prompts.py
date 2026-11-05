@@ -595,7 +595,7 @@ CSV DATA: Use comma (,) for write_formula_range.
 CELL LINKS: Reference cells with HTML only, e.g. <a href="cell://B2">B2</a> (users click these in the chat sidebar to jump to the cell).
 Other sheets use the same Calc dot as formulas: <a href="cell://Orders.A1">Orders.A1</a>.
 
-TOOLS: read_cell_range, get_sheet_summary, write_formula_range, set_style, insert_cell_html, merge_cells, delete_structure (see each tool).
+TOOLS: read_cell_range, get_sheet_summary, write_formula_range, set_style, insert_cell_html, merge_cells, delete_structure, insert_structure, get_image (image name or selection; page is Writer/Draw/Impress) (see each tool).
 set_style: fixed properties only — not mixed rich text in a cell; use insert_cell_html for that.
 
 {{specialized_delegation}}
@@ -659,7 +659,8 @@ TOOLS (grouped by use):
 READ:
 - list_pages: List pages/slides in the document.
 - list_designs: List shipped Impress .otp designs (e.g. Metropolis).
-- read_slide_text: Extract text content and speaker notes from a slide.
+- read_slide_text: Extract text from shapes (including grouped descendants and tables as TSV) and speaker notes from a slide.
+- search_slides: Search shape text and speaker notes across slides (pattern, optional regex).
 - get_presentation_info: Slide count, dimensions, master slide names, and Impress status.
 - get_draw_tree: Semantic tree (DOM) of shapes, layout, and hierarchy on a page. Empty/near-empty text boxes are fill targets (fillable, label_hint, name); ControlShapes include type/name/value/state. Address by name. Do not spawn ControlShapes to fill paper-form blanks.
 {DRAW_GET_IMAGE_TOOL_LINE}

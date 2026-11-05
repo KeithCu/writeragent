@@ -307,8 +307,8 @@ Other MCP surfaces (for integrators):
 |---------|--------|----------------------------|
 | **`tools/list`** | Implemented | **Primary** — use the delegate gateway tool metadata above |
 | **`initialize` → `instructions`** | Connection-time local date/time + tool-choice guidance (multi-doc targeting via `list_open_documents` / `document_url`, `tools/list` type filter) + mode hint + pointer to the on-demand manual (`get_guidance` topics, per document type) | Does not include the full chat prompt or UNO/threading internals; the behavioral manual is pulled per topic via `get_guidance`. Clock is fixed until the client reconnects; hosts **may** ignore `instructions` (verify Page Assist / Claude Desktop) |
-| **`prompts/list` / `prompts/get`** | Empty | Could expose full system prompt later; not implemented |
-| **`resources/list` / `resources/read`** | Empty | Not used for guidance |
+| **`prompts/list` / `prompts/get`** | Implemented | Serve `get_guidance` topics for the document resolved like `tools/list` (`X-Document-URL` or active document) |
+| **`resources/list` / `resources/read`** | Empty list / not implemented | Not used for guidance |
 | **`GET /`** | Server name, version, routes | Does **not** return agent instructions (older docs were wrong) |
 
 If a client ignores `initialize.instructions` and only binds tools from `tools/list`, the delegate tool entry is the intended place to learn **which `domain` to pick** and **how to write `task`**.
@@ -1062,8 +1062,8 @@ In priority order:
 
 3. **`set_document_protection`** — useful for "lock the document while I review AI edits" workflow.
 
-4. **`get_document_properties` / `set_document_properties`** — document metadata (title,
-   author, subject). Occasionally useful; low priority.
+4. **`document_properties_get` / `document_properties_set`** — shipped as core tools (title,
+   author, subject, keywords, user-defined properties; product `WriterAgent*` names are read-only).
 
 ---
 

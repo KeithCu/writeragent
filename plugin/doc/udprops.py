@@ -60,7 +60,7 @@ def _user_defined_properties(model: Any) -> Any:
         raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
     if not hasattr(raw_model, "getDocumentProperties"):
         return None
-    doc_props = uno_call(raw_model.getDocumentProperties, "Get document properties")
+    doc_props = _document_properties_bag(raw_model)
     if doc_props is None:
         return None
     props = thread_guard.unwrap_uno(getattr(doc_props, "UserDefinedProperties", None))
@@ -133,6 +133,104 @@ def set_document_property(model: Any, name: str, value: Any) -> bool:
 
         log.exception("set_document_property error (url=%s, readonly=%s)", doc_url, readonly)
         raise
+
+def _document_properties_bag(model: Any) -> Any | None:
+    """Return the unwrapped ``getDocumentProperties()`` object, or None."""
+    raw_model = thread_guard.unwrap_uno(model)
+    if raw_model is None:
+        raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
+    if not hasattr(raw_model, "getDocumentProperties"):
+        return None
+    return uno_call(raw_model.getDocumentProperties, "Get document properties")
+
+
+def list_user_defined_document_properties(model: Any) -> list[str]:
+    """Sorted names on the document's UserDefinedProperties bag (may be empty)."""
+    props = _user_defined_properties(model)
+    if props is None:
+        return []
+    try:
+        info = uno_call(props.getPropertySetInfo, "Get user-defined property set info")
+        if info is None:
+            return []
+        names: list[str] = []
+        for prop in uno_call(info.getProperties, "List user-defined properties"):
+            name = getattr(prop, "Name", None)
+            if name:
+                names.append(str(name))
+        return sorted(names)
+    except DocumentDisposedError:
+        raise
+    except Exception:
+        log.exception("list_user_defined_document_properties failed")
+        return []
+
+
+def _keywords_to_str_list(keywords: Any) -> list[str]:
+    if keywords is None:
+        return []
+    if isinstance(keywords, (list, tuple)):
+        return [str(k) for k in keywords]
+    return [str(keywords)]
+
+
+_BUILTIN_DOCUMENT_PROPERTY_FIELDS: tuple[tuple[str, str], ...] = (
+    ("title", "Title"),
+    ("subject", "Subject"),
+    ("author", "Author"),
+    ("description", "Description"),
+)
+
+
+def read_builtin_document_properties(model: Any) -> dict[str, Any]:
+    """Built-in metadata on ``getDocumentProperties()`` (strings + keyword list)."""
+    doc_props = _document_properties_bag(model)
+    if doc_props is None:
+        return {
+            "title": "",
+            "subject": "",
+            "author": "",
+            "description": "",
+            "keywords": [],
+        }
+    out: dict[str, Any] = {}
+    for field_key, attr in _BUILTIN_DOCUMENT_PROPERTY_FIELDS:
+
+        def _read_field(a: str = attr, dp: Any = doc_props) -> str:
+            return str(getattr(dp, a, None) or "")
+
+        out[field_key] = uno_call(_read_field, f"Read {attr}")
+    keywords_raw = uno_call(lambda: getattr(doc_props, "Keywords", None), "Read Keywords")
+    out["keywords"] = _keywords_to_str_list(keywords_raw)
+    return out
+
+
+def write_builtin_document_properties(model: Any, **fields: Any) -> list[str]:
+    """Write built-in metadata fields present in *fields*. Returns keys updated."""
+    doc_props = _document_properties_bag(model)
+    if doc_props is None:
+        return []
+    updated: list[str] = []
+    for field_key, attr in _BUILTIN_DOCUMENT_PROPERTY_FIELDS:
+        if field_key not in fields:
+            continue
+        val = fields[field_key]
+
+        def _write_attr(a: str = attr, v: Any = val, dp: Any = doc_props) -> None:
+            setattr(dp, a, str(v))
+
+        uno_call(_write_attr, f"Write {attr}")
+        updated.append(field_key)
+    if "keywords" in fields:
+        kw = fields["keywords"]
+
+        def _write_keywords(k: Any = kw, dp: Any = doc_props) -> None:
+            setattr(dp, "Keywords", tuple(str(item) for item in k))
+
+        uno_call(_write_keywords, "Write Keywords")
+        updated.append("keywords")
+    return updated
+
 
 def remove_document_property(doc: Any, name: str) -> bool:
     """Remove a custom document property. True when it is absent afterwards."""

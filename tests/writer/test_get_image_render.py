@@ -237,6 +237,7 @@ def test_get_image_registers_draw_and_impress():
     assert "com.sun.star.text.TextDocument" in GetImage.uno_services
     assert "com.sun.star.drawing.DrawingDocument" in GetImage.uno_services
     assert "com.sun.star.presentation.PresentationDocument" in GetImage.uno_services
+    assert "com.sun.star.sheet.SpreadsheetDocument" in GetImage.uno_services
 
 
 def _tctx(doc, doc_type="draw"):
@@ -389,3 +390,30 @@ def test_execute_named_image_with_selection_false_uses_named_path():
         res = GetImage().execute(_tctx(doc), image="Logo", selection=False)
     assert res["status"] == "ok"
     assert res["source"] == "Logo"
+
+
+def test_execute_calc_page_errors_before_render():
+    with patch("plugin.writer.get_image._render_page_png") as render_mock:
+        res = GetImage().execute(_tctx(MagicMock(), doc_type="calc"), page=0)
+    assert res["status"] == "error"
+    assert "Writer, Draw, or Impress" in res["message"]
+    render_mock.assert_not_called()
+
+
+def test_execute_named_image_omits_sheet_index_by_default():
+    doc = FakeDrawDoc()
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", return_value=object()) as lookup:
+        with patch("plugin.writer.get_image.export_graphic_object_to_bytes", return_value=b"png"):
+            GetImage().execute(_tctx(doc), image="Logo")
+    lookup.assert_called_once_with(doc, "Logo")
+
+
+def test_execute_ambiguous_graphic_name_returns_code():
+    from plugin.doc.visual_helpers import AmbiguousGraphicNameError
+
+    doc = FakeDrawDoc()
+    err = AmbiguousGraphicNameError("dup", sheet_indices=[0, 1])
+    with patch("plugin.doc.visual_helpers.get_graphic_object_by_name", side_effect=err):
+        res = GetImage().execute(_tctx(doc), image="Logo")
+    assert res["status"] == "error"
+    assert res["code"] == "AMBIGUOUS_NAME"

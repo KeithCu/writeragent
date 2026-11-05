@@ -118,7 +118,7 @@ class ToolWriterPageBase(ToolWriterSpecialBase):
 class ToolWriterTextFramesBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "textframes"
     specialized_domain_description: ClassVar[str | None] = (
-        "List, inspect, resize, re-anchor, and set the orientation of existing text frames."
+        "List, inspect, insert, delete, resize, re-anchor, and set the orientation of text frames."
     )
 
 
@@ -149,7 +149,9 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
 
 class ToolWriterShapeBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
-    specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, lines, and connectors."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Create and edit drawing shapes, connectors, groups, align/distribute layouts, and diagrams."
+    )
 
 
 class ToolWriterPythonBase(ToolWriterSpecialBase):

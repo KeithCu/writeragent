@@ -41,6 +41,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'calc': [   'delete_structure',
                 'get_sheet_summary',
                 'insert_cell_html',
+                'insert_structure',
                 'list_calc_functions',
                 'merge_cells',
                 'read_cell_range',
@@ -50,6 +51,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'chart': ['chart_delete', 'chart_get_info', 'chart_list', 'chart_upsert'],
     'comment': [   'comment_check_stop',
                    'comment_delete',
+                   'comment_edit',
                    'comment_list',
                    'comment_resolve',
                    'comment_scan_tasks',
@@ -58,7 +60,9 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'conditional_formatting': [   'conditional_formatting_add',
                                   'conditional_formatting_list',
                                   'conditional_formatting_remove'],
-    'core': [   'find_tools',
+    'core': [   'document_properties_get',
+                'document_properties_set',
+                'find_tools',
                 'get_guidance',
                 'get_image',
                 'list_open_documents',
@@ -79,6 +83,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'move_slide',
                 'read_slide_text',
                 'rename_slide',
+                'search_slides',
                 'set_active_page',
                 'set_placeholder_text'],
     'error': ['error_detect', 'evaluate_formula'],
@@ -129,6 +134,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'page_set_columns',
                 'page_set_header_footer_text',
                 'page_set_style_properties'],
+    'page_comment': ['page_comment_add', 'page_comment_delete', 'page_comment_list'],
     'pivot_table': ['pivot_table_create', 'pivot_table_delete', 'pivot_table_list', 'pivot_table_refresh'],
     'python': ['symbolic_math'],
     'python/sql': ['query_folder_sql'],
@@ -149,12 +155,15 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'shape_group',
                  'shape_summary',
                  'shape_upsert'],
-    'sheet': [   'sheet_create',
+    'sheet': [   'sheet_copy',
+                 'sheet_create',
                  'sheet_delete',
                  'sheet_filter_apply',
                  'sheet_filter_clear',
                  'sheet_filter_get',
+                 'sheet_hide',
                  'sheet_list',
+                 'sheet_move',
                  'sheet_protect',
                  'sheet_rename',
                  'sheet_switch'],
@@ -175,7 +184,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'table_list',
                  'table_manage_structure',
                  'table_set_cell'],
-    'textframe': ['frame_get_info', 'frame_list', 'frame_set_properties'],
+    'textframe': ['frame_delete', 'frame_get_info', 'frame_insert', 'frame_list', 'frame_set_properties'],
     'tracking': ['tracking_list', 'tracking_manage', 'tracking_show', 'tracking_start', 'tracking_stop'],
     'vision': ['extract_structure_from_image'],
     'writer': [   'add_comment',
@@ -208,6 +217,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'chart_upsert': ('chart', 'upsert'),
     'comment_check_stop': ('comment', 'check_stop'),
     'comment_delete': ('comment', 'delete'),
+    'comment_edit': ('comment', 'edit'),
     'comment_list': ('comment', 'list'),
     'comment_resolve': ('comment', 'resolve'),
     'comment_scan_tasks': ('comment', 'scan_tasks'),
@@ -218,6 +228,8 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'conditional_formatting_remove': ('conditional_formatting', 'remove'),
     'delete_slide': ('draw', 'delete_slide'),
     'delete_structure': ('calc', 'delete_structure'),
+    'document_properties_get': ('core', 'document_properties_get'),
+    'document_properties_set': ('core', 'document_properties_set'),
     'duplicate_slide': ('draw', 'duplicate_slide'),
     'error_detect': ('error', 'detect'),
     'evaluate_formula': ('error', 'evaluate_formula'),
@@ -239,7 +251,9 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'form_edit_control': ('forms', 'edit_control'),
     'form_generate': ('forms', 'generate'),
     'form_list_controls': ('forms', 'list_controls'),
+    'frame_delete': ('textframe', 'frame_delete'),
     'frame_get_info': ('textframe', 'frame_get_info'),
+    'frame_insert': ('textframe', 'frame_insert'),
     'frame_list': ('textframe', 'frame_list'),
     'frame_set_properties': ('textframe', 'frame_set_properties'),
     'get_document_content': ('writer', 'get_document_content'),
@@ -273,6 +287,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'indexes_refresh_toc_entry': ('index', 'refresh_toc_entry'),
     'indexes_update_all': ('index', 'update_all'),
     'insert_cell_html': ('calc', 'insert_cell_html'),
+    'insert_structure': ('calc', 'insert_structure'),
     'list_calc_functions': ('calc', 'list_calc_functions'),
     'list_designs': ('draw', 'list_designs'),
     'list_open_documents': ('core', 'list_open_documents'),
@@ -296,6 +311,9 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'nav_heading': ('structural', 'nav_heading'),
     'nav_heading_children': ('structural', 'nav_heading_children'),
     'nav_surroundings': ('structural', 'nav_surroundings'),
+    'page_comment_add': ('page_comment', 'add'),
+    'page_comment_delete': ('page_comment', 'delete'),
+    'page_comment_list': ('page_comment', 'list'),
     'page_get_columns': ('page', 'get_columns'),
     'page_get_header_footer_text': ('page', 'get_header_footer_text'),
     'page_get_style_properties': ('page', 'get_style_properties'),
@@ -317,6 +335,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'search_cells': ('search', 'cells'),
     'search_in_document': ('writer', 'search_in_document'),
     'search_replace': ('search', 'replace'),
+    'search_slides': ('draw', 'search_slides'),
     'section_list': ('structural', 'section_list'),
     'section_read': ('structural', 'section_read'),
     'set_active_page': ('draw', 'set_active_page'),
@@ -332,12 +351,15 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'shape_group': ('shape', 'group'),
     'shape_summary': ('shape', 'summary'),
     'shape_upsert': ('shape', 'upsert'),
+    'sheet_copy': ('sheet', 'copy'),
     'sheet_create': ('sheet', 'create'),
     'sheet_delete': ('sheet', 'delete'),
     'sheet_filter_apply': ('sheet', 'filter_apply'),
     'sheet_filter_clear': ('sheet', 'filter_clear'),
     'sheet_filter_get': ('sheet', 'filter_get'),
+    'sheet_hide': ('sheet', 'hide'),
     'sheet_list': ('sheet', 'list'),
+    'sheet_move': ('sheet', 'move'),
     'sheet_protect': ('sheet', 'protect'),
     'sheet_rename': ('sheet', 'rename'),
     'sheet_switch': ('sheet', 'switch'),
@@ -395,6 +417,7 @@ __all__ = [   'DOMAIN_TOOLS',
     'mail_merge',
     'math',
     'page',
+    'page_comment',
     'pivot_table',
     'python',
     'python_sql',
@@ -491,13 +514,23 @@ class _CalcProxy:
         return call_host_tool("get_sheet_summary", sheet=sheet)
 
     def insert_cell_html(self, cell: str, html: str) -> dict[str, Any]:
-        """Parses HTML with the same filter as Writer and pastes rich text into one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders.
+        """Parses HTML with the same filter as Writer and pastes rich text into one cell (e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) selects that sheet; otherwise the active sheet. Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders.
 
         Args:
-            cell (required): Single cell (e.g. "A1") on the active sheet.
+            cell (required): Single cell (e.g. "A1" or "Sheet2.A1").
             html (required): HTML fragment or small document (UTF-8).
         """
         return call_host_tool("insert_cell_html", cell=cell, html=html)
+
+    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None) -> dict[str, Any]:
+        """Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations.
+
+        Args:
+            structure_type (required): Type of structure to insert. One of: rows, columns.
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5).
+            count (optional): Number to insert (default 1).
+        """
+        return call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count)
 
     def list_calc_functions(self, *, filter: str | None = None) -> dict[str, Any]:
         """Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat.
@@ -507,14 +540,15 @@ class _CalcProxy:
         """
         return call_host_tool("list_calc_functions", filter=filter)
 
-    def merge_cells(self, range_name: list[str], *, center: bool | None = None) -> dict[str, Any]:
+    def merge_cells(self, range_name: list[str], *, center: bool | None = None, unmerge: bool | None = None) -> dict[str, Any]:
         """Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas.
 
         Args:
             range_name (required): Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).
             center (optional): Center content (default: true).
+            unmerge (optional): Split merged cells instead of merging (default: false).
         """
-        return call_host_tool("merge_cells", range=range_name, center=center)
+        return call_host_tool("merge_cells", range=range_name, center=center, unmerge=unmerge)
 
     def read_cell_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:
         """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). Supports lists for non-contiguous areas.
@@ -668,13 +702,24 @@ class _CommentProxy:
         """
         return call_host_tool("comment_delete", name=name, author=author)
 
-    def list(self, *, author_filter: str | None = None) -> dict[str, Any]:
-        """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments.
+    def edit(self, name: str, content: str) -> dict[str, Any]:
+        """Change the content text of an existing comment by name. Does not change author, date, or resolved status.
+
+        Args:
+            name (required): The 'name' field returned by comment_list.
+            content (required): New comment text.
+        """
+        return call_host_tool("comment_edit", name=name, content=content)
+
+    def list(self, *, author_filter: str | None = None, start_index: int | None = None, max_comments: int | None = None) -> dict[str, Any]:
+        """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments. Returns at most max_comments rows (default 100); page through the rest with start_index when has_more is true.
 
         Args:
             author_filter (optional): Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.
+            start_index (optional): Zero-based row to start this page at (default 0).
+            max_comments (optional): Maximum rows to return (default 100). Values below 1 are treated as 1, like tracking_list.
         """
-        return call_host_tool("comment_list", author_filter=author_filter)
+        return call_host_tool("comment_list", author_filter=author_filter, start_index=start_index, max_comments=max_comments)
 
     def resolve(self, name: str, *, resolution: str | None = None, author: str | None = None) -> dict[str, Any]:
         """Resolve a comment with an optional reason. Adds a reply with the resolution text, then marks as resolved.
@@ -748,6 +793,24 @@ conditional_formatting = _ConditionalFormattingProxy()
 class _CoreProxy:
     """Proxy for core tools."""
 
+    def document_properties_get(self) -> dict[str, Any]:
+        """Read document metadata: title, subject, author, description, keywords, and custom user-defined properties. Internal WriterAgent product properties are listed by name only."""
+        return call_host_tool("document_properties_get")
+
+    def document_properties_set(self, *, title: str | None = None, subject: str | None = None, author: str | None = None, description: str | None = None, keywords: list[str] | None = None, user_defined: dict[str, Any] | None = None, remove_user_defined: list[str] | None = None) -> dict[str, Any]:
+        """Update document metadata. Pass only fields to change. Empty string clears a built-in text field; an empty keywords array clears keywords. User-defined values must be strings.
+
+        Args:
+            title (optional): Document title (empty clears).
+            subject (optional): Subject (empty clears).
+            author (optional): Author (empty clears).
+            description (optional): Description (empty clears).
+            keywords (optional): Keyword list (empty array clears).
+            user_defined (optional): Custom property names and string values to set.
+            remove_user_defined (optional): Custom property names to remove.
+        """
+        return call_host_tool("document_properties_set", title=title, subject=subject, author=author, description=description, keywords=keywords, user_defined=user_defined, remove_user_defined=remove_user_defined)
+
     def find_tools(self, *, domain: str | None = None) -> dict[str, Any]:
         """Discover additional tools that are available but not listed here. This MCP server exposes a small core tool set; many specialized capabilities are callable by name but hidden from the default list to keep it short. Call find_tools with no arguments to get the full specialized domain catalog (same list as the delegate gateway). Then call find_tools with a `domain` to get every tool schema in that area, ready to call directly. Always prefer calling a tool returned by find_tools over giving up because a capability seems missing.
 
@@ -764,15 +827,16 @@ class _CoreProxy:
         """
         return call_host_tool("get_guidance", topic=topic)
 
-    def get_image(self, *, image: str | None = None, selection: bool | None = None, page: int | None = None) -> dict[str, Any]:
+    def get_image(self, *, image: str | None = None, selection: bool | None = None, page: int | None = None, sheet_index: int | None = None) -> dict[str, Any]:
         """Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from image_list / get_page_objects> for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render that whole PAGE as an image (Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= here when you need to see the rendered page. Returns the picture itself, not a description. b64 is stripped from normal reads, so use this when you actually need to look. Pass at most one of image, selection, or page.
 
         Args:
             image (optional): Name of the embedded graphic to fetch (from image_list / get_page_objects). Pass at most one of image, selection, or page.
             selection (optional): If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page.
-            page (optional): 0-based page/slide index. Renders that whole page layout as an image, instead of fetching one embedded image. Pass at most one of image, selection, or page.
+            page (optional): 0-based page/slide index. Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page.
+            sheet_index (optional): Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names).
         """
-        return call_host_tool("get_image", image=image, selection=selection, page=page)
+        return call_host_tool("get_image", image=image, selection=selection, page=page, sheet_index=sheet_index)
 
     def list_open_documents(self) -> dict[str, Any]:
         """List all currently open documents in LibreOffice. Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. You cannot save documents yourself; when modified is true and the work is done, tell the user to save. Also returns current_local_datetime with the host's wall clock."""
@@ -901,7 +965,7 @@ class _DrawProxy:
         return call_host_tool("move_slide", from_page=from_page, to_page=to_page)
 
     def read_slide_text(self, *, page: int | None = None) -> dict[str, Any]:
-        """Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape.
+        """Read text from shapes on a slide (including grouped descendants and table cells as TSV) and speaker notes. Returns structured text per shape or table.
 
         Args:
             page (optional): 0-based slide index (default: active slide).
@@ -916,6 +980,17 @@ class _DrawProxy:
             name (required): New slide name.
         """
         return call_host_tool("rename_slide", page=page, name=name)
+
+    def search_slides(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None) -> dict[str, Any]:
+        """Search text in slide shapes (including grouped descendants and table cells) and speaker notes. Each match reports the page, shape name, matched text, and shape index when available.
+
+        Args:
+            pattern (required): Search string or regex pattern.
+            regex (optional): Use regular expression (default: false).
+            case_sensitive (optional): Case-sensitive search (default: false).
+            max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
+        """
+        return call_host_tool("search_slides", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results)
 
     def set_active_page(self, page: int) -> dict[str, Any]:
         """Changes the currently active slide (page) in Draw/Impress.
@@ -1579,6 +1654,40 @@ class _PageProxy:
 page = _PageProxy()
 
 
+class _PageCommentProxy:
+    """Proxy for page_comment tools."""
+
+    def add(self, text: str, *, page: int | None = None, author: str | None = None) -> dict[str, Any]:
+        """Add a comment (annotation) on a Draw or Impress page.
+
+        Args:
+            text (required): Comment text.
+            page (optional): 0-based page index (active page if omitted).
+            author (optional): Author name (optional).
+        """
+        return call_host_tool("page_comment_add", text=text, page=page, author=author)
+
+    def delete(self, index: int, *, page: int | None = None) -> dict[str, Any]:
+        """Delete a comment on a Draw or Impress page by its 0-based index (the index field from page_comment_list on that page). Indices shift after a delete.
+
+        Args:
+            index (required): 0-based index on the page.
+            page (optional): 0-based page index (active page if omitted).
+        """
+        return call_host_tool("page_comment_delete", index=index, page=page)
+
+    def list(self, *, page: int | None = None, offset: int | None = None) -> dict[str, Any]:
+        """List comments (annotations) on Draw or Impress pages. Omit page to scan every page; pass page for one slide. Use offset to paginate (up to 100 per call). Each row includes x/y as raw RealPoint2D Position values from LibreOffice (not slide mm).
+
+        Args:
+            page (optional): 0-based page index (all pages if omitted).
+            offset (optional): Skip this many comments in deck order (default 0).
+        """
+        return call_host_tool("page_comment_list", page=page, offset=offset)
+
+page_comment = _PageCommentProxy()
+
+
 class _PivotTableProxy:
     """Proxy for pivot_table tools."""
 
@@ -1779,35 +1888,36 @@ class _ShapeProxy:
     """Proxy for shape tools."""
 
     def align(self, indices: list[Any], alignment: str, *, page: int | None = None) -> dict[str, Any]:
-        """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices.
+        """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices or Names. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
-            indices (required): Shape indices to align.
+            indices (required): Shape indices or Names to align.
             alignment (required): Alignment axis. One of: left, center_horizontal, right, top, center_vertical, bottom.
             page (optional): 0-based page index (active page if omitted).
         """
         return call_host_tool("shape_align", page=page, indices=indices, alignment=alignment)
 
-    def connect(self, start: int, end: int, *, page: int | None = None, line_color: str | None = None, line_width: int | None = None) -> dict[str, Any]:
-        """Connect two shapes on the same page with a connector.
+    def connect(self, start: int | str, end: int | str, *, page: int | None = None, line_color: str | None = None, line_width: int | None = None) -> dict[str, Any]:
+        """Connect two shapes on the same page with a connector. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
-            start (required): Index of the starting shape.
-            end (required): Index of the ending shape.
+            start (required): Index or Name of the starting shape.
+            end (required): Index or Name of the ending shape.
             page (optional): Page index containing the shapes.
             line_color (optional): Color of the connector line.
             line_width (optional): Line width (100ths of mm).
         """
         return call_host_tool("shape_connect", start=start, end=end, page=page, line_color=line_color, line_width=line_width)
 
-    def delete(self, index: int | str, *, page: int | None = None) -> dict[str, Any]:
-        """Deletes a shape by page index or dotted path.
+    def delete(self, *, index: int | str | None = None, name: str | None = None, page: int | None = None) -> dict[str, Any]:
+        """Deletes a shape by page index, dotted path, or Name.
 
         Args:
-            index (required): 0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).
+            index (optional): 0-based index or dotted group path such as "2.0.1". When both index and name are passed, index wins.
+            name (optional): Shape Name (use for all-digit names that would be parsed as an index).
             page (optional): 0-based page index (active page if omitted).
         """
-        return call_host_tool("shape_delete", index=index, page=page)
+        return call_host_tool("shape_delete", index=index, name=name, page=page)
 
     def diagram(self, nodes: list[Any], *, page: int | None = None, layout: str | None = None, connections: list[Any] | None = None) -> dict[str, Any]:
         """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
@@ -1821,10 +1931,10 @@ class _ShapeProxy:
         return call_host_tool("shape_diagram", page=page, layout=layout, nodes=nodes, connections=connections)
 
     def distribute(self, indices: list[Any], axis: str, *, page: int | None = None) -> dict[str, Any]:
-        """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm.
+        """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
-            indices (required): Shape indices to distribute.
+            indices (required): Shape indices or Names to distribute.
             axis (required): Distribution axis. One of: horizontal, vertical.
             page (optional): 0-based page index (active page if omitted).
         """
@@ -1840,10 +1950,10 @@ class _ShapeProxy:
         return call_host_tool("shape_fill_fields", page=page, fields=fields)
 
     def group(self, indices: list[Any], *, page: int | None = None) -> dict[str, Any]:
-        """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit).
+        """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit). All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
-            indices (required): List of shape indices to group.
+            indices (required): List of shape indices or Names to group.
             page (optional): Page index containing the shapes.
         """
         return call_host_tool("shape_group", indices=indices, page=page)
@@ -1886,6 +1996,16 @@ shape = _ShapeProxy()
 
 class _SheetProxy:
     """Proxy for sheet tools."""
+
+    def copy(self, source: str, new_name: str, *, position: int | None = None) -> dict[str, Any]:
+        """Copies an existing sheet to a new tab (cells included; does not activate the copy).
+
+        Args:
+            source (required): Name of the sheet to copy.
+            new_name (required): Name for the new sheet tab.
+            position (optional): 0-based index for the copy (appended if omitted).
+        """
+        return call_host_tool("sheet_copy", source=source, new_name=new_name, position=position)
 
     def create(self, sheet: str, *, position: int | None = None) -> dict[str, Any]:
         """Creates a new empty sheet (tab exists; no cells copied). sheet_create is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet.
@@ -1931,9 +2051,27 @@ class _SheetProxy:
         """
         return call_host_tool("sheet_filter_get", range=range_name)
 
+    def hide(self, sheet: str, *, visible: bool | None = None) -> dict[str, Any]:
+        """Hides or shows a sheet tab (visible=false hides; default hides).
+
+        Args:
+            sheet (required): Name of the sheet.
+            visible (optional): True to show the tab; false to hide (default: false).
+        """
+        return call_host_tool("sheet_hide", sheet=sheet, visible=visible)
+
     def list(self) -> dict[str, Any]:
-        """Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."""
+        """Lists user-visible sheets (omits leading-`_` internal tabs). Each entry is {name, protected, visible}."""
         return call_host_tool("sheet_list")
+
+    def move(self, sheet: str, position: int) -> dict[str, Any]:
+        """Moves a sheet to a new 0-based index in the workbook.
+
+        Args:
+            sheet (required): Name of the sheet to move.
+            position (required): New 0-based index (0..sheet count minus 1).
+        """
+        return call_host_tool("sheet_move", sheet=sheet, position=position)
 
     def protect(self, *, sheet: str | None = None, protect: bool | None = None) -> dict[str, Any]:
         """Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked.
@@ -2170,10 +2308,10 @@ class _StylesProxy:
         return call_host_tool("style_import", path=path, overwrite=overwrite, load_paragraph_styles=load_paragraph_styles, load_page_styles=load_page_styles, load_frame_styles=load_frame_styles, load_numbering_styles=load_numbering_styles)
 
     def list(self, *, family: str | None = None) -> dict[str, Any]:
-        """List available styles in the document. Omit family to list all style family names; set family to list styles in that family.
+        """List available styles in the document. Omit family to list style family names; set family to list styles in that family (Writer: paragraph, character, and page styles; Calc: cell styles only).
 
         Args:
-            family (optional): Omit to list family names. Otherwise ParagraphStyles, CharacterStyles, or PageStyles. One of: ParagraphStyles, CharacterStyles, PageStyles.
+            family (optional): Omit to list family names. On Writer: ParagraphStyles, CharacterStyles, or PageStyles. On Calc: CellStyles. One of: ParagraphStyles, CharacterStyles, PageStyles, CellStyles.
         """
         return call_host_tool("style_list", family=family)
 
@@ -2267,6 +2405,14 @@ table = _TableProxy()
 class _TextframeProxy:
     """Proxy for textframe tools."""
 
+    def frame_delete(self, name: str) -> dict[str, Any]:
+        """Delete a text frame by name (see frame_list).
+
+        Args:
+            name (required): Name of the text frame (from frame_list).
+        """
+        return call_host_tool("frame_delete", name=name)
+
     def frame_get_info(self, name: str) -> dict[str, Any]:
         """Get detailed info about a text frame. content is capped at 4000 chars; content_length is the full visible length.
 
@@ -2274,6 +2420,20 @@ class _TextframeProxy:
             name (required): Name of the text frame (from frame_list).
         """
         return call_host_tool("frame_get_info", name=name)
+
+    def frame_insert(self, *, target: str | None = None, old_content: str | None = None, name: str | None = None, text: str | None = None, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None) -> dict[str, Any]:
+        """Insert a new text frame with optional initial text and size (millimetres).
+
+        Args:
+            target (optional): Where to insert the text frame. One of: beginning, end, selection, full_document, search.
+            old_content (optional): Text to find and replace if target = 'search'.
+            name (optional): Optional frame name (from frame_list when set).
+            text (optional): Initial text placed inside the frame.
+            width_mm (optional): Frame width in millimetres (default 80).
+            height_mm (optional): Frame height in millimetres (default 30).
+            anchor_type (optional): Anchor type: 0=AT_PARAGRAPH (default), 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.
+        """
+        return call_host_tool("frame_insert", target=target, old_content=old_content, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type)
 
     def frame_list(self) -> dict[str, Any]:
         """List all text frames in the document."""
@@ -2343,7 +2503,7 @@ class _VisionProxy:
 
         Args:
             image_name (optional): Graphic name from image_list (images domain). Empty = selected graphic(s).
-            insert_into_document (optional): When true (default), insert a high-quality representation into the document. When false, return extracted content only.
+            insert_into_document (optional): When true (default), insert a high-quality representation into the document. When false, return extracted content only. Draw and Impress refuse true.
             params (optional): Optional vision helper overrides (engine, lang, ocr_backend, …).
         """
         return call_host_tool("extract_structure_from_image", image_name=image_name, insert_into_document=insert_into_document, params=params)

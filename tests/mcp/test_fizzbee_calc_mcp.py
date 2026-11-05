@@ -5,7 +5,7 @@
 """Tests for FizzBee formal modeling and full-layout MCP testing for Calc tools.
 
 Covers:
-- Full Calc layout extraction (all 62 tools across core and 12 specialized domains)
+- Full Calc layout extraction (all 67 tools across core and 12 specialized domains)
 - Full MCP schema validation for every Calc tool
 - Tool exposure mode filtering (direct_flat, delegate, direct_discovery)
 - Calc state transition trace replay against MCP protocol handler
@@ -96,6 +96,7 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "pivot_table_delete",
     "sheet_delete",
     "delete_structure",
+    "insert_structure",
     "error_detect",
     "evaluate_formula",
     "get_guidance",
@@ -109,6 +110,9 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "list_nearby_files",
     "pivot_table_list",
     "sheet_list",
+    "sheet_copy",
+    "sheet_move",
+    "sheet_hide",
     "chart_delete",
     "chart_get_info",
     "chart_list",
@@ -131,8 +135,11 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "run_venv_python_script",
     "search_cells",
     "set_style",
+    "shape_align",
     "shape_connect",
     "shape_delete",
+    "shape_diagram",
+    "shape_distribute",
     "shape_group",
     "shape_summary",
     "shape_upsert",
@@ -141,16 +148,19 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "symbolic_math",
     "undo",
     "write_formula_range",
+    "document_properties_get",
+    "document_properties_set",
 })
 
 
 def test_extract_full_calc_layout_count():
-    """Verify that full layout extraction returns all 62 Calc tools across tiers."""
+    """Verify full layout extraction: core+specialized names and total tier count."""
     layout = extract_full_calc_layout()
 
     all_tool_names = {t.name for t in layout["core_tools"] + layout["specialized_tools"]}
     assert all_tool_names == _EXPECTED_CALC_TOOL_NAMES
-    assert layout["total_count"] == 62
+    assert layout["total_count"] == len(layout["all_tools"])
+    assert layout["total_count"] == len(_EXPECTED_CALC_TOOL_NAMES) + 4
     assert len(layout["core_tools"]) >= 10
     assert len(layout["specialized_tools"]) >= 39
 

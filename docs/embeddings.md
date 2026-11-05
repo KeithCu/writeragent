@@ -133,6 +133,8 @@ Workflow hints ([`get_document_research_workflow_hint`](../plugin/framework/prom
 {"doc_url": "file:///…/notes.odt", "score": 0.85, "snippet": "…passage…", "para_index": 12}
 ```
 
+When **`file_subset`** is set, retrieval passes **`doc_url_filter`** for a single matching URL, or runs one hybrid query per URL and merges hits by score (not a post-filter of the global top-k).
+
 - **`snippet`** — for multi-chunk paragraphs, the **full ODF paragraph** (sibling sub-chunks merged by `para_index`); otherwise the embedded chunk from `chunks.body` (up to 512 characters).
 - **`para_index`** — weak hint (ODF extract ordinal). **Do not** treat as an exact LibreOffice jump target.
 - **`char_start` / `char_end`** — stored internally only; not returned in hits.

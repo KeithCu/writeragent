@@ -8,8 +8,11 @@ import pytest
 
 from plugin.doc.udprops import (
     get_document_property,
+    list_user_defined_document_properties,
+    read_builtin_document_properties,
     remove_document_property,
     set_document_property,
+    write_builtin_document_properties,
 )
 from plugin.framework.errors import DocumentDisposedError, UnoObjectError
 from tests.writer.test_document_helpers import (
@@ -187,4 +190,35 @@ def test_set_document_property_error_path_probes_raw_model(monkeypatch):
     with pytest.raises(UnoObjectError):
         set_document_property(_Guard(), "P", "v")
     raw.getURL.assert_called_once()
+
+
+def test_list_user_defined_document_properties_sorted():
+    props = _UserDefinedProperties()
+    props.values["Zebra"] = "z"
+    props.values["Alpha"] = "a"
+    doc = _DocWithUserDefinedProperties(props)
+    assert list_user_defined_document_properties(doc) == ["Alpha", "Zebra"]
+
+
+def test_read_and_write_builtin_document_properties():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+
+    class _DocProps:
+        def __init__(self):
+            self.UserDefinedProperties = props
+            self.Title = "old"
+            self.Subject = ""
+            self.Author = ""
+            self.Description = ""
+            self.Keywords = ()
+
+    bag = _DocProps()
+    doc.getDocumentProperties = lambda: bag
+    read = read_builtin_document_properties(doc)
+    assert read["title"] == "old"
+    updated = write_builtin_document_properties(doc, title="new", keywords=["a", "b"])
+    assert updated == ["title", "keywords"]
+    assert bag.Title == "new"
+    assert bag.Keywords == ("a", "b")
 

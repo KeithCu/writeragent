@@ -80,6 +80,13 @@ class _UserDefinedPropertySetInfo:
     def hasPropertyByName(self, name):
         return name in self._owner.values
 
+    def getProperties(self):
+        class _Prop:
+            def __init__(self, name):
+                self.Name = name
+
+        return tuple(_Prop(name) for name in self._owner.values)
+
 
 class _UserDefinedProperties:
     """Mirrors LibreOffice's ``UserDefinedProperties`` (``PropertyBag``).

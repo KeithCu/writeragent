@@ -144,6 +144,10 @@ _.DeleteCellComment  # class: plugin/calc/comments.py:164
 _.DeleteSheet  # class: plugin/calc/sheets.py:134
 _.DeleteSlide  # class: plugin/draw/pages.py:134
 _.DeleteStructure  # class: plugin/calc/cells.py:973
+_.InsertStructure  # class: plugin/calc/cells.py
+_.SheetCopy  # class: plugin/calc/sheets.py
+_.SheetMove  # class: plugin/calc/sheets.py
+_.SheetHide  # class: plugin/calc/sheets.py
 _.DetectErrors  # class: plugin/calc/errors.py:38
 _.DistributeShapes  # class: plugin/draw/shapes.py:896
 _.DocumentURL  # attribute: plugin/writer/specialized/mail_merge.py:534
@@ -218,6 +222,9 @@ _.InsertMathDraw  # class: plugin/draw/math_insert.py:148
 _.LibrarianOnboardingTool  # class: plugin/chatbot/librarian.py:227
 _.ListCalcFunctions  # class: plugin/calc/formulas.py:121
 _.ListCellComments  # class: plugin/calc/comments.py:83
+_.ListPageComments  # class: plugin/draw/comments.py:167
+_.AddPageComment  # class: plugin/draw/comments.py:228
+_.DeletePageComment  # class: plugin/draw/comments.py:296
 _.ListConditionalFormats  # class: plugin/calc/conditional.py:93
 _.ListDataSources  # class: plugin/writer/specialized/mail_merge.py:85
 _.ListDesigns  # class: plugin/draw/designs.py:1325
@@ -225,6 +232,8 @@ _.ListFields  # class: plugin/writer/specialized/mail_merge.py:342
 _.ListMasterSlides  # class: plugin/draw/masters.py:19
 _.ListNearbyFiles  # class: plugin/doc/document_research_tools.py:19
 _.ListOpenDocuments  # class: plugin/doc/document_research_tools.py:69
+_.DocumentPropertiesGet  # class: plugin/doc/document_research_tools.py
+_.DocumentPropertiesSet  # class: plugin/doc/document_research_tools.py
 _.ListPages  # class: plugin/draw/pages.py:162
 _.ListPivotTables  # class: plugin/calc/pivot.py:242
 _.ListPlaceholders  # class: plugin/draw/placeholders.py:174
@@ -261,6 +270,7 @@ _.ProtectSheet  # class: plugin/calc/sheets.py:156
 _.QueryFolderSqlTool  # class: plugin/calc/duckdb_tools.py:37
 _.ReadCellRange  # class: plugin/calc/cells.py:412
 _.ReadSlideText  # class: plugin/draw/pages.py:189
+_.SearchSlides  # class: plugin/draw/pages.py
 _.Redo  # class: plugin/doc/undo.py:142
 _.RefreshPivotTable  # class: plugin/calc/pivot.py:208
 _.RegisterDataSource  # class: plugin/writer/specialized/mail_merge.py:167
