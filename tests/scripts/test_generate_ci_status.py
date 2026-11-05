@@ -876,7 +876,7 @@ def test_collect_status_pr_ci_beats_older_release_verify_windows() -> None:
     assert win.run_id == 700
 
 
-def test_render_json_includes_source() -> None:
+def test_render_json_omits_source() -> None:
     rows = [
         StatusRow(
             "Test & Typecheck",
@@ -893,10 +893,10 @@ def test_render_json_includes_source() -> None:
     import json
 
     data = json.loads(raw)
-    assert data["rows"][0]["source"] == "Release Verify"
+    assert "source" not in data["rows"][0]
 
 
-def test_render_html_includes_source_column() -> None:
+def test_render_html_omits_source_column() -> None:
     rows = [
         StatusRow(
             "Test & Typecheck",
@@ -909,8 +909,25 @@ def test_render_html_includes_source_column() -> None:
         ),
     ]
     page = render_html(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
-    assert "<th>Source</th>" in page
-    assert ">PR CI</td>" in page
+    assert "<th>Source</th>" not in page
+    assert ">PR CI</td>" not in page
+
+
+def test_render_svg_omits_source_column() -> None:
+    rows = [
+        StatusRow(
+            "Test & Typecheck",
+            "windows-latest",
+            "success",
+            "96912c4",
+            "2026-09-03T18:15:33Z",
+            "",
+            source="Release Verify",
+        ),
+    ]
+    svg = render_svg(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
+    assert ">Source</text>" not in svg
+    assert "Release Verify" not in svg
 
 
 def test_collect_status_re_evaluates_in_progress_cached_hint() -> None:
