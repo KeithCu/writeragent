@@ -1,0 +1,86 @@
+name: Ubuntu LibreOffice (apt deb cache)
+description: Cache LibreOffice .debs and install with apt-get so dpkg and runtime deps are correct.
+
+runs:
+  using: composite
+  steps:
+    - id: lo_cache_key
+      shell: bash
+      run: |
+        # ImageVersion is a runner process env var, not workflow env — read it here for the cache key.
+        . /etc/os-release
+        pkgs="libreoffice libreoffice-dev python3-uno gettext"
+        pkg_hash=$(printf '%s' "$pkgs" | sha256sum | cut -c1-12)
+        image_version="${ImageVersion:-unknown}"
+        cache_key="${RUNNER_OS}-${VERSION_ID}-${VERSION_CODENAME}-${image_version}-lo-v2-${pkg_hash}"
+        echo "key=${cache_key}" >> "$GITHUB_OUTPUT"
+        echo "LibreOffice apt cache key: ${cache_key}"
+
+    - name: Restore LibreOffice .deb cache
+      uses: actions/cache@v4
+      with:
+        path: ~/apt-lo-debs
+        key: ${{ steps.lo_cache_key.outputs.key }}
+
+    - name: apt-get install LibreOffice
+      shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        set -euo pipefail
+        mkdir -p "$HOME/apt-lo-debs"
+        shopt -s nullglob
+        if compgen -G "$HOME/apt-lo-debs/*.deb" > /dev/null; then
+          sudo cp -n "$HOME/apt-lo-debs"/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+        fi
+
+        update_ok=0
+        for attempt in 1 2 3 4 5; do
+          if sudo apt-get update -qq; then
+            update_ok=1
+            break
+          fi
+          echo "apt-get update attempt ${attempt} failed, retrying..."
+          sleep $((attempt * 5))
+        done
+        if [ "$update_ok" -ne 1 ]; then
+          echo "::error::apt-get update failed after retries"
+          exit 1
+        fi
+
+        install_ok=0
+        for attempt in 1 2 3 4 5; do
+          if sudo apt-get install -y libreoffice libreoffice-dev python3-uno gettext; then
+            install_ok=1
+            break
+          fi
+          echo "apt-get install attempt ${attempt} failed, retrying..."
+          sleep $((attempt * 5))
+        done
+        if [ "$install_ok" -ne 1 ]; then
+          echo "::error::apt-get install failed after retries"
+          exit 1
+        fi
+
+        for deb in /var/cache/apt/archives/*.deb; do
+          cp -n "$deb" "$HOME/apt-lo-debs/" || true
+        done
+
+    - name: Verify LibreOffice installation
+      shell: bash
+      run: |
+        set -euo pipefail
+        cache_key="${{ steps.lo_cache_key.outputs.key }}"
+        if ! dpkg-query -W libreoffice >/dev/null 2>&1; then
+          echo "::error::dpkg-query libreoffice failed (cache key: ${cache_key})"
+          exit 1
+        fi
+        echo "Installed LibreOffice (dpkg): $(dpkg-query -W -f='${Version}' libreoffice)"
+        soffice_bin=/usr/lib/libreoffice/program/soffice.bin
+        missing=$(ldd "$soffice_bin" 2>&1 | grep 'not found' || true)
+        if [ -n "$missing" ]; then
+          echo "::error::Missing shared libraries for soffice.bin (cache key: ${cache_key}):"
+          echo "$missing"
+          exit 1
+        fi
+        soffice --version
