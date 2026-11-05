@@ -152,8 +152,8 @@ def run_domain(
         clean = dict(params)
         clean.pop("output_style", None)
         params = clean
-        from plugin.scripting.venv.units import _get_ureg
-        if _get_ureg() is None:
+        from plugin.scripting.venv.units import get_ureg
+        if get_ureg() is None:
             return missing_package_error(helper, "pint")
         headers = True
         header_row = 0
