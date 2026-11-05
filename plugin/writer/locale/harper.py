@@ -331,6 +331,24 @@ class HarperRuntime:
         finally:
             self.lock.release()
 
+    def abort_lint(self) -> None:
+        """Close the in-flight lint client without taking ``self.lock``.
+
+        ``harper_try_lint`` calls this when the lint worker is still not
+        done after cancel and ``handle.join``. A worker blocked in
+        ``HarperLSClient._write`` holds ``self.lock``. ``cancel_event`` is
+        polled in ``_read``, not during that write, so cancel plus join
+        leaves the lock held and later Harper calls deadlock. Closing the
+        client aborts the blocked pipe I/O. ``lint_now`` clears
+        ``linting_client`` in its own ``finally`` after the write unblocks.
+        This method must not acquire ``self.lock`` (it would wait on that
+        same worker) and must not assign ``linting_client`` (a newer lint
+        may already have stored another client).
+        """
+        client = self.linting_client
+        if client is not None:
+            client.close()
+
 
 runtime = HarperRuntime()
 
@@ -784,15 +802,8 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
                 # every other Harper caller. Cancel unblocks the poll in ``_read``.
                 cancel_event.set()
                 handle.join(timeout=_HARPER_CANCEL_JOIN_SEC)
-                # A worker blocked on _write under runtime.lock is not released by
-                # cancel_event plus handle.join. The pipe stays blocked, the lock
-                # stays held, and later Harper calls deadlock. cancel_event is
-                # checked in reader poll loops, not during a blocked write.
-                # Closing the client aborts pending I/O and the process.
                 if not done.is_set():
-                    lc = runtime.linting_client
-                    if lc is not None:
-                        lc.close()
+                    runtime.abort_lint()
             if "exc" in box:
                 raise box["exc"]
             if not done.is_set():

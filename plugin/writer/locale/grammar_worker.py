@@ -861,7 +861,10 @@ def run_llm_and_cache_batch(
         get_grammar_status().begin_status_cycle()
         status_cycle_started = True
 
-        local_provider = spec is not None
+        # Harper already returned. For every other name, is_local matches a
+        # single-sentence spec (languagetool, vale). Batch size, LLM client,
+        # and language detection follow locality; dispatch still follows spec.
+        local_provider = grammar_settings.is_local(provider_name)
 
         max_tok = grammar_proofread_locale.grammar_max_tokens()
         model = ""
