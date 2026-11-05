@@ -73,7 +73,7 @@ PAGE_NUMBER_NUMBERING_TYPE_VALS: dict[str, int] = {
 }
 
 
-def _strip_html_boilerplate(html_string: str) -> str:
+def strip_html_boilerplate(html_string: str) -> str:
     """Extract content between ``<body>`` tags if present."""
     if not html_string or not isinstance(html_string, str):
         return html_string
@@ -153,7 +153,7 @@ def _read_filter_text(doc: Any, filter_name: str, ext: str = ".html") -> str:
 
 
 def _export_starwriter_html(doc: Any) -> str:
-    return _strip_html_boilerplate(_read_filter_text(doc, HTML_FILTER))
+    return strip_html_boilerplate(_read_filter_text(doc, HTML_FILTER))
 
 
 def _export_xhtml(doc: Any) -> str:

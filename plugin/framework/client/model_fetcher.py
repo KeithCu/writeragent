@@ -442,7 +442,7 @@ def fetch_available_models(endpoint: str, api_key_override: str | None = None) -
             # Together keeps type=image. OpenRouter Settings uses
             # /v1/images/models, not this slice.
             if provider not in ("together", "openrouter"):
-                image_models = _filter_fetched_models(models, "image")
+                image_models = filter_fetched_models(models, "image")
             memo.ids = list(models)
             if provider != "openrouter":
                 memo.image_ids = list(image_models) if image_models is not None else None
@@ -526,7 +526,7 @@ def fetch_available_image_models(endpoint: str, api_key_override: str | None = N
         return list(memo.image_ids)
     if provider == "together":
         return []
-    return _filter_fetched_models(all_models, "image")
+    return filter_fetched_models(all_models, "image")
 
 
 def _supported_voices_from_row(row: dict[str, Any]) -> list[str]:
@@ -902,7 +902,7 @@ _AUDIO_MODEL_KEYWORDS = frozenset({
 })
 
 
-def _filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
+def filter_fetched_models(models: list[str], req_cap: str) -> list[str]:
     """Filter raw model IDs from /v1/models based on the requested capability (text/image/audio)."""
     if not models:
         return []
@@ -984,9 +984,9 @@ def set_native_audio_support(model_id: Any, endpoint: Any, supported: bool) -> N
 
 def _sanitize_stored_model_value(val: Any) -> str:
     """Drop combobox placeholder strings from persisted model config."""
-    from plugin.framework.model_lru import _sanitize_model_combobox_value
+    from plugin.framework.model_lru import sanitize_model_combobox_value
 
-    return _sanitize_model_combobox_value(str(val or ""))
+    return sanitize_model_combobox_value(str(val or ""))
 
 
 def _stored_or_default(config_key: str, default_field: str) -> str:

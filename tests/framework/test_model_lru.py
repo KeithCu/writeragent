@@ -3,7 +3,7 @@ from unittest.mock import patch
 from plugin.framework.config import LRU_MAX_ITEMS
 from plugin.framework.model_lru import (
     _is_model_combobox_placeholder,
-    _sanitize_model_combobox_value,
+    sanitize_model_combobox_value,
     lru_config_key,
     next_lru_list,
     update_lru_history,
@@ -21,11 +21,11 @@ class TestModelLru:
         assert _is_model_combobox_placeholder("  (Default for current endpoint)  ")
 
     def test_sanitize_model_combobox_value(self):
-        assert _sanitize_model_combobox_value("gpt-4o") == "gpt-4o"
-        assert _sanitize_model_combobox_value("  claude-3-5-sonnet  ") == "claude-3-5-sonnet"
-        assert _sanitize_model_combobox_value("(Connection failed)") == ""
-        assert _sanitize_model_combobox_value("") == ""
-        assert _sanitize_model_combobox_value(None) == ""
+        assert sanitize_model_combobox_value("gpt-4o") == "gpt-4o"
+        assert sanitize_model_combobox_value("  claude-3-5-sonnet  ") == "claude-3-5-sonnet"
+        assert sanitize_model_combobox_value("(Connection failed)") == ""
+        assert sanitize_model_combobox_value("") == ""
+        assert sanitize_model_combobox_value(None) == ""
 
     def test_lru_config_key(self):
         assert lru_config_key("model_lru", "http://localhost:11434") == "model_lru@http://localhost:11434"

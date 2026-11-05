@@ -1306,3 +1306,10 @@ def test_worker_batch_skips_harper_provider() -> None:
     if _grammar_obs_call_sites_present():
         mock_obs.assert_any_call("worker_batch_skip", reason="harper_not_queued", item_count=1)
 
+
+def test_queued_locality_matches_single_sentence_spec() -> None:
+    from plugin.writer.locale import grammar_settings
+    from plugin.writer.locale.grammar_worker import _SINGLE_SENTENCE_PROVIDERS
+
+    assert set(_SINGLE_SENTENCE_PROVIDERS) == grammar_settings._LOCAL - {"harper"}
+

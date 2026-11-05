@@ -1642,6 +1642,32 @@ def test_lsp_range_to_offset_unicode_line_separator() -> None:
     assert lsp_range_to_offset(text, 1, 4) == 6
 
 
+def test_abort_lint_closes_client_without_taking_lock() -> None:
+    """abort_lint closes linting_client without acquiring runtime.lock."""
+    runtime = harper_module.runtime
+    client = MagicMock()
+    runtime.linting_client = client
+    runtime.lock.acquire()
+    finished = threading.Event()
+
+    def call_abort() -> None:
+        runtime.abort_lint()
+        finished.set()
+
+    thread = threading.Thread(target=call_abort)
+    thread.start()
+    try:
+        assert finished.wait(0.5)
+        client.close.assert_called_once()
+    finally:
+        runtime.lock.release()
+        thread.join()
+        runtime.linting_client = None
+
+    runtime.linting_client = None
+    runtime.abort_lint()
+
+
 def test_run_lint_off_caller_thread_closes_client_on_cancel_timeout() -> None:
     """When a cancelled lint wait times out joining the worker, client.close() is called."""
     client = MagicMock()

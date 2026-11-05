@@ -719,7 +719,9 @@ def _copy_formatted_from_hidden_doc_to_control(
             order_counters: dict[Any, int] = {}
             pending_links = list(cell_link_targets or [])
             pending_link_idx = 0
-            while para_enum.hasMoreElements():
+            from plugin.framework.uno_context import enum_has_more
+
+            while enum_has_more(para_enum):
                 para = para_enum.nextElement()
                 element_inserted = False
                 try:
@@ -765,7 +767,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                     line_prefix = _list_prefix_for_paragraph(para, order_counters)
                     prefix_inserted = not line_prefix
                     portion_enum = para.createEnumeration()
-                    while portion_enum.hasMoreElements():
+                    while enum_has_more(portion_enum):
                         portion = portion_enum.nextElement()
                         txt = portion.getString()
                         if not txt:

@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from plugin.framework.model_lru import update_lru_history
 from plugin.framework.doc_type import DocumentType, get_document_type
@@ -27,6 +27,10 @@ from plugin.framework.queue_executor import main
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.llm_client import LlmClient
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
+
 from plugin.framework.config import get_api_config, save, validate_api_config
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx, get_document_from_frame
@@ -83,7 +87,7 @@ def stream_completion(
     on_done_fn: Callable[..., None],
     on_error_fn: ErrorFn,
     *,
-    cancel: Any = None,
+    cancel: SendCancellation | None = None,
     on_stopped_fn: Callable[[], None] | None = None,
     completion_out: dict[str, Any] | None = None,
 ) -> None:
