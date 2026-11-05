@@ -595,7 +595,7 @@ CSV DATA: Use comma (,) for write_formula_range.
 CELL LINKS: Reference cells with HTML only, e.g. <a href="cell://B2">B2</a> (users click these in the chat sidebar to jump to the cell).
 Other sheets use the same Calc dot as formulas: <a href="cell://Orders.A1">Orders.A1</a>.
 
-TOOLS: read_cell_range, get_sheet_summary, write_formula_range, set_style, insert_cell_html, merge_cells, delete_structure (see each tool).
+TOOLS: read_cell_range, get_sheet_summary, write_formula_range, set_style, insert_cell_html, merge_cells, delete_structure, insert_structure, get_image (image name or selection; page is Writer/Draw/Impress) (see each tool).
 set_style: fixed properties only — not mixed rich text in a cell; use insert_cell_html for that.
 
 {{specialized_delegation}}

@@ -448,15 +448,20 @@ class CellManipulator:
         cell_range.clearContents(23)
         log.info("Range %s cleared.", range_str.upper())
 
-    def merge_cells(self, range_str: str, center: bool = True) -> None:
+    def merge_cells(self, range_str: str, center: bool = True, *, unmerge: bool = False) -> None:
         """Merge a cell range.
 
         Args:
             range_str: Cell range to merge (e.g. "A1:D1").
             center: Centre content after merging.
+            unmerge: When true, split the range instead of merging (center is skipped).
         """
         cell_range = self.bridge.resolve_range_or_address(range_str)
-        cell_range.merge(True)
+        # merge(True) was hard-coded; merged ranges could not be split from the agent.
+        cell_range.merge(not unmerge)
+        if unmerge:
+            log.info("Range %s unmerged.", range_str.upper())
+            return
         log.info("Range %s merged.", range_str.upper())
 
         if center:
@@ -1268,23 +1273,52 @@ class CellManipulator:
 
     # ── Structure operations ───────────────────────────────────────────
 
-    def delete_structure(self, structure_type: str, start: Any, count: int = 1) -> str:
+    def delete_structure(
+        self, structure_type: str, start: Any, count: int = 1, *, sheet: Any | None = None
+    ) -> str:
         """Delete rows or columns.
 
         Args:
             structure_type: "rows" or "columns".
             start: For rows, row number (1-based); for columns, column letter.
             count: Number to delete.
+            sheet: Target sheet, or active sheet when omitted.
         """
         if structure_type != "rows" and structure_type != "columns":
             raise CalcError(f"Invalid structure_type: {structure_type}. Must be 'rows' or 'columns'.")
-        sheet = self.bridge.get_active_sheet()
+        target = sheet if sheet is not None else self.bridge.get_active_sheet()
+        assert target is not None
         if structure_type == "rows":
-            sheet.getRows().removeByIndex(start - 1, count)
+            target.getRows().removeByIndex(start - 1, count)
             kind, where = "row", start
         else:
             where = start.upper()
             kind = "column"
-            sheet.getColumns().removeByIndex(column_to_index(where), count)
+            target.getColumns().removeByIndex(column_to_index(where), count)
         log.info("%d %s(s) deleted starting from %s %s.", count, kind, kind, where)
         return f"{count} {kind}(s) deleted starting from {kind} {where}."
+
+    def insert_structure(
+        self, structure_type: str, start: Any, count: int = 1, *, sheet: Any | None = None
+    ) -> str:
+        """Insert empty rows or columns.
+
+        Args:
+            structure_type: "rows" or "columns".
+            start: For rows, 1-based row number; for columns, column letter.
+            count: Number to insert.
+            sheet: Target sheet, or active sheet when omitted.
+        """
+        if structure_type != "rows" and structure_type != "columns":
+            raise CalcError(f"Invalid structure_type: {structure_type}. Must be 'rows' or 'columns'.")
+        target = sheet if sheet is not None else self.bridge.get_active_sheet()
+        assert target is not None
+        if structure_type == "rows":
+            target.getRows().insertByIndex(start - 1, count)
+            kind, where = "row", start
+        else:
+            where = start.upper()
+            kind = "column"
+            target.getColumns().insertByIndex(column_to_index(where), count)
+        log.info("%d %s(s) inserted starting at %s %s.", count, kind, kind, where)
+        return f"{count} {kind}(s) inserted starting at {kind} {where}."

@@ -40,3 +40,21 @@ def test_add_row_and_column(ctx, doc):
     _execute_calc_tool(doc, ctx, "add_row", {"sheet_name": active_sheet.getName(), "row_index": 1, "count": 1})
     _execute_calc_tool(doc, ctx, "add_column", {"sheet_name": active_sheet.getName(), "col_index": 1, "count": 1})
     # we just test it didn't crash for now
+
+
+@native_test
+@with_native_doc("calc")
+def test_sheet_copy_move_hide_and_list_objects(ctx, doc):
+    _execute_calc_tool(doc, ctx, "sheet_create", {"sheet": "Extra"})
+    copy_res = _execute_calc_tool(doc, ctx, "sheet_copy", {"source": "Extra", "new_name": "ExtraCopy"})
+    assert copy_res.get("status") == "ok", copy_res
+    move_res = _execute_calc_tool(doc, ctx, "sheet_move", {"sheet": "ExtraCopy", "position": 0})
+    assert move_res.get("status") == "ok", move_res
+    listed = _execute_calc_tool(doc, ctx, "sheet_list", {})
+    assert listed.get("status") == "ok", listed
+    rows = listed.get("result") or []
+    assert rows and isinstance(rows[0], dict) and "visible" in rows[0]
+    hide_err = _execute_calc_tool(doc, ctx, "sheet_hide", {"sheet": "Sheet1", "visible": False})
+    assert hide_err.get("status") == "error"
+    assert "only visible" in hide_err.get("message", "")
+

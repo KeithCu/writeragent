@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable
-from plugin.framework.errors import ToolExecutionError, is_disposal, uno_call, uno_read
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_call, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -119,6 +119,85 @@ def _strict_int(kwargs: dict[str, Any], key: str, minimum: int | None = None, *,
     if minimum is not None and raw < minimum:
         return None, f"{key} must be an integer >= {minimum}, got {raw}"
     return raw, None
+
+
+def _parse_structure_start(
+    structure_type: str, start_raw: Any
+) -> tuple[int | str | None, str | None, str | None]:
+    """Validate structure start; optional sheet prefix from a qualified string.
+
+    Returns (start, sheet_prefix, error_message).
+    """
+    from plugin.calc.address_utils import parse_address
+
+    sheet_prefix: str | None = None
+    local_raw = start_raw
+
+    if isinstance(start_raw, str):
+        sheet_prefix, local = split_sheet_prefix(start_raw.strip())
+        local_raw = local
+
+    if structure_type == "rows":
+        if type(local_raw) is int:
+            row_val = local_raw
+        elif isinstance(local_raw, str):
+            if local_raw.isascii() and local_raw.isdigit():
+                row_val = int(local_raw)
+            elif local_raw.isascii() and any(ch.isalpha() for ch in local_raw) and any(ch.isdigit() for ch in local_raw):
+                try:
+                    _unused_col, row_idx = parse_address(local_raw)
+                    row_val = row_idx + 1
+                except ValueError:
+                    return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
+            else:
+                return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
+        else:
+            return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
+        if row_val < 1:
+            return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
+        return row_val, sheet_prefix, None
+
+    if not (isinstance(local_raw, str) and local_raw.isascii() and local_raw.isalpha()):
+        if isinstance(local_raw, str):
+            try:
+                col_idx, _unused_row = parse_address(local_raw)
+                return index_to_column(col_idx), sheet_prefix, None
+            except ValueError:
+                pass
+        return None, sheet_prefix, 'start for columns must be a column letter (for example "C")'
+    return local_raw.upper(), sheet_prefix, None
+
+
+def _execute_structure_tool(
+    tool: ToolBase,
+    ctx: ToolContext,
+    *,
+    structure_type: str,
+    start_raw: Any,
+    count: int,
+    mutator: Callable[..., str],
+) -> dict[str, Any]:
+    start, sheet_prefix, start_err = _parse_structure_start(structure_type, start_raw)
+    if start_err:
+        return tool._tool_error(start_err)
+
+    bridge = CalcBridge(ctx.doc)
+    sheet_obj = None
+    if sheet_prefix is not None:
+        sheet_obj = bridge.get_sheet(sheet_prefix)
+
+    manipulator = CellManipulator(bridge)
+    mutator_kwargs: dict[str, Any] = {"count": count}
+    if sheet_obj is not None:
+        mutator_kwargs["sheet"] = sheet_obj
+    try:
+        assert start is not None
+        result = mutator(manipulator, structure_type, start, **mutator_kwargs)
+        return {"status": "ok", "message": result}
+    except Exception as e:
+        if is_disposal(e) or isinstance(e, WriterAgentException):
+            raise
+        return tool._tool_error(str(e))
 
 
 def _opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
@@ -676,8 +755,23 @@ class InsertCellHtml(ToolBase):
     """Insert HTML as rich text into a single cell (active sheet)."""
 
     name: str | None = "insert_cell_html"
-    description: str = "Parses HTML with the same filter as Writer and pastes rich text into one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell", "html"]}
+    description: str = (
+        "Parses HTML with the same filter as Writer and pastes rich text into one cell "
+        "(e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) "
+        "selects that sheet; otherwise the active sheet. Does not support images or embedded objects. "
+        "Clears existing cell text. Use set_style for table-wide borders."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "cell": {
+                "type": "string",
+                "description": 'Single cell (e.g. "A1" or "Sheet2.A1").',
+            },
+            "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."},
+        },
+        "required": ["cell", "html"],
+    }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
@@ -690,8 +784,10 @@ class InsertCellHtml(ToolBase):
         assert isinstance(html, str)
         if not addr:
             return self._tool_error("cell is required")
+        # Bugfix: parse_address / get_active_sheet rejected a sheet prefix; other cell tools use the bridge.
+        _prefix, local = split_sheet_prefix(addr)
         try:
-            parse_address(addr)
+            parse_address(local)
         except ValueError as e:
             return self._tool_error(f"Invalid cell address: {e}")
 
@@ -783,7 +879,11 @@ class MergeCells(ToolBase):
     description: str = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}},
+        "properties": {
+            "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')},
+            "center": {"type": "boolean", "description": "Center content (default: true)"},
+            "unmerge": {"type": "boolean", "description": "Split merged cells instead of merging (default: false)"},
+        },
         "required": ["range"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -795,9 +895,16 @@ class MergeCells(ToolBase):
         if err:
             return self._tool_error(err)
         assert center is not None
+        unmerge, err = _opt_bool(kwargs, "unmerge", default=False)
+        if err:
+            return self._tool_error(err)
+        assert unmerge is not None
 
         def _apply_merge(r: Any) -> str:
-            manipulator.merge_cells(r, center=center)
+            if unmerge:
+                manipulator.merge_cells(r, center=center, unmerge=True)
+            else:
+                manipulator.merge_cells(r, center=center)
             return f"Merged cells {r}"
 
         return _mutate_ranges(
@@ -885,11 +992,6 @@ class DeleteStructure(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Bugfix: delete_structure accepted invalid start values (e.g. non-ASCII digits like '²',
-        # floats, or column '3' which produced negative indices) and invalid counts (bools, floats).
-        # This happened because start and count were passed directly without validating
-        # types and ranges. Validating start and count strictly returns tool errors before
-        # modifying document structures.
         structure_type: str = kwargs["structure_type"]
         assert structure_type in ("rows", "columns")
 
@@ -898,31 +1000,47 @@ class DeleteStructure(ToolBase):
             return self._tool_error(err)
         assert count is not None
 
-        start_raw = kwargs["start"]
-        if structure_type == "rows":
-            if type(start_raw) is int:
-                row_val = start_raw
-            elif isinstance(start_raw, str) and start_raw.isascii() and start_raw.isdigit():
-                row_val = int(start_raw)
-            else:
-                return self._tool_error('start for rows must be a 1-based row number (for example 5 or "5")')
-            if row_val < 1:
-                return self._tool_error('start for rows must be a 1-based row number (for example 5 or "5")')
-            start: int | str = row_val
-        else:
-            if not (isinstance(start_raw, str) and start_raw.isascii() and start_raw.isalpha()):
-                return self._tool_error('start for columns must be a column letter (for example "C")')
-            start = start_raw.upper()
+        return _execute_structure_tool(
+            self,
+            ctx,
+            structure_type=structure_type,
+            start_raw=kwargs["start"],
+            count=count,
+            mutator=lambda manipulator, st, start, **kw: manipulator.delete_structure(st, start, **kw),
+        )
 
-        manipulator = CellManipulator(CalcBridge(ctx.doc))
-        try:
-            result = manipulator.delete_structure(structure_type, start, count=count)
-            return {"status": "ok", "message": result}
-        except Exception as e:
-            # Bugfix: a closed document raises DisposedException from delete_structure, and this
-            # except turned that into a tool error.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing error path.
-            if is_disposal(e):
-                raise
-            return self._tool_error(str(e))
+
+class InsertStructure(ToolBase):
+    """Insert rows or columns."""
+
+    name: str | None = "insert_structure"
+    description: str = "Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
+            "start": {"type": ["integer", "string"], "description": ('For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5).')},
+            "count": {"type": "integer", "description": "Number to insert (default 1)."},
+        },
+        "required": ["structure_type", "start"],
+    }
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        structure_type: str = kwargs["structure_type"]
+        assert structure_type in ("rows", "columns")
+
+        count, err = _strict_int(kwargs, "count", 1, default=1)
+        if err:
+            return self._tool_error(err)
+        assert count is not None
+
+        return _execute_structure_tool(
+            self,
+            ctx,
+            structure_type=structure_type,
+            start_raw=kwargs["start"],
+            count=count,
+            mutator=lambda manipulator, st, start, **kw: manipulator.insert_structure(st, start, **kw),
+        )

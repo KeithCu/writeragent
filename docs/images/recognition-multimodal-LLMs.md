@@ -75,7 +75,7 @@ Implemented in [`response_normalizers.py`](../../plugin/framework/client/respons
 
 | Item | Location | Notes |
 |------|----------|-------|
-| `GetImage` core tool | [`get_image.py`](../../plugin/writer/get_image.py) | `tier="core"`, Writer `TextDocument` + Draw `DrawingDocument` + Impress `PresentationDocument` |
+| `GetImage` core tool | [`get_image.py`](../../plugin/writer/get_image.py) | `tier="core"`, Writer `TextDocument` + Draw `DrawingDocument` + Impress `PresentationDocument` + Calc `SpreadsheetDocument` (image/selection; page render Writer/Draw/Impress only) |
 | Modes | same | `image=<name>`, `selection=true` (or implicit when no name), `page=<n>` (0-based whole-page PNG) |
 | Page render | `_render_page_png` | Writer: native `writer_png_Export` after `jumpToPage` (XRenderable abandoned — BUG-5). Draw/Impress: `GraphicExportFilter` on the `XDrawPage` (`MediaType=image/png`; same bytes as `draw_png_Export` / `impress_png_Export` after `setCurrentPage`, without a view jump). Fail-loud — never returns empty PNG. |
 | Wire marker | same | Returns `{"status":"ok","source":...,"_mcp_image":{"data":"<b64>","mimeType":"image/png"}}` |
@@ -147,13 +147,9 @@ When `_mcp_image` is present, [`mcp_protocol.py`](../../plugin/mcp/mcp_protocol.
 
 **Suggested fix:** Dual content blocks — short text JSON (`source`, `status`) plus image — MCP allows multiple content entries. Extend `call_tool_result_image` or add a variant.
 
-### 4. Calc parity for `get_image` (medium, product decision)
+### 4. Calc parity for `get_image` (shipped)
 
-Specialized image tools (`image_list`, `image_get_info`, `image_set_properties`) register on Writer **and** Calc. `get_image` is Writer-only (`TextDocument`), but `get_selected_image_base64` and named-graphic export already work on Calc.
-
-**Options:**
-- Extend `GetImage.uno_services` to include `SpreadsheetDocument` for `image=` and `selection=` (page render stays Writer-only), **or**
-- Document explicitly that Calc must use `include_images=true` on reads or `extract_structure_from_image`.
+Core **`get_image`** registers on Calc for **`image=`** and **`selection=`**. Optional **`sheet_index`** disambiguates duplicate graphic names. **`page=`** errors on Calc before render (Writer/Draw/Impress only). Specialized **`image_list` / `image_get_info` / `image_set_properties`** remain the Calc images domain.
 
 ### 5. Page render fidelity — live UNO test (medium)
 
@@ -267,7 +263,7 @@ Normalization belongs in the `LlmClient` layer (`make_chat_request`) so all chat
 - **Not all vision models support tools** on local stacks.
 - **Send-path selection:** Raster images in Writer/Calc selection only; Draw/Impress vectors use other paths.
 - **Main chat model only** for send-path attachment; sub-agents/delegates have separate rules.
-- **`get_image`** is on Writer, Draw, and Impress. Calc still has specialized list/info/set but not core fetch (see follow-up §4). Draw/Impress `page=N` (0-based, unified with `list_pages` / `get_draw_tree`) is a screenshot; `get_draw_tree` stays the structure read.
+- **`get_image`** is on Writer, Draw, Impress, and Calc (named/selection on Calc; page render on layout apps only). Draw/Impress `page=N` (0-based, unified with `list_pages` / `get_draw_tree`) is a screenshot; `get_draw_tree` stays the structure read.
 - **Complementary OCR:** Use `domain=vision` + `extract_structure_from_image` for text and structure + insert; use native multimodal for visual reasoning.
 
 ---

@@ -22,6 +22,7 @@ Property updates use UNO property names; struct-valued properties take a dict of
 from __future__ import annotations
 
 from collections import deque
+import copy
 import logging
 import os
 from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, cast
@@ -49,7 +50,8 @@ else:
 
 from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.errors import is_disposal, reraise_if_disposed, similar_names
+from plugin.framework.errors import is_disposal, name_miss_details, reraise_if_disposed, similar_names
+from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
 from .page import get_page_style_properties
@@ -394,7 +396,8 @@ _TEXT_STYLE_FAMILIES = list(_CLONE_TEXT_SERVICES)
 # Families style_list will report and enumerate. PageStyles is listed because the page tools take
 # a page-style NAME and a document converted from .docx rarely uses "Standard" — without it the
 # only way to learn the real names was to guess one and read them off the error.
-_STYLE_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles"]
+_STYLE_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles", "CellStyles"]
+_WRITER_STYLE_LIST_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles"]
 
 _CONDITIONAL_CONTEXTS = [
     "TableHeader", "Table", "Frame", "Section", "Footnote", "Endnote",
@@ -1026,20 +1029,56 @@ class StyleList(ToolWriterStyleBase):
     """List available styles in a given family."""
 
     name: str | None = "style_list"
-    description: str = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"family": enum_param(_STYLE_FAMILIES, "Omit to list family names. Otherwise ParagraphStyles, CharacterStyles, or PageStyles.")}, "required": []}
+    uno_services: list[str] | None = [TEXT_DOCUMENT_SERVICE, CALC_DOCUMENT_SERVICE]
+    description: str = (
+        "List available styles in the document. Omit family to list style family names; "
+        "set family to list styles in that family (Writer: paragraph, character, and page styles; "
+        "Calc: cell styles only)."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "family": enum_param(
+                _STYLE_FAMILIES,
+                "Omit to list family names. On Writer: ParagraphStyles, CharacterStyles, or PageStyles. On Calc: CellStyles.",
+            )
+        },
+        "required": [],
+    }
+
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        params = copy.deepcopy(cast("dict[str, Any]", self.parameters))
+        family_prop = cast("dict[str, Any]", params["properties"]["family"])
+        if doc_type == "calc":
+            family_prop["enum"] = ["CellStyles"]
+        else:
+            family_prop["enum"] = list(_WRITER_STYLE_LIST_FAMILIES)
+        return params
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         family = kwargs.get("family")
         doc = ctx.doc
 
         families = doc.getStyleFamilies()
-        if not family or not str(family).strip():
-            # Only return the families we officially support in this tool.
-            available = [f for f in families.getElementNames() if f in _STYLE_FAMILIES]
+        if ctx.doc_type == "calc":
+            if not family or not str(family).strip():
+                cell_families = ["CellStyles"] if families.hasByName("CellStyles") else []
+                return {"status": "ok", "families": cell_families, "count": len(cell_families)}
+            family = str(family).strip()
+            if family != "CellStyles":
+                available = ["CellStyles"] if families.hasByName("CellStyles") else []
+                return self._tool_error(
+                    "Unknown style family: %s" % family,
+                    code="UNO_OBJECT_ERROR",
+                    available=available,
+                    **name_miss_details(family, available, "style_list"),
+                )
+        elif not family or not str(family).strip():
+            available = [f for f in families.getElementNames() if f in _WRITER_STYLE_LIST_FAMILIES]
             return {"status": "ok", "families": available, "count": len(available)}
+        else:
+            family = str(family).strip()
 
-        family = str(family).strip()
         style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             return style_family
