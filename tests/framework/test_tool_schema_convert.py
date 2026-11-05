@@ -214,6 +214,72 @@ def test_optional_scalar_nullable_mcp():
     props = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
     assert props["max_chars"]["type"] == ["integer", "null"]
     assert props["document_url"]["type"] == ["string", "null"]
+    assert props["scope"]["type"] == "string"
+    assert None not in props["scope"].get("enum", [])
+    assert "full" in props["scope"]["enum"]
+
+
+@pytest.mark.parametrize(
+    "schema_fn,scope_type,scope_enum",
+    [
+        ("openai", ["string", "null"], lambda e: None in e and "full" in e),
+        ("mcp", "string", lambda e: None not in e and "full" in e),
+    ],
+)
+def test_optional_enum_nullable_openai_vs_mcp(schema_fn, scope_type, scope_enum):
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    tool = GetDocumentContent()
+    if schema_fn == "openai":
+        props = to_openai_schema(tool)["function"]["parameters"]["properties"]
+    else:
+        props = to_mcp_schema(tool)["inputSchema"]["properties"]
+    assert props["scope"]["type"] == scope_type
+    assert scope_enum(props["scope"].get("enum", []))
+    assert props["max_chars"]["type"] == ["integer", "null"]
+
+
+def test_mcp_optional_enum_nested_object():
+    params = {
+        "type": "object",
+        "properties": {
+            "outer": {
+                "type": "object",
+                "properties": {
+                    "inner_scope": {"type": "string", "enum": ["a", "b"]},
+                },
+            },
+        },
+    }
+    mcp = _normalize_schema_for_strict_providers(params, for_mcp=True)
+    inner = mcp["properties"]["outer"]["properties"]["inner_scope"]
+    assert inner["type"] == "string"
+    assert inner["enum"] == ["a", "b"]
+    assert None not in inner["enum"]
+
+
+def test_mcp_writer_optional_enums_no_null_in_enum():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
+    from plugin.writer.outline import GetDocumentTree
+    from plugin.writer.styles import ApplyStyle
+
+    def assert_mcp_string_enum(props, key):
+        prop = props[key]
+        assert prop["type"] == "string", key
+        assert None not in prop.get("enum", []), key
+
+    adc = to_mcp_schema(ApplyDocumentContent())["inputSchema"]["properties"]
+    assert_mcp_string_enum(adc, "position")
+    assert_mcp_string_enum(adc, "target")
+    sty = to_mcp_schema(ApplyStyle())["inputSchema"]["properties"]
+    assert_mcp_string_enum(sty, "target")
+    assert_mcp_string_enum(sty, "clear_direct")
+    assert_mcp_string_enum(sty, "family")
+    gdc = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
+    assert_mcp_string_enum(gdc, "scope")
+    gdt = to_mcp_schema(GetDocumentTree())["inputSchema"]["properties"]
+    assert_mcp_string_enum(gdt, "strategy")
 
 
 def test_required_scalar_not_nullable():

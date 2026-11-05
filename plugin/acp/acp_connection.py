@@ -497,7 +497,12 @@ class ACPConnection:
         err = resp.get("error") if resp else None
         if err is not None:
             msg_str = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-            raise ToolExecutionError(f"ACP error: {msg_str}")
+            details: dict[str, Any] | None = None
+            if isinstance(err, dict):
+                code = err.get("code")
+                if isinstance(code, int) and not isinstance(code, bool):
+                    details = {"rpc_code": code}
+            raise ToolExecutionError(f"ACP error: {msg_str}", details=details)
 
         return resp.get("result") if resp else None
 
