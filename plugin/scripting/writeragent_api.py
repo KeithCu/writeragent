@@ -60,9 +60,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'conditional_formatting': [   'conditional_formatting_add',
                                   'conditional_formatting_list',
                                   'conditional_formatting_remove'],
-    'core': [   'document_properties_get',
-                'document_properties_set',
-                'find_tools',
+    'core': [   'find_tools',
                 'get_guidance',
                 'get_image',
                 'list_open_documents',
@@ -87,7 +85,12 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'set_active_page',
                 'set_placeholder_text'],
     'error': ['error_detect', 'evaluate_formula'],
-    'field': ['fields_delete', 'fields_insert', 'fields_list', 'fields_update_all'],
+    'field': [   'document_properties_get',
+                 'document_properties_set',
+                 'fields_delete',
+                 'fields_insert',
+                 'fields_list',
+                 'fields_update_all'],
     'footnote': [   'footnotes_delete',
                     'footnotes_edit',
                     'footnotes_insert',
@@ -228,8 +231,8 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'conditional_formatting_remove': ('conditional_formatting', 'remove'),
     'delete_slide': ('draw', 'delete_slide'),
     'delete_structure': ('calc', 'delete_structure'),
-    'document_properties_get': ('core', 'document_properties_get'),
-    'document_properties_set': ('core', 'document_properties_set'),
+    'document_properties_get': ('field', 'document_properties_get'),
+    'document_properties_set': ('field', 'document_properties_set'),
     'duplicate_slide': ('draw', 'duplicate_slide'),
     'error_detect': ('error', 'detect'),
     'evaluate_formula': ('error', 'evaluate_formula'),
@@ -793,24 +796,6 @@ conditional_formatting = _ConditionalFormattingProxy()
 class _CoreProxy:
     """Proxy for core tools."""
 
-    def document_properties_get(self) -> dict[str, Any]:
-        """Read document metadata: title, subject, author, description, keywords, and custom user-defined properties. Internal WriterAgent product properties are listed by name only."""
-        return call_host_tool("document_properties_get")
-
-    def document_properties_set(self, *, title: str | None = None, subject: str | None = None, author: str | None = None, description: str | None = None, keywords: list[str] | None = None, user_defined: dict[str, Any] | None = None, remove_user_defined: list[str] | None = None) -> dict[str, Any]:
-        """Update document metadata. Pass only fields to change. Empty string clears a built-in text field; an empty keywords array clears keywords. User-defined values must be strings.
-
-        Args:
-            title (optional): Document title (empty clears).
-            subject (optional): Subject (empty clears).
-            author (optional): Author (empty clears).
-            description (optional): Description (empty clears).
-            keywords (optional): Keyword list (empty array clears).
-            user_defined (optional): Custom property names and string values to set.
-            remove_user_defined (optional): Custom property names to remove.
-        """
-        return call_host_tool("document_properties_set", title=title, subject=subject, author=author, description=description, keywords=keywords, user_defined=user_defined, remove_user_defined=remove_user_defined)
-
     def find_tools(self, *, domain: str | None = None) -> dict[str, Any]:
         """Discover additional tools that are available but not listed here. This MCP server exposes a small core tool set; many specialized capabilities are callable by name but hidden from the default list to keep it short. Call find_tools with no arguments to get the full specialized domain catalog (same list as the delegate gateway). Then call find_tools with a `domain` to get every tool schema in that area, ready to call directly. Always prefer calling a tool returned by find_tools over giving up because a capability seems missing.
 
@@ -1048,6 +1033,24 @@ class _FieldProxy:
             snapshot (optional): Optional snapshot hash from fields_list to prevent deleting shifted fields.
         """
         return call_host_tool("fields_delete", ids=ids, snapshot=snapshot)
+
+    def document_properties_get(self) -> dict[str, Any]:
+        """Read document metadata: title, subject, author, description, keywords, and custom user-defined properties. Internal WriterAgent product properties are listed by name only."""
+        return call_host_tool("document_properties_get")
+
+    def document_properties_set(self, *, title: str | None = None, subject: str | None = None, author: str | None = None, description: str | None = None, keywords: builtins.list[str] | None = None, user_defined: dict[str, Any] | None = None, remove_user_defined: builtins.list[str] | None = None) -> dict[str, Any]:
+        """Update document metadata. Pass only fields to change. Empty string clears a built-in text field; an empty keywords array clears keywords. User-defined values must be strings.
+
+        Args:
+            title (optional): Document title (empty clears).
+            subject (optional): Subject (empty clears).
+            author (optional): Author (empty clears).
+            description (optional): Description (empty clears).
+            keywords (optional): Keyword list (empty array clears).
+            user_defined (optional): Custom property names and string values to set.
+            remove_user_defined (optional): Custom property names to remove.
+        """
+        return call_host_tool("document_properties_set", title=title, subject=subject, author=author, description=description, keywords=keywords, user_defined=user_defined, remove_user_defined=remove_user_defined)
 
     def insert(self, field: str, *, properties: dict[str, Any] = {}, target: str | None = None, old_content: str | None = None) -> dict[str, Any]:
         """Insert a text field at the specified target position. Use target='beginning', 'end', or 'selection' to insert at those positions. Use target='search' with old_content to find and replace text. Supports various field types natively provided by LibreOffice. Common field types include: 'PageNumber', 'PageCount', 'DateTime', 'Author', 'FileName', 'WordCount', 'CharacterCount', 'ParagraphCount', 'TableCount', 'GraphicObjectCount', 'EmbeddedObjectCount', and 'Annotation'. Specify optional properties to configure the field.
