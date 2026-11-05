@@ -379,6 +379,8 @@ class ACPBackend(AgentBackend):
         self._state_lock: threading.Lock = threading.Lock()
         self._send_lock: threading.Lock = threading.Lock()
         self._pending_permissions: dict[Any, tuple[ACPConnection, list[Any]]] = {}
+        # Set when ``session/cancel`` is queued for the current inflight turn.
+        self._session_cancel_notified: bool = False
         self._load_config()
 
     def _resolve_binary(self, path_setting: str, args_str: str) -> str | None:
@@ -829,7 +831,7 @@ class ACPBackend(AgentBackend):
     def _request(self, conn: ACPConnection, method: str, params: Any, timeout: float) -> Any:
         """send_request marked in flight so Stop can bound it."""
         token = object()
-        # The stop latch and inflight flag share _state_lock so Stop cannot slip between the check and the enqueue.
+        # Hold _state_lock across begin_request so session/cancel cannot be queued before the JSON-RPC line is enqueued.
         with self._state_lock:
             if self._user_stopped():
                 raise _TurnStopped()
@@ -842,9 +844,19 @@ class ACPBackend(AgentBackend):
                     self._inflight_token = None
                 self._prompt_done.set()
                 raise
+        cancelled_before_await = False
         try:
+            # Latched before await_response returns: used to deliver session/cancel from
+            # finally when the cancel hook blocked on _state_lock during begin_request.
+            cancelled_before_await = is_cancelled(self._active_cancel)
             return conn.await_response(handle, timeout)
         finally:
+            if is_cancelled(self._active_cancel):
+                with self._state_lock:
+                    still_inflight = self._inflight_token is token
+                    notified = self._session_cancel_notified
+                if still_inflight and not notified and cancelled_before_await:
+                    self._cancel_wire()
             with self._state_lock:
                 if self._inflight_token is token:
                     self._inflight_token = None
@@ -901,6 +913,8 @@ class ACPBackend(AgentBackend):
                     self._finish_stopped(queue)
                     return
                 self._active_cancel = cancel
+                # One session/cancel per send; reset at each send start (_cancel_wire may run after scope clears).
+                self._session_cancel_notified = False
             cancel.register_on_cancel(self._cancel_wire)
             try:
                 if self._user_stopped():
@@ -1030,8 +1044,12 @@ class ACPBackend(AgentBackend):
 
     def stop(self) -> None:
         """User Stop: cancel this send's scope; the hook runs session/cancel and permission replies."""
-        with self._state_lock:
-            active = self._active_cancel
+        # Latch SendCancellation without _state_lock so Stop is not blocked on that lock
+        # before cancel() runs. cancel() still invokes _cancel_wire on this thread, and
+        # _cancel_wire takes _state_lock (held across begin_request), so Stop can still
+        # block until the prompt line is enqueued. _request finally delivers session/cancel
+        # when cancel was latched before await_response returned and the hook did not.
+        active = self._active_cancel
         if active is not None and not active.is_cancelled():
             active.cancel()
             return
@@ -1050,14 +1068,29 @@ class ACPBackend(AgentBackend):
         wait on the success path. Stop waits up to the grace for the prompt
         result. Activity after Stop does not extend that wait.
         """
+        send_cancel = False
+        cancel_conn: ACPConnection | None = None
+        cancel_sid: str | None = None
         with self._state_lock:
             inflight = self._inflight_token is not None
             token = self._inflight_token
             # Read _conn and _session_id under _state_lock to avoid sending cancel to a swapped connection.
             conn = self._conn
             session_id = self._session_id
-        if inflight and conn is not None and conn.is_alive and session_id:
-            conn.send_notification("session/cancel", {"sessionId": session_id})
+            send_cancel = bool(
+                inflight
+                and not self._session_cancel_notified
+                and conn is not None
+                and conn.is_alive
+                and session_id
+            )
+            if send_cancel:
+                self._session_cancel_notified = True
+                cancel_conn = conn
+                cancel_sid = session_id
+        if send_cancel:
+            assert cancel_conn is not None and cancel_sid is not None
+            cancel_conn.send_notification("session/cancel", {"sessionId": cancel_sid})
         # Reply while stdin is still open. A later shutdown closes it.
         self._cancel_pending_permissions()
         if inflight:
