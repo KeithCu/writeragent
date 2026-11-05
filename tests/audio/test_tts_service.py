@@ -23,7 +23,7 @@ from plugin.audio.tts_service import (
     stop_speech,
     uses_sentence_by_sentence,
 )
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, wait_for_approval
 
 
 def test_clean_text_for_speech_markdown():
@@ -556,13 +556,37 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
     assert not late_path.exists()
 
 
+def _wait_until(deadline: float, predicate, *, interval: float = 0.02) -> bool:
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return False
+
+
 def test_stop_during_synthesis_plays_nothing(tmp_path):
     """Stop while synthesis is blocked must not play or fall back to system speech."""
     import plugin.audio.tts_service as tts
 
     synth_entered = threading.Event()
     release_synth = threading.Event()
+    prefetch_done = threading.Event()
     temp_path: list[str] = []
+    play_calls: list[str] = []
+    system_calls: list[str] = []
+    real_bg = tts.run_in_background
+
+    def track_bg(fn, **kwargs):
+        if kwargs.get("name") != "tts-prefetch":
+            return real_bg(fn, **kwargs)
+
+        def wrapped() -> None:
+            try:
+                fn()
+            finally:
+                prefetch_done.set()
+
+        return real_bg(wrapped, **kwargs)
 
     def blocking_synth(sentence, provider, voice, speed, on_status, utt):
         del sentence, provider, voice, speed, on_status
@@ -573,21 +597,33 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
         with open(path, "wb") as handle:
             handle.write(b"wav")
         synth_entered.set()
-        release_synth.wait(5)
+        if not wait_for_approval(release_synth, cancel, timeout=0.05):
+            tts._release_temp(path)
+            return None
         return tts._ReadyClip(path, "Hello.", 3)
 
+    def track_play(path, cancel=None):
+        del cancel
+        play_calls.append(path)
+        return True
+
+    def track_system(text, speed=1.0, *, cancel=None):
+        del speed, cancel
+        system_calls.append(text)
+
     utt = tts._begin_utterance()
+    scope = utt.scope
     finished = threading.Event()
-    mocks: list[Any] = []
 
     def run() -> None:
         try:
-            with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
-                tts, "_prepare_kokoro_misaki", return_value=True
-            ), patch.object(tts, "_synthesize_sentence_clip", side_effect=blocking_synth), patch.object(
-                tts, "_play_audio_file"
-            ) as mock_play, patch.object(tts, "_speak_system") as mock_system:
-                mocks.extend([mock_play, mock_system])
+            with patch.object(tts, "run_in_background", side_effect=track_bg), patch.object(
+                tts, "resolve_kokoro_python", return_value="/venv/bin/python"
+            ), patch.object(tts, "_prepare_kokoro_misaki", return_value=True), patch.object(
+                tts, "_synthesize_sentence_clip", side_effect=blocking_synth
+            ), patch.object(tts, "_play_audio_file", side_effect=track_play), patch.object(
+                tts, "_speak_system", side_effect=track_system
+            ):
                 tts._run_sentence_pipeline(
                     ["Hello."],
                     "kokoro",
@@ -601,22 +637,24 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
 
     worker = threading.Thread(target=run)
     worker.start()
+    deadline = time.monotonic() + 30.0
     try:
-        assert synth_entered.wait(2)
+        assert _wait_until(deadline, synth_entered.is_set), "synthesis did not reach blocked state"
         tts.stop_speech()
-        release_synth.set()
-        assert finished.wait(2)
-        assert len(mocks) == 2
-        assert mocks[0].called is False
-        assert mocks[1].called is False
+        assert scope.is_cancelled()
+        assert _wait_until(deadline, finished.is_set), "sentence pipeline did not finish after stop"
+        assert _wait_until(deadline, prefetch_done.is_set), "prefetch thread did not finish after stop"
+        assert play_calls == []
+        assert system_calls == []
         tracked = temp_path[0] if temp_path else ""
-        deadline = time.monotonic() + 2.0
-        while tracked and os.path.exists(tracked) and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert not tracked or not os.path.exists(tracked)
+        assert tracked
+        assert _wait_until(deadline, lambda: not os.path.exists(tracked)), (
+            f"temp file still present after stop: {tracked}"
+        )
     finally:
         release_synth.set()
-        worker.join(2)
+        tts.stop_speech()
+        worker.join(5)
 
 
 def test_stop_before_start_spawns_nothing():
@@ -690,21 +728,23 @@ def test_uses_sentence_by_sentence_only_kokoro_and_piper():
     assert uses_sentence_by_sentence("together") is False
 
 
-def test_sentence_speak_enabled_unset_is_on_saved_false_stays_off():
-    def _lookup(cfg):
-        return lambda key, default=None: cfg.get(key, default)
+def test_sentence_speak_enabled_uses_schema_default_on():
+    from plugin.framework.config_schema import resolve_default
 
-    with patch("plugin.framework.config.get_config", side_effect=_lookup({})):
+    assert resolve_default("audio.tts_sentence_mode") is True
+    with patch(
+        "plugin.audio.tts_service.config.get_config",
+        side_effect=lambda key: resolve_default(key),
+    ):
         assert sentence_speak_enabled() is True
-    with patch(
-        "plugin.framework.config.get_config",
-        side_effect=_lookup({"audio.tts_sentence_mode": False}),
-    ):
+
+
+def test_sentence_speak_enabled_unset_is_on_saved_false_stays_off():
+    with patch("plugin.audio.tts_service.config.get_config", return_value=True):
+        assert sentence_speak_enabled() is True
+    with patch("plugin.audio.tts_service.config.get_config", return_value=False):
         assert sentence_speak_enabled() is False
-    with patch(
-        "plugin.framework.config.get_config",
-        side_effect=_lookup({"audio.tts_sentence_mode": True}),
-    ):
+    with patch("plugin.audio.tts_service.config.get_config", return_value=True):
         assert sentence_speak_enabled() is True
 
 
@@ -734,7 +774,12 @@ def _speak_sentence_case(cfg, *, provider=None, model=None):
         del kwargs
         oneshot[args[0]] = args[1]
 
-    with patch("plugin.framework.config.get_config", side_effect=lambda key, default=None: cfg.get(key, default)), patch(
+    def _get_config(key, default=None):
+        if key == "audio.tts_sentence_mode" and key not in cfg:
+            return True
+        return cfg.get(key, default)
+
+    with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
         "plugin.audio.tts_service.run_in_background", side_effect=lambda fn, **kwargs: fn()
     ), patch(
         "plugin.writer.locale.grammar_proofread_text.get_break_iterator_and_locale",

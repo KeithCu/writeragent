@@ -108,6 +108,13 @@ def _setup_mock(ctx):
             "(View → Sidebar must be on). decks=%s" % (names,)
         )
     ensure_sidebar_chat_mode(controls)
+    # Peer suite runs first alphabetically; clear any leftover transcript.
+    try:
+        from plugin.chatbot.sidebar_test_hooks import clear_sidebar_chat
+
+        clear_sidebar_chat(listener=sl)
+    except Exception:
+        pass
     if controls and "model_selector" in controls:
         from plugin.chatbot.dialogs import set_control_text
         from scripts.mock_llm_server import MOCK_MODEL_ID
@@ -643,6 +650,7 @@ def _rebind_mock(**flags: Any) -> None:
 
 @native_test
 def test_f1_crash_the_stream_then_hello(ctx):
+    _reset_mock_runtime()
     _send_and_wait("crash the stream", wait_for="API error")
     body = _transcript()
     assert "[API error:" in body or "HTTP Error 500" in body or "500" in body, (
@@ -654,6 +662,7 @@ def test_f1_crash_the_stream_then_hello(ctx):
 @native_test
 def test_f2_rate_limit_then_hello(ctx):
     # Spec: rate-limit only (500-then-429 is F15).
+    _reset_mock_runtime()
     _send_and_wait("rate limit", wait_for="429")
     body = _transcript()
     assert "429" in body or "Rate limited" in body, "F2 expected 429 in transcript, got %r" % body[-500:]

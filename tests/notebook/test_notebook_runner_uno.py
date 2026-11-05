@@ -399,10 +399,9 @@ def test_run_first_of_consecutive_code_cells_keeps_next_controls(ctx, doc):
 def test_apply_run_result_stdout_is_own_paragraph(ctx, doc):
     """Live Writer: stdout under the code cell must not concatenate onto the next heading."""
     from plugin.notebook.cell_registry import insert_output_start_bookmark, new_code_cell_entry
-    from plugin.notebook.layout import STYLE_NOTEBOOK_IN
+    from plugin.notebook.layout import STYLE_MD_H2, STYLE_NOTEBOOK_IN
     from plugin.notebook.notebook_runner import apply_run_result, clear_cell_output
     from plugin.notebook.writer_importer import (
-        _STYLE_MD_H2,
         _append_body_paragraph,
         _ensure_notebook_import_styles,
     )
@@ -411,7 +410,7 @@ def test_apply_run_result_stdout_is_own_paragraph(ctx, doc):
     _append_body_paragraph(doc, "In [ ]:", STYLE_NOTEBOOK_IN, lead_break=False)
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     insert_output_start_bookmark(doc, cell.output_start_bookmark)
-    _append_body_paragraph(doc, _AFTER_HEADING, _STYLE_MD_H2, lead_break=True)
+    _append_body_paragraph(doc, _AFTER_HEADING, STYLE_MD_H2, lead_break=True)
 
     def _gap() -> int:
         paras = _paragraphs(doc)

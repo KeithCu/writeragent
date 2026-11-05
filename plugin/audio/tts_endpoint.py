@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from plugin.framework.send_cancellation import is_cancelled
-
 import dataclasses
 import logging
 import re
@@ -17,7 +15,7 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 from plugin.audio.tts_models import notify_tts_status
 from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
@@ -124,7 +122,7 @@ def _explicit_openrouter(endpoint_url: str) -> bool:
     try:
         from plugin.framework.config import get_config, get_current_endpoint
 
-        flag = bool(get_config("is_openrouter"))
+        flag = get_config("is_openrouter")
         curr = get_current_endpoint() or ""
     except ConfigError:
         return False

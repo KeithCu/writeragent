@@ -406,35 +406,17 @@ class FolderStore:
     meta: CorpusMeta
 
 
-def ready_search_path(
-    mode: str,
-    listing_root: str | None,
-    meta_path: Any,
-    db_path: Any,
-    *,
-    meta: CorpusMeta | None = None,
-) -> str | None:
-    """Path to search, or None when that store is not built yet.
-
-    create_parent=True runs only after the probe says the store is populated.
-    An empty store must not create the parent directory as a side effect of the check.
-    """
-    if mode == "zvec":
+def _search_path(mode: str, listing_root: str | None, db_path: Path | None) -> str | None:
+    """Return the filesystem path to query after ``index_is_empty`` is false (no probing)."""
+    resolved = str(mode or "").strip().lower()
+    if resolved == "zvec":
         if not listing_root:
-            return None
-        probe = zvec_collection_path(listing_root, create_parent=False)
-        if not zvec_collection_looks_populated(probe):
             return None
         return str(zvec_collection_path(listing_root, create_parent=True))
-    if mode == "lancedb":
+    if resolved == "lancedb":
         if not listing_root:
             return None
-        probe = lancedb_collection_path(listing_root, create_parent=False)
-        if not lancedb_collection_looks_populated(probe):
-            return None
         return str(lancedb_collection_path(listing_root, create_parent=True))
-    if index_is_empty(meta_path, db_path, meta=meta):
-        return None
     return str(db_path)
 
 
@@ -450,9 +432,10 @@ def folder_store(
     resolved_mode = configured_folder_search_mode() if mode is None else mode
     meta = CorpusMeta.load(meta_path)
     empty = index_is_empty(meta_path, db_path, search_mode=resolved_mode, listing_root=listing_root, meta=meta)
-    search_path = None if empty else ready_search_path(
-        resolved_mode, listing_root, meta_path, db_path, meta=meta
-    )
+    if empty:
+        search_path = None
+    else:
+        search_path = _search_path(resolved_mode, listing_root, db_path)
     return FolderStore(mode=resolved_mode, search_path=search_path, is_empty=empty, meta=meta)
 
 

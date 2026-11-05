@@ -628,33 +628,43 @@ class HarperLSClient:
             self._lint_cancel = previous_cancel
 
     def close(self) -> None:
-        """Tear down harper-ls without blocking on a stuck stdin pipe.
+        """Tear down harper-ls without blocking on stuck pipes or the reader.
 
         The previous path wrote LSP shutdown/exit then waited. On Windows a
         hung harper-ls fills the stdin pipe; ``stdin.write`` blocks forever
         and xdist workers never exit (CI sat ~19 min after pytest 99%).
-        Close the pipes first, then terminate/kill with short waits.
-        ManagedSubprocess.close() and kill_tree() are a different shutdown and are not used here.
+        Closing **stdout** while ``_read_loop`` is blocked in ``readline`` also
+        deadlocks on Windows (Release Verify fixture timeout via
+        ``shutdown_harper_runtime`` → ``close``). Close stdin only, terminate/kill
+        so process death unblocks the reader, join the stdout thread with a short
+        timeout, then close stdout. ManagedSubprocess.close() and kill_tree() are
+        a different shutdown and are not used here.
         """
         proc = self.proc
         self.proc = None
+        # __new__ without __init__ (unit tests) may omit stdout_thread; real clients set it in __init__.
+        thread = getattr(self, "stdout_thread", None)
+        self.stdout_thread = None
         self._doc_opened = False
         if proc is None:
+            self._join_stdout_thread(thread)
             return
-        for stream in (proc.stdin, proc.stdout):
-            if stream is not None:
-                best_effort(stream.close, "harper pipe close failed")
-        if proc.poll() is not None:
-            return
-        def _kill() -> None:
-            proc.kill()
-            proc.wait(timeout=0.5)
+        if proc.stdin is not None:
+            best_effort(proc.stdin.close, "harper stdin close failed")
+        if proc.poll() is None:
+            def _kill() -> None:
+                proc.kill()
+                proc.wait(timeout=0.5)
 
-        try:
-            proc.terminate()
-            proc.wait(timeout=0.5)
-        except Exception:
-            best_effort(_kill, "[harper] kill after terminate failed")
+            try:
+                proc.terminate()
+                proc.wait(timeout=0.5)
+            except Exception:
+                best_effort(_kill, "[harper] kill after terminate failed")
+        # Process death unblocks readline; join before closing stdout.
+        self._join_stdout_thread(thread)
+        if proc.stdout is not None:
+            best_effort(proc.stdout.close, "harper stdout close failed")
 
 
 def lsp_range_to_offset(text: str, line: int, character: int) -> int:

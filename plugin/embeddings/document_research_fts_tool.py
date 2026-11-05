@@ -58,7 +58,7 @@ class SearchNearbyFiles(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.framework.send_cancellation import is_cancelled
 
-        if is_cancelled(getattr(ctx, "send_cancellation", None)):
+        if is_cancelled(ctx.send_cancellation):
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
         from plugin.framework.queue_executor import main
@@ -121,7 +121,7 @@ class SearchNearbyFiles(ToolBase):
                 looks_empty = True
 
             if looks_empty:
-                ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
+                ensure_index_wakeup(ctx.ctx, ctx.doc)
                 return {"empty": True, "folder_key": folder_key}
 
             allowed_urls: set[str] | None = None
@@ -195,7 +195,7 @@ class SearchNearbyFiles(ToolBase):
             return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")
 
         def _wakeup() -> None:
-            ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
+            ensure_index_wakeup(ctx.ctx, ctx.doc)
 
         if main.is_current():
             _wakeup()

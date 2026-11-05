@@ -33,7 +33,7 @@ from plugin.audio.kokoro_pool import (
 )
 from plugin.audio.tts_endpoint import download_endpoint_speech
 from plugin.audio.tts_models import (
-    _clear_tts_status,
+    clear_tts_status,
     notify_tts_status,
     resolve_kokoro_model_files,
     resolve_piper_model_file,
@@ -492,12 +492,7 @@ def _clear_speech_proc(proc: subprocess.Popen[Any] | None) -> None:
 
 def sentence_speak_enabled() -> bool:
     """True when audio.tts_sentence_mode is active."""
-    val = config.get_config("audio.tts_sentence_mode")
-    if val is None:
-        return True
-    from plugin.framework.config_schema import as_bool
-
-    return as_bool(val)
+    return config.get_config("audio.tts_sentence_mode") is True
 
 
 def uses_sentence_by_sentence(provider: str) -> bool:
@@ -805,7 +800,7 @@ def _prepare_kokoro_misaki(
     )
     if ready is None or is_cancelled(cancel):
         return None
-    _clear_tts_status(on_status)
+    clear_tts_status(on_status)
     utt.remember_misaki(lang, bool(ready))
     return bool(ready)
 
@@ -1191,6 +1186,10 @@ def _play_ready_queue(
         while True:
             clip = ready.get(cancel)
             if clip is None:
+                break
+            # Stop can win after get() dequeues a clip but before playback starts.
+            if is_cancelled(cancel):
+                _release_temp(clip.path)
                 break
             try:
                 played = clip.path and _play_audio_file(clip.path, cancel=cancel)

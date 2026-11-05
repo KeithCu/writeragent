@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from plugin.embeddings.embeddings_cache import CorpusMeta, ready_search_path
+from plugin.embeddings.embeddings_cache import CorpusMeta
 from plugin.embeddings.search_ui import (
     SearchDialog,
     format_cache_age,
@@ -326,44 +326,6 @@ class TestSearchDialog:
 
         hybrid_mock.assert_not_called()
         wakeup_mock.assert_called_once()
-
-    @pytest.mark.parametrize(
-        ("mode", "listing_root", "populated", "empty_index", "expected", "create_parent_calls"),
-        [
-            ("zvec", None, False, False, None, []),
-            ("zvec", "/root", False, False, None, [False]),
-            ("zvec", "/root", True, False, "/ready", [False, True]),
-            ("lancedb", None, False, False, None, []),
-            ("lancedb", "/root", False, False, None, [False]),
-            ("lancedb", "/root", True, False, "/ready", [False, True]),
-            ("sqlite", "/root", False, True, None, []),
-            ("sqlite", "/root", False, False, "/db", []),
-        ],
-    )
-    def test_ready_search_path(self, mode, listing_root, populated, empty_index, expected, create_parent_calls):
-        """Unbuilt stores return None and do not create the parent directory."""
-        path_name = "zvec_collection_path" if mode == "zvec" else "lancedb_collection_path"
-        populated_name = (
-            "zvec_collection_looks_populated" if mode == "zvec" else "lancedb_collection_looks_populated"
-        )
-
-        def _path(root, *, create_parent):
-            return Path("/probe") if not create_parent else Path("/ready")
-
-        with patch(f"plugin.embeddings.embeddings_cache.{path_name}", side_effect=_path) as path:
-            with patch(f"plugin.embeddings.embeddings_cache.{populated_name}", return_value=populated):
-                with patch("plugin.embeddings.embeddings_cache.index_is_empty", return_value=empty_index):
-                    got = ready_search_path(mode, listing_root, Path("/meta"), Path("/db"))
-
-        if expected is None:
-            assert got is None
-        else:
-            # str(Path("/ready")) is "\\ready" on Windows. The product returns
-            # the native filesystem string; compare path objects so both forms match.
-            assert got is not None
-            assert Path(got) == Path(expected)
-        assert [call.kwargs["create_parent"] for call in path.call_args_list] == create_parent_calls
-
 
     def test_format_cache_age_thresholds(self):
         # < 60 seconds -> "just now"
