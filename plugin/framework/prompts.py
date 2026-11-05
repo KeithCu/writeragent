@@ -542,7 +542,7 @@ When row 1 is labels, pass has_header=true — otherwise labels sort as values."
 
 CALC_WORKFLOW = """WORKFLOW:
 1. get_sheet_summary for size/headers.
-   read_cell_range only for a small peek (headers or a few dozen cells).
+   read_cell_range only for a small peek (headers or a few dozen cells); peeks return compact `rows` (use `format=cells` for per-cell objects).
    A large range in chat overloads the model context — the truncated result is a peek only.
    Row-wise ordinary Calc formulas: write_formula_range (fill-down adjusts relative refs).
    Reductions that spill a small result: =PY into one empty cell outside the data.

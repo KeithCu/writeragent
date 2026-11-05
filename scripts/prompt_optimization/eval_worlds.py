@@ -853,28 +853,31 @@ class CalcWorld:
             return {"status": "error", "message": "range is required"}
         range_strs = [str(r) for r in ranges]
         self.reads.append(range_strs)
-        cells: list[dict[str, Any]] = []
+        payloads: list[dict[str, Any]] = []
         for rng in range_strs:
             c0, r0, c1, r1 = parse_a1_range(rng)
+            origin = col_row_to_a1(c0, r0)
+            rows: list[list[Any]] = []
+            formulas: dict[str, str] = {}
             for row_i in range(r0, r1 + 1):
+                row_vals: list[Any] = []
                 for col_i in range(c0, c1 + 1):
                     val: Any = ""
                     if row_i < len(self._grid) and col_i < len(self._grid[row_i]):
                         val = self._grid[row_i][col_i]
                     addr = col_row_to_a1(col_i, row_i)
-                    cells.append(
-                        {
-                            "address": addr,
-                            "value": val,
-                            "formula": self.formulas.get(addr, ""),
-                        }
-                    )
-        return {
-            "status": "ok",
-            "range": range_strs,
-            "cells": cells,
-            "cell_count": len(cells),
-        }
+                    formula = self.formulas.get(addr, "")
+                    if isinstance(formula, str) and formula.startswith("="):
+                        formulas[addr] = formula
+                    row_vals.append(val)
+                rows.append(row_vals)
+            block: dict[str, Any] = {"origin": origin, "rows": rows}
+            if formulas:
+                block["formulas"] = formulas
+            payloads.append(block)
+        if len(payloads) == 1:
+            return {"status": "ok", "range": range_strs[0], "result": payloads}
+        return {"status": "ok", "range": range_strs, "result": payloads}
 
     def range_sort(self, **kwargs: Any) -> dict[str, Any]:
         """One-column sort (production sort_column is a 0-based int). Stable."""

@@ -536,17 +536,20 @@ def test_range_schema_becomes_range_name_python_param():
         "Read cells.",
         {
             "type": "object",
-            "properties": {"range": {"type": "array", "items": {"type": "string"}}},
+            "properties": {
+                "range": {"type": "array", "items": {"type": "string"}},
+                "format": {"type": "string", "enum": ["rows", "cells"], "default": "rows"},
+            },
             "required": ["range"],
         },
     )
     pos, kw = schema_to_signature(_as_tool(tool))
     assert pos == ["range_name: list[str]"]
-    assert kw == []
+    assert kw == ["format: str = 'rows'"]
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def read_cell_range(self, range_name: list[str]) -> dict[str, Any]:" in code
-    assert 'return call_host_tool("read_cell_range", range=range_name)' in code
+    assert "def read_cell_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:" in code
+    assert 'return call_host_tool("read_cell_range", range=range_name, format=format)' in code
 
 
 def test_schema_to_signature_parameterizes_object_and_array():

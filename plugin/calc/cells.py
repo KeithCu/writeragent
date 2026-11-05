@@ -37,7 +37,7 @@ from plugin.calc.address_utils import format_range, index_to_column, quote_sheet
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.calc_utils import range_args
-from plugin.calc.inspector import CellInspector
+from plugin.calc.inspector import CellInspector, grid_to_rows
 from plugin.calc.manipulator import CellManipulator, _parse_formula_or_values_string, _values_length_mismatch_message
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import parse_color_to_uno_int
@@ -347,15 +347,34 @@ class ReadCellRange(ToolBase):
         "(headers or a few dozen cells). A large dump overloads chat context; oversized reads "
         "return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); "
         "reductions that spill a small result use =PY into one empty cell outside the data. "
-        "Date/time-formatted numeric "
-        "cells return an ISO 8601 string in `value` with `type` and `format_category` of date, "
-        "time, or datetime, plus `format_code` (Calc FormatString, observability only). "
-        "Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with "
-        "type/format_category duration. Supports lists for non-contiguous areas."
+        "Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, "
+        "`PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and "
+        "`types` maps only where needed. Use `format=cells` for one object per cell "
+        "(address, value, formula, type, format_category, format_code). "
+        "Supports lists for non-contiguous areas."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["\'Data Sheet\'!B2"]). Sheet prefixes target that sheet without switching the active sheet.')}},
+        "properties": {
+            "range": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    'Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["\'Data Sheet\'!B2"]). '
+                    "Sheet prefixes target that sheet without switching the active sheet."
+                ),
+            },
+            "format": {
+                "type": "string",
+                "enum": ["rows", "cells"],
+                "default": "rows",
+                "description": (
+                    "rows (default): 2D values, formulas and date/time types only where present. "
+                    "cells: one object per cell with address, value, formula, type, "
+                    "format_category, and format_code."
+                ),
+            },
+        },
         "required": ["range"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -363,6 +382,12 @@ class ReadCellRange(ToolBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        wire_format = kwargs.get("format", "rows")
+        if wire_format is None:
+            wire_format = "rows"
+        if not isinstance(wire_format, str) or wire_format not in ("rows", "cells"):
+            return self._tool_error('format must be "rows" or "cells"')
+
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
         rn = range_args(kwargs["range"])
@@ -370,8 +395,8 @@ class ReadCellRange(ToolBase):
         if len(rn) == 0:
             return self._tool_error("range is required")
         if len(rn) == 1:
-            return self._read_one(bridge, inspector, rn[0])
-        results = [self._read_one(bridge, inspector, r) for r in rn]
+            return self._read_one(bridge, inspector, rn[0], wire_format)
+        results = [self._read_one(bridge, inspector, r, wire_format) for r in rn]
         failed = [item["range"] for item in results if item.get("status") != "ok"]
         if failed:
             return {
@@ -384,13 +409,18 @@ class ReadCellRange(ToolBase):
             return {"status": "ok", "result": [item["result"][0] for item in results]}
         return {"status": "ok", "result": results}
 
-    def _read_one(self, bridge: Any, inspector: Any, range_name: str) -> dict[str, Any]:
+    def _wire_result(self, grid: list[list[dict[str, Any]]], wire_format: str) -> list[Any]:
+        if wire_format == "cells":
+            return [grid]
+        return [grid_to_rows(grid)]
+
+    def _read_one(self, bridge: Any, inspector: Any, range_name: str, wire_format: str) -> dict[str, Any]:
         """Read one range; preview-only when the full grid would swamp chat context."""
         try:
             preview = _preview_if_large(bridge, range_name)
             if preview is None:
                 grid = inspector.read_range(range_name, include_format_info=True)
-                return {"status": "ok", "result": [grid], "range": range_name}
+                return {"status": "ok", "result": self._wire_result(grid, wire_format), "range": range_name}
             grid = inspector.read_range(preview["preview_range"], include_format_info=True)
             payload: dict[str, Any] = {
                 "status": "ok",
@@ -401,7 +431,7 @@ class ReadCellRange(ToolBase):
                 "rows": preview["rows"],
                 "columns": preview["columns"],
                 "cells": preview["cells"],
-                "result": [grid],
+                "result": self._wire_result(grid, wire_format),
             }
             distincts = _try_column_distinct_peek(bridge, range_name, preview)
             if distincts:

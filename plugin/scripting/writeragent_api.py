@@ -520,13 +520,14 @@ class _CalcProxy:
         """
         return call_host_tool("merge_cells", range=range_name, center=center)
 
-    def read_cell_range(self, range_name: list[str]) -> dict[str, Any]:
-        """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Date/time-formatted numeric cells return an ISO 8601 string in `value` with `type` and `format_category` of date, time, or datetime, plus `format_code` (Calc FormatString, observability only). Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with type/format_category duration. Supports lists for non-contiguous areas.
+    def read_cell_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:
+        """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). Supports lists for non-contiguous areas.
 
         Args:
             range_name (required): Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["'Data Sheet'!B2"]). Sheet prefixes target that sheet without switching the active sheet.
+            format (optional): rows (default): 2D values, formulas and date/time types only where present. cells: one object per cell with address, value, formula, type, format_category, and format_code. One of: rows, cells.
         """
-        return call_host_tool("read_cell_range", range=range_name)
+        return call_host_tool("read_cell_range", range=range_name, format=format)
 
     def set_style(self, range_name: list[str], *, bold: bool | None = None, italic: bool | None = None, font_size: float | None = None, bg_color: str | None = None, font_color: str | None = None, h_align: str | None = None, v_align: str | None = None, wrap_text: bool | None = None, border_color: str | None = None, number_format: str | None = None) -> dict[str, Any]:
         """Applies style and formatting to the specified cell(s) or range(s). Supports lists for non-contiguous areas.

@@ -252,7 +252,7 @@ Calc stores dates as float serials (days since `1899-12-30`). Detecting “is th
 
 There is **no Settings checkbox** and no worker-side string guesser (`dateparser` / `pd.to_timedelta` on every cell). A former `scripting.python_convert_datetime` option did that; it is removed. Typed dates in `=PY()` / `run_venv_python_script` are opt-in via `to_pandas` below.
 
-LLM/MCP sheet reads are a **different, always-on** path: `read_cell_range` enriches formatted serials to ISO / `PT…` — [date-time-handling.md](date-time-handling.md). That does not mutate `data` in the Python worker.
+LLM/MCP sheet reads are a **different, always-on** path: `read_cell_range` enriches formatted serials to ISO / `PT…` and returns compact **`rows`** by default — [date-time-handling.md](date-time-handling.md). `=PY` / `read_range(include_format_info=False)` still use raw serials from the inspector; that does not mutate `data` in the Python worker.
 
 - **Ingress:** serials arrive as floats (or strings if stored as text).
 - **Convenience coercion in `to_pandas()`:**

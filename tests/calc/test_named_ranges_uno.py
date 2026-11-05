@@ -212,8 +212,8 @@ def test_transparent_named_range_read_write(ctx, doc):
     assert res_read.get("status") == "ok", f"read_cell_range failed: {res_read}"
 
     result_data = res_read["result"][0]
-    assert result_data[0][0]["value"] == "Apple"
-    assert result_data[0][1]["value"] == "Banana"
+    assert result_data["origin"] == "A10"
+    assert result_data["rows"] == [["Apple", "Banana"]]
 
     # 2. Write using the named range
     res_write = _execute_calc_tool(doc, ctx, "write_formula_range", {

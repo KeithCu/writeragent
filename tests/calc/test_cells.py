@@ -11,6 +11,7 @@
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, patch
 from xml.etree import ElementTree as ET
 
@@ -511,10 +512,27 @@ def _range_addr(*, start_col, end_col, start_row, end_row):
     return mock_range
 
 
+def _inspector_sample_grid(values_row: list[Any], *, row: int = 1, start_col: int = 0) -> list[list[dict[str, Any]]]:
+    from plugin.calc.address_utils import index_to_column
+
+    return [
+        [
+            {
+                "address": f"{index_to_column(start_col + ci)}{row}",
+                "value": val,
+                "formula": None,
+                "type": "text" if isinstance(val, str) else "value",
+            }
+            for ci, val in enumerate(values_row)
+        ]
+    ]
+
+
 def test_read_cell_range_tool_opts_into_format_info():
     from plugin.calc.cells import ReadCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
+    grid = [[{"address": "A1", "value": 1.0, "formula": None, "type": "value"}]]
     with (
         patch("plugin.calc.cells.CalcBridge") as bridge_cls,
         patch("plugin.calc.cells.CellInspector") as inspector_cls,
@@ -522,12 +540,72 @@ def test_read_cell_range_tool_opts_into_format_info():
         bridge_cls.return_value.resolve_range_or_address.return_value = _range_addr(
             start_col=0, end_col=0, start_row=0, end_row=0
         )
-        inspector_cls.return_value.read_range.return_value = [[{"value": 1.0}]]
+        inspector_cls.return_value.read_range.return_value = grid
         result = ReadCellRange().execute(ctx, range=["A1"])
 
     assert result["status"] == "ok"
     assert not result.get("truncated")
+    payload = result["result"][0]
+    assert payload["origin"] == "A1"
+    assert payload["rows"] == [[1.0]]
+    assert "formulas" not in payload
+    assert "types" not in payload
     inspector_cls.return_value.read_range.assert_called_once_with("A1", include_format_info=True)
+
+
+def test_grid_to_rows_synthetic():
+    from plugin.calc.inspector import grid_to_rows
+
+    grid = [
+        [
+            {"address": "A1", "value": "Col1", "formula": None, "type": "text"},
+            {"address": "B1", "value": None, "formula": None, "type": "empty"},
+        ],
+        [
+            {"address": "A2", "value": "2026-08-03", "formula": None, "type": "date", "format_category": "date"},
+            {"address": "B2", "value": 3.0, "formula": "=A1+1", "type": "formula"},
+        ],
+    ]
+    payload = grid_to_rows(grid)
+    assert payload["origin"] == "A1"
+    assert payload["rows"] == [["Col1", None], ["2026-08-03", 3.0]]
+    assert payload["formulas"] == {"B2": "=A1+1"}
+    assert payload["types"] == {"A2": "date"}
+    assert "format_code" not in payload
+
+
+def test_read_cell_range_format_cells_returns_grid():
+    from plugin.calc.cells import ReadCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    grid = [[{"address": "A1", "value": 1.0, "type": "value"}]]
+    with (
+        patch("plugin.calc.cells.CalcBridge") as bridge_cls,
+        patch("plugin.calc.cells.CellInspector") as inspector_cls,
+    ):
+        bridge_cls.return_value.resolve_range_or_address.return_value = _range_addr(
+            start_col=0, end_col=0, start_row=0, end_row=0
+        )
+        inspector_cls.return_value.read_range.return_value = grid
+        result = ReadCellRange().execute(ctx, range=["A1"], format="cells")
+
+    assert result["result"][0] is grid
+
+
+def test_read_cell_range_unknown_format_errors_without_read():
+    from plugin.calc.cells import ReadCellRange
+
+    ctx = SimpleNamespace(doc=MagicMock())
+    with (
+        patch("plugin.calc.cells.CalcBridge") as bridge_cls,
+        patch("plugin.calc.cells.CellInspector") as inspector_cls,
+    ):
+        result = ReadCellRange().execute(ctx, range=["A1"], format="csv")
+
+    assert result["status"] == "error"
+    assert "format" in result["message"]
+    bridge_cls.assert_not_called()
+    inspector_cls.assert_not_called()
 
 
 def test_read_cell_range_tool_truncates_large_range():
@@ -535,7 +613,7 @@ def test_read_cell_range_tool_truncates_large_range():
     from plugin.calc.cells import ReadCellRange, _READ_CELL_RANGE_TRUNCATED_MSG
 
     ctx = SimpleNamespace(doc=MagicMock())
-    sample = [[{"value": "OrderID"}] * 8]
+    sample = _inspector_sample_grid(["OrderID"] * 8)
     with (
         patch("plugin.calc.cells.CalcBridge") as bridge_cls,
         patch("plugin.calc.cells.CellInspector") as inspector_cls,
@@ -589,7 +667,7 @@ def test_read_cell_range_min_over_cap_steers_fill_down_not_hard_py():
     assert (rows, cols, cells) == (9, 9, 81)
 
     ctx = SimpleNamespace(doc=MagicMock())
-    sample = [[{"value": "ID"}] * cols]
+    sample = _inspector_sample_grid(["ID"] * cols)
     range_name = "A1:I9"
     with (
         patch("plugin.calc.cells.CalcBridge") as bridge_cls,
@@ -636,7 +714,7 @@ def test_read_cell_range_tool_keeps_small_range_full():
         bridge_cls.return_value.resolve_range_or_address.return_value = _range_addr(
             start_col=0, end_col=7, start_row=0, end_row=9
         )
-        inspector_cls.return_value.read_range.return_value = [[{"value": 1}]]
+        inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
         result = ReadCellRange().execute(ctx, range=["A1:H10"])
 
     assert _READ_CELL_RANGE_MAX_CELLS == 80
@@ -723,7 +801,7 @@ def test_read_cell_range_truncated_attaches_column_distincts():
     from plugin.calc.cells import ReadCellRange
 
     ctx = SimpleNamespace(doc=MagicMock())
-    sample = [[{"value": "Country"}] * 2]
+    sample = _inspector_sample_grid(["Country", "Country"])
     data = (
         ("Country", "Code"),
         ("US", "1"),
@@ -1254,7 +1332,7 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_resolved_she
     ):
         bridge = bridge_cls.return_value
         bridge.resolve_range_or_address.return_value = cell_range
-        inspector_cls.return_value.read_range.return_value = [[{"value": 1}]]
+        inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
 
         ReadCellRange().execute(ctx, range=["Sales"])
 
@@ -1280,7 +1358,7 @@ def test_read_cell_range_oversized_unqualified_named_range_clips_on_identifier_s
     ):
         bridge = bridge_cls.return_value
         bridge.resolve_range_or_address.return_value = cell_range
-        inspector_cls.return_value.read_range.return_value = [[{"value": 1}]]
+        inspector_cls.return_value.read_range.return_value = _inspector_sample_grid([1])
 
         ReadCellRange().execute(ctx, range=["Sales"])
 
@@ -1378,7 +1456,7 @@ def test_read_cell_range_partial_failure():
     ):
         bridge = bridge_cls.return_value
         bridge.resolve_range_or_address.return_value = _range_addr(start_col=0, end_col=0, start_row=0, end_row=0)
-        grid1 = [[{"value": "ok"}]]
+        grid1 = [[{"address": "A1", "value": "ok", "formula": None, "type": "text"}]]
         inspector = inspector_cls.return_value
         inspector.read_range.side_effect = [grid1, RuntimeError("bad range")]
 
@@ -1388,7 +1466,7 @@ def test_read_cell_range_partial_failure():
         assert "B2" in res["message"]
         assert len(res["result"]) == 2
         assert res["result"][0]["status"] == "ok"
-        assert res["result"][0]["result"] == [grid1]
+        assert res["result"][0]["result"][0]["rows"] == [["ok"]]
         assert res["result"][1]["status"] == "error"
         assert res["result"][1]["range"] == "B2"
         assert "bad range" in res["result"][1]["message"]

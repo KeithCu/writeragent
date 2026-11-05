@@ -10,7 +10,21 @@ This document covers PyUNO cell values, read-path format enrichment, MCP clock c
 
 ### LLM wire schema
 
-For LLM tools (`read_cell_range` with format enrichment; the same strings are the write target), a date/time-formatted numeric cell looks like:
+For LLM tools (`read_cell_range` with format enrichment; the same strings are the write target), the default **`format=rows`** payload looks like:
+
+```json
+{
+  "origin": "A20",
+  "rows": [["2026-08-05", "08:00:00", "PT30H"]],
+  "types": {"A20": "date", "B20": "time", "C20": "duration"}
+}
+```
+
+- `rows[r][c]` is the enriched cell value (ISO 8601, `PTnHnMnS`, numbers, text, `null` for empty, formula errors as display strings).
+- `types` is present only for `date`, `time`, `datetime`, and `duration` (sparse map by bare address).
+- `formulas` is present only when a cell has a formula starting with `=`.
+
+Use **`format=cells`** when you need one object per cell (the inspector grid):
 
 ```json
 [
@@ -118,7 +132,7 @@ The end-to-end date/time architecture consists of three synchronized phases:
 
 ### 3.1 Mechanism
 
-When `read_cell_range` is invoked with `include_format_info=True` (enabled by default for LLM tool invocations), enrichment follows the wire schema above:
+When `read_cell_range` runs the LLM tool path (`include_format_info=True`), enrichment follows the wire schema above and the tool returns the compact **`rows`** shape by default (`format=cells` keeps the per-cell grid).
 
 1. **Pre-flight Check**: To prevent performance degradation on large datasets, `CellInspector._range_format_rows()` scans the range for cell formats. If no date/time formats or formulas exist in the target block, format inspection returns early.
 2. **Format grouping**: Queries `cell_range.getUniqueCellFormatRanges()` to group cells sharing a format. The response still requires an O(N*M) serialization walk, but format-related UNO round-trips scale with format groups rather than cells.
@@ -137,7 +151,7 @@ When `read_cell_range` is invoked with `include_format_info=True` (enabled by de
 
 **Why `format_code`:** Without the display pattern (e.g. German short `TT.MM.JJ` vs full year), the model cannot tell how neighboring rows look and tends to invent a new style via detect-on-write or `set_style`. The field is for observation and inheritance checks only — models must not hardcode locale letters into `queryKey` (§6), and after S26 they have no LLM `number_format` re-apply path on `set_style`.
 
-**Sidebar vs internal:** Chat/MCP `read_cell_range` always enriches. `get_calc_context_for_chat` also uses `include_format_info=True` so the first Calc selection block is ISO/`PT…`. NumPy / DuckDB / `=PY` keep the inspector default `False` (raw floats). Do not collapse those wires.
+**Sidebar vs internal:** Chat/MCP `read_cell_range` always enriches and defaults to compact `rows`. `get_calc_context_for_chat` also uses `include_format_info=True` so the first Calc selection block is ISO/`PT…`, not raw serials. NumPy / DuckDB / `=PY` keep the inspector default `False` (raw floats). Do not collapse those wires.
 
 ### 3.2 Elapsed times over 24 hours (fixed)
 

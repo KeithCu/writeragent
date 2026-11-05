@@ -295,3 +295,35 @@ class CellInspector:
             result.append(row_data)
 
         return result
+
+
+_WIRE_TEMPORAL_TYPES = frozenset({"date", "time", "datetime", "duration"})
+
+
+def grid_to_rows(grid: list[list[dict[str, Any]]]) -> dict[str, Any]:
+    """Project an enriched ``read_range`` grid into the compact chat/MCP wire shape.
+
+    Per-cell address/formula/type objects were ~10× the values alone (nelson
+    read_range_rows); keep one enrichment path and serialize here for tools.
+    """
+    origin = grid[0][0]["address"]
+    rows: list[list[Any]] = []
+    formulas: dict[str, str] = {}
+    types: dict[str, str] = {}
+    for row in grid:
+        row_values: list[Any] = []
+        for cell in row:
+            row_values.append(cell["value"])
+            formula = cell.get("formula")
+            if isinstance(formula, str) and formula.startswith("="):
+                formulas[cell["address"]] = formula
+            cell_type = cell.get("type")
+            if cell_type in _WIRE_TEMPORAL_TYPES:
+                types[cell["address"]] = cell_type
+        rows.append(row_values)
+    payload: dict[str, Any] = {"origin": origin, "rows": rows}
+    if formulas:
+        payload["formulas"] = formulas
+    if types:
+        payload["types"] = types
+    return payload
