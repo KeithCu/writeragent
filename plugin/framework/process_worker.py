@@ -58,14 +58,12 @@ log = logging.getLogger("compute_service.worker")
 
 def _compute_slot_fail_message(
     code: str,
-    phase: FailPhase,
     detail: str,
     *,
     worker_name: str,
     worker_id: int,
 ) -> str:
     """User-facing error text for a compute slot ``framed_request_roundtrip`` failure."""
-    del phase
     if code == "WORKER_PIPE_BROKEN":
         return f"Failed to send request to {worker_name} #{worker_id}: {detail}"
     if code == "WORKER_IPC_ERROR":
@@ -532,7 +530,6 @@ class BaseProcessWorker:
                     return self._fail_timeout(deadline, pid, kill=kill)
                 msg = _compute_slot_fail_message(
                     code,
-                    phase,
                     detail,
                     worker_name=self.worker_name,
                     worker_id=self.worker_id,

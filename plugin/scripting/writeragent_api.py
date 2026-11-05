@@ -176,11 +176,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'table_manage_structure',
                  'table_set_cell'],
     'textframe': ['frame_get_info', 'frame_list', 'frame_set_properties'],
-    'tracking': [   'track_changes_list',
-                    'track_changes_show',
-                    'track_changes_start',
-                    'track_changes_stop',
-                    'tracking_manage'],
+    'tracking': ['tracking_list', 'tracking_manage', 'tracking_show', 'tracking_start', 'tracking_stop'],
     'vision': ['extract_structure_from_image'],
     'writer': [   'add_comment',
                   'apply_document_content',
@@ -367,11 +363,11 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'table_list': ('table', 'list'),
     'table_manage_structure': ('table', 'manage_structure'),
     'table_set_cell': ('table', 'set_cell'),
-    'track_changes_list': ('tracking', 'track_changes_list'),
-    'track_changes_show': ('tracking', 'track_changes_show'),
-    'track_changes_start': ('tracking', 'track_changes_start'),
-    'track_changes_stop': ('tracking', 'track_changes_stop'),
+    'tracking_list': ('tracking', 'list'),
     'tracking_manage': ('tracking', 'manage'),
+    'tracking_show': ('tracking', 'show'),
+    'tracking_start': ('tracking', 'start'),
+    'tracking_stop': ('tracking', 'stop'),
     'undo': ('core', 'undo'),
     'upsert_memory': ('core', 'upsert_memory'),
     'web_research': ('core', 'web_research'),
@@ -2302,39 +2298,39 @@ textframe = _TextframeProxy()
 class _TrackingProxy:
     """Proxy for tracking tools."""
 
-    def manage(self, action: str, *, index: int | None = None) -> dict[str, Any]:
-        """Accept or reject tracked changes. action=accept/reject requires index (from track_changes_list). That index is stale after any resolve; call track_changes_list again before the next accept or reject. action=accept_all/reject_all resolves every change.
-
-        Args:
-            action (required): accept/reject one change by index, or accept_all/reject_all. One of: accept, reject, accept_all, reject_all.
-            index (optional): Zero-based index from track_changes_list (required for accept/reject). Call track_changes_list again after each resolve; indexes shift.
-        """
-        return call_host_tool("tracking_manage", action=action, index=index)
-
-    def track_changes_list(self, *, start_index: int | None = None, max_changes: int | None = None) -> dict[str, Any]:
+    def list(self, *, start_index: int | None = None, max_changes: int | None = None) -> dict[str, Any]:
         """List all tracked changes (redlines) in the document, including type, author, date, text and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; 'agent_review_mode' (off/record/wait) is the user's review setting for AGENT edits — in record/wait your edits become redlines even while recording is false. Returns at most max_changes rows (default 100); page through the rest with start_index when has_more is true.
 
         Args:
             start_index (optional): Zero-based row to start this page at (default 0).
             max_changes (optional): Maximum rows to return (default 100).
         """
-        return call_host_tool("track_changes_list", start_index=start_index, max_changes=max_changes)
+        return call_host_tool("tracking_list", start_index=start_index, max_changes=max_changes)
 
-    def track_changes_show(self, show: bool) -> dict[str, Any]:
+    def manage(self, action: str, *, index: int | None = None) -> dict[str, Any]:
+        """Accept or reject tracked changes. action=accept/reject requires index (from tracking_list). That index is stale after any resolve; call tracking_list again before the next accept or reject. action=accept_all/reject_all resolves every change.
+
+        Args:
+            action (required): accept/reject one change by index, or accept_all/reject_all. One of: accept, reject, accept_all, reject_all.
+            index (optional): Zero-based index from tracking_list (required for accept/reject). Call tracking_list again after each resolve; indexes shift.
+        """
+        return call_host_tool("tracking_manage", action=action, index=index)
+
+    def show(self, show: bool) -> dict[str, Any]:
         """Show or hide tracked changes markup in the document view (Writer). On Calc, recording still works; this call returns guidance to use LibreOffice menus for show/hide markup until UNO support is implemented.
 
         Args:
             show (required): True to show changes, False to hide them.
         """
-        return call_host_tool("track_changes_show", show=show)
+        return call_host_tool("tracking_show", show=show)
 
-    def track_changes_start(self) -> dict[str, Any]:
+    def start(self) -> dict[str, Any]:
         """Start recording changes (track changes) in the document."""
-        return call_host_tool("track_changes_start")
+        return call_host_tool("tracking_start")
 
-    def track_changes_stop(self) -> dict[str, Any]:
+    def stop(self) -> dict[str, Any]:
         """Stop recording changes (track changes) in the document."""
-        return call_host_tool("track_changes_stop")
+        return call_host_tool("tracking_stop")
 
 tracking = _TrackingProxy()
 

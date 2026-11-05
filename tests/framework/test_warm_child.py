@@ -19,6 +19,7 @@ import pytest
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.child_runtime import Deadline
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.warm_child import (
     Child,
     ChildSpec,
@@ -495,18 +496,18 @@ def test_lease_cancel_aborts_wait_within_poll(tmp_path: Any, supervisor: Supervi
     holder_thread = threading.Thread(target=holder, name="lease-holder")
     holder_thread.start()
     assert holder_ready.wait(timeout=15)
-    cancelled = {"v": False}
+    scope = SendCancellation()
 
     def flip() -> None:
         time.sleep(0.1)
-        cancelled["v"] = True
+        scope.cancel()
 
     threading.Thread(target=flip, daemon=True).start()
     try:
         with warm.lease(
             Deadline(30),
             wait=30,
-            cancel=lambda: cancelled["v"] is True,
+            cancel=scope,
             poll_sec=0.05,
         ) as leased:
             assert isinstance(leased, dict)

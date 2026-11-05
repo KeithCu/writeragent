@@ -102,7 +102,7 @@ def _host_paragraphs(cell: Any) -> Iterator[Any]:
             yield element
 
 
-def _cell_hosted_table_names(cell: Any) -> list[str]:
+def cell_hosted_table_names(cell: Any) -> list[str]:
     """Names of TextTables hosted in *cell* (direct or via frame/section).
 
     Writer nests a TextTable as a sibling of the cell's paragraphs — not via
@@ -127,7 +127,7 @@ def raise_if_range_hosts_nested_table(text_range: Any) -> None:
         return _FAILED if cur.getPropertyValue("TextTable") is None else text_obj
 
     text_obj = uno_read(host_text, _FAILED)
-    hosted = [] if text_obj is _FAILED else _cell_hosted_table_names(text_obj)
+    hosted = [] if text_obj is _FAILED else cell_hosted_table_names(text_obj)
     if not hosted:
         return
 

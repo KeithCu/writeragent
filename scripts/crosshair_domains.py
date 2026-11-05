@@ -606,7 +606,7 @@ def _patch_word_diff_split(module: Any) -> None:
     from plugin.framework.deal_shim import str_bounded
 
     module.split_change = deal.pre(
-        lambda old, new, threshold=module._DEFAULT_THRESHOLD: (
+        lambda old, new, threshold=module.DEFAULT_THRESHOLD: (
             not isinstance(old, str) or str_bounded(old, 16)
         )
         and (not isinstance(new, str) or str_bounded(new, 16))

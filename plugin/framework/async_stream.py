@@ -73,6 +73,7 @@ from plugin.framework.queue_executor import (
     main,
     pump_ui_idle,
 )
+from plugin.framework.send_cancellation import is_cancelled
 
 if TYPE_CHECKING:
     from plugin.framework.send_cancellation import SendCancellation
@@ -397,7 +398,7 @@ def _process_batch(
     outcome = state.outcome
     outcome.reason = None
     for index, item in enumerate(items):
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             log.info("run_stream_drain_loop: Stop requested via checker.")
             _finish_on_stop(state, flush_pending, items[index:])
             break
@@ -745,7 +746,7 @@ class _EventDrain:
         state = self._state
         t0 = time.monotonic()
         try:
-            if self._cancel is not None and self._cancel.is_cancelled():
+            if is_cancelled(self._cancel):
                 log.info("run_stream_drain_loop: Stop requested via checker.")
                 _finish_on_stop(state, self._flush_pending)
                 self._finish()
@@ -999,7 +1000,7 @@ def _run_stream_drain_blocking(
             if on_drain_started is not None:
                 on_drain_started()
             while not outcome.done:
-                if cancel is not None and cancel.is_cancelled():
+                if is_cancelled(cancel):
                     log.info("run_stream_drain_loop: Stop requested via checker.")
                     _finish_on_stop(state, flush_pending)
                     break
@@ -1311,7 +1312,7 @@ def run_stream_completion_async(
         finish_reason = client.stream_completion(prompt, system_prompt, max_tokens, **kwargs)
         if completion_out is not None:
             completion_out["finish_reason"] = finish_reason
-        if cancel is not None and cancel.is_cancelled():
+        if is_cancelled(cancel):
             q.put((StreamQueueKind.STOPPED, None))
 
     run_async_worker_with_drain(

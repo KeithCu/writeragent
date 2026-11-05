@@ -48,6 +48,8 @@ def commit_or_rollback_mutation(
             code="UNDO_UNAVAILABLE",
         )
     except Exception as e:
+        # Mutate failures are returned on UndoOutcome; this path is for rare wrapper faults
+        # (e.g. session snapshot) so tools still get extra_error instead of a raw traceback.
         if is_disposal(e):
             raise
         err = tool._tool_error(
@@ -63,6 +65,7 @@ def commit_or_rollback_mutation(
             f"{rollback_msg} ({mut_exc}).",
             **extra_error,
         )
+        # _tool_error nests kwargs under details; callers also read them top-level.
         err.update(extra_error)
         return err
     return outcome.error

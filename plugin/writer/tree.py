@@ -39,7 +39,7 @@ from plugin.doc.text_helpers import (
 log = logging.getLogger("writeragent.writer.nav.tree")
 
 
-def _collect_heading_indices(node: dict[str, Any]) -> list[int]:
+def collect_heading_indices(node: dict[str, Any]) -> list[int]:
     """Heading paragraph indices in document order (iter_heading_nodes yields them ordered)."""
     return [n["para_index"] for n in iter_heading_nodes(node) if n.get("para_index", -1) >= 0]
 
@@ -247,7 +247,7 @@ class TreeService(ServiceBase):
     def _load_tree_context(self, doc: Any) -> _TreeContext:
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         tree = self.build_heading_tree(doc, elements=para_ranges)
-        heading_indices = _collect_heading_indices(tree)
+        heading_indices = collect_heading_indices(tree)
         total = len(para_ranges)
         next_heading_map = {
             h_idx: (heading_indices[i + 1] if i + 1 < len(heading_indices) else total)

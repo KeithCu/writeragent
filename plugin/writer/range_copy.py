@@ -365,7 +365,7 @@ def _copy_cell_xtext(
         _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records)
 
 
-def _writer_cell_position(name: str) -> tuple[int, int] | None:
+def writer_cell_position(name: str) -> tuple[int, int] | None:
     """Parse a Writer cell name the way ``SwXTextTable::GetCellPosition`` does.
 
     Writer letters are base 52 (A–Z, a–z, then AA…). Spreadsheet ``parse_a1``
@@ -427,7 +427,7 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
     max_row = max(rows - 1, 0)
     max_col = max(cols - 1, 0)
     for cell_name in names:
-        pos = _writer_cell_position(cell_name)
+        pos = writer_cell_position(cell_name)
         if pos is None:
             continue
         col_idx, row_idx = pos

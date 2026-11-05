@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import uno
-from plugin.doc.document_helpers import UNKNOWN_DOC_KEY, _compute_doc_key
+from plugin.doc.document_helpers import UNKNOWN_DOC_KEY, compute_doc_key
 from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import get_runtime_uid, uno_same
 from plugin.framework.uno_listeners import BaseModifyListener, controller_alive, install_view_doc_listener
@@ -32,7 +32,7 @@ _pending_lock = threading.Lock()
 
 def attachment_key(model: Any) -> str:
     """Stable per-document key (RuntimeUID / URL), else ``id:<object id>``."""
-    key = _compute_doc_key(model)
+    key = compute_doc_key(model)
     if key != UNKNOWN_DOC_KEY:
         return key
     return "id:%d" % id(model)
@@ -258,8 +258,6 @@ def register_controller(controller: Any) -> None:
         return
     cleanup_disposed_controllers()
     try:
-        from plugin.framework.uno_context import uno_same
-
         model = controller.getModel()
         if not is_writer(model):
             return
@@ -292,8 +290,6 @@ def unregister_controllers_for_model(model: Any) -> None:
     """Drop controller hooks whose interceptor model matches *model* (one window closed)."""
     if model is None:
         return
-    from plugin.framework.uno_context import uno_same as same
-
     key = attachment_key(model)
     with _lock:
         attachment = _attachments.get(key)
@@ -304,7 +300,7 @@ def unregister_controllers_for_model(model: Any) -> None:
         for triple in attachment.controllers:
             interceptor = triple[1]
             interceptor_model = getattr(interceptor, "_model", None)
-            if same(interceptor_model, model):
+            if uno_same(interceptor_model, model):
                 removed.append(triple)
             else:
                 keep.append(triple)
@@ -331,20 +327,12 @@ def cleanup_disposed_controllers() -> None:
             attachment.controllers[:] = alive
 
 
-def registered_controllers() -> list[tuple[Any, Any]]:
-    """(controller, interceptor) pairs for tests."""
-    with _lock:
-        out: list[tuple[Any, Any]] = []
-        for attachment in _attachments.values():
-            for ctrl, interceptor, _handler in attachment.controllers:
-                out.append((ctrl, interceptor))
-        return out
+def attachments() -> dict[str, ReviewViewAttachment]:
+    """Shallow copy of the registry taken under _lock. Tests only.
 
-
-def registered_click_handlers() -> list[tuple[Any, Any]]:
-    """(controller, click_handler) pairs for tests."""
+    Keys are a snapshot; values are the live objects."""
     with _lock:
-        return [(c, h) for att in _attachments.values() for c, _i, h in att.controllers]
+        return dict(_attachments)
 
 
 def detach_click_handler(handler: Any) -> Any | None:
@@ -356,16 +344,6 @@ def detach_click_handler(handler: Any) -> Any | None:
                     attachment.controllers.pop(idx)
                     return c
     return None
-
-
-def modify_listener_map() -> dict[str, Any]:
-    """doc attachment key -> modify listener (tests)."""
-    with _lock:
-        return {
-            key: att.modify_listener
-            for key, att in _attachments.items()
-            if att.modify_listener is not None
-        }
 
 
 def mark_toolbar_docked(model: Any) -> None:

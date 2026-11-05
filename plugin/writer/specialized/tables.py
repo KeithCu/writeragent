@@ -14,12 +14,12 @@ from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.writer.record_changes import is_recording_changes
 from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal, make_tool_error, uno_read
 
-from ..range_copy import _writer_cell_position  # LibrePy-shipped; do not invert
+from ..range_copy import writer_cell_position  # LibrePy-shipped; do not invert
 from ..specialized_base import ToolWriterTableBase, enum_param
-from ..table_helpers import _check_grid, edit_table_band, fill_table_cells, table_dims
+from ..table_helpers import check_grid, edit_table_band, fill_table_cells, table_dims
 from ..table_nesting import (
     _FAILED,
-    _cell_hosted_table_names,
+    cell_hosted_table_names,
     cell_plain_siblings,
     set_host_paragraphs,
 )  # LibrePy-shipped; do not invert
@@ -148,7 +148,7 @@ def _writer_nesting(
             cell = uno_read(lambda: parent.getCellByName(cell_name), _FAILED)
             if cell is _FAILED:
                 continue
-            children = _cell_hosted_table_names(cell)
+            children = cell_hosted_table_names(cell)
             if not children:
                 continue
             hosted.setdefault(parent_name, {})[cell_name] = children
@@ -318,7 +318,7 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
     """
     hosted: list[str] = []
     for cell_name in _writer_named_cells(table):
-        pos = _writer_cell_position(cell_name)
+        pos = writer_cell_position(cell_name)
         if pos is None:
             continue
         col_idx, row_idx = pos
@@ -326,7 +326,7 @@ def _hosted_in_band(table: Any, axis_arg: str, idx: int) -> list[str]:
             continue
         cell = uno_read(lambda: table.getCellByName(cell_name), _FAILED)
         if cell is not _FAILED:
-            hosted.extend(_cell_hosted_table_names(cell))
+            hosted.extend(cell_hosted_table_names(cell))
     return list(dict.fromkeys(hosted))
 
 
@@ -444,7 +444,7 @@ class TableGetCells(ToolWriterTableBase):
             for cell_name in cell_names:
                 try:
                     c = table.getCellByName(cell_name)
-                    hosted = _cell_hosted_table_names(c)
+                    hosted = cell_hosted_table_names(c)
                     if hosted:
                         nested_in_cells[cell_name] = hosted
                     # Host cells omit concatenated inner-table text. get_string_without_tracked_deletions
@@ -529,7 +529,7 @@ class TableSetCell(ToolWriterTableBase):
                 )
             cell = table.getCellByName(cell_name)
             # setString wipes nested TextTables. Rewrite host paragraphs instead.
-            nested = _cell_hosted_table_names(cell)
+            nested = cell_hosted_table_names(cell)
             if nested:
                 old = cell_plain_siblings(cell)
                 set_host_paragraphs(cell, str(text))
@@ -687,7 +687,7 @@ class TableInsert(ToolWriterTableBase):
             data = kwargs.get("data")
             assert data is None or isinstance(data, (list, tuple)), type(data)
             if data:
-                _check_grid(data, rows, columns, reject_non_list=False)
+                check_grid(data, rows, columns, reject_non_list=False)
 
             doc = ctx.doc
             host_cell_name = ""
