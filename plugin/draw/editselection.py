@@ -40,20 +40,44 @@ def _is_text_edit_cursor(obj: Any) -> bool:
     )
 
 
-def _is_rewrite_text_object(obj: Any) -> bool:
-    return hasattr(obj, "getString") and hasattr(obj, "setString")
-
-
-def _append_text_target(targets: list[Any], shape: Any) -> None:
+def _read_text(text_obj: Any) -> str | None:
     try:
-        text = shape.getString()
+        val = text_obj.getString()
     except Exception as exc:
         if is_disposal(exc):
             raise
-        return
-    if not text:
-        return
-    targets.append(shape)
+        return None
+    return None if val is None else str(val)
+
+
+def _text_surfaces(shape: Any) -> list[Any]:
+    """Objects that accept setString for this shape's text (shape and/or XText)."""
+    surfaces: list[Any] = []
+    if hasattr(shape, "getString") and hasattr(shape, "setString"):
+        surfaces.append(shape)
+    if hasattr(shape, "getText"):
+        try:
+            xtext = shape.getText()
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            xtext = None
+        if (
+            xtext is not None
+            and hasattr(xtext, "getString")
+            and hasattr(xtext, "setString")
+            and xtext not in surfaces
+        ):
+            surfaces.append(xtext)
+    return surfaces
+
+
+def _append_text_target(targets: list[Any], shape: Any) -> None:
+    for surface in _text_surfaces(shape):
+        text = _read_text(surface)
+        if text:
+            targets.append(surface)
+            return
 
 
 def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool]) -> None:
@@ -64,7 +88,7 @@ def _walk_shape_for_targets(shape: Any, targets: list[Any], saw_table: list[bool
         for _child_idx, child in _iter_children(shape):
             _walk_shape_for_targets(child, targets, saw_table)
         return
-    if _is_rewrite_text_object(shape):
+    if _text_surfaces(shape):
         _append_text_target(targets, shape)
 
 
@@ -85,7 +109,7 @@ def iter_draw_rewrite_targets(selection: Any) -> tuple[list[Any], bool]:
         # otherwise the marked shapes are returned as a ShapeCollection (SdUnoDrawView.cxx).
         # Partial highlight still rewrites the whole shape text (setString on XText replaces all text).
         text_obj = selection.getText()
-        if _is_rewrite_text_object(text_obj):
+        if text_obj is not None and hasattr(text_obj, "getString") and hasattr(text_obj, "setString"):
             _append_text_target(targets, text_obj)
         return targets, saw_table[0]
 
