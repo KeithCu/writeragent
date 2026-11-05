@@ -10,6 +10,11 @@ import os
 import tempfile
 from typing import Any
 
+import os
+
+# storeToURL + two Hidden reloads can exceed the default 30s UNO watchdog on CI.
+os.environ.setdefault("WRITERAGENT_UNO_TEST_TIMEOUT", "120")
+
 import uno
 
 from plugin.framework.uno_context import create_property_value, get_desktop

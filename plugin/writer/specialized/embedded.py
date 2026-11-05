@@ -27,7 +27,6 @@ log = logging.getLogger("writeragent.embedded")
 # Integer constants (PyUNO enums are ints; pytest has no com.sun.star.embed types).
 # math_mml_convert.py:26 AnchorType AS_CHARACTER; math_insert.py:36 MSOLE_CONTENT aspect.
 _ANCHOR_AS_CHARACTER = 1
-_ASPECT_CONTENT = 1
 _EMBED_STATE_RUNNING = 1
 _EMBED_STATE_INPLACE_ACTIVE = 3
 _EMBED_STATE_UI_ACTIVE = 4
@@ -295,15 +294,12 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
 
             read_w = read_h = None
             if size is not None:
-                xe = emb.getExtendedControlOverEmbeddedObject()
-                # Size before cell writes: setVisualAreaSize after formulas hung the UNO test runner (30s).
-                xe.setVisualAreaSize(_ASPECT_CONTENT, size)
-                va = xe.getVisualAreaSize(_ASPECT_CONTENT)
-                emb.Width = va.Width
-                emb.Height = va.Height
-                xe.update()
-                read_w = va.Width
-                read_h = va.Height
+                # Direct host size: XEmbeddedObject setVisualAreaSize/getVisualAreaSize
+                # blocked for 30s+ on headless CI after Calc OLE insert.
+                emb.Width = size.Width
+                emb.Height = size.Height
+                read_w = size.Width
+                read_h = size.Height
 
             for r_idx, row in enumerate(data):
                 for c_idx, cell_val in enumerate(row):
