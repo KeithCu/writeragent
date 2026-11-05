@@ -19,7 +19,8 @@ from plugin.framework.errors import best_effort, is_disposal
 from plugin.framework.errors import document_is_disposed
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_active_document, process_events_to_idle
+from plugin.framework.send_cancellation import get_current_send_cancellation, is_cancelled
+from plugin.framework.uno_context import enum_has_more, get_active_document, process_events_to_idle
 from plugin.notebook import form_lookup
 from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, find_cell_by_hex, load_registry, save_registry
 from plugin.notebook.layout import (
@@ -112,10 +113,7 @@ def _is_stop_requested(busy_key: str) -> bool:
         ev = _stop_flags.get(busy_key)
     if ev is not None and ev.is_set():
         return True
-    from plugin.framework.send_cancellation import get_current_send_cancellation
-
-    scope = get_current_send_cancellation()
-    return scope is not None and scope.is_cancelled()
+    return is_cancelled(get_current_send_cancellation())
 
 
 def request_stop() -> None:
@@ -254,12 +252,12 @@ def _paragraph_has_frame(cursor: Any) -> bool:
     """
     para_rng = _enclosing_paragraph(cursor.getText(), cursor)
     paras = para_rng.createEnumeration()
-    if not form_lookup.enum_has_more(paras):
+    if not enum_has_more(paras):
         return False
     para = paras.nextElement()
     portions = para.createEnumeration()
     steps = 0
-    while steps < 64 and form_lookup.enum_has_more(portions):
+    while steps < 64 and enum_has_more(portions):
         steps += 1
         portion = portions.nextElement()
         if str(portion.getPropertyValue("TextPortionType") or "") == "Frame":
@@ -801,13 +799,13 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
     # cursor's elements raised UnknownPropertyException, the catch hid it,
     # and this always returned None.
     paras = para.createEnumeration()
-    if not form_lookup.enum_has_more(paras):
+    if not enum_has_more(paras):
         return None
     paragraph = paras.nextElement()
     enum = paragraph.createEnumeration()
     first = None
     last = None
-    while form_lookup.enum_has_more(enum):
+    while enum_has_more(enum):
         portion = enum.nextElement()
         ptype = str(portion.getPropertyValue("TextPortionType") or "")
         if ptype == "Frame":

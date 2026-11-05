@@ -450,9 +450,16 @@ def folder_store(
     resolved_mode = configured_folder_search_mode() if mode is None else mode
     meta = CorpusMeta.load(meta_path)
     empty = index_is_empty(meta_path, db_path, search_mode=resolved_mode, listing_root=listing_root, meta=meta)
-    search_path = None if empty else ready_search_path(
-        resolved_mode, listing_root, meta_path, db_path, meta=meta
-    )
+    if empty:
+        search_path = None
+    elif resolved_mode == "zvec" and listing_root:
+        search_path = str(zvec_collection_path(listing_root, create_parent=True))
+    elif resolved_mode == "lancedb" and listing_root:
+        search_path = str(lancedb_collection_path(listing_root, create_parent=True))
+    elif resolved_mode in ("zvec", "lancedb"):
+        search_path = None
+    else:
+        search_path = str(db_path)
     return FolderStore(mode=resolved_mode, search_path=search_path, is_empty=empty, meta=meta)
 
 

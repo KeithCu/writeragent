@@ -220,9 +220,6 @@ def _incremental_refresh(listing_root: str, embedding_model: str, files: list[Wr
         has_missing = False
         conn = connect_corpus_db(db_path)
         try:
-            from plugin.embeddings.venv.embeddings_sqlite import _load_vec_extension
-
-            _load_vec_extension(conn)
             has_missing = has_missing_vector_chunks(conn, embedding_model)
         except Exception:
             log.exception("Error checking for missing vectors in vector alignment check")

@@ -38,14 +38,12 @@ def schedule_periodic_embeddings_indexer_once(ctx: Any) -> None:
 def _embeddings_periodic_tick(ctx: Any) -> None:
     from plugin.embeddings.embeddings_indexer import enqueue_folder_index
     from plugin.framework.uno_context import get_active_document
-    from plugin.app import get_services
 
     model = get_active_document(ctx)
     if model is None:
         return
     try:
-        services = get_services()
-        enqueue_folder_index(ctx, services, model)
+        enqueue_folder_index(ctx, model)
     except Exception:
         log.exception("embeddings periodic indexer tick failed")
 

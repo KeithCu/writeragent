@@ -474,6 +474,24 @@ def test_corpus_meta_corrupt_file_handling(tmp_path):
     assert not meta.needs_cold_rebuild("any-model")
 
 
+def test_folder_store_zvec_lists_collection_once(tmp_path):
+    from unittest.mock import patch
+
+    listing = str(tmp_path / "docs")
+    meta_path = embeddings_cache.corpus_meta_path(listing)
+    db_path = embeddings_cache.corpus_db_path(listing, create_parent=False)
+    embeddings_cache.CorpusMeta.load(meta_path).update(chunk_count="3", embedding_model="m").save(meta_path)
+    store = embeddings_cache.zvec_collection_path(listing, create_parent=False)
+    store.mkdir()
+    (store / "segment").write_text("rows", encoding="utf-8")
+
+    with patch.object(embeddings_cache, "zvec_collection_looks_populated", wraps=embeddings_cache.zvec_collection_looks_populated) as probe:
+        folder = embeddings_cache.folder_store(listing, meta_path, db_path, mode="zvec")
+    probe.assert_called_once()
+    assert folder.is_empty is False
+    assert folder.search_path is not None
+
+
 def test_folder_store_empty_zvec_does_not_create_parent(tmp_path):
     listing = str(tmp_path / "docs")
     meta_path = embeddings_cache.corpus_meta_path(listing, create_parent=False)

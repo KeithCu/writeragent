@@ -19,7 +19,7 @@ from plugin.audio.model_cache_paths import (
 )
 from plugin.audio.tts_models import (
     _KOKORO_RELEASE_BASE,
-    _clear_tts_status,
+    clear_tts_status,
     _download_piper_pair,
     _download_to,
     DownloadOutcome,
@@ -336,10 +336,10 @@ def test_notify_tts_status_progress_prefers_progress_method():
     notify_tts_status("Downloading…", plain_calls.append, progress=True)
     assert plain_calls == ["Downloading…"]
 
-    _clear_tts_status(plain_calls.append)
+    clear_tts_status(plain_calls.append)
     assert plain_calls == ["Downloading…"]
 
-    _clear_tts_status(sink)
+    clear_tts_status(sink)
     assert calls == ["progress:Downloading…", "call:Speech request failed.", "clear"]
 
 

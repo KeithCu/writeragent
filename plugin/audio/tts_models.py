@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-from plugin.framework.send_cancellation import is_cancelled
-
 import contextlib
 import enum
 import logging
@@ -21,6 +19,7 @@ import urllib.request
 from typing import TYPE_CHECKING, Callable
 
 from plugin.framework.errors import best_effort
+from plugin.framework.send_cancellation import is_cancelled
 
 if TYPE_CHECKING:
     from plugin.audio.tts_service import Utterance
@@ -101,7 +100,7 @@ def notify_tts_status(
         log.debug("TTS status callback failed", exc_info=True)
 
 
-def _clear_tts_status(on_status: Callable[[str], None] | None) -> None:
+def clear_tts_status(on_status: Callable[[str], None] | None) -> None:
     """Dismiss a transient download/progress status when the callback supports it."""
     if on_status is None:
         return
@@ -432,7 +431,7 @@ def resolve_kokoro_model_files(
         if utt is not None:
             utt.note_download_failed("kokoro")
         notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
-        _clear_tts_status(on_status)
+        clear_tts_status(on_status)
         return model_s, voices_s
 
     notify_tts_status(_("Downloading Kokoro voice model…"), on_status, progress=True)
@@ -451,7 +450,7 @@ def resolve_kokoro_model_files(
             on_status=on_status,
         )
         if outcome is DownloadOutcome.CANCELLED:
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
             return model_s, voices_s
         elif outcome is not DownloadOutcome.OK:
             failed = True
@@ -469,7 +468,7 @@ def resolve_kokoro_model_files(
             on_status=on_status,
         )
         if outcome is DownloadOutcome.CANCELLED:
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
             return model_s, voices_s
         elif outcome is not DownloadOutcome.OK:
             failed = True
@@ -478,9 +477,9 @@ def resolve_kokoro_model_files(
         if utt is not None:
             utt.note_download_failed("kokoro")
         notify_tts_status(_("Couldn't download Kokoro; using OS speech"), on_status, progress=True)
-        _clear_tts_status(on_status)
+        clear_tts_status(on_status)
     else:
-        _clear_tts_status(on_status)
+        clear_tts_status(on_status)
 
     return model_s, voices_s
 
@@ -598,17 +597,17 @@ def resolve_piper_model_file(
             if utt is not None:
                 utt.note_download_failed(clean_v)
             notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
             return None
 
         notify_tts_status(_("Downloading Piper voice {0}…").format(short), on_status, progress=True)
         log.info("Downloading Piper voice model '%s' to %s...", clean_v, voice_s)
         outcome = _download_piper_pair(clean_v, voice_s, json_s, cancel=cancel, on_status=on_status)
         if outcome is DownloadOutcome.OK:
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
             return voice_s
         elif outcome is DownloadOutcome.CANCELLED:
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
             return None
 
         download_failed = True
@@ -630,7 +629,7 @@ def resolve_piper_model_file(
     if lessac_ready:
         if download_failed and other_voice:
             notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
         return default_voice_s
 
     if not (utt is not None and utt.download_failed(PIPER_FALLBACK_VOICE)):
@@ -640,22 +639,22 @@ def resolve_piper_model_file(
             if utt is not None:
                 utt.note_download_failed(PIPER_FALLBACK_VOICE)
             notify_tts_status(_("Not enough disk space to download the voice model."), on_status, progress=True)
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
             return None
 
         if download_failed and other_voice:
             notify_tts_status(_("Couldn't download {0}; using Lessac").format(short), on_status, progress=True)
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
         else:
             fallback_short = voice_short_name(PIPER_FALLBACK_VOICE)
             notify_tts_status(_("Downloading Piper voice {0}…").format(fallback_short), on_status, progress=True)
         log.info("Downloading Piper default voice model to %s...", default_voice_s)
         outcome_fallback = _download_piper_pair(PIPER_FALLBACK_VOICE, default_voice_s, default_json_s, cancel=cancel, on_status=on_status)
         if outcome_fallback is DownloadOutcome.OK:
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
             return default_voice_s
         elif outcome_fallback is DownloadOutcome.CANCELLED:
-            _clear_tts_status(on_status)
+            clear_tts_status(on_status)
             return None
 
         if utt is not None:
@@ -664,5 +663,5 @@ def resolve_piper_model_file(
 
     failed_name = short if download_failed else voice_short_name(PIPER_FALLBACK_VOICE)
     notify_tts_status(_("Couldn't download {0}; using OS speech").format(failed_name), on_status, progress=True)
-    _clear_tts_status(on_status)
+    clear_tts_status(on_status)
     return None

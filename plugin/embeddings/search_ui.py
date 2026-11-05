@@ -294,7 +294,7 @@ class SearchDialog:
                     if store.mode != "fts" and store.meta.query_blocked_for_model(model):
                         search_path = None
                 if search_path is None:
-                    main.call(ensure_index_wakeup, ctx, None, doc)
+                    main.call(ensure_index_wakeup, ctx, doc)
                     self._update_results_ui(
                         _("Folder index is building in the background. Please retry search shortly."),
                         enable_search_btn=True,
@@ -311,7 +311,7 @@ class SearchDialog:
                     doc_url_filter=None,
                 )
                 hits = list(result.get("hits") or [])
-                main.call(ensure_index_wakeup, ctx, None, doc)
+                main.call(ensure_index_wakeup, ctx, doc)
 
                 if not hits:
                     self._update_results_ui(_("No matches found."), enable_search_btn=True)

@@ -35,7 +35,7 @@ from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
 from plugin.notebook.cell_registry import load_registry
-from plugin.notebook.layout import RUN_PREFIX, doc_key, mono_ms
+from plugin.notebook.layout import RUN_PREFIX, doc_key, mono_ms, runtime_uid_from_doc_key
 
 log = logging.getLogger("writeragent.notebook")
 
@@ -163,7 +163,7 @@ class NotebookFormRunListener(BaseActionListener):
     def __init__(self, ctx: Any, doc: Any) -> None:
         self._ctx = ctx
         self._doc_key_val = doc_key(doc)
-        self._runtime_uid = self._doc_key_val[4:] if self._doc_key_val.startswith("uid:") else ""
+        self._runtime_uid = runtime_uid_from_doc_key(self._doc_key_val)
         self._attached_names = set()
 
     def _resolve_doc(self) -> Any | None:

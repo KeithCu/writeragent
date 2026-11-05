@@ -19,7 +19,7 @@ import threading
 from collections import deque
 from typing import Any, Callable, NamedTuple, cast
 
-from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.audio.kokoro_g2p import (
     G2P_FAILED_MARK,
     KOKORO_PIP_INSTALL,
@@ -33,7 +33,7 @@ from plugin.audio.kokoro_pool import (
 )
 from plugin.audio.tts_endpoint import download_endpoint_speech
 from plugin.audio.tts_models import (
-    _clear_tts_status,
+    clear_tts_status,
     notify_tts_status,
     resolve_kokoro_model_files,
     resolve_piper_model_file,
@@ -151,7 +151,7 @@ class _ReadyQueue:
         """Enqueue one clip, blocking if full until a clip plays or scope is cancelled."""
         with self._lock:
             while True:
-                if is_cancelled(cancel) or self._closed:
+                if cancel.is_cancelled() or self._closed:
                     return False
                 if len(self._clips) < 2:
                     break
@@ -167,7 +167,7 @@ class _ReadyQueue:
         """Pop the next clip in playback order, blocking until synthesized or closed."""
         with self._lock:
             while True:
-                if is_cancelled(cancel):
+                if cancel.is_cancelled():
                     return None
                 if self._clips:
                     clip = self._clips.popleft()
@@ -417,7 +417,7 @@ def _end_utterance(utt: Utterance) -> bool:
 def _new_speech_temp(suffix: str, cancel: SendCancellation) -> str | None:
     """Create a tracked temp file for audio."""
     with _speech_lock:
-        if is_cancelled(cancel):
+        if cancel.is_cancelled():
             return None
         fd, path = tempfile.mkstemp(prefix="writeragent_speech_", suffix=suffix)
         os.close(fd)
@@ -451,7 +451,7 @@ def _popen_for_speech(
 
     Does not hold _speech_lock across Popen so is_speaking is not blocked during process startup.
     """
-    if is_cancelled(cancel):
+    if cancel.is_cancelled():
         log.info("Speech cancelled before process spawn")
         return None
 
@@ -472,7 +472,7 @@ def _popen_for_speech(
     assert proc is not None
 
     with _speech_lock:
-        if is_cancelled(cancel):
+        if cancel.is_cancelled():
             log.info("Speech cancelled during process spawn, killing process")
             _signal_stop_proc(proc)
             # That reap waits up to 5s and must not take a pool slot.
@@ -492,12 +492,7 @@ def _clear_speech_proc(proc: subprocess.Popen[Any] | None) -> None:
 
 def sentence_speak_enabled() -> bool:
     """True when audio.tts_sentence_mode is active."""
-    val = config.get_config("audio.tts_sentence_mode")
-    if val is None:
-        return True
-    from plugin.framework.config_schema import as_bool
-
-    return as_bool(val)
+    return config.get_config("audio.tts_sentence_mode") is True
 
 
 def uses_sentence_by_sentence(provider: str) -> bool:
@@ -577,7 +572,7 @@ def _play_audio_file(file_path: str, cancel: SendCancellation) -> bool:
         return False
 
     for player_name, cmd, env in candidates:
-        if is_cancelled(cancel):
+        if cancel.is_cancelled():
             return False
         proc: subprocess.Popen[Any] | None = None
         try:
@@ -589,7 +584,7 @@ def _play_audio_file(file_path: str, cancel: SendCancellation) -> bool:
             if ret == 0:
                 log.info("Audio playback completed successfully")
                 return True
-            if is_cancelled(cancel):
+            if cancel.is_cancelled():
                 return False
             log.warning("Audio player '%s' exited with code %d; trying next candidate", player_name, ret)
         except Exception as exc:
@@ -689,7 +684,7 @@ def _speak_system(text: str, speed: float = 1.0, *, cancel: SendCancellation) ->
                 # spd-say takes text as argv; chunk if text is long
                 chunks = _chunk_text(text, 4000)
                 for chunk in chunks:
-                    if is_cancelled(cancel):
+                    if cancel.is_cancelled():
                         return
                     c_cmd = ["spd-say", "-r", str(rate_pct), "-w", "--", chunk]
                     chunk_proc: subprocess.Popen[Any] | None = None
@@ -706,7 +701,7 @@ def _speak_system(text: str, speed: float = 1.0, *, cancel: SendCancellation) ->
                     # Bugfix: spd-say failure ignored its exit code and kept speaking remaining chunks.
                     # chunk_proc.wait() was uninspected; now check ret != 0, warn if unblocked, and abort.
                     if ret != 0:
-                        if not is_cancelled(cancel):
+                        if not cancel.is_cancelled():
                             log.warning("spd-say exited with code %s; not speaking the remaining text", ret)
                         return
                 return
@@ -803,9 +798,9 @@ def _prepare_kokoro_misaki(
         cancel=cancel,
         run_cmd=_run_misaki_cmd,
     )
-    if ready is None or is_cancelled(cancel):
+    if ready is None or cancel.is_cancelled():
         return None
-    _clear_tts_status(on_status)
+    clear_tts_status(on_status)
     utt.remember_misaki(lang, bool(ready))
     return bool(ready)
 
@@ -915,7 +910,7 @@ def _kokoro_warm_to_file(
 ) -> tuple[str | None, bool]:
     """Synthesize with the keep-alive worker."""
     cancel = utt.scope
-    if is_cancelled(cancel):
+    if cancel.is_cancelled():
         return None, False
     try:
         pool = get_kokoro_pool()
@@ -950,7 +945,7 @@ def _kokoro_warm_to_file(
         log.exception("Kokoro warm worker raised; falling back to one-shot synthesis")
         _release_temp(tmp_wav)
         return None, True
-    if is_cancelled(cancel) or result.get("code") == "WORKER_CANCELLED":
+    if cancel.is_cancelled() or result.get("code") == "WORKER_CANCELLED":
         _release_temp(tmp_wav)
         return None, False
     if (
@@ -1058,12 +1053,12 @@ def _kokoro_audio_file(
 def _wav_played_or_blocked(wav_path: str | None, cancel: SendCancellation) -> bool:
     """True when the caller must not fall back to OS speech."""
     if not wav_path:
-        return is_cancelled(cancel)
+        return cancel.is_cancelled()
     try:
         played = _play_audio_file(wav_path, cancel=cancel)
     finally:
         _release_temp(wav_path)
-    return bool(is_cancelled(cancel) or played)
+    return bool(cancel.is_cancelled() or played)
 
 
 def _piper_audio_file(
@@ -1124,7 +1119,7 @@ def _speak_local(
     cancel = utt.scope
     engine = "Kokoro" if provider == "kokoro" else "Piper"
     log.info("Speaking via local %s (voice=%s, speed=%.2f)", engine, voice, speed)
-    if is_cancelled(cancel):
+    if cancel.is_cancelled():
         return
     py_exe = resolve_kokoro_python()
     if not py_exe:
@@ -1172,7 +1167,7 @@ def _synthesize_sentence_clip(
     elif provider == "piper":
         path = _piper_audio_file(sentence, voice, speed, on_status, utt)
 
-    if is_cancelled(cancel):
+    if cancel.is_cancelled():
         _release_temp(path)
         return None
     if path and os.path.isfile(path) and os.path.getsize(path) > 0:
@@ -1194,7 +1189,7 @@ def _play_ready_queue(
                 break
             try:
                 played = clip.path and _play_audio_file(clip.path, cancel=cancel)
-                if not played and not is_cancelled(cancel):
+                if not played and not cancel.is_cancelled():
                     _speak_system(clip.text, speed=speed, cancel=cancel)
             finally:
                 _release_temp(clip.path)
@@ -1218,7 +1213,7 @@ def _prefetch(
     done = 0
     try:
         for index, chunk in enumerate(chunks):
-            if is_cancelled(cancel):
+            if cancel.is_cancelled():
                 return
             clip = synth(index, chunk)
             if clip is None:
@@ -1231,7 +1226,7 @@ def _prefetch(
         log.exception("Prefetch thread failed")
         if speak_rest_on_error:
             rest = chunks[done:]
-            if rest and not is_cancelled(cancel):
+            if rest and not cancel.is_cancelled():
                 ready.put(_ReadyClip(None, " ".join(rest), 0), cancel)
 
 
@@ -1245,7 +1240,7 @@ def _run_ready_playback(
     """Register the queue, fill it on a background thread, play it on this thread."""
     ready = _ReadyQueue()
     with _speech_lock:
-        if is_cancelled(cancel):
+        if cancel.is_cancelled():
             return
         if _current is not None:
             _current.ready = ready
@@ -1318,7 +1313,7 @@ def _speak_endpoint(
 
     def _synth(index: int, chunk: str) -> _ReadyClip | None:
         nonlocal bailed
-        if bailed or is_cancelled(cancel):
+        if bailed or cancel.is_cancelled():
             return None
 
         clip = download_endpoint_speech(
@@ -1331,14 +1326,14 @@ def _speak_endpoint(
             on_status=on_status,
             cancel=cancel,
         )
-        if is_cancelled(cancel):
+        if cancel.is_cancelled():
             return None
 
         def _bail(notify: bool = False) -> _ReadyClip:
             nonlocal bailed
             bailed = True
             log.warning("Endpoint TTS failed; falling back to OS system speech.")
-            if notify and not is_cancelled(cancel):
+            if notify and not cancel.is_cancelled():
                 notify_tts_status(_("Could not save speech audio."), on_status)
             return _ReadyClip(None, " ".join(chunks[index:]), 0)
 
@@ -1407,7 +1402,7 @@ def speak_text_async(
 
     def _worker() -> None:
         try:
-            if is_cancelled(cancel):
+            if cancel.is_cancelled():
                 return
 
             # Captured before the worker. The sentence list was split for this

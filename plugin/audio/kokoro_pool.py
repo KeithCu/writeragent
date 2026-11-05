@@ -18,14 +18,13 @@ the module singleton for tests only.
 
 from __future__ import annotations
 
-from plugin.framework.send_cancellation import is_cancelled
-
 import logging
 import os
 import threading
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.child_runtime import Deadline
+from plugin.framework.send_cancellation import is_cancelled
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, error_dict, supervisor as warm_supervisor
 from plugin.scripting.sandbox import resolve_venv_python

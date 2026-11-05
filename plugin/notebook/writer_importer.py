@@ -55,6 +55,8 @@ from plugin.notebook.cell_registry import (
 from plugin.notebook.layout import (
     CODE_FONT_NAME,
     PARAGRAPH_BREAK,
+    STYLE_MD_H1,
+    STYLE_MD_H2,
     STYLE_NOTEBOOK_IN,
     STYLE_NOTEBOOK_OUT,
     cap_from_style,
@@ -85,12 +87,10 @@ _REMOTE_IMAGE_BUDGET_SEC = 4.0
 # Writer paragraph styles (document locale usually provides these English names).
 # Markdown ATX uses Heading 1/2. Cell chrome (Heading 3 "Cell N: …" / Heading 4
 # "Output") is no longer written — Jupyter has neither.
-_STYLE_MD_H1 = "Heading 1"
-_STYLE_MD_H2 = "Heading 2"
 _STYLE_OUTPUT = "Preformatted Text"
 _STYLE_BODY = "Text Body"
 
-_MD_BLOCK_PARA_STYLE = {"h1": _STYLE_MD_H1, "h2": _STYLE_MD_H2, "pre": _STYLE_BODY}
+_MD_BLOCK_PARA_STYLE = {"h1": STYLE_MD_H1, "h2": STYLE_MD_H2, "pre": _STYLE_BODY}
 _NOTEBOOK_IN_CHAR_HEIGHT = 9
 _NOTEBOOK_IN_MARGIN_TOP = 200
 _NOTEBOOK_IN_MARGIN_BOTTOM = 40
@@ -254,7 +254,7 @@ def _apply_no_spellcheck_for_import(doc: Any) -> None:
         return
     # Cell chrome no longer writes Heading 3 / Heading 4; zxx stays because a raw HTML cell
     # can still produce them through StarWriter, and File -> Open is a fresh document.
-    for style_name in ("Standard", _STYLE_BODY, _STYLE_MD_H1, _STYLE_MD_H2, "Heading 3", "Heading 4", _STYLE_OUTPUT, STYLE_NOTEBOOK_IN):
+    for style_name in ("Standard", _STYLE_BODY, STYLE_MD_H1, STYLE_MD_H2, "Heading 3", "Heading 4", _STYLE_OUTPUT, STYLE_NOTEBOOK_IN):
         resolved = resolve_para_style(doc, style_name)
         if not resolved:
             continue
