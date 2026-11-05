@@ -28,6 +28,8 @@ from contextlib import contextmanager
 from typing import Any, BinaryIO, Callable, IO, Generator, cast
 from weakref import WeakKeyDictionary
 
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+
 log = logging.getLogger("writeragent.scripting.ipc")
 
 # select(0) returns immediately. Callers refuse a spent deadline before
@@ -745,7 +747,7 @@ def _unread_pipe_bytes(stream: IO[bytes], n: int = 512) -> bytes:
     return data if isinstance(data, (bytes, bytearray)) else b""
 
 
-def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
+def _stop_requested(cancel: SendCancellation | None) -> bool:
     """True when the user pressed Stop.
 
     A checker that raises (KeyError, or anything outside the IPC except
@@ -754,12 +756,12 @@ def _stop_requested(stop_checker: Callable[[], bool] | None) -> bool:
     so the pipe stays aligned. A tool_call frame is still answered in
     ``host_rpc``, which has a frame to reply to.
     """
-    if stop_checker is None:
+    if cancel is None:
         return False
     try:
-        return bool(stop_checker())
+        return is_cancelled(cancel)
     except Exception:
-        log.exception("stop_checker failed (continuing)")
+        log.exception("cancel check failed (continuing)")
         return False
 
 
@@ -818,7 +820,7 @@ def _poll_pipe(
     *,
     timeout_label: float,
     cmd: str,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     is_alive: Callable[[], bool] | None = None,
     select_cap: float = 1.0,
     partial: bool = False,
@@ -833,7 +835,7 @@ def _poll_pipe(
     *use_peek* is the Windows path: pipes are not selectable there.
     The second value is the peeked byte count (0 for select).
     """
-    if _stop_requested(stop_checker):
+    if _stop_requested(cancel):
         raise subprocess.TimeoutExpired(cmd=cmd, timeout=timeout_label)
     remaining = deadline - time.monotonic()
     if remaining <= 0:
@@ -870,7 +872,7 @@ def read_frame_payload(
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES,
     frame_label: str = "IPC frame",
     is_alive: Callable[[], bool] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     deadline: float | None = None,
     cmd: str | None = None,
 ) -> bytes | None:
@@ -879,7 +881,7 @@ def read_frame_payload(
     With no *timeout_sec* this blocks (child side). With one, header and
     payload share that deadline: POSIX uses ``select``, Windows polls
     ``PeekNamedPipe``, and streams without a real fd (BytesIO, mocks) wait
-    on a daemon thread. A ``stop_checker`` raises ``TimeoutExpired`` (the
+    on a daemon thread. *cancel* raises ``TimeoutExpired`` (the
     caller maps that to cancel); ``deadline`` is an absolute
     ``time.monotonic()`` stamp. Zero bytes at a frame boundary is clean EOF
     (None). EOF after at least one byte of a frame raises ``IpcFrameReadError``.
@@ -915,7 +917,7 @@ def read_frame_payload(
 
         if fd is None:
             def _read_exact(n: int, *, frame_started: bool = False) -> bytes:
-                if _stop_requested(stop_checker):
+                if _stop_requested(cancel):
                     raise subprocess.TimeoutExpired(cmd=cmd_name, timeout=label)
                 if is_alive is not None and not is_alive():
                     return b""
@@ -952,9 +954,9 @@ def read_frame_payload(
                         abs_deadline,
                         timeout_label=label,
                         cmd=cmd_name,
-                        stop_checker=stop_checker,
+                        cancel=cancel,
                         is_alive=is_alive,
-                        select_cap=0.2 if stop_checker is not None else 1.0,
+                        select_cap=0.2 if cancel is not None else 1.0,
                         partial=frame_started or len(buf) > 0,
                         use_peek=(sys.platform == "win32"),
                     )

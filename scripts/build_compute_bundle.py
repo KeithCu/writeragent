@@ -57,6 +57,7 @@ COMPUTE_PLUGIN_FILES = (
     "plugin/framework/json_utils.py",
     "plugin/framework/managed_subprocess.py",
     "plugin/framework/process_global.py",
+    "plugin/framework/send_cancellation.py",
     "plugin/framework/subprocess_env.py",
     "plugin/framework/module_base.py",
     "plugin/framework/module_graph.py",
