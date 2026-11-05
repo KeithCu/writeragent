@@ -57,7 +57,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 
 | Key | Type | Default | Range | Description |
 | --- | --- | --- | --- | --- |
-| `backend_id` | `string` | `"builtin"` |  | Backend Options: builtin (Built-in), hermes (Hermes), claude (Claude Code), vibe (Mistral Vibe), grok (Grok Build), opencode (OpenCode) |
+| `backend_id` | `string` | `"builtin"` |  | Backend Options: builtin (Built-in), hermes (Hermes), claude (Claude Code), vibe (Mistral Vibe), grok (Grok Build), opencode (OpenCode), antigravity (Antigravity) |
 | `path` | `string` | `""` |  | Internal. Path to the backend CLI. Empty = search PATH. |
 | `args` | `string` | `""` |  | Internal. Optional arguments for the selected backend (space-separated). |
 | `prompt_for_permission` | `boolean` | `true` |  | Ask for confirmation before allowing the agent to use tools (read files, execute commands, etc.) |
