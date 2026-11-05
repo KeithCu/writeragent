@@ -17,7 +17,6 @@
 
 One session id for the whole soffice process, shared by every MCP client.
 Minted on first successful initialize; never rotated; never cleared on DELETE.
-Stale session ids return HTTP 404, which never repeats the live id.
 """
 
 from __future__ import annotations
@@ -31,15 +30,15 @@ from plugin.mcp import wire_types
 from plugin.mcp.cors import drain_request_body, send_cors_headers
 from plugin.mcp.server import write_http_json
 
-log = logging.getLogger("writeragent.mcp.protocol")
+log = logging.getLogger(__name__)
 
 
-def _get_request_session_id(handler: Any) -> str | None:
+def get_request_session_id(handler: Any) -> str | None:
     value = handler.headers.get("Mcp-Session-Id")
     return value.strip() if value else None
 
 
-def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -> None:
+def send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -> None:
     """CORS plus streamable-HTTP MCP headers on every MCP transport response."""
     send_cors_headers(handler, preflight=False)
     handler.send_header("Mcp-Protocol-Version", wire_types.MCP_PROTOCOL_VERSION)
@@ -47,18 +46,18 @@ def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -
         handler.send_header("Mcp-Session-Id", session_id)
 
 
-_mcp_session_id = None
+mcp_session_id: str | None = None
 _mcp_session_lock = threading.Lock()
 _SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
 
 
 def mint_session_id_once() -> str:
     """Assign uuid4 on first successful initialize; later calls keep that id."""
-    global _mcp_session_id
+    global mcp_session_id
     with _mcp_session_lock:
-        if _mcp_session_id is None:
-            _mcp_session_id = str(uuid.uuid4())
-        return _mcp_session_id
+        if mcp_session_id is None:
+            mcp_session_id = str(uuid.uuid4())
+        return mcp_session_id
 
 
 def reject_stale_session(handler: Any, msg: Any = None) -> bool:
@@ -70,8 +69,8 @@ def reject_stale_session(handler: Any, msg: Any = None) -> bool:
     request so we never process some items. The 404 says the client's session is
     gone, so it sends Mcp-Protocol-Version and CORS but not Mcp-Session-Id.
     """
-    incoming = _get_request_session_id(handler)
-    current = _mcp_session_id
+    incoming = get_request_session_id(handler)
+    current = mcp_session_id
     if incoming is None or incoming == current:
         return False
     if isinstance(msg, dict) and msg.get("method") == "initialize":
@@ -85,7 +84,7 @@ def reject_stale_session(handler: Any, msg: Any = None) -> bool:
     handler.close_connection = True
 
     def _headers(h: Any) -> None:
-        _send_mcp_response_headers(h)
+        send_mcp_response_headers(h)
         h.send_header("Connection", "close")
 
     write_http_json(

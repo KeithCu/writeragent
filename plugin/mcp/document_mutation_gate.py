@@ -32,13 +32,13 @@ if TYPE_CHECKING:
 
 from plugin.framework.errors import WriterAgentException
 
-log = logging.getLogger("writeragent.mcp.protocol")
+log = logging.getLogger(__name__)
 
 _doc_gates: WeakValueDictionary[str, threading.Lock] = WeakValueDictionary()
 _doc_gates_guard = threading.Lock()
 
 
-def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
+def get_document_mutation_gate(doc_key: str) -> threading.Lock:
     # Callers hold a strong local reference for the whole acquire/release;
     # a gate no caller holds may be collected.
     with _doc_gates_guard:
@@ -50,8 +50,8 @@ def _get_document_mutation_gate(doc_key: str) -> threading.Lock:
 
 
 @contextmanager
-def _document_mutation_gate(doc_key: str, *, timeout: float = 30.0) -> Generator[None, None, None]:  # pyright: ignore[reportUnusedFunction]
-    gate = _get_document_mutation_gate(doc_key)
+def document_mutation_gate(doc_key: str, *, timeout: float = 30.0) -> Generator[None, None, None]:
+    gate = get_document_mutation_gate(doc_key)
     if not gate.acquire(timeout=timeout):
         log.warning("MCP _document_mutation_gate timed out after %.2fs waiting for %s", timeout, doc_key)
         raise BusyError("Timed out waiting for another edit to this document. Retry in a moment.")

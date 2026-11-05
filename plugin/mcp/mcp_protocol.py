@@ -45,7 +45,7 @@ from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
 from plugin.version import EXTENSION_VERSION
 from plugin.framework.tool import ToolContext
-from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.errors import resolve_exception_message, format_error_payload, make_tool_error
 import plugin.mcp.document_mutation_gate as document_mutation_gate
 import plugin.mcp.mcp_session as mcp_session
@@ -58,7 +58,7 @@ from plugin.mcp.server import (
 )
 from plugin.mcp import wire_types
 
-log = logging.getLogger("writeragent.mcp.protocol")
+log = logging.getLogger(__name__)
 
 # Longest an SSE keepalive wait goes without checking HttpServer.stop's flag.
 _SSE_STOP_POLL_SEC = 0.5
@@ -73,7 +73,7 @@ def _is_long_running(tool: Any) -> bool:
 
 def _send_405(handler: Any, allow: str) -> None:
     def _headers(h: Any) -> None:
-        mcp_session._send_mcp_response_headers(h)
+        mcp_session.send_mcp_response_headers(h)
         h.send_header("Allow", allow)
 
     write_http_empty(handler, 405, extra_headers=_headers)
@@ -361,7 +361,7 @@ class MCPProtocolHandler:
         """
         if handler is None:
             return None
-        session_id = mcp_session._get_request_session_id(handler)
+        session_id = mcp_session.get_request_session_id(handler)
         if not session_id and hasattr(handler, "headers") and handler.headers:
             session_id = handler.headers.get("X-Session-Id") or handler.headers.get("X-Session-ID")
         addr = getattr(handler, "client_address", None)
@@ -423,7 +423,7 @@ class MCPProtocolHandler:
             handler.send_header("Cache-Control", "no-cache")
             for name, value in extra_headers:
                 handler.send_header(name, value)
-            mcp_session._send_mcp_response_headers(handler)
+            mcp_session.send_mcp_response_headers(handler)
             handler.end_headers()
             if open_log:
                 log.info("[SSE] GET stream opened")
@@ -886,8 +886,7 @@ class MCPProtocolHandler:
                 result = self._mcp_tools_list(params, document_url=document_url)
             elif method == "tools/call":
                 cancel_key = (session, req_id) if req_id is not None else None
-                outer = get_current_send_cancellation()
-                scope = outer if outer is not None else SendCancellation()
+                scope = SendCancellation()
                 if cancel_key is not None:
                     with self._requests_lock:
                         self._request_scopes.setdefault(cancel_key, []).append(scope)
@@ -953,7 +952,7 @@ class MCPProtocolHandler:
             return prepared
 
         gate = (
-            document_mutation_gate._document_mutation_gate(prepared.doc_key)
+            document_mutation_gate.document_mutation_gate(prepared.doc_key)
             if prepared.needs_gate
             else contextlib.nullcontext()
         )
@@ -1085,7 +1084,7 @@ class MCPProtocolHandler:
         A latched Stop is refused here so the fast path and the long-running path share one pre-execute check.
         """
         scope = prepared.context.send_cancellation
-        if scope is not None and scope.is_cancelled():
+        if is_cancelled(scope):
             # What was wrong: the fast path used to skip the Stop check, so a tool
             # cancelled during prepare or the gate wait still ran.
             # How: both paths call this method before execute.
@@ -1138,7 +1137,7 @@ class MCPProtocolHandler:
     def _debug_services(self) -> Any:
         if not self.services:
             return []
-        return list(self.services._services.keys())
+        return self.services.names()
 
     def _debug_config(self, key: Any, value: Any) -> Any:
         from plugin.framework.config import get_config, get_config_dict, save
@@ -1154,8 +1153,8 @@ class MCPProtocolHandler:
 
     def _send_empty(self, handler: Any, status: int) -> None:
         """Send an empty response via an HTTP handler."""
-        write_http_empty(handler, status, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
+        write_http_empty(handler, status, extra_headers=lambda h: mcp_session.send_mcp_response_headers(h, session_id=mcp_session.mcp_session_id))
 
     def _send_json(self, handler: Any, status: int, data: Any) -> None:
         """Send a JSON response via an HTTP handler."""
-        write_http_json(handler, status, data, extra_headers=lambda h: mcp_session._send_mcp_response_headers(h, session_id=mcp_session._mcp_session_id))
+        write_http_json(handler, status, data, extra_headers=lambda h: mcp_session.send_mcp_response_headers(h, session_id=mcp_session.mcp_session_id))

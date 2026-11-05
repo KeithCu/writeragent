@@ -88,5 +88,5 @@ class TestAccess():
         reg = ServiceRegistry()
         reg.register('dummy', DummyService())
         reg.register('another', AnotherService())
-        assert (set(reg._services) == {'dummy', 'another'})
+        assert reg.names() == ["dummy", "another"]
 

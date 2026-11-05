@@ -25,9 +25,37 @@ _bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
 _bootstrap_error: BaseException | None = None
 
 
+def bootstrap_state() -> BootstrapState:
+    return _bootstrap_state
+
+
 def bootstrap_initialized() -> bool:
     """True when bootstrap_extension has finished successfully."""
-    return _bootstrap_state is BootstrapState.INITIALIZED
+    return bootstrap_state() is BootstrapState.INITIALIZED
+
+
+def bootstrap_error() -> BaseException | None:
+    return _bootstrap_error
+
+
+def mark_initialized() -> None:
+    global _bootstrap_state
+    _bootstrap_state = BootstrapState.INITIALIZED
+
+
+def mark_uninitialized() -> None:
+    global _bootstrap_state
+    _bootstrap_state = BootstrapState.UNINITIALIZED
+
+
+def mark_failed(exc: BaseException) -> None:
+    global _bootstrap_error
+    _bootstrap_error = exc
+
+
+def clear_bootstrap_error() -> None:
+    global _bootstrap_error
+    _bootstrap_error = None
 
 
 def bootstrap_extension(

@@ -62,7 +62,7 @@ def test_document_echo_payload_logs_and_returns_none(caplog):
         def URL(self):
             raise RuntimeError("simulated document URL access failure")
 
-    caplog.set_level(logging.ERROR, logger="writeragent.mcp.protocol")
+    caplog.set_level(logging.ERROR, logger="plugin.mcp.mcp_protocol")
     assert _document_echo_payload(_DocWithFailingURL()) is None
     record = next(r for r in caplog.records if "MCP document echo failed" in r.message)
     assert record.exc_info is not None
@@ -445,7 +445,7 @@ def test_notification_batch_includes_session_id(monkeypatch):
     """HTTP 202 for a notifications-only batch must refresh Mcp-Session-Id."""
     import plugin.mcp.mcp_session as mcp_session
 
-    monkeypatch.setattr(mcp_session, "_mcp_session_id", "sess-batch")
+    monkeypatch.setattr(mcp_session, "mcp_session_id", "sess-batch")
     handler = MagicMock()
     handler.headers = _NoHeaders()
     sent: list[tuple[str, str]] = []
@@ -462,7 +462,7 @@ def test_notification_batch_includes_session_id(monkeypatch):
 def test_stale_batch_containing_initialize_is_404(monkeypatch):
     import plugin.mcp.mcp_session as mcp_session
 
-    monkeypatch.setattr(mcp_session, "_mcp_session_id", "live-session")
+    monkeypatch.setattr(mcp_session, "mcp_session_id", "live-session")
 
     class _DeadHeaders:
         def get(self, name, default=None):
@@ -1162,7 +1162,7 @@ def test_sse_keepalive_unexpected_error_is_logged(caplog):
     stop_event = threading.Event()
     sse.reserve.return_value = stop_event
     http.server = MagicMock(sse_registry=sse)
-    with caplog.at_level(logging.ERROR, logger="writeragent.mcp.protocol"):
+    with caplog.at_level(logging.ERROR, logger="plugin.mcp.mcp_protocol"):
         protocol._run_sse_keepalive_loop(http, interval=30)
     sse.release.assert_called_once()
     assert any(r.exc_info and "SSE keepalive loop exception" in r.getMessage() for r in caplog.records)

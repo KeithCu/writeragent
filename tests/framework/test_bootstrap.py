@@ -35,22 +35,22 @@ def test_bootstrap_extension_pythonloader_namespace(monkeypatch):
     import plugin.bootstrap as bootstrap
 
     _patch_bootstrap_deps(monkeypatch)
-    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-    bootstrap._bootstrap_error = None
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
 
     finish_calls = 0
 
     def finish(unused_ctx):
         nonlocal finish_calls
         finish_calls += 1
-        bootstrap._bootstrap_state = BootstrapState.INITIALIZED
+        bootstrap.mark_initialized()
 
     bootstrap_extension(
         None,
         extension_id="org.example.test",
         finish=finish,
     )
-    assert bootstrap._bootstrap_state is BootstrapState.INITIALIZED
+    assert bootstrap.bootstrap_initialized()
     assert finish_calls == 1
 
     with patch("plugin.framework.config.init_config") as mock_init_config:
@@ -61,8 +61,8 @@ def test_bootstrap_extension_pythonloader_namespace(monkeypatch):
         )
         mock_init_config.assert_not_called()
     assert finish_calls == 1
-    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-    bootstrap._bootstrap_error = None
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
 
 
 def test_bind_writeragent_first_call_wins(monkeypatch):
@@ -74,10 +74,10 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
     prev_services = app._services
     prev_tools = app._tools
     prev_modules = list(app._modules)
-    prev_state = bootstrap._bootstrap_state
-    prev_err = bootstrap._bootstrap_error
-    bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
-    bootstrap._bootstrap_error = None
+    prev_state = bootstrap.bootstrap_state()
+    prev_err = bootstrap.bootstrap_error()
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
     app._finish = None
     app._services = None
     app._tools = None
@@ -89,7 +89,7 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
     def first_finish(_ctx):
         nonlocal first_calls
         first_calls += 1
-        bootstrap._bootstrap_state = BootstrapState.INITIALIZED
+        bootstrap.mark_initialized()
 
     def second_finish(_ctx):
         nonlocal second_calls
@@ -101,7 +101,7 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
         app.bootstrap(None)
         assert first_calls == 1
         assert second_calls == 0
-        assert bootstrap._bootstrap_state is BootstrapState.INITIALIZED
+        assert bootstrap.bootstrap_initialized()
 
         app.bootstrap(None)
         assert first_calls == 1
@@ -112,8 +112,14 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
         app._tools = prev_tools
         app._modules.clear()
         app._modules.extend(prev_modules)
-        bootstrap._bootstrap_state = prev_state
-        bootstrap._bootstrap_error = prev_err
+        if prev_state is BootstrapState.INITIALIZED:
+            bootstrap.mark_initialized()
+        else:
+            bootstrap.mark_uninitialized()
+        if prev_err is not None:
+            bootstrap.mark_failed(prev_err)
+        else:
+            bootstrap.clear_bootstrap_error()
 
 
 def test_unbound_bootstrap_raises_and_does_not_import_main():
@@ -132,7 +138,7 @@ else:
     raise SystemExit("expected WriterAgentException")
 assert "plugin.main" not in sys.modules
 from plugin import bootstrap as bootstrap_mod
-assert bootstrap_mod._bootstrap_state is BootstrapState.UNINITIALIZED
+assert bootstrap_mod.bootstrap_state() is BootstrapState.UNINITIALIZED
 """
     proc = subprocess.run(
         [sys.executable, "-c", code],
@@ -159,3 +165,18 @@ def test_app_py_does_not_import_plugin_main():
             walk(child)
 
     walk(tree)
+
+
+def test_is_dev_build_eq_one_only(monkeypatch):
+    import plugin.app as app
+
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    assert app.is_dev_build() is False
+    monkeypatch.setenv("WRITERAGENT_TESTING", "0")
+    assert app.is_dev_build() is False
+    monkeypatch.setenv("WRITERAGENT_TESTING", "true")
+    assert app.is_dev_build() is False
+    monkeypatch.setenv("WRITERAGENT_TESTING", "")
+    assert app.is_dev_build() is False
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    assert app.is_dev_build() is True
