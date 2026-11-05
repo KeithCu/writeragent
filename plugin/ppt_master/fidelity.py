@@ -21,6 +21,7 @@ from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executable
 from plugin.framework.errors import best_effort
 from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.framework.queue_executor import main
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
 from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
@@ -369,19 +370,6 @@ def pdf_page_to_png(pdf_path: Path, png_path: Path, *, page_1based: int, dpi: in
     return False
 
 
-def import_slide_to_odp(
-    ctx: Any,
-    pptx_path: Path,
-    slide_index: int,
-    odp_path: Path,
-) -> tuple[Any, Any] | None:
-    """Import one PPTX slide via the shipped pipeline; save a one-slide Impress doc."""
-    imported = import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
-    if imported is None:
-        return None
-    return imported
-
-
 def evaluate_slide_fidelity(
     ctx: Any,
     *,
@@ -408,7 +396,8 @@ def evaluate_slide_fidelity(
     )
 
     odp_path = slide_dir / "imported.odp"
-    imported = import_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
+    # Script path's single marshal; on the process main thread main.call runs inline.
+    imported = main.call(lambda: import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path))
     if imported is None:
         result.errors.append("import_pptx_slide_to_odp failed")
         return result

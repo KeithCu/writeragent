@@ -328,13 +328,6 @@ def _clamp_shape_text_autogrow(shape: Any, *, apply_autofit: bool = True) -> Non
         log.debug("set TextFitToSize AUTOFIT failed", exc_info=True)
 
 
-def _failed_prop(failed: list[str], name: str, exc: BaseException) -> None:
-    """Record a property that did not apply; a closed document still propagates."""
-    if is_disposal(exc):
-        raise
-    failed.append(name)
-
-
 def _try(failed: list[str], name: str, fn: Any) -> None:
     if not uno_write(fn):
         failed.append(name)
@@ -346,7 +339,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # "text" in kwargs (not truthy) so paper-form fills can write "" or keep a Name-only edit.
     if "text" in kwargs and hasattr(shape, "setString"):
-        try:
+
+        def _apply_text() -> None:
             # Schema already exposes font_size/font_name; explicit font_size opts out of AUTOFIT.
             if kwargs.get("action") == "edit":
                 apply_autofit = ("font_size" not in kwargs) and ("width" in kwargs or "height" in kwargs)
@@ -354,8 +348,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                 apply_autofit = "font_size" not in kwargs
             _clamp_shape_text_autogrow(shape, apply_autofit=apply_autofit)
             shape.setString("" if kwargs["text"] is None else str(kwargs["text"]))
-        except Exception as exc:
-            _failed_prop(failed_props, "text", exc)
+
+        _try(failed_props, "text", _apply_text)
 
     if kwargs.get("name") and hasattr(shape, "Name"):
         _try(failed_props, "name", lambda: setattr(shape, "Name", str(kwargs["name"])))
@@ -365,12 +359,13 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
         color_str = kwargs.get("fill_color")
         color_str_l = (color_str or "").strip().lower()
         if color_str_l in ("none", "transparent") and hasattr(shape, "FillStyle"):
-            try:
+
+            def _clear_fill_color() -> None:
                 from com.sun.star.drawing import FillStyle
 
                 shape.setPropertyValue("FillStyle", FillStyle.NONE)
-            except Exception as exc:
-                _failed_prop(failed_props, "fill_color", exc)
+
+            _try(failed_props, "fill_color", _clear_fill_color)
         else:
             color = parse_color_to_uno_int(color_str)
             if color is None:
@@ -387,7 +382,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # Fill Style (solid, transparent, etc)
     if kwargs.get("fill_style") and hasattr(shape, "FillStyle"):
-        try:
+
+        def _apply_fill_style() -> None:
             from com.sun.star.drawing import FillStyle
 
             style_str = kwargs["fill_style"].lower()
@@ -395,8 +391,8 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
                 shape.setPropertyValue("FillStyle", FillStyle.NONE)
             elif style_str == "solid":
                 shape.setPropertyValue("FillStyle", FillStyle.SOLID)
-        except Exception as exc:
-            _failed_prop(failed_props, "fill_style", exc)
+
+        _try(failed_props, "fill_style", _apply_fill_style)
 
     # Line Color
     if kwargs.get("line_color"):
@@ -412,22 +408,29 @@ def _apply_shape_properties(shape: Any, kwargs: dict[str, Any]) -> list[str]:
 
     # Line Style (ensure border is visible when colored or sized)
     if (kwargs.get("line_color") or kwargs.get("line_width") is not None) and hasattr(shape, "LineStyle"):
-        try:
+
+        def _apply_line_style() -> None:
             from com.sun.star.drawing import LineStyle
 
             shape.setPropertyValue("LineStyle", LineStyle.SOLID)
-        except Exception as exc:
-            _failed_prop(failed_props, "line_style", exc)
+
+        _try(failed_props, "line_style", _apply_line_style)
 
     # Text Properties (Font Size, Name, Color)
     if kwargs.get("text_color") or kwargs.get("font_size") or kwargs.get("font_name"):
-        try:
-            char_res = apply_character_properties(shape, font_name=kwargs.get("font_name"), font_size_pt=kwargs.get("font_size"), color=kwargs.get("text_color"))
+
+        def _apply_text_properties() -> None:
+            char_res = apply_character_properties(
+                shape,
+                font_name=kwargs.get("font_name"),
+                font_size_pt=kwargs.get("font_size"),
+                color=kwargs.get("text_color"),
+            )
             for prop_name, ok in char_res.items():
                 if not ok:
                     failed_props.append(prop_name)
-        except Exception as exc:
-            _failed_prop(failed_props, "text_properties", exc)
+
+        _try(failed_props, "text_properties", _apply_text_properties)
 
     # Rotation
     if kwargs.get("rotation_angle") is not None and hasattr(shape, "RotateAngle"):
