@@ -31,7 +31,7 @@ class _FormatSpecError(Exception):
 
 # The worker handles one request at a time; the cache remembers a failed import.
 @lru_cache(maxsize=None)
-def _get_ureg() -> Any:
+def get_ureg() -> Any:
     """Pint registry, or None when pint is not installed."""
     try:
         import pint
@@ -174,7 +174,7 @@ def _convert_to(qty: Any, to_text: Any) -> Any:
 
 def _converted_quantity(val: Any, from_u: Any, to_u: Any) -> Any:
     num = _finite_magnitude(val, empty_message="empty value")
-    ureg = _get_ureg()
+    ureg = get_ureg()
     qty = _convert_to(_unit_quantity(ureg, num, from_u), to_u)
     _require_finite(float(qty.magnitude), "converted magnitude must be finite")
     return qty
@@ -212,7 +212,7 @@ def convert_quantity(
     ``from`` is a Python keyword, so ``**{"from": ..., "to": ...}`` is the alias.
     """
     helper = "convert_quantity"
-    if _get_ureg() is None:
+    if get_ureg() is None:
         return missing_package_error(helper, "pint")
 
     from_text, from_conflict = _resolve_unit_alias(from_unit, kwargs.get("from"))
@@ -237,7 +237,7 @@ def convert_quantity(
 
 def _scalar_parse(quantity: Any) -> float:
     """Parse one quantity string into its numeric magnitude."""
-    ureg = _get_ureg()
+    ureg = get_ureg()
     qty = _parse_quantity_value(ureg, str(quantity if quantity is not None else ""))
     return _require_finite(float(qty.magnitude), "magnitude must be finite")
 
@@ -246,7 +246,7 @@ def parse_quantity(*, quantity: Any = "", **kwargs: Any) -> Any:
     """Parse a quantity string or a range of quantity strings into magnitudes."""
     del kwargs  # quantity is already keyword-only; extra keys must not TypeError
     helper = "parse_quantity"
-    if _get_ureg() is None:
+    if get_ureg() is None:
         return missing_package_error(helper, "pint")
     if is_blank_param(quantity):
         return error_result("MISSING_PARAM", "quantity is required", helper=helper)
@@ -260,7 +260,7 @@ def parse_quantity(*, quantity: Any = "", **kwargs: Any) -> Any:
 def _scalar_format(magnitude: Any, units: Any, format_spec: Any = "") -> str:
     """Format one magnitude. A blank magnitude raises; ``map_over_range`` never passes one."""
     num = _finite_magnitude(magnitude, empty_message="empty magnitude")
-    ureg = _get_ureg()
+    ureg = get_ureg()
     qty = _unit_quantity(ureg, num, units)
     spec = str(format_spec or "").strip()
     return _format_qty(qty, spec)
@@ -276,7 +276,7 @@ def format_quantity(
     """Format magnitude and units for a scalar or a range."""
     del kwargs
     helper = "format_quantity"
-    if _get_ureg() is None:
+    if get_ureg() is None:
         return missing_package_error(helper, "pint")
     if is_blank_param(units, strip=True):
         return error_result("MISSING_PARAM", "units is required", helper=helper)
@@ -297,7 +297,7 @@ def check_dimensionality(
     unit_b: str = "",
 ) -> dict[str, Any]:
     helper = "check_dimensionality"
-    if _get_ureg() is None:
+    if get_ureg() is None:
         return missing_package_error(helper, "pint")
     left, left_conflict = _resolve_unit_alias(quantity_a, unit_a)
     right, right_conflict = _resolve_unit_alias(quantity_b, unit_b)
@@ -309,7 +309,7 @@ def check_dimensionality(
         return error_result("MISSING_PARAM", "quantity_a/quantity_b or unit_a/unit_b are required", helper=helper)
 
     def _run() -> dict[str, Any]:
-        ureg = _get_ureg()
+        ureg = get_ureg()
         qty_a = _parse_unit_or_quantity(ureg, left_text, param="quantity_a")
         qty_b = _parse_unit_or_quantity(ureg, right_text, param="quantity_b")
         compatible = qty_a.dimensionality == qty_b.dimensionality
@@ -467,7 +467,7 @@ def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     if inspect_input(raw_qty).is_scalar:
         def _run() -> dict[str, Any]:
             cell = _scalar_cell(raw_qty)
-            ureg = _get_ureg()
+            ureg = get_ureg()
             qty = _parse_quantity_value(ureg, "" if cell is None else str(cell))
             _require_finite(float(qty.magnitude), "magnitude must be finite")
             return _quantity_payload(qty, helper=name)
@@ -495,7 +495,7 @@ def _dispatch_format(params: dict[str, Any]) -> dict[str, Any]:
 
         def _run() -> dict[str, Any]:
             num = _finite_magnitude(_scalar_cell(raw_mag), empty_message="empty magnitude")
-            qty = _unit_quantity(_get_ureg(), num, units_text)
+            qty = _unit_quantity(get_ureg(), num, units_text)
             return _quantity_payload(qty, helper=name, format_spec=raw_spec)
 
         return _guarded(name, _run)

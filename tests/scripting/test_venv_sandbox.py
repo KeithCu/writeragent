@@ -1476,3 +1476,66 @@ def test_run_sandboxed_code_rejects_non_dict_sandbox_policy() -> None:
 def test_run_sandboxed_code_rejects_non_string_extra_modules() -> None:
     res = run_sandboxed_code("result = 1", sandbox_policy={"extra_modules": [1]})
     assert res["status"] == "error"
+
+
+def test_get_or_create_rebuilds_on_policy_mismatch() -> None:
+    from plugin.scripting.sandbox import build_sandbox_policy
+
+    sid = "calc:get-or-create-policy-mismatch"
+    try:
+        policy_net = build_sandbox_policy(network=True)
+        policy_default = build_sandbox_policy()
+        exec1, created1 = SESSIONS.get_or_create(sid, timeout_sec=10, policy=policy_net)
+        assert created1 is True
+        exec1.send_variables({"MARKER": 42})
+        exec2, created2 = SESSIONS.get_or_create(
+            sid, timeout_sec=10, policy=policy_default
+        )
+        assert created2 is True
+        assert exec2 is not exec1
+        assert exec2.state.get("MARKER") is None
+        exec3, created3 = SESSIONS.get_or_create(
+            sid, timeout_sec=10, policy=policy_default
+        )
+        assert created3 is False
+        assert exec3 is exec2
+        exec4, created4 = SESSIONS.get_or_create(sid, timeout_sec=10, policy=None)
+        assert created4 is False
+        assert exec4 is exec2
+    finally:
+        reset_sandbox_session(sid)
+
+
+def test_shared_policy_change_reruns_init_before_seed() -> None:
+    sid = "calc:policy-init-rerun"
+    init_sid = f"{sid}:init"
+    try:
+        first = run_sandboxed_code(
+            "cell_only = 1\nresult = HELPER",
+            session_id=sid,
+            init_script="HELPER = 1",
+            init_session_id=init_sid,
+            init_script_hash="h-policy-1",
+            sandbox_policy={"network": True},
+        )
+        assert first["status"] == "ok", first
+        assert first["result"] == 1
+        cell_exec = SESSIONS.executor(sid)
+        assert cell_exec is not None
+        assert cell_exec.state.get("cell_only") == 1
+
+        second = run_sandboxed_code(
+            "result = HELPER",
+            session_id=sid,
+            init_script="HELPER = 2",
+            init_session_id=init_sid,
+            init_script_hash="h-policy-2",
+            sandbox_policy=None,
+        )
+        assert second["status"] == "ok", second
+        assert second["result"] == 2
+        cell_exec_after = SESSIONS.executor(sid)
+        assert cell_exec_after is not None
+        assert cell_exec_after.state.get("cell_only") is None
+    finally:
+        reset_sandbox_session(sid)

@@ -85,12 +85,12 @@ def test_is_missing_value_covers_pandas_and_numpy():
 
 
 def test_dedupe_column_names_in_coerce():
-    """_dedupe_column_names produces unique labels and avoids colliding with pre-existing numbered suffixes."""
-    from plugin.scripting.venv.coerce import _dedupe_column_names
+    """dedupe_column_names produces unique labels and avoids colliding with pre-existing numbered suffixes."""
+    from plugin.scripting.venv.coerce import dedupe_column_names
 
-    assert _dedupe_column_names(["a", "a", "a_1"]) == ["a", "a_1", "a_1_1"]
-    assert _dedupe_column_names(["x", "x", "x"]) == ["x", "x_1", "x_2"]
-    assert _dedupe_column_names(["", ""]) == ["column", "column_1"]
+    assert dedupe_column_names(["a", "a", "a_1"]) == ["a", "a_1", "a_1_1"]
+    assert dedupe_column_names(["x", "x", "x"]) == ["x", "x_1", "x_2"]
+    assert dedupe_column_names(["", ""]) == ["column", "column_1"]
 
 
 def test_parse_date_column_serial_year_iso_and_mixed():
