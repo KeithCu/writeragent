@@ -11,7 +11,6 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import uno
 from com.sun.star.table import CellAddress
@@ -21,16 +20,13 @@ from plugin.calc.python.function import (
     _py_scoped_dir_bindings,
     clear_python_addin_cache,
 )
+from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.spill import (
-    CalcSpillModifyListener,
     SpillCell,
     SpillRecord,
-    clear_in_memory_spill_state,
     perform_deferred_spill,
 )
-from plugin.calc.python.workbook_state import WorkbookState
-from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY
+from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, reset_calc_workbook_states
 from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
@@ -353,9 +349,40 @@ def test_py_multi_document_spill_and_plot(ctx):
         shutdown_venv_workers_for_tests()
 
 
+def _calc_spill_modify_listener_for_tests(ctx, doc_key: str, sheet_name: str, sheet) -> None:
+    """Test-only stand-in for the removed CalcSpillModifyListener (same modified() body)."""
+    from plugin.calc.python.function import _get_calc_doc
+    from plugin.calc.python.sheet_modify import _owning_calc_doc
+    from plugin.calc.python.spill import cleanup_orphans
+    from plugin.framework.queue_executor import main
+
+    doc = _owning_calc_doc(sheet)
+    if doc is None and ctx is not None and main.is_current():
+        doc = _get_calc_doc(ctx)
+    state = None
+    if doc_key:
+        for candidate in WorkbookState.all_states():
+            if candidate.scheduled_key_matches(doc_key):
+                state = candidate
+                break
+    if state is None and doc is not None:
+        state = WorkbookState.for_doc(doc)
+    cleanup_orphans(state, sheet, doc=doc, ctx=ctx, sheet_name=sheet_name)
+
+
 @native_test
 def test_row_insert_does_not_clear_moved_spill(ctx):
     """Row insertion shifts =PY() formula and its spill; modify listener remaps without clearing."""
+    from plugin.calc.python.sheet_modify import reset_sheet_modify_runtime_for_tests
+    from plugin.framework.queue_executor import pump_main_thread_work_queue
+
+    # Prior =PY() UNO tests schedule 0.1s sheet/spill debounces; drain before this case.
+    pump_main_thread_work_queue(max_items=50)
+    time.sleep(0.35)
+    pump_main_thread_work_queue(max_items=50)
+    reset_sheet_modify_runtime_for_tests()
+    reset_calc_workbook_states()
+
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
     st = WorkbookState.for_doc(doc)
@@ -375,7 +402,7 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
 
         sheet.getRows().insertByIndex(0, 1)
 
-        CalcSpillModifyListener(ctx, doc_key, "Sheet1").modified(SimpleNamespace(Source=sheet))
+        _calc_spill_modify_listener_for_tests(ctx, doc_key, "Sheet1", sheet)
 
         a6_formula = sheet.getCellByPosition(0, 5).getFormula()
         assert "PY" in a6_formula, f"Expected PY in A6 formula, got {a6_formula!r}"
@@ -418,7 +445,9 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
             assert cell.getError() == 519
             assert "Error: Code execution failed" not in cell.getString()
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
 
 
 @native_test
@@ -437,7 +466,9 @@ def test_py_addin_div0_token_formula_error(ctx, doc):
             doc.calculateAll()
             assert cell.getError() == 532
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
 
 
 @native_test
@@ -456,7 +487,9 @@ def test_py_addin_na_token_formula_error(ctx, doc):
             doc.calculateAll()
             assert cell.getError() == 32767
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
 
 
 @native_test
@@ -476,7 +509,6 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
             cell_a1.setFormula(f'=PY("{code}")')
             grid = [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]
             perform_deferred_spill(
-                doc.getURL(),
                 sheet_name,
                 0,
                 0,
@@ -484,6 +516,7 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
                 doc=doc,
                 sheet=sheet,
                 code=code,
+                key=WorkbookState.for_doc(doc).key,
             )
             doc.calculateAll()
 
@@ -504,4 +537,6 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
             # A1 is still the =PY() formula
             assert "PY" in cell_a1.getFormula()
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)

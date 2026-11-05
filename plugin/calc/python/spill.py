@@ -30,8 +30,6 @@ from plugin.calc.python.formula_locator_cache import is_matching_py_formula, loc
 from plugin.calc.python.undo import _undo_lock
 from plugin.calc.python.workbook_state import WorkbookState
 from plugin.framework.errors import uno_read
-from plugin.framework.uno_listeners import BaseModifyListener
-
 log = logging.getLogger(__name__)
 
 # CellFlags bitmask: VALUE (1) | DATETIME (2) | STRING (4) | FORMULA (16) | HARDATTR (32) = 55.
@@ -194,46 +192,6 @@ def cleanup_orphans(
         log.exception("Error in cleanup_orphans")
 
 
-class CalcSpillModifyListener(BaseModifyListener):
-    """Orphaned-spill cleanup. Walks ``state.spills`` only."""
-
-    ctx: Any
-    doc_key: str
-    sheet_name: str
-    _state: WorkbookState | None
-
-    def __init__(self, ctx: Any = None, doc_key: str = "", sheet_name: str = "", *, state: WorkbookState | None = None) -> None:
-        super().__init__()
-        self.ctx = ctx
-        self.doc_key = doc_key
-        self.sheet_name = sheet_name
-        self._state = state
-
-    def modified(self, aEvent: Any) -> None:
-        sheet = getattr(aEvent, "Source", None)
-        if sheet is None:
-            return
-        from plugin.calc.python.sheet_modify import _owning_calc_doc
-
-        doc = _owning_calc_doc(sheet)
-        if doc is None and self.ctx is not None:
-            from plugin.framework.queue_executor import main
-
-            if main.is_current():
-                from plugin.calc.python.function import _get_calc_doc
-
-                doc = _get_calc_doc(self.ctx)
-        state = self._state
-        if state is None and self.doc_key:
-            for st in WorkbookState.all_states():
-                if st.scheduled_key_matches(self.doc_key):
-                    state = st
-                    break
-        if state is None and doc is not None:
-            state = WorkbookState.for_doc(doc)
-        cleanup_orphans(state, sheet, doc=doc, ctx=self.ctx, sheet_name=self.sheet_name)
-
-
 def load_spill_registry_for_doc(doc: Any, state: WorkbookState | None = None) -> None:
     """Load the document's spill registry from its UserDefinedProperties."""
     try:
@@ -304,35 +262,17 @@ def save_spill_registry_for_doc(doc: Any, state: WorkbookState | None = None) ->
 
 
 def perform_deferred_spill(
-    *args: Any,
-    sheet_name: str = "",
-    formula_row: int = 0,
-    formula_col: int = 0,
-    grid: list[list[Any]] | None = None,
+    sheet_name: str,
+    formula_row: int,
+    formula_col: int,
+    grid: list[list[Any]],
+    *,
     doc: Any | None = None,
     sheet: Any = None,
     code: str = "",
     key: str = "",
-    lifecycle_key: str = "",
-    **kwargs: Any,
 ) -> None:
     """Clear old spilled cells and write new values deferred (collision check is done synchronously)."""
-    if len(args) >= 5:
-        if not key:
-            key = str(args[0] or "")
-        sheet_name = str(args[1])
-        formula_row = int(args[2])
-        formula_col = int(args[3])
-        grid = list(args[4])
-    elif len(args) == 4:
-        sheet_name = str(args[0])
-        formula_row = int(args[1])
-        formula_col = int(args[2])
-        grid = list(args[3])
-
-    if grid is None:
-        return
-
     try:
         from plugin.framework.queue_executor import main
 
@@ -344,7 +284,7 @@ def perform_deferred_spill(
             return
 
         with _undo_lock(doc):
-            scheduled = key or lifecycle_key
+            scheduled = key
             if scheduled:
                 if not state.scheduled_key_matches(scheduled):
                     return
@@ -555,35 +495,18 @@ class PreparedSpill:
 
     def __init__(
         self,
-        *args: Any,
-        sheet_name: str = "",
-        formula_row: int = 0,
-        formula_col: int = 0,
+        sheet_name: str,
+        formula_row: int,
+        formula_col: int,
+        *,
         sheet: Any = None,
         key: str = "",
-        doc_key: str = "",
-        **kwargs: Any,
     ) -> None:
-        if len(args) == 5:
-            key = str(args[0])
-            sheet_name = str(args[1])
-            formula_row = int(args[2])
-            formula_col = int(args[3])
-            sheet = args[4]
-        elif len(args) == 4:
-            key = str(args[0])
-            sheet_name = str(args[1])
-            formula_row = int(args[2])
-            formula_col = int(args[3])
-        elif len(args) == 3:
-            sheet_name = str(args[0])
-            formula_row = int(args[1])
-            formula_col = int(args[2])
         self.sheet_name = sheet_name
         self.formula_row = formula_row
         self.formula_col = formula_col
         self.sheet = sheet
-        self.key = key or doc_key
+        self.key = key
 
     @property
     def doc_key(self) -> str:
@@ -720,14 +643,3 @@ def _queue_off_main_auto_spill(ctx: Any, code: str, grid_to_spill: list[list[Any
         state.debounce.schedule(f"code:{code}", 0.1, _on_main)
 
     main.post(_arm_on_ui)
-
-
-def clear_in_memory_spill_state(state: WorkbookState | None = None, *, doc_url: str = "", lifecycle_key: str = "") -> None:
-    """Drop instance-scoped spill maps. UD property is left for a later open of the same file."""
-    if state is not None:
-        state.clear()
-    else:
-        for ident in filter(None, (lifecycle_key, doc_url)):
-            WorkbookState.forget_key(ident)
-    for s in WorkbookState.all_states():
-        s.matrix.clear()

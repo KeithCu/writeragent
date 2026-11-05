@@ -23,9 +23,9 @@ from plugin.calc.python.sheet_modify import (
 from plugin.calc.python.spill import (
     SpillCell,
     SpillRecord,
-    clear_in_memory_spill_state,
     perform_deferred_spill,
 )
+from plugin.calc.python.workbook_state import WorkbookState
 from tests.calc.python.calc_workbook_test_access import (
     SHEET_MODIFY_LISTENERS,
     SPILL_REGISTRY,
@@ -142,7 +142,7 @@ def test_unload_drops_lifecycle_keyed_listener():
     sheet = doc.getSheets().getByName("Sheet1")
     ensure_sheet_modify_listener("ctx", doc, sheet)
     assert ("uid-unload", "Sheet1") in SHEET_MODIFY_LISTENERS
-    clear_in_memory_spill_state(lifecycle_key="uid-unload")
+    WorkbookState.forget_key("uid-unload")
     assert ("uid-unload", "Sheet1") not in SHEET_MODIFY_LISTENERS
 
 
@@ -225,7 +225,6 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
     cell.clearContents = clear_and_dispatch
 
     perform_deferred_spill(
-        "file:///spill_dispatch.ods",
         "Sheet1",
         0,
         0,
@@ -233,7 +232,7 @@ def test_perform_deferred_spill_does_not_schedule_modify(monkeypatch):
         doc=doc,
         sheet=sheet,
         code='=PY("result = [1, 2]")',
-        lifecycle_key="uid-spill-dispatch",
+        key="uid-spill-dispatch",
     )
 
     assert scheduled_calls == 0
@@ -304,7 +303,7 @@ def test_unload_drops_pending_sheet_timer() -> None:
     assert state_unload is not None and "sheet:Sheet1" in state_unload.debounce
     assert state_keep is not None and "sheet:Sheet1" in state_keep.debounce
 
-    clear_in_memory_spill_state(lifecycle_key="uid-unload")
+    WorkbookState.forget_key("uid-unload")
 
     assert "sheet:Sheet1" not in state_unload.debounce
     assert "sheet:Sheet1" in state_keep.debounce

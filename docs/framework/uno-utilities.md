@@ -309,7 +309,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 
 `plugin/framework/tool.py` documents `document_url` as “URL or RuntimeUID from `list_open_documents`”.
 
-Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, formula locator cache, Calc workbook lifecycle (`workbook_lifecycle._lifecycle_key` and the `py:` key in `ensure_python_session_cleared_on_unload`), and the Calc workbook lifecycle (`WorkbookState.for_doc`) call `get_runtime_uid` rather than `getPropertyValue("RuntimeUID")` alone. Code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`.
+Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, formula locator cache, Calc workbook lifecycle (`WorkbookState.for_doc` and the `py:` key in `ensure_python_session_cleared_on_unload`), and the Calc workbook lifecycle (`WorkbookState.for_doc`) call `get_runtime_uid` rather than `getPropertyValue("RuntimeUID")` alone. Code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`.
 
 ### 2.4 PathSettings / work-directory vs config user-profile paths
 
