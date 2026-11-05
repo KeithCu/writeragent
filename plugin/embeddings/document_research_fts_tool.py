@@ -18,6 +18,18 @@ _MAX_SEARCH_K = 30
 _DEFAULT_NEAR_SLOP = 10
 
 
+class _FolderHybridSearchCancelled(Exception):
+    """Stop was requested before or during folder hybrid search."""
+
+
+class _FolderHybridSearchFailed(Exception):
+    message: str
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 class SearchNearbyFiles(ToolBase):
     """Hybrid keyword + semantic search over indexed paragraphs in the active document folder."""
 
@@ -190,11 +202,10 @@ class SearchNearbyFiles(ToolBase):
         def _wakeup() -> None:
             ensure_index_wakeup(ctx.ctx, ctx.doc)
 
-        def _search_with_filter(doc_url_filter: str | None) -> dict[str, Any]:
+        def _hybrid_hits(doc_url_filter: str | None) -> list[dict[str, Any]]:
             if is_cancelled(scope):
-                return {"status": "error", "message": "Cancelled"}
-            # Bugfix: post-filtering the global top-k dropped every hit when the target file sat
-            # outside that window; doc_url_filter applies before SQL LIMIT in the index layer.
+                raise _FolderHybridSearchCancelled()
+            # doc_url_filter applies before LIMIT; post-filtering the global top-k loses hits outside that window.
             try:
                 result = hybrid_search(
                     ctx.ctx,
@@ -208,42 +219,36 @@ class SearchNearbyFiles(ToolBase):
                 )
             except Exception as exc:
                 log.exception("search_nearby_files failed")
-                return {"status": "error", "message": str(exc)}
+                raise _FolderHybridSearchFailed(str(exc)) from exc
             if result.get("error"):
-                return {"status": "error", "message": result["error"]}
-            return {"status": "ok", "hits": list(result.get("hits") or [])}
+                raise _FolderHybridSearchFailed(str(result["error"]))
+            return list(result.get("hits") or [])
 
-        if filter_urls is None:
-            merged = _search_with_filter(None)
-        elif len(filter_urls) == 1:
-            merged = _search_with_filter(next(iter(filter_urls)))
-        else:
-            combined: list[dict[str, Any]] = []
-            for doc_url in sorted(filter_urls):
-                if is_cancelled(scope):
-                    return {"status": "error", "message": "Cancelled"}
-                partial = _search_with_filter(doc_url)
-                if partial.get("status") == "error":
-                    message = partial.get("message") or "Folder hybrid search failed"
-                    if message == "Cancelled":
-                        return {"status": "error", "message": "Cancelled"}
-                    return self._tool_error(str(message), code="FOLDER_HYBRID_SEARCH_ERROR")
-                combined.extend(partial.get("hits") or [])
-            combined.sort(key=lambda hit: hit.get("score", 0), reverse=True)
-            merged = {"status": "ok", "hits": combined[:k]}
+        try:
+            if filter_urls is None:
+                hits = _hybrid_hits(None)
+            elif len(filter_urls) == 1:
+                hits = _hybrid_hits(next(iter(filter_urls)))
+            else:
+                from plugin.doc.document_research_grep import DEFAULT_GREP_MAX_FILES
 
-        if merged.get("status") == "error":
-            message = merged.get("message") or "Folder hybrid search failed"
-            if message == "Cancelled":
-                return {"status": "error", "message": "Cancelled"}
-            return self._tool_error(str(message), code="FOLDER_HYBRID_SEARCH_ERROR")
+                subset_urls = sorted(filter_urls)[:DEFAULT_GREP_MAX_FILES]
+                combined: list[dict[str, Any]] = []
+                for doc_url in subset_urls:
+                    combined.extend(_hybrid_hits(doc_url))
+                # Per-file RRF scores are rank-based, not comparable across files; order here is
+                # best-effort until corpus search accepts multiple doc_url filters in one query.
+                combined.sort(key=lambda hit: hit.get("score", 0), reverse=True)
+                hits = combined[:k]
+        except _FolderHybridSearchCancelled:
+            return {"status": "error", "message": "Cancelled"}
+        except _FolderHybridSearchFailed as exc:
+            return self._tool_error(exc.message, code="FOLDER_HYBRID_SEARCH_ERROR")
 
         if main.is_current():
             _wakeup()
         else:
             main.call(_wakeup)
-
-        hits = merged.get("hits") or []
 
         return {
             "status": "ok",

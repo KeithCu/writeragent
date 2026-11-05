@@ -120,8 +120,8 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
     assert "[MCP SERVER AVAILABLE]" not in system_prompt
     assert "X-Document-URL" not in system_prompt
     assert len(status_texts) == 1
-    assert "mcp.mcp_enabled" in status_texts[0]
     assert "Enable MCP Server" in status_texts[0]
+    assert "mcp.mcp_enabled" not in status_texts[0]
 
 
 def test_agent_backend_prompt_includes_mcp_when_server_running():
@@ -1830,7 +1830,8 @@ def test_agent_backend_drops_output_after_abort():
     assert StreamQueueKind.CHUNK not in kinds
     assert StreamQueueKind.STOPPED not in kinds
     assert len([k for k in kinds if k == StreamQueueKind.STATUS]) == 1
-    assert panel.status_history and "mcp.mcp_enabled" in panel.status_history[0]
+    assert panel.status_history and "Enable MCP Server" in panel.status_history[0]
+    assert "mcp.mcp_enabled" not in panel.status_history[0]
     assert not any("agent-status" in text for text in panel.status_history)
     assert not any("late-agent" in text for text in panel.responses)
     assert panel.session.stored == []

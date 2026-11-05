@@ -33,7 +33,7 @@ import select
 import threading
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, cast
 from urllib.parse import unquote
 
 if TYPE_CHECKING:
@@ -794,14 +794,11 @@ class MCPProtocolHandler:
         if not isinstance(name, str) or not name.strip():
             raise ValueError("prompts/get requires params.name")
         doc_type = self._prompt_doc_type(document_url)
-        canonical = normalize_topic(name, doc_type)
-        if canonical is None:
-            known = ", ".join(list_topics(doc_type))
-            raise ValueError(f"Unknown prompt {name!r}; known prompts: {known}")
         text = get_section(name, doc_type)
         if text is None:
             known = ", ".join(list_topics(doc_type))
             raise ValueError(f"Unknown prompt {name!r}; known prompts: {known}")
+        canonical = cast("str", normalize_topic(name, doc_type))
         summary_by_id = dict(list_topic_entries(doc_type))
         return {
             "description": summary_by_id[canonical],

@@ -270,6 +270,23 @@ def test_fizzbee_trace_tool_call_dispatch_and_error_invariants(writer_mcp_setup)
     )
 
 
+def test_mcp_prompts_list_no_document_url_returns_generic_topics(writer_mcp_setup):
+    """prompts/list with no active document and no document_url returns generic topics (not an error)."""
+    from plugin.chatbot.agent_manual import list_topics
+
+    handler = writer_mcp_setup["handler"]
+    doc_svc = writer_mcp_setup["services"].get("document")
+    doc_svc.get_active_document.return_value = None
+
+    status, body = handler._process_jsonrpc(
+        {"jsonrpc": "2.0", "id": 60, "method": "prompts/list", "params": {}},
+        document_url=None,
+    )
+    assert status == 200
+    assert "error" not in body
+    assert [p["name"] for p in body["result"]["prompts"]] == list_topics(None)
+
+
 def test_mcp_prompts_list_get_resolution(writer_mcp_setup):
     from plugin.chatbot.agent_manual import get_section, list_topics
 

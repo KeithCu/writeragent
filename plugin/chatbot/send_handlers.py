@@ -490,8 +490,8 @@ class SendHandlersMixin:
                     turn.put((
                         StreamQueueKind.STATUS,
                         _(
-                            "MCP server is off: this agent can read the document but cannot edit it. "
-                            "Enable it in Settings → MCP → Enable MCP Server (mcp.mcp_enabled)."
+                            "MCP server is off: LibreOffice edits from this agent require the MCP server. "
+                            "Enable it in Settings → MCP → Enable MCP Server."
                         ),
                     ))
 
