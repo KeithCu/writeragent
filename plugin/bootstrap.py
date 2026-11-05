@@ -11,19 +11,6 @@ if TYPE_CHECKING:
 from plugin.framework.logging import init_logging, log
 from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id
 
-# UNO types are only needed for MainBootstrapJob (loaded inside LibreOffice /
-# when conftest mocks are installed). Keep BootstrapState / bootstrap_extension
-# importable in a clean interpreter for out-of-office scripts and the
-# release-verify subprocess that checks unbound bootstrap without pyuno.
-try:
-    import uno  # noqa: F401 — com.sun.star stub requires uno first
-    import unohelper
-    from com.sun.star.task import XJob, XJobExecutor
-except ImportError:  # headless / release-verify subprocess without pyuno
-    unohelper = None  # type: ignore[assignment]
-    XJob = object  # type: ignore[misc, assignment]
-    XJobExecutor = object  # type: ignore[misc, assignment]
-
 
 class BootstrapState(enum.Enum):
     UNINITIALIZED = "uninitialized"
@@ -121,41 +108,65 @@ def bootstrap_extension(
         if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
             _bootstrap_state = BootstrapState.UNINITIALIZED
 
-if unohelper is not None:
 
-    class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
+class _MainBootstrapJobCore:
+    """Shared UNO Job implementation for extension bootstrap."""
+
+    ctx: Any
+
+    def __init__(self, ctx: Any) -> None:
+        self.ctx = ctx
+
+    def init_logging(self, ctx: Any) -> None:
+        init_logging(ctx)
+
+    def execute(self, Arguments: Any) -> tuple[()]:
+        """Called by the Jobs framework on OnStartApp."""
+        try:
+            self.init_logging(self.ctx)
+        except Exception:  # UNO boundary: XJob.execute entry point
+            log.exception("MainBootstrapJob.execute: init_logging failed")
+        try:
+            self.on_start(self.ctx)
+        except Exception as e:  # UNO boundary: XJob.execute entry point
+            log.exception("MainBootstrapJob.execute failed on_start: %s", e)
+        return ()
+
+    def on_start(self, ctx: Any) -> None:
+        raise NotImplementedError
+
+    def trigger(self, Event: str) -> None:
+        raise NotImplementedError
+
+
+if TYPE_CHECKING:
+    import unohelper
+    from com.sun.star.task import XJob, XJobExecutor
+
+    class MainBootstrapJob(_MainBootstrapJobCore, unohelper.Base, XJobExecutor, XJob):
         """Base UNO Job implementation for extension bootstrap."""
 
-        ctx: Any
-
-        def __init__(self, ctx: Any) -> None:
-            self.ctx = ctx
-
-        def init_logging(self, ctx: Any) -> None:
-            init_logging(ctx)
-
-        def execute(self, Arguments: Any) -> tuple[()]:
-            """Called by the Jobs framework on OnStartApp."""
-            try:
-                self.init_logging(self.ctx)
-            except Exception:  # UNO boundary: XJob.execute entry point
-                log.exception("MainBootstrapJob.execute: init_logging failed")
-            try:
-                self.on_start(self.ctx)
-            except Exception as e:  # UNO boundary: XJob.execute entry point
-                log.exception("MainBootstrapJob.execute failed on_start: %s", e)
-            return ()
-
-        def on_start(self, ctx: Any) -> None:
-            raise NotImplementedError
-
-        def trigger(self, Event: str) -> None:
-            raise NotImplementedError
-
 else:
+    # UNO types are only needed for MainBootstrapJob (loaded inside LibreOffice /
+    # when conftest mocks are installed). Keep BootstrapState / bootstrap_extension
+    # importable in a clean interpreter for out-of-office scripts and the
+    # release-verify subprocess that checks unbound bootstrap without pyuno.
+    try:
+        import uno  # noqa: F401 — com.sun.star stub requires uno first
+        import unohelper
+        from com.sun.star.task import XJob, XJobExecutor
+    except ImportError:  # headless / release-verify subprocess without pyuno
+        unohelper = None  # type: ignore[assignment,misc]
 
-    class MainBootstrapJob:  # type: ignore[no-redef]
-        """Placeholder when pyuno is unavailable (headless / release-verify subprocess)."""
+    if unohelper is not None:
 
-        def __init__(self, ctx: Any) -> None:
-            raise RuntimeError("MainBootstrapJob requires LibreOffice UNO")
+        class MainBootstrapJob(_MainBootstrapJobCore, unohelper.Base, XJobExecutor, XJob):
+            """Base UNO Job implementation for extension bootstrap."""
+
+    else:
+
+        class MainBootstrapJob(_MainBootstrapJobCore):
+            """Placeholder when pyuno is unavailable (headless / release-verify subprocess)."""
+
+            def __init__(self, ctx: Any) -> None:
+                raise RuntimeError("MainBootstrapJob requires LibreOffice UNO")

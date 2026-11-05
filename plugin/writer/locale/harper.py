@@ -624,7 +624,8 @@ class HarperLSClient:
         """
         proc = self.proc
         self.proc = None
-        thread = self.stdout_thread
+        # __new__ without __init__ (unit tests) may omit stdout_thread; real clients set it in __init__.
+        thread = getattr(self, "stdout_thread", None)
         self.stdout_thread = None
         self._doc_opened = False
         if proc is None:
