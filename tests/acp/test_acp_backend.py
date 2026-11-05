@@ -2775,7 +2775,6 @@ class TestAntigravityManagedLogArgs:
             captured["cmd_line"] = kwargs["cmd_line"]
             return _startup_conn()
 
-        backend = AntigravityBackend()
         with (
             patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/agy", args="")),
             patch("os.path.isfile", return_value=True),
@@ -2783,6 +2782,7 @@ class TestAntigravityManagedLogArgs:
             patch("plugin.framework.config.user_config_dir", return_value="/tmp/wa-user"),
             patch("plugin.acp.acp_backend.ACPConnection", side_effect=conn_factory),
         ):
+            backend = AntigravityBackend()
             backend._ensure_connection()
         cmd_line = captured["cmd_line"]
         assert "--log-file" in cmd_line
