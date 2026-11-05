@@ -19,8 +19,8 @@ from __future__ import annotations
 import ast
 import copy
 from collections import OrderedDict
+from dataclasses import dataclass
 import hashlib
-import importlib
 import logging
 import math
 import os
@@ -34,7 +34,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-# Same one-second lift as ``plugin.framework.process_worker.Deadline.run_for``;
+# Same one-second lift as ``plugin.framework.child_runtime.Deadline.run_for``;
 # LibrePy does not ship ``process_worker`` (compute-only IPC stack).
 _EXECUTOR_ALARM_MIN_SEC = 1.0
 
@@ -43,11 +43,11 @@ from plugin.contrib.smolagents.local_python_executor import (
     InterpreterError,
     LocalPythonExecutor,
     SANDBOX_POLICY_CONTEXT,
+    finalize_thread_pool_timeout,
     get_file_os_proxy,
     print_outputs_from_state,
 )
 from plugin.scripting.session_key import (
-    INIT_SUFFIX,
     SessionKey,
     SessionKind,
 )
@@ -58,6 +58,7 @@ from plugin.scripting.payload_codec import (
     is_split_grid,
 )
 from plugin.scripting.venv.to_wire import _figure_to_image_payload, to_wire
+from plugin.scripting.venv import optional_import
 from plugin.scripting.config_limits import python_exec_timeout_default
 from plugin.framework.ipc import UserStopped
 from plugin.framework.constants import auto_imports
@@ -76,26 +77,224 @@ from plugin.scripting.sandbox import (
 
 install_alias_authorizer()
 
-# Shared-kernel executors keyed by workbook session_id (calc:…). Cleared on reset_session,
-# document OnUnload (workbook_lifecycle), or worker process exit.
-_SESSION_EXECUTORS: dict[str, LocalPythonExecutor] = {}
-_SESSION_LOCK = threading.Lock()
 _MAX_ISOLATED_INIT_SNAPSHOTS = 32
-_ISOLATED_INIT_LRU: OrderedDict[str, None] = OrderedDict()
-# Init scripts run once in calc:{workbook}:init; isolated cells seed from that snapshot.
-_INIT_SCRIPT_HASH: dict[str, str] = {}
-_CELL_SESSION_INIT_DIGEST: dict[str, str] = {}
 
 
-def _record_isolated_init_access_unlocked(init_session_id: str) -> None:
-    _ISOLATED_INIT_LRU[init_session_id] = None
-    _ISOLATED_INIT_LRU.move_to_end(init_session_id)
-    while len(_ISOLATED_INIT_LRU) > _MAX_ISOLATED_INIT_SNAPSHOTS:
-        oldest = next(iter(_ISOLATED_INIT_LRU))
-        # Same path as an explicit reset: executor, hash, DuckDB, and the LRU slot.
-        # The pop after clear is what stops the loop if the id is not isolated:.
-        _clear_init_session_unlocked(oldest)
-        _ISOLATED_INIT_LRU.pop(oldest, None)
+@dataclass
+class SessionRecord:
+    executor: LocalPythonExecutor | None = None
+    init_script_hash: str | None = None
+    seeded_digest: str | None = None
+
+
+class SessionStore:
+    """Persistent sandbox executors and init metadata keyed by session wire id."""
+
+    def __init__(self) -> None:
+        # Lock order: this lock before DuckDB duckdb_sql._SESSION_LOCK.
+        self._lock: threading.Lock = threading.Lock()
+        self._records: dict[SessionKey, SessionRecord] = {}
+        self._isolated_init_lru: OrderedDict[SessionKey, None] = OrderedDict()
+
+    def _record(self, session_id: str) -> SessionRecord | None:
+        return self._records.get(SessionKey.parse(session_id))
+
+    def _maybe_drop_record(self, key: SessionKey) -> None:
+        rec = self._records.get(key)
+        if rec is None:
+            return
+        if (
+            rec.executor is None
+            and rec.init_script_hash is None
+            and rec.seeded_digest is None
+        ):
+            self._records.pop(key, None)
+
+    def _forget_cell_unlocked(self, cell_key: SessionKey) -> None:
+        cell_rec = self._records.get(cell_key)
+        if cell_rec is not None:
+            cell_rec.executor = None
+            cell_rec.seeded_digest = None
+            self._maybe_drop_record(cell_key)
+
+    def executor(self, session_id: str) -> LocalPythonExecutor | None:
+        with self._lock:
+            rec = self._record(session_id)
+            return rec.executor if rec else None
+
+    def init_script_hash(self, session_id: str) -> str | None:
+        with self._lock:
+            rec = self._record(session_id)
+            return rec.init_script_hash if rec else None
+
+    def seeded_digest(self, session_id: str) -> str | None:
+        with self._lock:
+            rec = self._record(session_id)
+            return rec.seeded_digest if rec else None
+
+    def isolated_lru_len(self) -> int:
+        with self._lock:
+            return len(self._isolated_init_lru)
+
+    def is_isolated_lru(self, session_id: str) -> bool:
+        with self._lock:
+            return SessionKey.parse(session_id) in self._isolated_init_lru
+
+    def init_is_current(
+        self,
+        init_session_id: str,
+        script_digest: str,
+        policy: SandboxPolicy | None,
+    ) -> bool:
+        """Return True when init already ran for *script_digest* (refresh isolated LRU)."""
+        with self._lock:
+            prior = self._record(init_session_id)
+            prior_hash = prior.init_script_hash if prior else None
+            cached_exec = prior.executor if prior else None
+            if (
+                (prior_hash is not None and prior_hash != script_digest)
+                or (
+                    cached_exec is not None
+                    and policy is not None
+                    and cached_exec._sandbox_policy != policy
+                )
+            ):
+                self._clear_init_unlocked(init_session_id)
+                return False
+            if prior_hash == script_digest and cached_exec is not None:
+                if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
+                    self._note_isolated_access_unlocked(init_session_id)
+                return True
+            return False
+
+    def commit_init(self, init_session_id: str, script_digest: str) -> None:
+        with self._lock:
+            key = SessionKey.parse(init_session_id)
+            rec = self._records.setdefault(key, SessionRecord())
+            rec.init_script_hash = script_digest
+            if key.kind is SessionKind.ISOLATED:
+                self._note_isolated_access_unlocked(init_session_id)
+
+    def abort_init(self, init_session_id: str) -> None:
+        with self._lock:
+            self._clear_init_unlocked(init_session_id)
+
+    def get_or_create(
+        self,
+        session_id: str,
+        timeout_sec: int,
+        *,
+        policy: SandboxPolicy | None = None,
+    ) -> tuple[LocalPythonExecutor, bool]:
+        with self._lock:
+            key = SessionKey.parse(session_id)
+            rec = self._records.get(key)
+            executor = rec.executor if rec else None
+            if executor is not None and policy is not None:
+                if executor._sandbox_policy != policy:
+                    self._drop_unlocked(session_id)
+                    rec = self._records.get(key)
+                    executor = rec.executor if rec else None
+
+            created = False
+            if executor is None:
+                executor = _new_executor(timeout_sec, policy=policy)
+                if policy is not None:
+                    executor._sandbox_policy = policy
+                if rec is None:
+                    rec = SessionRecord()
+                    self._records[key] = rec
+                rec.executor = executor
+                created = True
+            else:
+                executor.timeout_seconds = timeout_sec
+            return executor, created
+
+    def set_init_hash(self, session_id: str, digest: str) -> None:
+        with self._lock:
+            key = SessionKey.parse(session_id)
+            rec = self._records.setdefault(key, SessionRecord())
+            rec.init_script_hash = digest
+
+    def set_seeded_digest(self, session_id: str, digest: str) -> None:
+        with self._lock:
+            key = SessionKey.parse(session_id)
+            rec = self._records.setdefault(key, SessionRecord())
+            rec.seeded_digest = digest
+
+    def note_isolated_access(self, init_session_id: str) -> None:
+        with self._lock:
+            self._note_isolated_access_unlocked(init_session_id)
+
+    def _note_isolated_access_unlocked(self, init_session_id: str) -> None:
+        key = SessionKey.parse(init_session_id)
+        self._isolated_init_lru[key] = None
+        self._isolated_init_lru.move_to_end(key)
+        while len(self._isolated_init_lru) > _MAX_ISOLATED_INIT_SNAPSHOTS:
+            oldest_key = next(iter(self._isolated_init_lru))
+            oldest_wire = oldest_key.wire()
+            # Same path as an explicit reset: executor, hash, DuckDB, and the LRU slot.
+            # The pop after clear is what stops the loop if the id is not isolated.
+            self._clear_init_unlocked(oldest_wire)
+            self._isolated_init_lru.pop(oldest_key, None)
+
+    def _clear_init_unlocked(self, init_session_id: str) -> None:
+        key = SessionKey.parse(init_session_id)
+        cell_sid = key.without_init().wire() if key.init else None
+        rec = self._records.get(key)
+        if rec is not None:
+            rec.executor = None
+            rec.init_script_hash = None
+            if key.kind is SessionKind.ISOLATED:
+                self._isolated_init_lru.pop(key, None)
+            self._maybe_drop_record(key)
+        _reset_session_duckdb(init_session_id)
+        if cell_sid:
+            self._forget_cell_unlocked(SessionKey.parse(cell_sid))
+            # Init-hash change drops the workbook kernel; DuckDB tables must go too.
+            _reset_session_duckdb(cell_sid)
+
+    def _drop_unlocked(self, session_id: str) -> None:
+        # Desktop workbooks use calc:… and compute uses the raw Online session id;
+        # both store the init executor at {id}:init. Reset drops both.
+        key = SessionKey.parse(session_id)
+        if key.init:
+            self._clear_init_unlocked(session_id)
+        else:
+            self._forget_cell_unlocked(key)
+            self._clear_init_unlocked(key.with_init_suffix().wire())
+
+    def reset(self, session_id: str) -> dict[str, Any]:
+        """Drop cached executors for *session_id* and reset DuckDB tables.
+
+        Also clears the ``{id}:init`` companion when *session_id* is a cell id,
+        and clears the cell session companion when *session_id* is an init id.
+        ``_clear_init_unlocked`` closes DuckDB for this id and for the
+        :init companion. Do not close again after the lock.
+        """
+        if not (session_id or "").strip():
+            return {"status": "error", "message": "No session_id provided."}
+        with self._lock:
+            self._drop_unlocked(session_id)
+        return {"status": "ok"}
+
+    def clear_all(self) -> None:
+        """Clear every cached session (tests)."""
+        with self._lock:
+            self._records.clear()
+            self._isolated_init_lru.clear()
+        _reset_session_duckdb(None)
+
+    def drop_if_policy_mismatch(self, session_id: str, policy: SandboxPolicy) -> None:
+        with self._lock:
+            rec = self._record(session_id)
+            cached = rec.executor if rec else None
+            if cached is not None and cached._sandbox_policy != policy:
+                self._drop_unlocked(session_id)
+
+
+SESSIONS = SessionStore()
+
 
 # Cell / RPS session for the current execute. Isolated runs leave this None so
 # DuckDB and similar caches stay per-request. Init-only ids are not stored here
@@ -177,7 +376,19 @@ def _reset_session_duckdb(session_id: str | None) -> None:
     reset_session_duckdb(session_id)
 
 
-def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
+def _host_scoped_dir(bindings: dict[str, Any] | None) -> str | None:
+    if not isinstance(bindings, dict):
+        return None
+    raw_folder = bindings.get("scoped_dir")
+    if isinstance(raw_folder, str) and raw_folder.strip():
+        return raw_folder
+    return None
+
+
+def _inject_session_duckdb(
+    executor: LocalPythonExecutor,
+    host_scoped_dir: str | None,
+) -> None:
     """Bind ``session_duckdb`` / ``run_sql`` / ``invalidate_session_tables`` when DuckDB helpers ship."""
     try:
         from plugin.scripting.venv.duckdb_sql import (
@@ -193,11 +404,8 @@ def _inject_session_duckdb(executor: LocalPythonExecutor) -> None:
     # code — and do not read executor.state["scoped_dir"] again. The cell can
     # assign scoped_dir before calling run_sql, and resolve_flat_file_path
     # would then accept files under that folder. run_sandboxed_code drops a
-    # previous execute's scoped_dir before bindings, so this read is only the
+    # previous execute's scoped_dir before bindings, so this value is only the
     # folder this execute actually bound.
-    host_scoped_dir = executor.state.get("scoped_dir")
-    if not isinstance(host_scoped_dir, str) or not host_scoped_dir.strip():
-        host_scoped_dir = None
 
     def run_sql_bound(
         sql: str,
@@ -276,6 +484,26 @@ class CellNamespace:
     def seed(self, init_session_id: str, *, copy: bool = False) -> None:
         _seed_executor_from_init(self.executor, init_session_id, copy_values=copy, skip_keys=self.SKIP_KEYS)
 
+    def seed_shared(
+        self,
+        session_id: str,
+        init_session_id: str,
+        init_script_hash: str | None,
+    ) -> None:
+        """Copy init bindings into a shared executor once per init digest.
+
+        ``send_variables`` is ``state.update``. Seeding on every cell overwrote
+        names the cell had rebound (init ``FACTOR = 10``, cell ``FACTOR = 99``,
+        the next cell saw 10). Init-script edits already drop the cell executor
+        in ``SessionStore._clear_init_unlocked``, so a new digest seeds a fresh one.
+        Isolated cells have no ``session_id`` and still seed on every run.
+        """
+        digest = init_script_hash or ""
+        if SESSIONS.seeded_digest(session_id) == digest:
+            return
+        _seed_executor_from_init(self.executor, init_session_id)
+        SESSIONS.set_seeded_digest(session_id, digest)
+
     def bind(
         self,
         *,
@@ -288,7 +516,7 @@ class CellNamespace:
         _inject_excel_xl(self.executor, ranges)
         self.executor.state.pop("scoped_dir", None)
         _inject_bindings(self.executor, bindings)
-        _inject_session_duckdb(self.executor)
+        _inject_session_duckdb(self.executor, _host_scoped_dir(bindings))
 
 
 def _code_says_imported(code: str, module_name: str) -> bool:
@@ -299,35 +527,6 @@ def _auto_import_alias(module_name: str, import_stmt: str) -> str:
     if " as " in import_stmt:
         return import_stmt.rsplit(" as ", 1)[-1].strip()
     return module_name
-
-
-# RLock: a module that calls optional_module during its own import on this
-# thread must re-enter. A plain Lock deadlocks there. The nested call then
-# takes the "still initializing → None" path inside the lock.
-_OPTIONAL_MODULE_LOCK = threading.RLock()
-
-
-def optional_module(name: str) -> Any | None:
-    if name in sys.modules:
-        mod = sys.modules[name]
-        spec = getattr(mod, "__spec__", None)
-        if spec is None or not getattr(spec, "_initializing", False):
-            return mod
-    with _OPTIONAL_MODULE_LOCK:
-        if name in sys.modules:
-            mod = sys.modules[name]
-            spec = getattr(mod, "__spec__", None)
-            if spec is None or not getattr(spec, "_initializing", False):
-                return mod
-            # import_module returns the partial module already in sys.modules
-            # while spec._initializing is set, so holding the lock does not
-            # mean the import has finished. Another thread still owns it.
-            # None is "not ready", same as the check above the lock.
-            return None
-        try:
-            return importlib.import_module(name)
-        except Exception:
-            return None
 
 
 def apply_auto_imports(code: str) -> tuple[str, int]:
@@ -343,7 +542,7 @@ def apply_auto_imports(code: str) -> tuple[str, int]:
             if scanned is None
             else _code_imports_module(scanned[1], module_name)
         )
-        if not imported_already and optional_module(module_name) is not None:
+        if not imported_already and optional_import.optional_module(module_name) is not None:
             prepended_lines.append(import_stmt)
     if not prepended_lines:
         return code, 0
@@ -427,7 +626,7 @@ def inject_auto_imports(executor: LocalPythonExecutor, code: str) -> None:
             else _code_imports_module(imported, module_name)
         )
         if not already:
-            mod = optional_module(module_name)
+            mod = optional_import.optional_module(module_name)
             if mod is not None:
                 bindings[alias] = mod
     if bindings:
@@ -464,7 +663,7 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
     # here would cost the multi-second font cache load on non-plot cells.
     if "matplotlib.pyplot" not in sys.modules:
         return None, ""
-    plt_mod = optional_module("matplotlib.pyplot")
+    plt_mod = optional_import.optional_module("matplotlib.pyplot")
     if plt_mod is None:
         return None, ""
     fignums = plt_mod.get_fignums()
@@ -516,90 +715,12 @@ def _new_executor(
     return executor
 
 
-def _get_or_create_session_executor(
-    session_id: str,
-    timeout_sec: int,
-    *,
-    policy: SandboxPolicy | None = None,
-) -> tuple[LocalPythonExecutor, bool]:
-    with _SESSION_LOCK:
-        executor = _SESSION_EXECUTORS.get(session_id)
-        if executor is not None and policy is not None:
-            if getattr(executor, "_sandbox_policy", None) != policy:
-                _drop_session_unlocked(session_id)
-                executor = None
-
-        created = False
-        if executor is None:
-            executor = _new_executor(timeout_sec, policy=policy)
-            if policy is not None:
-                executor._sandbox_policy = policy
-            _SESSION_EXECUTORS[session_id] = executor
-            created = True
-        else:
-            executor.timeout_seconds = timeout_sec
-        return executor, created
-
-
-def _clear_init_session_unlocked(init_session_id: str) -> None:
-    key = SessionKey.parse(init_session_id)
-    cell_sid = init_session_id[: -len(INIT_SUFFIX)] if key.endswith_init() else None
-    _SESSION_EXECUTORS.pop(init_session_id, None)
-    _INIT_SCRIPT_HASH.pop(init_session_id, None)
-    if key.kind is SessionKind.ISOLATED:
-        _ISOLATED_INIT_LRU.pop(init_session_id, None)
-    _reset_session_duckdb(init_session_id)
-    if cell_sid:
-        _SESSION_EXECUTORS.pop(cell_sid, None)
-        _CELL_SESSION_INIT_DIGEST.pop(cell_sid, None)
-        # Init-hash change drops the workbook kernel; DuckDB tables must go too.
-        _reset_session_duckdb(cell_sid)
-
-
-def _drop_session_unlocked(session_id: str) -> None:
-    # Desktop workbooks use calc:… and compute uses the raw Online session id;
-    # both store the init executor at {id}:init. Reset drops both.
-    key = SessionKey.parse(session_id)
-    if key.endswith_init():
-        _clear_init_session_unlocked(session_id)
-    else:
-        _SESSION_EXECUTORS.pop(session_id, None)
-        _CELL_SESSION_INIT_DIGEST.pop(session_id, None)
-        _clear_init_session_unlocked(key.with_init_suffix().wire())
-
-
-def reset_sandbox_session(session_id: str) -> dict[str, Any]:
-    """Drop any cached executor for *session_id* and reset DuckDB tables.
-
-    Also clears the ``{id}:init`` companion when *session_id* is a cell id,
-    and clears the cell session companion when *session_id* is an init id.
-    _clear_init_session_unlocked closes DuckDB for this id and for the
-    :init companion. Do not close again after the lock.
-    """
-    if not (session_id or "").strip():
-        return {"status": "error", "message": "No session_id provided."}
-    with _SESSION_LOCK:
-        _drop_session_unlocked(session_id)
-    return {"status": "ok"}
-
-
-def clear_all_sandbox_sessions() -> None:
-    """Clear every cached session executor (tests)."""
-    with _SESSION_LOCK:
-        _SESSION_EXECUTORS.clear()
-        _INIT_SCRIPT_HASH.clear()
-        _CELL_SESSION_INIT_DIGEST.clear()
-        _ISOLATED_INIT_LRU.clear()
-    _reset_session_duckdb(None)
-
-
 def _snapshot_init_bindings(
     init_session_id: str,
     skip_keys: frozenset[str] = _INIT_STATE_SKIP_KEYS,
 ) -> dict[str, Any]:
     """Copy user-visible names from the init executor (references, not deep copies)."""
-    with _SESSION_LOCK:
-        executor = _SESSION_EXECUTORS.get(init_session_id)
+    executor = SESSIONS.executor(init_session_id)
     if executor is None:
         return {}
     return {
@@ -615,8 +736,7 @@ def _snapshot_init_bindings(
 
 def _snapshot_init_custom_tools(init_session_id: str) -> dict[str, Any]:
     """Copy user-defined helper functions (custom tools) from the init executor."""
-    with _SESSION_LOCK:
-        executor = _SESSION_EXECUTORS.get(init_session_id)
+    executor = SESSIONS.executor(init_session_id)
     if executor is None:
         return {}
     return dict(executor.custom_tools)
@@ -689,39 +809,22 @@ def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) 
     return hashlib.sha256(script.encode("utf-8")).hexdigest()
 
 
-def _seed_shared_executor_once(
-    executor: LocalPythonExecutor,
-    session_id: str,
-    init_session_id: str,
-    init_script_hash: str | None,
-) -> None:
-    """Copy init bindings into a shared executor once per init digest.
+def reset_sandbox_session(session_id: str) -> dict[str, Any]:
+    """Drop any cached executor for *session_id* and reset DuckDB tables.
 
-    ``send_variables`` is ``state.update``. Seeding on every cell overwrote
-    names the cell had rebound (init ``FACTOR = 10``, cell ``FACTOR = 99``,
-    the next cell saw 10). Init-script edits already drop the cell executor
-    in ``_clear_init_session_unlocked``, so a new digest seeds a fresh one.
-    Isolated cells have no ``session_id`` and still seed on every run.
+    Also clears the ``{id}:init`` companion when *session_id* is a cell id,
+    and clears the cell session companion when *session_id* is an init id.
+    ``SessionStore._clear_init_unlocked`` closes DuckDB for this id and for the
+    :init companion. Do not close again after the lock.
     """
-    digest = init_script_hash or ""
-    with _SESSION_LOCK:
-        if _CELL_SESSION_INIT_DIGEST.get(session_id) == digest:
-            return
-    _seed_executor_from_init(executor, init_session_id)
-    with _SESSION_LOCK:
-        _CELL_SESSION_INIT_DIGEST[session_id] = digest
+    return SESSIONS.reset(session_id)
 
 
-
-
-def _executor_alarm_seconds(timeout_sec: int, deadline_end: float) -> int | None:
+def _executor_alarm_seconds(deadline_end: float) -> int | None:
     """Whole seconds for the child executor alarm, or None when the budget is spent.
 
-    Matches ``Deadline.from_absolute(timeout_sec, deadline_end).run_for()`` (at least
-    one second; ``alarm(0)`` cancels). *timeout_sec* is the request budget;
-    *deadline_end* is when it ends.
+    Matches ``Deadline.run_for()`` (at least one second; ``alarm(0)`` cancels).
     """
-    del timeout_sec  # budget is stored on Deadline; alarm uses end time only
     left = deadline_end - time.monotonic()
     if left <= 0:
         return None
@@ -752,44 +855,26 @@ def _ensure_init_executed(
         return None
 
     script_digest = init_script_hash or ""
-    with _SESSION_LOCK:
-        prior = _INIT_SCRIPT_HASH.get(init_session_id)
-        cached_exec = _SESSION_EXECUTORS.get(init_session_id)
-        if (
-            (prior is not None and prior != script_digest)
-            or (
-                cached_exec is not None
-                and policy is not None
-                and getattr(cached_exec, "_sandbox_policy", None) != policy
-            )
-        ):
-            _clear_init_session_unlocked(init_session_id)
-        elif prior == script_digest and init_session_id in _SESSION_EXECUTORS:
-            if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
-                _record_isolated_init_access_unlocked(init_session_id)
-            return None
+    if SESSIONS.init_is_current(init_session_id, script_digest, policy):
+        return None
 
-    init_executor, _ = _get_or_create_session_executor(
+    init_executor, _ = SESSIONS.get_or_create(
         init_session_id, timeout_sec, policy=policy
     )
     # Init and the cell used to each get a fresh alarm for the full budget, so
     # a slow init plus a slow cell outlived the single host read and killed
     # the worker (every other workbook on that process).
-    left = _executor_alarm_seconds(timeout_sec, deadline)
+    left = _executor_alarm_seconds(deadline)
     if left is None:
         return _budget_timeout_error(timeout_sec)
     init_executor.timeout_seconds = left
     inject_auto_imports(init_executor, script)
     result = _run_on_executor(init_executor, script, result_optional=True)
     if result.get("status") != "ok":
-        with _SESSION_LOCK:
-            _clear_init_session_unlocked(init_session_id)
+        SESSIONS.abort_init(init_session_id)
         return result
 
-    with _SESSION_LOCK:
-        _INIT_SCRIPT_HASH[init_session_id] = script_digest
-        if SessionKey.parse(init_session_id).kind is SessionKind.ISOLATED:
-            _record_isolated_init_access_unlocked(init_session_id)
+    SESSIONS.commit_init(init_session_id, script_digest)
     return None
 
 
@@ -845,10 +930,10 @@ def _inject_bindings(executor: LocalPythonExecutor, bindings: dict[str, Any] | N
 
 _RESULT_MISSING = object()
 # Intentional check-then-set with no lock: LibrePy/WriterAgent venv workers are
-# one thread per process (execution is serialized; ``_SESSION_LOCK`` is for
+# one thread per process (execution is serialized; ``SESSIONS._lock`` is for
 # session state, not this). ``matplotlib.use("Agg")`` twice is harmless. Do not
 # add a threading.Lock here unless the worker becomes multi-threaded; then this
-# flag needs a lock (or to move under ``_SESSION_LOCK``).
+# flag needs a lock (or to move under ``SESSIONS._lock``).
 _MPL_AGG_SET = False
 _MPL_AGG_FAILED = False
 
@@ -857,7 +942,7 @@ def _ensure_mpl_agg() -> None:
     global _MPL_AGG_SET, _MPL_AGG_FAILED
     if _MPL_AGG_SET or _MPL_AGG_FAILED:
         return
-    mpl = optional_module("matplotlib")
+    mpl = optional_import.optional_module("matplotlib")
     if mpl is not None and hasattr(mpl, "use"):
         try:
             mpl.use("Agg")
@@ -924,7 +1009,7 @@ def _is_mpl_artist_result(obj: Any) -> bool:
 def _close_open_figures() -> None:
     if "matplotlib.pyplot" not in sys.modules:
         return
-    plt_mod = optional_module("matplotlib.pyplot")
+    plt_mod = optional_import.optional_module("matplotlib.pyplot")
     if plt_mod is None:
         return
     try:
@@ -1078,9 +1163,17 @@ def _run_on_executor(
         # Wrapping host USER_STOPPED in RuntimeError lets the script keep
         # issuing wa.* calls after Stop.
         return _fail_cell(executor, prior_result, str(e) or "Stopped by user.", code="USER_STOPPED")
-    except (ExecutionTimeoutError, InterpreterError) as e:
+    except ExecutionTimeoutError as e:
         # ExecutionTimeoutError is BaseException; catch it before the broad
         # BaseException handler so timeout errors return without traceback.
+        finalize_thread_pool_timeout()
+        return _fail_cell(
+            executor,
+            prior_result,
+            str(e),
+            stdout=print_outputs_from_state(executor.state),
+        )
+    except InterpreterError as e:
         return _fail_cell(
             executor,
             prior_result,
@@ -1189,11 +1282,7 @@ def run_sandboxed_code(
     # session_duckdb().execute does not receive scoped_dir; the jail reads
     # this variable. It is set before _ensure_init_executed and _run_on_executor,
     # so the timeout fallback's copy_context() already carries it.
-    host_folder: str | None = None
-    if isinstance(bindings, dict):
-        raw_folder = bindings.get("scoped_dir")
-        if isinstance(raw_folder, str) and raw_folder.strip():
-            host_folder = raw_folder
+    host_folder = _host_scoped_dir(bindings)
     dir_token = _CURRENT_SANDBOX_SCOPED_DIR.set(host_folder)
 
     relaxed_roots = policy_relaxed_roots(policy)
@@ -1207,10 +1296,7 @@ def run_sandboxed_code(
         init_digest = _resolve_init_digest(init_script, init_script_hash)
 
         if session_id:
-            with _SESSION_LOCK:
-                cached = _SESSION_EXECUTORS.get(session_id)
-                if cached is not None and getattr(cached, "_sandbox_policy", None) != policy:
-                    _drop_session_unlocked(session_id)
+            SESSIONS.drop_if_policy_mismatch(session_id, policy)
 
         if init_sid and (init_script or "").strip():
             init_err = _ensure_init_executed(
@@ -1225,12 +1311,12 @@ def run_sandboxed_code(
                 return init_err
 
         if session_id:
-            executor, created = _get_or_create_session_executor(
+            executor, created = SESSIONS.get_or_create(
                 session_id, timeout_sec, policy=policy
             )
             ns = CellNamespace(executor)
             if init_sid:
-                _seed_shared_executor_once(executor, session_id, init_sid, init_digest)
+                ns.seed_shared(session_id, init_sid, init_digest)
         else:
             ns = CellNamespace.fresh(policy, timeout_sec)
             executor = ns.executor
@@ -1238,7 +1324,7 @@ def run_sandboxed_code(
             if init_sid:
                 ns.seed(init_sid, copy=True)
 
-        left = _executor_alarm_seconds(timeout_sec, deadline)
+        left = _executor_alarm_seconds(deadline)
         if left is None:
             err = _budget_timeout_error(timeout_sec)
             if session_id:

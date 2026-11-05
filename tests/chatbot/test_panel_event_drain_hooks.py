@@ -21,6 +21,7 @@ import pytest
 
 from plugin.chatbot.chat_session import ChatSession
 from plugin.chatbot.panel import SendButtonListener
+from plugin.chatbot.tool_loop_actions import assign_send_outcome
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from plugin.framework.send_cancellation import SendCancellation
@@ -66,7 +67,7 @@ def _reset_drain_and_watchdog():
 
 def _audio_listener() -> SendButtonListener:
     listener = _make_send_listener()
-    listener._terminal_status = ""
+    assign_send_outcome(listener, None)
     text_part = {"type": "text", "text": "hello"}
     audio_part = {"type": "input_audio", "input_audio": {"data": "YmFzZTY0", "format": "wav"}}
     listener.session.messages = [{"role": "user", "content": [text_part, audio_part]}]
@@ -121,14 +122,20 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         act = logging_mod._shared()["activity"]
         assert act["phase"] == "do_send"
         assert act["status_control"] is status_ctrl
-        post_main.assert_not_called()
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert not clear_calls
         drop_turn.assert_not_called()
 
         # A mid-stream slice applies text and returns; still not the end.
         q.put((StreamQueueKind.CHUNK, "partial"))
         rearm.pump()
         assert _has_audio(listener)
-        post_main.assert_not_called()
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert not clear_calls
         drop_turn.assert_not_called()
 
         if ending == "stop":
@@ -143,7 +150,10 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         act = logging_mod._shared()["activity"]
         assert act["phase"] == ""
         assert act["status_control"] is None
-        post_main.assert_called_once_with(logging_mod._clear_hung_status, status_ctrl)
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert len(clear_calls) == 1
         drop_turn.assert_called_once()
 
         # Nothing left to run: the strip and the Hung clear happened once.

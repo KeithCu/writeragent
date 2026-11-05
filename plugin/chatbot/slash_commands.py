@@ -18,12 +18,12 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Sequence
+from typing import Any, Callable, Protocol, Sequence
 
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
 
-log = logging.getLogger("writeragent.slash_commands")
+log = logging.getLogger(__name__)
 
 # Persist via the same LRU helper as model/prompt history (not a sidecar file).
 SLASH_LRU_KEY = "slash_command_lru"
@@ -37,13 +37,43 @@ KEY_TAB = 1282
 KEY_MODIFIER_SHIFT = 1
 
 
-class SlashKind(str, Enum):
+class SlashRun(Enum):
     LOCAL = "local"
     REWRITE = "rewrite"
     ANSWER = "answer"
+    COMPACT = "compact"
+    FORMULA = "formula"
 
 
-_POPUP_IMMEDIATE = frozenset({"help", "clear", "stop", "undo"})
+class SlashResult(Enum):
+    HANDLED = "handled"
+    CONTINUE_SEND = "continue_send"
+
+
+_SEND_TURN_RUNS = frozenset({SlashRun.ANSWER, SlashRun.COMPACT, SlashRun.FORMULA})
+
+
+class SlashHost(Protocol):
+    ctx: Any
+    session: Any
+    sidebar_state: Any
+    cached_doc_type: Any
+    cached_uno_services: Any
+    _send_cancellation: Any
+    query_control: Any
+
+    def dispatch(self, event: Any) -> None: ...
+    def _set_status(self, text: str) -> None: ...
+    def hide_popup(self) -> None: ...
+    def clear_ask(self) -> None: ...
+    def append_output(self, text: str) -> None: ...
+    def clear_chat(self) -> None: ...
+    def stop_in_flight(self) -> None: ...
+    def slash_document_model(self) -> Any: ...
+    def slash_run_rewrite(self, instruction: str) -> None: ...
+    def slash_agent_edit_in_flight(self) -> bool: ...
+    def run_slash_formula(self, description: str) -> None: ...
+
 
 # Local slash commands safe to run during an in-flight tool loop (no new agent turn).
 _SLASH_SAFE_WHILE_BUSY = frozenset({"help", "stop", "remember"})
@@ -55,50 +85,99 @@ class SlashCommand:
 
     name: str
     description: str
-    kind: SlashKind = SlashKind.LOCAL
+    run: SlashRun = SlashRun.LOCAL
     instruction: str = ""
     requires_arg: bool = False
     usage: str = ""
-    needs_turn: bool = False
-    runs_in_send_turn: bool = False
+    handler: Callable[[SlashHost, SlashCommand, str], None] | None = None
+
+
+def _run_help(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
+    host.clear_ask()
+    host.append_output("\n" + format_help_text() + "\n")
+
+
+def _run_clear(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
+    host.clear_ask()
+    host.clear_chat()
+
+
+def _run_stop(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
+    host.stop_in_flight()
+    # Bugfix (QA B11): partial slash drafts like "/sto" stayed in Ask after Stop.
+    host.clear_ask()
+
+
+def _run_remember(host: SlashHost, _cmd: SlashCommand, arg: str) -> None:
+    from plugin.chatbot.memory import MemoryStore
+
+    fact = arg.strip()
+    host.clear_ask()
+    try:
+        store = MemoryStore()
+    except Exception as exc:
+        host.append_output("\n" + str(exc) + "\n")
+        return
+    result = store.upsert(_remember_key(fact), fact)
+    if result.get("status") == "error":
+        host.append_output("\n" + str(result.get("message", _("Failed to save memory."))) + "\n")
+        return
+    host.append_output("\n" + _("Saved to memory: {0}").format(fact) + "\n")
+
+
+def _run_mock_echo(host: SlashHost, cmd: SlashCommand, _arg: str) -> None:
+    host.clear_ask()
+    host.append_output("\nslash: /%s\n" % cmd.name)
+
+
+def _run_rewrite(host: SlashHost, cmd: SlashCommand, arg: str) -> None:
+    host.clear_ask()
+    host.slash_run_rewrite(_format_instruction(cmd, arg))
+
+
+def _run_undo(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
+    host.clear_ask()
+    from plugin.chatbot.slash_undo_formula import run_slash_undo
+
+    run_slash_undo(host)
 
 
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
-    SlashCommand("help", N_("Print the command list"), usage="/help"),
-    SlashCommand("clear", N_("Start a new chat"), usage="/clear"),
-    SlashCommand("stop", N_("Cancel the in-flight send"), usage="/stop"),
+    SlashCommand("help", N_("Print the command list"), usage="/help", handler=_run_help),
+    SlashCommand("clear", N_("Start a new chat"), usage="/clear", handler=_run_clear),
+    SlashCommand("stop", N_("Cancel the in-flight send"), usage="/stop", handler=_run_stop),
     SlashCommand(
         "summarize",
         N_("Summarize the selection or document in the sidebar"),
-        kind=SlashKind.ANSWER,
+        run=SlashRun.ANSWER,
         instruction=N_("Summarize the selected text, or the whole document if nothing is selected."),
         usage="/summarize [focus]",
     ),
     SlashCommand(
         "proofread",
         N_("Fix spelling, grammar, and punctuation without restyling"),
-        kind=SlashKind.REWRITE,
+        run=SlashRun.REWRITE,
         instruction=N_("Fix spelling, grammar, and punctuation only. Do not change style, tone, or meaning."),
         usage="/proofread",
     ),
     SlashCommand(
         "shorten",
         N_("Shorten the selection"),
-        kind=SlashKind.REWRITE,
+        run=SlashRun.REWRITE,
         instruction=N_("Make the text shorter while preserving the meaning."),
         usage="/shorten [target]",
     ),
     SlashCommand(
         "expand",
         N_("Expand the selection with more detail"),
-        kind=SlashKind.REWRITE,
+        run=SlashRun.REWRITE,
         instruction=N_("Expand the text with more detail and clarity."),
         usage="/expand [what]",
     ),
     SlashCommand(
         "tone",
         N_("Rewrite the selection to match a described tone"),
-        kind=SlashKind.REWRITE,
+        run=SlashRun.REWRITE,
         instruction=N_("Rewrite the text to match this tone or style: {arg}"),
         requires_arg=True,
         usage="/tone <description>",
@@ -106,7 +185,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "translate",
         N_("Translate the selection (sidebar when nothing is selected in Writer)"),
-        kind=SlashKind.REWRITE,
+        run=SlashRun.REWRITE,
         instruction=N_("Translate the text into {arg}. Keep formatting and structure."),
         requires_arg=True,
         usage="/translate <language>",
@@ -114,37 +193,37 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
     SlashCommand(
         "explain",
         N_("Explain the selection or active Calc formula"),
-        kind=SlashKind.ANSWER,
+        run=SlashRun.ANSWER,
         instruction=N_("Explain the following in plain language."),
         usage="/explain",
     ),
     SlashCommand(
         "remember",
         N_("Save a fact to persistent memory"),
-        kind=SlashKind.LOCAL,
         requires_arg=True,
         usage="/remember <fact>",
+        handler=_run_remember,
     ),
     SlashCommand(
         "compact",
         N_("Compact older chat history now"),
-        kind=SlashKind.LOCAL,
+        run=SlashRun.COMPACT,  # Send after _begin_send; run_slash_compact, not run_slash_command handler
         usage="/compact [focus]",
-        needs_turn=True,
+        handler=None,  # COMPACT: no popup/local handler
     ),
     SlashCommand(
         "undo",
         N_("Undo the last agent edit as one step"),
-        kind=SlashKind.LOCAL,
         usage="/undo",
+        handler=_run_undo,
     ),
     SlashCommand(
         "formula",
         N_("Write a Calc formula from a plain-English description"),
-        kind=SlashKind.LOCAL,
+        run=SlashRun.FORMULA,  # Send after _begin_send; panel run_slash_formula
         requires_arg=True,
         usage="/formula <description>",
-        runs_in_send_turn=True,
+        handler=None,  # FORMULA: no popup/local handler
     ),
 )
 
@@ -152,12 +231,12 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
 # Never in the product list: only ``enable_mock_slash_commands()`` (called by
 # the debug-only sidebar test hooks) adds them to ``registered_slash_commands``.
 MOCK_SLASH_COMMANDS: tuple[SlashCommand, ...] = (
-    SlashCommand("mock-alpha", N_("Mock command (echo only)")),
-    SlashCommand("mock-bravo", N_("Mock command (echo only)")),
-    SlashCommand("mock-charlie", N_("Mock command (echo only)")),
-    SlashCommand("apply", N_("Apply last draft (mock)")),
-    SlashCommand("web", N_("Web research (mock)")),
-    SlashCommand("model", N_("Switch model (mock)")),
+    SlashCommand("mock-alpha", N_("Mock command (echo only)"), handler=_run_mock_echo),
+    SlashCommand("mock-bravo", N_("Mock command (echo only)"), handler=_run_mock_echo),
+    SlashCommand("mock-charlie", N_("Mock command (echo only)"), handler=_run_mock_echo),
+    SlashCommand("apply", N_("Apply last draft (mock)"), handler=_run_mock_echo),
+    SlashCommand("web", N_("Web research (mock)"), handler=_run_mock_echo),
+    SlashCommand("model", N_("Switch model (mock)"), handler=_run_mock_echo),
 )
 
 _mock_commands_enabled = False
@@ -178,6 +257,14 @@ def registered_slash_commands() -> tuple[SlashCommand, ...]:
 
 def _registry_map() -> dict[str, SlashCommand]:
     return {c.name: c for c in registered_slash_commands()}
+
+
+def get_slash_command(name: str) -> SlashCommand | None:
+    """Lookup a registered command by name (without leading slash)."""
+    clean = (name or "").lstrip("/").strip().lower()
+    if not clean:
+        return None
+    return _registry_map().get(clean)
 
 
 def parse_slash_text(text: str) -> tuple[SlashCommand, str] | None:
@@ -394,17 +481,33 @@ def slash_answer_is_local_only(cmd: SlashCommand, model: Any | None) -> bool:
     """Writer /translate with no selection: sidebar answer only, no edit tools on the wire."""
     return (
         cmd.name == "translate"
-        and cmd.kind == SlashKind.REWRITE
+        and cmd.run is SlashRun.REWRITE
         and model is not None
         and get_document_type(model) == DocumentType.WRITER
         and not _writer_has_selection(model)
     )
 
 
-def effective_slash_kind(cmd: SlashCommand, model: Any | None) -> SlashKind:
+def effective_slash_run(cmd: SlashCommand, model: Any | None) -> SlashRun:
     if slash_answer_is_local_only(cmd, model):
-        return SlashKind.ANSWER
-    return cmd.kind
+        return SlashRun.ANSWER
+    return cmd.run
+
+
+def plan_slash(cmd: SlashCommand, host: SlashHost) -> SlashRun:
+    """Resolved run for routing (Send turn vs local handler vs rewrite)."""
+    if cmd.run is not SlashRun.REWRITE:
+        return cmd.run
+    return effective_slash_run(cmd, host.slash_document_model())
+
+
+def slash_popup_runs_now(cmd: SlashCommand) -> bool:
+    return cmd.run is SlashRun.LOCAL and not cmd.requires_arg
+
+
+def slash_continues_send(cmd: SlashCommand, host: SlashHost) -> bool:
+    """True when Send must call ``_begin_send`` before finishing the command."""
+    return plan_slash(cmd, host) in _SEND_TURN_RUNS
 
 
 def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
@@ -421,8 +524,8 @@ def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
     return instruction
 
 
-def _peek_slash_from_ask(host: Any) -> tuple[SlashCommand, str] | None:
-    query = getattr(host, "query_control", None)
+def _peek_slash_from_ask(host: SlashHost) -> tuple[SlashCommand, str] | None:
+    query = host.query_control
     if query is None or not query.getModel():
         return None
     from plugin.chatbot.dialogs import get_control_text
@@ -434,7 +537,7 @@ def _peek_slash_from_ask(host: Any) -> tuple[SlashCommand, str] | None:
     return parsed
 
 
-def try_dispatch_slash_on_send_click(host: Any) -> bool:
+def try_dispatch_slash_on_send_click(host: SlashHost) -> bool:
     """Run a local slash command without ``SEND_CLICKED`` / a send turn.
 
     Typed Send and Enter call this before the FSM enters BUSY so ``/undo`` is
@@ -445,28 +548,27 @@ def try_dispatch_slash_on_send_click(host: Any) -> bool:
     if parsed is None:
         return False
     cmd, arg = parsed
-    send_state = getattr(host, "sidebar_state", None)
-    busy = bool(send_state is not None and send_state.send.is_busy)
+    busy = host.sidebar_state.send.is_busy
     if busy:
         if cmd.name not in _SLASH_SAFE_WHILE_BUSY:
             return False
-        return run_slash_command(cmd.name, host, arg, from_popup=False)
-    if slash_send_continues_after_begin(cmd, host):
+        return run_slash_command(cmd, host, arg, from_popup=False) is SlashResult.HANDLED
+    if slash_continues_send(cmd, host):
         return False
-    return run_slash_command(cmd.name, host, arg, from_popup=False)
+    return run_slash_command(cmd, host, arg, from_popup=False) is SlashResult.HANDLED
 
 
-def tool_schemas_for_slash_compact(host: Any, ctx: Any, session: Any) -> list[Any]:
+def tool_schemas_for_slash_compact(host: SlashHost, ctx: Any, session: Any) -> list[Any]:
     """OpenAI tool schemas for ``/compact`` — same shape as the main tool loop."""
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     model = host.slash_document_model()
-    doc_type_str = getattr(host, "cached_doc_type", None) or "writer"
+    doc_type_str = host.cached_doc_type or "writer"
     active_domain = getattr(session, "active_specialized_domain", None)
     return get_tools().get_schemas(
         "openai",
         doc_type=doc_type_str,
-        uno_services_supported=getattr(host, "cached_uno_services", None),
+        uno_services_supported=host.cached_uno_services,
         active_domain=active_domain,
         ctx=ctx,
         doc=model,
@@ -474,7 +576,7 @@ def tool_schemas_for_slash_compact(host: Any, ctx: Any, session: Any) -> list[An
 
 
 def prepare_slash_compact_on_ui_thread(
-    host: Any, ctx: Any, session: Any
+    host: SlashHost, ctx: Any, session: Any
 ) -> tuple[Any | None, list[Any]]:
     """Resolve the LLM client and tool schemas on the UI thread before the worker starts.
 
@@ -492,23 +594,12 @@ def prepare_slash_compact_on_ui_thread(
     return client, tools
 
 
-def slash_send_continues_after_begin(cmd: SlashCommand, host: Any | None = None) -> bool:
-    """True when Send must call ``_begin_send`` before finishing the command."""
-    if cmd.needs_turn or cmd.runs_in_send_turn or cmd.kind == SlashKind.ANSWER:
-        return True
-    if host is not None:
-        model = host.slash_document_model()
-        if model is not None and effective_slash_kind(cmd, model) == SlashKind.ANSWER:
-            return True
-    return False
-
-
 def _remember_key(fact: str) -> str:
     digest = hashlib.sha256(fact.strip().encode("utf-8")).hexdigest()[:12]
     return "slash." + digest
 
 
-def _complete_ask_draft(host: Any, name: str) -> None:
+def _complete_ask_draft(host: SlashHost, name: str) -> None:
     from plugin.chatbot.dialogs import set_control_text
     from plugin.chatbot.send_state import SendEvent, SendEventKind
 
@@ -516,70 +607,6 @@ def _complete_ask_draft(host: Any, name: str) -> None:
     if query is not None:
         set_control_text(query, "/" + name + " ")
     host.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
-
-
-def _run_help(host: Any) -> None:
-    host.clear_ask()
-    host.append_output("\n" + format_help_text() + "\n")
-
-
-def _run_clear(host: Any) -> None:
-    host.clear_ask()
-    host.clear_chat()
-
-
-def _run_stop(host: Any) -> None:
-    host.stop_in_flight()
-    # Bugfix (QA B11): partial slash drafts like "/sto" stayed in Ask after Stop.
-    host.clear_ask()
-
-
-def _run_remember(host: Any, fact: str) -> None:
-    from plugin.chatbot.memory import MemoryStore
-
-    host.clear_ask()
-    try:
-        store = MemoryStore()
-    except Exception as exc:
-        host.append_output("\n" + str(exc) + "\n")
-        return
-    result = store.upsert(_remember_key(fact), fact)
-    if result.get("status") == "error":
-        host.append_output("\n" + str(result.get("message", _("Failed to save memory."))) + "\n")
-        return
-    host.append_output("\n" + _("Saved to memory: {0}").format(fact) + "\n")
-
-
-def _run_mock_echo(host: Any, cmd: SlashCommand) -> None:
-    host.clear_ask()
-    host.append_output("\nslash: /%s\n" % cmd.name)
-
-
-def _run_rewrite(host: Any, cmd: SlashCommand, arg: str) -> None:
-    host.clear_ask()
-    host.slash_run_rewrite(_format_instruction(cmd, arg))
-
-
-def _run_compact(host: Any, arg: str) -> None:
-    host.clear_ask()
-    host.run_slash_compact(arg.strip())
-
-
-def _run_undo(host: Any) -> None:
-    host.clear_ask()
-    from plugin.chatbot.slash_undo_formula import run_slash_undo
-
-    run_slash_undo(host)
-
-
-_LOCAL_HANDLERS: dict[str, Any] = {
-    "help": lambda host, _cmd, _arg: _run_help(host),
-    "clear": lambda host, _cmd, _arg: _run_clear(host),
-    "stop": lambda host, _cmd, _arg: _run_stop(host),
-    "remember": lambda host, _cmd, arg: _run_remember(host, arg.strip()),
-    "compact": lambda host, _cmd, arg: _run_compact(host, arg),
-    "undo": lambda host, _cmd, _arg: _run_undo(host),
-}
 
 
 def _compact_result_line(result: Any) -> str:
@@ -595,62 +622,79 @@ def _compact_result_line(result: Any) -> str:
     return _("Compaction failed.")
 
 
-def run_slash_command(
-    name: str,
-    host: Any,
-    arg: str = "",
-    *,
-    from_popup: bool = False,
-) -> bool:
-    """Run a registry command.
-
-    Returns ``False`` when ``name`` is unknown, or when Send must continue after
-    ``_begin_send`` (answer presets, ``/compact``, and commands with ``runs_in_send_turn``).
-    Returns ``True`` when the
-    command is fully handled (including usage lines and rewrites).
-
-    Mocks echo ``slash: /name`` so the popup can be exercised. ``/help``
-    prints the static list. ``/clear`` uses ClearButtonListener. Those and
-    mocks clear Ask. ``/stop`` does not: it runs ``StopButtonListener`` (TTS,
-    inline web approval, hands-free, and ``STOP_CLICKED``), same as the Stop
-    button, and leaves the draft.
-    """
-    clean = name.lstrip("/").strip().lower()
-    cmd = _registry_map().get(clean)
-    if cmd is None:
-        return False
+def _commit_slash_command(cmd: SlashCommand, host: SlashHost) -> None:
     record_slash_lru(cmd.name)
     host.hide_popup()
 
-    if from_popup and cmd.name not in _POPUP_IMMEDIATE and cmd not in MOCK_SLASH_COMMANDS:
+
+def run_slash_command(
+    cmd: SlashCommand,
+    host: SlashHost,
+    arg: str = "",
+    *,
+    from_popup: bool = False,
+) -> SlashResult:
+    """Run a registry command.
+
+    Returns ``CONTINUE_SEND`` when Send must continue after ``_begin_send``
+    (see ``plan_slash`` and ``_SEND_TURN_RUNS``). Returns ``HANDLED`` when the
+    command is fully handled (including usage lines and rewrites).
+    """
+    if from_popup and not slash_popup_runs_now(cmd):
+        _commit_slash_command(cmd, host)
         _complete_ask_draft(host, cmd.name)
-        return True
+        return SlashResult.HANDLED
 
     if cmd.requires_arg and not (arg or "").strip():
+        _commit_slash_command(cmd, host)
         host.append_output("\n" + format_usage_line(cmd) + "\n")
-        return True
+        return SlashResult.HANDLED
 
-    if cmd in MOCK_SLASH_COMMANDS:
-        _run_mock_echo(host, cmd)
-        return True
+    planned = plan_slash(cmd, host)
 
-    if cmd.name in _LOCAL_HANDLERS and not cmd.needs_turn and not cmd.runs_in_send_turn:
-        _LOCAL_HANDLERS[cmd.name](host, cmd, arg)
-        return True
+    if planned in _SEND_TURN_RUNS:
+        return SlashResult.CONTINUE_SEND
 
-    if cmd.kind == SlashKind.REWRITE:
-        model = host.slash_document_model()
-        if effective_slash_kind(cmd, model) == SlashKind.ANSWER:
-            return False
+    if planned is SlashRun.REWRITE:
+        _commit_slash_command(cmd, host)
         _run_rewrite(host, cmd, arg)
-        return True
+        return SlashResult.HANDLED
 
-    if cmd.kind == SlashKind.ANSWER or cmd.needs_turn or cmd.runs_in_send_turn:
-        return False
+    if cmd.handler is not None:
+        _commit_slash_command(cmd, host)
+        cmd.handler(host, cmd, arg)
+        return SlashResult.HANDLED
 
-    host.clear_ask()
-    host.append_output("\nslash: /%s\n" % cmd.name)
-    return True
+    raise RuntimeError("slash command %r has no handler" % (cmd.name,))
+
+
+def run_slash_compact(host: SlashHost, focus: str, *, cancel: Any | None = None) -> None:
+    from plugin.framework.blocking_wait import run_blocking_in_thread
+
+    if host.sidebar_state.tool_loop is not None:
+        host.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
+        return
+    if cancel is None:
+        cancel = host._send_cancellation
+    host._set_status(_("Thinking..."))
+    # Resolve UNO here: the caller holds SolarMutex while it waits for the worker
+    # (run_blocking_in_thread with pump_idle), so UNO on the worker can deadlock.
+    client, tools = prepare_slash_compact_on_ui_thread(host, host.ctx, host.session)
+    if client is None:
+        host.append_output("\n" + _("Configure an API key to compact.") + "\n")
+        return
+
+    def worker() -> str:
+        return run_slash_compact_sync(
+            focus=focus,
+            session=host.session,
+            cancel=cancel,
+            client=client,
+            tools=tools,
+        )
+
+    line = run_blocking_in_thread(host.ctx, worker, pump_idle=True)
+    host.append_output(line)
 
 
 def run_slash_compact_sync(

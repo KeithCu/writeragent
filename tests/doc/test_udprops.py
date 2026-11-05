@@ -183,7 +183,7 @@ def test_set_document_property_error_path_probes_raw_model(monkeypatch):
     raw.getDocumentProperties.side_effect = UnoObjectError("boom")
     raw.getURL.return_value = "file:///tmp/x.odt"
     raw.isReadonly.return_value = False
-    monkeypatch.setattr("plugin.framework.thread_guard._unwrap_uno", lambda obj: raw)
+    monkeypatch.setattr("plugin.framework.thread_guard.unwrap_uno", lambda obj: raw)
     with pytest.raises(UnoObjectError):
         set_document_property(_Guard(), "P", "v")
     raw.getURL.assert_called_once()

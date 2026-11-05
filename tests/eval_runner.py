@@ -22,7 +22,7 @@ from plugin.framework.logging import log
 from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.framework.prompts import get_chat_system_prompt_for_document
 from scripts.lib.pricing import fetch_openrouter_pricing, calculate_cost
-from plugin.main import get_tools
+from plugin.app import get_tools
 
 
 def _call_on_main(fn, *args, **kwargs):

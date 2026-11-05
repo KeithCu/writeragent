@@ -9,9 +9,9 @@ Conditional formatting tools live in the **specialized** tier (`conditional_form
 
 | Tool | Role |
 |------|------|
-| `add_conditional_format` | Append a **classic** rule: operator + optional formulas + **cell style name** when the rule matches. |
-| `list_conditional_formats` | List rules on a range (or the used area if `range` is omitted). |
-| `remove_conditional_formats` | Remove one rule by **0-based** index, or **clear all** rules on the range if `rule_index` is omitted. |
+| `conditional_formatting_add` | Append a **classic** rule: operator + optional formulas + **cell style name** when the rule matches. |
+| `conditional_formatting_list` | List rules on a range (or the used area if `range` is omitted). |
+| `conditional_formatting_remove` | Remove one rule by **0-based** index, or **clear all** rules on the range if `rule_index` is omitted. |
 
 Implementation: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py).
 ---
@@ -36,7 +36,7 @@ This matches the classic “apply **named cell style** when condition X holds”
 - **Each block:** [`ConditionalFormat`](https://api.libreoffice.org/docs/idl/ref/servicecom_1_1sun_1_1star_1_1sheet_1_1ConditionalFormat.html) service with **`XConditionalFormat.createEntry(Type, Position)`** where **`Type`** is [`ConditionEntryType`](https://api.libreoffice.org/docs/idl/ref/namespacecom_1_1sun_1_1star_1_1sheet_1_1ConditionEntryType.html): **CONDITION**, **COLORSCALE**, **DATABAR**, **ICONSET**, **DATE**, etc.
 - **Polymorphic entries:** [`XConditionEntry`](https://api.libreoffice.org/docs/idl/ref/interfacecom_1_1sun_1_1star_1_1sheet_1_1XConditionEntry.html) — concrete services include [`DataBar`](https://api.libreoffice.org/docs/idl/ref/servicecom_1_1sun_1_1star_1_1sheet_1_1DataBar.html), **ColorScale**, **IconSet**, etc.
 
-**Implication:** Rules created **only** through this newer pipeline may **not** appear in `getPropertyValue("ConditionalFormat")` on a cell range, and **vice versa**. Our **`list_conditional_formats`** tool currently reads **only** the legacy range property. A future “full fidelity” listing would need to **merge** legacy range rules with sheet-level **`ConditionalFormats`** filtered by range overlap.
+**Implication:** Rules created **only** through this newer pipeline may **not** appear in `getPropertyValue("ConditionalFormat")` on a cell range, and **vice versa**. Our **`conditional_formatting_list`** tool currently reads **only** the legacy range property. A future “full fidelity” listing would need to **merge** legacy range rules with sheet-level **`ConditionalFormats`** filtered by range overlap.
 ---
 
 ## 3. Operators: `ConditionOperator` vs `ConditionOperator2`
@@ -68,7 +68,7 @@ Listing output includes:
 
 File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 
-1. **`DUPLICATE` / `NOT_DUPLICATE`** on `add_conditional_format`  
+1. **`DUPLICATE` / `NOT_DUPLICATE`** on `conditional_formatting_add`  
    - Operator values use **`ConditionOperator2`** when importable, with fallback to **10** / **11**.  
    - **`formula1`** is **not** required for these operators (empty string is fine).
 
@@ -76,14 +76,14 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
    - **`BETWEEN` / `NOT_BETWEEN`** require **`formula2`**.  
    - Other operators (except duplicates) require non-empty **`formula1`**.
 
-3. **`list_conditional_formats`**  
+3. **`conditional_formatting_list`**  
    - Prefer **`XSheetCondition2.getConditionOperator()`** so extended codes map to **`DUPLICATE`** / **`NOT_DUPLICATE`** instead of opaque enum strings.  
    - Expose optional **`operator_code`** for debugging and agent reasoning.
 
 4. **Missing `ConditionalFormat` container**  
    - If `getPropertyValue("ConditionalFormat")` returns **`None`**, we **`createInstanceWithContext("com.sun.star.sheet.TableConditionalFormat", ctx)`** via the document’s component context (see **`_ensure_table_conditional_format`**). This avoids a rare first-rule failure on some paths.
 
-5. **`remove_conditional_formats`**  
+5. **`conditional_formatting_remove`**  
    - Safer behavior when the container is missing or empty (clear is a no-op if there is nothing to clear).
 
 6. **Tests**  
@@ -95,8 +95,8 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 ### 5.1 Short term (same legacy API)
 
 - Add UNO coverage for **`NOT_DUPLICATE`**, **`FORMULA`**, and **`NOT_BETWEEN`** if any regressions show up on specific LibreOffice versions.  
-- Optional: expose **`SourcePosition`** in `add_conditional_format` for relative formulas (PropertyValue **`SourcePosition`** — see `XSheetConditionalEntries` docs).  
-- Document in tool descriptions that **`list_conditional_formats`** is **legacy-container-only** until merged listing exists.
+- Optional: expose **`SourcePosition`** in `conditional_formatting_add` for relative formulas (PropertyValue **`SourcePosition`** — see `XSheetConditionalEntries` docs).  
+- Document in tool descriptions that **`conditional_formatting_list`** is **legacy-container-only** until merged listing exists.
 
 ### 5.2 Medium term (full listing)
 
@@ -114,7 +114,7 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 
 - **PyUNO `queryInterface`:** Use **`uno.getTypeByName("com.sun.star....")`** — see `_query_interface` in [`conditional.py`](../../plugin/calc/conditional.py) and [`pivot.py`](../../plugin/calc/pivot.py).  
 - **First rule fails with no container:** Check **`_ensure_table_conditional_format`** and LO version; verify **`TableConditionalFormat`** service name.  
-- **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`list_conditional_formats`** against `_OPS` in [`conditional.py`](../../plugin/calc/conditional.py) (unknown codes become `str(code)`).  
+- **Operator shows wrong in UI but list looks right:** Compare **`operator_code`** from **`conditional_formatting_list`** against `_OPS` in [`conditional.py`](../../plugin/calc/conditional.py) (unknown codes become `str(code)`).  
 - **Rules from UI missing in list:** User may have created **modern** CF — see §2.2; implement merged listing (§5.2).
 ---
 
@@ -134,6 +134,6 @@ File: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py).
 
 ## 8. Not AutoFilter
 
-**Standard sheet filtering** (AutoFilter / “hide rows that do not match”) is a **different** UNO surface (`XSheetFilterable`, `FilterOperator2`, `TableFilterField2`) from **conditional formatting** (`TableConditionalFormat`, `ConditionOperator`). It is documented and implemented separately: **[sheet-filter.md](sheet-filter.md)** (`sheet_filter` domain, tools `apply_sheet_filter`, `clear_sheet_filter`, `get_sheet_filter`).
+**Standard sheet filtering** (AutoFilter / “hide rows that do not match”) is a **different** UNO surface (`XSheetFilterable`, `FilterOperator2`, `TableFilterField2`) from **conditional formatting** (`TableConditionalFormat`, `ConditionOperator`). It is documented and implemented separately: **[sheet-filter.md](sheet-filter.md)** (`sheet_filter` domain, tools `sheet_filter_apply`, `sheet_filter_clear`, `sheet_filter_get`).
 
 For **compound logic** in *conditional formatting* rules, use operator **`FORMULA`** with a single Calc expression (e.g. `=AND($A1>5,$A1<10)` relative to the formatted range).

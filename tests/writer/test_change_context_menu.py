@@ -17,7 +17,6 @@ import pytest
 
 from plugin.framework.uno_listeners import ListenerBoundary
 from plugin.writer import change_context_menu, review_view_attachment as rva
-from plugin.writer.change_context_menu import _install_doc_event_listener
 
 
 class DisposedException(Exception):
@@ -46,7 +45,7 @@ def _build_listener() -> Any:
     ctx = MagicMock()
     broadcaster = MagicMock()
     ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
-    _install_doc_event_listener(ctx)
+    rva.install(ctx)
     return broadcaster.addDocumentEventListener.call_args[0][0]
 
 
@@ -152,14 +151,14 @@ def test_register_controller_dedups_by_uno_identity(monkeypatch):
     )
     monkeypatch.setattr(
         "plugin.writer.review_click_popup._make_handler",
-        lambda m: MagicMock(),
+        lambda m, detach: MagicMock(),
     )
 
-    change_context_menu._register_controller(ctrl1)
+    rva.register_controller(ctrl1)
     assert len(ctrl1.registered) == 1
     assert len(rva.registered_controllers()) == 1
 
-    change_context_menu._register_controller(ctrl2)
+    rva.register_controller(ctrl2)
     assert len(ctrl2.registered) == 0
     assert len(rva.registered_controllers()) == 1
 
@@ -193,7 +192,7 @@ def test_unload_removes_interceptor_and_pair():
     _seed_controller_hooks(ctrl1, interceptor1)
     _seed_controller_hooks(ctrl2, interceptor2)
 
-    change_context_menu._unregister_model(model1)
+    rva.unregister_controllers_for_model(model1)
     assert ctrl1.removed == [interceptor1]
     assert ctrl2.removed == []
     assert rva.registered_controllers() == [(ctrl2, interceptor2)]
@@ -210,7 +209,7 @@ def test_unload_swallows_removal_disposal():
     ctrl.releaseContextMenuInterceptor = _raise_gone
     _seed_controller_hooks(ctrl, interceptor)
 
-    change_context_menu._unregister_model(model)
+    rva.unregister_controllers_for_model(model)
     assert rva.registered_controllers() == []
 
 

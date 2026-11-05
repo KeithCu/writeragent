@@ -28,7 +28,7 @@ from compute_service import __version__
 from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
 from compute_service.wsgi_server import HTTP_DRAIN_SEC, REQUEST_READ_TIMEOUT_SEC, REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, listener_thread_count, request_conn
-from compute_service.worker_base import Deadline
+from plugin.framework.child_runtime import Deadline
 from compute_service.json_forward import (
     ExecuteRequestError,
     ExecuteRequestParts,
@@ -96,19 +96,13 @@ def _start_json(start_response: Any, status: str, payload: dict[str, Any], *, ex
     return _start_raw_json(start_response, status, json.dumps(payload, allow_nan=False).encode("utf-8"), extra_headers=extra_headers)
 
 
-def _error(start_response: Any, status: str, msg: str, code: str | None = None, req_id: Any = None, *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
-    """Shared helper to construct and send a JSON error response."""
-    payload: dict[str, Any] = {"status": "error", "error": msg}
-    if code is not None:
-        payload["code"] = code
+def _error(start_response: Any, code: str, msg: str, req_id: Any = None, *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
+    """Send a coded JSON error; HTTP status comes from ``error_codes.HTTP_STATUS``."""
+    status = ec.HTTP_STATUS[code]
+    payload: dict[str, Any] = {"status": "error", "error": msg, "code": code}
     if req_id is not None:
         payload["id"] = req_id
     return _start_json(start_response, status, payload, extra_headers=extra_headers)
-
-
-def _code_error(start_response: Any, code: str, msg: str, req_id: Any = None, *, extra_headers: list[tuple[str, str]] | None = None) -> list[bytes]:
-    """Send error *code* with the HTTP status ``error_codes.HTTP_STATUS`` gives it."""
-    return _error(start_response, ec.HTTP_STATUS[code], msg, code=code, req_id=req_id, extra_headers=extra_headers)
 
 
 def _infrastructure_status(payload: dict[str, Any]) -> str | None:
@@ -150,7 +144,7 @@ def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any
             if raw_out:
                 return _start_raw_json(start_response, "200 OK", bytes(raw_out))
             # Empty bytes are falsy. An empty frame is EMPTY_RESPONSE, not a second encode.
-            return _code_error(start_response, ec.EMPTY_RESPONSE, "Worker returned an empty result.", req_id=req_id)
+            return _error(start_response, ec.EMPTY_RESPONSE, "Worker returned an empty result.", req_id=req_id)
         infra = _infrastructure_status(result_payload)
         _inject_req_id(result_payload, req_id)
         if infra is not None:
@@ -165,8 +159,7 @@ def _send_execution_result(start_response: Any, result_payload: Any, req_id: Any
     try:
         return _start_json(start_response, http_status, result_payload)
     except (TypeError, ValueError) as e:
-        err_body: dict[str, Any] = {"status": "error", "error": f"JSON encode failed: {e}"}
-        return _start_json(start_response, "500 Internal Server Error", err_body)
+        return _error(start_response, ec.INTERNAL_ERROR, f"JSON encode failed: {e}")
 
 
 ExecuteFn = Callable[..., dict[str, Any]]
@@ -312,7 +305,7 @@ def _reject_chunked(environ: dict[str, Any], start_response: Any) -> list[bytes]
     if not _transfer_encoding_is_chunked(environ):
         return None
     request_conn(environ).close_connection = True
-    return _error(start_response, "400 Bad Request", "Chunked transfer encoding is not supported")
+    return _error(start_response, ec.BAD_FRAMING, "Chunked transfer encoding is not supported")
 
 
 def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
@@ -327,29 +320,29 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
     raw_len = environ.get("CONTENT_LENGTH")
     if raw_len is None or raw_len == "":
         rc.close_connection = True
-        return None, _error(start_response, "400 Bad Request", "Missing Content-Length")
+        return None, _error(start_response, ec.BAD_FRAMING, "Missing Content-Length")
     try:
         content_length = int(raw_len)
     except (TypeError, ValueError):
         rc.close_connection = True
-        return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
+        return None, _error(start_response, ec.BAD_FRAMING, "Invalid Content-Length")
     if content_length <= 0:
         rc.close_connection = True
-        return None, _error(start_response, "400 Bad Request", "Invalid Content-Length")
+        return None, _error(start_response, ec.BAD_FRAMING, "Invalid Content-Length")
     if content_length > settings.max_body_bytes:
         _drain_body_before_error(environ, max_bytes=64 * 1024)
         rc.close_connection = True
-        return None, _error(start_response, "413 Payload Too Large", "Request body too large")
+        return None, _error(start_response, ec.PAYLOAD_TOO_LARGE, "Request body too large")
 
     wsgi_input = environ.get("wsgi.input")
     if wsgi_input is None:
         rc.close_connection = True
-        return None, _error(start_response, "500 Internal Server Error", "Missing wsgi.input stream")
+        return None, _error(start_response, ec.INTERNAL_ERROR, "Missing wsgi.input stream")
 
-    def fail(status: str, msg: str) -> tuple[None, list[bytes]]:
+    def fail(code: str, msg: str) -> tuple[None, list[bytes]]:
         rc.close_connection = True
         _set_write_deadline(environ)
-        return None, _error(start_response, status, msg)
+        return None, _error(start_response, code, msg)
 
     conn = rc.connection
     read_deadline = _accept_clock(rc.accept_time) + REQUEST_READ_TIMEOUT_SEC
@@ -365,7 +358,7 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
         while bytes_read < content_length:
             now = time.monotonic()
             if now >= read_deadline:
-                return fail("408 Request Timeout", "Request read timeout")
+                return fail(ec.READ_TIMEOUT, "Request read timeout")
             remaining_time = read_deadline - now
             if conn is not None:
                 try:
@@ -374,7 +367,7 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
                     # If the deadline cannot be armed, stop. The next read would
                     # keep the previous socket timeout.
                     log.debug("failed to arm body-read deadline", exc_info=True)
-                    return fail("408 Request Timeout", "Request read timeout")
+                    return fail(ec.READ_TIMEOUT, "Request read timeout")
 
             to_read = min(buf_size, content_length - bytes_read)
             raw_chunk: Any = read1(to_read) if callable(read1) else wsgi_input.read(to_read)
@@ -384,15 +377,15 @@ def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start
             chunks.append(chunk)
             bytes_read += len(chunk)
     except TimeoutError:
-        return fail("408 Request Timeout", "Request read timeout")
+        return fail(ec.READ_TIMEOUT, "Request read timeout")
     except OSError as e:
         log.warning("Socket read error during body ingress: %s", e)
-        return fail("400 Bad Request", "Connection error reading request body")
+        return fail(ec.BAD_FRAMING, "Connection error reading request body")
 
     _set_write_deadline(environ)
     if bytes_read != content_length:
         rc.close_connection = True
-        return None, _error(start_response, "400 Bad Request", "Request body truncated")
+        return None, _error(start_response, ec.BAD_FRAMING, "Request body truncated")
 
     body = b"".join(chunks)
     # Admission reads the body before the permit wait. The handler must not
@@ -415,10 +408,10 @@ def _read_request_json(environ: dict[str, Any], settings: ComputeSettings, start
     try:
         data = json.loads(body.decode("utf-8"), parse_constant=_reject_const)
     except Exception:
-        return None, _error(start_response, "400 Bad Request", "Invalid JSON")
+        return None, _error(start_response, ec.BAD_REQUEST_BODY, "Invalid JSON")
 
     if not isinstance(data, dict):
-        return None, _error(start_response, "400 Bad Request", "JSON body must be an object")
+        return None, _error(start_response, ec.BAD_REQUEST_BODY, "JSON body must be an object")
 
     # The id is echoed on every reply, so it must be a finite scalar before it is cached.
     req_id = data.get("id")
@@ -427,7 +420,7 @@ def _read_request_json(environ: dict[str, Any], settings: ComputeSettings, start
             raise ExecuteRequestError("id must be a scalar")
         _reject_nonfinite_number(req_id)
     except ExecuteRequestError:
-        return None, _error(start_response, "400 Bad Request", "Invalid JSON")
+        return None, _error(start_response, ec.BAD_REQUEST_BODY, "Invalid JSON")
 
     return data, None
 
@@ -488,7 +481,7 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
     if environ.get("HTTP_ORIGIN"):
         if _has_declared_body(environ):
             request_conn(environ).close_connection = True
-        return _code_error(start_response, ec.CROSS_ORIGIN_REFUSED, "Cross-origin requests are forbidden in keyless mode.")
+        return _error(start_response, ec.CROSS_ORIGIN_REFUSED, "Cross-origin requests are forbidden in keyless mode.")
 
     # HTTP/1.0 may omit Host. No Host is not a loopback Host, so keyless
     # mode still refuses it.
@@ -496,7 +489,7 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
     if not isinstance(raw_host_value, str) or not raw_host_value.strip():
         if _has_declared_body(environ):
             request_conn(environ).close_connection = True
-        return _code_error(start_response, ec.CROSS_ORIGIN_REFUSED, "Only loopback hosts are allowed in keyless mode.")
+        return _error(start_response, ec.CROSS_ORIGIN_REFUSED, "Only loopback hosts are allowed in keyless mode.")
     raw_host = raw_host_value.lower()
     if raw_host.startswith("["):
         host = raw_host.split("]")[0] + "]"
@@ -506,7 +499,7 @@ def _check_keyless_cors(environ: dict[str, Any], settings: ComputeSettings, star
     if host not in ("localhost", "127.0.0.1", "[::1]"):
         if _has_declared_body(environ):
             request_conn(environ).close_connection = True
-        return _code_error(start_response, ec.CROSS_ORIGIN_REFUSED, "Only loopback hosts are allowed in keyless mode.")
+        return _error(start_response, ec.CROSS_ORIGIN_REFUSED, "Only loopback hosts are allowed in keyless mode.")
     return None
 
 
@@ -539,7 +532,7 @@ def _authenticate_or_401(environ: dict[str, Any], settings: ComputeSettings, sta
         remote_addr = str(environ.get("REMOTE_ADDR") or "")
         _log_auth_warning(remote_addr, auth_err)
         _drain_body_before_error(environ)
-        return _error(start_response, "401 Unauthorized", "Unauthorized", extra_headers=[("WWW-Authenticate", "Bearer")])
+        return _error(start_response, ec.UNAUTHORIZED, "Unauthorized", extra_headers=[("WWW-Authenticate", "Bearer")])
     return _check_keyless_cors(environ, settings, start_response)
 
 
@@ -623,7 +616,7 @@ def _admit_vision(
     if settings.ocr_workers <= 0:
         if _has_declared_body(environ):
             request_conn(environ).close_connection = True
-        return None, _code_error(start_response, ec.VISION_SERVICE_DISABLED, "Vision / OCR service is not enabled on this instance (ocr_workers=0).")
+        return None, _error(start_response, ec.VISION_SERVICE_DISABLED, "Vision / OCR service is not enabled on this instance (ocr_workers=0).")
     return _admit_body(
         environ,
         settings,
@@ -689,10 +682,10 @@ def _gated(
 
         remaining = admission.deadline.left()
         if remaining <= 0:
-            return _code_error(_start, ec.QUEUE_TIMEOUT, "Request deadline expired before execution.", req_id=req_id, extra_headers=[("Retry-After", "1")])
+            return _error(_start, ec.QUEUE_TIMEOUT, "Request deadline expired before execution.", req_id=req_id, extra_headers=[("Retry-After", "1")])
 
         if not semaphore.acquire(timeout=remaining):
-            return _code_error(_start, busy_code, busy_message, req_id=req_id, extra_headers=[("Retry-After", "1")])
+            return _error(_start, busy_code, busy_message, req_id=req_id, extra_headers=[("Retry-After", "1")])
         acquired = True
 
         log.debug("exec %s id=%r", path, req_id)
@@ -707,7 +700,7 @@ def _gated(
         if started:
             return []
         req_id = None if admission is None else admission.req_id
-        return _code_error(_start, ec.INTERNAL_ERROR, "Internal server execution failure", req_id=req_id)
+        return _error(_start, ec.INTERNAL_ERROR, "Internal server execution failure", req_id=req_id)
     finally:
         if acquired:
             semaphore.release()
@@ -731,9 +724,9 @@ def _load_parts(
         parts = parse(raw_body, content_type)
     except ExecuteRequestError as exc:
         if exc.code is not None:
-            return None, _error(start_response, "400 Bad Request", str(exc), code=exc.code)
+            return None, _error(start_response, exc.code, str(exc))
         err = multipart_error if is_multipart_content_type(content_type) else other_error
-        return None, _error(start_response, "400 Bad Request", err)
+        return None, _error(start_response, ec.BAD_REQUEST_BODY, err)
     return parts, None
 
 
@@ -763,7 +756,8 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
 
         init_script = _validate_source_text(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False, max_bytes=settings.max_body_bytes)
     except ExecuteRequestError as exc:
-        return _error(start_response, "400 Bad Request", str(exc), code=exc.code, req_id=req_id)
+        code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
+        return _error(start_response, code, str(exc), req_id=req_id)
 
     sid = session_id if mode == "shared" else None
 
@@ -777,15 +771,16 @@ def _handle_session_reset(environ: dict[str, Any], start_response: Any, settings
     req_id = req_data.get("id")
 
     if "session_id" in req_data:
-        return _error(start_response, "400 Bad Request", "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.", req_id=req_id)
+        return _error(start_response, ec.BAD_REQUEST_BODY, "session_id must be provided as a URL query parameter (?session_id=...), not in the JSON body.", req_id=req_id)
 
     try:
         session_id = _parse_session_id(environ)
     except ExecuteRequestError as exc:
-        return _error(start_response, "400 Bad Request", str(exc), code=exc.code, req_id=req_id)
+        code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
+        return _error(start_response, code, str(exc), req_id=req_id)
 
     if not session_id:
-        return _error(start_response, "400 Bad Request", "Missing 'session_id' URL query parameter (?session_id=...).", req_id=req_id)
+        return _error(start_response, ec.BAD_REQUEST_BODY, "Missing 'session_id' URL query parameter (?session_id=...).", req_id=req_id)
 
     from compute_service.formula_pool import SESSION_RESET_TIMEOUT_SEC
 
@@ -814,7 +809,7 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     if not helper:
         helper = "extract_text"
     elif helper not in IMPLEMENTED_HELPERS:
-        return _code_error(start_response, ec.INVALID_REQUEST, f"Unknown vision helper: {helper!r}.", req_id=req_id)
+        return _error(start_response, ec.INVALID_REQUEST, f"Unknown vision helper: {helper!r}.", req_id=req_id)
 
     # An empty image part counts as missing.
     image_bytes = parts.image or None
@@ -822,13 +817,13 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     path_str = file_path if isinstance(file_path, str) and file_path.strip() else None
 
     if image_bytes and path_str:
-        return _code_error(start_response, ec.INVALID_REQUEST, "Provide image or file_path, not both.", req_id=req_id)
+        return _error(start_response, ec.INVALID_REQUEST, "Provide image or file_path, not both.", req_id=req_id)
 
     if not image_bytes and not path_str:
-        return _code_error(start_response, ec.MISSING_IMAGE_SOURCE, "Missing image input: either 'image' (raw binary part) or 'file_path' (server path) is required.", req_id=req_id)
+        return _error(start_response, ec.MISSING_IMAGE_SOURCE, "Missing image input: either 'image' (raw binary part) or 'file_path' (server path) is required.", req_id=req_id)
 
     if path_str and not ocr_path_is_allowed(path_str, settings.ocr_allow_paths):
-        return _code_error(start_response, ec.FILE_PATH_DENIED, "file_path is not under ocr.allow_paths (default deny).", req_id=req_id)
+        return _error(start_response, ec.FILE_PATH_DENIED, "file_path is not under ocr.allow_paths (default deny).", req_id=req_id)
 
     raw_params = parts.params
     if raw_params is None:
@@ -836,7 +831,7 @@ def _handle_vision(environ: dict[str, Any], start_response: Any, settings: Compu
     elif isinstance(raw_params, dict):
         params = raw_params
     else:
-        return _code_error(start_response, ec.INVALID_REQUEST, "params must be an object.", req_id=req_id)
+        return _error(start_response, ec.INVALID_REQUEST, "params must be an object.", req_id=req_id)
 
     from compute_service.vision import get_vision_pool
 

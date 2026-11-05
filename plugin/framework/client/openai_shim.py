@@ -11,7 +11,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
-from .shim_helpers import _openai_model_leaf, annotate_anthropic_cache
+from .shim_helpers import openai_model_leaf, annotate_anthropic_cache
 from .base_provider_shim import (
     BaseProviderShim,
     canonical_aspect_ratio,
@@ -38,7 +38,7 @@ _OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
 
 def _openai_reasoning_model(model_name: str | None) -> bool:
     """True for OpenAI model families that reject ``max_tokens``."""
-    name = _openai_model_leaf(model_name)
+    name = openai_model_leaf(model_name)
     if not name:
         return False
     # ChatGPT snapshots (gpt-5-chat-latest, gpt-5.1-chat-latest,

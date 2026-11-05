@@ -177,8 +177,7 @@ def test_insert_table_ok():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
             with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
                 "com.sun.star.awt.Size", MagicMock(), create=True
@@ -190,8 +189,12 @@ def test_insert_table_ok():
 
 
 def test_insert_table_rejects_zero_rows():
-    out = insert_draw_table(MagicMock(), rows=0, columns=2)
-    assert out["status"] == "error"
+    from plugin.framework.errors import ToolExecutionError
+
+    with pytest.raises(ToolExecutionError) as exc_info:
+        insert_draw_table(MagicMock(), rows=0, columns=2)
+    assert "at least 1" in exc_info.value.message
+    assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
 
 
 class DisposedException(Exception):
@@ -202,19 +205,22 @@ def test_insert_table_disposed_page_is_not_invalid_index():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             insert_draw_table(ctx, rows=2, columns=2, page=0)
 
 
 def test_insert_table_bad_page_stays_invalid_index():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
-        out = insert_draw_table(ctx, rows=2, columns=2, page=4)
-    assert out["status"] == "error"
-    assert out["message"].startswith("Invalid page index")
+        from plugin.framework.errors import ToolExecutionError
+
+        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 4 out of range.")
+        with pytest.raises(ToolExecutionError, match=r"Page index \d+ out of range\."):
+            insert_draw_table(ctx, rows=2, columns=2, page=4)
 
 
 def test_table_insert_tool_dispatches_draw():
@@ -307,6 +313,8 @@ def test_table_get_cells_draw_failed_cell_is_error():
 
 
 def test_insert_table_size_failure_removes_shape():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
     shape = MagicMock()
     page = MagicMock()
@@ -314,20 +322,20 @@ def test_insert_table_size_failure_removes_shape():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
             with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
                 "com.sun.star.awt.Size", MagicMock(), create=True
             ):
                 with patch("plugin.draw.tables._ensure_table_dims", side_effect=RuntimeError("nope")):
-                    out = insert_draw_table(ctx, rows=2, columns=2, data=[["h1", "h2"], ["v1", "v2"]])
-    assert out["status"] == "error"
-    assert out["message"].startswith("Failed to size table")
+                    with pytest.raises(ToolExecutionError, match=r"^Failed to size table"):
+                        insert_draw_table(ctx, rows=2, columns=2, data=[["h1", "h2"], ["v1", "v2"]])
     page.remove.assert_called_once_with(shape)
 
 
 def test_insert_table_fill_failure_removes_shape():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
     shape = MagicMock()
     page = MagicMock()
@@ -335,8 +343,7 @@ def test_insert_table_fill_failure_removes_shape():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
             with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
                 "com.sun.star.awt.Size", MagicMock(), create=True
@@ -344,9 +351,8 @@ def test_insert_table_fill_failure_removes_shape():
                 with patch("plugin.draw.tables._ensure_table_dims", return_value=(2, 2)), patch(
                     "plugin.draw.tables.fill_table_cells", side_effect=RuntimeError("fill")
                 ):
-                    out = insert_draw_table(ctx, rows=2, columns=2, data=[["h1", "h2"], ["v1", "v2"]])
-    assert out["status"] == "error"
-    assert out["message"].startswith("Failed to fill table cells")
+                    with pytest.raises(ToolExecutionError, match=r"^Failed to fill table cells"):
+                        insert_draw_table(ctx, rows=2, columns=2, data=[["h1", "h2"], ["v1", "v2"]])
     page.remove.assert_called_once_with(shape)
 
 
@@ -358,8 +364,7 @@ def test_insert_table_size_disposed_propagates():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
             with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
                 "com.sun.star.awt.Size", MagicMock(), create=True
@@ -371,6 +376,8 @@ def test_insert_table_size_disposed_propagates():
 
 
 def test_insert_table_set_size_failure_removes_shape():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
     shape = MagicMock()
     shape.setSize.side_effect = RuntimeError("size")
@@ -379,14 +386,12 @@ def test_insert_table_set_size_failure_removes_shape():
     ctx.doc.createInstance.return_value = shape
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_active_page_index.return_value = 0
-        bridge.get_pages.return_value.getByIndex.return_value = page
+        bridge.resolve_page.return_value = (page, 0)
         with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
             "com.sun.star.awt.Size", MagicMock(), create=True
         ):
-            out = insert_draw_table(ctx, rows=2, columns=2)
-    assert out["status"] == "error"
-    assert out["message"].startswith("Failed to create table")
+            with pytest.raises(ToolExecutionError, match=r"^Failed to create table"):
+                insert_draw_table(ctx, rows=2, columns=2)
     page.remove.assert_called_once_with(shape)
 def test_table_model_reraises_disposed():
     from plugin.draw.tables import _table_model
@@ -404,20 +409,24 @@ def test_table_model_reraises_disposed():
 
 
 def test_insert_table_oversized_data_is_rejected_before_mutation():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
-    out = insert_draw_table(ctx, rows=1, columns=1, data=[["A", "B"]])
-    assert out["status"] == "error"
-    assert out["message"] == "data row 0 has 2 columns but table only has 1."
-    assert out["code"] == "TOOL_EXECUTION_ERROR"
+    with pytest.raises(ToolExecutionError) as exc_info:
+        insert_draw_table(ctx, rows=1, columns=1, data=[["A", "B"]])
+    assert exc_info.value.message == "data row 0 has 2 columns but table only has 1."
+    assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
     ctx.doc.createInstance.assert_not_called()
 
 
 def test_insert_table_too_many_rows_is_rejected_before_mutation():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
-    out = insert_draw_table(ctx, rows=1, columns=2, data=[["A", "B"], ["C", "D"]])
-    assert out["status"] == "error"
-    assert out["message"] == "data has 2 rows but table only has 1."
-    assert out["code"] == "TOOL_EXECUTION_ERROR"
+    with pytest.raises(ToolExecutionError) as exc_info:
+        insert_draw_table(ctx, rows=1, columns=2, data=[["A", "B"], ["C", "D"]])
+    assert exc_info.value.message == "data has 2 rows but table only has 1."
+    assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
     ctx.doc.createInstance.assert_not_called()
 
 

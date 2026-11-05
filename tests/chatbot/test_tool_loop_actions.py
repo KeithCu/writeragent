@@ -1,13 +1,17 @@
 import queue
-import sys
 import threading
-import types
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
 
-from plugin.chatbot.tool_loop_actions import ToolLoopEffectInterpreter, build_tool_execute_fn, current_turn  # noqa: E402
+from plugin.chatbot.tool_loop_actions import (  # noqa: E402
+    ToolLoopEffectInterpreter,
+    assign_send_outcome,
+    build_tool_execute_fn,
+    current_turn,
+    send_outcome_terminal_display,
+)
 from plugin.chatbot.tool_loop_state import (  # noqa: E402
     AddMessageEffect,
     ExitLoopEffect,
@@ -168,17 +172,6 @@ class FakeHost:
         if turn is not None:
             turn.active_supports_status = value
 
-    @property
-    def _terminal_status(self) -> str:
-        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
-
-        return send_outcome_terminal_display(self)
-
-    @_terminal_status.setter
-    def _terminal_status(self, value: str) -> None:
-        from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
-        assign_send_outcome(self, "" if value is None else value)
 
     @property
     def _active_q(self):
@@ -251,7 +244,8 @@ def test_interpreter_handles_session_ui_queue_and_exit_effects():
     assert interpreter.execute(ExitLoopEffect()) is True
     assert interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Ready")) is False
     assert host.statuses == ["Ready"]
-    assert host._terminal_status == "Ready"
+    assert send_outcome_terminal_display(host) == "Ready"
+    assert current_turn(host).outcome == "ready"
 
     interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text="hello"))
     assert host.appended == [("hello", False, "assistant")]
@@ -282,7 +276,7 @@ def test_update_document_context_effect_stops_when_document_is_gone():
 
     assert interpreter.execute(UpdateDocumentContextEffect()) is True
     assert host.appended[-1][0] == "\n[Document closed or unavailable.]\n"
-    assert host._terminal_status == "Error"
+    assert send_outcome_terminal_display(host) == "Error"
     assert host.statuses[-1] == "Error"
     assert host.session.refresh_calls == []
 
@@ -298,7 +292,7 @@ def test_update_document_context_effect_reports_error_on_unexpected_refresh_fail
 
     assert interpreter.execute(UpdateDocumentContextEffect()) is True
     assert host.appended[-1][0] == "\n[Error reading document: Corrupt section tree]\n"
-    assert host._terminal_status == "Error"
+    assert send_outcome_terminal_display(host) == "Error"
     assert host.statuses[-1] == "Error"
 
 
@@ -408,18 +402,14 @@ def _install_fake_main_registry():
     """Avoid importing plugin.main (UNO-heavy). execute_fn does a local get_tools import."""
     registry = MagicMock()
     registry.execute.return_value = {"status": "ok"}
-    fake_main = types.ModuleType("plugin.main")
-    fake_main.get_tools = MagicMock(return_value=registry)
-    old_main = sys.modules.pop("plugin.main", None)
-    sys.modules["plugin.main"] = fake_main
-    return registry, old_main
+    patcher = patch("plugin.app.get_tools", MagicMock(return_value=registry))
+    patcher.start()
+    return registry, patcher
 
 
-def _restore_main(old_main):
-    if old_main is not None:
-        sys.modules["plugin.main"] = old_main
-    else:
-        sys.modules.pop("plugin.main", None)
+def _restore_main(patcher):
+    if patcher is not None:
+        patcher.stop()
 
 
 def test_sync_tool_returns_before_the_tool_finishes():
@@ -687,10 +677,6 @@ def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
     host = FakeHost()
     execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
     args = {"bypass_thread_guard": bypass, "note": "keep"}
-    fake_main = types.ModuleType("plugin.main")
-    fake_main.get_tools = lambda: reg  # type: ignore[attr-defined]
-    old_main = sys.modules.get("plugin.main")
-    sys.modules["plugin.main"] = fake_main
     box: dict = {}
 
     def fake_marshal(fn):
@@ -700,13 +686,11 @@ def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
     def worker():
         box["out"] = execute_fn("sync_probe", args, None, MagicMock())
 
-    try:
+    with patch("plugin.app.get_tools", lambda: reg):
         with patch("plugin.framework.queue_executor.main.call", side_effect=fake_marshal):
             thread = threading.Thread(target=worker, name="tool-sync-probe")
             thread.start()
             thread.join()
-    finally:
-        _restore_main(old_main)
 
     assert args == {"bypass_thread_guard": bypass, "note": "keep"}
     assert reg.seen == (False, {"note": "keep"})
@@ -1227,7 +1211,7 @@ def test_stop_banner_reaches_the_sidebar_after_abort():
 
 def test_tool_worker_keeps_spawn_scope_after_next_send():
     """execute_fn must use the scope captured at spawn, not the panel field."""
-    from plugin.framework.send_cancellation import SendCancellation, capture_send_stop
+    from plugin.framework.send_cancellation import SendCancellation
 
     host = FakeHost()
     old = SendCancellation()
@@ -1246,7 +1230,6 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
     try:
         with (
             patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=_capture_background(started)),
-            patch("plugin.chatbot.tool_loop_actions.capture_send_stop", wraps=capture_send_stop) as mock_capture,
         ):
             interpreter.execute(
                 SpawnToolWorkerEffect(
@@ -1257,17 +1240,58 @@ def test_tool_worker_keeps_spawn_scope_after_next_send():
                     is_async=True,
                 )
             )
-            assert mock_capture.call_count == 1
             new = SendCancellation()
             host._send_cancellation = new
             started[0]()
-            assert mock_capture.call_count == 1
     finally:
         _restore_main(old_main)
 
     assert seen["scope"] is old
     assert not seen["scope"].is_cancelled()
     assert not new.is_cancelled()
+
+
+def test_spawn_tool_worker_passes_host_scope_to_execute_tool_fn():
+    """_spawn_tool_worker forwards host._send_cancellation as send_cancellation."""
+    host = FakeHost()
+    scope = SendCancellation()
+    host._send_cancellation = scope
+    interpreter = ToolLoopEffectInterpreter(host)
+    with patch("plugin.chatbot.tool_loop_actions.run_in_background", side_effect=lambda fn, **kwargs: fn()):
+        interpreter.execute(
+            SpawnToolWorkerEffect(
+                call_id="call_scope",
+                func_name="apply_document_content",
+                func_args_str="{}",
+                func_args={"content": "hi"},
+                is_async=False,
+            )
+        )
+    kwargs = host._active_execute_tool_fn.call_args.kwargs
+    assert kwargs["send_cancellation"] is scope
+    assert isinstance(kwargs["send_cancellation"], SendCancellation)
+
+
+def test_execute_fn_without_send_cancellation_does_not_read_host_scope():
+    """Direct execute_fn callers omit the scope; ToolContext must stay uncancellable."""
+    host = FakeHost()
+    host._send_cancellation = SendCancellation()
+    execute_fn = build_tool_execute_fn(host, "writer", None, None, MagicMock())
+    seen: dict[str, object] = {}
+    registry, old_main = _install_fake_main_registry()
+
+    def registry_execute(_name, ctx, **_kwargs):
+        seen["scope"] = ctx.send_cancellation
+        return {"status": "ok"}
+
+    registry.execute.side_effect = registry_execute
+    try:
+        execute_fn("apply_document_content", {"content": "hi"}, MagicMock(), MagicMock())
+    finally:
+        _restore_main(old_main)
+
+    assert seen["scope"] is None
+
 
 def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
     from unittest.mock import MagicMock
@@ -1281,8 +1305,11 @@ def test_spawn_tool_worker_effect_respects_bound_stop(monkeypatch):
 
     cancelled_scope = SendCancellation()
     cancelled_scope.cancel()
-    monkeypatch.setattr("plugin.chatbot.tool_loop_actions.capture_send_stop", lambda host: cancelled_scope)
-
+    mock_host._send_cancellation = cancelled_scope
+    monkeypatch.setattr(
+        "plugin.chatbot.tool_loop_actions.run_in_background",
+        lambda fn, *args, **kwargs: fn(),
+    )
     interpreter = ToolLoopEffectInterpreter(mock_host)
     effect = SpawnToolWorkerEffect(
         call_id="call_1",
@@ -1889,16 +1916,19 @@ def test_assign_send_outcome_on_turn_and_orphan():
     )
 
     host = FakeHost()
-    assign_send_outcome(host, "Error")
+    assign_send_outcome(host, "error")
+    assert current_turn(host).outcome == "error"
     assert send_outcome_terminal_display(host) == "Error"
     assert send_outcome_is_error(host)
 
     host2 = type("H", (), {"_turn": None, "_orphan_send_outcome": None})()
-    assign_send_outcome(host2, "Stopped")
+    assign_send_outcome(host2, "stopped")
+    assert host2._orphan_send_outcome == "stopped"
     assert send_outcome_terminal_display(host2) == "Stopped"
     assert send_outcome_is_stopped(host2)
 
-    assign_send_outcome(host2, "")
+    assign_send_outcome(host2, None)
+    assert host2._orphan_send_outcome is None
     assert send_outcome_terminal_display(host2) == ""
 
     turn = TurnController(None)
@@ -1910,3 +1940,20 @@ def test_assign_send_outcome_on_turn_and_orphan():
     turn3 = begin_send_turn(host3)
     assert turn3.outcome == "ready"
 
+
+def test_status_effect_stores_outcome_and_ignores_progress_text():
+    host = FakeHost()
+    interpreter = ToolLoopEffectInterpreter(host)
+
+    interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Stopped"))
+    assert current_turn(host).outcome == "stopped"
+    assert send_outcome_terminal_display(host) == "Stopped"
+    assert host.statuses == ["Stopped"]
+
+    interpreter.execute(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Finishing..."))
+    assert current_turn(host).outcome == "stopped"
+    assert host.statuses == ["Stopped", "Finishing..."]
+
+    assign_send_outcome(host, None)
+    assert current_turn(host).outcome is None
+    assert send_outcome_terminal_display(host) == ""

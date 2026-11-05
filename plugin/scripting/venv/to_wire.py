@@ -24,6 +24,8 @@ from plugin.scripting.payload_codec import (
     child_pack_result,
     wire_str_key,
 )
+from plugin.scripting.venv import optional_import
+from plugin.scripting.venv.coerce import _dedupe_column_names, flat_label
 
 _MAX_DEPTH = 64
 
@@ -40,13 +42,6 @@ def _set_or_list(original: set[Any] | frozenset[Any], elements: list[Any]) -> An
         return type(original)(elements)
     except TypeError:
         return elements
-
-
-def _column_label(c: Any) -> str:
-    """Flatten a pandas column label. MultiIndex tuples become ``A / x``, not a tuple repr."""
-    if isinstance(c, tuple):
-        return " / ".join(str(part) for part in c)
-    return str(c)
 
 
 def _dtype_kind(obj: Any) -> str | None:
@@ -249,7 +244,6 @@ def to_wire(
     One recursion, depth-capped at 64, with cycle detection.
     """
     from plugin.scripting.calc_range import CalcRange, is_calc_range_payload
-    from plugin.scripting.venv.venv_sandbox import optional_module
 
     effective_force: ForceBinary = "never" if target == "json" else force
     seen: set[int] = set()
@@ -276,7 +270,7 @@ def to_wire(
             return payload
 
         # 3. PIL Image
-        pil_mod = optional_module("PIL.Image")
+        pil_mod = optional_import.optional_module("PIL.Image")
         if pil_mod is not None and isinstance(val, pil_mod.Image):
             payload = _pil_image_to_payload(val)
             if target == "json":
@@ -284,8 +278,8 @@ def to_wire(
             return payload
 
         # 4. ndarray
-        np_mod = optional_module("numpy")
-        pd_mod = optional_module("pandas")
+        np_mod = optional_import.optional_module("numpy")
+        pd_mod = optional_import.optional_module("pandas")
 
         if np_mod is not None and isinstance(val, np_mod.ndarray):
             kind = _dtype_kind(val)
@@ -321,7 +315,7 @@ def to_wire(
         # 6. DataFrame
         if pd_mod is not None and isinstance(val, pd_mod.DataFrame):
             df: Any = val
-            columns = [_column_label(c) for c in df.columns]
+            columns = _dedupe_column_names([flat_label(c) for c in df.columns])
 
             def _dataframe_cell(cell_val: Any) -> Any:
                 return _temporal_cell_to_stdlib(cell_val, pd_mod)
@@ -380,7 +374,7 @@ def to_wire(
             if name is not None:
                 return {
                     "__wa_payload__": PAYLOAD_DATAFRAME,
-                    "columns": [_column_label(name)],
+                    "columns": [flat_label(name)],
                     "data": s_packed,
                 }
             return s_packed

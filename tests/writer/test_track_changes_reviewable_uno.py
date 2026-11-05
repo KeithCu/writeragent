@@ -635,30 +635,29 @@ def test_is_async_true_on_background_thread_when_review_toggled_off_uno(ctx, doc
 @native_test
 @with_native_doc("writer")
 def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
-    """#4: if _execute_edit raises AFTER a change was anchored (a replace-all that fails on a later
-    match, having anchored the first), execute() must still release the session's wa_review_*
-    anchor bookmarks via the session_sink -- none may leak in the document."""
+    """#4: if the edit path raises AFTER a change was anchored (e.g. end insert recorded),
+    execute() must still release the session's wa_review_* anchor bookmarks -- none may leak."""
     from plugin.writer.apply_document_content import ApplyDocumentContent
-    from plugin.writer.edit_review import EditReviewSession
 
     _reset(doc, ctx, "Anchor target paragraph.")
     prev = get_config(_FLAG)
     save({_FLAG: "record"})
 
     class _BoomTool(ApplyDocumentContent):
-        def _execute_edit(self, tctx, session_sink=None, **kwargs):
-            session = EditReviewSession(tctx.doc, tctx.ctx, enabled=True)
-            if session_sink is not None:
-                session_sink.append(session)
+        def _edit_insert_at(self, tctx, session, params):
+            from plugin.writer import html_import as fmt
+
             with session:
                 session.record_mutation(
-                    lambda: fmt.insert_content_at_position(tctx.doc, tctx.ctx, "<p>Inserted.</p>", "end"))
+                    lambda: fmt.insert_content_at_position(
+                        tctx.doc, tctx.ctx, "<p>Inserted.</p>", params.target),
+                    proposed_preview=params.plain)
             raise RuntimeError("boom after anchoring the first change")
 
     try:
         raised = False
         try:
-            _BoomTool().execute(_tool_ctx(doc, ctx))
+            _BoomTool().execute(_tool_ctx(doc, ctx), target="end", content="<p>Inserted.</p>")
         except RuntimeError:
             raised = True
         assert raised, "the mid-edit failure must propagate to the caller"

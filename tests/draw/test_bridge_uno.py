@@ -107,7 +107,7 @@ def test_insert_slide_from_master_and_transform_use_real_index(ctx, doc):
     from plugin.draw.bridge import DrawBridge
     from plugin.draw.transform_engine import SlideCommandEngine
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
 
     pages = doc.getDrawPages()
     _rename(pages.getByIndex(0), "A")

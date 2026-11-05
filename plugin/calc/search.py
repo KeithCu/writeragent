@@ -3,7 +3,7 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-"""Calc search tools: search_in_spreadsheet, replace_in_spreadsheet."""
+"""Calc search tools: search_cells, search_replace."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _validate_regex(tool: ToolCalcSearchBase, pattern: str) -> dict[str, Any] | 
 class SearchInSpreadsheet(ToolCalcSearchBase):
     """Search for text in the spreadsheet."""
 
-    name: str | None = "search_in_spreadsheet"
+    name: str | None = "search_cells"
     description: str = "Search for text or values in a Calc spreadsheet. Returns matching cells with their addresses and values."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -71,7 +71,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             max_results=max_results,
             all_sheets=kwargs.get("all_sheets", False),
             sheet_name=kwargs.get("sheet"),
-            stop_checker=scope.is_cancelled if scope is not None else None,
+            cancel=scope,
         )
 
         return {"status": "ok", "matches": matches, "count": len(matches)}
@@ -80,7 +80,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
 class ReplaceInSpreadsheet(ToolCalcSearchBase):
     """Find and replace in the spreadsheet."""
 
-    name: str | None = "replace_in_spreadsheet"
+    name: str | None = "search_replace"
     description: str = "Find and replace text or values in a Calc spreadsheet. Returns count of replacements made."
     parameters: dict[str, Any] | None = {
         "type": "object",

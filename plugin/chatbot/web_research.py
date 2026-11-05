@@ -27,6 +27,7 @@ import time
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Callable, final
 
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBase
 
@@ -41,7 +42,7 @@ from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
-log = logging.getLogger("writeragent.web_research")
+log = logging.getLogger(__name__)
 
 # Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
 # main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
@@ -71,7 +72,6 @@ class WebAgentRunParams:
     cache_max_mb: int
     cache_max_age_days: int
     cdp_url: str | None
-    stop_checker: Callable[[], bool] | None
     status_callback: Callable[[str], None] | None
     append_thinking_callback: Callable[[str], None] | None
     approval_callback: Any
@@ -81,7 +81,7 @@ class WebAgentRunParams:
     # Pool workers do not see the send thread's cancellation thread-local.
     # LlmClient only auto-registers get_current_send_cancellation() on the
     # constructing thread, so each worker must be handed this scope explicitly.
-    cancellation_scope: Any = None
+    cancel: SendCancellation | None = None
 
 
 
@@ -309,6 +309,10 @@ class CdpRefCount:
 _cdp_refcount = CdpRefCount()
 
 
+def _stop_checker_from_cancel(cancel: SendCancellation | None) -> Callable[[], bool] | None:
+    return cancel.is_cancelled if cancel is not None else None
+
+
 def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
     """Attach this run to the process-wide local browser."""
     from plugin.contrib.cdp.browser_cdp_tool import get_local_chrome_cdp_url
@@ -455,7 +459,7 @@ def _run_web_agent(
     )
 
     visit_inner = (
-        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=params.stop_checker)
+        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=_stop_checker_from_cancel(params.cancel))
         if params.cdp_url
         else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
     )
@@ -477,7 +481,7 @@ def _run_web_agent(
 
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
     web_search_step_index = 0
-    stop_checker = params.stop_checker
+    stop_checker = _stop_checker_from_cancel(params.cancel)
 
     def tool_call_handler(step: ToolCall) -> Any:
         nonlocal web_search_step_index
@@ -566,7 +570,7 @@ def _run_deep_web_research(
                 messages,
                 max_tokens=max_tok,
                 prepend_dev_build_system_prefix=False,
-                cancel=agent_params.cancellation_scope,
+                cancel=agent_params.cancel,
             )
 
         return chat
@@ -597,7 +601,7 @@ def _run_deep_web_research(
         worker_client = LlmClient(
             parent_client.config,
             parent_client.ctx,
-            cancel=agent_params.cancellation_scope,
+            cancel=agent_params.cancel,
         )
         from plugin.chatbot.smol_agent import create_smol_model
 
@@ -605,7 +609,7 @@ def _run_deep_web_research(
             client=worker_client,
             max_tokens=agent_params.smol_model.max_tokens,
             status_callback=agent_params.status_callback,
-            cancel=agent_params.cancellation_scope,
+            cancel=agent_params.cancel,
         )
         worker_params = replace(deep_params, smol_model=worker_model)
 
@@ -653,7 +657,7 @@ def _run_deep_web_research(
         query_str,
         llm_chat=_chat_via(parent_client),
         worker_factory=worker_factory,
-        stop_checker=agent_params.stop_checker,
+        stop_checker=_stop_checker_from_cancel(agent_params.cancel),
         status_callback=agent_params.status_callback,
         breadth=get_config("chatbot.deep_research_breadth"),
         max_rounds=max_rounds,
@@ -783,7 +787,6 @@ class WebResearchTool(ToolBase):
                     log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
 
             scope = ctx.send_cancellation
-            stop_checker = scope.is_cancelled if scope is not None else None
 
             agent_params = WebAgentRunParams(
                 smol_model=smol_model,
@@ -792,13 +795,12 @@ class WebResearchTool(ToolBase):
                 cache_max_mb=cache_max_mb,
                 cache_max_age_days=cache_max_age_days,
                 cdp_url=cdp_url,
-                stop_checker=stop_checker,
                 status_callback=status_callback,
                 append_thinking_callback=ctx.append_thinking_callback,
                 approval_callback=ctx.approval_callback if as_bool(get_config("chatbot.prompt_for_web_research")) else None,
                 chat_append_callback=ctx.chat_append_callback,
                 outer_query=query_str,
-                cancellation_scope=scope,
+                cancel=scope,
             )
             if deep:
                 final_ans, researched_query = _run_deep_web_research(

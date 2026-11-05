@@ -2014,7 +2014,7 @@ class TestingFactory:
         ``KeyError`` / ``ValueError`` from the registry become
         ``{"status": "error", "error": ...}`` (same contract as the old per-file helpers).
         """
-        from plugin.main import get_tools, get_services
+        from plugin.app import get_tools, get_services
 
         if services is None:
             services = get_services()
@@ -2066,7 +2066,7 @@ def writer_services_tool_context(doc, ctx, *, skip_reason: str):
 
     services = None
     try:
-        from plugin.main import get_services
+        from plugin.app import get_services
 
         services = get_services()
     except Exception:

@@ -20,7 +20,7 @@ from plugin.framework.main_shared import get_action_handler
 from plugin.framework.menu_icon_dpi import menu_icon_filename
 from plugin.framework.thread_guard import main_thread_only
 
-log = logging.getLogger("writeragent.hamburger_menu")
+log = logging.getLogger(__name__)
 
 
 @main_thread_only
@@ -102,7 +102,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
         pos = add_item(popup, _("Settings"), "main.settings", pos, menu_icon_filename("gear", ctx=ctx))
         pos = add_item(popup, _("Vision OCR Settings..."), "vision.open_settings", pos)
 
-        from plugin.main import get_menu_icon, get_menu_text, tests_bundled
+        from plugin.app import get_menu_icon, get_menu_text, tests_bundled
 
         mcp_toggle_text = best_effort(lambda: get_menu_text("mcp.toggle_server"), "mcp toggle menu text") or _("Toggle MCP Server")
         pos = add_item(popup, mcp_toggle_text, "mcp.toggle_server", pos)
@@ -167,7 +167,7 @@ def show_hamburger_menu(ctx: Any, frame: Any, button_ctrl: Any) -> None:
                 # McpModule.on_action through dispatch_command; use that path
                 # when the registry has no handler. Registered items still
                 # get the sidebar frame.
-                from plugin.main import dispatch_command
+                from plugin.app import dispatch_command
 
                 dispatch_command(action_name)
     except Exception as e:

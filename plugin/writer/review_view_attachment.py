@@ -11,14 +11,18 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+import uno
 from plugin.doc.document_helpers import UNKNOWN_DOC_KEY, _compute_doc_key
 from plugin.framework.errors import is_disposal
-from plugin.framework.uno_context import uno_same
-from plugin.framework.uno_listeners import BaseModifyListener, _controller_alive, install_view_doc_listener
+from plugin.framework.uno_context import get_runtime_uid, uno_same
+from plugin.framework.uno_listeners import BaseModifyListener, controller_alive, install_view_doc_listener
+from plugin.writer import change_context_menu, review_click_popup
 
 log = logging.getLogger(__name__)
 
 TOOLBAR_RESOURCE_URL = "private:resource/toolbar/addon_org.extension.writeragent.toolbar"
+
+_DOCK_NEW_ROW_Y = 30000
 
 _lock = threading.RLock()
 _doc_listener: Any = None
@@ -96,6 +100,54 @@ class ReviewModifyListener(BaseModifyListener):
             _drop_attachment(self._key, remove_modify_listener=False)
 
 
+def _dock_top(lm: Any) -> bool:
+    try:
+        from com.sun.star.awt import Point
+
+        area = uno.Enum("com.sun.star.ui.DockingArea", "DOCKINGAREA_TOP")
+        pos = Point()
+        pos.X = 0
+        pos.Y = _DOCK_NEW_ROW_Y
+        lm.dockWindow(TOOLBAR_RESOURCE_URL, area, pos)
+        return True
+    except Exception:
+        log.debug("review_view_attachment: dock-to-top failed", exc_info=True)
+        return False
+
+
+def refresh_review_toolbar(model: Any) -> None:
+    """Show the review fast-travel toolbar only while the document has pending agent changes.
+
+    The toolbar is declared statically in Addons.xcu and named/hidden-by-default in
+    WriterWindowState.xcu. Visibility follows ``agent_change_presence(model, stop_at_first=True)``.
+    LayoutManager calls must run on the UNO main thread (main.call, action handlers, modify events).
+    """
+    if model is None:
+        return
+    try:
+        from plugin.writer.review_scan import agent_change_presence
+
+        lm = layout_manager(model)
+        if lm is None:
+            return
+        count, reliable = agent_change_presence(model, stop_at_first=True)
+        if not reliable:
+            return
+        if count > 0:
+            lm.showElement(TOOLBAR_RESOURCE_URL)
+            uid = get_runtime_uid(model) or None
+            key = attachment_key(model)
+            attachment = _attachments.get(key)
+            docked = attachment.toolbar_docked if attachment is not None else False
+            if uid is None or not docked:
+                if _dock_top(lm):
+                    mark_toolbar_docked(model)
+        else:
+            lm.hideElement(TOOLBAR_RESOURCE_URL)
+    except Exception:
+        log.debug("review_view_attachment: refresh failed", exc_info=True)
+
+
 def schedule_toolbar_refresh(model: Any, key: str) -> None:
     """Queue one toolbar recount on a later main-thread turn."""
     with _pending_lock:
@@ -118,8 +170,6 @@ def _run_deferred_refresh(model: Any, key: str) -> None:
             return
         _pending_refresh.discard(key)
     try:
-        from plugin.writer.review_toolbar import refresh_review_toolbar
-
         lm = layout_manager(model)
         if lm is not None and lm.isElementVisible(TOOLBAR_RESOURCE_URL):
             refresh_review_toolbar(model)
@@ -179,7 +229,7 @@ def _drop_attachment(key: str, *, remove_modify_listener: bool) -> None:
         except Exception:
             log.debug("review_view_attachment: releaseContextMenuInterceptor failed", exc_info=True)
         try:
-            if _controller_alive(controller):
+            if controller_alive(controller):
                 controller.removeMouseClickHandler(click_handler)
         except Exception:
             log.debug("review_view_attachment: removeMouseClickHandler failed", exc_info=True)
@@ -209,8 +259,6 @@ def register_controller(controller: Any) -> None:
     cleanup_disposed_controllers()
     try:
         from plugin.framework.uno_context import uno_same
-        from plugin.writer.change_context_menu import _make_interceptor
-        from plugin.writer.review_click_popup import _make_handler
 
         model = controller.getModel()
         if not is_writer(model):
@@ -221,16 +269,15 @@ def register_controller(controller: Any) -> None:
         with _lock:
             if any(uno_same(controller, ctrl) for ctrl, _i, _h in attachment.controllers):
                 return
-        interceptor = _make_interceptor(model)
-        click_handler = _make_handler(model)
+        interceptor = change_context_menu._make_interceptor(model)
+        # detach_click_handler breaks the import cycle: disposing must not import this registry.
+        click_handler = review_click_popup._make_handler(model, detach_click_handler)
         controller.registerContextMenuInterceptor(interceptor)
         if hasattr(controller, "addMouseClickHandler"):
             controller.addMouseClickHandler(click_handler)
         with _lock:
             attachment.controllers.append((controller, interceptor, click_handler))
         ensure_modify_listener(model)
-        from plugin.writer.review_toolbar import refresh_review_toolbar
-
         refresh_review_toolbar(model)
         log.debug("review_view_attachment: registered on Writer controller")
     except Exception as exc:
@@ -279,7 +326,7 @@ def cleanup_disposed_controllers() -> None:
         for attachment in _attachments.values():
             alive: list[tuple[Any, Any, Any]] = []
             for ctrl, interceptor, handler in attachment.controllers:
-                if _controller_alive(ctrl):
+                if controller_alive(ctrl):
                     alive.append((ctrl, interceptor, handler))
             attachment.controllers[:] = alive
 
@@ -321,22 +368,10 @@ def modify_listener_map() -> dict[str, Any]:
         }
 
 
-def toolbar_docked_keys() -> set[str]:
-    with _lock:
-        return {key for key, att in _attachments.items() if att.toolbar_docked}
-
-
 def mark_toolbar_docked(model: Any) -> None:
     attachment = _get_or_create(model)
     with _lock:
         attachment.toolbar_docked = True
-
-
-def is_toolbar_docked(model: Any) -> bool:
-    key = attachment_key(model)
-    with _lock:
-        attachment = _attachments.get(key)
-        return bool(attachment and attachment.toolbar_docked)
 
 
 def _on_view_event(controller: Any) -> None:

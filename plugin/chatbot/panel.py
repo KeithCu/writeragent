@@ -29,6 +29,7 @@ import threading
 import uno
 from plugin.chatbot.send_handlers import SendHandlersMixin
 from plugin.chatbot.tool_loop import ToolCallingMixin
+from plugin.chatbot.tool_loop_actions import assign_send_outcome
 
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from plugin.chatbot.chat_session import ChatSession
     from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.send_cancellation import SendCancellation
 
 _AudioRecorderCls: type[Any] | None
 try:
@@ -338,7 +340,7 @@ class SendButtonListener(BaseActionListener):
         self.cached_uno_services = None
         self._stop_requested_fallback = False
         self._orphan_send_outcome = None
-        self._send_cancellation: Any = None
+        self._send_cancellation: SendCancellation | None = None
         self._stt_inflight = False
         self._stt_kill = None
         self._active_mode = ""
@@ -457,18 +459,6 @@ class SendButtonListener(BaseActionListener):
             return True
         return self._stop_requested_fallback
 
-    @property
-    def _terminal_status(self) -> str:
-        from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
-
-        return send_outcome_terminal_display(self)
-
-    @_terminal_status.setter
-    def _terminal_status(self, value: str) -> None:
-        from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
-        assign_send_outcome(self, "" if value is None else value)
-
     def set_session(self, session: Any) -> None:
         """Swap the visible session after the in-flight turn has been aborted.
 
@@ -568,36 +558,6 @@ class SendButtonListener(BaseActionListener):
             allow_whole_document=True,
             sidebar_notify=lambda msg: self.append_output("\n" + msg + "\n"),
         )
-
-    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
-        from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
-        from plugin.framework.blocking_wait import run_blocking_in_thread
-        from plugin.framework.i18n import _
-
-        if self.sidebar_state.tool_loop is not None:
-            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
-            return
-        if cancel is None:
-            cancel = self._send_cancellation
-        self._set_status(_("Thinking..."))
-        # Resolve UNO here: the caller holds SolarMutex while it waits for the worker
-        # (run_blocking_in_thread with pump_idle), so UNO on the worker can deadlock.
-        client, tools = prepare_slash_compact_on_ui_thread(self, self.ctx, self.session)
-        if client is None:
-            self.append_output("\n" + _("Configure an API key to compact.") + "\n")
-            return
-
-        def worker() -> str:
-            return run_slash_compact_sync(
-                focus=focus,
-                session=self.session,
-                cancel=cancel,
-                client=client,
-                tools=tools,
-            )
-
-        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
-        self.append_output(line)
 
     def slash_agent_edit_in_flight(self) -> bool:
         from plugin.framework.async_drain_guard import get_drain_owner
@@ -715,9 +675,7 @@ class SendButtonListener(BaseActionListener):
             return
         begin_send_turn(self)
         self._append_response(text)
-        from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
-        assign_send_outcome(self, "Error")
+        assign_send_outcome(self, "error")
         drop_turn(self)
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None:
@@ -973,7 +931,7 @@ class SendButtonListener(BaseActionListener):
                 _stop_tts()
 
                 self._stop_requested_fallback = False
-                self._terminal_status = "Ready"
+                assign_send_outcome(self, "ready")
                 # Create the scope before posting so a Stop click between Send
                 # returning and the AsyncCallback drain still latches cancel.
                 # Do not bind_executor yet: cancel() would cancel_pending_work
@@ -1094,7 +1052,7 @@ class SendButtonListener(BaseActionListener):
                 # Terminal status is "Stopped" so completion and TTS skip
                 # this turn. Leaving it at "Ready" replays the previous
                 # answer when Stop is pressed before the drain begins.
-                self._terminal_status = "Stopped"
+                assign_send_outcome(self, "stopped")
                 # Drop the take. STT never starts on this path, so it
                 # cannot be kept as text. Stop Rec stores it on
                 # audio_wav_path; if Stop lands before this drain runs,
@@ -1141,7 +1099,7 @@ class SendButtonListener(BaseActionListener):
                     # The tool-loop epilogue already aborted the turn, so
                     # _append_response would treat this as a late chunk.
                     self._project_closing_line("\n\n[Error: %s]\n" % str(err), failed_turn)
-                    self._terminal_status = "Error"
+                    assign_send_outcome(self, "error")
                 on_close()
 
             defer_until_drain_done(_close_turn_drain)
@@ -1224,7 +1182,7 @@ class SendButtonListener(BaseActionListener):
 
         if message:
             self._append_response("\n" + message + "\n")
-        self._terminal_status = "Error"
+        assign_send_outcome(self, "error")
         if set_status_text:
             self._set_status(_("Error"))
         if restore_query is not None:
@@ -1270,7 +1228,7 @@ class SendButtonListener(BaseActionListener):
 
         # Audio implies we have input even if text is empty.
         # Stop Rec sets has_audio and always starts a send. A missing WAV used
-        # to clear _terminal_status and return, so the click looked like it did
+        # to leave outcome unset and return, so the click looked like it did
         # nothing (no Whisper, no chat) after the stop handshake lost the file.
         if not query_text and not self.audio_wav_path:
             if self.sidebar_state.send.has_audio:
@@ -1280,13 +1238,12 @@ class SendButtonListener(BaseActionListener):
                     set_status_text=True,
                 )
                 return None
-            # Mark the terminal status "Ready" so the UI updates, and
-            # rely on message-count tracking to suppress TTS when no new
-            # message was added. An empty-query return that leaves
-            # _terminal_status as "" skips _set_status in
-            # _close_turn_ui (status stays "Getting document…") and
-            # speaks the prior turn's reply.
-            self._terminal_status = "Ready"
+            # Mark outcome ready so the UI updates, and rely on message-count
+            # tracking to suppress TTS when no new message was added. An
+            # empty-query return that leaves outcome None displays as "" and
+            # skips _set_status in _close_turn_ui (status stays "Getting
+            # document…") and speaks the prior turn's reply.
+            assign_send_outcome(self, "ready")
             return None
 
         self._set_query("")
@@ -1337,13 +1294,15 @@ class SendButtonListener(BaseActionListener):
         log.info("=== _do_send START ===")
 
         from plugin.chatbot.slash_commands import (
-            SlashKind,
+            SlashRun,
             build_slash_answer_query,
-            effective_slash_kind,
             parse_slash_text,
+            plan_slash,
             run_slash_command,
+            run_slash_compact,
             slash_answer_is_local_only,
-            slash_send_continues_after_begin,
+            slash_continues_send,
+            SlashResult,
         )
 
         peek_text = ""
@@ -1357,9 +1316,9 @@ class SendButtonListener(BaseActionListener):
         slash_arg = ""
         if parsed is not None:
             slash_cmd, slash_arg = parsed
-            if not slash_send_continues_after_begin(slash_cmd, self):
-                if run_slash_command(slash_cmd.name, self, slash_arg, from_popup=False):
-                    self._terminal_status = "Ready"
+            if not slash_continues_send(slash_cmd, self):
+                if run_slash_command(slash_cmd, self, slash_arg, from_popup=False) is SlashResult.HANDLED:
+                    assign_send_outcome(self, "ready")
                     return
 
         doc_info = self._begin_send()
@@ -1374,17 +1333,18 @@ class SendButtonListener(BaseActionListener):
         slash_transcript_line: str | None = None
         slash_sidebar_only = False
         if slash_cmd is not None:
-            if slash_cmd.needs_turn:
-                self.run_slash_compact(slash_arg, cancel=self._send_cancellation)
+            eff = plan_slash(slash_cmd, self)
+            if eff is SlashRun.COMPACT:
+                run_slash_compact(self, slash_arg, cancel=self._send_cancellation)
                 return
-            if slash_cmd.runs_in_send_turn:
+            if eff is SlashRun.FORMULA:
                 from plugin.doc.agent_undo import cancel_pending_agent_turn
 
                 cancel_pending_agent_turn(model)
                 self._skip_agent_undo_after = True
                 self.run_slash_formula(slash_arg)
                 return
-            if effective_slash_kind(slash_cmd, model) == SlashKind.ANSWER:
+            if eff is SlashRun.ANSWER:
                 slash_transcript_line = peek_text.strip()
                 query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
                 if slash_answer_is_local_only(slash_cmd, model):
@@ -1474,7 +1434,7 @@ class SendButtonListener(BaseActionListener):
             return False
 
         self._stop_requested_fallback = False
-        self._terminal_status = "Ready"
+        assign_send_outcome(self, "ready")
         self._send_cancellation = SendCancellation()
 
         self._run_turn_drain(
@@ -1498,7 +1458,7 @@ class SendButtonListener(BaseActionListener):
             self._append_response(
                 "\n" + _("[Peer send requires Chat mode on this sidebar.]") + "\n"
             )
-            self._terminal_status = "Error"
+            assign_send_outcome(self, "error")
             return
         if not already_appended:
             self.session.add_user_message(query_text)
@@ -1532,7 +1492,7 @@ class SendButtonListener(BaseActionListener):
         # Dispose can run on a later VCL turn while an event-driven drain
         # session is still open. Set the flag first so _close_turn_ui
         # does not write status or start TTS after ctx is cleared. Cancel the
-        # send scope (same object already captured by capture_send_stop) so
+        # send scope (same object read on the send thread before the worker starts) so
         # the drain stop checker fires instead of streaming into a dead panel.
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True

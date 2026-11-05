@@ -94,7 +94,7 @@ Most Tier 1 verbs share one mechanism: a table of `(name, instruction, target)` 
 The popup completes a single word (`accept_selected()` on Enter). Commands with arguments need two changes:
 
 - **Tab or Enter on a command that takes arguments** inserts `/name ` and leaves focus in the Ask box instead of running it.
-- **Send interception:** on Send, if the first token is a registered command, route to `run_slash_command(name, host, args)` instead of a chat turn. Unknown `/words` go to the model as normal text.
+- **Send interception:** on Send, if the first token is a registered command, route through ``plan_slash`` / ``slash_continues_send`` and ``run_slash_command(cmd, host, arg)`` instead of a chat turn. Unknown `/words` go to the model as normal text.
 
 `SlashCommand` would need a `takes_args` flag and a preset kind (`answer` or `rewrite`), so Tier 1 stays a data table, not ten handlers.
 

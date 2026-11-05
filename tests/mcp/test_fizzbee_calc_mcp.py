@@ -5,7 +5,7 @@
 """Tests for FizzBee formal modeling and full-layout MCP testing for Calc tools.
 
 Covers:
-- Full Calc layout extraction (all 61 tools across core and 12 specialized domains)
+- Full Calc layout extraction (all 62 tools across core and 12 specialized domains)
 - Full MCP schema validation for every Calc tool
 - Tool exposure mode filtering (direct_flat, delegate, direct_discovery)
 - Calc state transition trace replay against MCP protocol handler
@@ -83,33 +83,36 @@ def _call_rpc(handler: MCPProtocolHandler, msg: dict) -> dict:
 # =========================================================================== #
 
 _EXPECTED_CALC_TOOL_NAMES = frozenset({
-    "add_cell_comment",
-    "add_conditional_format",
-    "apply_sheet_filter",
-    "clear_sheet_filter",
-    "create_pivot_table",
-    "create_sheet",
+    "cell_comment_add",
+    "conditional_formatting_add",
+    "sheet_filter_apply",
+    "sheet_filter_clear",
+    "pivot_table_create",
+    "sheet_create",
     "delegate_read_document",
     "delegate_to_specialized_calc_toolset",
     "delegate_tool_domains",
-    "delete_cell_comment",
-    "delete_pivot_table",
-    "delete_sheet",
+    "cell_comment_delete",
+    "pivot_table_delete",
+    "sheet_delete",
     "delete_structure",
-    "detect_and_explain_errors",
+    "error_detect",
     "evaluate_formula",
     "get_guidance",
-    "get_sheet_filter",
+    "sheet_filter_get",
     "get_sheet_summary",
     "grep_nearby_files",
     "insert_cell_html",
     "list_calc_functions",
-    "list_cell_comments",
-    "list_conditional_formats",
+    "cell_comment_list",
+    "conditional_formatting_list",
     "list_nearby_files",
-    "list_pivot_tables",
-    "list_sheets",
-    "manage_charts",
+    "pivot_table_list",
+    "sheet_list",
+    "chart_delete",
+    "chart_get_info",
+    "chart_list",
+    "chart_upsert",
     "merge_cells",
     "named_range_add",
     "named_range_create_from_titles",
@@ -117,24 +120,24 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "named_range_edit",
     "named_range_get_info",
     "named_range_list",
-    "protect_sheet",
+    "sheet_protect",
     "query_folder_sql",
     "read_cell_range",
     "redo",
-    "refresh_pivot_table",
-    "remove_conditional_formats",
-    "rename_sheet",
-    "replace_in_spreadsheet",
+    "pivot_table_refresh",
+    "conditional_formatting_remove",
+    "sheet_rename",
+    "search_replace",
     "run_venv_python_script",
-    "search_in_spreadsheet",
+    "search_cells",
     "set_style",
     "shape_connect",
     "shape_delete",
     "shape_group",
     "shape_summary",
     "shape_upsert",
-    "sort_range",
-    "switch_sheet",
+    "range_sort",
+    "sheet_switch",
     "symbolic_math",
     "undo",
     "write_formula_range",
@@ -142,12 +145,12 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
 
 
 def test_extract_full_calc_layout_count():
-    """Verify that full layout extraction returns all 55 Calc tools across tiers."""
+    """Verify that full layout extraction returns all 62 Calc tools across tiers."""
     layout = extract_full_calc_layout()
 
     all_tool_names = {t.name for t in layout["core_tools"] + layout["specialized_tools"]}
     assert all_tool_names == _EXPECTED_CALC_TOOL_NAMES
-    assert layout["total_count"] == 59
+    assert layout["total_count"] == 62
     assert len(layout["core_tools"]) >= 10
     assert len(layout["specialized_tools"]) >= 39
 
@@ -167,7 +170,8 @@ def test_extract_full_calc_layout_count():
     assert "analysis" not in domains
     assert "shapes" in domains
     assert "charts" in domains
-    assert "comments" in domains
+    assert "cell_comments" in domains
+    assert "comments" not in domains
     assert "conditional_formatting" in domains
     assert "errors" in domains
     assert "pivot_tables" in domains
@@ -214,7 +218,7 @@ def test_mcp_calc_tools_list_direct_flat(calc_mcp_setup):
     assert len(tools_list) >= 50
     assert "read_cell_range" in tool_names
     assert "write_formula_range" in tool_names
-    assert "create_sheet" in tool_names
+    assert "sheet_create" in tool_names
     assert "named_range_add" in tool_names
     assert "run_venv_python_script" in tool_names
     assert "analyze_data" not in tool_names
@@ -242,7 +246,7 @@ def test_mcp_calc_tools_list_delegate_mode(calc_mcp_setup):
     assert "read_cell_range" in tool_names
     assert "write_formula_range" in tool_names
     # Specialized domain tools must be omitted
-    assert "create_sheet" not in tool_names
+    assert "sheet_create" not in tool_names
     assert "named_range_add" not in tool_names
     assert "analyze_data" not in tool_names
 
@@ -267,7 +271,7 @@ def test_mcp_calc_tools_list_direct_discovery(calc_mcp_setup):
 
     assert "find_tools" in tool_names
     assert "read_cell_range" in tool_names
-    assert "create_sheet" not in tool_names
+    assert "sheet_create" not in tool_names
 
 
 # =========================================================================== #
@@ -296,7 +300,7 @@ def test_fizzbee_calc_trace_initialize(calc_mcp_setup):
 
 
 def test_full_layout_all_calc_tools_executable_dispatch(calc_mcp_setup):
-    """Verify that every tool in the 61-tool Calc layout can be dispatched without unhandled exceptions."""
+    """Verify that every tool in the 62-tool Calc layout can be dispatched without unhandled exceptions."""
     handler = calc_mcp_setup["handler"]
     tools_reg = calc_mcp_setup["tools"]
 
@@ -317,7 +321,7 @@ def test_full_layout_all_calc_tools_executable_dispatch(calc_mcp_setup):
 
 
 def test_fizzbee_randomized_calc_mcp_fuzz(calc_mcp_setup):
-    """Randomized multi-step state machine fuzzer over the entire 61 Calc tool layout."""
+    """Randomized multi-step state machine fuzzer over the entire 62 Calc tool layout."""
     import os
     from tests.harness.vhs_budget import vhs_max_examples
 

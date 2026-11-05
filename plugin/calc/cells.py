@@ -733,14 +733,14 @@ class MergeCells(ToolBase):
 class SortRange(ToolCalcRangeBase):
     """Sort a range by a column."""
 
-    name: str | None = "sort_range"
+    name: str | None = "range_sort"
     # Action-time key/direction and "use this tool, don't rewrite the
     # block" live here. Do not restack another SORT Don't/Do into
     # CALC_CORE (flash merges adjacent identical shapes).
     description: str = (
         "Stable one-column sort of the specified range(s) by values in one column. "
         "Multi-key sorts are multiple calls (two stable one-column passes). "
-        "Do call sort_range to reorder rows (not rewrite the block with "
+        "Do call range_sort to reorder rows (not rewrite the block with "
         "write_formula_range) because hand-written order often leaves labels mid-table. "
         "Pick sort_column for the metric to order by (0-based within the range); "
         "set ascending=false when largest values should come first. "
@@ -782,7 +782,7 @@ class SortRange(ToolCalcRangeBase):
             ctx.doc,
             rn,
             "WriterAgent: Sort range",
-            lambda r: manipulator.sort_range(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
+            lambda r: manipulator.range_sort(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
             f"Sorted {len(rn)} ranges",
         )
 

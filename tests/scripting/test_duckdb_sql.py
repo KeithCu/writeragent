@@ -517,12 +517,12 @@ def test_run_sql_raises_on_query_error():
 @pytest.fixture
 def _clean_duckdb_sessions():
     reset_session_duckdb()
-    from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions
+    from plugin.scripting.venv.venv_sandbox import SESSIONS
 
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     yield
     reset_session_duckdb()
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 def _tiny_grid(value: int) -> list[list[object]]:
@@ -714,9 +714,9 @@ def test_injected_query_folder_df_ignores_caller_scoped_dir(tmp_path, monkeypatc
         return {"status": "ok"}
     monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.query_folder_df", _fake_query_folder_df)
     executor = MagicMock()
-    executor.state = {"scoped_dir": str(tmp_path)}
+    executor.state = {"scoped_dir": "/tmp/decoy-not-host"}
     executor.custom_tools = {}
-    venv_sandbox._inject_session_duckdb(executor)
+    venv_sandbox._inject_session_duckdb(executor, str(tmp_path))
     # binding is both send_variables helpers and custom_tools. Read the function and assert the query_folder_df that was actually installed.
     bound = executor.custom_tools["query_folder_df"]
     bound("select 1", scoped_dir="/etc", files=["passwd"])

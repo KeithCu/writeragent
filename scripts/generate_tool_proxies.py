@@ -124,6 +124,17 @@ def _get_schema_type(schema: dict) -> str:
     return str(t)
 
 
+def _qualify_proxy_annotation(annotation: str, shadowed: frozenset[str]) -> str:
+    """Avoid class-body method names shadowing builtins in parameter annotations."""
+    if "list" in shadowed:
+        annotation = annotation.replace("list[", "builtins.list[")
+    if "dict" in shadowed:
+        annotation = annotation.replace("dict[", "builtins.dict[")
+    if "type" in shadowed and annotation.startswith("type"):
+        annotation = annotation.replace("type", "builtins.type", 1)
+    return annotation
+
+
 def _python_type(schema: dict) -> str:
     """JSON Schema property -> Python annotation with type arguments.
 
@@ -189,7 +200,7 @@ class ParamRecord(NamedTuple):
 
 
 def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
-    # Read tool.parameters directly, not get_parameters(doc_type). ManageCharts.get_parameters
+    # Read tool.parameters directly, not get_parameters(doc_type). Chart tools' get_parameters
     # strips Calc or Writer/Draw fields per doc_type, but proxy stubs must keep the union.
     # The only other get_parameters override is run_venv_python_script
     # (in API_EXCLUDED_TOOLS).
@@ -496,8 +507,12 @@ def generate_module(tools: list["ToolBase"]) -> str:
         'per-tool classes are the public script API (IDE jump and types). Change this',
         'generator if the file is too large; do not slim the generated module by hand.',
         '"""',
-        'from typing import Any',
+        'from __future__ import annotations',
+        'from typing import Any, TYPE_CHECKING',
         'from plugin.framework.constants import WORKFLOW_TASK_PREFIXES as _WORKFLOW_TASK_PREFIXES',
+        '',
+        'if TYPE_CHECKING:',
+        '    import builtins  # proxy methods named list/dict shadow builtins in annotations',
         '',
         '# Re-export so venv scripts and tests share the comment-scan prefix tuple.',
         'WORKFLOW_TASK_PREFIXES = _WORKFLOW_TASK_PREFIXES',
@@ -588,13 +603,26 @@ def generate_module(tools: list["ToolBase"]) -> str:
         lines.append(f'    """Proxy for {namespace} tools."""')
         lines.append("")
 
+        import builtins as _builtins_mod
+
+        proxy_method_names = frozenset(_proxy_method_name(n) for n, _unused in tool_list)
+        shadowed_names = proxy_method_names & set(dir(_builtins_mod))
+
         for short_name, tool in sorted(tool_list, key=lambda x: x[0]):
             # domain_verb strip can yield a Python keyword (style_import -> import).
             short_name = _proxy_method_name(short_name)
             params = _collect_params(tool)
 
-            pos = [f"{p.py_name}: {p.annotation}" for p in params if p.required]
-            kw = [f"{p.py_name}: {p.annotation} = {p.default}" for p in params if not p.required]
+            pos = [
+                f"{p.py_name}: {_qualify_proxy_annotation(p.annotation, shadowed_names)}"
+                for p in params
+                if p.required
+            ]
+            kw = [
+                f"{p.py_name}: {_qualify_proxy_annotation(p.annotation, shadowed_names)} = {p.default}"
+                for p in params
+                if not p.required
+            ]
 
             all_params_list = ["self"] + pos
             if kw:
@@ -672,7 +700,11 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     with _mock_uno():
-        from plugin.main import get_tools
+        from plugin.main import bind
+
+        bind()
+
+        from plugin.app import get_tools
 
         with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
             _config_in_scratch_dir(tmp_dir)

@@ -359,10 +359,9 @@ _.adopt_chat_sidebar  # function: plugin/chatbot/sidebar_test_hooks.py:1673
 _.approval_active  # function: plugin/chatbot/sidebar_test_hooks.py:2613
 _.assert_no_empty_graphics  # function: plugin/chatbot/sidebar_test_hooks.py:3106
 _.audio_status  # function: plugin/chatbot/sidebar_test_hooks.py:2684
-_.clear_all_sandbox_sessions  # function: plugin/scripting/venv/venv_sandbox.py:1116
+_.clear_all  # function: plugin/scripting/venv/venv_sandbox.py
 _.clear_fake_stt  # function: plugin/chatbot/sidebar_test_hooks.py:611
 _.clear_fake_tts  # function: plugin/chatbot/sidebar_test_hooks.py:926
-_.clear_page_shapes  # function: plugin/ppt_master/adapter/uno_shape_postprocess.py:40
 _.clear_python_code_hot_cache  # function: plugin/scripting/sandbox_cache.py:230
 _.clear_research_fluff_words_cache  # function: plugin/chatbot/web_research_cache.py:165
 _.clear_session  # function: plugin/ppt_master/venv/runner.py:332
@@ -417,6 +416,7 @@ _.sidebar_deck_names  # function: plugin/chatbot/sidebar_test_hooks.py:1719
 _.slash_popup_state  # function: plugin/chatbot/sidebar_test_hooks.py:2412
 _.stop_label  # variable: plugin/chatbot/sidebar_test_hooks.py:2787
 _.stub_recorder_child  # function: plugin/chatbot/sidebar_test_hooks.py:2738
+_.shutdown_kokoro_pool  # function: plugin/audio/kokoro_pool.py:207
 _.teardown  # function: plugin/testing_runner.py:1397
 _.throwaway_writeragent_json  # function: plugin/testing_runner.py:733
 _.toggle_record_changes  # function: plugin/chatbot/sidebar_test_hooks.py:2930

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from scripts.build_compute_bundle import (  # noqa: E402
     COMPUTE_PLUGIN_EXTRAS,
+    COMPUTE_PLUGIN_FILES,
     assemble_compute_bundle,
     collect_compute_plugin_paths,
 )
@@ -24,6 +26,98 @@ from scripts.librepy_bundle_paths import (  # noqa: E402
     LIBREPY_SMOLAGENTS_INIT,
     collect_librepy_plugin_paths,
 )
+
+
+def _collect_plugin_import_modules(compute_service_dir: Path) -> set[str]:
+    """Every plugin.* target from Import/ImportFrom anywhere in compute_service/*.py."""
+    modules: set[str] = set()
+    for path in sorted(compute_service_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.name
+                    if name == "plugin" or name.startswith("plugin."):
+                        modules.add(name)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                mod = node.module
+                if mod == "plugin" or mod.startswith("plugin."):
+                    modules.add(mod)
+    return modules
+
+
+def _plugin_module_to_rel_path(module: str) -> str:
+    return "/".join(module.split(".")) + ".py"
+
+
+def test_compute_plugin_files_cover_compute_service_imports() -> None:
+    """Every plugin.* import in compute_service must ship in COMPUTE_PLUGIN_FILES."""
+    cs_dir = _REPO_ROOT / "compute_service"
+    plugin_modules = _collect_plugin_import_modules(cs_dir)
+    bundled = set(COMPUTE_PLUGIN_FILES)
+    missing: list[str] = []
+    for mod in sorted(plugin_modules):
+        rel = _plugin_module_to_rel_path(mod)
+        full = _REPO_ROOT / rel
+        assert full.is_file(), f"compute_service imports {mod} but {rel} is missing on disk"
+        if rel not in bundled:
+            missing.append(rel)
+    assert not missing, "COMPUTE_PLUGIN_FILES missing paths required by compute_service imports: " + ", ".join(missing)
+
+
+def test_compute_bundle_imports_all_compute_service_plugin_modules(tmp_path: Path) -> None:
+    """Assembled bundle must satisfy every plugin.* import reachable from compute_service."""
+    dest = tmp_path / "bundle-compute"
+    assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
+
+    cs_dir = _REPO_ROOT / "compute_service"
+    plugin_modules = sorted(_collect_plugin_import_modules(cs_dir))
+    modules_literal = repr(plugin_modules)
+
+    import_code = f"""
+import os
+import sys
+
+staged = sys.argv[1]
+repo_real = os.path.realpath(sys.argv[2])
+
+sys.meta_path = [
+    finder for finder in sys.meta_path
+    if "editable" not in finder.__class__.__name__.lower()
+    and "editable" not in getattr(finder, "__module__", "").lower()
+]
+sys.path_hooks = [
+    h for h in sys.path_hooks
+    if "editable" not in h.__class__.__name__.lower()
+    and "editable" not in getattr(h, "__module__", "").lower()
+]
+
+filtered_path = []
+for p in sys.path:
+    if not p:
+        continue
+    p_real = os.path.realpath(p)
+    if p_real == repo_real or "editable" in p.lower():
+        continue
+    filtered_path.append(p)
+sys.path = [staged] + filtered_path
+
+import importlib
+
+plugin_modules = {modules_literal}
+for mod in plugin_modules:
+    importlib.import_module(mod)
+
+import compute_service.worker_stdio
+"""
+
+    res = subprocess.run(
+        [sys.executable, "-c", import_code, str(dest), str(_REPO_ROOT)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, f"Bundle plugin import test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
 
 
 def test_compute_plugin_paths_subset_of_librepy():

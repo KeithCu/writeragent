@@ -2,7 +2,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for Harper LSP client, binary install, and grammar-queue host entry."""
+"""Unit tests for Harper LSP client, binary install, and in-process runtime."""
 
 from io import BytesIO
 from pathlib import Path
@@ -24,11 +24,9 @@ from plugin.writer.locale.harper import (
     HarperLSClient,
     HarperRuntimeState,
     _harper_lsp_settings,
-    harper_runtime_is_ready,
     harper_try_lint,
     lsp_range_to_offset,
     maybe_start_harper_async,
-    run_harper_check,
     shutdown_harper_runtime,
 )
 from plugin.writer.locale.harper_binary import (
@@ -109,6 +107,12 @@ def _mock_harper_lsp_stream(responses: list[bytes]) -> MagicMock:
     return mock_proc
 
 
+def _lint_with_locked_client(text: str, *, bcp47: str = "en-US") -> dict[str, Any]:
+    client = HarperLSClient("/bin/harper-ls")
+    with harper_module.runtime.lock:
+        return harper_module.runtime._lint_with_client(client, text, bcp47=bcp47)
+
+
 def test_harper_lsp_settings_dialect_mapping() -> None:
     assert _harper_lsp_settings("en-GB", "/tmp")["harper-ls"]["dialect"] == "British"
     assert _harper_lsp_settings("en-AU", "/tmp")["harper-ls"]["dialect"] == "Australian"
@@ -117,10 +121,8 @@ def test_harper_lsp_settings_dialect_mapping() -> None:
     assert _harper_lsp_settings("en-US", "/tmp")["harper-ls"]["dialect"] == "American"
     assert _harper_lsp_settings("en-GB", "/tmp")["harper-ls"]["userDictPath"] == str(Path("/tmp") / "harper-dictionary.txt")
 
-@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
-def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
-    mock_get_bin.return_value = "/bin/harper-ls"
+def test_harper_ls_client_and_check(mock_popen: MagicMock) -> None:
     mock_popen.return_value = _mock_harper_lsp_stream(
         [
             _make_lsp_chunk(
@@ -206,7 +208,7 @@ def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMo
     )
 
     with patch("time.time_ns", return_value=123):
-        res = run_harper_check(None, "this is text", "/tmp")
+        res = _lint_with_locked_client("this is text")
 
     assert "errors" in res
     assert len(res["errors"]) == 1
@@ -219,11 +221,9 @@ def test_harper_ls_client_and_check(mock_popen: MagicMock, mock_get_bin: MagicMo
     assert err["suggestions"] == ["This"]
 
 
-@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
-def test_harper_check_soft_line_break_offsets(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
+def test_harper_check_soft_line_break_offsets(mock_popen: MagicMock) -> None:
     """Diagnostic on line 1 maps to offset after embedded newline in one sentence."""
-    mock_get_bin.return_value = "/bin/harper-ls"
     mock_popen.return_value = _mock_harper_lsp_stream(
         [
             _make_lsp_chunk(
@@ -286,7 +286,7 @@ def test_harper_check_soft_line_break_offsets(mock_popen: MagicMock, mock_get_bi
 
     sentence = "Hello,\nworld."
     with patch("time.time_ns", return_value=123):
-        res = run_harper_check(None, sentence, "/tmp")
+        res = _lint_with_locked_client(sentence)
 
     assert len(res["errors"]) == 1
     err = res["errors"][0]
@@ -296,10 +296,8 @@ def test_harper_check_soft_line_break_offsets(mock_popen: MagicMock, mock_get_bi
     assert err["correct"] == "World"
 
 
-@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
-def test_harper_ls_timeout(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
-    mock_get_bin.return_value = "/bin/harper-ls"
+def test_harper_ls_timeout(mock_popen: MagicMock) -> None:
     mock_popen.return_value = _mock_harper_lsp_stream(
         [_make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8"))]
     )
@@ -374,10 +372,8 @@ def test_lint_stdout_eof_raises_instead_of_empty() -> None:
         client.lint("Hello.")
 
 
-@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
-def test_harper_check_empty_diagnostics(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
-    mock_get_bin.return_value = "/bin/harper-ls"
+def test_harper_check_empty_diagnostics(mock_popen: MagicMock) -> None:
     mock_popen.return_value = _mock_harper_lsp_stream(
         [
             _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")),
@@ -398,15 +394,13 @@ def test_harper_check_empty_diagnostics(mock_popen: MagicMock, mock_get_bin: Mag
     )
 
     with patch("time.time_ns", return_value=123):
-        res = run_harper_check(None, "clean sentence.", "/tmp")
+        res = _lint_with_locked_client("clean sentence.")
 
     assert res == {"errors": []}
 
 
-@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
-def test_harper_check_zero_width_diagnostic(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
-    mock_get_bin.return_value = "/bin/harper-ls"
+def test_harper_check_zero_width_diagnostic(mock_popen: MagicMock) -> None:
     mock_popen.return_value = _mock_harper_lsp_stream(
         [
             _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")),
@@ -437,7 +431,7 @@ def test_harper_check_zero_width_diagnostic(mock_popen: MagicMock, mock_get_bin:
     )
 
     with patch("time.time_ns", return_value=123):
-        res = run_harper_check(None, "hello world", "/tmp")
+        res = _lint_with_locked_client("hello world")
 
     assert len(res["errors"]) == 1
     err = res["errors"][0]
@@ -446,10 +440,8 @@ def test_harper_check_zero_width_diagnostic(mock_popen: MagicMock, mock_get_bin:
     assert err["n_error_length"] == 0
 
 
-@patch("plugin.writer.locale.harper._get_harper_binary")
 @patch("subprocess.Popen")
-def test_harper_workspace_configuration_dialect(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
-    mock_get_bin.return_value = "/bin/harper-ls"
+def test_harper_workspace_configuration_dialect(mock_popen: MagicMock) -> None:
     mock_proc = _mock_harper_lsp_stream(
         [
             _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")),
@@ -481,32 +473,11 @@ def test_harper_workspace_configuration_dialect(mock_popen: MagicMock, mock_get_
     mock_popen.return_value = mock_proc
 
     with patch("time.time_ns", return_value=123):
-        run_harper_check(None, "colour is fine.", "/tmp", bcp47="en-GB")
+        client = HarperLSClient("/bin/harper-ls")
+        client.lint("colour is fine.", bcp47="en-GB")
 
     written = b"".join(call.args[0] for call in mock_proc.stdin.write.call_args_list if call.args)
     assert b'"dialect": "British"' in written
-
-
-@patch("plugin.writer.locale.harper._get_harper_binary")
-def test_harper_run_harper_check_retries_after_failure(mock_get_bin: MagicMock) -> None:
-    mock_get_bin.return_value = "/bin/harper-ls"
-    broken_client = MagicMock()
-    broken_client.is_alive.return_value = True
-    broken_client.lint.side_effect = TimeoutError("Harper LSP operation timed out")
-    fresh_client = MagicMock()
-    fresh_client.is_alive.return_value = True
-    fresh_client.lint.return_value = []
-
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = broken_client
-
-    with patch("plugin.writer.locale.harper.HarperLSClient", return_value=fresh_client) as mock_ctor:
-        res = run_harper_check(None, "retry me.", "/tmp")
-
-    assert res == {"errors": []}
-    broken_client.close.assert_called_once()
-    mock_ctor.assert_called_once()
-    fresh_client.lint.assert_called_once()
 
 
 def test_read_exactly_handles_partial_reads() -> None:
@@ -558,7 +529,7 @@ def test_get_harper_binary_redownloads_when_latest_changes(
     (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
 
     with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
-        path = harper_binary_module._get_harper_binary(str(tmp_path))
+        path = harper_binary_module.get_harper_binary(str(tmp_path))
 
     mock_download.assert_called_once_with(binary_path, mock_fetch.return_value, heartbeat_fn=None)
     assert path == str(binary_path)
@@ -579,7 +550,7 @@ def test_get_harper_binary_skips_download_when_up_to_date(
     (harper_dir / "harper-ls.version").write_text("2.6.0", encoding="utf-8")
 
     with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
-        path = harper_binary_module._get_harper_binary(str(tmp_path))
+        path = harper_binary_module.get_harper_binary(str(tmp_path))
 
     mock_download.assert_not_called()
     assert path == str(binary_path)
@@ -778,45 +749,11 @@ def test_get_harper_binary_emits_heartbeat_progress(
         messages.append(str(payload.get("message") or ""))
 
     with patch("plugin.writer.locale.harper_binary.shutil.which", return_value=None):
-        harper_binary_module._get_harper_binary(str(tmp_path), heartbeat_fn=heartbeat_fn)
+        harper_binary_module.get_harper_binary(str(tmp_path), heartbeat_fn=heartbeat_fn)
 
     assert "Resolving harper-ls binary…" in messages
     assert "Using installed harper-ls v2.6.0" in messages
     mock_download.assert_not_called()
-
-
-@patch("plugin.writer.locale.harper._get_harper_binary")
-@patch("subprocess.Popen")
-def test_run_harper_check_emits_heartbeat_progress(mock_popen: MagicMock, mock_get_bin: MagicMock) -> None:
-    mock_get_bin.return_value = "/bin/harper-ls"
-    mock_popen.return_value = _mock_harper_lsp_stream(
-        [
-            _make_lsp_chunk(json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"capabilities": {}}}).encode("utf-8")),
-            _make_lsp_chunk(
-                json.dumps(
-                    {
-                        "jsonrpc": "2.0",
-                        "method": "textDocument/publishDiagnostics",
-                        "params": {
-                            "uri": "file:///tmp/writeragent_harper_lint_123.txt",
-                            "version": 1,
-                            "diagnostics": [],
-                        },
-                    }
-                ).encode("utf-8")
-            ),
-        ]
-    )
-
-    mock_status = MagicMock()
-    with (
-        patch("time.time_ns", return_value=123),
-        patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
-    ):
-        run_harper_check(None, "clean sentence.", "/tmp")
-
-    mock_status.request.assert_any_call("clean sentence.", result="Linting…")
-    mock_get_bin.assert_called_once()
 
 
 @pytest.mark.parametrize(
@@ -884,18 +821,6 @@ def test_download_harper_binary_logs_error_with_exc_info(mock_log: MagicMock, mo
     assert "Failed to download and extract binary" in mock_log.exception.call_args[0][0]
 
 
-@patch("plugin.writer.locale.harper._get_harper_binary")
-@patch("plugin.writer.locale.harper.log")
-def test_run_harper_check_logs_binary_resolve_failure(mock_log: MagicMock, mock_get_bin: MagicMock) -> None:
-    mock_get_bin.side_effect = RuntimeError("Failed to auto-download Harper binary: boom")
-
-    with pytest.raises(RuntimeError, match="Failed to auto-download"):
-        run_harper_check(None, "They is here.", "/tmp")
-
-    mock_log.exception.assert_called()
-    assert "Failed to resolve harper-ls binary" in mock_log.exception.call_args[0][0]
-
-
 @patch("plugin.writer.locale.harper.log")
 def test_harper_lsp_initialize_logs_exception_on_failure(
     mock_log: MagicMock, caplog: pytest.LogCaptureFixture
@@ -910,93 +835,6 @@ def test_harper_lsp_initialize_logs_exception_on_failure(
     assert "Failed to start managed subprocess" not in caplog.text
 
 
-def test_run_harper_check_continues_when_pump_post_times_out() -> None:
-    """Regression: status UI pump must not abort Harper when main-thread post fails."""
-    ctx = MagicMock()
-    mock_client = MagicMock()
-    mock_client.is_alive.return_value = True
-    mock_client.lint.return_value = []
-
-    with (
-        patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
-        patch(
-            "plugin.framework.queue_executor.main.post",
-            side_effect=TimeoutError("Main-thread execution of _pump timed out after 2.0s"),
-        ),
-        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
-        patch.object(harper_module.runtime, "install_client", return_value=mock_client),
-    ):
-        result = run_harper_check(ctx, "They is here.", "/tmp/cfg", bcp47="en-US")
-
-    assert result == {"errors": []}
-
-
-def test_run_harper_check_pumps_ui_after_start_and_heartbeat() -> None:
-    ctx = MagicMock()
-
-    def _fake_get_bin(config_dir: str, heartbeat_fn: Any = None) -> str:
-        if heartbeat_fn is not None:
-            heartbeat_fn({"message": "Downloading harper-ls v2.7.0…"})
-        return "/bin/harper-ls"
-
-    mock_client = MagicMock()
-    mock_client.is_alive.return_value = True
-    mock_client.lint.return_value = []
-
-    mock_status = MagicMock()
-    with (
-        patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
-        patch("plugin.writer.locale.harper._get_harper_binary", side_effect=_fake_get_bin),
-        patch.object(harper_module.runtime, "install_client", return_value=mock_client),
-    ):
-        result = run_harper_check(ctx, "They is here.", "/tmp/cfg", bcp47="en-US")
-
-    assert result == {"errors": []}
-    assert mock_status.request.call_args_list[0] == (("They is here.",), {"result": "Starting Harper…"})
-    assert mock_status.request.call_args_list[1] == (("They is here.",), {"result": "Downloading harper-ls v2.7.0…"})
-
-
-def test_run_harper_check_heartbeat_skips_empty_message() -> None:
-    ctx = MagicMock()
-
-    def _fake_get_bin(config_dir: str, heartbeat_fn: Any = None) -> str:
-        if heartbeat_fn is not None:
-            heartbeat_fn({"message": "   "})
-        return "/bin/harper-ls"
-
-    mock_client = MagicMock()
-    mock_client.is_alive.return_value = True
-    mock_client.lint.return_value = []
-
-    mock_status = MagicMock()
-    with (
-        patch("plugin.writer.locale.grammar_obs.get_grammar_status", return_value=mock_status),
-        patch("plugin.writer.locale.harper._get_harper_binary", side_effect=_fake_get_bin),
-        patch.object(harper_module.runtime, "install_client", return_value=mock_client),
-    ):
-        run_harper_check(ctx, "Hi.", "/tmp/cfg")
-
-    assert mock_status.request.call_count == 1
-    mock_status.request.assert_called_once_with("Hi.", result="Starting Harper…")
-
-
-def test_run_harper_check_does_not_pass_ctx_to_lint() -> None:
-    """Grammar-queue lint stays on the drain thread; PE2I wait is doProofreading only."""
-    ctx = MagicMock()
-    mock_client = MagicMock()
-    mock_client.is_alive.return_value = True
-    mock_client.lint.return_value = []
-    with (
-        patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
-        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
-        patch.object(harper_module.runtime, "install_client", return_value=mock_client),
-        patch("plugin.framework.uno_context.wait_while_pumping") as mock_wait,
-    ):
-        run_harper_check(ctx, "Hi.", "/tmp/cfg")
-    mock_wait.assert_not_called()
-    assert "ctx" not in inspect.signature(harper_module.runtime.lint_now).parameters
-
-
 def test_normalize_spaces_1to1() -> None:
     from plugin.writer.locale.harper import normalize_spaces_1to1
 
@@ -1008,36 +846,6 @@ def test_normalize_spaces_1to1() -> None:
     assert normalized == "Hello world test sentence\nNew\r\nline"
     assert len(normalized) == len(text_with_spaces)
 
-
-def test_run_harper_check_normalizes_unicode_whitespace() -> None:
-    """Ensure run_harper_check passes 1:1 normalized text to client.lint but slices original text."""
-    with (
-        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
-        patch.object(harper_module.runtime, "install_client") as mock_get_client,
-    ):
-        mock_client = MagicMock()
-        mock_client.is_alive.return_value = True
-        mock_client.lint.return_value = [
-            {
-                "diagnostic": {
-                    "message": "Incorrect article",
-                    "code": "AnA",
-                    "range": {"start": {"line": 0, "character": 10}, "end": {"line": 0, "character": 12}},
-                },
-                "suggestions": ["a"],
-            }
-        ]
-        mock_get_client.return_value = mock_client
-
-        original_text = "Harper\xa0is\xa0an\xa0language\xa0checker."
-        res = run_harper_check(None, original_text, "/tmp/cfg", bcp47="en-US")
-
-        # client.lint must receive normalized string with standard ASCII spaces
-        assert mock_client.lint.call_args[0][0] == "Harper is an language checker."
-        # Sliced wrong text must match exact substring from original text
-        assert res["errors"][0]["wrong"] == "an"
-        assert res["errors"][0]["n_error_start"] == 10
-        assert res["errors"][0]["n_error_length"] == 2
 
 
 @patch("plugin.framework.worker_pool.run_in_background")
@@ -1145,7 +953,7 @@ def test_ensure_replaces_dead_cached_client() -> None:
         return fresh
 
     with (
-        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+        patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"),
         patch("plugin.writer.locale.harper.HarperLSClient", side_effect=_build),
         patch("plugin.writer.locale.harper._schedule_proofread_again") as mock_sched,
     ):
@@ -1160,7 +968,7 @@ def test_ensure_replaces_dead_cached_client() -> None:
 
 
 def test_ensure_missing_binary_still_fails_and_cools_down() -> None:
-    with patch("plugin.writer.locale.harper._get_harper_binary", side_effect=OSError("harper-ls missing")):
+    with patch("plugin.writer.locale.harper.get_harper_binary", side_effect=OSError("harper-ls missing")):
         harper_module.runtime.ensure_body("/tmp/cfg", "en-US")
     assert harper_module.runtime.state is HarperRuntimeState.FAILED
     assert harper_module.runtime.clients == {}
@@ -1179,7 +987,7 @@ def test_ensure_failed_restart_drops_dead_client() -> None:
         harper_module.runtime.clients["/bin/harper-ls"] = dead
 
     with (
-        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+        patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"),
         patch("plugin.writer.locale.harper.HarperLSClient", side_effect=OSError("binary missing")),
         patch("plugin.writer.locale.harper._schedule_proofread_again") as mock_sched,
     ):
@@ -1193,7 +1001,7 @@ def test_ensure_failed_restart_drops_dead_client() -> None:
     fresh = MagicMock()
     fresh.is_alive.return_value = True
     with (
-        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+        patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"),
         patch("plugin.writer.locale.harper.HarperLSClient", return_value=fresh),
         patch("plugin.writer.locale.harper._schedule_proofread_again"),
     ):
@@ -1269,7 +1077,7 @@ def test_harper_ensure_ready_body_schedules_proofread_again() -> None:
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
     with (
-        patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+        patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"),
         patch.object(harper_module.runtime, "install_client", return_value=mock_client),
         patch("plugin.writer.locale.harper._schedule_proofread_again") as mock_sched,
     ):
@@ -1279,17 +1087,24 @@ def test_harper_ensure_ready_body_schedules_proofread_again() -> None:
 
 
 def test_harper_runtime_is_ready_requires_alive_client() -> None:
-    assert harper_runtime_is_ready() is False
+    assert harper_module.runtime.is_ready() is False
     with harper_module.runtime.lock:
         harper_module.runtime.state = HarperRuntimeState.READY
-    assert harper_runtime_is_ready() is False
+    assert harper_module.runtime.is_ready() is False
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
     with harper_module.runtime.lock:
         harper_module.runtime.clients["/bin/harper-ls"] = mock_client
-    assert harper_runtime_is_ready() is True
+    assert harper_module.runtime.is_ready() is True
     mock_client.is_alive.return_value = False
-    assert harper_runtime_is_ready() is False
+    assert harper_module.runtime.is_ready() is False
+
+
+def test_harper_runtime_mark_idle_clears_ready_state() -> None:
+    with harper_module.runtime.lock:
+        harper_module.runtime.state = HarperRuntimeState.READY
+    harper_module.runtime.mark_idle()
+    assert harper_module.runtime.state is HarperRuntimeState.IDLE
 
 
 def test_harper_try_lint_waits_for_lint_lock_and_pumps() -> None:
@@ -1370,7 +1185,7 @@ def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
     listener = MagicMock()
     try:
         with (
-            patch("plugin.writer.locale.harper._get_harper_binary", return_value="/bin/harper-ls"),
+            patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"),
             patch.object(harper_module.runtime, "install_client", return_value=mock_client),
             patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
             patch("plugin.writer.locale.grammar_obs.get_grammar_status"),
@@ -1821,43 +1636,6 @@ def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
     harper_module.runtime.lock.release()
 
 
-def test_lint_restart_drops_lock_during_client_construction() -> None:
-    """Popen + LSP initialize must not run while ``runtime.lock`` is held."""
-    held_during: list[bool] = []
-
-    class FakeClient:
-        def __init__(
-            self,
-            binary_path: str,
-            user_config_dir: str = "",
-            bcp47: str = "en-US",
-            *,
-            heartbeat_fn: object = None,
-        ) -> None:
-            del bcp47, heartbeat_fn
-            held_during.append(harper_module.runtime.lock.locked())
-            self.binary_path = binary_path
-            self.user_config_dir = user_config_dir
-            self.lint = MagicMock(return_value=[])
-            self.close = MagicMock()
-            self.is_alive = MagicMock(return_value=True)
-
-    dead = MagicMock()
-    dead.binary_path = "/bin/harper-ls"
-    dead.user_config_dir = "/tmp"
-    dead.is_alive.return_value = True
-    dead.lint.side_effect = RuntimeError("lsp dead")
-    with harper_module.runtime.lock:
-        harper_module.runtime.clients[dead.binary_path] = dead
-    with (
-        patch.object(harper_module, "HarperLSClient", FakeClient),
-        patch("plugin.writer.locale.harper._get_harper_binary", return_value=dead.binary_path),
-    ):
-        out = run_harper_check(None, "Hi.", "/tmp")
-    assert out == {"errors": []}
-    assert held_during == [False]
-    assert isinstance(harper_module.runtime.clients[dead.binary_path], FakeClient)
-
 def test_lsp_range_to_offset_unicode_line_separator() -> None:
     text = "x\na\u2028b teh"
     assert lsp_range_to_offset(text, 1, 4) == 6
@@ -1919,6 +1697,9 @@ def test_lint_with_client_maps_diagnostics_against_normalized_text() -> None:
 
         mock_diag.assert_called_once_with(raw_text, [mock_diagnostic], normalized_text)
 
+    client.lint.assert_called_once()
+    assert client.lint.call_args[0][0] == normalized_text
+
     assert len(out["errors"]) == 1
     assert out["errors"][0]["wrong"] == "teh"
     assert out["errors"][0]["n_error_start"] == 8
@@ -1931,7 +1712,7 @@ def test_ensure_failure_while_resolving_sets_failed_and_cooldown_allows_restart(
         harper_module.runtime.state = HarperRuntimeState.RESOLVING
     assert harper_module.runtime.state is HarperRuntimeState.RESOLVING
 
-    with patch("plugin.writer.locale.harper._get_harper_binary", side_effect=RuntimeError("binary not found")):
+    with patch("plugin.writer.locale.harper.get_harper_binary", side_effect=RuntimeError("binary not found")):
         harper_module.runtime.ensure_body("/tmp", "en-US")
 
     assert harper_module.runtime.state is HarperRuntimeState.FAILED
@@ -2031,6 +1812,7 @@ def test_harper_initialize_spawns_through_managed_subprocess() -> None:
             client.close()
 
 
+@pytest.mark.timeout(15)
 def test_harper_reinitialize_uses_a_new_managed_subprocess() -> None:
     from plugin.framework.managed_subprocess import ManagedSubprocess as RealManagedSubprocess
 
@@ -2065,19 +1847,26 @@ def test_harper_reinitialize_uses_a_new_managed_subprocess() -> None:
         return inst
 
     popen_calls: list[Any] = []
-    fake_proc = MagicMock()
-    fake_proc.poll.return_value = None
-    fake_proc.stdout = BytesIO(b"")
-    fake_proc.stdin = BytesIO()
+
+    def fake_read_loop(out_queue: queue.Queue[dict[str, Any] | None], stdout: Any) -> None:
+        del stdout
+        out_queue.put(None)
 
     def fake_popen(*args: Any, **kwargs: Any) -> MagicMock:
         popen_calls.append(args)
-        return fake_proc
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.stdout = BytesIO(b"")
+        proc.stdin = BytesIO()
+        proc.wait.side_effect = lambda timeout=None: 0
+        proc.terminate.return_value = None
+        return proc
 
     try:
         with (
             patch("plugin.writer.locale.harper.ManagedSubprocess", side_effect=spy_managed),
             patch("plugin.framework.managed_subprocess.subprocess.Popen", side_effect=fake_popen),
+            patch.object(client, "_read_loop", fake_read_loop),
             patch.object(client, "_send_request", lambda *_a, **_k: {"id": 1, "result": {}}),
             patch.object(client, "_write", lambda _payload: None),
         ):
@@ -2089,6 +1878,8 @@ def test_harper_reinitialize_uses_a_new_managed_subprocess() -> None:
         assert managed_instances[0] is not managed_instances[1]
     finally:
         client.close()
+        if client.stdout_thread is not None and client.stdout_thread.is_alive():
+            client.stdout_thread.join(timeout=1.0)
 
 
 def test_harper_stdout_reader_stays_a_raw_thread() -> None:

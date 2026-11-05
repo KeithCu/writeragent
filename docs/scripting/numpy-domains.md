@@ -165,7 +165,7 @@ No `viz.py` yet. Matplotlib figures from user/LLM code are captured in the venv 
 |-----------|--------|----------|
 | Figure → bytes | [`venv/venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `_figure_to_image_payload()` (SVG default); `_capture_open_figures_payload()` merges multiple open figures vertically; `serialize_result()` for returned `Figure`; `Agg` backend; figure cleanup |
 | Wire format | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) | `PAYLOAD_IMAGE`, `is_image_payload()`; shared temp-file helper |
-| Calc `=PYTHON()` | [`python_function.py`](../../plugin/calc/python/function.py), [`python_image_egress.py`](../../plugin/calc/python/image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to formula cell on its owning sheet |
+| Calc `=PYTHON()` | [`function.py`](../../plugin/calc/python/function.py), [`python_image_egress.py`](../../plugin/calc/python/image_egress.py) | `insert_image_result_on_sheet()` → `GraphicObjectShape` anchored to formula cell on its owning sheet |
 | Chat / LLM | [`venv.py`](../../plugin/calc/python/venv.py) | **Calc:** auto-insert on the tool document (`ctx.doc`), not the front window, plus `image_path`. **Writer/Draw:** `image_path` → `image_insert` |
 | Writer notebook | [`writer_importer.py`](../../plugin/notebook/writer_importer.py) | Shared inline image insertion (`insert_run_image`, `_insert_image_in_flow`); cell run orchestration in `notebook_runner.py` |
 | LLM prompts | [`import_policy.py`](../../plugin/scripting/import_policy.py) | App-specific `format_matplotlib_plot_hint()` (Calc / Writer / Draw); not in global import policy |
@@ -189,7 +189,7 @@ run_venv_python_script(code="… plt.plot(…) …")
 2. image_insert(image_path=<returned path>)
 ```
 
-**Native LO charts** ([`charts.py`](../../plugin/calc/charts.py) — `manage_charts`, …) are a **separate** UNO chart path, not matplotlib. The LLM can already create native Calc/Writer charts from structured data; Viz helpers complement that with statistical plotting (seaborn, heatmaps, distribution plots).
+**Native LO charts** ([`charts.py`](../../plugin/calc/charts.py) — `chart_upsert`, `chart_list`, …) are a **separate** UNO chart path, not matplotlib. The LLM can already create native Calc/Writer charts from structured data; Viz helpers complement that with statistical plotting (seaborn, heatmaps, distribution plots).
 
 **Known limitations:** No UNO e2e test for full `=PYTHON()` plot insertion (geometry unit-tested with mocks). Multiple open figures are merged into one vertical stack (PNG). Optional polish (anchor/z-order, replace-existing-chart, UNO e2e): [Monaco Phase 3](monaco-editor-dev-plan.md#phase-3--broader-surfaces).
 

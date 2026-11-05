@@ -15,7 +15,8 @@ def _cell_value(sheet, col, row):
 
 @native_test
 def test_finalize_python_return_helpers():
-    from plugin.calc.python.function import finalize_python_return, is_scalar_index_arg as _is_scalar_index_arg
+    from plugin.calc.python.addin_values import is_scalar_index_arg as _is_scalar_index_arg
+    from plugin.calc.python.function import finalize_python_return
 
     class _Ctx:
         pass
@@ -62,7 +63,8 @@ def test_python_matrix_via_session_counter(ctx, doc):
     test_ordinary_formula_multi_cell_selection_returns_corner.
     """
     from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_in_memory_spill_state, clear_python_addin_cache
+    from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.calc.python.spill import clear_in_memory_spill_state
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
     code = "result = [2, 3, 5]"
@@ -115,7 +117,8 @@ def test_ordinary_formula_multi_cell_selection_returns_corner(ctx, doc):
     cancelled so it does not write after the document closes.
     """
     from plugin.calc.python.addin import PythonFunction
-    from plugin.calc.python.function import clear_in_memory_spill_state, clear_python_addin_cache
+    from plugin.calc.python.function import clear_python_addin_cache
+    from plugin.calc.python.spill import clear_in_memory_spill_state
     from plugin.calc.python.workbook_lifecycle import _lifecycle_key
 
     code = "result = [2, 3, 5]"

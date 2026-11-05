@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import format_error_message, reraise_if_disposed
 from plugin.framework.i18n import N_, _
 
-log = logging.getLogger("writeragent.slash_commands")
+if TYPE_CHECKING:
+    from plugin.chatbot.slash_commands import SlashHost
+
+log = logging.getLogger(__name__)
 
 FORMULA_UNDO_TITLE = N_("WriterAgent: Formula")
 
@@ -21,7 +24,7 @@ class SlashFormulaPromptError(Exception):
     """User-visible /formula prompt build failure."""
 
 
-def run_slash_undo(host: Any) -> None:
+def run_slash_undo(host: SlashHost) -> None:
     if host.slash_agent_edit_in_flight():
         host.append_output("\n" + _("Wait for the current operation to finish before /undo.") + "\n")
         return
@@ -113,7 +116,7 @@ def build_slash_formula_prompt(model: Any, description: str) -> tuple[str, str, 
 
 
 def insert_slash_formula_on_main(
-    host: Any,
+    host: SlashHost,
     *,
     model: Any,
     cell: Any,
@@ -134,12 +137,14 @@ def insert_slash_formula_on_main(
         cell.setFormula(formula)
 
     try:
-        err = commit_or_rollback(model, _(FORMULA_UNDO_TITLE), mutate)
+        outcome = commit_or_rollback(model, _(FORMULA_UNDO_TITLE), mutate)
+        outcome.raise_mutate_error()
     except Exception as exc:
         log.exception("slash /formula insert failed")
         host.append_output("\n" + format_error_message(exc) + "\n")
         record_agent_turn_after(model)
         return
+    err = outcome.error
     if err is not None:
         host.append_output("\n" + str(err.get("message", _("Could not insert the formula."))) + "\n")
         record_agent_turn_after(model)
@@ -155,11 +160,10 @@ def insert_slash_formula_on_main(
     host.append_output("\n" + "\n".join(lines) + "\n")
 
 
-def run_slash_formula_worker(host: Any, *, ctx: Any, model: Any, description: str) -> None:
+def run_slash_formula_worker(host: SlashHost, *, ctx: Any, model: Any, description: str) -> None:
     """LLM stream under send cancellation; formula insert runs on the main thread."""
     from plugin.chatbot.selection import create_validated_client, stream_completion
     from plugin.framework.config import get_config
-    from plugin.framework.send_cancellation import capture_send_stop
 
     title = _(FORMULA_UNDO_TITLE)
     client = create_validated_client(ctx, title)
@@ -182,7 +186,8 @@ def run_slash_formula_worker(host: Any, *, ctx: Any, model: Any, description: st
     )
     max_tokens = get_config("chatbot.extend_selection_max_tokens")
     chunks: list[str] = []
-    cancel = capture_send_stop(host)
+    # Send thread, before stream; worker must not re-read host._send_cancellation (drain clears it).
+    cancel = host._send_cancellation
 
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
         if not is_thinking:

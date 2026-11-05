@@ -12,7 +12,7 @@ from plugin.tests.testing_utils import TestingFactory, with_native_doc
 @with_native_doc("writer")
 def test_writer_track_changes_show_toggle_uno(ctx, doc):
     """TrackChangesShow sets RedlineDisplayType and updates ShowChanges without touching ShowChangesInMargin."""
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.tracking import TrackChangesShow
 
     controller = doc.getCurrentController()
@@ -49,7 +49,7 @@ def test_writer_track_changes_show_toggle_uno(ctx, doc):
 @with_native_doc("writer")
 def test_accept_body_redline_with_table_cell_redline_uno(ctx, doc):
     import uno
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.tracking import ManageTrackedChanges, TrackChangesList
 
     _para_break = uno.getConstantByName("com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK")
@@ -107,7 +107,7 @@ def test_accept_body_redline_with_table_cell_redline_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_writer_accept_all_clears_redlines_uno(ctx, doc):
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.tracking import ManageTrackedChanges
 
     tctx = TestingFactory.create_context(

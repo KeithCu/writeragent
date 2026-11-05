@@ -22,6 +22,7 @@ def _run_ppt_master_venv_agent(
     topic: str | None = None,
 ) -> dict[str, Any]:
     from plugin.framework.errors import ToolExecutionError, format_error_payload
+    from plugin.framework.send_cancellation import is_cancelled
     from plugin.ppt_master.venv.host import run_ppt_master_venv_turn
     from plugin.scripting.session_manager import ppt_master_session_id
 
@@ -57,7 +58,7 @@ def _run_ppt_master_venv_agent(
             if text:
                 append_thinking_callback(str(text))
 
-    if scope is not None and scope.is_cancelled():
+    if is_cancelled(scope):
         return format_error_payload(ToolExecutionError("PPT-Master stopped by user.", code="USER_STOPPED"))
 
     return run_ppt_master_venv_turn(
@@ -68,8 +69,7 @@ def _run_ppt_master_venv_agent(
         model=None,
         session_id=session_id,
         on_worker_event=on_worker_event,
-        stop_checker=scope.is_cancelled if scope is not None else None,
-        cancellation_scope=scope,
+        cancel=scope,
     )
 
 

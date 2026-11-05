@@ -80,7 +80,7 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
 # Teachings stay; shape is split so flash models cannot merge three adjacent
 # identical Do-because lines. Because-clause text is PR 616's (no write tools).
 _CALC_SORT_ROUTING = (
-    'Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range '
+    'Do delegate_to_specialized_calc_toolset(domain="ranges") then range_sort '
     "to reorder rows (multi-key sorts are two stable one-column passes) "
     "because rewriting values by hand loses the header row."
 )
@@ -112,7 +112,7 @@ def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:
     assert _CALC_RELATIVE_FORMULA in calc
     # Naming write_formula_range / =PY in the because-clause primed weak
     # models to call the tool we want them to avoid (glm-5.3-flash).
-    sort_line = next(line for line in calc.splitlines() if "then sort_range" in line)
+    sort_line = next(line for line in calc.splitlines() if "then range_sort" in line)
     assert "write_formula_range" not in sort_line
     assert "=PY" not in sort_line
     # Headers + different shapes: not three adjacent identical Do-because lines.
@@ -134,7 +134,7 @@ def test_calc_tool_descriptions_pin_sort_has_header_not_tax() -> None:
     from plugin.calc.cells import SortRange, WriteCellRange
 
     write_desc = WriteCellRange.description
-    assert "sort_range" not in write_desc
+    assert "range_sort" not in write_desc
     assert "Banana" not in write_desc
     assert "stamped B2" not in write_desc
     sort_desc = SortRange.description
@@ -142,7 +142,7 @@ def test_calc_tool_descriptions_pin_sort_has_header_not_tax() -> None:
     assert "Multi-key sorts are multiple calls" in sort_desc
     assert "two stable one-column passes" in sort_desc
     assert _SORT_RANGE_HAS_HEADER in sort_desc
-    assert "Do call sort_range to reorder rows" in sort_desc
+    assert "Do call range_sort to reorder rows" in sort_desc
     assert "not rewrite the block with write_formula_range" in sort_desc
     assert "Pick sort_column for the metric" in sort_desc
     assert "ascending=false when largest values should come first" in sort_desc

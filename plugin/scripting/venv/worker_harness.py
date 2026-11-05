@@ -41,6 +41,7 @@ from plugin.framework.ipc import (
     write_child_ipc_frame,
     write_pickle_frame,
 )
+from plugin.framework.child_runtime import die_with_parent
 
 # What was wrong: venv_sandbox was imported at module scope, and
 # claim_ipc_channel ran later in main(). The claim flushes sys.stdout onto
@@ -215,8 +216,6 @@ def _init_logging() -> None:
         sys.stderr.write(f"Failed to initialize worker logging: {exc}\n")
 
 
-from plugin.framework.child_runtime import die_with_parent
-
 
 def main() -> None:
     from plugin.scripting.host_tool_call import ROLE_WORKER, set_process_role
@@ -231,7 +230,9 @@ def main() -> None:
     # Idempotent. The script entry already claimed before later imports. This
     # call is the one in-process tests replace.
     stdout = claim_ipc_channel()
-    write_pickle_frame(stdout, {"status": "ready", "pid": os.getpid()})
+    from plugin.framework.child_runtime import announce_ready
+
+    announce_ready(stdout)
 
     while True:
         # Read and handle are separate. IpcFrameError subclasses ValueError,
@@ -331,9 +332,13 @@ def main() -> None:
                 break
 
         lpe = sys.modules.get(_LPE_MODULE)
-        if lpe is not None and getattr(lpe, "abandoned_timeout", False):
-            setattr(lpe, "abandoned_timeout", False)
-            os._exit(1)
+        if lpe is not None:
+            finalize = getattr(lpe, "finalize_thread_pool_timeout", None)
+            if callable(finalize):
+                finalize()
+            if getattr(lpe, "abandoned_timeout", False):
+                setattr(lpe, "abandoned_timeout", False)
+                os._exit(1)
 
 
 if __name__ == "__main__":

@@ -66,7 +66,7 @@ tweaks. Those amplify a metric that is still too easy and too fake.
 - A Python LibreOffice or a formula engine that computes `=B2*0.08`.
 - Requiring a golden tool name for Writer table/cleanup tasks
   (`write_table_cells` traces are not coming back).
-- Bootstrapping `plugin.main.get_tools()` inside string eval (needs
+- Bootstrapping `plugin.app.get_tools()` inside string eval (needs
   services / UNO). Schemas come from tool **classes**.
 
 ## Target picture
@@ -88,7 +88,7 @@ hard pass (document + process) ; quality judge after the gate
 The 17 tasks export the same HTML / JSON the oracles already read.
 `=PY` rows use dest/process oracles (any empty cell outside A1:H500;
 all writes inspected; formula must mention the range). `apply_style`
-maps onto HTML tags / `data-lo-style`. `sort_range` is one 0-based
+maps onto HTML tags / `data-lo-style`. `range_sort` is one 0-based
 column, stable, non-numeric last.
 
 ---
@@ -161,7 +161,7 @@ strings stays exact per-cell (pin). 2-D + one formula, or an import
 failure, falls back to the honest pin. Snapshot `formulas` stores the
 **per-cell** text, not the original pin source on every address.
 
-`sort_range` is production-shaped: one 0-based column, stable,
+`range_sort` is production-shaped: one 0-based column, stable,
 non-numeric last (tie-break = two calls). `get_sheet_summary` returns
 the full grid. Snapshot JSON grows `formulas` / `writes` without
 breaking `grid` / `rows` that `oracle_data_sorting` and
@@ -201,10 +201,10 @@ breaking `grid` / `rows` that `oracle_data_sorting` and
 ### Schemas
 
 `build_eval_tool_schemas()` uses a headless `ToolRegistry` (Writer/Calc/Draw
-+ Chatbot modules, no `plugin.main.bootstrap`) and
++ Chatbot modules, no `plugin.app.bootstrap`) and
 `get_schemas("openai", doc_type=kind)` — the same filter as sidebar
 (`tool_loop.py`). Specialized tools stay off the list; Draw
-`shape_upsert` / Calc `sort_range` are advertised only via
+`shape_upsert` / Calc `range_sort` are advertised only via
 `delegate_to_specialized_*`. There is no committed JSON snapshot.
 
 Eval-only (not sidebar): `filter_eval_tool_schemas` / named presets
@@ -230,7 +230,7 @@ One table, not a growing `if name ==`:
 |------|--------------------------------------|
 | Writer | `get_document_content`, `apply_document_content`, `search_in_document` (and `find_text` alias) |
 | Draw | `shape_upsert`, `shape_connect`, `get_draw_tree`, `shape_summary` |
-| Calc | `get_sheet_summary`, `read_cell_range`, `write_formula_range`, `sort_range` |
+| Calc | `get_sheet_summary`, `read_cell_range`, `write_formula_range`, `range_sort` |
 
 Everything else in the advertised catalog returns:
 
@@ -250,7 +250,7 @@ Grow the implemented set only when a new task needs it (e.g.
 - Schema list for writer/draw/calc includes production names
   (`search_in_document`, `write_formula_range`, `shape_connect`,
   `get_draw_tree`) and is larger than the current 3–5.
-- Calling `add_comment` / `list_sheets` / `shape_delete` returns
+- Calling `add_comment` / `sheet_list` / `shape_delete` returns
   `unsupported_in_eval` until implemented.
 - Scripted student still only uses implemented names.
 - Prompt pin tests updated; no “only three tools” wording.
@@ -357,7 +357,7 @@ No `make test-uno`. No LO scripted pack work.
 
 - Multi-turn user messages using `export_for_prompt()`.
 - Implementing more core tools on the worlds (`add_comment`,
-  `list_sheets`, …) when a task needs them.
+  `sheet_list`, …) when a task needs them.
 - MIPROv2 on `agent_score` once the metric is stable.
 - Broader `--backend lo` / `--backend auto` ranking of the full pack
   (beyond the flag row) when we want native fidelity on every task —

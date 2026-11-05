@@ -306,7 +306,7 @@ def test_group_tools_drops_llm_orchestration_tools():
     tools.append(
         _as_tool(
             MockTool(
-                "apply_sheet_filter",
+                "sheet_filter_apply",
                 "Hide rows. delegate_to_specialized_calc_toolset(domain='sheets').",
                 {
                     "type": "object",
@@ -330,7 +330,76 @@ def test_group_tools_drops_llm_orchestration_tools():
         assert f"'{name}'" not in code
         assert f'call_host_tool("{name}"' not in code
     assert "delegate_to_specialized_calc_toolset(domain='sheets')" in code
-    assert "def apply_sheet_filter(" in code
+    assert "def filter_apply(" in code
+
+
+def test_rename_calc_writer_specialized_tools_strip_to_short_proxy_methods():
+    """RENAME-CALC1: domain_verb tool ids group to wa.<domain>.<short> methods."""
+    renamed = [
+        ("sheet_list", "sheet", "list"),
+        ("sheet_switch", "sheet", "switch"),
+        ("sheet_create", "sheet", "create"),
+        ("sheet_rename", "sheet", "rename"),
+        ("sheet_delete", "sheet", "delete"),
+        ("sheet_protect", "sheet", "protect"),
+        ("sheet_filter_apply", "sheet", "filter_apply"),
+        ("sheet_filter_clear", "sheet", "filter_clear"),
+        ("sheet_filter_get", "sheet", "filter_get"),
+        ("search_cells", "search", "cells"),
+        ("search_replace", "search", "replace"),
+        ("range_sort", "range", "sort"),
+        ("error_detect", "error", "detect"),
+        ("table_manage_structure", "table", "manage_structure"),
+        ("tracking_manage", "tracking", "manage"),
+        ("pivot_table_create", "pivot_table", "create"),
+        ("pivot_table_refresh", "pivot_table", "refresh"),
+        ("pivot_table_delete", "pivot_table", "delete"),
+        ("pivot_table_list", "pivot_table", "list"),
+        ("conditional_formatting_list", "conditional_formatting", "list"),
+        ("conditional_formatting_add", "conditional_formatting", "add"),
+        ("conditional_formatting_remove", "conditional_formatting", "remove"),
+        ("cell_comment_list", "cell_comment", "list"),
+        ("cell_comment_add", "cell_comment", "add"),
+        ("cell_comment_delete", "cell_comment", "delete"),
+    ]
+    tools = []
+    domain_map = {
+        "sheet": "sheets",
+        "search": "search",
+        "range": "ranges",
+        "error": "errors",
+        "table": "tables",
+        "tracking": "tracking",
+        "pivot_table": "pivot_tables",
+        "conditional_formatting": "conditional_formatting",
+        "cell_comment": "cell_comments",
+    }
+    for tool_name, ns, method in renamed:
+        domain = domain_map[ns]
+        tools.append(
+            _as_tool(
+                MockTool(
+                    tool_name,
+                    f"Tool {tool_name}.",
+                    {"type": "object", "properties": {}},
+                    specialized_domain=domain,
+                )
+            )
+        )
+    groups = group_tools(tools)
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    ns_exec: dict[str, Any] = {}
+    exec(code, ns_exec)
+    for tool_name, proxy_ns, method in renamed:
+        found = False
+        for short, tool in groups.get(proxy_ns, []):
+            if tool.name == tool_name:
+                assert short == method, f"{tool_name} -> {short}, expected {method}"
+                found = True
+                break
+        assert found, f"{tool_name} missing from groups[{proxy_ns}]"
+        assert ns_exec["TOOL_METHODS"][tool_name] == (proxy_ns, method)
 
 
 def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
@@ -500,7 +569,7 @@ class _DummyRegistry:
 def test_main_fails_closed_on_empty_registry(monkeypatch, tmp_path):
     from scripts import generate_tool_proxies
 
-    monkeypatch.setattr("plugin.main.get_tools", lambda: _DummyRegistry([]))
+    monkeypatch.setattr("plugin.app.get_tools", lambda: _DummyRegistry([]))
     out_file = tmp_path / "writeragent_api.py"
     with pytest.raises(SystemExit) as exc_info:
         generate_tool_proxies.main(["--output", str(out_file)])
@@ -512,7 +581,7 @@ def test_main_fails_closed_when_core_missing_list_open_documents(monkeypatch, tm
     from scripts import generate_tool_proxies
 
     dummy_tool = _as_tool(MockTool("dummy_tool", "desc", {}, specialized_domain="footnotes"))
-    monkeypatch.setattr("plugin.main.get_tools", lambda: _DummyRegistry([dummy_tool]))
+    monkeypatch.setattr("plugin.app.get_tools", lambda: _DummyRegistry([dummy_tool]))
     out_file = tmp_path / "writeragent_api.py"
     with pytest.raises(SystemExit) as exc_info:
         generate_tool_proxies.main(["--output", str(out_file)])
@@ -649,4 +718,39 @@ def test_scripting_only_extra_in_signature_doc_and_rpc():
     assert "def set_style(self, range_name: str, *, number_format: str | None = None) -> dict[str, Any]:" in code
     assert "number_format (optional): Scripting-only parameter." in code
     assert 'return call_host_tool("set_style", range_name=range_name, number_format=number_format)' in code
+
+
+def test_proxy_qualifies_list_annotation_when_list_method_present():
+    chart_upsert = MockTool(
+        "chart_upsert",
+        "Upsert chart.",
+        {
+            "type": "object",
+            "properties": {
+                "headers": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        specialized_domain="charts",
+    )
+    chart_list = MockTool(
+        "chart_list",
+        "List charts.",
+        {"type": "object", "properties": {}},
+        specialized_domain="charts",
+    )
+    no_list = MockTool(
+        "bookmark_add",
+        "Add bookmark.",
+        {
+            "type": "object",
+            "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
+            "required": ["tags"],
+        },
+        specialized_domain="bookmarks",
+    )
+    code = generate_module([_as_tool(chart_upsert), _as_tool(chart_list), _as_tool(no_list)])
+    compile(code, "<generated>", "exec")
+    assert "headers: builtins.list[str]" in code
+    assert "def add(self, tags: list[str]" in code
+    assert "tags: builtins.list[str]" not in code
 

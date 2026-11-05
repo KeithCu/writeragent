@@ -1,5 +1,4 @@
 import sys
-import types
 from unittest.mock import Mock, MagicMock, patch
 
 
@@ -31,6 +30,7 @@ from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind  
 from plugin.chatbot.tool_loop import CHAT_STREAM_BATCH_INTERVAL, ToolCallingMixin  # noqa: E402
 from plugin.chatbot.send_state import SendButtonState, SendMode  # noqa: E402
 from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display  # noqa: E402
 
 class MockSession:
     def __init__(self):
@@ -87,7 +87,6 @@ class FakePanel(ToolCallingMixin):
         self._spawn_llm_worker = Mock()
         self._spawn_final_stream = Mock()
         self._get_document_model = Mock(return_value=None)
-        self._terminal_status = "Ready"
 
 
 def setup_mock_panel():
@@ -207,12 +206,13 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_l
 
 
 def test_handle_stream_error_persists_banner():
+    from plugin.chatbot.tool_loop import StreamErrorOutcome
     panel, session = setup_mock_panel()
-    with patch("plugin.chatbot.tool_loop.try_native_audio_stt_fallback", return_value=False), \
+    with patch("plugin.chatbot.tool_loop.try_native_audio_stt_fallback", return_value=StreamErrorOutcome.NOT_HANDLED), \
          patch("plugin.chatbot.tool_loop.get_config", return_value=False), \
          patch("plugin.scripting.audio_recorder_service.clear_pending_audio_wav"):
         result = panel._handle_stream_error({"message": "boom"})
-    assert result is None
+    assert result is StreamErrorOutcome.END
     assert session.messages[-1]["content"] == "[API error: boom]"
 
 
@@ -568,7 +568,7 @@ def test_final_done_handling(mock_get_config, mock_drain_loop):
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is True # Return true means exit loop
-    assert panel._terminal_status == "Ready"
+    assert send_outcome_terminal_display(panel) == "Ready"
     assert len(session.messages) == 1
     assert session.messages[0]["content"] == "This is the final word."
 
@@ -591,7 +591,7 @@ def test_final_done_empty_content_shows_out_of_tool_rounds_message(mock_get_conf
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is True
-    assert panel._terminal_status == "Ready"
+    assert send_outcome_terminal_display(panel) == "Ready"
     expected = _("Reached the maximum number of tool rounds.")
     panel._append_response.assert_any_call(expected + "\n")
     assert len(session.messages) == 1
@@ -617,41 +617,31 @@ def test_error_handling_in_loop(mock_get_config, mock_drain_loop):
     assert results[0] is True # Should exit loop
 
 
-def test_refresh_active_tools_for_session():
-    """Avoid @patch(plugin.main.get_tools): importing plugin.main pulls UNO-heavy code."""
+def test_refresh_active_tools_for_session(monkeypatch):
+    """Patch plugin.app.get_tools without importing plugin.main."""
     fake_registry = MagicMock()
     fake_registry.get_schemas.return_value = [{"function": {"name": "fresh"}}]
-    fake_main = types.ModuleType("plugin.main")
-    fake_main.get_tools = MagicMock(return_value=fake_registry)
+    monkeypatch.setattr("plugin.app.get_tools", MagicMock(return_value=fake_registry))
+    panel, session = setup_mock_panel()
+    panel.cached_doc_type = "writer"
+    panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
+    session.active_specialized_domain = "tables"
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
 
-    old_main = sys.modules.pop("plugin.main", None)
-    sys.modules["plugin.main"] = fake_main
-    try:
-        panel, session = setup_mock_panel()
-        panel.cached_doc_type = "writer"
-        panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
-        session.active_specialized_domain = "tables"
-        from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
+    turn = begin_send_turn(panel)
+    turn.active_tools = [{"function": {"name": "stale"}}]
 
-        turn = begin_send_turn(panel)
-        turn.active_tools = [{"function": {"name": "stale"}}]
+    panel._refresh_active_tools_for_session()
 
-        panel._refresh_active_tools_for_session()
-
-        fake_registry.get_schemas.assert_called_once_with(
-            "openai",
-            doc_type="writer",
-            uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
-            active_domain="tables",
-            ctx=panel.ctx,
-            doc=None,
-        )
-        assert current_turn(panel).active_tools == [{"function": {"name": "fresh"}}]
-    finally:
-        if old_main is not None:
-            sys.modules["plugin.main"] = old_main
-        else:
-            sys.modules.pop("plugin.main", None)
+    fake_registry.get_schemas.assert_called_once_with(
+        "openai",
+        doc_type="writer",
+        uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
+        active_domain="tables",
+        ctx=panel.ctx,
+        doc=None,
+    )
+    assert current_turn(panel).active_tools == [{"function": {"name": "fresh"}}]
 
 # =============================================================================
 # Specialized Delegation Tests (Merged)
@@ -1130,7 +1120,7 @@ def _run_captured_llm_worker(spawn):
     import queue
 
     from plugin.chatbot.tool_loop_actions import current_turn
-    from plugin.framework.send_cancellation import SendCancellation, capture_send_stop
+    from plugin.framework.send_cancellation import SendCancellation
 
     panel, _session = setup_mock_panel()
     turn = current_turn(panel)
@@ -1166,14 +1156,11 @@ def _run_captured_llm_worker(spawn):
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture),
         patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
-        patch("plugin.chatbot.tool_loop.capture_send_stop", wraps=capture_send_stop) as mock_capture,
     ):
         spawn(panel, batched, client)
-        assert mock_capture.call_count == 1
         assert len(started) == 1
         started[0]()
 
-    assert mock_capture.call_count == 1
     assert seen["scope"] is old
     assert old.is_cancelled()
     assert new.is_cancelled() is False
@@ -1358,11 +1345,11 @@ def test_spawn_final_stream_passes_active_tools_and_tool_choice_none():
 def test_bind_spawn_without_live_turn_has_no_session():
     # current_turn can be None; _bind_spawn must still return usable callbacks.
     host = Mock()
-    host._panel = Mock(_turn=None)
-    with patch("plugin.chatbot.tool_loop.capture_send_stop", return_value=Mock(is_cancelled=lambda: True)):
-        turn, session, bound_scope, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
+    cancelled = Mock(is_cancelled=lambda: True)
+    host._panel = Mock(_turn=None, _send_cancellation=cancelled)
+    turn, session, bound_scope, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
     assert turn is None and session is None
-    assert bound_scope.is_cancelled() is True
+    assert bound_scope is cancelled
     emit("x")  # no live turn: put_for_turn drops the item instead of raising
     assert stopped_cb() is True
 

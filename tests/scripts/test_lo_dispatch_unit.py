@@ -44,13 +44,13 @@ def test_write_cell_range_aliases_to_write_formula_range() -> None:
 
 def test_sort_range_name_to_index_and_used_range() -> None:
     name, params = tl.normalize_lo_tool(
-        "sort_range",
+        "range_sort",
         {"sort_column": "Revenue", "ascending": False},
         kind="calc",
         headers=["Product", "Revenue"],
         used_range="A1:B5",
     )
-    assert name == "sort_range"
+    assert name == "range_sort"
     assert params["sort_column"] == 1
     assert params["range"] == ["A1:B5"]
     assert params["ascending"] is False
@@ -70,7 +70,7 @@ def test_page_index_alias() -> None:
 def test_execute_impl_uses_execute_unguarded(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_tools = MagicMock()
     mock_tools.execute_unguarded.return_value = {"status": "ok", "tree": []}
-    monkeypatch.setattr("plugin.main.get_tools", lambda: mock_tools)
+    monkeypatch.setattr("plugin.app.get_tools", lambda: mock_tools)
     monkeypatch.setattr(tl.LOBackend, "acquire_document", classmethod(lambda cls, kind=None: object()))
     monkeypatch.setattr(tl.LOBackend, "current_kind", classmethod(lambda cls: "draw"))
     monkeypatch.setattr(tl, "_tool_ctx", lambda doc, kind: object())
@@ -98,7 +98,7 @@ def test_execute_impl_uses_execute_unguarded(monkeypatch: pytest.MonkeyPatch) ->
 def test_execute_impl_calc_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     mock_tools = MagicMock()
     mock_tools.execute_unguarded.return_value = {"status": "ok"}
-    monkeypatch.setattr("plugin.main.get_tools", lambda: mock_tools)
+    monkeypatch.setattr("plugin.app.get_tools", lambda: mock_tools)
     monkeypatch.setattr(tl.LOBackend, "acquire_document", classmethod(lambda cls, kind=None: object()))
     monkeypatch.setattr(tl.LOBackend, "current_kind", classmethod(lambda cls: "calc"))
     monkeypatch.setattr(tl, "_tool_ctx", lambda doc, kind: object())

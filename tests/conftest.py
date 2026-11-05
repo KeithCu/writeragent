@@ -41,7 +41,15 @@ def gc_policy_restored():
     main_ident = gc_policy._main_ident
     posted_at = gc_policy._posted_at
     last_full = gc_policy._last_full
-    off_main = list(gc_policy._off_main)
+    off_main_count = gc_policy._off_main_count
+    off_main_samples = list(gc_policy._off_main_samples)
+    refused = gc_policy._refused
+    reenabled = gc_policy._reenabled
+    pl_key = "pythonloader"
+    had_pythonloader = pl_key in sys.modules
+    saved_pythonloader = sys.modules.get(pl_key)
+    if not had_pythonloader:
+        sys.modules[pl_key] = types.ModuleType(pl_key)
     gc_mod.enable()
     try:
         yield
@@ -49,7 +57,15 @@ def gc_policy_restored():
         gc_policy._main_ident = main_ident
         gc_policy._posted_at = posted_at
         gc_policy._last_full = last_full
-        gc_policy._off_main[:] = off_main
+        gc_policy._off_main_count = off_main_count
+        gc_policy._off_main_samples[:] = off_main_samples
+        gc_policy._refused = refused
+        gc_policy._reenabled = reenabled
+        if had_pythonloader:
+            if saved_pythonloader is not None:
+                sys.modules[pl_key] = saved_pythonloader
+        else:
+            sys.modules.pop(pl_key, None)
         gc_mod.callbacks[:] = callbacks
         gc_mod.set_threshold(*thresholds)
         if was_enabled:
@@ -90,6 +106,43 @@ def _reset_main_thread_policy_for_tests():
 
 
 @pytest.fixture(autouse=True)
+def _writeragent_bootstrap_isolation(request):
+    """Save/restore bootstrap flag and app registries; bind WriterAgent for headless pytest."""
+    mod_file = getattr(request.module, "__file__", "") or ""
+    if mod_file.endswith("_uno.py"):
+        yield
+        return
+
+    import plugin.app as app_module
+    import plugin.bootstrap as bootstrap_mod
+
+    prev_state = bootstrap_mod._bootstrap_state
+    prev_err = bootstrap_mod._bootstrap_error
+    prev_services = app_module._services
+    prev_tools = app_module._tools
+    prev_modules = list(app_module._modules)
+    prev_listener = app_module._terminate_listener
+    prev_finish = app_module._finish
+    prev_prompt_hooks = app_module._prompt_hooks
+
+    from plugin.main import bind
+
+    bind()
+
+    try:
+        yield
+    finally:
+        bootstrap_mod._bootstrap_state = prev_state
+        bootstrap_mod._bootstrap_error = prev_err
+        app_module._services = prev_services
+        app_module._tools = prev_tools
+        app_module._modules[:] = prev_modules
+        app_module._terminate_listener = prev_listener
+        app_module._finish = prev_finish
+        app_module._prompt_hooks = prev_prompt_hooks
+
+
+@pytest.fixture(autouse=True)
 def _register_prompt_hooks_for_tests():
     """Register prompt normalizers so config validation matches runtime."""
     from plugin.writeragent_hooks import register_writeragent_prompt_hooks
@@ -104,6 +157,29 @@ def _install_sandbox_alias_authorizer_for_tests():
 
     install_alias_authorizer()
     yield
+
+
+@pytest.fixture(autouse=True)
+def _discard_lpe_thread_pool_timeout_between_tests():
+    """Windows xdist: orphaned @timeout thread pools blocked workers until pytest-timeout."""
+    try:
+        import plugin.contrib.smolagents.local_python_executor as lpe
+    except ImportError:
+        yield
+        return
+
+    lpe.discard_thread_pool_timeout()
+    yield
+    lpe.discard_thread_pool_timeout()
+
+
+def pytest_runtest_teardown(item, nextitem) -> None:
+    """Discard orphaned LPE timeout pools even if a fixture setup failed mid-test."""
+    try:
+        import plugin.contrib.smolagents.local_python_executor as lpe
+    except ImportError:
+        return
+    lpe.discard_thread_pool_timeout()
 
 
 @pytest.fixture(autouse=True)
@@ -392,7 +468,7 @@ setattr(table, "CellContentType", MockCellContentType)
 lang = _create_mock_module("com.sun.star.lang")
 
 util = _create_mock_module("com.sun.star.util")
-setattr(util, "XModifyListener", MockBase)  # review_toolbar._ReviewModifyListener subclasses it
+setattr(util, "XModifyListener", MockBase)  # ReviewModifyListener in review_view_attachment subclasses it
 
 
 class MockXEventListener:

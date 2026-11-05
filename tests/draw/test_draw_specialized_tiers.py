@@ -40,7 +40,7 @@ _IMPRESS_DESIGN_CORE = frozenset({"list_designs", "apply_design"})
 
 
 def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     registry = get_tools()
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc())}
@@ -68,7 +68,7 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
             },
         ),
         ("slide_masters", {"list_master_slides", "get_slide_master", "set_slide_master"}),
-        ("tables", {"table_insert", "table_list", "table_get_cells", "table_set_cell", "manage_table_structure", "table_delete"}),
+        ("tables", {"table_insert", "table_list", "table_get_cells", "table_set_cell", "table_manage_structure", "table_delete"}),
         ("images", {"image_insert", "image_list", "image_delete", "image_generate"}),
         (
             "shapes",
@@ -77,7 +77,7 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
     ],
 )
 def test_impress_active_domain_includes_slide_specialized_tools(domain: str, expected_subset: set[str]) -> None:
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     registry = get_tools()
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc(), active_domain=domain)}

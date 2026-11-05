@@ -18,6 +18,7 @@ import logging
 import inspect
 import dataclasses
 import os
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
@@ -45,7 +46,7 @@ from plugin.framework.client.model_fetcher import (
 from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import SendCancellation, capture_send_stop, get_current_send_cancellation
+from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation
 from plugin.framework.client.llm_client import LlmClient
 from plugin.framework.config_schema import as_bool
 from plugin.doc.peer_message import log_peer_tool_on_wire
@@ -85,6 +86,17 @@ from plugin.chatbot.compaction import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class StreamErrorOutcome(Enum):
+    SPAWNED = "spawned"
+    NOT_HANDLED = "not_handled"
+    END = "end"
+
+
+def stream_error_keeps_drain(outcome: StreamErrorOutcome) -> bool:
+    return outcome is StreamErrorOutcome.SPAWNED
+
 
 # Producer-side batch interval for streamed chat display text (CHUNK and THINKING items).
 # The BatchingStreamQueue uses a hard deadline measured from the *first* fragment
@@ -202,21 +214,13 @@ def _compact_bound_session(
     return result.reason != "aborted"
 
 
-def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
-    """After a native ``input_audio`` rejection, transcribe and respawn this drain.
+def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
+    """Native ``input_audio`` rejection: transcribe on this drain or decline handling.
 
     The chat POST already failed, so this must not re-enter
     ``_do_send_chat_with_tools`` / ``_start_tool_calling_async`` (nested drain).
-    The model-catalog imports stay inside the function so importing this
-    module to spawn a recording does not load the chat model fetcher.
-
-    False: not a native-audio rejection, or STT cannot run. The caller
-    continues with overflow and generic API handling.
-    True: a replacement worker was spawned on this drain. The caller must
-    keep draining. The drain treats only True that way.
-    None: stop the drain without a second API error. Transcription threw
-    (``_transcribe_audio`` already reported it and deleted the WAV), or
-    empty speech already ended the turn (banner shown, no worker).
+    Model-catalog imports stay inside this function so importing ``tool_loop`` to
+    spawn a recording does not load the model fetcher.
     """
     from plugin.audio.stt_service import uses_local_stt
     from plugin.framework.client.errors import is_400_input_validation, is_audio_unsupported_error
@@ -224,7 +228,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
     from plugin.framework.i18n import _
 
     if not host.audio_wav_path or not (is_400_input_validation(error) or is_audio_unsupported_error(error)):
-        return False
+        return StreamErrorOutcome.NOT_HANDLED
 
     turn = getattr(host, "_turn", None)
     # Read text_model and endpoint from the turn captured when the audio was
@@ -246,7 +250,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
     # Local Whisper does not need an endpoint model id. Endpoint STT still does.
     local_stt = uses_local_stt()
     if turn is None or not turn.alive:
-        return False
+        return StreamErrorOutcome.NOT_HANDLED
     retry_q = spawn_queue(turn)
     if (stt_model or local_stt) and retry_q is not None and getattr(turn, "active_client", None) is not None:
         host._append_response("\n[Model does not support audio. Falling back to STT...]\n")
@@ -255,7 +259,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
             if send_outcome_is_stopped(host):
                 # Stop during fallback STT. None ends the drain. Do not show
                 # "No speech detected" or spawn another chat worker.
-                return None
+                return StreamErrorOutcome.END
             # What was wrong: STT fallback wrote to host.session instead of the turn's session.
             # How it happened: _transcribe_audio pumps UI idle, letting the user switch modes
             # or sessions mid-transcription while the turn is aborted.
@@ -266,7 +270,7 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 or not turn.alive
                 or not turn.same_messages()
             ):
-                return None
+                return StreamErrorOutcome.END
             turn_session = turn.session
             wav_path = host.audio_wav_path
             host.audio_wav_path = None
@@ -283,8 +287,8 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 # left the sidebar on Stop. None means this turn is finished
                 # and a second API error should not be shown.
                 host._append_response("\n" + _("[No speech detected.]") + "\n")
-                assign_send_outcome(host, "")
-                return None
+                assign_send_outcome(host, None)
+                return StreamErrorOutcome.END
             combined = (turn.active_query_text + "\n" + transcript).strip() if turn.active_query_text else transcript
             if turn_session.messages and turn_session.messages[-1].get("role") == "user":
                 turn_session.messages[-1]["content"] = combined
@@ -294,11 +298,11 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> bool | None:
                 turn_session.add_user_message(combined)
             turn.active_query_text = combined
             host._tool_calling._spawn_llm_worker(retry_q, turn.active_client, turn.active_max_tokens, turn.active_tools or [], host._tool_calling._sm_state.round_num, query_text=combined)
-            return True
+            return StreamErrorOutcome.SPAWNED
         except Exception:
             log.exception("STT fallback after native-audio error failed")
-        return None
-    return False
+        return StreamErrorOutcome.END
+    return StreamErrorOutcome.NOT_HANDLED
 
 
 def _ensure_llm_client(panel: Any, api_config: dict[str, Any]) -> LlmClient:
@@ -454,13 +458,13 @@ class ToolCallingMixin:
             return
         try:
             log.debug("_do_send: importing core modules...")
-            from plugin.main import get_tools
+            from plugin.app import get_tools
 
             log.debug("_do_send: core modules imported OK")
         except Exception as e:
             log.exception("_do_send: core modules import FAILED")
             self._panel._append_response("\n[Import error - core: %s]\n" % e)
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             return
 
         # Callback for updating active domain in the session
@@ -504,7 +508,7 @@ class ToolCallingMixin:
         except Exception as e:
             log.exception("_do_send: tool import FAILED")
             self._panel._append_response("\n[Import error - tools: %s]\n" % e)
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             return
 
         synced_model = sync_sidebar_text_model(self._panel.model_selector)
@@ -525,7 +529,7 @@ class ToolCallingMixin:
         ok, err_msg = validate_api_config(api_config)
         if not ok:
             self._panel._append_response("\n[%s]\n" % err_msg)
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             self._panel._set_status("Error")
             return
 
@@ -554,7 +558,7 @@ class ToolCallingMixin:
         except UnoObjectError:
             log.exception("Document unavailable")
             self._panel._append_response("\n[Document closed or unavailable.]\n")
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             self._panel._set_status("Error")
             return
         except Exception as e:
@@ -565,7 +569,7 @@ class ToolCallingMixin:
                 log.exception("Unexpected document error")
                 err_msg = resolve_exception_message(e)
                 self._panel._append_response("\n[Error reading document: %s]\n" % err_msg)
-            assign_send_outcome(self._panel, "Error")
+            assign_send_outcome(self._panel, "error")
             self._panel._set_status("Error")
             return
 
@@ -633,7 +637,7 @@ class ToolCallingMixin:
             turn.active_tools = []
             return
         try:
-            from plugin.main import get_tools
+            from plugin.app import get_tools
 
             turn_session = session_for_turn(self._panel)
             active_domain = getattr(turn_session, "active_specialized_domain", None) if turn_session is not None else None
@@ -658,9 +662,8 @@ class ToolCallingMixin:
         turn = current_turn(self._panel)
         # Captured at spawn. session_for_turn at run time would be the next send.
         bound_session = turn.session if turn is not None else None
-        # Spawn-time scope. The body must not re-read _send_cancellation:
-        # Stop clears the field and the next send replaces it.
-        bound_scope = capture_send_stop(self._panel)
+        # Spawn-time scope on the send thread; worker must not re-read _send_cancellation (drain clears it).
+        bound_scope = self._panel._send_cancellation
 
         def emit(item: Any) -> None:
             put_for_turn(turn, item)
@@ -854,7 +857,7 @@ class ToolCallingMixin:
         elif raw_kind == StreamQueueKind.TOOL_DONE:
             mutates = False
             with suppress_disposed("Tool loop event: mutates_document check", logger=log):
-                from plugin.main import get_tools as _get_tools_registry
+                from plugin.app import get_tools as _get_tools_registry
 
                 tool = _get_tools_registry().get(item[2])
                 if tool and tool.detects_mutation():
@@ -912,21 +915,21 @@ class ToolCallingMixin:
         # on_stopped ignores the exit flag from _apply.
         self._apply(ToolLoopEvent(kind=EventKind.STOP_REQUESTED, data={}))
 
-    def _handle_stream_error(self, e: Any) -> bool | None:
+    def _handle_stream_error(self, e: Any) -> StreamErrorOutcome:
         from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
 
         live = current_turn(self._panel)
         if live is not None and not live.alive:
             # Dead turn (e.g. after Stop): nothing will retry, so drop the WAV.
-            # Not a try/finally: the overflow respawn below returns True, and a
+            # Not a try/finally: the overflow respawn below returns SPAWNED, and a
             # native-audio rejection on that retry still needs the WAV for STT.
             clear_pending_audio_wav(self._panel)
-            return None
+            return StreamErrorOutcome.END
         # Native-audio rejection retries as text on this drain. The STT retry
         # is defined in this module and the WAV attach stays in audio_recorder_service.
 
         fallback = try_native_audio_stt_fallback(self._panel, e)
-        if fallback is not False:
+        if fallback is not StreamErrorOutcome.NOT_HANDLED:
             return fallback
 
         # If we reached here, it's either not a modality error or STT is not configured.
@@ -993,7 +996,7 @@ class ToolCallingMixin:
                     query_text=live_turn.active_query_text,
                     force_compact=True,
                 )
-                return True
+                return StreamErrorOutcome.SPAWNED
         # Issue #570: llama-server died / prompt overflow. Plain sentence only —
         # never dump the format_error_payload dict into the sidebar.
         if is_local_model_server_crash(crash_blob):
@@ -1013,10 +1016,14 @@ class ToolCallingMixin:
         # a retry append a second user row with a hole where the assistant was.
         # Overflow respawn and audio fallback return before this write.
         persist_assistant_on_turn(self._panel, content=banner.strip())
-        assign_send_outcome(self._panel, "Error")
+        assign_send_outcome(self._panel, "error")
         self._panel._set_status("Error")
         clear_pending_audio_wav(self._panel)
-        return None
+        return StreamErrorOutcome.END
+
+    def _on_stream_error_keeps_drain(self, payload: Any) -> bool:
+        """Drain on_error contract: returning True keeps the drain; anything else ends it."""
+        return stream_error_keeps_drain(self._handle_stream_error(payload))
 
     def _on_tool_loop_approval_required(self, item: Any) -> None:
         """Main-thread handler: show inline Accept/Reject and unblock the tool worker."""
@@ -1036,7 +1043,7 @@ class ToolCallingMixin:
         self._panel._append_response("\nAI: ")
 
         def _get_async_tools() -> frozenset[str]:
-            from plugin.main import get_tools as _get_tools_registry
+            from plugin.app import get_tools as _get_tools_registry
 
             registry = _get_tools_registry()
             return frozenset(
@@ -1093,7 +1100,7 @@ class ToolCallingMixin:
                 self._panel._append_response,
                 on_stream_done=self._handle_stream_completion,
                 on_stopped=self._handle_stream_stopped,
-                on_error=self._handle_stream_error,
+                on_error=self._on_stream_error_keeps_drain,
                 on_status_fn=self._panel._set_status,
                 cancel=self._panel._send_cancellation,
                 show_search_thinking=show_search_thinking,

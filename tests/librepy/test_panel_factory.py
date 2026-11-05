@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import gettext
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+import plugin.framework.i18n as i18n_module
 
 
 def _element():
@@ -159,9 +162,17 @@ def test_get_or_create_root_window_raises_when_ctx_is_none():
 
     el = _element()
     el.ctx = None
-    with patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, pytest.raises(UnoObjectError):
-        el._getOrCreatePanelRootWindow()
-    mock_get_ctx.assert_not_called()
+    # UnoObjectError runs msgids through _(); first _() in an xdist worker
+    # would init i18n via get_lo_locale → get_ctx. Seed the catalog so we
+    # only assert the panel path does not bootstrap UNO context.
+    prev_translation = i18n_module._translation
+    i18n_module._translation = gettext.NullTranslations()
+    try:
+        with patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, pytest.raises(UnoObjectError):
+            el._getOrCreatePanelRootWindow()
+        mock_get_ctx.assert_not_called()
+    finally:
+        i18n_module._translation = prev_translation
 
 
 def test_null_create_container_window_raises_and_retries():

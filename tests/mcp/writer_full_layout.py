@@ -201,7 +201,7 @@ def generate_random_tool_arguments(
 WRITER_MUTATE_READ_PAIRS: Mapping[str, Tuple[str, ...]] = {
     "table_insert": ("get_document_content", "apply_document_content", "table_get_cells"),
     "table_set_cell": ("get_document_content", "apply_document_content"),
-    "manage_table_structure": ("get_document_content", "table_get_cells"),
+    "table_manage_structure": ("get_document_content", "table_get_cells"),
     "table_delete": ("get_document_content", "table_list"),
     "apply_document_content": ("get_document_content",),
     "set_selection": ("apply_document_content", "get_document_content"),

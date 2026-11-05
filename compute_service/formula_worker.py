@@ -29,6 +29,8 @@ from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 from compute_service.json_forward import json_forward_envelope
 from compute_service.worker_base import configure_compute_worker_env, run_compute_worker
+from plugin.framework.warm_child import error_dict
+from plugin.scripting.session_key import SessionKey, SessionKind
 
 # Default math/OpenMP thread pools to 1 thread early before any heavy math imports.
 configure_compute_worker_env()
@@ -59,7 +61,12 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             except Exception:
                 missing.append(str(pkg))
         if missing:
-            return {"id": req_id, "status": "error", "code": "MISSING_DEPENDENCIES", "missing": missing, "error": f"Missing required dependencies in worker environment: {', '.join(missing)}"}
+            return error_dict(
+                "MISSING_DEPENDENCIES",
+                f"Missing required dependencies in worker environment: {', '.join(missing)}",
+                req_id=req_id,
+                missing=missing,
+            )
         return {"id": req_id, "status": "ok"}
 
     if action == "reset_session":
@@ -75,8 +82,17 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
     code = req.get("code")
     if not code or not isinstance(code, str):
-        err = {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter", "stdout": ""}
-        return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
+        return json_forward_envelope(
+            error_dict(
+                "MISSING_CODE",
+                "Missing or invalid 'code' parameter",
+                req_id=req_id,
+                stdout="",
+            ),
+            req_id=req_id,
+            session_reset=False,
+            namespace_created=False,
+        )
 
     session_id = req.get("session_id")
     # Pool execute() already rejected a bad mode. The stdio dict
@@ -107,9 +123,9 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         if init_code is not None:
             init_hash = hashlib.sha256(init_code.encode("utf-8")).hexdigest()
             if use_session is not None:
-                init_sid = f"{use_session}:init"
+                init_sid = SessionKey.parse(use_session).with_init_suffix().wire()
             else:
-                init_sid = f"isolated:{init_hash}:init"
+                init_sid = SessionKey.of(SessionKind.ISOLATED, init_hash).with_init_suffix().wire()
 
         # Output is JSON: force="never" keeps grids as native lists so large ints stay exact.
         raw = run_sandboxed_code(
@@ -131,8 +147,12 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         # Traceback included server paths on the kit wire. Eval errors from
         # json_egress are only status/error/stdout; this path must match.
-        err = {"id": req_id, "status": "error", "code": ec.WORKER_EXECUTION_ERROR, "error": str(exc), "stdout": ""}
-        return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
+        return json_forward_envelope(
+            error_dict(ec.WORKER_EXECUTION_ERROR, str(exc), req_id=req_id, stdout=""),
+            req_id=req_id,
+            session_reset=False,
+            namespace_created=False,
+        )
 
 
 def main() -> int:

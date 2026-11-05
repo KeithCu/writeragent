@@ -471,9 +471,9 @@ def test_find_document_headless_controller_none_still_matches() -> None:
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
     ):
         found = session_manager._calc_document(ctx)
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
-    assert _unwrap_uno(found) is doc
+    assert unwrap_uno(found) is doc
 
 
 def test_find_document_skips_controller_without_frame() -> None:
@@ -512,9 +512,9 @@ def test_find_document_enumeration_accepts_headless_controller_none() -> None:
         patch("plugin.scripting.session_manager.get_desktop", return_value=desktop),
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
     ):
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
-        assert _unwrap_uno(session_manager._calc_document(ctx)) is elem
+        assert unwrap_uno(session_manager._calc_document(ctx)) is elem
 
 
 def test_find_document_enumeration_returns_none_when_several_match() -> None:
@@ -541,7 +541,7 @@ def test_find_document_enumeration_returns_none_when_several_match() -> None:
 
 def test_find_document_current_component_wins_over_other_calcs() -> None:
     from unittest.mock import MagicMock, patch
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
     ctx = MagicMock()
     calc_a = MagicMock(name="calc_a")
@@ -563,7 +563,7 @@ def test_find_document_current_component_wins_over_other_calcs() -> None:
         patch("plugin.scripting.session_manager.is_calc", return_value=True),
     ):
         found = session_manager._calc_document(ctx)
-    assert _unwrap_uno(found) is calc_a
+    assert unwrap_uno(found) is calc_a
 
 
 def test_document_for_script_session_stops_on_magicmock_enum() -> None:
@@ -580,7 +580,7 @@ def test_document_for_script_session_stops_on_magicmock_enum() -> None:
     enum.nextElement.assert_not_called()
 
 
-def test_document_for_script_session_accepts_has_more_integer_one() -> None:
+def test_document_for_script_session_walks_bool_has_more() -> None:
     from unittest.mock import MagicMock, patch
 
     first = MagicMock()
@@ -588,7 +588,7 @@ def test_document_for_script_session_accepts_has_more_integer_one() -> None:
     second = MagicMock()
     second.getURL.return_value = "file:///other.ods"
     enum = MagicMock()
-    enum.hasMoreElements.side_effect = [1, 1, False]
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [first, second]
     comps = MagicMock()
     comps.createEnumeration.return_value = enum
@@ -597,9 +597,9 @@ def test_document_for_script_session_accepts_has_more_integer_one() -> None:
 
     with patch("plugin.scripting.session_manager.get_desktop", return_value=desktop):
         found = session_manager.document_for_script_session(MagicMock(), "calc:file:///other.ods")
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
-    assert _unwrap_uno(found) is second
+    assert unwrap_uno(found) is second
 
 
 def test_document_for_script_session_stops_at_enum_cap(caplog) -> None:

@@ -129,11 +129,56 @@ def test_execute_code_does_not_pump_idle():
         assert kwargs.get("python_tool_domain") is None
         assert kwargs.get("session_id") == "notebook:test"
         assert kwargs.get("script_session_id") == "doc:test"
-        assert callable(kwargs.get("stop_checker"))
+        from plugin.framework.send_cancellation import get_current_send_cancellation
+
+        assert kwargs.get("cancel") is get_current_send_cancellation()
         release.assert_called_once_with("doc:test")
 
+
+def test_execute_code_latched_stop_skips_venv():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
+        patch(
+            "plugin.notebook.notebook_runner.run_blocking_in_thread",
+            side_effect=lambda ctx, func, **kw: func(),
+        ),
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
+        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=True),
+        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
+        patch("plugin.notebook.notebook_runner.release_script_document") as release,
+    ):
+        out = execute_code(ctx, doc, "x = 1")
+    assert out["status"] == "stopped"
+    run_venv.assert_not_called()
+    release.assert_called_once_with("doc:test")
+
+
+def test_execute_code_passes_current_send_scope():
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
+        patch(
+            "plugin.notebook.notebook_runner.run_blocking_in_thread",
+            side_effect=lambda ctx, func, **kw: func(),
+        ),
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv", return_value={"status": "ok"}) as run_venv,
+        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=False),
+        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
+        patch("plugin.notebook.notebook_runner.release_script_document"),
+        patch("plugin.framework.send_cancellation.get_current_send_cancellation", return_value=scope),
+    ):
+        execute_code(ctx, doc, "x = 1")
+    assert run_venv.call_args.kwargs["cancel"] is scope
+
+
 def test_execute_code_stop_returns_interrupted_without_venv():
-    """When stop_checker is true during exception handling in _run, we return stopped."""
+    """When stop is latched during exception handling in _run, we return stopped."""
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -152,7 +197,7 @@ def test_execute_code_stop_returns_interrupted_without_venv():
         out = execute_code(ctx, doc, "x = 1")
     assert out["status"] == "stopped"
     assert pump.call_args.kwargs.get("pump_idle") is False
-    run_venv.assert_called_once()
+    run_venv.assert_not_called()
 
 
 def test_run_cell_updates_registry_and_execution_count():
@@ -313,16 +358,16 @@ def test_insert_run_image_svg_mime(value, value_2, expected):
     assert insert_flow.call_args.kwargs["mime"] == expected
 
 def test_shared_notebook_session_via_sandbox():
-    from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import SESSIONS, run_sandboxed_code
 
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     sid = "notebook:test-runner"
     r1 = run_sandboxed_code("x = 41\nresult = x + 1", None, session_id=sid)
     assert r1["status"] == "ok"
     r2 = run_sandboxed_code("result = x + 1", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 42
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 @pytest.mark.parametrize(

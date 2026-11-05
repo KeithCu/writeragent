@@ -145,7 +145,7 @@ plugin/scripting/
 └── payload_codec.py          # split_grid / multi_data pack/unpack
 ```
 
-Calc ingress/egress entry points: [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`python_function.py`](../../plugin/calc/python/function.py), [`venv_python.py`](../../plugin/calc/python/venv.py).
+Calc ingress/egress entry points: [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`function.py`](../../plugin/calc/python/function.py), [`venv_python.py`](../../plugin/calc/python/venv.py).
 
 | Key | Shipped | Role |
 |-----|---------|------|
@@ -429,7 +429,7 @@ Plain dicts and lists pack (`child_pack_result`) and unpack (`child_unpack_data`
 | Child unpack | [`venv_sandbox.py`](../../plugin/scripting/venv/venv_sandbox.py) | `frombuffer` + `reshape` → ndarray | **Instant** (C-speed) |
 | Return | [`serialize_result`](../../plugin/scripting/venv/venv_sandbox.py) | `child_pack_result` for ndarray/list; DataFrame/Series use rectangular `dataframe` envelope (columns + split_grid data) | Large ndarray/DF egress as binary buffer |
 | Host decode | [`venv_worker.py`](../../plugin/scripting/venv_worker.py) | `_normalize_response` → `host_unpack_data` on `result` | Nested lists for LLM, smol observations, Calc matrix/session |
-| Calc return | [`python_function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
+| Calc return | [`function.py`](../../plugin/calc/python/function.py) | `finalize_python_return` / session flattening | Per-cell scalars for legacy add-in bridge |
 
 **Pickle Protocol 5:** Standardized as the exclusive production serialization protocol on the worker path. Opaque msgpack, mmap, and shared memory remain deferred. [`SafeSerializer`](../../plugin/contrib/smolagents/serialization.py) (`__type__: ndarray`) is **not** on the worker path — only [`payload_codec.py`](../../plugin/scripting/payload_codec.py).
 
@@ -458,7 +458,7 @@ Multiple ranges use a `multi_data` envelope (`__wa_payload__`: `"multi_data"`, `
 | Layer | Module |
 |-------|--------|
 | Arg split / convert | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) — rectangular grids + `pack_calc_data_for_wire` |
-| Add-in execution | [`python_function.py`](../../plugin/calc/python/function.py) |
+| Add-in execution | [`function.py`](../../plugin/calc/python/function.py) |
 | Range value type | [`calc_range.py`](../../plugin/scripting/calc_range.py) — `CalcRange`, `materialize_inputs` |
 | Wire codec | [`payload_codec.py`](../../plugin/scripting/payload_codec.py) |
 | Tests | [`test_calc_addin_data.py`](../../tests/calc/test_calc_addin_data.py), [`test_calc_range.py`](../../tests/scripting/test_calc_range.py), [`test_function_multi.py`](../../tests/calc/python/test_function_multi.py) |
@@ -611,7 +611,7 @@ Larger architectural slice than “faster JSON.”
 | Idea | Notes |
 |------|--------|
 | **`float32` envelope** | Optional `dtype` in wire dict; ~half bytes when precision allows; policy + round-trip tests. |
-| **Pandas egress** | Shipped (rectangular + columns): DataFrames/Series emit `dataframe` envelope (columns + split_grid-able **numeric** data). datetime64/timedelta64 skip the numeric path (ISO / fractional days). Empty frames are header-only. MultiIndex columns flatten; row index is not spilled. See [pandas egress](../calc/py-data-shapes.md#pandas-egress). |
+| **Pandas egress** | Shipped (rectangular + columns): DataFrames/Series emit `dataframe` envelope (columns + split_grid-able **numeric** data). datetime64/timedelta64 skip the numeric path (ISO / fractional days). Empty frames are header-only. MultiIndex columns flatten (blank/`None` levels omitted, parts stripped; `NaN` level → `nan`; all-blank tuple → `value`); row index is not spilled. See [pandas egress](../calc/py-data-shapes.md#pandas-egress). |
 
 #### Priority 6 — Worker payload cache (same range, many recalcs)
 

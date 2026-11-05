@@ -25,6 +25,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 from compute_service import error_codes as ec
+from plugin.scripting.session_key import is_reserved_caller_id, reserved_caller_id_error_message
 
 # HTTP max_body_bytes is 32 MiB; pickle of the envelope needs a little slack.
 COMPUTE_MAX_PAYLOAD_BYTES = 33 * 1024 * 1024
@@ -95,16 +96,16 @@ def canonical_execute_mode(mode: Any) -> str:
 
 
 def validate_session_id(session_id: Any) -> str:
-    """Validate that *session_id* is a valid identifier and not in a reserved namespace.
+    """Validate that *session_id* is a valid identifier and not reserved.
 
-    Names ending in ':init' or starting with 'isolated:' are reserved for
-    internal init-script snapshotting and cannot be claimed by callers.
+    See :func:`plugin.scripting.session_key.is_reserved_caller_id` and
+    :data:`plugin.scripting.session_key.RESERVED_CALLER_ID_HELP`.
     """
     if not isinstance(session_id, str) or not session_id.strip():
         raise ExecuteRequestError("session_id must be a non-empty string.", code=ec.INVALID_SESSION_ID)
     sid = session_id.strip()
-    if sid.endswith(":init") or sid.startswith("isolated:"):
-        raise ExecuteRequestError(f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.", code=ec.INVALID_SESSION_ID)
+    if is_reserved_caller_id(sid):
+        raise ExecuteRequestError(reserved_caller_id_error_message(sid), code=ec.INVALID_SESSION_ID)
     return sid
 
 

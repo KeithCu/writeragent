@@ -46,28 +46,28 @@ def register_common_handlers() -> None:
     except Exception:
         log.debug("Notebook run button wiring install failed", exc_info=True)
 
-    def _report_bug() -> None:
+    def _report_bug(frame: Any | None = None) -> None:
         from plugin.chatbot.bug_report import open_bug_report_in_browser
 
         open_bug_report_in_browser(get_ctx(), title="Bug report")
 
     register_action_handler("main", "report_bug", _report_bug)
 
-    def _run_python() -> None:
+    def _run_python(frame: Any | None = None) -> None:
         from plugin.scripting.python_runner import run_python_dialog
 
         run_python_dialog(get_ctx())
 
     register_action_handler("scripting", "run_python_dialog", _run_python)
 
-    def _edit_python_cell() -> None:
+    def _edit_python_cell(frame: Any | None = None) -> None:
         from plugin.calc.python.editor import open_python_cell_editor
 
         open_python_cell_editor(get_ctx())
 
     register_action_handler("scripting", "edit_python_cell", _edit_python_cell)
 
-    def _reset_python_session() -> None:
+    def _reset_python_session(frame: Any | None = None) -> None:
         from plugin.framework.worker_pool import run_in_background
         from plugin.scripting.session_manager import reset_workbook_python_session
 
@@ -97,28 +97,28 @@ def register_common_handlers() -> None:
 
     register_action_handler("notebook", "stop", _notebook_stop)
 
-    def _edit_init_script() -> None:
+    def _edit_init_script(frame: Any | None = None) -> None:
         from plugin.calc.python.init_script_editor import open_init_script_editor
 
         open_init_script_editor(get_ctx())
 
     register_action_handler("scripting", "edit_init_script", _edit_init_script)
 
-    def _open_vision_settings() -> None:
+    def _open_vision_settings(frame: Any | None = None) -> None:
         from plugin.chatbot.module_config_dialog import show_vision_settings_dialog
 
         open_dialog_safely(show_vision_settings_dialog, "Failed to open Vision OCR settings")
 
     register_action_handler("vision", "open_settings", _open_vision_settings)
 
-    def _insert_latex() -> None:
+    def _insert_latex(frame: Any | None = None) -> None:
         from plugin.writer.math.latex_dialog import insert_latex_math_dialog
 
         insert_latex_math_dialog(get_ctx())
 
     register_action_handler("writer", "insert_latex_dialog", _insert_latex)
 
-    def _open_text_analytics() -> None:
+    def _open_text_analytics(frame: Any | None = None) -> None:
         from plugin.scripting.text_analytics_ui import TextAnalyticsDialog
 
         TextAnalyticsDialog(get_ctx())

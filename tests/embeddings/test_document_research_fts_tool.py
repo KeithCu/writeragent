@@ -154,7 +154,7 @@ def test_search_nearby_files_backend_error_surfaced():
     assert result.get("status") == "error", f"Expected error status, got {result.get('status')}"
     assert "Backend timeout or failure" in result.get("message", "")
 
-def test_search_nearby_files_passes_stop_checker():
+def test_search_nearby_files_passes_cancel_scope():
     tool = SearchNearbyFiles()
     ctx = _ctx()
     scope = SendCancellation()
@@ -179,5 +179,4 @@ def test_search_nearby_files_passes_stop_checker():
 
     assert result.get("status") == "ok"
     rpc_mock.assert_called_once()
-    assert rpc_mock.call_args.kwargs["stop_checker"] == scope.is_cancelled
-    assert rpc_mock.call_args.kwargs["cancellation_scope"] is scope
+    assert rpc_mock.call_args.kwargs["cancel"] is scope

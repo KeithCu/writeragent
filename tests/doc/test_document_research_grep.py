@@ -23,6 +23,14 @@ from plugin.doc.document_research_grep import (
 from plugin.framework.url_utils import path_to_file_url
 
 
+class _SequentialCancel:
+    def __init__(self, values: list[bool]) -> None:
+        self._values = iter(values)
+
+    def is_cancelled(self) -> bool:
+        return next(self._values)
+
+
 def test_resolve_grep_candidates_budget_filter():
     with tempfile.TemporaryDirectory() as tmp:
         budget = os.path.join(tmp, "Budget_2026.ods")
@@ -228,18 +236,14 @@ def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mo
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], False)
 
-    stopped = {"n": 0}
-
-    def stop_after_first():
-        stopped["n"] += 1
-        return stopped["n"] > 1
+    cancel = _SequentialCancel([False, True])
 
     result = grep_nearby_files(
         MagicMock(),
         MagicMock(),
         MagicMock(),
         "x",
-        stop_checker=stop_after_first,
+        cancel=cancel,
     )
 
     assert result["status"] == "error"
@@ -428,14 +432,17 @@ def test_grep_text_in_writer_stop_checker_skips_later_paragraphs():
 
     services.document.get_paragraph_ranges.return_value = [para1, para2, para3]
 
-    stop_checker = MagicMock(return_value=True)
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
 
     _, partial = _grep_text_in_writer(
         model,
         services,
         pattern="first",
         max_results=5,
-        stop_checker=stop_checker,
+        cancel=scope,
     )
 
     para2.getString.assert_not_called()
@@ -607,14 +614,14 @@ def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, m
     # Create enough files to trigger the modulo check at idx % 50 == 0
     mock_listdir.return_value = [f"file{i}.ods" for i in range(100)]
 
-    stop_checker = MagicMock(side_effect=[False, True])
+    cancel = _SequentialCancel([False, True])
 
     result = grep_nearby_files(
         MagicMock(),
         MagicMock(),
         MagicMock(),
         "Q4",
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
 
     assert result["status"] == "error"
@@ -634,18 +641,14 @@ def test_grep_nearby_files_stop_during_last_file_is_user_stopped(mock_resolve, m
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], True)
 
-    calls = {"n": 0}
-
-    def stop_after_top():
-        calls["n"] += 1
-        return calls["n"] > 1
+    cancel = _SequentialCancel([False, True])
 
     result = grep_nearby_files(
         MagicMock(),
         MagicMock(),
         MagicMock(),
         "x",
-        stop_checker=stop_after_top,
+        cancel=cancel,
     )
 
     assert result["status"] == "error"

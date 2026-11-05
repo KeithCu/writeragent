@@ -43,6 +43,7 @@ def test_align_shapes_left():
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("com.sun.star.awt.Point", lambda x, y: _Pos(x, y), create=True):
             out = AlignShapes().execute(ctx, indices=[0, 1], alignment="left")
     assert out["status"] == "ok"
@@ -68,6 +69,7 @@ def test_create_diagram_reuses_upsert(tmp_path=None):
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as mock_conn:
             mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
@@ -94,6 +96,7 @@ def test_create_diagram_unknown_connection():
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
             mock_upsert.return_value = {"status": "ok", "index": 0}
             out = CreateDiagram().execute(
@@ -113,6 +116,7 @@ def test_create_diagram_numeric_ids_pass_connection_check():
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as mock_conn:
             mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
@@ -136,6 +140,7 @@ def test_create_diagram_unknown_connection_creates_nothing():
     page.Height = 15750
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
             out = CreateDiagram().execute(
                 ctx,
@@ -162,6 +167,7 @@ def test_align_shapes_disposed_propagates():
     page, ctx = _align_page(DisposedException("closed"))
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(DisposedException):
             AlignShapes().execute(ctx, indices=[0, 1], alignment="left")
 
@@ -170,6 +176,7 @@ def test_align_shapes_bad_index_propagates():
     page, ctx = _align_page(IndexError("bad"))
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(IndexError):
             AlignShapes().execute(ctx, indices=[0, 1], alignment="left")
 
@@ -188,6 +195,7 @@ def test_distribute_shapes_disposed_propagates():
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(DisposedException):
             DistributeShapes().execute(ctx, indices=[0, 1, 2], axis="horizontal")
 
@@ -202,6 +210,7 @@ def test_create_diagram_connector_failure_removes_connectors():
     page.getByIndex.side_effect = shapes
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert, patch("plugin.draw.shapes._execute_connect_shapes") as conn_cls:
             mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
@@ -231,6 +240,7 @@ def test_create_diagram_cleanup_reraises_disposed():
     page.remove.side_effect = DisposedException("closed")
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
             mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
@@ -259,6 +269,7 @@ def test_create_diagram_cleanup_continues_past_live_runtime_exception():
     page.remove.side_effect = [RuntimeException("busy"), None]
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with patch("plugin.draw.shapes._execute_upsert_shape") as mock_upsert:
             mock_upsert.side_effect = [
                 {"status": "ok", "index": 0},
@@ -280,7 +291,8 @@ def test_connect_shapes_failure_removes_connector_and_raises():
     page = MagicMock()
     connector = MagicMock()
     connector.setPropertyValue.side_effect = ValueError("bad end shape")
-    with patch("plugin.draw.bridge.mutation_page", return_value=page), patch("plugin.draw.shapes.DrawShapes") as ds_cls:
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch("plugin.draw.shapes.DrawShapes") as ds_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         ds_cls.return_value.safe_create_shape.return_value = (connector, False, None)
         with pytest.raises(ValueError, match="bad end shape"):
             ConnectShapes().execute(MagicMock(), start=0, end=1)

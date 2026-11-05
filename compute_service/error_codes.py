@@ -20,6 +20,8 @@ def _code(name: str, status: str) -> str:
 EXECUTION_TIMEOUT = _code("EXECUTION_TIMEOUT", "200 OK")
 
 # 400: the client sent something the service rejects.
+BAD_REQUEST_BODY = _code("BAD_REQUEST_BODY", "400 Bad Request")
+BAD_FRAMING = _code("BAD_FRAMING", "400 Bad Request")
 INVALID_REQUEST = _code("INVALID_REQUEST", "400 Bad Request")
 INVALID_SESSION_ID = _code("INVALID_SESSION_ID", "400 Bad Request")
 CODE_TOO_LARGE = _code("CODE_TOO_LARGE", "400 Bad Request")
@@ -30,8 +32,14 @@ FILE_NOT_FOUND = _code("FILE_NOT_FOUND", "400 Bad Request")
 NOT_A_FILE = _code("NOT_A_FILE", "400 Bad Request")
 FILE_READ_ERROR = _code("FILE_READ_ERROR", "400 Bad Request")
 
+# 401: Bearer auth failed on a protected route.
+UNAUTHORIZED = _code("UNAUTHORIZED", "401 Unauthorized")
+
 # 403: keyless mode refuses a cross-origin or non-loopback caller.
 CROSS_ORIGIN_REFUSED = _code("CROSS_ORIGIN_REFUSED", "403 Forbidden")
+
+# 408: the HTTP layer could not read the full request body in time.
+READ_TIMEOUT = _code("READ_TIMEOUT", "408 Request Timeout")
 
 # 413: a request, result, or vision file over its size cap.
 PAYLOAD_TOO_LARGE = _code("PAYLOAD_TOO_LARGE", "413 Payload Too Large")

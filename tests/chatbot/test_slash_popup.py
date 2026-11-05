@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot.send_state import SendEventKind
-from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP
+from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP, SlashResult
 from plugin.chatbot.slash_popup import (
     SlashPopupController,
     _POPUP_MAX_ROWS,
@@ -331,10 +331,11 @@ def test_enter_on_exact_explain_runs_not_completes_draft():
     popup._selected = 0
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
-            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=False) as run_cmd:
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND) as run_cmd:
                 with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
                     popup.accept_selected()
-                    run_cmd.assert_called_once_with("explain", send, "", from_popup=False)
+                    assert run_cmd.call_args.args[0].name == "explain"
+                    run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
                     set_text.assert_not_called()
                     send.dispatch.assert_called_once()
                     from plugin.chatbot.send_state import SendEventKind
@@ -358,10 +359,11 @@ def test_enter_on_exact_translate_runs_with_empty_arg():
     popup._selected = 0
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
-            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=False) as run_cmd:
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND) as run_cmd:
                 with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
                     popup.accept_selected()
-                    run_cmd.assert_called_once_with("translate", send, "", from_popup=False)
+                    assert run_cmd.call_args.args[0].name == "translate"
+                    run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
                     set_text.assert_not_called()
 
 
@@ -585,7 +587,7 @@ def test_query_text_post_timeout_does_not_run_inline(caplog):
     def _timeout(*_args, **_kwargs):
         raise TimeoutError("marshal post timed out")
 
-    with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
         with patch(
             "plugin.framework.queue_executor.main.post",
             side_effect=_timeout,
@@ -627,7 +629,7 @@ def test_fill_failure_logs_warning(caplog):
         raise RuntimeError("addItems")
 
     box.addItems = _boom
-    with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
         popup._fill_visible_list()
     assert any("fill addItems failed" in r.message and r.levelno == logging.WARNING for r in caplog.records)
 
@@ -644,7 +646,7 @@ def test_frame_key_attach_failure_logs_warning(caplog):
         controller = MagicMock()
         controller.addKeyHandler.side_effect = RuntimeError("attach")
         popup.send_listener.frame = SimpleNamespace(getController=lambda: controller)
-        with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+        with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
             popup._attach_frame_keys()
         assert any(
             "frame key handler attach failed" in r.message and r.levelno == logging.WARNING
@@ -659,7 +661,7 @@ def test_slash_disabled_when_flag_false(monkeypatch, caplog):
     monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
     monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
     popup, _box = _controller()
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
         popup.on_query_text("/")
     assert popup.is_open is False
     assert not any("[SLASH-OV]" in r.message for r in caplog.records)
@@ -669,7 +671,7 @@ def test_ovlog_silent_when_verbose_off(caplog, monkeypatch):
     from plugin.chatbot.slash_popup import _ovlog
 
     monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
         _ovlog("query_text entered raw=%r", "/he")
     assert not any("[SLASH-OV]" in r.message for r in caplog.records)
 
@@ -679,7 +681,7 @@ def test_ovlog_emits_debug_when_verbose(caplog, monkeypatch):
     from tests.harness.strip_bundle import module_source_contains
 
     monkeypatch.setattr(slash_popup, "SLASH_OV_VERBOSE_DEBUG", True)
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
         slash_popup._ovlog("query_text entered raw=%r", "/he")
     if not module_source_contains(slash_popup, "log.debug"):
         return

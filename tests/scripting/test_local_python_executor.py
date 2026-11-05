@@ -39,17 +39,36 @@ def _norm_path_for_compare(path: str) -> str:
     return os.path.normcase(os.path.normpath(normalized))
 
 
+def test_is_path_metadata_callable_accepts_windows_ntpath_names():
+    from plugin.contrib.smolagents.local_python_executor import _is_path_metadata_callable
+
+    assert _is_path_metadata_callable("ntpath", "_path_exists")
+    assert _is_path_metadata_callable("ntpath", "_path_isfile")
+    assert not _is_path_metadata_callable("ntpath", "_path_open")
+    assert _is_path_metadata_callable("genericpath", "exists")
+
+
 def test_os_path_metadata_allowed_without_files_sandbox_flag():
     import os.path
     from plugin.contrib.smolagents.local_python_executor import (
         SANDBOX_POLICY_CONTEXT,
         _check_dangerous_value,
+        _get_os_path_metadata_ids,
     )
 
+    assert id(os.path.exists) in _get_os_path_metadata_ids()
     token = SANDBOX_POLICY_CONTEXT.set((frozenset(), frozenset()))
     try:
         _check_dangerous_value(os.path.exists, authorized_imports=[])
         _check_dangerous_value(os.path.isfile, authorized_imports=[])
+        try:
+            import ntpath
+
+            exists_impl = getattr(ntpath, "_path_exists", None)
+            if exists_impl is not None:
+                _check_dangerous_value(exists_impl, authorized_imports=[])
+        except ImportError:
+            pass
     finally:
         SANDBOX_POLICY_CONTEXT.reset(token)
 
@@ -60,10 +79,12 @@ def _reset_abandoned_timeout() -> Any:
     import plugin.contrib.smolagents.local_python_executor as lpe
 
     lpe.abandoned_timeout = False
+    lpe.discard_thread_pool_timeout()
     try:
         yield
     finally:
         lpe.abandoned_timeout = False
+        lpe.discard_thread_pool_timeout()
 
 
 def test_nested_generatorexp_via_evaluate_generatorexp():
@@ -1259,8 +1280,7 @@ def test_slice9_timeout_validation_and_unwinding():
         with TPE(max_workers=1) as pool:
             future = pool.submit(worker)
             elapsed = future.result()
-        # Thread fallback: up to timeout_seconds to fire, then up to timeout_seconds
-        # draining the worker before raising (still must not wait for the 2.5s sleep).
+        # Thread fallback raises at timeout_seconds without waiting for the 2.5s sleep.
         assert elapsed < 2.35
     finally:
         lpe.abandoned_timeout = False

@@ -53,8 +53,6 @@ if TYPE_CHECKING:
     from types import ModuleType
 
     from com.sun.star.util import URL as UnoURL
-    from plugin.framework.module_base import ModuleBase
-    from plugin.framework.tool import ToolRegistry
 
 officehelper: ModuleType | None = None
 try:
@@ -79,40 +77,23 @@ EXTENSION_ID = EXTENSION_ID_WRITERAGENT
 # Bootstrapping (Dynamic discovery from loaded manifest)
 # ---------------------------------------------------------------------------
 
-_services = None
 log = logging.getLogger(__name__)
 
 from plugin.bootstrap import (
     BootstrapState,
-    bootstrap_extension,
     MainBootstrapJob as BaseMainBootstrapJob,
 )
-from plugin.framework.main_shared import ExtensionProtocolHandler, get_action_handler, report_action_failure
-
-
-_tools: ToolRegistry | None = None
-_modules: list[ModuleBase] = []
-
-
-# What was wrong: _bootstrap_state remained INITIALIZED even if module loading or
-# background start failed, permanently wedging startup so subsequent calls
-# returned immediately and menus only logged "No handler or module found".
-# How it happened: INITIALIZED was set early to prevent re-entrant calls
-# during module imports, but unhandled exceptions after that point never cleared it.
-# Why this change: retry only when _modules is still empty; otherwise a second
-# pass would construct another registry and start background services again.
-_bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
-_bootstrap_error: BaseException | None = None
-_terminate_listener: Any | None = None
+from plugin.framework.main_shared import ExtensionProtocolHandler, report_action_failure
 
 
 def _install_terminate_listener(ctx: Any) -> None:
     """Register a desktop XTerminateListener to clean up child processes on app exit."""
-    global _terminate_listener
+    import plugin.app as app
+
     # The first successful addTerminateListener is process-lifetime and is not
     # removed or replaced; a failed install leaves the global None so the next
     # bootstrap retries.
-    if _terminate_listener is not None:
+    if app._terminate_listener is not None:
         return
     try:
         from plugin.framework.uno_context import get_desktop
@@ -126,40 +107,20 @@ def _install_terminate_listener(ctx: Any) -> None:
         class _TerminateListener(BaseTerminateListener):
             def notifyTermination(self, Event: Any) -> None:
                 try:
-                    from plugin.framework.quit_hooks import run_quit_hooks
+                    from plugin.framework.quit_hooks import register_quit_hook_last, run_quit_hooks
+                    from plugin.framework.warm_child import supervisor
 
+                    # Last: cooperative hooks (e.g. MCP tunnel stop) need their child alive;
+                    # the managed sweep SIGKILLs registered peers.
+                    register_quit_hook_last(supervisor.shutdown_all)
                     run_quit_hooks()
                 except Exception:
                     # UNO boundary: XTerminateListener.notifyTermination callback
                     log.exception("Error running quit hooks on desktop termination")
 
-                try:
-                    from plugin.audio.kokoro_pool import shutdown_kokoro_pool
-
-                    shutdown_kokoro_pool()
-                except Exception:
-                    # UNO boundary: XTerminateListener.notifyTermination callback
-                    log.exception("Error shutting down Kokoro pool on desktop termination")
-
-                try:
-                    from plugin.framework.managed_subprocess import shutdown_all
-
-                    shutdown_all()
-                except Exception:
-                    # UNO boundary: XTerminateListener.notifyTermination callback
-                    log.exception("Error shutting down managed subprocesses on desktop termination")
-
-                try:
-                    from plugin.framework.warm_child import supervisor
-
-                    supervisor.shutdown_all()
-                except Exception:
-                    # UNO boundary: XTerminateListener.notifyTermination callback
-                    log.exception("Error shutting down warm child supervisor on desktop termination")
-
         listener = _TerminateListener()
         desktop.addTerminateListener(listener)
-        _terminate_listener = listener
+        app._terminate_listener = listener
     except Exception:
         # UNO boundary: desktop.addTerminateListener registration
         log.exception("Failed to install terminate listener")
@@ -172,14 +133,15 @@ def _register_writeragent_prompt_hooks() -> None:
 
 
 def _writeragent_bootstrap_finish(ctx: Any) -> None:
-    global _services, _tools, _modules, _bootstrap_state, _bootstrap_error
+    import plugin.app as app
+    import plugin.bootstrap as bootstrap
 
     from plugin.framework.queue_executor import Policy, main
 
     from plugin.framework.service import ServiceRegistry
 
-    _services = ServiceRegistry()
-    _services.register("uno", ctx)
+    app._services = ServiceRegistry()
+    app._services.register("uno", ctx)
 
     # Skip terminate listener when running under the eval harness.
     # The eval client already has a remote Desktop; this listener would shut down client subprocesses on office teardown.
@@ -189,48 +151,53 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
     from plugin.doc.document_helpers import DocumentService
     from plugin.framework.event_bus import get_event_bus
 
-    _services.register("document", DocumentService())
-    _services.register("events", get_event_bus())
+    app._services.register("document", DocumentService())
+    app._services.register("events", get_event_bus())
 
     from plugin.framework.tool import ToolRegistry
     from plugin.writeragent_hooks import register_writeragent_tool_filters
 
-    _tools = ToolRegistry(_services)
-    register_writeragent_tool_filters(_tools)
-    _services.register("tools", _tools)
-    _services.register("main_thread", main)
+    app._tools = ToolRegistry(app._services)
+    register_writeragent_tool_filters(app._tools)
+    app._services.register("tools", app._tools)
+    app._services.register("main_thread", main)
 
-    _bootstrap_state = BootstrapState.INITIALIZED
+    bootstrap._bootstrap_state = BootstrapState.INITIALIZED
 
     from plugin.framework.module_base import ModuleLoader
 
     module_phase_failed = False
     try:
-        _modules.extend(ModuleLoader.load_modules(_services))
+        app._modules.extend(ModuleLoader.load_modules(app._services))
     except Exception as exc:
         module_phase_failed = True
         log.exception("bootstrap failed while loading modules")
-        _bootstrap_error = exc
-        if not _modules:
-            _bootstrap_state = BootstrapState.UNINITIALIZED
+        bootstrap._bootstrap_error = exc
+        # What was wrong: bootstrap flag remained INITIALIZED even if module loading failed,
+        # wedging startup so later calls returned immediately.
+        # How it happened: INITIALIZED was set early to block re-entry during imports.
+        # Why this change: reset only when app._modules is still empty so a retry does not
+        # build a second registry.
+        if not app._modules:
+            bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
             return
 
-    for mod in _modules:
+    for mod in app._modules:
         try:
-            mod.start_background(_services)
+            mod.start_background(app._services)
         except Exception as exc:
             module_phase_failed = True
             log.exception("start_background failed for module %s", getattr(mod, "name", "?"))
-            if _bootstrap_error is None:
-                _bootstrap_error = exc
+            if bootstrap._bootstrap_error is None:
+                bootstrap._bootstrap_error = exc
 
     try:
         # Subscribe to menu:update for dynamic menu text + icons.
-        # execute runs this @background function on the main thread;
-        # dispatch already queues it with run_in_background.
+        # publish is @background and warns if it runs on the main thread; this subscriber
+        # always queues menu_status.publish with run_in_background.
         from plugin.framework.worker_pool import run_in_background
 
-        _services.get("events").subscribe(
+        app._services.get("events").subscribe(
             "menu:update", lambda **kw: run_in_background(menu_status.publish)
         )
 
@@ -246,61 +213,12 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
             register_core_handlers()
     except Exception as exc:
         log.exception("bootstrap failed after the init flag was set")
-        if _bootstrap_error is None:
-            _bootstrap_error = exc
+        if bootstrap._bootstrap_error is None:
+            bootstrap._bootstrap_error = exc
         return
 
     if not module_phase_failed:
-        _bootstrap_error = None
-
-
-def bootstrap_complete() -> bool:
-    """Return True if bootstrap has fully completed and initialized."""
-    return _bootstrap_state is BootstrapState.INITIALIZED
-
-
-def get_services() -> Any:
-    global _services
-    if _services is None:
-        bootstrap()
-    if _services is None:
-        from plugin.framework.errors import WriterAgentException
-
-        raise WriterAgentException(
-            "Service registry is unavailable because bootstrap did not finish.",
-            code="BOOTSTRAP_FAILED",
-        )
-    return _services
-
-
-def get_tools() -> ToolRegistry:
-    global _tools
-    if _tools is None:
-        bootstrap()
-    if _tools is None:
-        from plugin.framework.errors import WriterAgentException
-
-        raise WriterAgentException(
-            "Tool registry is unavailable because bootstrap did not finish.",
-            code="BOOTSTRAP_FAILED",
-        )
-    return _tools
-
-
-_TESTS_AVAILABLE: bool | None = None
-
-
-def tests_bundled() -> bool:
-    """True when `plugin.tests` test modules are included in this build."""
-    global _TESTS_AVAILABLE
-    if _TESTS_AVAILABLE is None:
-        try:
-            import importlib.util
-
-            _TESTS_AVAILABLE = importlib.util.find_spec("plugin.tests.conftest") is not None
-        except Exception:
-            _TESTS_AVAILABLE = False
-    return bool(_TESTS_AVAILABLE)
+        bootstrap._bootstrap_error = None
 
 
 def _show_tests_unavailable(test_name: str) -> None:
@@ -317,6 +235,8 @@ def _run_test_suite(module_name: str, test_name: str) -> None:
     worker threads (see ``ToolBase.execute_safe``).
     """
     from plugin.chatbot.dialogs import msgbox
+
+    from plugin.app import tests_bundled
 
     if not tests_bundled():
         _show_tests_unavailable(test_name)
@@ -355,11 +275,11 @@ def register_core_handlers() -> None:
         except Exception:
             log.log(level, message, exc_info=True)
 
-    def _open_settings() -> None:
+    def _open_settings(frame: Any = None) -> None:
         open_dialog_safely(settings_box, "Failed to open settings")
 
     register_action_handler("main", "settings", _open_settings)
-    register_action_handler("main", "EvaluationDashboard", lambda: open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
+    register_action_handler("main", "EvaluationDashboard", lambda frame=None: open_dialog_safely(show_eval_dashboard, "Failed to show eval dashboard"))
 
     test_suites = (
         ("RunFormatTests", "plugin.tests.writer.test_format_uno", "writer.format_tests"),
@@ -371,21 +291,21 @@ def register_core_handlers() -> None:
         register_action_handler(
             "main",
             action,
-            lambda m=mod_name, t=test_name: _run_test_suite(m, t),
+            lambda frame=None, m=mod_name, t=test_name: _run_test_suite(m, t),
         )
-    register_action_handler("main", "NoOp", lambda: None)
+    register_action_handler("main", "NoOp", lambda frame=None: None)
 
     from plugin.menu_handlers import register_common_handlers
 
     register_common_handlers()
 
-    def _convert_spreadsheet() -> None:
+    def _convert_spreadsheet(frame: Any = None) -> None:
         from plugin.calc.spreadsheet_import.import_dialog import show_import_dialog
         open_dialog_safely(show_import_dialog, "Failed to open Convert Sheet to Python dialog")
 
     register_action_handler("calc", "convert_spreadsheet_to_python", _convert_spreadsheet)
 
-    def _open_search_dialog() -> None:
+    def _open_search_dialog(frame: Any = None) -> None:
         from plugin.embeddings.search_ui import show_search_dialog
         show_search_dialog(get_ctx())
 
@@ -395,7 +315,7 @@ def register_core_handlers() -> None:
         """Re-evaluate the review toolbar's visibility (hide once nothing is left to review).
         Also a catch-up point if changes were resolved via LibreOffice's native UI."""
         try:
-            from plugin.writer.review_toolbar import refresh_review_toolbar
+            from plugin.writer.review_view_attachment import refresh_review_toolbar
 
             refresh_review_toolbar(model)
         except Exception:  # UNO boundary: refresh_review_toolbar layout/controller access
@@ -415,8 +335,8 @@ def register_core_handlers() -> None:
         else:
             log.debug("inline review: no current component")
 
-    register_action_handler("writer", "accept_change", lambda: _resolve_change_at_cursor(True))
-    register_action_handler("writer", "reject_change", lambda: _resolve_change_at_cursor(False))
+    register_action_handler("writer", "accept_change", lambda frame=None: _resolve_change_at_cursor(True))
+    register_action_handler("writer", "reject_change", lambda frame=None: _resolve_change_at_cursor(False))
 
     def _resolve_all_agent(accept: bool) -> None:
         from plugin.writer.inline_review import resolve_all_with_feedback, show_review_message
@@ -429,8 +349,8 @@ def register_core_handlers() -> None:
             show_review_message(c, msg)
             _refresh_review_toolbar(model)
 
-    register_action_handler("writer", "review_accept_all", lambda: _resolve_all_agent(True))
-    register_action_handler("writer", "review_reject_all", lambda: _resolve_all_agent(False))
+    register_action_handler("writer", "review_accept_all", lambda frame=None: _resolve_all_agent(True))
+    register_action_handler("writer", "review_reject_all", lambda frame=None: _resolve_all_agent(False))
 
     def _goto_adjacent_change(forward: bool) -> None:
         """Fast-travel (#2): move the cursor to the next/previous pending agent change, in document
@@ -445,38 +365,15 @@ def register_core_handlers() -> None:
         log.debug("review nav: forward=%s -> token=%s", forward, token)
         _refresh_review_toolbar(model)
 
-    register_action_handler("writer", "review_next", lambda: _goto_adjacent_change(True))
-    register_action_handler("writer", "review_prev", lambda: _goto_adjacent_change(False))
+    register_action_handler("writer", "review_next", lambda frame=None: _goto_adjacent_change(True))
+    register_action_handler("writer", "review_prev", lambda frame=None: _goto_adjacent_change(False))
 
-    def _install_writer_change_context_menu() -> None:
-        from plugin.writer.change_context_menu import install_writer_change_context_menu
+    def _install_review_ui() -> None:
+        from plugin.writer.review_view_attachment import install
 
-        install_writer_change_context_menu(get_ctx())
+        install(get_ctx())
 
-    _install_optional(_install_writer_change_context_menu, message="Writer change context menu install failed", level=logging.WARNING)
-
-    def _install_review_toolbar() -> None:
-        from plugin.writer.review_toolbar import install_review_toolbar
-
-        install_review_toolbar(get_ctx())
-
-    _install_optional(_install_review_toolbar, message="Review toolbar visibility install failed", level=logging.WARNING)
-
-
-def bootstrap(ctx: Any | None = None) -> None:
-    """Bootstraps the service container and modules.
-
-    This is currently triggered eagerly by Jobs.xcu on OnStartApp to ensure the
-    MCP server starts automatically in headless mode. We could make this lazy
-    again in the future if startup performance becomes a concern.
-    """
-    bootstrap_extension(
-        ctx,
-        extension_id=EXTENSION_ID,
-        register_prompt_hooks=_register_writeragent_prompt_hooks,
-        finish=_writeragent_bootstrap_finish,
-        state=globals(),
-    )
+    _install_optional(_install_review_ui, message="Review UI install failed", level=logging.WARNING)
 
 
 # ── Dynamic menu text infrastructure ─────────────────────────────────
@@ -487,113 +384,6 @@ menu_icons = MenuIcons()
 menu_status = MenuStatusPublisher(menu_icons)
 
 
-def _module_for_command(command: str) -> tuple[ModuleBase | None, str]:
-    dot = command.find(".")
-    if dot <= 0:
-        return None, ""
-    mod_name, action = command[:dot], command[dot + 1 :]
-    for mod in _modules:
-        if mod.name == mod_name:
-            return mod, action
-    return None, action
-
-
-def dispatch_command(command: str) -> None:
-    """Dispatch command using handler registry, falling back to module actions."""
-    bootstrap()
-    if command.startswith("chatbot.debug_sidebar"):
-        # Dev/debug only. sidebar_test_hooks is omitted from release OXTs.
-        try:
-            from plugin.chatbot.sidebar_test_hooks import handle_debug_sidebar_command
-
-            handle_debug_sidebar_command(command)
-        except ImportError:
-            log.debug("debug_sidebar omitted (release)")
-        except Exception:
-            log.exception("chatbot.debug_sidebar failed")
-        return
-    # First try the action registry
-    handler = get_action_handler(command)
-    if handler:
-        try:
-            handler()
-        except Exception as e:
-            report_action_failure(command, e)
-        return
-
-    # If no handler, check for module delegation
-    mod, action = _module_for_command(command)
-    if mod is not None:
-        mod.on_action(action)
-        return
-
-    if _bootstrap_error is not None:
-        from plugin.framework.errors import WriterAgentException
-
-        raise WriterAgentException(
-            f"WriterAgent did not finish starting: {_bootstrap_error}",
-            code="BOOTSTRAP_FAILED",
-        ) from _bootstrap_error
-
-    if command.find(".") <= 0:
-        log.warning("Unhandled command: %s", command)
-        return
-
-    log.warning("No handler or module found for command: %s", command)
-
-
-def get_menu_text(command: str) -> str | None:
-    """Get dynamic menu text for a command, or None for default."""
-    bootstrap()
-    mod, action = _module_for_command(command)
-    if mod is None and command.find(".") <= 0:
-        return None
-
-    from plugin.framework.i18n import _
-
-    text = mod.get_menu_text(action) if mod is not None else None
-    if text is None:
-        # Titles are translated at lookup (locale is not ready at import). None keeps
-        # the en-US Addons.xcu string; a raw English literal overwrites the catalog.
-        from plugin._manifest import MENU_TITLES, MODULES
-
-        if "." in command:
-            mod_name, action_name = command.split(".", 1)
-            for m in MODULES:
-                if isinstance(m, dict) and m.get("name") == mod_name:
-                    action_titles = m.get("action_titles")
-                    if isinstance(action_titles, dict):
-                        text = action_titles.get(action_name)
-                    break
-        if text is None:
-            text = MENU_TITLES.get(command)
-    if text is not None:
-        return _(text)
-    return None
-
-
-def get_menu_icon(command: str) -> str | None:
-    """Get dynamic icon prefix for a command, or None."""
-    bootstrap()
-    mod, action = _module_for_command(command)
-    if mod is None:
-        return None
-    return mod.get_menu_icon(action)
-
-
-_LEGACY_FRAMEWORK_COMMANDS: dict[str, str] = {
-    "settings": "main.settings",
-    "ToggleMCPServer": "mcp.toggle_server",
-    "MCPStatus": "mcp.server_status",
-    "RunFormatTests": "main.RunFormatTests",
-    "RunCalcTests": "main.RunCalcTests",
-    "RunDrawTests": "main.RunDrawTests",
-    "RunCalcIntegrationTests": "main.RunCalcIntegrationTests",
-    "EvaluationDashboard": "main.EvaluationDashboard",
-    "NoOp": "main.NoOp",
-}
-
-
 # Bootstrapper replaces the previous monolithic MainJob.
 # It acts as an OnStartApp hook (triggered on office startup) and a proxy for legacy toolbar triggers.
 class MainBootstrapJob(BaseMainBootstrapJob):
@@ -601,6 +391,8 @@ class MainBootstrapJob(BaseMainBootstrapJob):
         init_logging(ctx)
 
     def on_start(self, ctx: Any) -> None:
+        from plugin.app import bootstrap
+
         try:
             bootstrap(self.ctx)
         except Exception as e:  # UNO boundary: XJob.execute entry point
@@ -618,15 +410,12 @@ class MainBootstrapJob(BaseMainBootstrapJob):
         except Exception:  # UNO boundary: XJobExecutor.trigger entry point
             log.exception("MainBootstrapJob.trigger: init_logging failed")
 
+        from plugin.app import bootstrap, dispatch_command
+
         try:
             if Event and ("." in Event or Event.startswith("plugin.")):
                 cmd = Event[7:] if Event.startswith("plugin.") else Event
                 dispatch_command(cmd)
-                return
-
-            legacy = _LEGACY_FRAMEWORK_COMMANDS.get(Event)
-            if legacy is not None:
-                dispatch_command(legacy)
                 return
 
             model = get_active_document(self.ctx)
@@ -658,6 +447,8 @@ class DispatchHandler(ExtensionProtocolHandler):
     # ── XDispatch ────────────────────────────────────────────────
 
     def dispatch(self, URL: UnoURL, Arguments: Any) -> None:
+        from plugin.app import dispatch_command
+
         command = command_from_dispatch_url(URL)
         try:
             init_logging(self.ctx)
@@ -696,6 +487,22 @@ g_ImplementationHelper.addImplementation(
     ("com.sun.star.task.Job",),
 )  # implemented services (only 1)
 g_ImplementationHelper.addImplementation(DispatchHandler, DispatchHandler.IMPL_NAME, DispatchHandler.SERVICE_NAMES)
+
+from plugin.app import bind_writeragent
+
+
+def bind() -> None:
+    """Register WriterAgent finish hooks (first call wins).
+
+    Out-of-office hosts must call this before ``plugin.app.bootstrap`` or ``get_tools()``.
+    """
+    bind_writeragent(
+        finish=_writeragent_bootstrap_finish,
+        register_prompt_hooks=_register_writeragent_prompt_hooks,
+    )
+
+
+bind()
 
 
 # Starting from Python IDE

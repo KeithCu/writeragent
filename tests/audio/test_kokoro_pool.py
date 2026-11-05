@@ -16,9 +16,11 @@ import threading
 import time
 from typing import Any
 
+from unittest.mock import MagicMock
+
 import pytest
 
-from plugin.audio.kokoro_pool import KokoroProcessPool, _child_env
+from plugin.audio.kokoro_pool import KokoroProcessPool, _child_env, shutdown_kokoro_pool
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.warm_child import Supervisor, WarmChild
 
@@ -534,7 +536,7 @@ def test_kokoro_child_spec_env_and_spawn(monkeypatch, supervisor):
     monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", lambda *_a, **_k: MagicMock())
     monkeypatch.setattr("plugin.framework.managed_subprocess.optimize_popen_pipes", lambda _proc: None)
     monkeypatch.setattr(
-        "plugin.framework.process_worker.read_pickle_frame",
+        "plugin.framework.warm_child.read_pickle_frame",
         lambda *_a, **_k: {"status": "ready", "pid": 1234},
     )
 
@@ -697,3 +699,15 @@ def test_base_exception_during_request_propagates(tmp_path, monkeypatch, supervi
         assert res.get("status") == "ok"
     finally:
         pool.shutdown()
+
+
+def test_shutdown_kokoro_pool_drops_singleton(monkeypatch) -> None:
+    import plugin.audio.kokoro_pool as kokoro_pool
+
+    mock_pool = MagicMock()
+    monkeypatch.setattr(kokoro_pool, "_POOL", mock_pool)
+    monkeypatch.setattr(kokoro_pool, "_POOL_CONFIG_VENV", "/fake/venv")
+    shutdown_kokoro_pool()
+    mock_pool.shutdown.assert_called_once()
+    assert kokoro_pool._POOL is None
+    assert kokoro_pool._POOL_CONFIG_VENV is None

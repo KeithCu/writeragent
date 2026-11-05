@@ -305,7 +305,7 @@ def test_analyze_data_worker_error(mock_run_trusted, mock_main_thread, calc_ctx)
 
 
 def test_analysis_domain_tools_not_registered():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     from plugin.tests.testing_utils import CalcDocStub
 
@@ -319,7 +319,7 @@ def test_analysis_domain_tools_not_registered():
 
 
 def test_analyze_data_not_in_default_core_list():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     from plugin.tests.testing_utils import CalcDocStub
 

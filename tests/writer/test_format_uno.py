@@ -35,14 +35,14 @@ def _move_cursor_by_offset(cursor, offset, expand=False):
 
 def _tool_ctx(doc, ctx):
     """Build ToolContext for writer tools (uses real get_services())."""
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.framework.tool import ToolContext
     return ToolContext(doc, ctx, "writer", get_services(), "test")
 
 
 def _get_document_content(doc, ctx, params):
     """Call real get_document_content tool; returns dict."""
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     scope = params.get("scope", "full")
     kwargs = {"scope": scope}
     if params.get("max_chars") is not None:
@@ -63,7 +63,7 @@ def _apply_document_content(doc, ctx, params):
     # GHA 34683742049: leftover Hidden _default apply hung after the
     # first apply-suite skips. Later apply UNO files skip the same load.
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     content = params.get("content", "")
     if isinstance(content, list):
         content = "\n".join(str(x) for x in content)

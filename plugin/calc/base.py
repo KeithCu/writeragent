@@ -64,7 +64,7 @@ class ToolCalcDocumentResearchBase(ToolCalcSpecialBase):
 
 
 class ToolCalcCommentBase(ToolCalcSpecialBase):
-    specialized_domain: ClassVar[str | None] = "comments"
+    specialized_domain: ClassVar[str | None] = "cell_comments"
     specialized_domain_description: ClassVar[str | None] = "View, add, and manage cell comments and feedback."
 
 
@@ -86,7 +86,7 @@ class ToolCalcPivotBase(ToolCalcSpecialBase):
 
 
 class ToolCalcChartBase(ToolCalcSpecialBase):
-    """Charts domain (``manage_charts``); shared implementation also serves Writer/Draw via union ``uno_services`` on the concrete tool."""
+    """Charts domain (``chart_list``, ``chart_get_info``, ``chart_upsert``, ``chart_delete``); shared implementation also serves Writer/Draw via union ``uno_services`` on the concrete tool."""
 
     specialized_domain: ClassVar[str | None] = "charts"
     specialized_domain_description: ClassVar[str | None] = "Create and edit charts on the active sheet or embedded chart in the document."

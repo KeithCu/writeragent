@@ -32,7 +32,7 @@ from plugin.framework.config_schema import DEFAULT_IMAGE_BASE_SIZE, as_bool
 from plugin.framework.prompts import get_core_directives_for_type
 from plugin.chatbot.agent_manual import full_manual
 from plugin.framework.llm_lanes import llm_request_lane
-from plugin.framework.send_cancellation import capture_send_stop, is_cancelled
+from plugin.framework.send_cancellation import is_cancelled
 from plugin.acp import get_backend
 from plugin.acp.registry import normalize_backend_id
 from plugin.chatbot.tool_loop import _PanelDescriptor
@@ -42,6 +42,9 @@ from plugin.chatbot.tool_loop_actions import (
     abort_turn,
     current_turn,
     persist_assistant_on_turn,
+    assign_send_outcome,
+    send_outcome_is_error,
+    send_outcome_is_stopped,
 )
 from plugin.chatbot.chat_sidebar_mode import (
     CHAT_MODE_WEB_RESEARCH,
@@ -131,7 +134,7 @@ def _ui_lines_for_handler_error(handler_type: str, err_msg: str) -> str:
 
 def _fail_handler(panel: Any, handler_type: str, exc: Exception) -> str:
     panel._set_status("Error")
-    panel._terminal_status = "Error"
+    assign_send_outcome(panel, "error")
     err_msg = format_error_for_display(exc)
     append_text = _ui_lines_for_handler_error(handler_type, err_msg)
     panel._append_response(append_text)
@@ -205,7 +208,7 @@ class SendHandlersMixin:
                 # handler_type string, so unknown/future handler types don't finish with
                 # missing status updates.
                 status = "done"
-                self._panel._terminal_status = "Ready"
+                assign_send_outcome(self._panel, "ready")
                 self._panel._set_status("Ready")
 
         def on_stopped() -> None:
@@ -225,7 +228,7 @@ class SendHandlersMixin:
                 return
             status = "stopped"
             self._panel._set_status("Stopped")
-            self._panel._terminal_status = "Stopped"
+            assign_send_outcome(self._panel, "stopped")
 
         def on_error(e: Exception) -> None:
             nonlocal status
@@ -327,12 +330,12 @@ class SendHandlersMixin:
 
         # Spawn-time scope. The body must not re-read _send_cancellation:
         # Stop clears the field and the next send replaces it.
-        cancel_scope = capture_send_stop(self._panel)
+        cancel_scope = self._panel._send_cancellation
 
         def run_direct_image() -> None:
             doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
             try:
-                from plugin.main import get_tools
+                from plugin.app import get_tools
 
                 tctx = ToolContext(doc=model, ctx=self._panel.ctx, doc_type=doc_type, services=get_tools()._services, caller="chat", status_callback=lambda t: turn.put((StreamQueueKind.STATUS, t)), send_cancellation=cancel_scope, uno_services_supported=getattr(self._panel, "cached_uno_services", None))
 
@@ -385,8 +388,8 @@ class SendHandlersMixin:
         self._run_unified_worker_drain_loop(drain_q, run_direct_image, "image", on_finished=_image_ready)
 
     def _finalize_terminal_ready(self) -> None:
-        if self._panel._terminal_status not in ("Error", "Stopped"):
-            self._panel._terminal_status = "Ready"
+        if not send_outcome_is_error(self._panel) and not send_outcome_is_stopped(self._panel):
+            assign_send_outcome(self._panel, "ready")
 
     def _do_send_via_agent_backend(self, query_text: str, model: Any, doc_type_str: str) -> None:
         """Send via external agent backend. No fallback to built-in on failure."""
@@ -465,13 +468,7 @@ class SendHandlersMixin:
         drain_q, turn = _send_worker_queues(self._panel)
         # Spawn-time scope. run_agent must not re-read _send_cancellation:
         # Stop clears the field and the next send replaces it.
-        # prepare_turn publishes this turn's id before Stop can be registered,
-        # so a Stop that lands before send() aborts this turn only.
-        cancel_scope = capture_send_stop(self._panel)
-        if hasattr(adapter, "prepare_turn"):
-            adapter.prepare_turn()
-        if cancel_scope is not None and hasattr(adapter, "stop"):
-            cancel_scope.register_on_cancel(adapter.stop)
+        cancel_scope = self._panel._send_cancellation
 
         # String-only: classifying the live model hits get_document_type (UNO).
         # run_agent is chatbot-send-handler; do not classify the document here.
@@ -511,7 +508,7 @@ class SendHandlersMixin:
                 def status_cb(t: str) -> None:
                     turn.put((StreamQueueKind.STATUS, t))
                 with llm_request_lane(status_callback=status_cb, resume_status=_("Thinking...")):
-                    adapter.send(queue=turn, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, stop_checker=cancel_scope.is_cancelled if cancel_scope is not None else None)
+                    adapter.send(queue=turn, user_message=query_text, document_context=doc_context, document_url=document_url, system_prompt=lean_system_prompt, mcp_url=mcp_url, cancel=cancel_scope)
             except BlockingWaitStopped:
                 turn.put((StreamQueueKind.STOPPED,))
             except Exception as e:
@@ -569,7 +566,7 @@ class SendHandlersMixin:
         self._execute_web_research_effect(query_text, model, mode=mode)
 
     def _execute_web_research_effect(self, query_text: str, model: Any, mode: str = "") -> None:
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         spec = sidebar_mode(mode) or require_sidebar_mode(CHAT_MODE_WEB_RESEARCH)
 
@@ -582,7 +579,7 @@ class SendHandlersMixin:
         history_text = format_sub_agent_conversation_history(self._panel.session, current_query=query_text)
         # Spawn-time scope. run_search must not re-read _send_cancellation:
         # Stop clears the field and the next send replaces it.
-        cancel_scope = capture_send_stop(self._panel)
+        cancel_scope = self._panel._send_cancellation
 
         doc_type = getattr(self._panel, "cached_doc_type", None) or "writer"
 

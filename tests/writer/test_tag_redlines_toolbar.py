@@ -8,21 +8,11 @@ Streamed edit paths tag their redlines via ``tag_agent_redlines`` (not via recor
 toolbar refresh must live there too — otherwise the fast-travel toolbar never appears for those
 edits even though pending agent changes exist.
 """
-import sys
-import types
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from plugin.writer.edit_review import tag_agent_redlines
-
-
-def _fake_toolbar_module():
-    # review_toolbar.py imports com.sun.star.util (not in the headless UNO mock), so inject a fake
-    # module for tag_agent_redlines' lazy ``from plugin.writer.review_toolbar import ...`` to find.
-    m = types.ModuleType("plugin.writer.review_toolbar")
-    m.refresh_review_toolbar = MagicMock()
-    return m
 
 
 class FakeRedline:
@@ -93,23 +83,21 @@ def _before(*ids):
 def test_refreshes_toolbar_when_new_redline_tagged():
     rl_old, rl_new = FakeRedline("old1"), FakeRedline("new1")
     doc = FakeModel(FakeRedlines([rl_old, rl_new]))
-    fake = _fake_toolbar_module()
-    with patch.dict(sys.modules, {"plugin.writer.review_toolbar": fake}):
+    with patch("plugin.writer.review_view_attachment.refresh_review_toolbar") as refresh:
         token = tag_agent_redlines(doc, before_ids=_before("old1"), before_reliable=True)
     assert token is not None
     assert rl_new.comment == token   # only the new redline got tagged
     assert rl_old.comment is None
-    fake.refresh_review_toolbar.assert_called_once_with(doc)
+    refresh.assert_called_once_with(doc)
 
 
 def test_no_refresh_when_nothing_new_tagged():
     rl = FakeRedline("old1")
     doc = FakeModel(FakeRedlines([rl]))
-    fake = _fake_toolbar_module()
-    with patch.dict(sys.modules, {"plugin.writer.review_toolbar": fake}):
+    with patch("plugin.writer.review_view_attachment.refresh_review_toolbar") as refresh:
         token = tag_agent_redlines(doc, before_ids=_before("old1"), before_reliable=True)
     assert token is None
-    fake.refresh_review_toolbar.assert_not_called()
+    refresh.assert_not_called()
 
 
 # The toolbar's only contract on a REFUSAL is: tag_agent_redlines returns None and NEVER refreshes
@@ -117,6 +105,7 @@ def test_no_refresh_when_nothing_new_tagged():
 # all-or-nothing revert, orphan accounting, and the single-orphan==len failure case) are unit-tested
 # against _tag_new_redlines / record_mutation in test_edit_review.py; here we only pin that no refusal
 # path triggers a toolbar refresh. Each builder returns (doc, kwargs) for one refusal scenario.
+
 
 def _refusal_default_no_reliable():
     # before_reliable omitted -> defaults to False (an unverified snapshot fails closed).
@@ -174,8 +163,7 @@ def _refusal_single_orphan():
 def test_no_refresh_on_any_refusal_path(build):
     """tag_agent_redlines returns None and never refreshes the toolbar on ANY refusal path."""
     doc, kwargs = build()
-    fake = _fake_toolbar_module()
-    with patch.dict(sys.modules, {"plugin.writer.review_toolbar": fake}):
+    with patch("plugin.writer.review_view_attachment.refresh_review_toolbar") as refresh:
         token = tag_agent_redlines(doc, **kwargs)
     assert token is None
-    fake.refresh_review_toolbar.assert_not_called()
+    refresh.assert_not_called()

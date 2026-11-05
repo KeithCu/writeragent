@@ -36,7 +36,7 @@ import logging
 from typing import Any
 
 from plugin.framework.errors import NetworkError
-from .shim_helpers import _normalize_usage, _openai_model_leaf, _system_text
+from .shim_helpers import normalize_usage, openai_model_leaf, system_text
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ log = logging.getLogger(__name__)
 def uses_responses_api(model_name: str | None, tools: list[dict[str, Any]] | None) -> bool:
     if not isinstance(tools, list) or not tools:
         return False
-    return _openai_model_leaf(model_name).startswith("gpt-6")
+    return openai_model_leaf(model_name).startswith("gpt-6")
 
 
 def _responses_text_format(response_format: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -166,7 +166,7 @@ def _reasoning_items(msg: dict[str, Any], *, model_leaf: str) -> list[dict[str, 
         if not isinstance(data, str) or not data:
             continue
         stamped = entry.get("model")
-        if isinstance(stamped, str) and stamped.strip() and _openai_model_leaf(stamped) != model_leaf:
+        if isinstance(stamped, str) and stamped.strip() and openai_model_leaf(stamped) != model_leaf:
             log.warning("Dropping encrypted reasoning minted by %s for %s", stamped, model_leaf)
             continue
         # id is omitted on purpose. store:false makes the server 404 a replayed rs_* id.
@@ -190,7 +190,7 @@ def responses_input(messages: list[dict[str, Any]], *, model_name: str | None) -
     items: list[dict[str, Any]] = []
     wire_ids = _WireCallIds()
     dropped_tool_ids: set[str] = set()
-    model_leaf = _openai_model_leaf(model_name)
+    model_leaf = openai_model_leaf(model_name)
 
     for msg in messages:
         if not isinstance(msg, dict):
@@ -199,7 +199,7 @@ def responses_input(messages: list[dict[str, Any]], *, model_name: str | None) -
         content = msg.get("content")
 
         if role in ("system", "developer"):
-            text = _system_text(content)
+            text = system_text(content)
             if text:
                 instructions_parts.append(text)
             continue
@@ -372,8 +372,8 @@ def parse_responses_chunk(
     resp: dict[str, Any] = resp_raw if isinstance(resp_raw, dict) else {}
     raw_model = chunk.get("model") or resp.get("model") or stream_state.get("_responses_model") or model_name
     if raw_model and not stream_state.get("_responses_model"):
-        stream_state["_responses_model"] = _openai_model_leaf(str(raw_model))
-    model_leaf = stream_state.get("_responses_model") or (_openai_model_leaf(str(raw_model)) if raw_model else "")
+        stream_state["_responses_model"] = openai_model_leaf(str(raw_model))
+    model_leaf = stream_state.get("_responses_model") or (openai_model_leaf(str(raw_model)) if raw_model else "")
 
     event_type = chunk.get("type")
     if not isinstance(event_type, str):
@@ -486,7 +486,7 @@ def parse_responses_chunk(
         chunk_usage = chunk.get("usage")
         usage_obj = resp_usage if isinstance(resp_usage, dict) else chunk_usage
         if isinstance(usage_obj, dict):
-            delta_ret["usage"] = _normalize_usage(usage_obj)
+            delta_ret["usage"] = normalize_usage(usage_obj)
         resp_m = resp.get("model")
         chunk_m = chunk.get("model")
         m = resp_m if isinstance(resp_m, str) else chunk_m
@@ -511,7 +511,7 @@ def parse_responses_chunk(
         chunk_usage = chunk.get("usage")
         usage_obj = resp_usage if isinstance(resp_usage, dict) else chunk_usage
         if isinstance(usage_obj, dict):
-            delta_ret["usage"] = _normalize_usage(usage_obj)
+            delta_ret["usage"] = normalize_usage(usage_obj)
         resp_m = resp.get("model")
         chunk_m = chunk.get("model")
         m = resp_m if isinstance(resp_m, str) else chunk_m
@@ -554,7 +554,7 @@ def parse_responses_sync(
     tool_calls: list[dict[str, Any]] = []
     summary_parts: list[str] = []
     details: list[dict[str, Any]] = []
-    model_leaf = _openai_model_leaf(str(response_data.get("model") or ""))
+    model_leaf = openai_model_leaf(str(response_data.get("model") or ""))
 
     if isinstance(output, list):
         for item in output:
@@ -604,7 +604,7 @@ def parse_responses_sync(
 
     content = "".join(content_parts)
     tool_calls_ret = tool_calls if tool_calls else None
-    usage = _normalize_usage(response_data.get("usage"))
+    usage = normalize_usage(response_data.get("usage"))
     images: list[str] = []
 
     message: dict[str, Any] = {"role": "assistant", "content": content}

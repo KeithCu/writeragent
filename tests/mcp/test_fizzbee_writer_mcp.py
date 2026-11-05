@@ -154,7 +154,7 @@ def test_mcp_tools_list_direct_flat_exposes_full_layout(writer_mcp_setup):
     assert "bookmark_create" in tool_names
     assert "footnotes_insert" in tool_names
     assert "table_list" in tool_names
-    assert "manage_table_structure" in tool_names
+    assert "table_manage_structure" in tool_names
     assert "specialized_workflow_finished" not in tool_names  # control tool excluded
 
 

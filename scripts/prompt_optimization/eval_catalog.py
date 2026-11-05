@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Core tool schemas for string eval — same ``get_schemas`` path as sidebar chat.
 
-Headless ``ToolRegistry`` + module ``initialize`` (no ``plugin.main.bootstrap``).
+Headless ``ToolRegistry`` + module ``initialize`` (no ``plugin.app.bootstrap``).
 
 Eval-only transforms (name allowlist, named presets, skinny descriptions)
 live here so ``run_eval`` / ``run_eval_multi`` can sweep tool-count and
@@ -218,7 +218,7 @@ def resolve_tool_allowlist(
     """Allowlist for this catalog, or ``None`` to keep every advertised tool.
 
     Specialized inner catalogs (``active_domain`` set) are never filtered so
-    ``delegate_to_specialized_*`` still sees ``sort_range`` / shapes / etc.
+    ``delegate_to_specialized_*`` still sees ``range_sort`` / shapes / etc.
     Kind-specific presets no-op on other document kinds.
     """
     if active_domain:

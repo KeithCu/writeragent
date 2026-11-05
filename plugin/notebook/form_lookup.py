@@ -12,6 +12,7 @@ import threading
 from typing import Any, Generator
 
 from plugin.framework.errors import best_effort
+from plugin.framework.uno_context import enum_has_more
 
 _CONTROL_SHAPE_TYPE = "com.sun.star.drawing.ControlShape"
 
@@ -48,16 +49,6 @@ def control_lookup_scope(doc: Any) -> Generator[None, None, None]:
         yield
     finally:
         _local.index = prev
-
-
-def enum_has_more(enum: Any) -> bool:
-    """``hasMoreElements`` is True or 1 on UNO; a MagicMock return is neither."""
-    more = enum.hasMoreElements()
-    return more is True or more == 1
-
-
-def _enum_has_more(enum: Any) -> bool:
-    return enum_has_more(enum)
 
 
 def build_control_index(doc: Any) -> ControlIndex:
@@ -121,7 +112,7 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
     """Fallback for tests and LO builds that expose controls only via text portions."""
     text = doc.getText()
     enum = text.createEnumeration()
-    while _enum_has_more(enum):
+    while enum_has_more(enum):
         block = enum.nextElement()
         # TextTable blocks have no portion enumeration. Skip the block.
         portion_enum = best_effort(
@@ -130,7 +121,7 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
         )
         if portion_enum is None:
             continue
-        while _enum_has_more(portion_enum):
+        while enum_has_more(portion_enum):
             portion = portion_enum.nextElement()
             model = _model_from_text_portion(portion)
             if model is None:

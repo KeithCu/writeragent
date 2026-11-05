@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 from compute_service import error_codes as ec
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
+from plugin.framework.warm_child import error_dict
 
 log = logging.getLogger("compute_service.worker")
 
@@ -103,7 +104,9 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     stdout_bin = claim_ipc_channel()
 
     # Signal readiness to supervisor
-    write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
+    from plugin.framework.child_runtime import announce_ready
+
+    announce_ready(stdout_bin)
 
     _shutdown_requested = False
 
@@ -144,7 +147,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
         except BaseException as exc:
             if _shutdown_requested:
                 break
-            res = {"id": req.get("id"), "status": "error", "code": ec.WORKER_EXECUTION_ERROR, "error": f"Unhandled error: {exc}"}
+            res = error_dict(ec.WORKER_EXECUTION_ERROR, f"Unhandled error: {exc}", req_id=req.get("id"))
 
         # After an abandoned timeout the frame carries "exiting" and os._exit(1) follows the write.
         should_exit = _lpe is not None and getattr(_lpe, "abandoned_timeout", False)
@@ -158,7 +161,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
             wrote = True
         except IpcFrameError as exc:
-            out = {"id": req.get("id"), "status": "error", "code": ec.RESULT_TOO_LARGE, "error": f"Result exceeds maximum payload size: {exc}"}
+            out = error_dict(ec.RESULT_TOO_LARGE, f"Result exceeds maximum payload size: {exc}", req_id=req.get("id"))
             if should_exit:
                 out["exiting"] = True
             try:

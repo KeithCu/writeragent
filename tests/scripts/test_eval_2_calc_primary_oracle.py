@@ -136,7 +136,7 @@ def test_fail_empty_create_sheet_tabs(tmp_path: Path) -> None:
     result = score_workbook(path)
     assert not result.passed
     assert result.schedule_sheets == 0
-    assert any("empty create_sheet" in item for item in result.failures)
+    assert any("empty sheet_create" in item for item in result.failures)
 
 
 def test_fail_too_few_schedule_sheets(tmp_path: Path) -> None:

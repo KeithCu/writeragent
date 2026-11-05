@@ -770,14 +770,15 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
             log.debug("Failed to inspect trailing paragraph: %s", e)
 
     try:
-        err = commit_or_rollback(model, title, mutate)
+        outcome = commit_or_rollback(model, title, mutate)
     except UndoUnavailable:
         raise ToolExecutionError("Could not enter undo context for header/footer import.")
 
-    if err is not None and err.get("code") == "ROLLBACK_FAILED":
+    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
         raise ToolExecutionError(
-            f"the header/footer was written and could not be rolled back: {err.get('message')}"
+            f"the header/footer was written and could not be rolled back: {outcome.error.get('message')}"
         )
+    outcome.raise_mutate_error()
 
 
 def content_has_markup(content: str | None) -> bool:

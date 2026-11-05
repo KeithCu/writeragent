@@ -25,7 +25,7 @@ _SECRET_HEADER_NAMES = frozenset({"authorization", "x-api-key", "api-key", "x-go
 # Query keys that carry credentials. ``output_modalities`` is not one of these.
 _SECRET_QUERY_KEYS = frozenset({"api_key", "apikey", "api-key", "key", "token", "access_token"})
 # urllib followed these. 304/300 are not automatic hops.
-_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 def redact_secrets(text: str, secrets: list[str] | None) -> str:
@@ -146,7 +146,7 @@ def _origin_key(url: str) -> tuple[str, str, int]:
 
 
 
-def _apply_redirect(  # pyright: ignore[reportUnusedFunction]
+def apply_redirect(
     method: str,
     body: Any,
     headers: dict[str, str],

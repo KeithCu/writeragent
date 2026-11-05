@@ -261,3 +261,82 @@ def test_load_vec_extension_names_pysqlite3_when_loader_missing():
 
     with pytest.raises(ImportError, match="pysqlite3"):
         embeddings_sqlite._load_vec_extension(_Conn())
+
+
+def test_stored_model_dim_reads_metadata(tmp_path):
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, dim=8, with_vec=True, model="m1")
+        conn.execute(
+            "INSERT OR REPLACE INTO model_metadata (embedding_model, dim, updated_at) VALUES (?, ?, ?)",
+            ("m1", 8, 1.0),
+        )
+        conn.commit()
+        assert embeddings_sqlite.stored_model_dim(conn, "m1") == 8
+        assert embeddings_sqlite.stored_model_dim(conn, "missing") is None
+    finally:
+        conn.close()
+
+
+def test_missing_vector_chunks_with_and_without_vec_table(tmp_path):
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
+        conn.execute(
+            """
+            INSERT INTO chunks (
+                doc_url, para_index, char_start, char_end, content_hash, file_mtime, body
+            ) VALUES ('file:///a.odt', 0, 0, 5, 'h1', 1.0, 'hello')
+            """
+        )
+        conn.commit()
+        all_missing = embeddings_sqlite.missing_vector_chunks(conn, "m1")
+        assert len(all_missing) == 1
+        assert all_missing[0]["text"] == "hello"
+
+        embeddings_sqlite.ensure_schema(conn, dim=4, with_vec=True, model="m1")
+        chunk = {
+            "doc_url": "file:///b.odt",
+            "para_index": 0,
+            "char_start": 0,
+            "char_end": 5,
+            "content_hash": "h2",
+            "text": "world",
+            "file_mtime": 2.0,
+        }
+        embeddings_sqlite.upsert_chunk_with_vector(
+            conn,
+            chunk,
+            [1.0, 0.0, 0.0, 0.0],
+            model="m1",
+            with_fts=False,
+            with_vec=True,
+        )
+        conn.commit()
+        gaps = embeddings_sqlite.missing_vector_chunks(conn, "m1")
+        assert len(gaps) == 1
+        assert gaps[0]["doc_url"] == "file:///a.odt"
+        assert embeddings_sqlite.has_missing_vector_chunks(conn, "m1") is True
+        embeddings_sqlite.ensure_schema(conn, dim=4, with_vec=True, model="m1")
+        embeddings_sqlite.upsert_chunk_with_vector(
+            conn,
+            {
+                "doc_url": "file:///a.odt",
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 5,
+                "content_hash": "h1",
+                "text": "hello",
+                "file_mtime": 1.0,
+            },
+            [1.0, 0.0, 0.0, 0.0],
+            model="m1",
+            with_fts=False,
+            with_vec=True,
+        )
+        conn.commit()
+        assert embeddings_sqlite.has_missing_vector_chunks(conn, "m1") is False
+    finally:
+        conn.close()

@@ -69,7 +69,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `distribute_shapes` | `shapes` | `draw/shapes.py` | Evenly space shapes along an axis | Drawing+Presentation |
 | `create_diagram` | `shapes` | `draw/shapes.py` | Batch nodes + connectors (flowchart) | Drawing+Presentation |
 | `image_insert` / `image_list` / `image_delete` / `image_generate` | `images` | `writer/images/images.py` | Same image tools as Writer/Calc; Draw/Impress uses millimetres (`page`, `x_mm`, `y_mm`) | Drawing+Presentation |
-| `table_insert` / `table_delete` / `table_list` / `table_get_cells` / `table_set_cell` / `manage_table_structure` | `tables` | `writer/specialized/tables.py` + `draw/tables.py` | Same names as Writer; Draw uses TableShape | Drawing+Presentation |
+| `table_insert` / `table_delete` / `table_list` / `table_get_cells` / `table_set_cell` / `table_manage_structure` | `tables` | `writer/specialized/tables.py` + `draw/tables.py` | Same names as Writer; Draw uses TableShape | Drawing+Presentation |
 | `get_slide_transition` | `slide_transitions` | `draw/transitions.py` | Get transition effect/speed/duration | Presentation |
 | `set_slide_transition` | `slide_transitions` | `draw/transitions.py` | Set transition effect/speed/duration | Presentation |
 | `get_slide_layout` | `slide_layouts` | `draw/transitions.py` | Get current slide layout | Presentation |
@@ -81,7 +81,7 @@ These are available only via `delegate_to_specialized_draw_toolset`:
 | `set_speaker_notes` | `speaker_notes` | `draw/notes.py` | Set speaker notes (Impress) | Presentation |
 | `get_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
 | `set_headers_footers` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
-| `manage_charts` | `charts` | `draw/charts.py` | Unified charts CRUD | Drawing+Presentation |
+| `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | `charts` | `draw/charts.py` | Charts CRUD (four tools) | Drawing+Presentation |
 | `form_*` (6 tools) | `forms` | `writer/specialized/forms.py` | Live ControlShape widgets (name-addressable; checkbox/radio State) | Drawing+Presentation+Spreadsheet+Text |
 | `insert_math` | `math` | `math_insert.py` | Insert LibreOffice Math (OLE) from LaTeX or MathML | Drawing+Presentation |
 | `WebResearchTool` | `web_research` | `web_research.py` | Web search for context | All |
@@ -177,7 +177,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Themes** | ❌ No Theme API | — | M0′: master `XTheme.getColorSet` is a palette hook, **not** apply-design. No list/apply theme wrappers. See [M0′ results](impress-lo-first-m0-probe-results.md). |
 | **Templates / design** | ✅ current-doc only | `list_designs`, `apply_design` | `apply_design` Hidden-opens the listed `.otp`, **clones** its master into the **open** deck (`createInstance` + add + Size/Position after add; Graphic via `Graphic`), then assigns `page.MasterPage` to every slide. Does **not** open a new presentation (a second Impress window would spawn a fresh sidebar agent). Does **not** use the system clipboard — headed #791 DiaMode Paste pulled desktop junk and imported no master. Create-from-template (`loadComponentFromURL` + `AsTemplate`) remains an **internal/test helper** (`create_presentation_from_design`); start from a blank deck or File→Templates, then `list_designs` → `apply_design`. **`list_designs` adds a short `look` string** derived from the `.otp` ZIP (`Thumbnails/thumbnail.png`, `Pictures/`, `styles.xml` fallback) so small models can pick dark/tech vs candy/illustrated. Do **not** use `.uno:PresentationLayout` PropertyValues (SDI empty; silent no-op) or DiaMode Copy/Paste. Partial slide assignments roll back and report slides updated/restored. When apply succeeds with partial chrome, the message notes how many chrome shapes imported. The result includes `source_master` and `selection`; a fallback warning names the master when several untitled masters tie. Draw → not-Impress. |
 | **Headers/Footers (specialized)** | ✅ Complete | 2 tools | `get_headers_footers`, `set_headers_footers` (Impress only) |
-| **Tables** | ✅ | same names as Writer | `table_insert`, `table_delete`, list/get/set, `manage_table_structure` on TableShape |
+| **Tables** | ✅ | same names as Writer | `table_insert`, `table_delete`, list/get/set, `table_manage_structure` on TableShape |
 | **3D Shapes** | ❌ Missing | — | 3D objects and scenes |
 | **Guides/Grid** | ❌ Missing | — | Snap settings, custom guides |
 | **OCR** | ❌ Missing | — | Text from images |
@@ -396,14 +396,14 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 |--------|-------|---------|
 | `shapes` | `shape_upsert`, `fill_draw_fields`, `create_diagram`, `align_shapes`, `distribute_shapes`, `shape_connect`, `shape_group` | Vector graphics, flowcharts, paper-form fill |
 | `images` | `image_insert`, `image_list`, `image_delete`, `image_generate` (`source_image='selection'` edits in place) | Images on slides (millimetres) |
-| `tables` | `table_insert`, `table_delete`, `table_list`, `table_get_cells`, `table_set_cell`, `manage_table_structure` | Slide tables |
+| `tables` | `table_insert`, `table_delete`, `table_list`, `table_get_cells`, `table_set_cell`, `table_manage_structure` | Slide tables |
 | `animations` | `get_animations`, `set_animations`, `add_animation` | Element entrance/motion builds |
 | `slide_transitions` | `get_slide_transition`, `set_slide_transition` | Slide-to-slide advance effects |
 | `slide_layouts` | `get_slide_layout`, `set_slide_layout` | Impress slide layouts |
 | `slide_masters` | `list_master_slides`, `get_slide_master`, `set_slide_master` | Presentation templates |
 | `speaker_notes` | `get_speaker_notes`, `set_speaker_notes` | Presenter talking points |
 | `headers_footers` | `get_headers_footers`, `set_headers_footers` | Page numbers, dates, footers |
-| `charts` | `manage_charts` | Data visualizations |
+| `charts` | `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | Data visualizations |
 | `media` | `insert_audio`, `insert_video`, `control_media` | Multimedia presentations |
 | `export` | `export_pdf`, `export_image`, `export_video` | Document output |
 

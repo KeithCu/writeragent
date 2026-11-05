@@ -30,7 +30,9 @@ from typing import Any, Generator
 from compute_service import error_codes as ec
 from compute_service.config import ComputeSettings
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, validate_session_id
-from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, Deadline, PoolSingleton, error_dict, resolve_override
+from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, resolve_override
+from plugin.framework.child_runtime import Deadline
+from plugin.framework.warm_child import error_dict
 from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
 log = logging.getLogger("compute_service.formula")
@@ -273,7 +275,7 @@ class FormulaProcessPool(BaseProcessPool):
         try:
             validate_session_id(session_id)
         except ExecuteRequestError as exc:
-            return {"status": "error", "code": ec.INVALID_REQUEST, "error": str(exc)}
+            return error_dict(ec.INVALID_REQUEST, str(exc))
 
         with self._session_gate(session_id):
             with self._cond:
@@ -287,7 +289,7 @@ class FormulaProcessPool(BaseProcessPool):
 
             with self.leased(worker, timeout_sec=timeout_sec) as leased:
                 if leased is None:
-                    return {"status": "error", "code": ec.WORKER_POOL_BUSY, "error": "Could not lease worker to reset session."}
+                    return error_dict(ec.WORKER_POOL_BUSY, "Could not lease worker to reset session.")
                 res = leased.execute({"action": "reset_session", "session_id": session_id}, timeout_sec=timeout_sec)
                 # A non-ok reset can mean the worker still holds the namespace.
                 if res.get("status") == "ok":

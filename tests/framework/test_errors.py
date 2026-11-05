@@ -205,7 +205,7 @@ class TestErrorHandling:
     def test_http_status_message_matches_urllib_and_client_response(self):
         import urllib.error
         from email.message import Message
-        from plugin.framework.client.errors import _format_http_error_response
+        from plugin.framework.client.errors import format_http_error_response
         from plugin.framework.errors import format_error_message, http_status_message
 
         for status in (401, 403, 404, 429):
@@ -213,7 +213,7 @@ class TestErrorHandling:
             assert msg is not None
             http_err = urllib.error.HTTPError("http://example.com", status, "Error", Message(), None)
             assert format_error_message(http_err) == msg
-            assert _format_http_error_response(status, "Error", "") == msg
+            assert format_http_error_response(status, "Error", "") == msg
 
         assert http_status_message(500) is None
         assert http_status_message(200) is None
@@ -801,6 +801,33 @@ def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
     assert exc_info.value.object_type == "TextRange"
     with pytest.raises(KeyboardInterrupt):
         uno_read(boom(KeyboardInterrupt()), None)
+
+
+def test_uno_write_false_on_runtime_and_reraises_original_disposal(caplog):
+    import logging
+
+    from plugin.framework.errors import DocumentDisposedError, uno_write
+
+    class DisposedException(Exception):
+        pass
+
+    assert uno_write(lambda: None) is True
+    with caplog.at_level(logging.DEBUG, logger="writeragent.errors"):
+        assert uno_write(lambda: (_ for _ in ()).throw(RuntimeError("bridge"))) is False
+    assert not caplog.records
+
+    disposed_exc = DisposedException("dead")
+    with pytest.raises(DisposedException) as exc_info:
+        uno_write(lambda: (_ for _ in ()).throw(disposed_exc))
+    assert exc_info.value is disposed_exc
+
+    doc_disposed = DocumentDisposedError("closed")
+    with pytest.raises(DocumentDisposedError) as exc_info:
+        uno_write(lambda: (_ for _ in ()).throw(doc_disposed))
+    assert exc_info.value is doc_disposed
+
+    with pytest.raises(KeyboardInterrupt):
+        uno_write(lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
 
 
 def test_format_error_message_urlerror_ssl_is_tls():

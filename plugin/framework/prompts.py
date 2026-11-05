@@ -83,7 +83,7 @@ def attach_sheets_create_completion_instruction(payload: dict[str, Any], *, crea
     """Attach create≠populate ``instruction`` on the payload the outer reads.
 
     Same field as web research (`instruction`). Use after a sheets specialized hop
-    when ``create_sheet`` ran, an inner tool result already carried ``instruction``,
+    when ``sheet_create`` ran, an inner tool result already carried ``instruction``,
     or the finish text reports a new empty sheet.
     """
     if payload.get("status") != "ok":
@@ -402,7 +402,7 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 - record: edits ARE applied as tracked changes pending accept/reject; you will NOT be told the later outcome.
 - wait: edits apply as tracked changes and the tool blocks until the user finishes reviewing (or a timeout); the result reports what was accepted or rejected.
 - apply_document_content's RESULT carries that call's review state (record: review_mode / pending_review; wait: a review field with the outcome) — trust the latest result, since the user can switch modes mid-session.
-- In record and wait, NEVER accept or reject changes yourself (no manage_tracked_changes accept/reject) — resolving redlines is the user's decision.
+- In record and wait, NEVER accept or reject changes yourself (no tracking_manage accept/reject) — resolving redlines is the user's decision.
 - When reading, get_document_content lists pending changes under tracked_changes — they are pending review, not errors to fix."""
 
 
@@ -536,7 +536,7 @@ Python on sheet data: write_formula_range of =PY (that tool's description).
 FORMULAS:
 Write one ordinary formula into a 1-column (or 1-row) destination — write_formula_range fill-down adjusts relative refs ($ stays absolute).
 SORT:
-Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
+Do delegate_to_specialized_calc_toolset(domain="ranges") then range_sort to reorder rows (multi-key sorts are two stable one-column passes) because rewriting values by hand loses the header row.
 When row 1 is labels, pass has_header=true — otherwise labels sort as values."""
 
 

@@ -21,7 +21,7 @@ from plugin.tests.testing_utils import with_native_doc
 
 
 def _exec_tool(doc, ctx, name, args):
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     from plugin.framework.tool import ToolContext
     
     active_idx = _active_draw_page_index(doc)
@@ -485,7 +485,7 @@ def test_shape_upsert_edit_by_name(ctx, doc):
 
 @native_test
 def test_shape_upsert_validation():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     shape_upsert_tool = get_tools().get("shape_upsert")
     assert shape_upsert_tool is not None
 

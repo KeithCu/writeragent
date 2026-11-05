@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, Callable
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import uno
 
@@ -20,7 +20,8 @@ from plugin.framework.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, uno_read, user_stopped_payload
-from plugin.framework.uno_context import resolve_document_by_url
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.uno_context import enum_has_more, resolve_document_by_url
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
 if TYPE_CHECKING:
@@ -262,7 +263,7 @@ def _scan_directory(
     filter_substring: str | None,
     exclude_path: str | None,
     open_paths: dict[str, str],
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[FileEntry], bool]:
     exclude_norm = _normalize_path(exclude_path) if exclude_path else None
     filter_lower = filter_substring.lower() if filter_substring else None
@@ -274,7 +275,7 @@ def _scan_directory(
 
     entries: list[FileEntry] = []
     for idx, name in enumerate(names):
-        if idx % 50 == 0 and stop_checker and stop_checker():
+        if idx % 50 == 0 and is_cancelled(cancel):
             raise InterruptedError("USER_STOPPED")
         if _should_skip_filename(name):
             continue
@@ -386,7 +387,7 @@ def list_nearby_files(
     exclude_path: Any = _USE_DEFAULT,
     open_paths: Any = _USE_DEFAULT,
     listing_root: Any = _USE_DEFAULT,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """List nearby files for the outer document_research agent.
 
@@ -430,7 +431,7 @@ def list_nearby_files(
                 filter_substring=filter,
                 exclude_path=exclude_path,
                 open_paths=open_paths,
-                stop_checker=stop_checker,
+                cancel=cancel,
             )
             return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root}
         except InterruptedError:
@@ -662,8 +663,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     # this from list_v1_peers / chat prompts with ctx=MagicMock().
     while enum is not None:
         try:
-            more = enum.hasMoreElements()
-            if more is not True and more != 1:
+            if not enum_has_more(enum):
                 break
             elem = enum.nextElement()
         except Exception as exc:

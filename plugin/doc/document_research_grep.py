@@ -30,6 +30,7 @@ from plugin.calc.spreadsheet_search import search_spreadsheet_cells
 from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph_texts
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.framework.errors import uno_read, user_stopped_payload
+from plugin.framework.send_cancellation import SendCancelled, SendCancellation, is_cancelled
 
 log = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ def resolve_grep_candidates(
     exclude_path: Any = _USE_DEFAULT,
     open_paths: Any = _USE_DEFAULT,
     listing_root: Any = _USE_DEFAULT,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[FileEntry], bool, str | None]:
     """Return (candidates, truncated_files, error_message).
 
@@ -89,7 +90,7 @@ def resolve_grep_candidates(
         exclude_path=exclude_path,
         open_paths=open_paths,
         listing_root=listing_root,
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
     if listing.get("status") != "ok":
         if listing.get("code") == "USER_STOPPED":
@@ -115,7 +116,7 @@ def _grep_text_in_writer(
     regex: bool = False,
     case_sensitive: bool = False,
     max_results: int,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     doc_svc = services.document
     para_ranges = doc_svc.get_paragraph_ranges(model)
@@ -125,7 +126,7 @@ def _grep_text_in_writer(
     # this is the same helper other reads use. The search is already on
     # the main thread.
     for para in para_ranges:
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             break
         if para.supportsService("com.sun.star.text.Paragraph"):
             para_texts.append(get_string_without_tracked_deletions(para))
@@ -139,7 +140,7 @@ def _grep_text_in_writer(
             para_texts.append("")
 
     # Bugfix: Stop was ignored for the whole Writer extract and for the
-    # paragraph scan. stop_checker was on the signature but never called,
+    # paragraph scan. cancel was on the signature but never polled,
     # and search_paragraph_texts never received it, so a large document
     # finished getString and the match walk before grep_nearby_files could
     # return USER_STOPPED. The outer file loop still decides USER_STOPPED:
@@ -152,7 +153,7 @@ def _grep_text_in_writer(
         case_sensitive=case_sensitive,
         max_results=max_results,
         context_paragraphs=2,  # Always include 2 paragraphs of context for Writer matches
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
     for match in matches:
         match["text"] = _snippet(match["text"])
@@ -163,7 +164,7 @@ def _grep_text_in_writer(
     # Calc and Draw already set match_count to the returned length. Writer
     # now does too. partial is true when another hit exists past the returned matches,
     # or when Stop cut extraction or the scan.
-    partial = truncated or bool(stop_checker and stop_checker())
+    partial = truncated or is_cancelled(cancel)
     return matches, partial
 
 
@@ -174,10 +175,10 @@ def _grep_text_in_calc(
     regex: bool = False,
     case_sensitive: bool = False,
     max_results: int,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     # search_spreadsheet_cells stops at max_results with no truncated flag,
-    # and search_in_spreadsheet still needs the list. One extra hit
+    # and search_cells still needs the list. One extra hit
     # distinguishes a full cap from a short sheet. partial here is truncation only.
     fetched = search_spreadsheet_cells(
         model,
@@ -186,7 +187,7 @@ def _grep_text_in_calc(
         case_sensitive=case_sensitive,
         max_results=max_results + 1,
         all_sheets=True,
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
     partial = len(fetched) > max_results
     return fetched[:max_results], partial
@@ -216,7 +217,7 @@ def _grep_text_in_draw(
     regex: bool = False,
     case_sensitive: bool = False,
     max_results: int,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     compiled = compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
 
@@ -229,7 +230,7 @@ def _grep_text_in_draw(
 
     scan_limit = max_results + 1
     for page_idx in range(page_count):
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             partial = True
             break
         if len(matches) >= scan_limit or shapes_visited >= _DRAW_GREP_SHAPE_CAP:
@@ -250,7 +251,7 @@ def _grep_text_in_draw(
             compiled=compiled,
             max_results=remaining,
             shapes_visited=shapes_visited,
-            stop_checker=stop_checker,
+            cancel=cancel,
         )
         matches.extend(page_matches)
         partial = partial or page_partial
@@ -274,7 +275,7 @@ def _grep_shapes_on_page(
     max_results: int,
     shapes_visited: int,
     path_prefix: str = "",
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], int, bool]:
     matches: list[dict[str, Any]] = []
     partial = False
@@ -282,7 +283,7 @@ def _grep_shapes_on_page(
     count = xshapes.getCount()
 
     for i in range(count):
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             partial = True
             break
         if len(matches) >= max_results or shapes_visited >= _DRAW_GREP_SHAPE_CAP:
@@ -309,7 +310,7 @@ def _grep_shapes_on_page(
                 max_results=max_results - len(matches),
                 shapes_visited=shapes_visited,
                 path_prefix=f"{shape_path}.",
-                stop_checker=stop_checker,
+                cancel=cancel,
             )
             matches.extend(group_matches)
             if group_partial:
@@ -327,7 +328,7 @@ def _search_one_file(
     regex: bool,
     case_sensitive: bool,
     max_results: int,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], str | None, bool, str | None]:
     """Open, search, and close one file in one main-thread hop.
 
@@ -346,7 +347,7 @@ def _search_one_file(
                 regex=regex,
                 case_sensitive=case_sensitive,
                 max_results=max_results,
-                stop_checker=stop_checker,
+                cancel=cancel,
             )
         elif doc_type == "calc":
             matches, partial = _grep_text_in_calc(
@@ -355,7 +356,7 @@ def _search_one_file(
                 regex=regex,
                 case_sensitive=case_sensitive,
                 max_results=max_results,
-                stop_checker=stop_checker,
+                cancel=cancel,
             )
         elif doc_type == "draw":
             matches, partial = _grep_text_in_draw(
@@ -364,7 +365,7 @@ def _search_one_file(
                 regex=regex,
                 case_sensitive=case_sensitive,
                 max_results=max_results,
-                stop_checker=stop_checker,
+                cancel=cancel,
             )
         else:
             return [], doc_type, False, f"Unsupported doc_type {doc_type!r} for grep"
@@ -385,7 +386,7 @@ def grep_nearby_files(
     file_subset: str | None = None,
     regex: bool = False,
     case_sensitive: bool = False,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
     """Search nearby LibreOffice files for *pattern*; return aggregated hits with snippets."""
@@ -405,14 +406,13 @@ def grep_nearby_files(
     subset_norm = str(file_subset).strip() if file_subset else None
 
     from plugin.framework.queue_executor import main
-    from plugin.framework.send_cancellation import SendCancelled
 
     try:
         candidates, truncated_files, list_err = resolve_grep_candidates(
             ctx,
             active_model,
             file_subset=subset_norm,
-            stop_checker=stop_checker,
+            cancel=cancel,
         )
     except InterruptedError:
         return user_stopped_payload()
@@ -427,7 +427,7 @@ def grep_nearby_files(
     files_scanned = 0  # Files we attempted to open; a failed open still counts.
 
     for idx, entry in enumerate(candidates):
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             return user_stopped_payload()
 
         path = entry["path"]
@@ -454,7 +454,7 @@ def grep_nearby_files(
                 regex=regex,
                 case_sensitive=case_sensitive,
                 max_results=per_file_limit,
-                stop_checker=stop_checker,
+                cancel=cancel,
             )
         except SendCancelled:
             return user_stopped_payload()
@@ -463,7 +463,7 @@ def grep_nearby_files(
             errors.append({"path": path, "message": str(exc)})
             continue
 
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             return user_stopped_payload()
 
         if file_err or doc_type is None:

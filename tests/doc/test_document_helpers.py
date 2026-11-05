@@ -1,10 +1,10 @@
 """resolve_locator must not turn an unresolved writer locator into paragraph 0."""
 
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import plugin.app as app
 from plugin.doc.document_helpers import (
     DocumentService,
     get_document_context_for_chat,
@@ -206,14 +206,15 @@ def test_registered_writer_tree_is_the_resolver(monkeypatch):
 
     services = MagicMock()
     services.get.return_value = _Tree()
-    main = type(sys)("plugin.main")
-    main._services = services
-    monkeypatch.setitem(sys.modules, "plugin.main", main)
-
-    hit = resolve_locator(WriterDocStub([ElementStub("a")]), "section:Body")
-    assert hit["para_index"] == 9
-    assert calls["args"] == ("section", "Body")
-    services.get.assert_called_with("writer_tree")
+    prev_services = app._services
+    app._services = services
+    try:
+        hit = resolve_locator(WriterDocStub([ElementStub("a")]), "section:Body")
+        assert hit["para_index"] == 9
+        assert calls["args"] == ("section", "Body")
+        services.get.assert_called_with("writer_tree")
+    finally:
+        app._services = prev_services
 
 
 class _PosPara:
@@ -319,15 +320,16 @@ def test_live_bookmark_uses_the_tree_resolver(monkeypatch):
 
     services = MagicMock()
     services.get.return_value = _Tree()
-    main = type(sys)("plugin.main")
-    main._services = services
-    monkeypatch.setitem(sys.modules, "plugin.main", main)
-
-    bookmarks = _Bookmarks(["here"], {"here": object()})
-    doc = _BookmarkDoc([ElementStub("Alpha", outline_level=1)], bookmarks)
-    hit = resolve_locator(doc, "bookmark:here")
-    assert hit["para_index"] == 4
-    assert calls["args"] == ("bookmark", "here")
+    prev_services = app._services
+    app._services = services
+    try:
+        bookmarks = _Bookmarks(["here"], {"here": object()})
+        doc = _BookmarkDoc([ElementStub("Alpha", outline_level=1)], bookmarks)
+        hit = resolve_locator(doc, "bookmark:here")
+        assert hit["para_index"] == 4
+        assert calls["args"] == ("bookmark", "here")
+    finally:
+        app._services = prev_services
 
 
 def test_bookmark_on_first_paragraph_still_resolves():

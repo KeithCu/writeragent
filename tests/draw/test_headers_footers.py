@@ -24,37 +24,33 @@ class TestGetPage:
         from unittest.mock import MagicMock, patch
         import pytest
         from plugin.draw.headers_footers import _get_page
-        from plugin.framework.errors import format_error_payload, WriterAgentException
+
+        from plugin.framework.errors import ToolExecutionError
 
         ctx = MagicMock()
         mock_pages = MagicMock()
         mock_pages.getCount.return_value = 3
         with patch("plugin.draw.headers_footers.DrawBridge") as mock_bridge_cls:
-            mock_bridge_cls.return_value.get_pages.return_value = mock_pages
-            with pytest.raises(WriterAgentException) as exc_info:
+            mock_bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index -1 out of range.")
+            with pytest.raises(ToolExecutionError) as exc_info:
                 _get_page(ctx, -1, is_master_page=False)
-            payload = format_error_payload(exc_info.value)
-            assert payload["code"] == "INVALID_INDEX"
-            assert "out of bounds" in payload["message"]
-            assert "2" in payload["message"]
+            assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
+            assert str(exc_info.value) == "Page index -1 out of range."
 
     def test_index_out_of_bounds_at_or_above_count(self):
         from unittest.mock import MagicMock, patch
         import pytest
         from plugin.draw.headers_footers import _get_page
-        from plugin.framework.errors import format_error_payload, WriterAgentException
+
+        from plugin.framework.errors import ToolExecutionError
 
         ctx = MagicMock()
-        mock_pages = MagicMock()
-        mock_pages.getCount.return_value = 3
         with patch("plugin.draw.headers_footers.DrawBridge") as mock_bridge_cls:
-            mock_bridge_cls.return_value.get_pages.return_value = mock_pages
-            with pytest.raises(WriterAgentException) as exc_info:
+            mock_bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 3 out of range.")
+            with pytest.raises(ToolExecutionError) as exc_info:
                 _get_page(ctx, 3, is_master_page=False)
-            payload = format_error_payload(exc_info.value)
-            assert payload["code"] == "INVALID_INDEX"
-            assert "out of bounds" in payload["message"]
-            assert "2" in payload["message"]
+            assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
+            assert str(exc_info.value) == "Page index 3 out of range."
 
     def test_master_page_is_none(self):
         from unittest.mock import MagicMock, patch
@@ -69,7 +65,7 @@ class TestGetPage:
         mock_slide.MasterPage = None
         mock_pages.getByIndex.return_value = mock_slide
         with patch("plugin.draw.headers_footers.DrawBridge") as mock_bridge_cls:
-            mock_bridge_cls.return_value.get_pages.return_value = mock_pages
+            mock_bridge_cls.return_value.resolve_page.return_value = (mock_slide, 0)
             with pytest.raises(WriterAgentException) as exc_info:
                 _get_page(ctx, 0, is_master_page=True)
             payload = format_error_payload(exc_info.value)
@@ -90,7 +86,7 @@ class TestGetPage:
         type(mock_slide).MasterPage = PropertyMock(side_effect=cause)
         mock_pages.getByIndex.return_value = mock_slide
         with patch("plugin.draw.headers_footers.DrawBridge") as mock_bridge_cls:
-            mock_bridge_cls.return_value.get_pages.return_value = mock_pages
+            mock_bridge_cls.return_value.resolve_page.return_value = (mock_slide, 0)
             with pytest.raises(WriterAgentException) as exc_info:
                 _get_page(ctx, 0, is_master_page=True)
             payload = format_error_payload(exc_info.value)
@@ -113,7 +109,7 @@ class TestGetPage:
         type(mock_slide).MasterPage = PropertyMock(side_effect=DisposedException("page disposed"))
         mock_pages.getByIndex.return_value = mock_slide
         with patch("plugin.draw.headers_footers.DrawBridge") as mock_bridge_cls:
-            mock_bridge_cls.return_value.get_pages.return_value = mock_pages
+            mock_bridge_cls.return_value.resolve_page.return_value = (mock_slide, 0)
             with pytest.raises(DisposedException) as exc_info:
                 _get_page(ctx, 0, is_master_page=True)
             assert not isinstance(exc_info.value, WriterAgentException)
@@ -290,8 +286,10 @@ def _run_set(pages, **args):
     from plugin.draw.headers_footers import SetHeadersFooters
 
     ctx = SimpleNamespace(doc=_FakeDoc())
+    page_idx = int(args.get("page", 0))
+    slide = pages.getByIndex(page_idx)
     with patch("plugin.draw.headers_footers.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value = pages
+        bridge_cls.return_value.resolve_page.return_value = (slide, page_idx)
         return SetHeadersFooters().execute(ctx, **args)
 
 
@@ -381,15 +379,15 @@ def test_get_page_empty_deck_message():
     from types import SimpleNamespace
     from unittest.mock import patch
     from plugin.draw.headers_footers import _get_page
-    from plugin.framework.errors import WriterAgentException
+    from plugin.framework.errors import ToolExecutionError
 
     ctx = SimpleNamespace(doc=_FakeDoc())
     with patch("plugin.draw.headers_footers.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value = _FakePages([])
-        with pytest.raises(WriterAgentException) as exc_info:
+        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 0 out of range.")
+        with pytest.raises(ToolExecutionError) as exc_info:
             _get_page(ctx, 0, is_master_page=False)
-        assert exc_info.value.code == "INVALID_INDEX"
-        assert "no slides" in str(exc_info.value)
+        assert exc_info.value.code == "TOOL_EXECUTION_ERROR"
+        assert str(exc_info.value) == "Page index 0 out of range."
 
 
 def test_set_text_ordinary_failure_returns_false():

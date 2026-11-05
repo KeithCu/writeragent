@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from plugin.embeddings.venv.embeddings_ingest_graph import delete_stale, embed_and_upsert_batches
-from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
+from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count, ensure_schema
 
 
 def _pysqlite3_shaped_module(monkeypatch) -> str:
@@ -240,6 +240,52 @@ def test_embed_and_upsert_batches_calls_embed_in_windows(tmp_path, monkeypatch):
     conn = connect_corpus_db(db_path)
     try:
         assert corpus_chunk_count(conn) == 5
+    finally:
+        conn.close()
+
+
+def test_embed_fts_only_does_not_reupsert_orphan_chunks_without_vectors(tmp_path):
+    """FTS-only ingest must not pull every chunk row when no vec table exists."""
+    db_path = tmp_path / "corpus.db"
+    meta_path = tmp_path / "corpus_meta.json"
+    meta_path.write_text('{"embedding_model": "test-model"}', encoding="utf-8")
+
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=True, with_vec=False)
+        conn.execute(
+            """
+            INSERT INTO chunks (
+                doc_url, para_index, char_start, char_end, content_hash, file_mtime, body
+            ) VALUES ('file:///orphan.odt', 0, 0, 6, 'old', 1.0, 'legacy')
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    state = {
+        "db_path": str(db_path),
+        "meta_path": str(meta_path),
+        "model": "test-model",
+        "build_fts": True,
+        "build_vectors": False,
+        "chunks": [
+            {
+                "doc_url": "file:///new.odt",
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 3,
+                "content_hash": "n1",
+                "text": "new",
+            }
+        ],
+    }
+    result = embed_and_upsert_batches(state)
+    assert result["upserted"] == 1
+    conn = connect_corpus_db(db_path)
+    try:
+        assert corpus_chunk_count(conn) == 2
     finally:
         conn.close()
 

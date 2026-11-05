@@ -651,7 +651,9 @@ class TestHttpBlobForward:
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
         status, out = _wsgi_post(app, b'{"id":[1],"code":"result = 1"}')
         assert status.startswith("400")
-        assert json.loads(out)["error"] == "id must be a scalar"
+        payload = json.loads(out)
+        assert payload["error"] == "id must be a scalar"
+        assert payload.get("code") == "INVALID_REQUEST"
         content_type, body = _manual_multipart([("meta", b'{"timeout_ms":"5"}'), ("code", b"result = 1")])
         status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("400")
@@ -659,7 +661,9 @@ class TestHttpBlobForward:
         # A malformed body keeps the generic message.
         status, out = _wsgi_post(app, b'{"code":')
         assert status.startswith("400")
-        assert json.loads(out)["error"] == "Invalid JSON"
+        malformed = json.loads(out)
+        assert malformed["error"] == "Invalid JSON"
+        assert malformed.get("code") == "BAD_REQUEST_BODY"
 
     def test_missing_meta_part_is_400(self) -> None:
         def execute_fn(**_kwargs):
@@ -669,7 +673,9 @@ class TestHttpBlobForward:
         content_type, body = _manual_multipart([("code", b"result = 1")])
         status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("400")
-        assert json.loads(out)["error"] == "Invalid multipart execute body"
+        payload = json.loads(out)
+        assert payload["error"] == "Invalid multipart execute body"
+        assert payload.get("code") == "BAD_REQUEST_BODY"
 
     def test_source_byte_cap(self) -> None:
         def execute_fn(**_kwargs):
@@ -1012,7 +1018,7 @@ def test_validate_session_id() -> None:
             validate_session_id(invalid_val)
         assert exc_info.value.code == "INVALID_SESSION_ID"
 
-    for reserved in ("sess:init", "isolated:abc", "foo:init", "isolated:"):
+    for reserved in ("sess:init", "isolated:abc", "foo:init", "isolated:", "calc", "rps"):
         with pytest.raises(ExecuteRequestError) as exc_info:
             validate_session_id(reserved)
         assert exc_info.value.code == "INVALID_SESSION_ID"

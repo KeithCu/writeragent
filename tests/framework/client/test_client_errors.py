@@ -1,6 +1,6 @@
 
 from plugin.framework.client.errors import (
-    _format_http_error_response,
+    format_http_error_response,
     append_zai_unknown_model_hint,
     format_context_window_label,
     is_local_model_server_crash,
@@ -43,7 +43,7 @@ class TestLlamaServerOverflowSentence:
     )
 
     def test_format_names_4k_when_window_known(self):
-        msg = _format_http_error_response(
+        msg = format_http_error_response(
             500, "Internal Server Error", self._CRASH_BODY, context_window=4096
         )
         assert ("Ollama/llama.cpp") in (msg)
@@ -54,14 +54,14 @@ class TestLlamaServerOverflowSentence:
         assert ("{'status'") not in (msg)
 
     def test_format_without_window_still_explains_overflow(self):
-        msg = _format_http_error_response(500, "Internal Server Error", self._CRASH_BODY)
+        msg = format_http_error_response(500, "Internal Server Error", self._CRASH_BODY)
         assert (msg) == (local_model_overflow_message())
         assert ("too-small context") in (msg)
         assert ("HTTP Error 500") not in (msg)
 
     def test_generic_500_keeps_provider_detail(self):
         body = '{"error":{"message":"boom"}}'
-        msg = _format_http_error_response(500, "Internal Server Error", body)
+        msg = format_http_error_response(500, "Internal Server Error", body)
         assert ("HTTP Error 500") in (msg)
         assert ("boom") in (msg)
 

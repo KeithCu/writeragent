@@ -133,13 +133,14 @@ def test_get_slide_master_omitted_page_uses_active_page_index():
 
 
 def test_get_slide_master_invalid_page_returns_error():
+    from plugin.framework.errors import ToolExecutionError
+
     m0 = _Master("Default")
     p0 = _Page(m0)
     doc = _Doc(_Masters([m0]), _Masters([p0]))
     ctx = SimpleNamespace(doc=doc, active_page_index=0)
-    res = GetSlideMaster().execute(ctx, page=5)
-    assert res["status"] == "error"
-    assert "Invalid page index: 5" in res["message"]
+    with pytest.raises(ToolExecutionError, match="Page index 5 out of range."):
+        GetSlideMaster().execute(ctx, page=5)
 
 
 def test_set_slide_master_success():

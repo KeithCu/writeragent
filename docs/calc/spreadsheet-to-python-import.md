@@ -165,7 +165,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 | Bulk read values + formulas | [`CellInspector.read_range`](../../plugin/calc/inspector.py) |
 | Bulk write | [`CellManipulator.write_formula_range`](../../plugin/calc/manipulator.py) |
 | `=PY()` parse/rebuild | [`python_formula_edit.py`](../../plugin/calc/python/formula_edit.py) |
-| `data` / `result` contract | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`python_function.py`](../../plugin/calc/python/function.py) |
+| `data` / `result` contract | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`function.py`](../../plugin/calc/python/function.py) |
 | Precedents | [`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py), regex in inspector |
 | Function catalog | [`list_calc_functions`](../../plugin/calc/formulas.py) → `FunctionDescriptions` |
 | Formula pre-eval / oracle | [`evaluate_formula`](../../plugin/calc/formulas.py) (sheet-copy pattern) |
@@ -390,7 +390,7 @@ flowchart TB
 | `get_sheet_summary` | Bounds + headers hint | Dict | 1 |
 | `list_calc_functions` | Filterable catalog | List[dict] | 3 / docs |
 | `evaluate_formula` | Oracle for one cell | Evaluated value | 9 Verify |
-| `detect_and_explain_errors` | Pre-flight errors | Error report | 1 optional |
+| `error_detect` | Pre-flight errors | Error report | 1 optional |
 
 ### Table B — Emission & execution APIs
 
@@ -413,7 +413,7 @@ flowchart TB
 | `write_formula_range` | Agent apply after user confirms |
 | `convert_spreadsheet_to_python` | **New** — full pipeline |
 | `list_calc_functions` | Agent lookup unsupported function |
-| `detect_and_explain_errors` | Pre/post validation |
+| `error_detect` | Pre/post validation |
 | `delegate_to_specialized_calc_toolset` | N/A for v1 |
 
 ### Table D — External libraries (research; not shipped)

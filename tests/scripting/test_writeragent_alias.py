@@ -138,7 +138,7 @@ def test_sandboxed_code_resolves_writeragent_imports():
 def test_writeragent_api_in_process_rpc():
     import writeragent
 
-    with patch("plugin.main.get_tools") as mock_get_tools, \
+    with patch("plugin.app.get_tools") as mock_get_tools, \
          patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, \
          patch("plugin.framework.uno_context.get_active_document") as mock_get_doc, \
          patch("plugin.framework.doc_type.is_calc") as mock_is_calc:
@@ -154,11 +154,11 @@ def test_writeragent_api_in_process_rpc():
 
         set_process_role(ROLE_HOST)
         try:
-            res = writeragent.sheet.list_sheets()
+            res = writeragent.sheet.list()
             assert res == "mocked_sheets_list"
             mock_registry.execute.assert_called_once()
             call_args = mock_registry.execute.call_args[0]
-            assert call_args[0] == "list_sheets"
+            assert call_args[0] == "sheet_list"
             assert call_args[1].__class__.__name__ == "ToolContext"
         finally:
             set_process_role(None)
@@ -172,7 +172,7 @@ def test_venv_worker_bidirectional_tool_call():
         "result = writeragent.bookmark.list()\n"
     )
 
-    with patch("plugin.main.get_tools") as mock_get_tools, \
+    with patch("plugin.app.get_tools") as mock_get_tools, \
          patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, \
          patch("plugin.framework.uno_context.get_active_document") as mock_get_doc, \
          patch("plugin.framework.doc_type.is_calc") as mock_is_calc, \

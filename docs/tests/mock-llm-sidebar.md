@@ -87,7 +87,7 @@ The mock server matches incoming user queries (case-insensitive, first match win
 | `adjacent agent edits` | Calls `apply_document_content` twice for adjacent in-paragraph replacements. |
 | `three agent edits` | Calls `apply_document_content` three times for three separate paragraph edits. |
 | `style tools` | Calls `apply_style` followed by `get_document_tree` in parallel. |
-| `list sheets` / `list pages` | Calls Calc/Draw list tools (`list_sheets` / `list_pages`) when advertised. |
+| `list sheets` / `list pages` | Calls Calc/Draw list tools (`sheet_list` / `list_pages`) when advertised. |
 | `ask the budget workbook` / `add a Total row` / `peer total` | Packet P: outer delegates `document_research`; inner `send_peer_work / send_peer_result` then `specialized_workflow_finished` immediately. Calc envelope → `write_formula_range` then reply via specialized. |
 | `wait after accepted` / `do not finish peer` | Packet P hang lock: inner sends then never finishes (peer does not start). |
 | `crash the stream` / `error 500` | Returns HTTP 500 JSON error payload. |
@@ -125,7 +125,7 @@ make test-mock-sidebar FILTER=R        # Packet R only (tracking/redlines, overl
 make test-mock-sidebar FILTER=M        # Packet M only (drain, close doc / quit mid-stream)
 make test-mock-sidebar FILTER=p1       # Single peer case
 make test-mock-sidebar FILTER=b13      # Run a single case by ID
-make test-mock-sidebar FILTER=e12      # Calc list_sheets (opens Calc after Writer deck)
+make test-mock-sidebar FILTER=e12      # Calc sheet_list (opens Calc after Writer deck)
 make test-mock-sidebar FILTER=g17      # Calc deck native audio (same open helper as E12)
 make test-mock-sidebar FILTER="B E"    # Run multiple packets
 ```
@@ -185,7 +185,7 @@ Debug test hooks live in [`plugin/chatbot/sidebar_test_hooks.py`](../../plugin/c
 | `press_change()` / `press_reject()` | Fires Stop listener `Change` / `Reject` branch | HITL change / rejection |
 | `approval_active()` | Checks if `_approval_event is not None` | HITL state verification |
 | `execute_debug_sidebar_op("KILL_VENV_WORKER")` | SIGKILLs the live venv worker child inside soffice; snapshot `venv_worker_kills` counts kills | E24 |
-| `execute_debug_sidebar_op("SIMULATE_TERMINATION")` | Calls the real `plugin.main` `XTerminateListener.notifyTermination` without quitting soffice; snapshot `terminate_listener_installed` | M8 |
+| `execute_debug_sidebar_op("SIMULATE_TERMINATION")` | Calls the real `plugin.app._terminate_listener.notifyTermination` without quitting soffice; snapshot `terminate_listener_installed` | M8 |
 | `MockLLMConfig.open_streams` | SSE responses the mock is still writing; drops to 0 only when the stream ends or the client hangs up | M7 / M8 |
 | `install_fake_tts(mode)` / `clear_fake_tts()` | Fake TTS backend lifecycle via state file (`writeragent_fake_tts.json`) and debug ops `FAKE_TTS_HOLD`, `FAKE_TTS_CRASH`, `FAKE_TTS_MISSING`, `FAKE_TTS_OFF`. Test-hook only; production `tts_service` does not read this file | Packet T |
 
@@ -310,7 +310,7 @@ Every test must satisfy:
 | **E9e** | CI | E9 state | Call `press_stop()` ActionEvent | Dispatches Change/Reject branch, NOT `StopSendEffect` | **OK / Landed** |
 | **E10** | CI | Tool follow-up returning 500 | Send tool query | Tool error displayed in transcript; returns to idle; `next_hello_ok()` | **OK / Landed** |
 | **E11** | CI | `insert filler` then `add a comment` | Send as two sequential turns | Both mutations applied; context refreshed between turns; `next_hello_ok()` | **OK / Landed** |
-| **E12** | CI | Calc doc, `list sheets` | `open_calc_document` + Calc deck send | Calc tools advertised; `get_sheet_summary` (or `list_sheets` if specialized is on the wire); HTML wrap-up; Writer session restored | **OK / Landed** |
+| **E12** | CI | Calc doc, `list sheets` | `open_calc_document` + Calc deck send | Calc tools advertised; `get_sheet_summary` (or `sheet_list` if specialized is on the wire); HTML wrap-up; Writer session restored | **OK / Landed** |
 | **E13** | CI | `add_comment` with mock tool delay | Call `press_stop()` during tool execution | Partial/no mutation; not stuck busy; no UI freeze; `next_hello_ok()` | **OK / Landed** |
 | **E14** | CI | `outline this` | Run delegate twice in succession | Nested agent functions repeatedly without stale session leaks; `next_hello_ok()` | **OK / Landed** |
 | **E15** | CI | `insert filler` | Stop after tool result queued, before HTML | Mutation applied; UI returns to idle; no double drain; `next_hello_ok()` | **OK / Landed** |

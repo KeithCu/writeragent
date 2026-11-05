@@ -510,7 +510,7 @@ def test_calc_workflow_warns_large_range_overloads_context():
     assert "create is not populate" in CALC_WORKFLOW
     assert "write_formula_range" in CALC_WORKFLOW
     assert "source" in CALC_WORKFLOW
-    assert "create_sheet makes an empty tab" not in CALC_WORKFLOW
+    assert "sheet_create makes an empty tab" not in CALC_WORKFLOW
 
 
 def test_calc_chat_prompt_includes_context_overload_why():
@@ -920,6 +920,6 @@ def test_sheets_create_completion_instruction_forwards_inner_tool_instruction():
     assert out["instruction"] == custom
     assert "instruction" not in finish
 
-    # Inner instruction wins over the create_sheet fallback.
+    # Inner instruction wins over the sheet_create fallback.
     out2 = attach_sheets_create_completion_instruction(finish, create_sheet_ran=True, tool_results=tool_results)
     assert out2["instruction"] == custom

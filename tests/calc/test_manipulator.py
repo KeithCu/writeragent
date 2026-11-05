@@ -404,11 +404,11 @@ def test_sort_range_bounds_and_valid_types():
         patch("plugin.calc.manipulator.TableSortField", create=True),
     ):
         with pytest.raises(CalcError, match=r"0 to 1"):
-            manipulator.sort_range("A1:B10", sort_column=2)
+            manipulator.range_sort("A1:B10", sort_column=2)
         mock_range.createSortDescriptor.assert_not_called()
 
         mock_range.createSortDescriptor.return_value = []
-        res = manipulator.sort_range("A1:B10", sort_column=0, ascending=True, has_header=True)
+        res = manipulator.range_sort("A1:B10", sort_column=0, ascending=True, has_header=True)
         assert "sorted" in res
         mock_range.sort.assert_called_once()
 

@@ -62,7 +62,7 @@ Writer edits and **all five Calc tasks** fail.
 
 ## Shared with 20b vs Lightning-only
 
-The 20b Calc dest / `sort_range` patches are **shared medicine** and matter
+The 20b Calc dest / `range_sort` patches are **shared medicine** and matter
 **more** here (Lightning failed both Phase F rows; 20b passed them). A Writer
 preserve-tokens line is **not shipped**. `haystack_has` accepts scale
 expansions (`10k` → `10,000`), and `NEMA 4` is not required.
@@ -71,7 +71,7 @@ Summary). `table_from_mess` already passed.
 
 | Patch (from [oss-20b-eval.md](oss-20b-eval.md)) | Help Lightning? |
 |------------------------------------------------|-----------------|
-| Sort via `sort_range`, not in-place `=PY` | **Yes** — 346k-token death spiral |
+| Sort via `range_sort`, not in-place `=PY` | **Yes** — 346k-token death spiral |
 | `=PY` dest outside DataRange even if the user said H1 | **Yes** — both Phase F rows |
 | Relative formulas use *this* row (`Banana` → `B3`) | Weak — it never kept a Tax column |
 | Draw: MUST delegate `domain="shapes"` | **No** — it already created shapes |
@@ -82,13 +82,13 @@ Lightning-only (do not fold these into a 20b-only A/B):
 - TSV/tabs are **columns**, not one string per row.
 - Formulas are `=B2*0.08`, not quoted `"=A2*0.08"`.
 - Do not write tool-result JSON back into cells.
-- Stop after one successful `sort_range` (two stable one-column passes max).
+- Stop after one successful `range_sort` (two stable one-column passes max).
 - Yes/No on flowcharts are **connector labels** to End / Process, not extra ovals.
 - If the exported document still matches the input, the task is not done.
 - Do not delete paragraphs to apply a style; bullets stay bullets with periods;
   keep cross-references when renaming headings.
 
-Realistic shared-prompt outcome: dest + `sort_range` might pick up **2–3 Calc
+Realistic shared-prompt outcome: dest + `range_sort` might pick up **2–3 Calc
 tasks** → ~8–9/17. Flowchart is one `shape_connect` hint away. Do not expect
 the 20b band (12/17) from the 20b patches alone.
 
@@ -117,15 +117,15 @@ is the selective-run row in `benchmark_results_details.json`.
 ### A — shared Calc (test Lightning + 20b + 120b)
 
 Wording in `CALC_CORE_DIRECTIVES` / `CALC_WORKFLOW` and
-`write_formula_range` / `sort_range` descriptions
+`write_formula_range` / `range_sort` descriptions
 ([`plugin/framework/prompts.py`](../../plugin/framework/prompts.py),
 [`plugin/calc/cells.py`](../../plugin/calc/cells.py)):
 
 - Sort / reorder → `delegate_to_specialized_calc_toolset(domain="ranges")` then
-  `sort_range`. Do **not** use `=PY` to sort in place.
+  `range_sort`. Do **not** use `=PY` to sort in place.
 - `=PY` dest is an empty cell **outside** DataRange (J1 / first empty column),
   even if the user asked for H1.
-- `sort_range`: one-column, stable; two-key sorts are two calls.
+- `range_sort`: one-column, stable; two-key sorts are two calls.
 
 Tasks: `py_refuse_overlap`, `py_no_bulk_read`, then `data_sorting`.
 120b must stay pass. 20b must stay pass on the two Phase F rows.
@@ -180,7 +180,7 @@ Optional: OpenRouter Exacto routing for tool-calling accuracy, same caveat.
 - Treat the 429 backup as the model’s score.
 - Run `python run_optimize.py` against the DSPy ReAct Writer program
   (same mismatch as 20b — see [oss-20b-eval.md](oss-20b-eval.md)).
-- Ship Calc dest / `sort_range` wording without 20b + 120b on Phase F and
+- Ship Calc dest / `range_sort` wording without 20b + 120b on Phase F and
   `data_sorting`.
 - Expect 12/17 from the 20b patches alone.
 - Bulk `--generate-golds` before a ranking run.
@@ -190,13 +190,13 @@ Optional: OpenRouter Exacto routing for tool-calling accuracy, same caveat.
 | Recover | Hard pass | Notes |
 |---------|-----------|--------|
 | Both Phase F dest rows | 8/17 ≈ 0.47 | Shared with 20b wording |
-| + `data_sorting` if the loop stops | 9/17 ≈ 0.53 | Shared `sort_range` |
+| + `data_sorting` if the loop stops | 9/17 ≈ 0.53 | Shared `range_sort` |
 | + flowchart edges | 10/17 ≈ 0.59 | Lightning-specific connect hint |
 | + Writer no-ops / bullets / style | 12–14/17 | Unlikely from Calc patches |
 
 ## Open
 
-- [ ] Bucket A: dest + `sort_range` A/B on Lightning, 20b, 120b
+- [ ] Bucket A: dest + `range_sort` A/B on Lightning, 20b, 120b
 - [ ] Bucket B: tax grid literacy if A leaves `tax_column` red
 - [ ] Bucket C: flowchart Yes/No as edge labels; 20b empty-tree check
 - [ ] Bucket D: Writer apply / don’t-destroy lines

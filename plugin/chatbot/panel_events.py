@@ -7,7 +7,7 @@ from plugin.chatbot.panel_resize import _set_pos_size_if_changed
 from plugin.chatbot.send_state import ButtonAction
 from plugin.framework.errors import suppress_disposed
 
-log = logging.getLogger("plugin.chatbot.panel")
+log = logging.getLogger(__name__)
 
 
 def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
@@ -53,7 +53,7 @@ class PanelEventsController:
     def _mcp_subscribe_must_defer() -> bool:
         """True when get_tools() could need bootstrap and this is not the Python main thread."""
         from plugin.framework.queue_executor import MainThread
-        from plugin.main import bootstrap_complete
+        from plugin.app import bootstrap_complete
 
         if bootstrap_complete():
             return False
@@ -69,7 +69,7 @@ class PanelEventsController:
         """Join services.events for mcp:request / mcp:result (may bootstrap; main thread)."""
         if self._panel._panel_teardown:
             return
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         event_bus = getattr(get_tools()._services, "events", None)
         if event_bus:

@@ -12,7 +12,7 @@ The bar is **WriterAgent's mapping** (which `XText`, which range, which tool aft
 
 WriterAgent exposes a large surface area over MCP:
 - **Writer**: 108 tools across core functions and 18 specialized domains (`bookmarks`, `footnotes`, `tables`, `tracking`, `page`, `structural`, `styles`, `shapes`, `charts`, `indexes`, `textframes`, etc.).
-- **Calc**: 61 tools across core functions and 12 specialized domains (`sheets`, `ranges`, `analysis`, `shapes`, `charts`, `comments`, `conditional_formatting`, `errors`, `pivot_tables`, `python`, `search`, etc.).
+- **Calc**: 61 tools across core functions and 12 specialized domains (`sheets`, `ranges`, `analysis`, `shapes`, `charts`, `cell_comments`, `conditional_formatting`, `errors`, `pivot_tables`, `python`, `search`, etc.).
 
 Testing such large surfaces requires:
 1. **Full layout discovery and validation**: Ensuring all tools produce valid MCP JSON schemas (`inputSchema`, normalized parameter types, `document_url` targeting support).

@@ -38,7 +38,7 @@ def schedule_periodic_embeddings_indexer_once(ctx: Any) -> None:
 def _embeddings_periodic_tick(ctx: Any) -> None:
     from plugin.embeddings.embeddings_indexer import enqueue_folder_index
     from plugin.framework.uno_context import get_active_document
-    from plugin.main import get_services
+    from plugin.app import get_services
 
     model = get_active_document(ctx)
     if model is None:

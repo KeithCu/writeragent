@@ -16,16 +16,19 @@ from typing import TYPE_CHECKING, Any, Callable, Literal, Mapping, Protocol
 
 SendOutcome = Literal["ready", "error", "stopped"]
 
-_OUTCOME_TO_TERMINAL: dict[SendOutcome, str] = {
+_OUTCOME_DISPLAY: dict[SendOutcome, str] = {
     "ready": "Ready",
     "error": "Error",
     "stopped": "Stopped",
 }
-_TERMINAL_TO_OUTCOME: dict[str, SendOutcome] = {
-    "Ready": "ready",
-    "Error": "error",
-    "Stopped": "stopped",
-}
+
+
+def _outcome_for_status_text(text: str) -> SendOutcome | None:
+    # FSM STATUS effects still carry English bar text only; map the three terminals until a typed outcome effect exists.
+    for outcome, display in _OUTCOME_DISPLAY.items():
+        if text == display:
+            return outcome
+    return None
 
 if TYPE_CHECKING:
     from plugin.framework.client.llm_client import LlmClient
@@ -62,7 +65,7 @@ from plugin.framework.errors import (
 )
 from plugin.framework.logging import agent_log, update_activity_state
 from plugin.framework.queue_executor import main
-from plugin.framework.send_cancellation import capture_send_stop, is_cancelled
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
@@ -545,12 +548,8 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
                 set_control_text(control, cur + _STOP_LINE)
 
 
-def assign_send_outcome(host: Any, terminal: str) -> None:
-    """Record how this send ended. Empty terminal means an earlier path already explained itself."""
-    if terminal == "":
-        outcome: SendOutcome | None = None
-    else:
-        outcome = _TERMINAL_TO_OUTCOME.get(terminal, "ready")
+def assign_send_outcome(host: Any, outcome: SendOutcome | None) -> None:
+    """Record how this send ended. None means an earlier path already explained itself."""
     turn = current_turn(host)
     if turn is not None:
         turn.outcome = outcome
@@ -567,7 +566,7 @@ def send_outcome_terminal_display(host: Any) -> str:
         oc = getattr(host, "_orphan_send_outcome", None)
     if oc is None:
         return ""
-    return _OUTCOME_TO_TERMINAL[oc]
+    return _OUTCOME_DISPLAY[oc]
 
 
 def send_outcome_is_error(host: Any) -> bool:
@@ -797,6 +796,7 @@ class ToolLoopActionHost(Protocol):
     session: Any
     image_model_selector: Any
     audio_wav_path: str | None
+    _send_cancellation: SendCancellation | None
     _tool_calling: Any
     _tool_loop_interpreter: Any
     rich_text_widget: Any
@@ -829,9 +829,10 @@ def build_tool_execute_fn(
         append_thinking_callback: Callable[[str], None] | None = None,
         *,
         captured_turn: Any = None,
-        send_cancellation: Any = None,
+        # Caller passes the spawn-time scope; never read host._send_cancellation here (drain clears it).
+        send_cancellation: SendCancellation | None = None,
     ) -> str:
-        from plugin.main import get_tools as _get_tools
+        from plugin.app import get_tools as _get_tools
 
         approval_cb: Any = None
         chat_append_cb: Any = None
@@ -864,13 +865,6 @@ def build_tool_execute_fn(
                 )
                 return json.dumps(format_error_payload(err), default=str)
 
-        # Workers pass the scope captured at spawn. Direct
-        # callers (tests) omit it and still run on that thread.
-        from plugin.framework.send_cancellation import SendCancellation
-
-        checker_scope = send_cancellation if send_cancellation is not None else getattr(host, "_send_cancellation", None)
-        if checker_scope is not None and not isinstance(checker_scope, SendCancellation):
-            checker_scope = None
         if prompt_for_web:
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
@@ -881,7 +875,7 @@ def build_tool_execute_fn(
                     return (False, None)
                 # event.wait() ignored Stop. Sidebar close latches the
                 # checker and never sets the event, so this worker parked.
-                if not wait_for_approval(event, checker_scope) or not getattr(event, "approved", False):
+                if not wait_for_approval(event, send_cancellation) or not getattr(event, "approved", False):
                     put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
                     return (False, None)
                 return (True, getattr(event, "query_override", None))
@@ -1011,7 +1005,7 @@ class ToolLoopEffectInterpreter:
 
         def _fail(message: str) -> bool:
             host._append_response(message)
-            assign_send_outcome(host, "Error")
+            assign_send_outcome(host, "error")
             host._set_status("Error")
             return True
 
@@ -1040,8 +1034,9 @@ class ToolLoopEffectInterpreter:
             host._append_response(effect.text)
         elif effect.kind == UIEffectKind.STATUS:
             host._set_status(effect.text)
-            if effect.text in ("Stopped", "Ready", "Error"):
-                assign_send_outcome(host, effect.text)
+            outcome = _outcome_for_status_text(effect.text)
+            if outcome is not None:
+                assign_send_outcome(host, outcome)
         elif effect.kind == UIEffectKind.TOOL_RUNNING:
             status_text, run_line = format_tool_running_ui(effect.func_name, effect.func_args or {})
             host._set_status(status_text)
@@ -1129,7 +1124,8 @@ class ToolLoopEffectInterpreter:
         supports_status = turn.active_supports_status
         # Scope from this send. execute_fn must not read the
         # panel field when the tool later runs.
-        bound_scope = capture_send_stop(host)
+        # Send thread, before run_in_background; worker must not re-read _send_cancellation (drain clears it).
+        bound_scope = host._send_cancellation
 
         # Bugfix: getText ran for every tool whenever the sidebar combobox
         # existed, and main.call re-raises, so a disposed or

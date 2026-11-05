@@ -41,6 +41,7 @@ sys.path.insert(0, get_plugin_dir())
 # To avoid top-level mock pollution, we import these inside the test or use targeted patches
 # SendButtonListener lives in panel.py; panel_factory no longer re-exports it (lazy import for unopkg).
 from plugin.chatbot.panel import SendButtonListener
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
 from plugin.chatbot.dialogs import set_control_text
 
 class TestChatModelLogic(unittest.TestCase):
@@ -59,19 +60,16 @@ class TestChatModelLogic(unittest.TestCase):
 
         # Save and restore sys.modules to prevent pollution
         self._module_patcher = patch.dict('sys.modules', {
-            'plugin.main': MagicMock(),
             'plugin.framework.config': MagicMock()
         })
         self._module_patcher.start()
-        
-        from plugin.main import get_tools
-        get_tools.return_value = MagicMock()
 
-        self.listener = SendButtonListener(
-            self.ctx, self.frame, self.send_control, self.stop_control,
-            self.query_control, self.response_control, self.image_model_selector,
-            self.model_selector, self.status_control, self.session
-        )
+        with patch("plugin.app.get_tools", return_value=MagicMock()):
+            self.listener = SendButtonListener(
+                self.ctx, self.frame, self.send_control, self.stop_control,
+                self.query_control, self.response_control, self.image_model_selector,
+                self.model_selector, self.status_control, self.session
+            )
 
     def tearDown(self):
         self._module_patcher.stop()
@@ -137,7 +135,7 @@ class TestChatModelLogic(unittest.TestCase):
 
         with patch.object(self.listener, '_get_document_model', return_value=MagicMock()):
             self.listener._do_send()
-            self.assertEqual(self.listener._terminal_status, "Error")
+            self.assertEqual(send_outcome_terminal_display(self.listener), "Error")
 
     @patch('plugin.framework.logging.update_activity_state')
     def test_button_lifecycle(self, mock_update_activity):

@@ -523,7 +523,7 @@ def test_uno_module_import_error_fails_the_run(monkeypatch, tmp_path, capsys) ->
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
-    monkeypatch.setattr("plugin.main.bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr("plugin.app.bootstrap", lambda ctx=None: None)
     monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
 
     saved = (config_mod.get_config, config_mod.save, config_mod.get_config_dict)
@@ -650,7 +650,7 @@ def test_typo_filter_fails_the_run(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
-    monkeypatch.setattr("plugin.main.bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr("plugin.app.bootstrap", lambda ctx=None: None)
     monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
 
     summary = json.loads(tr.run_all_tests(object()))
@@ -670,7 +670,7 @@ def test_missing_tests_tree_fails_the_run(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr("plugin.framework.constants.get_plugin_dir", lambda: str(plugin_dir))
     monkeypatch.setattr("plugin.framework.uno_context.set_fallback_ctx", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx=None: "")
-    monkeypatch.setattr("plugin.main.bootstrap", lambda ctx=None: None)
+    monkeypatch.setattr("plugin.app.bootstrap", lambda ctx=None: None)
     monkeypatch.setattr("plugin.framework.uno_context.get_desktop", lambda ctx=None: None)
 
     summary = json.loads(tr.run_all_tests(object()))

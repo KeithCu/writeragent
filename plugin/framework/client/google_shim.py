@@ -16,7 +16,8 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 
-from .base_provider_shim import BaseProviderShim, _dict_parts, canonical_aspect_ratio, canonical_resolution, coerce_raw_b64, inline_image_mime
+from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_raw_b64, inline_image_mime
+from .shim_helpers import dict_parts
 
 log = logging.getLogger(__name__)
 
@@ -121,14 +122,14 @@ class GoogleShim(BaseProviderShim):
             log.error("Google image generation error: %s", msg)
             raise NetworkError(str(msg), code="HTTP_ERROR")
 
-        for pr in _dict_parts(response_data.get("predictions")):
+        for pr in dict_parts(response_data.get("predictions")):
             if b64 := pr.get("bytesBase64Encoded"):
                 out.append(b64)
 
         candidates = response_data.get("candidates")
         if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
             content = candidates[0].get("content")
-            for p in _dict_parts(content.get("parts") if isinstance(content, dict) else None):
+            for p in dict_parts(content.get("parts") if isinstance(content, dict) else None):
                 inline = p.get("inlineData")
                 if isinstance(inline, dict) and inline.get("data"):
                     out.append(inline["data"])

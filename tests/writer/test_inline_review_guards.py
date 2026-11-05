@@ -751,7 +751,7 @@ def test_resolve_does_not_dispatch_when_before_foreign_snapshot_unreliable():
 
 
 def test_agent_redlines_does_not_hang_on_mock_enumeration():
-    # Bootstrap paths (get_tools -> install_review_toolbar) hit pending_agent_change_count on open
+    # Bootstrap paths (get_tools -> review_view_attachment.install) hit pending_agent_change_count on open
     # documents. MagicMock.hasMoreElements() stays truthy forever unless iteration is capped by
     # getCount() -- an uncapped while-hasMoreElements loop hung pytest (see test_calc_analyze_data).
     doc = MagicMock()

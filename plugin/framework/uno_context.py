@@ -503,10 +503,10 @@ def uno_same(a: Any, b: Any) -> bool:
     LibreOffice / PyUNO wrapper issue and exists with the proxy stripped.
 
     It still works when proxying is on: ``_UnoThreadGuardProxy.__eq__``
-    unwraps ``_target`` and compares ``self._target == _unwrap_uno(other)``
+    unwraps ``_target`` and compares ``self._target == unwrap_uno(other)``
     (see ``thread_guard.py``), so step 2 (``==``) succeeds for
     proxy↔unwrapped. ``uno.isSame`` is a UNO/C++ identity test and must see
-    real PyUNO objects, so step 3 unwraps via ``_unwrap_uno`` first.
+    real PyUNO objects, so step 3 unwraps via ``unwrap_uno`` first.
 
     Ladder:
 
@@ -529,11 +529,11 @@ def uno_same(a: Any, b: Any) -> bool:
         is_same = getattr(uno, "isSame", None)
         if not callable(is_same):
             return False
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
         # ``is True``: mocked ``uno.isSame`` (unit tests) returns a MagicMock,
         # which is truthy. Real PyUNO returns a bool.
-        return is_same(_unwrap_uno(a), _unwrap_uno(b)) is True
+        return is_same(unwrap_uno(a), unwrap_uno(b)) is True
     except Exception:
         return False
 
@@ -542,10 +542,19 @@ def uno_same(a: Any, b: Any) -> bool:
 _ENUM_CAP = 32
 
 
-def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bool:
-    """True when *has_more* indicates more elements and *seen* is below ``_ENUM_CAP``."""
-    # SAL integer 1 or boolean True indicates more elements.
-    if has_more is not True and has_more != 1:
+def enum_has_more(enum: Any) -> bool:
+    """True when a UNO XEnumeration reports more elements.
+
+    PyUNO maps ``hasMoreElements()`` sal_Bool to Python ``bool`` (``True`` /
+    ``False``), not integer ``1``. The ``is True`` check stops pytest
+    ``MagicMock`` enums whose default return is another truthy mock.
+    """
+    return enum.hasMoreElements() is True
+
+
+def _desktop_enum_value_continues(enum: Any, seen: int, *, label: str) -> bool:
+    """True when *enum* has more elements and *seen* is below ``_ENUM_CAP``."""
+    if not enum_has_more(enum):
         return False
     if seen >= _ENUM_CAP:
         log.error("%s: desktop enum hit cap=%s; stopping", label, _ENUM_CAP)
@@ -553,7 +562,7 @@ def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bo
     return True
 
 
-def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by document_scripts.py
+def enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by document_scripts.py
     """False when *enum* is exhausted or past ``_ENUM_CAP``.
 
     Swallows ``hasMoreElements`` errors and returns False. Callers that need
@@ -562,10 +571,9 @@ def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  
     instead.
     """
     try:
-        has_more = enum.hasMoreElements()
+        return _desktop_enum_value_continues(enum, seen, label=label)
     except Exception:
         return False
-    return _desktop_enum_value_continues(has_more, seen, label=label)
 
 
 def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_open_models") -> Generator[Any, None, None]:
@@ -587,8 +595,7 @@ def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_op
             return
         seen = 0
         while True:
-            more = enum.hasMoreElements()
-            if not _desktop_enum_value_continues(more, seen, label=label):
+            if not _desktop_enum_value_continues(enum, seen, label=label):
                 break
             seen += 1
             elem = enum.nextElement()

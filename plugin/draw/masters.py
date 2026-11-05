@@ -16,7 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.draw.base import ToolDrawSlideMastersBase
-from plugin.draw.bridge import resolve_shape_page
+from plugin.draw.bridge import DrawBridge
 from plugin.framework.errors import is_disposal
 
 if TYPE_CHECKING:
@@ -94,10 +94,7 @@ class GetSlideMaster(ToolDrawSlideMastersBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-        if err:
-            return self._tool_error(err)
-        assert page is not None
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         return {"status": "ok", "page": actual_idx, "master": getattr(page.MasterPage, "Name", "")}
 
 
@@ -114,10 +111,7 @@ class SetSlideMaster(ToolDrawSlideMastersBase):
         if not master_name:
             return self._tool_error("master is required.")
 
-        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-        if err:
-            return self._tool_error(err)
-        assert page is not None
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         all_masters = iter_masters(ctx.doc)
         target = next((m for _i, m, name in all_masters if name == master_name), None)

@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
-from plugin.framework.errors import WriterAgentException, is_disposal, uno_read
+from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -54,14 +54,7 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
     ``getMasterPages().getByIndex(n)`` is wrong here because master collection
     order does not match slide order in Impress.
     """
-    bridge = DrawBridge(ctx.doc)
-    pages = bridge.get_pages()
-    count = pages.getCount()
-    if page_index < 0 or page_index >= count:
-        if count == 0:
-            raise WriterAgentException("This presentation has no slides.", code="INVALID_INDEX")
-        raise WriterAgentException(f"Slide index {page_index} is out of bounds. Must be between 0 and {count - 1}", code="INVALID_INDEX")
-    slide = pages.getByIndex(page_index)
+    slide, _idx = DrawBridge(ctx.doc).resolve_page(page_index)
     if is_master_page:
         try:
             master = slide.MasterPage
@@ -155,35 +148,24 @@ def _get_text(shape: Any) -> str:
     return uno_read(lambda: str(shape.getString() or ""), "")
 
 
-def _write(fn: Any, what: str) -> bool:
-    try:
-        fn()
-        return True
-    except Exception as e:
-        if is_disposal(e):
-            raise
-        log.debug("%s failed", what, exc_info=True)
-        return False
-
-
 def _set_text(shape: Any, text: str) -> bool:
-    # Resolve setString inside the probe. A missing member stays silent; the write logs.
+    # Resolve setString inside the probe. A missing member stays silent; failed writes return False (no log).
     if shape is None:
         return False
     setter = uno_read(lambda: shape.setString, _MISSING)
     if setter is _MISSING:
         return False
-    return _write(lambda: setter(text), "setString on header/footer shape")
+    return uno_write(lambda: setter(text))
 
 
 def _set_visible(shape: Any, vis: bool) -> bool:
-    # Same split as _set_text: lookup is silent, setPropertyValue logs through _write.
+    # Same split as _set_text: lookup is silent; failed writes return False via uno_write (no log).
     if shape is None:
         return False
     setter = uno_read(lambda: shape.setPropertyValue, _MISSING)
     if setter is _MISSING:
         return False
-    return _write(lambda: setter("Visible", vis), "set Visible on header/footer shape")
+    return uno_write(lambda: setter("Visible", vis))
 
 
 def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:

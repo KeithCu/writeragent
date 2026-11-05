@@ -160,7 +160,7 @@ def test_calc_minimal_preset_still_runs_specialized_sort() -> None:
     names = [item["name"] for item in trace]
     assert "delegate_to_specialized_calc_toolset" in names
     nested = [item for item in trace if item.get("nested")]
-    assert any(item["name"] == "sort_range" for item in nested)
+    assert any(item["name"] == "range_sort" for item in nested)
     assert any(item["name"] == "specialized_workflow_finished" for item in nested)
 
 

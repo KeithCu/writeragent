@@ -33,6 +33,7 @@ import re
 from typing import Any, Callable
 
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +66,7 @@ def _domain_tools_map() -> dict[str, list[str]] | None:
 _DOMAIN_NAMESPACE: dict[str, str] = {
     "bookmarks": "bookmark",
     "charts": "chart",
+    "cell_comments": "cell_comment",
     "comments": "comment",
     "errors": "error",
     "fields": "field",
@@ -314,8 +316,7 @@ def execute_tool(
     caller: str = "script",
     allowed_tools: frozenset[str] | None = None,
     script_session_id: str | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    send_cancellation: Any | None = None,
+    send_cancellation: SendCancellation | None = None,
 ) -> Any:
     """Dispatch a registered WriterAgent tool on the LO main thread (UNO-safe)."""
     if tool_name in _BLOCKED_FROM_VENV:
@@ -355,7 +356,7 @@ def execute_tool(
             from plugin.framework.doc_type import is_calc, is_draw, is_writer
             from plugin.framework.tool import ToolContext
             from plugin.framework.uno_context import get_ctx
-            from plugin.main import get_tools
+            from plugin.app import get_tools
         except ImportError as exc:
             raise RuntimeError(
                 "Document tool RPC is not available in this extension build."
@@ -374,14 +375,11 @@ def execute_tool(
         else:
             doc_type = ""
         registry = get_tools()
-        # What was wrong: ToolContext had neither stop_checker nor send_cancellation,
-        # so web_research and image generation started from a script ran the HTTP request
-        # to completion after Stop.
-        # How it happened: handle_tool_call_frame checked Stop only before
-        # execute_tool, and cancellation_scope stopped in _maybe_dispatch_intermediate_response.
-        # Why this change: The turn's scope is the one RunVenvPythonScript.execute
-        # captured, copied onto ToolContext so existing readers abort the wait.
-        # execute_tool(stop_checker=) is now unused until venv migration (the pre-check lives in handle_tool_call_frame).
+        # What was wrong: ToolContext had no send_cancellation, so web_research and
+        # image generation started from a script ran the HTTP request to completion after Stop.
+        # How it happened: Stop was checked only before execute_tool on a separate callable,
+        # while the scope that registers HTTP lived beside the worker turn.
+        # Why this change: The turn's scope is copied onto ToolContext so existing readers abort the wait.
         tctx = ToolContext(
             doc=doc,
             ctx=uno_ctx,
@@ -474,8 +472,7 @@ def handle_tool_call_frame(
     allowed_tools: frozenset[str] | None = None,
     caller: str = "script",
     script_session_id: str | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    send_cancellation: Any | None = None,
+    cancel: SendCancellation | None = None,
 ) -> bool:
     """Handle a worker ``tool_call`` frame. Returns True if the host should keep reading."""
     if response.get("type") != "tool_call":
@@ -528,21 +525,9 @@ def handle_tool_call_frame(
         return True
     # Stop was checked once before the venv turn, so the child kept calling
     # host tools, including export, after the sidebar went idle. The same
-    # checker the LLM frame already receives refuses the call and tells the
+    # scope the LLM frame already receives refuses the call and tells the
     # child to end with USER_STOPPED.
-    is_stopped = False
-    if stop_checker is not None:
-        try:
-            is_stopped = stop_checker()
-        except Exception:
-            log.exception("stop_checker raised exception in handle_tool_call_frame")
-            _reply(
-                _error_frame("stop_checker raised exception"),
-                failure_log="venv tool_call error reply failed (worker pipe closed)",
-            )
-            return True
-
-    if is_stopped:
+    if is_cancelled(cancel):
         _reply(
             _error_frame("Stopped by user.", code="USER_STOPPED"),
             failure_log="venv tool_call USER_STOPPED reply failed (worker pipe closed)",
@@ -556,8 +541,7 @@ def handle_tool_call_frame(
             caller=caller,
             allowed_tools=allowed_tools,
             script_session_id=script_session_id,
-            stop_checker=stop_checker,
-            send_cancellation=send_cancellation,
+            send_cancellation=cancel,
         )
         tool_response = {"status": "ok", "id": call_id, "result": res}
     except Exception as exc:

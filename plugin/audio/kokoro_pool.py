@@ -11,20 +11,23 @@ timeout covers process start only and model load counts against the first job.
 reaper. Stop on an utterance registers ``WarmChild.kill()`` on ``SendCancellation``.
 
 Kokoro and soundfile live in the configured venv, not in LibreOffice's runtime.
-Quit is ``supervisor.shutdown_all()`` (``main.py``); this module does not register
-a separate shutdown hook.
+Desktop quit retires the warm child via the supervisor hook registered in
+``main.py``; this module does not register a hook. ``shutdown_kokoro_pool`` clears
+the module singleton for tests only.
 """
 
 from __future__ import annotations
+
+from plugin.framework.send_cancellation import is_cancelled
 
 import logging
 import os
 import threading
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.process_worker import Deadline, error_dict
+from plugin.framework.child_runtime import Deadline
 from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, get_supervisor
+from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, error_dict, supervisor as warm_supervisor
 from plugin.scripting.sandbox import resolve_venv_python
 
 if TYPE_CHECKING:
@@ -73,7 +76,7 @@ class KokoroProcessPool:
             ready_timeout_sec=_SPAWN_READY_TIMEOUT_SEC,
             idle_ttl_sec=ttl,
         )
-        sup = supervisor if supervisor is not None else get_supervisor()
+        sup = supervisor if supervisor is not None else warm_supervisor
         self._warm: WarmChild = WarmChild(spec, supervisor=sup)
         self._job_lock: threading.Lock = threading.Lock()
         self._state_lock: threading.Lock = threading.Lock()
@@ -94,7 +97,7 @@ class KokoroProcessPool:
             if self._shutdown:
                 return error_dict("WORKER_SHUTDOWN", "Kokoro pool is shut down.")
 
-            if cancel is not None and cancel.is_cancelled():
+            if is_cancelled(cancel):
                 return error_dict(WORKER_CANCELLED, "Kokoro worker was cancelled.")
 
             with self._state_lock:
@@ -203,7 +206,7 @@ def get_kokoro_pool() -> KokoroProcessPool | None:
 
 
 def shutdown_kokoro_pool() -> None:
-    """Tests and interpreter shutdown. Safe to call when the pool was never used."""
+    """Tests only. Safe to call when the pool was never used."""
     global _POOL, _POOL_CONFIG_VENV
     with _POOL_LOCK:
         pool = _POOL

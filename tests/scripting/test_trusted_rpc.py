@@ -175,3 +175,33 @@ def test_run_trusted_worker_action_heartbeat_callback() -> None:
     assert callable(on_heartbeat)
     on_heartbeat({"progress": 1})
     assert seen == [{"progress": 1}]
+
+
+def test_run_trusted_worker_action_resolves_cancellation_from_ctx() -> None:
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    ctx = MagicMock()
+    ctx.send_cancellation = scope
+    with patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run:
+        mock_run.return_value = {"status": "ok", "result": {"ok": True}}
+        run_trusted_worker_action(ctx, domain="viz", session_id="s", timeout_sec=10)
+    assert mock_run.call_args.kwargs["cancel"] is scope
+
+
+def test_run_trusted_worker_action_explicit_cancel_wins() -> None:
+    from plugin.framework.send_cancellation import SendCancellation
+
+    ctx = MagicMock()
+    ctx.send_cancellation = SendCancellation()
+    explicit = SendCancellation()
+    with patch("plugin.scripting.trusted_rpc.run_code_in_user_venv") as mock_run:
+        mock_run.return_value = {"status": "ok", "result": {"ok": True}}
+        run_trusted_worker_action(
+            ctx,
+            domain="viz",
+            session_id="s",
+            timeout_sec=10,
+            cancel=explicit,
+        )
+    assert mock_run.call_args.kwargs["cancel"] is explicit

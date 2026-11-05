@@ -128,9 +128,11 @@ def test_search_stops_between_hits() -> None:
     doc = _FakeDoc([sheet])
 
     # Stop after the first hit has been found and advanced
-    matches = search_spreadsheet_cells(
-        doc, "p", stop_checker=lambda: sheet.find_next_calls >= 1
-    )
+    class _StopAfterFirst:
+        def is_cancelled(self) -> bool:
+            return sheet.find_next_calls >= 1
+
+    matches = search_spreadsheet_cells(doc, "p", cancel=_StopAfterFirst())
     assert len(matches) == 1
     assert matches[0]["cell"] == "A1"
 

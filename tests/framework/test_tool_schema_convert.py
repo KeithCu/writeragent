@@ -287,7 +287,7 @@ def test_empty_properties_strips_kwargs_before_any_provider():
     tools = [{
         "type": "function",
         "function": {
-            "name": "list_sheets",
+            "name": "sheet_list",
             "parameters": {"type": "object", "properties": {}},
         },
     }]
@@ -296,7 +296,7 @@ def test_empty_properties_strips_kwargs_before_any_provider():
         "tool_calls": [{
             "id": "c1",
             "type": "function",
-            "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+            "function": {"name": "sheet_list", "arguments": '{"hallucinated": "yes"}'},
         }],
     }]
     out = normalize_outbound_tool_calls(messages, tools)
@@ -311,7 +311,7 @@ def test_normalize_outbound_accepts_tuple_messages_and_tools():
     tools = ({
         "type": "function",
         "function": {
-            "name": "list_sheets",
+            "name": "sheet_list",
             "parameters": {"type": "object", "properties": {}},
         },
     },)
@@ -320,7 +320,7 @@ def test_normalize_outbound_accepts_tuple_messages_and_tools():
         "tool_calls": [{
             "id": "c1",
             "type": "function",
-            "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+            "function": {"name": "sheet_list", "arguments": '{"hallucinated": "yes"}'},
         }],
     },)
     out = normalize_outbound_tool_calls(messages, tools)
@@ -418,8 +418,8 @@ def test_mcp_string_range_stays_string():
     assert nested["type"] == "string"
 
 
-def test_list_conditional_formats_range_is_array_mcp_widens():
-    """list_conditional_formats uses the same array range schema as other Calc tools."""
+def test_conditional_formatting_list_range_is_array_mcp_widens():
+    """conditional_formatting_list uses the same array range schema as other Calc tools."""
     from plugin.calc.conditional import ListConditionalFormats
 
     tool = ListConditionalFormats()

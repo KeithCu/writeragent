@@ -220,12 +220,12 @@ def test_worker_skips_when_agent_active_and_pause_enabled() -> None:
 
 
 def test_worker_does_not_pause_local_provider_when_agent_active() -> None:
-    """Harper / LanguageTool / Vale keep checking while chat runs; pause is LLM-only."""
+    """LanguageTool / Vale keep checking while chat runs; pause is LLM-only (Harper never uses the queue)."""
 
     with (
         patch(
             "plugin.framework.config.get_config",
-            side_effect=lambda key: _proofreader_get_config_side_effect(key, enabled="harper", pause=True),
+            side_effect=lambda key: _proofreader_get_config_side_effect(key, enabled="languagetool", pause=True),
         ),
         patch("plugin.framework.send_cancellation.is_agent_active", return_value=True),
         patch("plugin.writer.locale.grammar_worker.run_grammar_check") as run_check,
@@ -1014,7 +1014,7 @@ def test_proofreader_broadcast_proofread_again_notifies_listeners(
     del mock_locale_fixture
     pr = _make_proofreader()
     listener = MagicMock()
-    with patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=False):
+    with patch("plugin.writer.locale.harper.runtime.is_ready", return_value=False):
         assert pr.addLinguServiceEventListener(listener) is True
     pr.broadcast_proofread_again()
     listener.processLinguServiceEvent.assert_called_once()
@@ -1035,7 +1035,7 @@ def test_broadcast_proofread_again_without_listeners_recovers_on_first_attach(
     listener.processLinguServiceEvent.assert_not_called()
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
-        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=False),
+        patch("plugin.writer.locale.harper.runtime.is_ready", return_value=False),
     ):
         assert pr.addLinguServiceEventListener(listener) is True
     listener.processLinguServiceEvent.assert_called_once()
@@ -1044,7 +1044,7 @@ def test_broadcast_proofread_again_without_listeners_recovers_on_first_attach(
     extra = MagicMock()
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
-        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
+        patch("plugin.writer.locale.harper.runtime.is_ready", return_value=True),
     ):
         pr._profile = GrammarProfile("harper", "harper", False)
         assert pr.addLinguServiceEventListener(extra) is True
@@ -1062,7 +1062,7 @@ def test_first_listener_while_harper_ready_triggers_one_rewalk(
     second = MagicMock()
     with (
         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *a, **k: fn(*a, **k)),
-        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
+        patch("plugin.writer.locale.harper.runtime.is_ready", return_value=True),
     ):
         assert pr.addLinguServiceEventListener(first) is True
         assert pr.addLinguServiceEventListener(second) is True
@@ -1081,7 +1081,7 @@ def test_first_listener_while_harper_idle_does_not_rewalk(
     listener = MagicMock()
     with (
         patch("plugin.framework.queue_executor.main.post") as mock_post,
-        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=False),
+        patch("plugin.writer.locale.harper.runtime.is_ready", return_value=False),
     ):
         assert pr.addLinguServiceEventListener(listener) is True
     mock_post.assert_not_called()
@@ -1097,7 +1097,7 @@ def test_first_listener_ready_rewalk_skips_non_harper_provider(
     listener = MagicMock()
     with (
         patch("plugin.framework.queue_executor.main.post") as mock_post,
-        patch("plugin.writer.locale.harper.harper_runtime_is_ready", return_value=True),
+        patch("plugin.writer.locale.harper.runtime.is_ready", return_value=True),
     ):
         assert pr.addLinguServiceEventListener(listener) is True
     mock_post.assert_not_called()
@@ -1166,9 +1166,9 @@ def test_try_harper_fast_path_emits_status_when_ready() -> None:
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 18, "This are an test.")], combined, checker_identity="harper")
     mock_status = mock_status_fn.return_value
-    mock_status.start.assert_called_once_with("This are an test.", result="Harper")
-    mock_status.request.assert_called_once_with("This are an test.", result="Harper check")
-    mock_status.done.assert_called_once_with("This are an test.", result="0 issues")
+    mock_status.start.assert_called_once_with("This are an test.", result="Harper", routine=True)
+    mock_status.request.assert_called_once_with("This are an test.", result="Harper check", routine=True)
+    mock_status.done.assert_called_once_with("This are an test.", result="0 issues", routine=True)
 
 
 def test_try_harper_fast_path_emits_starting_when_ensure(
@@ -1190,7 +1190,7 @@ def test_try_harper_fast_path_emits_starting_when_ensure(
     ):
         pr._try_harper_fast_path("doc", "en-US", [(0, 5, "Hello.")], [], checker_identity="harper")
     mock_status = mock_status_fn.return_value
-    mock_status.start.assert_called_once_with("Hello.", result="Harper")
+    mock_status.start.assert_called_once_with("Hello.", result="Harper", routine=True)
     mock_status.request.assert_called_once_with("Hello.", result="Starting Harper…")
     mock_status.done.assert_not_called()
 
@@ -1595,7 +1595,7 @@ def test_harper_fast_path_caches_ignored_rules_and_excludes_from_status(mock_con
         assert len(cached_payload) == 1
         assert cached_payload[0]["rule_identifier"] == "harper||agr"
         # Status text reports 0 issues
-        mock_status_fn.return_value.done.assert_called_once_with(work_spans[-1][2], result="0 issues")
+        mock_status_fn.return_value.done.assert_called_once_with(work_spans[-1][2], result="0 issues", routine=True)
 
 
 def test_reset_ignore_rules_broadcasts_and_subsequent_call_returns_error(

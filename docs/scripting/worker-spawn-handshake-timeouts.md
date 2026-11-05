@@ -6,7 +6,7 @@
 
 The call-path section below used to describe the pre-fix child (Cython load before `ready`, no stderr on timeout, non-ready counted as success). That is historical. Do not re-implement it. Current compute child: `formula_worker.py` writes `{status: ready}` in `run_worker_stdio_loop` before the sandbox import.  
 **Severity:** Unit-test flake that can fail ~30–40 tests at once; production spawn path is the same code  
-**Do not:** raise `_SPAWN_READY_TIMEOUT_SEC`, permanently cap `PYTEST_WORKERS`, or “fix” it by skipping tests
+**Do not:** raise `SPAWN_READY_TIMEOUT_SEC`, permanently cap `PYTEST_WORKERS`, or “fix” it by skipping tests
 
 This note is a **starting brief for an agent**. Work **one hypothesis at a time**, keep a log of what you tried, and prefer git bisect / a minimal repro over a pile of speculative fallbacks.
 
@@ -21,7 +21,7 @@ A full `make pytest` (xdist, `PYTEST_WORKERS=auto` or `6`) can fail with **dozen
 | Area | Typical tests | Log / assertion |
 |------|----------------|-----------------|
 | Compute formula pool | `tests/compute_service/test_formula_pool.py`, `test_compute_service.py` HTTP execute | `Formula worker #1 spawn handshake timed out` then execute status ≠ `ok` |
-| Vision pool | `tests/compute_service/test_vision.py` | same handshake path (`plugin/framework/process_worker.py`) |
+| Vision pool | `tests/compute_service/test_vision.py` | same handshake path (`plugin/framework/warm_child.py` via `BaseProcessWorker`) |
 | Venv worker | `test_venv_worker.py::test_harness_main_loop_integration`, `test_warm_venv_worker_resolves_and_warms`, `test_serialization_ab.py::test_venv_transform_parity[…_subprocess]`, `test_writeragent_alias.py::test_venv_worker_bidirectional_tool_call` | first IPC read times out / `None` / error status |
 | Compute HTTP bench | `tests/scripts/test_benchmark_compute_service.py` | `failed_requests != 0`; stderr shows handshake timeouts ~15s apart |
 
@@ -33,8 +33,8 @@ POST /v1/execute  200
 ERROR compute_service.worker: Formula worker #1 spawn handshake timed out
 ```
 
-The 15s gap is `_SPAWN_READY_TIMEOUT_SEC` in [`plugin/framework/process_worker.py`](../../plugin/framework/process_worker.py), not CPU saturation.
-`Popen`, the env scrub, and the stderr drain run in `ManagedSubprocess.start`. The 15s constant is still `process_worker._SPAWN_READY_TIMEOUT_SEC`.
+The 15s gap is `SPAWN_READY_TIMEOUT_SEC` in [`plugin/framework/warm_child.py`](../../plugin/framework/warm_child.py), not CPU saturation.
+`Popen`, the env scrub, and the stderr drain run in `ManagedSubprocess.start`. The handshake cap is `warm_child.SPAWN_READY_TIMEOUT_SEC` (15s).
 
 UNO (`make test-uno`) is **out of scope** unless you prove the same spawn path runs there.
 
@@ -147,7 +147,7 @@ Historical. Several rows describe code that has since changed (`_worker_last_act
 
 | Commit | Why it is a suspect |
 |--------|---------------------|
-| `76a4077b` | Introduced `_SPAWN_READY_TIMEOUT_SEC`, `read_pickle_frame_with_timeout`, stderr drain, `optimize_popen_pipes` on compute workers. Before this, handshake was a **blocking** `read_pickle_frame` (hang until pytest `--timeout=300` instead of a clean 15s fail). |
+| `76a4077b` | Introduced spawn ready timeout, `read_pickle_frame_with_timeout`, stderr drain, `optimize_popen_pipes` on compute workers (today: `warm_child.SPAWN_READY_TIMEOUT_SEC`). Before this, handshake was a **blocking** `read_pickle_frame` (hang until pytest `--timeout=300` instead of a clean 15s fail). |
 | `89fae560` | Host `_SafeUnpickler`. Ready dict is builtins-only (should decode). Still verify nothing in the ready frame uses a forbidden global. |
 | `e21097a4` / `822a1462` / `6dc44cfe` | Session/idle TTL reapers. `_worker_last_active` is stamped with `now` **captured before** the spawn loop. Harmless at 3600s; bad if TTL is small. |
 | `c8014402` | `max_payload_bytes` on many reads — **not** on compute handshake. |

@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 from plugin.doc.text_helpers import FAILED, go_right, iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.errors import document_is_disposed
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.i18n import N_, _
 from plugin.writer import review_authors
 from plugin.writer import review_scan as _review_scan
@@ -190,7 +191,7 @@ def _tag_new_redlines(redlines: list[Any], token: str) -> tuple[bool, int]:
 
 def _refresh_review_toolbar(doc: Any, fail_message: str) -> None:
     try:
-        from plugin.writer.review_toolbar import refresh_review_toolbar
+        from plugin.writer.review_view_attachment import refresh_review_toolbar
 
         refresh_review_toolbar(doc)
     except Exception:
@@ -687,14 +688,15 @@ class EditReviewSession:
         }
 
     def wait_for_review(self, timeout: float, poll: float = 0.3,
-                        stop_checker: Callable[[], bool] | None = None,
-                        uno_runner: Callable[[Callable[[], Any]], Any] | None = None) -> dict[str, Any]:
+                        uno_runner: Callable[[Callable[[], Any]], Any] | None = None, *,
+                        cancel: SendCancellation | None = None,
+                        still_reviewing: Callable[[], bool] | None = None) -> dict[str, Any]:
         """Block (on the caller's thread) until every change is resolved, then report outcomes.
 
         Returns ``{"complete", "timed_out", "changes": [{"id", "outcome", ...}]}``. On timeout
         the still-open entries report ``"pending"`` and ``complete`` is False -- the agent must
-        not assume the text's state. *stop_checker* lets the caller abort early (e.g. the
-        review feature was toggled off mid-wait); that also returns ``complete=False``.
+        not assume the text's state. *cancel* and *still_reviewing* let the caller abort early
+        (e.g. Stop or the review feature toggled off mid-wait); that also returns ``complete=False``.
 
         Thread placement: poll from a background/HTTP thread so the main thread stays free for
         the user's accept/reject clicks. UNO is not thread-safe, so callers off the main thread
@@ -723,7 +725,8 @@ class EditReviewSession:
                 # have missed an unresolved registered change (fail closed).
                 if reliable and not pending:
                     break
-                if stop_checker is not None and stop_checker():
+                # Only explicit False ends the wait (review mode off); other falsy returns keep waiting.
+                if is_cancelled(cancel) or (still_reviewing is not None and still_reviewing() is False):
                     return run(lambda: self._review_payload(complete=False, timed_out=False))
                 if time.monotonic() >= deadline:
                     timed_out = True
@@ -810,28 +813,28 @@ def record_html_atomically(session: EditReviewSession, doc: Any, mutate: Callabl
     from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     undo_title = next_agent_edit_undo_title()
-    changes_before = len(session.changes)
     result_holder: list[Any] = []
-    err: dict[str, Any] | None = None
 
     def do_mutate() -> None:
         res = session.record_mutation(mutate, **record_kwargs)
         result_holder.append(res)
 
     try:
-        err = commit_or_rollback(
+        outcome = commit_or_rollback(
             doc,
             undo_title,
             do_mutate,
-            on_fail=lambda: session.discard_changes_since(changes_before),
+            session=session,
         )
     except UndoUnavailable:
         raise ToolExecutionError(
             "Cannot apply this content edit atomically (no usable undo context); "
             "refusing rather than risk a half-applied edit.")
 
-    if err is not None and err.get("code") == "ROLLBACK_FAILED":
-        raise ToolExecutionError(err["message"])
+    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
+        raise ToolExecutionError(outcome.error["message"])
+
+    outcome.raise_mutate_error()
 
     return result_holder[0] if result_holder else None
 
@@ -913,7 +916,6 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
     def _whole() -> None:
         original = found.getString()
         if split_author:
-            changes_before = len(session.changes)
             whole_exc: list[Exception] = []
 
             def do_mutate() -> None:
@@ -928,11 +930,11 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                     raise
 
             try:
-                err = commit_or_rollback(
+                outcome = commit_or_rollback(
                     doc,
                     next_surgical_undo_title(),
                     do_mutate,
-                    on_fail=lambda: session.discard_changes_since(changes_before),
+                    session=session,
                 )
             except UndoUnavailable:
                 log.debug("edit_review: no usable/unlocked undo manager; split-author whole-block edit falls back "
@@ -944,10 +946,11 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                     original_preview=_preview(original), proposed_preview=_preview(new_text))
                 return
 
-            if err is not None and err.get("code") == "ROLLBACK_FAILED":
+            if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
                 if whole_exc:
                     raise whole_exc[0]
-                raise RuntimeError(err.get("message"))
+                raise RuntimeError(outcome.error.get("message"))
+            outcome.raise_mutate_error()
         else:
             session.record_mutation(
                 lambda: replace_preserving_format(
@@ -993,7 +996,6 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
             return
 
     undo_title = next_surgical_undo_title()
-    changes_before = len(session.changes)
     surgical_exc: list[Exception] = []
 
     def do_surgical() -> None:
@@ -1017,11 +1019,11 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
                 raise
 
     try:
-        err = commit_or_rollback(
+        outcome = commit_or_rollback(
             doc,
             undo_title,
             do_surgical,
-            on_fail=lambda: session.discard_changes_since(changes_before),
+            session=session,
         )
     except UndoUnavailable:
         log.debug("edit_review: no usable/unlocked undo manager; surgical edit falls back to whole-block "
@@ -1029,10 +1031,11 @@ def record_preserve_replace(session: EditReviewSession, doc: Any, found: Any, ne
         _whole()
         return
 
-    if err is not None and err.get("code") == "ROLLBACK_FAILED":
+    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
         if surgical_exc:
             raise surgical_exc[0]
-        raise RuntimeError(err.get("message"))
+        raise RuntimeError(outcome.error.get("message"))
+    outcome.raise_mutate_error()
 
 
 def build_writer_rewrite_prompt(original_text: str, instructions: str) -> str:

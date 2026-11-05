@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock, patch
-from plugin.framework.send_cancellation import _current_send_cancellation, SendCancellation
+
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler
 
 
@@ -16,64 +17,37 @@ def test_mcp_protocol_threads_send_cancellation():
     protocol.tool_registry = tool_registry_mock
 
     cancellation = SendCancellation()
-    ambient = SendCancellation()
-    token = _current_send_cancellation.set(ambient)
+    cancellation.cancel()
 
-    try:
-        cancellation._cancelled.set()
-
-        prepared = protocol._prepare_mcp_execution("some_tool", {}, None, send_cancellation=cancellation)
-        assert prepared.context.send_cancellation is cancellation
-        assert prepared.context.send_cancellation is not ambient
-        assert prepared.context.send_cancellation.is_cancelled() is True
-    finally:
-        _current_send_cancellation.reset(token)
+    prepared = protocol._prepare_mcp_execution("some_tool", {}, None, cancel=cancellation)
+    assert prepared.context.send_cancellation is cancellation
+    assert prepared.context.send_cancellation.is_cancelled() is True
 
 
 def test_mcp_protocol_drops_cancel_for_unknown_call():
     services_mock = MagicMock()
     protocol = MCPProtocolHandler(services_mock)
 
-    # Cancel notification for unknown or non-in-flight request is dropped
     item = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "123"}}
     protocol._process_jsonrpc(item)
-    assert (None, "123") not in protocol._cancelled_requests
+    assert protocol._request_scopes == {}
 
 
-def test_mcp_protocol_cancelled_in_flight_request():
+def test_cancel_before_request_does_not_stick():
     services_mock = MagicMock()
     protocol = MCPProtocolHandler(services_mock)
 
-    # Mark request as in-flight
-    protocol._in_flight_requests[(None, "123")] = 1
-
     item = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": "123"}}
     protocol._process_jsonrpc(item)
-    assert (None, "123") in protocol._cancelled_requests
+    assert protocol._request_scopes == {}
 
-
-def test_mcp_protocol_reused_cancel_id_not_stopped():
-    services_mock = MagicMock()
-    doc_mock = MagicMock()
-    services_mock.document.resolve_document_by_url.return_value = (doc_mock, "writer")
-    services_mock.document.detect_doc_type.return_value = "writer"
-
-    protocol = MCPProtocolHandler(services_mock)
-    tool_mock = MagicMock()
-    tool_mock.is_async.return_value = False
-    protocol.tool_registry.get.return_value = tool_mock
-
-    # Simulate an id that was cancelled in flight previously
-    protocol._cancelled_requests.add((None, "req-1"))
-
-    # A new call arrives with reused id "req-1"
-    with patch.object(protocol, "_run_tool", return_value={"status": "ok"}):
-        # Tools/call via _process_jsonrpc will now clear _cancelled_requests if in-flight was 0
-        res = protocol._process_jsonrpc({"jsonrpc": "2.0", "id": "req-1", "method": "tools/call", "params": {"name": "some_tool", "arguments": {}}})
-        res = res[1]["result"]
-        assert not res.get("isError")
-        assert (None, "req-1") not in protocol._cancelled_requests
-        assert (None, "req-1") not in protocol._in_flight_requests
+    with patch.object(protocol, "_run_tool", return_value={"status": "ok"}) as mock_run:
+        with patch.object(protocol, "_tool_exposure_mode", return_value="direct_flat"):
+            protocol._process_jsonrpc(
+                {"jsonrpc": "2.0", "id": "123", "method": "tools/call", "params": {"name": "some_tool", "arguments": {}}},
+            )
+        assert mock_run.call_args.kwargs["cancel"].is_cancelled() is False
+    assert protocol._request_scopes == {}
 
 
 def test_cancellation_isolated_by_session():
@@ -89,32 +63,20 @@ def test_cancellation_isolated_by_session():
 
     session_a = "client_session_A"
     session_b = "client_session_B"
+    scope_a = SendCancellation()
+    scope_b = SendCancellation()
+    protocol._request_scopes[(session_a, 1)] = [scope_a]
+    protocol._request_scopes[(session_b, 1)] = [scope_b]
 
-    # Both clients have an in-flight request with id 1
-    protocol._in_flight_requests[(session_a, 1)] = 1
-    protocol._in_flight_requests[(session_b, 1)] = 1
-
-    # Client A cancels its request 1
     cancel_item = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 1}}
     protocol._process_jsonrpc(cancel_item, session=session_a)
 
-    # Client A's request is marked cancelled, Client B's is NOT
-    assert (session_a, 1) in protocol._cancelled_requests
-    assert (session_b, 1) not in protocol._cancelled_requests
+    assert scope_a.is_cancelled() is True
+    assert scope_b.is_cancelled() is False
 
-    # Verify stop_checker isolation
-    prepared_a = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_a, send_cancellation=None)
-    assert hasattr(prepared_a, "context") and prepared_a.context.send_cancellation.is_cancelled() is True
-
-    prepared_b = protocol._prepare_mcp_execution("tool", {}, req_id=1, session=session_b, send_cancellation=None)
-    assert hasattr(prepared_b, "context") and prepared_b.context.send_cancellation.is_cancelled() is False
-
-    # Client A attempting to cancel Client B's request 2 (which Client A does not have) is dropped
-    protocol._in_flight_requests[(session_b, 2)] = 1
     cancel_item_2 = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": 2}}
     protocol._process_jsonrpc(cancel_item_2, session=session_a)
-    assert (session_b, 2) not in protocol._cancelled_requests
-    assert (session_a, 2) not in protocol._cancelled_requests
+    assert (session_b, 2) not in protocol._request_scopes
 
 
 def test_mcp_notification_after_prepare_cancels_running_tool():
@@ -131,18 +93,67 @@ def test_mcp_notification_after_prepare_cancels_running_tool():
 
     session = "client_session"
     req_id = 1
-    protocol._in_flight_requests[(session, req_id)] = 1
+    scope = SendCancellation()
+    protocol._request_scopes[(session, req_id)] = [scope]
 
-    prepared = protocol._prepare_mcp_execution("tool", {}, req_id=req_id, session=session, send_cancellation=None)
+    prepared = protocol._prepare_mcp_execution("tool", {}, req_id=req_id, session=session, cancel=scope)
     assert prepared.context.send_cancellation.is_cancelled() is False
 
-    # Mid-call notification arrives
     cancel_item = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": req_id}}
     protocol._process_jsonrpc(cancel_item, session=session)
 
     assert prepared.context.send_cancellation.is_cancelled() is True
     result = protocol._invoke_prepared_mcp_tool(prepared, "tool", {})
     assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
+
+
+def test_cancel_after_store_before_prepare():
+    services_mock = MagicMock()
+    doc_mock = MagicMock()
+    services_mock.document.resolve_document_by_url.return_value = (doc_mock, "writer")
+    services_mock.document.detect_doc_type.return_value = "writer"
+
+    protocol = MCPProtocolHandler(services_mock)
+    tool_mock = MagicMock()
+    tool_mock.is_async.return_value = False
+    tool_mock.requires_document_lock.return_value = False
+    protocol.tool_registry.get.return_value = tool_mock
+
+    session = "sess"
+    req_id = 7
+    scope = SendCancellation()
+    protocol._request_scopes[(session, req_id)] = [scope]
+
+    cancel_item = {
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {"requestId": req_id},
+    }
+    protocol._process_jsonrpc(cancel_item, session=session)
+
+    prepared = protocol._prepare_mcp_execution("tool", {}, req_id=req_id, session=session, cancel=scope)
+    assert scope.is_cancelled() is True
+    result = protocol._invoke_prepared_mcp_tool(prepared, "tool", {})
+    assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
+
+
+def test_overlapping_same_id_cancels_every_scope():
+    services_mock = MagicMock()
+    protocol = MCPProtocolHandler(services_mock)
+    session = "sess"
+    req_id = 1
+    scope_a = SendCancellation()
+    scope_b = SendCancellation()
+    protocol._request_scopes[(session, req_id)] = [scope_a, scope_b]
+
+    cancel_item = {"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": req_id}}
+    protocol._process_jsonrpc(cancel_item, session=session)
+
+    assert scope_a.is_cancelled() is True
+    assert scope_b.is_cancelled() is True
+
+    protocol._request_scopes[(session, req_id)].remove(scope_a)
+    assert scope_b in protocol._request_scopes[(session, req_id)]
 
 
 def test_mcp_protocol_async_tool_no_timeout_runs():
@@ -154,11 +165,10 @@ def test_mcp_protocol_async_tool_no_timeout_runs():
     protocol = MCPProtocolHandler(services_mock)
     tool_mock = MagicMock()
     tool_mock.is_async.return_value = True
-    # Tool did not declare timeout attribute
     del tool_mock.timeout
     protocol.tool_registry.get.return_value = tool_mock
 
-    prepared = protocol._prepare_mcp_execution("async_tool", {}, None, send_cancellation=None)
+    prepared = protocol._prepare_mcp_execution("async_tool", {}, None, cancel=SendCancellation())
     assert hasattr(prepared, "context")
 
 
@@ -174,7 +184,7 @@ def test_mcp_protocol_async_tool_non_positive_timeout_errors():
     tool_mock.timeout = 0
     protocol.tool_registry.get.return_value = tool_mock
 
-    prepared = protocol._prepare_mcp_execution("async_tool", {}, None, send_cancellation=None)
+    prepared = protocol._prepare_mcp_execution("async_tool", {}, None, cancel=SendCancellation())
     assert isinstance(prepared, dict)
     assert prepared.get("status") == "error"
     assert prepared.get("code") == "TOOL_EXECUTION_ERROR"

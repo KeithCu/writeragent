@@ -43,10 +43,6 @@ from plugin.bootstrap import (
     bootstrap_extension,
     MainBootstrapJob as BaseMainBootstrapJob,
 )
-
-_bootstrap_state: BootstrapState = BootstrapState.UNINITIALIZED
-_bootstrap_error: BaseException | None = None
-
 from plugin.framework.main_shared import (
     ExtensionProtocolHandler,
     get_action_handler,
@@ -58,7 +54,7 @@ from plugin.menu_handlers import register_common_handlers
 
 
 def _register_librepy_handlers() -> None:
-    def _open_settings() -> None:
+    def _open_settings(frame: Any = None) -> None:
         from plugin.librepy.settings import open_librepy_settings
 
         open_dialog_safely(open_librepy_settings, "Failed to open settings")
@@ -68,11 +64,11 @@ def _register_librepy_handlers() -> None:
 
 
 def _librepy_bootstrap_finish(ctx: Any) -> None:
-    global _bootstrap_state, _bootstrap_error
+    import plugin.bootstrap as bootstrap
 
     _register_librepy_handlers()
-    _bootstrap_state = BootstrapState.INITIALIZED
-    _bootstrap_error = None
+    bootstrap._bootstrap_state = BootstrapState.INITIALIZED
+    bootstrap._bootstrap_error = None
 
 
 def bootstrap(ctx: Any | None = None) -> None:
@@ -80,7 +76,6 @@ def bootstrap(ctx: Any | None = None) -> None:
         ctx,
         extension_id=EXTENSION_ID,
         finish=_librepy_bootstrap_finish,
-        state=globals(),
     )
 
 

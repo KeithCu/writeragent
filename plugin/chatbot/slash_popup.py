@@ -32,6 +32,7 @@ from plugin.chatbot.slash_commands import (
     classify_slash_key,
     filter_slash_commands,
     format_slash_popup_item,
+    get_slash_command,
     load_slash_lru,
     parse_slash_text,
     run_slash_command,
@@ -41,7 +42,7 @@ from plugin.chatbot.slash_commands import (
 from plugin.framework.errors import best_effort, suppress_disposed, uno_read
 from plugin.framework.uno_listeners import BaseKeyListener, BaseMouseListener
 
-log = logging.getLogger("writeragent.slash_popup")
+log = logging.getLogger(__name__)
 
 # Slash-overlay tracing is very noisy. Set True to log these steps to the
 # debug log even when log_level is DEBUG. Stays False in tree (same pattern
@@ -635,10 +636,11 @@ class SlashPopupController:
                 # SEND_CLICKED the draft stays in Ask until a second Enter.
                 def _accept_exact_or_send() -> None:
                     from plugin.chatbot.send_state import SendEvent, SendEventKind
+                    from plugin.chatbot.slash_commands import SlashResult
 
-                    if run_slash_command(cmd.name, host, arg, from_popup=False):
-                        return
-                    host.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+                    result = run_slash_command(cmd, host, arg, from_popup=False)
+                    if result is SlashResult.CONTINUE_SEND:
+                        host.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
                 _defer_to_next_turn(_accept_exact_or_send)
                 return
@@ -648,9 +650,12 @@ class SlashPopupController:
             return
         _ovlog("accept_selected name=%s", name)
         arg = parsed[1] if parsed is not None and parsed[0].name == name else ""
+        cmd_obj = get_slash_command(name)
+        if cmd_obj is None:
+            return
         # Bugfix (QA B1): from_popup=True completes "/name " for presets instead of
         # running them with an empty argument from the partial filter text.
-        _defer_to_next_turn(lambda: run_slash_command(name, host, arg, from_popup=True))
+        _defer_to_next_turn(lambda: run_slash_command(cmd_obj, host, arg, from_popup=True))
 
     def accept_row_at_y(self, y: int) -> bool:
         """Accept the command under mouse Y. Ignores chrome / off-list clicks."""

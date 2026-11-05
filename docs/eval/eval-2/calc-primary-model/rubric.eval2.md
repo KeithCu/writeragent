@@ -12,7 +12,7 @@ Leave [`docs/eval/gdpval/`](../../gdpval/) untouched.
 
 The harness opens the saved trial artifact (`final_workbook.ods`, or
 `.xlsx` if that is what was saved). **Chat Ready / STREAM_DONE is
-ignored.** Empty `create_sheet` tabs that ended Ready still fail.
+ignored.** Empty `sheet_create` tabs that ended Ready still fail.
 
 | # | Check | Source | Fail closed |
 |---|--------|--------|-------------|

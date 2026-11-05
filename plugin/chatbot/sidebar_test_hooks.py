@@ -41,7 +41,7 @@ from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.worker_pool import run_in_background
 
-log = logging.getLogger("writeragent.sidebar_test_hooks")
+log = logging.getLogger(__name__)
 
 _HOOKS_UNAVAILABLE = "sidebar test hooks are not in release builds"
 _DEBUG_SIDEBAR_PREFIX = "chatbot.debug_sidebar"
@@ -1077,9 +1077,9 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
 
 
 def _terminate_listener_installed() -> bool:
-    import plugin.main as plugin_main
+    import plugin.app as app
 
-    return getattr(plugin_main, "_terminate_listener", None) is not None
+    return app._terminate_listener is not None
 
 
 def _read_debug_snapshot() -> dict[str, Any]:
@@ -1271,9 +1271,9 @@ def handle_debug_sidebar_command(command: str) -> None:
     # Packet M8: run the real XTerminateListener.notifyTermination that File > Exit
     # triggers, without quitting soffice (that would end the whole test run).
     if op == "SIMULATE_TERMINATION":
-        import plugin.main as plugin_main
+        import plugin.app as app
 
-        listener = plugin_main._terminate_listener
+        listener = app._terminate_listener
         if listener is None:
             log.warning("debug_sidebar SIMULATE_TERMINATION: no terminate listener installed")
         else:
@@ -2395,6 +2395,8 @@ class _UrpSlashHost:
     clear_listener: Any
     _stop: Any
     ctx: Any
+    cached_doc_type: str
+    cached_uno_services: Any
 
     def __init__(self, query: Any, response: Any, clear: Any, stop: Any, ctx: Any = None) -> None:
         self.ctx = ctx  # overlay position probe (SlashPopupController)
@@ -2402,7 +2404,12 @@ class _UrpSlashHost:
         self.response_control = response
         self.slash_popup: Any = None
         self._send_cancellation: Any = None
-        self.sidebar_state: Any = SimpleNamespace(tool_loop=None)
+        self.cached_doc_type = "writer"
+        self.cached_uno_services = None
+        self.sidebar_state: Any = SimpleNamespace(
+            tool_loop=None,
+            send=SimpleNamespace(is_busy=False),
+        )
         self.session: Any = None
         self.clear_listener = type(
             "ClearProxy",
@@ -2411,10 +2418,10 @@ class _UrpSlashHost:
         )()
         self._stop = stop
 
-    def dispatch(self, _event: Any) -> None:
+    def dispatch(self, event: Any) -> None:
         return
 
-    def _set_status(self, _text: str) -> None:
+    def _set_status(self, text: str) -> None:
         return
 
     def hide_popup(self) -> None:
@@ -2449,35 +2456,6 @@ class _UrpSlashHost:
 
     def slash_run_rewrite(self, instruction: str) -> None:
         self.append_output("\n" + instruction + "\n")
-
-    def run_slash_compact(self, focus: str, *, cancel: Any | None = None) -> None:
-        from plugin.chatbot.slash_commands import prepare_slash_compact_on_ui_thread, run_slash_compact_sync
-        from plugin.framework.blocking_wait import run_blocking_in_thread
-        from plugin.framework.i18n import _
-
-        if cancel is None:
-            cancel = self._send_cancellation
-        if self.sidebar_state.tool_loop is not None:
-            self.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
-            return
-        self._set_status(_("Thinking..."))
-        # Same UI-thread prep as SendButtonListener.run_slash_compact (UNO + msgbox).
-        client, tools = prepare_slash_compact_on_ui_thread(self, self.ctx, self.session)
-        if client is None:
-            self.append_output("\n" + _("Configure an API key to compact.") + "\n")
-            return
-
-        def worker() -> str:
-            return run_slash_compact_sync(
-                focus=focus,
-                session=self.session,
-                cancel=cancel,
-                client=client,
-                tools=tools,
-            )
-
-        line = run_blocking_in_thread(self.ctx, worker, pump_idle=True)
-        self.append_output(line)
 
     def slash_agent_edit_in_flight(self) -> bool:
         return False
@@ -3159,7 +3137,9 @@ def _apply_fake_vision(mode: str) -> None:
             _patch(image_tools, "export_graphic_object_to_bytes", _no_export)
 
         def _fake_run_vision(ctx: Any, spec: Any, image: Any = None, *, context: dict[str, Any] | None = None,
-                             stop_checker: Any = None) -> dict[str, Any]:
+                             cancel: Any = None) -> dict[str, Any]:
+            from plugin.framework.send_cancellation import is_cancelled
+
             name = str((context or {}).get("image_name") or "")
             with _FAKE_VISION_LOCK:
                 index = len(_FAKE_VISION_STATE["calls"])
@@ -3173,7 +3153,7 @@ def _apply_fake_vision(mode: str) -> None:
             if mode == "slow":
                 deadline = time.monotonic() + 6.0
                 while time.monotonic() < deadline:
-                    if stop_checker is not None and stop_checker():
+                    if is_cancelled(cancel):
                         result = {"status": "error", "code": "USER_STOPPED", "message": "Cancelled by user."}
                         break
                     time.sleep(0.05)

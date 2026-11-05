@@ -18,10 +18,10 @@ from typing import Any
 import pytest
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import (
     Child,
     ChildSpec,
-    Deadline,
     Death,
     Supervisor,
     WarmChild,
@@ -286,6 +286,40 @@ def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any, supervisor
         pass
 
 
+def test_shutdown_all_sweeps_managed_registry_when_spawner_never_started(monkeypatch) -> None:
+    ms_calls = 0
+
+    def _ms_shutdown() -> None:
+        nonlocal ms_calls
+        ms_calls += 1
+
+    monkeypatch.setattr(
+        "plugin.framework.managed_subprocess.shutdown_all",
+        _ms_shutdown,
+    )
+    sup = Supervisor()
+    assert not sup._threads_started
+    sup.shutdown_all()
+    assert ms_calls == 1
+
+
+def test_shutdown_all_sweeps_managed_registry_once_when_spawner_started(monkeypatch) -> None:
+    ms_calls = 0
+
+    def _ms_shutdown() -> None:
+        nonlocal ms_calls
+        ms_calls += 1
+
+    monkeypatch.setattr(
+        "plugin.framework.managed_subprocess.shutdown_all",
+        _ms_shutdown,
+    )
+    sup = Supervisor()
+    sup._threads_started = True
+    sup.shutdown_all()
+    assert ms_calls == 1
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(sys.platform != "linux", reason="orphan PDEATHSIG check is Linux-only")
 def test_orphan_warm_child_dies_with_parent(tmp_path: Any) -> None:
@@ -300,7 +334,8 @@ def test_orphan_warm_child_dies_with_parent(tmp_path: Any) -> None:
             [
                 "import os, sys, time",
                 f"sys.path.insert(0, {root!r})",
-                "from plugin.framework.warm_child import ChildSpec, Deadline, WarmChild",
+                "from plugin.framework.child_runtime import Deadline",
+                "from plugin.framework.warm_child import ChildSpec, WarmChild",
                 f"script = {child_script!r}",
                 "env = {k: v for k, v in os.environ.items() if isinstance(v, str)}",
                 "spec = ChildSpec(name='orphan', argv=[sys.executable, script], env=env)",
@@ -516,3 +551,26 @@ def test_process_worker_respawn_interrupted_drops_child(monkeypatch: pytest.Monk
     monkeypatch.setattr(ManagedSubprocess, "start", fake_start)
     worker.respawn()
     assert drops, "interrupted respawn should drop the child"
+
+
+def test_supervisor_is_one_process_global() -> None:
+    import importlib.machinery
+    import importlib.util
+    import sys
+
+    from plugin.framework.warm_child import supervisor
+
+    assert supervisor is sys._writeragent_warm_child_supervisor
+    origin = importlib.util.find_spec("plugin.framework.warm_child").origin
+    assert origin is not None
+    mod_name = "warm_child_reimport_isolated"
+    loader = importlib.machinery.SourceFileLoader(mod_name, origin)
+    spec = importlib.util.spec_from_loader(mod_name, loader)
+    assert spec is not None
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[mod_name] = mod
+    try:
+        loader.exec_module(mod)
+    finally:
+        sys.modules.pop(mod_name, None)
+    assert mod.supervisor is supervisor
