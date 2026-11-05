@@ -149,17 +149,34 @@ def test_compute_bundle_assembly_and_execution(tmp_path: Path):
         "plugin/scripting/venv/duckdb_sql.py",
         "plugin/scripting/writeragent_api.py",
         "plugin/scripting/calc_functions_common.py",
-        "plugin/scripting/sheet_layout.py",
-        "plugin/scripting/venv/trusted_dispatch.py",
         "plugin/vision/vision_tools.py",
-        "plugin/vision/vision_docling.py",
-        "plugin/vision/vision_paddle.py",
+        "plugin/vision/venv/vision_docling.py",
+        "plugin/vision/venv/vision_paddle.py",
+        "plugin/vision/venv/vision_html_export.py",
+        "plugin/vision/venv/vision_layout_html.py",
         "plugin/contrib/vec_pack",
         "plugin/contrib/smolagents/agents.py",
     ]
     for rel in forbidden:
         p = dest / rel
         assert not p.exists(), f"Forbidden file or directory present in compute bundle: {rel}"
+
+    bundled_domains = [
+        "plugin/scripting/_lazy_venv.py",
+        "plugin/scripting/sheet_layout.py",
+        "plugin/scripting/viz.py",
+        "plugin/scripting/symbolic.py",
+        "plugin/scripting/units.py",
+        "plugin/scripting/quant.py",
+        "plugin/scripting/venv/map_range.py",
+        "plugin/scripting/venv/trusted_dispatch.py",
+        "plugin/scripting/venv/viz.py",
+        "plugin/scripting/venv/symbolic.py",
+        "plugin/scripting/venv/units.py",
+        "plugin/scripting/venv/quant.py",
+    ]
+    for rel in bundled_domains:
+        assert (dest / rel).is_file(), f"Expected domain module in compute bundle: {rel}"
 
     # First subprocess: verify clean hermetic imports and worker cell executions
     worker_test_code = """
@@ -337,3 +354,55 @@ assert res.get("result") == 1, res
         check=False,
     )
     assert res2.returncode == 0, f"Deal blocker test failed:\nSTDOUT:\n{res2.stdout}\nSTDERR:\n{res2.stderr}"
+
+
+def test_compute_bundle_symbolic_domain(tmp_path: Path):
+    dest = tmp_path / "bundle-compute"
+    assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
+
+    worker_test_code = """
+import sys, os, json
+
+staged = sys.argv[1]
+repo_real = os.path.realpath(sys.argv[2])
+
+sys.meta_path = [
+    finder for finder in sys.meta_path
+    if "editable" not in finder.__class__.__name__.lower()
+    and "editable" not in getattr(finder, "__module__", "").lower()
+]
+sys.path_hooks = [
+    h for h in sys.path_hooks
+    if "editable" not in h.__class__.__name__.lower()
+    and "editable" not in getattr(h, "__module__", "").lower()
+]
+
+filtered_path = []
+for p in sys.path:
+    if not p:
+        continue
+    p_real = os.path.realpath(p)
+    if p_real == repo_real or "editable" in p.lower():
+        continue
+    filtered_path.append(p)
+sys.path = [staged] + filtered_path
+
+from compute_service.formula_worker import _handle_request
+
+cell = '''
+from writeragent.scripting.symbolic import run_symbolic
+result = run_symbolic({"helper": "symbolic_simplify", "params": {"expression": "x+x"}}, None, {})["text"]
+'''
+payload = json.loads(_handle_request({"code": cell})["result_json"])
+assert payload.get("status") == "ok", payload
+assert payload.get("result") == "2*x", payload
+assert "uno" not in sys.modules
+"""
+
+    res = subprocess.run(
+        [sys.executable, "-c", worker_test_code, str(dest), str(_REPO_ROOT)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, f"Symbolic domain test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"

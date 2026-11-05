@@ -1821,6 +1821,21 @@ class TestSessionResetHttp:
         assert body.get("code") == "VISION_UNAVAILABLE"
         assert body.get("id") == "v-missing"
 
+    def test_vision_backend_missing_is_501(self) -> None:
+        fake_pool = MagicMock()
+        fake_pool.execute.return_value = {
+            "id": "v-backend",
+            "status": "error",
+            "code": "VISION_BACKEND_MISSING",
+            "error": "OCR backend 'plugin.vision.venv.vision_docling' is not installed on this server",
+        }
+        app = create_wsgi_app(ComputeSettings(ocr_workers=1))
+        with patch("compute_service.vision.get_vision_pool", return_value=fake_pool):
+            status, _headers, body = _wsgi_vision_post(app, {"id": "v-backend"}, b"png")
+        assert status.startswith("501")
+        assert body.get("code") == "VISION_BACKEND_MISSING"
+        assert body.get("id") == "v-backend"
+
     def test_non_ascii_bearer_and_key_file(self, tmp_path) -> None:
         """hmac.compare_digest on str raises TypeError for non-ASCII. That escaped the WSGI app."""
         from compute_service.server import authenticate_request

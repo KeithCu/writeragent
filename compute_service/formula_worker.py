@@ -35,6 +35,10 @@ from plugin.scripting.session_key import SessionKey, SessionKind
 # Default math/OpenMP thread pools to 1 thread early before any heavy math imports.
 configure_compute_worker_env()
 
+from plugin.framework.uno_bootstrap import register_alias_importer
+
+register_alias_importer()
+
 # ast sandboxing is loaded lazily on the first execution so the ready
 # handshake is not spent on that graph with an empty stderr.
 

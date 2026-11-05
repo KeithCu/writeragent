@@ -60,8 +60,9 @@ WORKER_EXECUTION_ERROR = _code("WORKER_EXECUTION_ERROR", "500 Internal Server Er
 VISION_WORKER_ERROR = _code("VISION_WORKER_ERROR", "500 Internal Server Error")
 INTERNAL_ERROR = _code("INTERNAL_ERROR", "500 Internal Server Error")
 
-# 501: vision is off on this server.
+# 501: vision workers off, or the OCR backend module is not in this image.
 VISION_SERVICE_DISABLED = _code("VISION_SERVICE_DISABLED", "501 Not Implemented")
+VISION_BACKEND_MISSING = _code("VISION_BACKEND_MISSING", "501 Not Implemented")
 
 # 503: the cell never ran; a proxy may retry.
 WORKER_POOL_BUSY = _code("WORKER_POOL_BUSY", "503 Service Unavailable")

@@ -98,6 +98,22 @@ def _new_vision_pool(settings: ComputeSettings | None = None) -> VisionProcessPo
 get_vision_pool, shutdown_vision_pool = bind_pool_singleton(_POOL_SINGLETON, _new_vision_pool)
 
 
+def _missing_backend_name(exc: BaseException) -> str | None:
+    if isinstance(exc, ModuleNotFoundError) and isinstance(exc.name, str) and exc.name:
+        return exc.name
+    text = str(exc)
+    prefix = "No module named "
+    if text.startswith(prefix):
+        rest = text[len(prefix) :].strip()
+        if len(rest) >= 2 and rest[0] == rest[-1] and rest[0] in "\"'":
+            return rest[1:-1]
+    return None
+
+
+def _ocr_backend_missing_message(name: str) -> str:
+    return f"OCR backend {name!r} is not installed on this server"
+
+
 # ---------------------------------------------------------------------------
 # Worker subprocess request handling
 # ---------------------------------------------------------------------------
@@ -129,9 +145,26 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     try:
         spec = {"helper": helper, "params": params}
         res = run_vision(spec=spec, image=image_bytes)
+        if isinstance(res, dict) and res.get("code") == "VISION_ERROR":
+            # run_vision turns a missing backend into VISION_ERROR; unknown codes map to HTTP 200,
+            # so a proxy can treat a permanent gap as a normal OCR result. plugin/vision/venv/vision.py
+            # catches Exception and returns that dict; translate it here only (501, names the module).
+            message = res.get("message")
+            if isinstance(message, str):
+                backend = _missing_backend_name(ModuleNotFoundError(message))
+                if backend is not None:
+                    return error_dict(
+                        ec.VISION_BACKEND_MISSING,
+                        _ocr_backend_missing_message(backend),
+                        req_id=req_id,
+                    )
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
         return res
+    except (ModuleNotFoundError, ImportError) as exc:
+        name = _missing_backend_name(exc)
+        detail = _ocr_backend_missing_message(name) if name else str(exc)
+        return error_dict(ec.VISION_BACKEND_MISSING, detail, req_id=req_id)
     except Exception as exc:
         # Omit traceback — server paths on the kit wire; see formula_worker.py.
         return error_dict(ec.VISION_WORKER_ERROR, str(exc), req_id=req_id)
