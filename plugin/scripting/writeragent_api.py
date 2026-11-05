@@ -776,7 +776,7 @@ class _CoreProxy:
         return call_host_tool("find_tools", domain=domain)
 
     def get_guidance(self, *, topic: str | None = None) -> dict[str, Any]:
-        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, concurrency). Use this when unsure how an edit, the review modes, search, or image ops work. The no-topic index also returns current_local_datetime.
+        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, concurrency). Calc: workflow, formula-syntax, directives, concurrency. Draw and Impress: directives, get-image, concurrency. Use this when unsure how an edit, the review modes, search, or image ops work. The no-topic index also returns current_local_datetime.
 
         Args:
             topic (optional): Topic to read (see the no-topic call for the list; topics follow the document type). Omit for the topic list.

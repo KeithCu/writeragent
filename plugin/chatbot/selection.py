@@ -225,11 +225,22 @@ def do_selection_action_for_document(
     if doc_type == DocumentType.CALC:
         from plugin.calc.editselection import do_calc_extend_edit
 
-        do_calc_extend_edit(ctx, model, is_edit, preset_instruction=preset_instruction, sidebar_notify=sidebar_notify)
+        do_calc_extend_edit(
+            ctx,
+            model,
+            is_edit,
+            preset_instruction=preset_instruction,
+            sidebar_notify=sidebar_notify,
+            allow_whole_document=allow_whole_document,
+        )
         return
 
     action = _("Edit") if is_edit else _("Extend")
-    msgbox(ctx, "WriterAgent", _("{0} selection not supported for this document type").format(action))
+    message = _("{0} selection not supported for this document type").format(action)
+    if sidebar_notify is not None:
+        sidebar_notify(message)
+        return
+    msgbox(ctx, "WriterAgent", message)
 
 
 def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:

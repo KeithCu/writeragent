@@ -129,7 +129,7 @@ Settings UI: `web_research_cache_enabled` only. Cache matching tuning (`web_rese
 
 ### Deep Research (sidebar mode)
 
-Choose **Deep Research** in the sidebar mode dropdown to run a **breadth/depth multi-query loop** via a dedicated sub-agent that can **`apply_document_content`** after synthesis. The main agent and specialized delegates **always** use shallow web research — they never pass `deep=True`; only the sidebar Deep Research session does.
+Choose **Deep Research** in the sidebar mode dropdown (Writer, Calc, Draw, and Impress) to run a **breadth/depth multi-query loop** via a dedicated sub-agent. On Writer it can **`apply_document_content`** after synthesis when that tool is in the sub-agent tool list; on Calc, Draw, and Impress the session exposes web research only.
 
 Shallow **Web Research** sidebar mode streams results to chat only and does not expose document editing tools.
 
@@ -149,7 +149,7 @@ The loop is ported from [gpt-researcher](https://github.com/assafelovic/gpt-rese
 
 Implementation: [`plugin/chatbot/web_research_deep.py`](../../plugin/chatbot/web_research_deep.py) (adaptive orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../../plugin/chatbot/deep_research_session.py) (`deep_research_web` → `apply_document_content`); shallow agent helper [`_run_web_agent`](../../plugin/chatbot/web_research.py).
 
-**Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_max_rounds`, `chatbot.deep_research_depth` (legacy alias when `max_rounds` is 0), `chatbot.deep_research_concurrency`, `chatbot.deep_research_max_sub_queries`, `chatbot.deep_research_quality_threshold`, `chatbot.deep_research_sub_agent_steps`.
+**Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_max_rounds`, `chatbot.deep_research_concurrency`, `chatbot.deep_research_max_sub_queries`, `chatbot.deep_research_quality_threshold`, `chatbot.deep_research_sub_agent_steps`.
 
 ---
 
