@@ -263,3 +263,10 @@ def test_get_image_supports_calc_document():
         uno_services_supported=frozenset({CALC_DOCUMENT_SERVICE}),
     ) is True
 
+
+def test_calc_specialized_catalog_excludes_styles_domain():
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
+
+    domains = {entry["domain"] for entry in get_specialized_domain_catalog(agent_label="Calc")}
+    assert "styles" not in domains
+

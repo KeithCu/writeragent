@@ -70,7 +70,10 @@ class ListSheets(ToolCalcSheetBase):
     """List all sheet names in the workbook."""
 
     name: str | None = "sheet_list"
-    description: str = "Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."
+    description: str = (
+        "Lists user-visible sheets (omits leading-`_` internal tabs). "
+        "Each entry is {name, protected, visible}."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}}
     is_mutation: bool | None = False
 
@@ -355,11 +358,11 @@ class SheetHide(ToolCalcSheetBase):
 
         if not visible:
             sheets = doc.getSheets()
-            visible_count = 0
-            for name in sheets.getElementNames():
-                candidate = sheets.getByName(name)
-                if candidate.getPropertyValue("IsVisible"):
-                    visible_count += 1
+            visible_count = sum(
+                1
+                for name in sheets.getElementNames()
+                if sheets.getByName(name).getPropertyValue("IsVisible")
+            )
             if sheet.getPropertyValue("IsVisible") and visible_count <= 1:
                 return self._tool_error("Cannot hide the only visible sheet in the document.")
 

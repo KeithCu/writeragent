@@ -222,13 +222,12 @@ class GetImage(ToolBase):
         if sheet_index is not None:
             if isinstance(sheet_index, bool) or not isinstance(sheet_index, int) or sheet_index < 0:
                 return self._tool_error("sheet_index must be a non-negative integer (0-based).")
-            if page is not None or selection is not None or name is None:
+            if name is None:
                 return self._tool_error("sheet_index applies only with image=<name>.")
-
         if page is not None:
             if isinstance(page, bool) or not isinstance(page, int) or page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based).")
-            if name is not None or selection is True:
+            if name is not None or selection is True or sheet_index is not None:
                 return self._tool_error("Pass only one of page, image, or selection.")
             if ctx.doc_type == "calc":
                 return self._tool_error(
@@ -252,13 +251,11 @@ class GetImage(ToolBase):
             try:
                 obj = get_graphic_object_by_name(doc, name, **lookup_kwargs)
             except AmbiguousGraphicNameError as exc:
-                sheets = getattr(exc, "sheet_indices", None)
                 return self._tool_error(
                     str(exc),
                     code="AMBIGUOUS_NAME",
                     image_name=name,
-                    sheet_indices=sheets,
-                    sheets=sheets,
+                    sheet_indices=exc.sheet_indices,
                 )
             if obj is None:
                 return self._tool_error(f"No embedded image named '{name}'. Call image_list to see the available names.")

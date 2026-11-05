@@ -72,6 +72,19 @@ def test_list_sheets_omits_leading_underscore_names():
     assert "__Anonymous_Sheet_DB__0" not in names
 
 
+def test_list_sheets_result_entries_have_name_protected_visible():
+    ctx = SimpleNamespace(
+        doc=_sheets_doc("Sheet1", "_foo", "__Anonymous_Sheet_DB__0", "Data")
+    )
+    result = ListSheets().execute(ctx)
+    assert result["status"] == "ok"
+    for entry in result["result"]:
+        assert set(entry.keys()) == {"name", "protected", "visible"}
+        assert isinstance(entry["name"], str)
+        assert isinstance(entry["protected"], bool)
+        assert isinstance(entry["visible"], bool)
+
+
 def test_get_sheet_summary_rejects_leading_underscore_names():
     ctx = SimpleNamespace(doc=MagicMock())
     with (

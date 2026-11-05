@@ -1971,7 +1971,7 @@ class _SheetProxy:
         return call_host_tool("sheet_hide", sheet=sheet, visible=visible)
 
     def list(self) -> dict[str, Any]:
-        """Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."""
+        """Lists user-visible sheets (omits leading-`_` internal tabs). Each entry is {name, protected, visible}."""
         return call_host_tool("sheet_list")
 
     def move(self, sheet: str, position: int) -> dict[str, Any]:

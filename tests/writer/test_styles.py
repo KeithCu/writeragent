@@ -1544,7 +1544,7 @@ def test_style_list_calc_paragraph_family_errors_with_available():
     ctx = TestingFactory.create_context(doc=doc, doc_type="calc")
     res = StyleList().execute(ctx, family="ParagraphStyles")
     assert res["status"] == "error"
-    assert res.get("details", {}).get("available") == ["CellStyles"]
+    assert res.get("details", {}).get("similar") == ["CellStyles"]
 
 
 def test_style_list_calc_cell_styles_returns_entries():

@@ -399,6 +399,12 @@ _TEXT_STYLE_FAMILIES = list(_CLONE_TEXT_SERVICES)
 _STYLE_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles", "CellStyles"]
 _WRITER_STYLE_LIST_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles"]
 
+
+def _style_list_families_for_doc_type(doc_type: str | None) -> list[str]:
+    if doc_type == "calc":
+        return ["CellStyles"]
+    return list(_WRITER_STYLE_LIST_FAMILIES)
+
 _CONDITIONAL_CONTEXTS = [
     "TableHeader", "Table", "Frame", "Section", "Footnote", "Endnote",
     "Header", "Footer",
@@ -1049,35 +1055,30 @@ class StyleList(ToolWriterStyleBase):
     def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
         params = copy.deepcopy(cast("dict[str, Any]", self.parameters))
         family_prop = cast("dict[str, Any]", params["properties"]["family"])
-        if doc_type == "calc":
-            family_prop["enum"] = ["CellStyles"]
-        else:
-            family_prop["enum"] = list(_WRITER_STYLE_LIST_FAMILIES)
+        family_prop["enum"] = _style_list_families_for_doc_type(doc_type)
         return params
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         family = kwargs.get("family")
         doc = ctx.doc
-
         families = doc.getStyleFamilies()
-        if ctx.doc_type == "calc":
-            if not family or not str(family).strip():
-                cell_families = ["CellStyles"] if families.hasByName("CellStyles") else []
-                return {"status": "ok", "families": cell_families, "count": len(cell_families)}
-            family = str(family).strip()
-            if family != "CellStyles":
+        list_families = _style_list_families_for_doc_type(ctx.doc_type)
+
+        if not family or not str(family).strip():
+            if ctx.doc_type == "calc":
                 available = ["CellStyles"] if families.hasByName("CellStyles") else []
-                return self._tool_error(
-                    "Unknown style family: %s" % family,
-                    code="UNO_OBJECT_ERROR",
-                    available=available,
-                    **name_miss_details(family, available, "style_list"),
-                )
-        elif not family or not str(family).strip():
-            available = [f for f in families.getElementNames() if f in _WRITER_STYLE_LIST_FAMILIES]
+            else:
+                available = [f for f in families.getElementNames() if f in list_families]
             return {"status": "ok", "families": available, "count": len(available)}
-        else:
-            family = str(family).strip()
+
+        family = str(family).strip()
+        if ctx.doc_type == "calc" and family != "CellStyles":
+            available = ["CellStyles"] if families.hasByName("CellStyles") else []
+            return self._tool_error(
+                "Unknown style family: %s" % family,
+                code="UNO_OBJECT_ERROR",
+                **name_miss_details(family, available, "style_list"),
+            )
 
         style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):

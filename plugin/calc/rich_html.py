@@ -101,7 +101,7 @@ def insert_cell_html_rich(doc: Any, uno_ctx: Any, cell_address: str, html: str) 
     if not (html or "").strip():
         raise ToolExecutionError("HTML content is empty")
 
-    # Bugfix: parse_address + get_active_sheet rejected a sheet prefix; use the bridge like other cell tools.
+    # Cell addresses use the bridge so sheet prefixes resolve (same as other cell tools).
     cell = CalcBridge(doc).get_cell_by_address(cell_address.strip())
 
     content = html_std.unescape(html)
