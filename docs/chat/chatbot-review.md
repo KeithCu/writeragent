@@ -169,9 +169,9 @@ These remove a second copy of a fact. None of them need a new file.
 - `_setup_module_tabs` wraps `setup_module_tabs` in `except Exception: pass` (`plugin/chatbot/dialog_views.py`). `setup_module_tabs` already logs. Drop the outer try, or log.
 - The eval dashboard translates when `load_writeragent_dialog` loads `EvalDialog`.
 
-### Slash popup (flag is off)
+### Slash popup
 
-`ENABLE_SLASH` is false, and `QueryKeyListener` does not call `handle_key` while it is false. Ask Enter still sends. These contracts are in the code so turning the flag on does not revive the headed bugs:
+`ENABLE_SLASH` is true in product builds. `QueryKeyListener` always calls `handle_key`; when the popup consumes Enter, Send does not run. These contracts are in the code so the overlay does not revive the headed bugs:
 
 - Frame and toolkit `XKeyHandler`s call `_on_document_key` → `handle_key(..., from_overlay=False)` (nav only). The listbox listener calls `_on_list_key` → `from_overlay=True`. `from_overlay=True` appends printable characters to Ask and returns true, so it must not be used on handlers that also see document keys.
 - Accept and Esc post ``run_slash_command(cmd, host, …)`` / ``hide`` with ``main.post`` (``_defer_to_next_turn``). The key or mouse callback returns before ``hide()`` disposes the toolkit window. There is no inline fallback: that would dispose on the listener stack. Ask textChanged (``on_query_text``) posts ``hide`` and ``_show_matches`` through the same helper. A ``TimeoutError`` from ``main.post`` is logged and does not run that work on the listener stack.

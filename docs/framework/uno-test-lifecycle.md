@@ -482,8 +482,8 @@ the same soffice PIDs). Worker threads were `worker_pool._loop` /
 `createWindow` TOP + later `setVisible` is the same Windows-headless
 VCL map. Windows now `skip_windows_awt_top_dialog`s before
 `createPeer` / `setVisible` (`windows awt skip: slash_popup
-createPeer/setVisible`). Linux UNO still maps the overlay. ENABLE_SLASH
-stays parked. Not a product change.
+createPeer/setVisible`). Linux UNO still maps the overlay when enabled.
+Not a product change.
 
 GHA 34657826349 / 34657808315 (master `0bf7d223`, tip of #734):
 #734's Hidden-open skip is not that hang. `document_research_uno`

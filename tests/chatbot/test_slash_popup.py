@@ -30,8 +30,7 @@ from plugin.chatbot.slash_popup import (
 
 
 @pytest.fixture(autouse=True)
-def _enable_slash_for_unit_tests(monkeypatch):
-    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", True)
+def _slash_popup_unit_test_env(monkeypatch):
     # Most tests drive the [mock] rows, like the mock-LLM sidebar harness.
     monkeypatch.setattr("plugin.chatbot.slash_commands._mock_commands_enabled", True)
 
