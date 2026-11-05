@@ -25,7 +25,8 @@ import uno
 
 from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
-from plugin.framework.tool import ToolBase, name_miss_details
+from plugin.framework.tool import ToolBase
+from plugin.framework.errors import name_miss_details
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")

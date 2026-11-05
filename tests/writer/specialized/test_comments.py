@@ -543,6 +543,7 @@ def test_comment_resolve_miss_returns_error():
         "status": "error",
         "code": "COMMENT_NOT_FOUND",
         "message": "Comment 'missing' not found. Call comment_list to see the current names.",
+        "details": {"hint": "Call comment_list to list names."},
     }
 
 

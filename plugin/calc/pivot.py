@@ -66,8 +66,7 @@ from plugin.calc.address_utils import format_range_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.framework.errors import ToolExecutionError, is_disposal
-from plugin.framework.tool import name_miss_details
+from plugin.framework.errors import ToolExecutionError, is_disposal, name_miss_details
 
 log = logging.getLogger(__name__)
 

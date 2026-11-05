@@ -31,7 +31,8 @@ from plugin.doc.text_helpers import (
 from plugin.doc.visual_helpers import safe_get_property
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
-from plugin.framework.tool import ToolBase, ToolBaseDummy, name_miss_details
+from plugin.framework.tool import ToolBase, ToolBaseDummy
+from plugin.framework.errors import name_miss_details
 
 from .specialized_base import ToolWriterStructuralBase
 

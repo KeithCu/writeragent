@@ -37,7 +37,7 @@ from plugin.framework.errors import (
     reraise_if_disposed,
     resolve_exception_message,
 )
-from plugin.framework.tool import name_miss_details
+from plugin.framework.errors import name_miss_details
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from ..specialized_base import ToolWriterImageBase, enum_param

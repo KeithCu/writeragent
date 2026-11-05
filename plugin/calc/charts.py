@@ -38,8 +38,7 @@ from plugin.calc.address_utils import format_range_address, parse_address, split
 from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.errors import DocumentDisposedError, document_is_disposed, is_disposal
-from plugin.framework.tool import name_miss_details
+from plugin.framework.errors import DocumentDisposedError, document_is_disposed, is_disposal, name_miss_details
 from plugin.framework.uno_context import get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 

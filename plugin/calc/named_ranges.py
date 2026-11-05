@@ -30,8 +30,7 @@ from plugin.calc.address_utils import (
 )
 from plugin.calc.base import ToolCalcRangeBase
 from plugin.calc.bridge import CalcBridge, NamedRangeHit, find_named_range, is_agent_visible_sheet
-from plugin.framework.errors import UnoObjectError, uno_read
-from plugin.framework.tool import name_miss_details
+from plugin.framework.errors import UnoObjectError, name_miss_details, uno_read
 
 from com.sun.star.lang import IllegalArgumentException
 

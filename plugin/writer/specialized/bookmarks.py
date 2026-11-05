@@ -25,8 +25,7 @@ from typing import Any, ClassVar, Generator
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_index_for_anchor
-from plugin.framework.errors import best_effort, reraise_if_disposed
-from plugin.framework.tool import name_miss_details
+from plugin.framework.errors import best_effort, name_miss_details, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase

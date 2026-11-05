@@ -24,8 +24,7 @@ plugin framework.
 
 from typing import Any, NamedTuple
 
-from plugin.framework.errors import UnoObjectError, uno_read
-from plugin.framework.tool import name_miss_details
+from plugin.framework.errors import UnoObjectError, name_miss_details, uno_read
 from plugin.calc.address_utils import (
     format_range_address,
     parse_address,

@@ -54,7 +54,8 @@ from plugin.draw.design_look import derive_otp_look
 from plugin.draw.masters import find_master, iter_masters
 from plugin.draw.otp_zip import extract_member, read_member
 from plugin.draw.shape_clone import clone_shape, copy_prop, fill_style_kind
-from plugin.framework.tool import ToolBase, ToolContext, available_miss_details
+from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.errors import available_miss_details
 from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import uno_same
 from plugin.framework.url_utils import path_to_file_url

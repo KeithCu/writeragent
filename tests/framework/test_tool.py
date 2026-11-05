@@ -299,7 +299,7 @@ def test_get_item():
     assert res == "val1"
 
 def test_similar_names_caps_and_cutoff():
-    from plugin.framework.tool import similar_names
+    from plugin.framework.errors import similar_names
 
     names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"]
     assert similar_names("", names) == []

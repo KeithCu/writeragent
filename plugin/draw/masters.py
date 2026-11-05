@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.draw.base import ToolDrawSlideMastersBase
 from plugin.draw.bridge import DrawBridge
 from plugin.framework.errors import is_disposal
-from plugin.framework.tool import name_miss_details
+from plugin.framework.errors import name_miss_details
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

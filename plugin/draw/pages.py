@@ -24,7 +24,8 @@ from plugin.draw.bridge import DrawBridge, page_size
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.masters import iter_masters
 from plugin.framework.errors import is_disposal
-from plugin.framework.tool import ToolBase, ToolContext, available_miss_details
+from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.errors import available_miss_details
 from plugin.framework.uno_context import uno_same
 
 log = logging.getLogger("writeragent.draw.pages")

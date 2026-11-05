@@ -25,7 +25,7 @@ import logging
 from typing import Any, NamedTuple, cast
 
 from plugin.framework.errors import ToolExecutionError
-from plugin.framework.tool import name_miss_details
+from plugin.framework.errors import name_miss_details
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.text_helpers import (

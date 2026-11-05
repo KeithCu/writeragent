@@ -12,8 +12,7 @@ from typing import TYPE_CHECKING, Any
 from plugin.draw.base import ToolDrawSlideLayoutBase, ToolDrawSlideTransitionsBase
 from plugin.draw.bridge import DrawBridge
 from plugin.draw.layouts import available_layout_names, layout_id, layout_name
-from plugin.framework.errors import is_disposal, uno_read
-from plugin.framework.tool import available_miss_details
+from plugin.framework.errors import available_miss_details, is_disposal, uno_read
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext

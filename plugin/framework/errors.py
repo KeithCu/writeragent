@@ -23,6 +23,7 @@ All custom exceptions should inherit from WriterAgentException.
 from __future__ import annotations
 
 import contextlib
+import difflib
 import errno
 import logging
 from typing import Any, Callable, NoReturn, TypeVar, overload
@@ -50,6 +51,31 @@ _FILESYSTEM_CLASSES: tuple[type[BaseException], ...] = (
     FileExistsError,
     BlockingIOError,
 )
+
+
+def similar_names(wanted: str, names: list[str]) -> list[str]:
+    """Up to five close name matches for tool miss hints (difflib cutoff 0.4)."""
+    if not wanted:
+        return []
+    return difflib.get_close_matches(wanted, names, n=5, cutoff=0.4)
+
+
+def name_miss_details(wanted: str, names: list[str], list_tool: str) -> dict[str, Any]:
+    """``details`` payload for a named-object miss: always ``hint``, optional ``similar``."""
+    out: dict[str, Any] = {"hint": "Call %s to list names." % list_tool}
+    similar = similar_names(wanted, names)
+    if similar:
+        out["similar"] = similar
+    return out
+
+
+def available_miss_details(wanted: str, available: list[str]) -> dict[str, Any]:
+    """Miss hints when the legal set is already in ``details.available``."""
+    out: dict[str, Any] = {"hint": "Valid names are in details.available."}
+    similar = similar_names(wanted, [str(x) for x in available])
+    if similar:
+        out["similar"] = similar
+    return out
 
 
 def is_disposal(exc: BaseException) -> bool:
