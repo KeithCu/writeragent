@@ -158,6 +158,14 @@ class EventBus:
                 entry for entry, live in zip(kept, resolved) if live != callback
             ]
 
+    def has_subscribers(self, event: str) -> bool:
+        """True when at least one live subscriber is registered for *event*."""
+        with self._lock:
+            kept, resolved = self._live_entries(event)
+            if len(kept) != len(self._subscribers.get(event, [])):
+                self._subscribers[event] = kept
+            return bool(resolved)
+
     def emit(self, event: str, /, **data: Any) -> None:
         """Emit *event*, calling all subscribers with **data as kwargs.
 

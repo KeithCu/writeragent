@@ -5,7 +5,7 @@
 """Tests for FizzBee formal modeling and full-layout MCP testing for Calc tools.
 
 Covers:
-- Full Calc layout extraction (all 62 tools across core and 12 specialized domains)
+- Full Calc layout extraction (all 67 tools across core and 12 specialized domains)
 - Full MCP schema validation for every Calc tool
 - Tool exposure mode filtering (direct_flat, delegate, direct_discovery)
 - Calc state transition trace replay against MCP protocol handler
@@ -148,6 +148,8 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "symbolic_math",
     "undo",
     "write_formula_range",
+    "document_properties_get",
+    "document_properties_set",
 })
 
 

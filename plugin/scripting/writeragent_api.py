@@ -51,6 +51,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'chart': ['chart_delete', 'chart_get_info', 'chart_list', 'chart_upsert'],
     'comment': [   'comment_check_stop',
                    'comment_delete',
+                   'comment_edit',
                    'comment_list',
                    'comment_resolve',
                    'comment_scan_tasks',
@@ -59,7 +60,9 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'conditional_formatting': [   'conditional_formatting_add',
                                   'conditional_formatting_list',
                                   'conditional_formatting_remove'],
-    'core': [   'find_tools',
+    'core': [   'document_properties_get',
+                'document_properties_set',
+                'find_tools',
                 'get_guidance',
                 'get_image',
                 'list_open_documents',
@@ -181,7 +184,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'table_list',
                  'table_manage_structure',
                  'table_set_cell'],
-    'textframe': ['frame_get_info', 'frame_list', 'frame_set_properties'],
+    'textframe': ['frame_delete', 'frame_get_info', 'frame_insert', 'frame_list', 'frame_set_properties'],
     'tracking': ['tracking_list', 'tracking_manage', 'tracking_show', 'tracking_start', 'tracking_stop'],
     'vision': ['extract_structure_from_image'],
     'writer': [   'add_comment',
@@ -214,6 +217,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'chart_upsert': ('chart', 'upsert'),
     'comment_check_stop': ('comment', 'check_stop'),
     'comment_delete': ('comment', 'delete'),
+    'comment_edit': ('comment', 'edit'),
     'comment_list': ('comment', 'list'),
     'comment_resolve': ('comment', 'resolve'),
     'comment_scan_tasks': ('comment', 'scan_tasks'),
@@ -224,6 +228,8 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'conditional_formatting_remove': ('conditional_formatting', 'remove'),
     'delete_slide': ('draw', 'delete_slide'),
     'delete_structure': ('calc', 'delete_structure'),
+    'document_properties_get': ('core', 'document_properties_get'),
+    'document_properties_set': ('core', 'document_properties_set'),
     'duplicate_slide': ('draw', 'duplicate_slide'),
     'error_detect': ('error', 'detect'),
     'evaluate_formula': ('error', 'evaluate_formula'),
@@ -245,7 +251,9 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'form_edit_control': ('forms', 'edit_control'),
     'form_generate': ('forms', 'generate'),
     'form_list_controls': ('forms', 'list_controls'),
+    'frame_delete': ('textframe', 'frame_delete'),
     'frame_get_info': ('textframe', 'frame_get_info'),
+    'frame_insert': ('textframe', 'frame_insert'),
     'frame_list': ('textframe', 'frame_list'),
     'frame_set_properties': ('textframe', 'frame_set_properties'),
     'get_document_content': ('writer', 'get_document_content'),
@@ -694,13 +702,24 @@ class _CommentProxy:
         """
         return call_host_tool("comment_delete", name=name, author=author)
 
-    def list(self, *, author_filter: str | None = None) -> dict[str, Any]:
-        """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments.
+    def edit(self, name: str, content: str) -> dict[str, Any]:
+        """Change the content text of an existing comment by name. Does not change author, date, or resolved status.
+
+        Args:
+            name (required): The 'name' field returned by comment_list.
+            content (required): New comment text.
+        """
+        return call_host_tool("comment_edit", name=name, content=content)
+
+    def list(self, *, author_filter: str | None = None, start_index: int | None = None, max_comments: int | None = None) -> dict[str, Any]:
+        """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments. Returns at most max_comments rows (default 100); page through the rest with start_index when has_more is true.
 
         Args:
             author_filter (optional): Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.
+            start_index (optional): Zero-based row to start this page at (default 0).
+            max_comments (optional): Maximum rows to return (default 100). Values below 1 are treated as 1, like tracking_list.
         """
-        return call_host_tool("comment_list", author_filter=author_filter)
+        return call_host_tool("comment_list", author_filter=author_filter, start_index=start_index, max_comments=max_comments)
 
     def resolve(self, name: str, *, resolution: str | None = None, author: str | None = None) -> dict[str, Any]:
         """Resolve a comment with an optional reason. Adds a reply with the resolution text, then marks as resolved.
@@ -773,6 +792,24 @@ conditional_formatting = _ConditionalFormattingProxy()
 
 class _CoreProxy:
     """Proxy for core tools."""
+
+    def document_properties_get(self) -> dict[str, Any]:
+        """Read document metadata: title, subject, author, description, keywords, and custom user-defined properties. Internal WriterAgent product properties are listed by name only."""
+        return call_host_tool("document_properties_get")
+
+    def document_properties_set(self, *, title: str | None = None, subject: str | None = None, author: str | None = None, description: str | None = None, keywords: list[str] | None = None, user_defined: dict[str, Any] | None = None, remove_user_defined: list[str] | None = None) -> dict[str, Any]:
+        """Update document metadata. Pass only fields to change. Empty string clears a built-in text field; an empty keywords array clears keywords. User-defined values must be strings.
+
+        Args:
+            title (optional): Document title (empty clears).
+            subject (optional): Subject (empty clears).
+            author (optional): Author (empty clears).
+            description (optional): Description (empty clears).
+            keywords (optional): Keyword list (empty array clears).
+            user_defined (optional): Custom property names and string values to set.
+            remove_user_defined (optional): Custom property names to remove.
+        """
+        return call_host_tool("document_properties_set", title=title, subject=subject, author=author, description=description, keywords=keywords, user_defined=user_defined, remove_user_defined=remove_user_defined)
 
     def find_tools(self, *, domain: str | None = None) -> dict[str, Any]:
         """Discover additional tools that are available but not listed here. This MCP server exposes a small core tool set; many specialized capabilities are callable by name but hidden from the default list to keep it short. Call find_tools with no arguments to get the full specialized domain catalog (same list as the delegate gateway). Then call find_tools with a `domain` to get every tool schema in that area, ready to call directly. Always prefer calling a tool returned by find_tools over giving up because a capability seems missing.
@@ -2368,6 +2405,14 @@ table = _TableProxy()
 class _TextframeProxy:
     """Proxy for textframe tools."""
 
+    def frame_delete(self, name: str) -> dict[str, Any]:
+        """Delete a text frame by name (see frame_list).
+
+        Args:
+            name (required): Name of the text frame (from frame_list).
+        """
+        return call_host_tool("frame_delete", name=name)
+
     def frame_get_info(self, name: str) -> dict[str, Any]:
         """Get detailed info about a text frame. content is capped at 4000 chars; content_length is the full visible length.
 
@@ -2375,6 +2420,20 @@ class _TextframeProxy:
             name (required): Name of the text frame (from frame_list).
         """
         return call_host_tool("frame_get_info", name=name)
+
+    def frame_insert(self, *, target: str | None = None, old_content: str | None = None, name: str | None = None, text: str | None = None, width_mm: float | None = None, height_mm: float | None = None, anchor_type: int | None = None) -> dict[str, Any]:
+        """Insert a new text frame with optional initial text and size (millimetres).
+
+        Args:
+            target (optional): Where to insert the text frame. One of: beginning, end, selection, full_document, search.
+            old_content (optional): Text to find and replace if target = 'search'.
+            name (optional): Optional frame name (from frame_list when set).
+            text (optional): Initial text placed inside the frame.
+            width_mm (optional): Frame width in millimetres (default 80).
+            height_mm (optional): Frame height in millimetres (default 30).
+            anchor_type (optional): Anchor type: 0=AT_PARAGRAPH (default), 1=AS_CHARACTER, 2=AT_PAGE, 3=AT_FRAME, 4=AT_CHARACTER.
+        """
+        return call_host_tool("frame_insert", target=target, old_content=old_content, name=name, text=text, width_mm=width_mm, height_mm=height_mm, anchor_type=anchor_type)
 
     def frame_list(self) -> dict[str, Any]:
         """List all text frames in the document."""

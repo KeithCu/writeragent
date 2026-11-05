@@ -1062,8 +1062,8 @@ In priority order:
 
 3. **`set_document_protection`** — useful for "lock the document while I review AI edits" workflow.
 
-4. **`get_document_properties` / `set_document_properties`** — document metadata (title,
-   author, subject). Occasionally useful; low priority.
+4. **`document_properties_get` / `document_properties_set`** — shipped as core tools (title,
+   author, subject, keywords, user-defined properties; product `WriterAgent*` names are read-only).
 
 ---
 

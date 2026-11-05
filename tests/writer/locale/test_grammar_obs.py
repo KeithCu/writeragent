@@ -154,7 +154,12 @@ def test_status_bar_grammar_status_always_posts_to_main_thread() -> None:
     ):
         sink.start("Hello world.", result="Starting Harper…")
     assert mock_post.called
-    mock_indicator.start.assert_called_once_with("LibreHarper: Starting Harper…", 100)
+    matching = [
+        call
+        for call in mock_indicator.start.call_args_list
+        if call.args == ("LibreHarper: Starting Harper…", 100)
+    ]
+    assert len(matching) == 1
 
 
 def test_status_bar_grammar_status_skips_routine_libreharper_paints() -> None:
@@ -570,6 +575,82 @@ def test_status_bar_grammar_status_skips_post_when_routine_or_unsafe() -> None:
     ):
         sink.request("Some text.", result="Downloading harper-ls v2.7.0…")
     assert mock_post.call_count == 0
+
+
+def test_writer_agent_grammar_status_is_composite_when_not_libreharper() -> None:
+    with patch("plugin.framework.uno_context.is_libreharper", return_value=False):
+        sink = go.get_grammar_status()
+    assert isinstance(sink, go.WriterAgentGrammarStatus)
+
+
+def test_writer_agent_failed_paints_status_bar_with_subscriber() -> None:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = True
+    sink = go.WriterAgentGrammarStatus()
+    mock_indicator = MagicMock()
+    sink._status_bar._indicator = mock_indicator
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=MagicMock()),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+    ):
+        sink.failed("Harper", result="boom")
+    mock_bus.emit.assert_called_once()
+    mock_indicator.setText.assert_called()
+
+
+def test_writer_agent_request_skips_status_bar_when_subscriber_present() -> None:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = True
+    sink = go.WriterAgentGrammarStatus()
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
+    ):
+        sink.request("Hello.", result="checking", routine=False)
+    mock_post.assert_not_called()
+
+
+def test_writer_agent_request_paints_status_bar_without_subscriber() -> None:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = False
+    sink = go.WriterAgentGrammarStatus()
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=MagicMock()),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+    ):
+        sink.request("Hello.", result="checking", routine=False)
+    mock_bus.emit.assert_called_once()
+
+
+def test_writer_agent_routine_request_does_not_paint_status_bar() -> None:
+    mock_bus = MagicMock()
+    mock_bus.has_subscribers.return_value = False
+    sink = go.WriterAgentGrammarStatus()
+    with (
+        patch("plugin.writer.locale.grammar_obs.get_event_bus", return_value=mock_bus),
+        patch("plugin.framework.queue_executor.main.post") as mock_post,
+    ):
+        sink.request("Hello.", result="checking", routine=True)
+    mock_post.assert_not_called()
+
+
+def test_libreharper_status_bar_keeps_libreharper_prefix() -> None:
+    sink = go.StatusBarGrammarStatus()
+    assert sink._label == "LibreHarper"
+    mock_indicator = MagicMock()
+    sink._indicator = mock_indicator
+    with (
+        patch("plugin.framework.uno_context.is_libreharper", return_value=True),
+        patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
+        patch.object(go, "resolve_status_bar_frame", return_value=MagicMock()),
+        patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn, *args: fn(*args) if callable(fn) else None),
+    ):
+        sink.done("text", result="clean")
+    mock_indicator.setText.assert_called_with("LibreHarper: Grammar check complete")
 
 
 def test_status_bar_grammar_status_swallows_post_errors() -> None:

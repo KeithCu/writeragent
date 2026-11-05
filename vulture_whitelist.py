@@ -232,6 +232,8 @@ _.ListFields  # class: plugin/writer/specialized/mail_merge.py:342
 _.ListMasterSlides  # class: plugin/draw/masters.py:19
 _.ListNearbyFiles  # class: plugin/doc/document_research_tools.py:19
 _.ListOpenDocuments  # class: plugin/doc/document_research_tools.py:69
+_.DocumentPropertiesGet  # class: plugin/doc/document_research_tools.py
+_.DocumentPropertiesSet  # class: plugin/doc/document_research_tools.py
 _.ListPages  # class: plugin/draw/pages.py:162
 _.ListPivotTables  # class: plugin/calc/pivot.py:242
 _.ListPlaceholders  # class: plugin/draw/placeholders.py:174

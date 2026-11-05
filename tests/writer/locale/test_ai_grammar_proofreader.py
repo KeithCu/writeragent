@@ -780,6 +780,62 @@ class TestTypingIntegration:
         assert kwargs["n_errors"] == 0
         assert kwargs["n_aErrors"] == 0
 
+    def test_harper_skips_non_english_locale_before_lint(
+        self, mock_config_fixture, mock_queue_fixture
+    ) -> None:
+        pr = _make_proofreader()
+        pr._profile = GrammarProfile("harper", "harper", True)
+        de_loc = MagicMock()
+        de_loc.Language = "de"
+        de_loc.Country = "DE"
+        de_loc.Variant = ""
+        assert pr.hasLocale(de_loc) is False
+        with patch("plugin.writer.locale.harper.harper_try_lint") as mock_lint:
+            res = pr.doProofreading("test-doc", "Hallo.", de_loc, 0, 6, ())
+        mock_lint.assert_not_called()
+        assert res.aErrors == ()
+
+    def test_harper_lints_british_english_with_en_gb_tag(
+        self, mock_config_fixture, mock_queue_fixture
+    ) -> None:
+        pr = _make_proofreader()
+        pr._profile = GrammarProfile("harper", "harper", True)
+        gb_loc = MagicMock()
+        gb_loc.Language = "en"
+        gb_loc.Country = "GB"
+        gb_loc.Variant = ""
+        sentence = "They is here."
+
+        def _lint(*_args: Any, **kwargs: Any) -> dict[str, Any]:
+            assert kwargs.get("bcp47") == "en-GB"
+            return {"errors": []}
+
+        with (
+            patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
+            patch("plugin.writer.locale.harper.harper_try_lint", side_effect=_lint) as mock_lint,
+        ):
+            mock_split.return_value = [(0, sentence)]
+            pr.doProofreading("test-doc", sentence, gb_loc, 0, len(sentence), ())
+        mock_lint.assert_called()
+
+    def test_llm_provider_does_not_use_harper_locale_gate(
+        self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
+    ) -> None:
+        pr = _make_proofreader()
+        pr._profile = GrammarProfile("llm", "llm:test", False)
+        de_loc = MagicMock()
+        de_loc.Language = "de"
+        de_loc.Country = "DE"
+        de_loc.Variant = ""
+        with (
+            patch("plugin.writer.locale.harper.harper_try_lint") as mock_lint,
+            patch("plugin.writer.locale.grammar_proofread_text.split_into_sentences") as mock_split,
+        ):
+            mock_split.return_value = [(0, "Hallo.")]
+            pr.doProofreading("test-doc", "Hallo.", de_loc, 0, 6, ())
+        mock_lint.assert_not_called()
+        mock_queue_fixture.enqueue.assert_called()
+
     def test_llm_incremental_still_returns_other_sentences_cached_errors(
         self, mock_config_fixture, mock_locale_fixture, mock_queue_fixture
     ) -> None:

@@ -70,6 +70,7 @@ class TestWriterToolsSmoke:
             "comment_workflow_set",
             "comment_check_stop",
             "comment_list",
+            "comment_edit",
         ):
             assert (name) in (names), f"expected comments tool {name!r}"
         assert ("comment_workflow") not in (names)

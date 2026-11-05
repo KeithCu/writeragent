@@ -88,6 +88,7 @@ def test_textframes_contract_matches_implemented_tools() -> None:
     desc = (ToolWriterTextFramesBase.specialized_domain_description or "").lower()
     assert "content" not in desc
     assert "list" in desc and "resize" in desc
+    assert "insert" in desc and "delete" in desc
     assert "reposition" not in (FrameSetProperties.description or "").lower()
 
 
