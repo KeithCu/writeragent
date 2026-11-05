@@ -284,8 +284,6 @@ class StatusBarGrammarStatus(GrammarStatus):
         routine: bool = False,
     ) -> None:
         try:
-            if phase == "failed":
-                routine = False
             if routine and (
                 phase not in _TERMINAL_STATUS_PHASES or self._indicator is None
             ):
