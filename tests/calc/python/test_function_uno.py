@@ -26,7 +26,7 @@ from plugin.calc.python.spill import (
     SpillRecord,
     perform_deferred_spill,
 )
-from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY
+from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, reset_calc_workbook_states
 from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
@@ -349,9 +349,31 @@ def test_py_multi_document_spill_and_plot(ctx):
         shutdown_venv_workers_for_tests()
 
 
+def _run_spill_cleanup_like_modify_listener(ctx, doc_key: str, sheet, *, sheet_name: str = "Sheet1") -> None:
+    """Same state/doc resolution as the removed CalcSpillModifyListener.modified."""
+    from plugin.calc.python.function import _get_calc_doc
+    from plugin.calc.python.sheet_modify import _owning_calc_doc
+    from plugin.calc.python.spill import cleanup_orphans
+    from plugin.framework.queue_executor import main
+
+    target_doc = _owning_calc_doc(sheet)
+    if target_doc is None and ctx is not None and main.is_current():
+        target_doc = _get_calc_doc(ctx)
+    state = None
+    if doc_key:
+        for candidate in WorkbookState.all_states():
+            if candidate.scheduled_key_matches(doc_key):
+                state = candidate
+                break
+    if state is None and target_doc is not None:
+        state = WorkbookState.for_doc(target_doc)
+    cleanup_orphans(state, sheet, doc=target_doc, ctx=ctx, sheet_name=sheet_name)
+
+
 @native_test
 def test_row_insert_does_not_clear_moved_spill(ctx):
     """Row insertion shifts =PY() formula and its spill; modify listener remaps without clearing."""
+    reset_calc_workbook_states()
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
     st = WorkbookState.for_doc(doc)
@@ -367,15 +389,11 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
             sheet.getCellByPosition(0, r).setValue(float(r - 4))
 
         cells = [SpillCell(row=r, col=0, kind="n", value=float(r - 4)) for r in range(5, 10)]
-        SPILL_REGISTRY[(doc_key, "Sheet1", 4, 0)] = SpillRecord(code=code, cells=cells)
+        st.spills[("Sheet1", 4, 0)] = SpillRecord(code=code, cells=cells)
 
         sheet.getRows().insertByIndex(0, 1)
-
-        from plugin.calc.python.spill import cleanup_orphans
-
-        # Same spill walk the sheet modify pass runs; avoid run_sheet_modify_pass skip
-        # when geometric repair re-entrancy flag is still set from earlier UNO tests.
-        cleanup_orphans(st, sheet, doc=doc, ctx=ctx, sheet_name="Sheet1")
+        doc.calculateAll()
+        _run_spill_cleanup_like_modify_listener(ctx, doc_key, sheet)
 
         a6_formula = sheet.getCellByPosition(0, 5).getFormula()
         assert "PY" in a6_formula, f"Expected PY in A6 formula, got {a6_formula!r}"
