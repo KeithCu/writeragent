@@ -103,15 +103,10 @@ def _get_ipc_stream_or_std(claimed: BinaryIO | None, std_stream: Any) -> BinaryI
 def get_child_ipc_stream() -> BinaryIO:
     """Return the claimed child IPC stream, or sys.stdout's buffer.
 
-    What was wrong: a fileno check ran before the claim. After
-    ``claim_ipc_channel``, fd 1 is dup2'd onto stderr, but ``sys.stdout``
-    still reports fileno 1, so that check did not see the claim. It only
-    fired when something else had replaced ``sys.stdout``, and then the
-    claimed pipe was ignored.
-    How it happened: the check was copied from ``claim_ipc_channel``, where
-    fileno != 1 means "do not dup". Here it means the opposite.
-    Why this change: return the claim first. Tool writes, the audio
-    recorder, and the heartbeat all go through this function.
+    After ``claim_ipc_channel``, fd 1 is dup2'd onto stderr, and
+    ``sys.stdout`` still reports fileno 1, so a fileno check does not see
+    the claim. Return the claim first. Tool writes, the audio recorder, and
+    the heartbeat all go through this function.
     """
     return _get_ipc_stream_or_std(_child_ipc_stream, sys.stdout)
 
@@ -122,13 +117,11 @@ _child_ipc_stdin: BinaryIO | None = None
 def claim_ipc_stdin() -> BinaryIO:
     """Claim stdin for child IPC by detaching sys.stdin.buffer if it is a BufferedReader.
 
-    What was wrong: Windows id-mismatch drain uses PeekNamedPipe, which does not
-    see bytes BufferedReader.read already pulled into its 8KiB buffer, so the
-    next exchange_tool_call stays one frame behind.
-    How it happened: claim_ipc_channel only replaced stdout, and -u does not
-    unbuffer stdin.
-    Why this change: detach to the raw FileIO before the first read so the
-    kernel queue is the whole tail.
+    Detach the ``BufferedReader`` before the first read. ``PeekNamedPipe`` does
+    not see bytes already in its 8KiB buffer, so the next ``exchange_tool_call``
+    stays one frame behind. ``claim_ipc_channel`` only replaced stdout, and
+    ``-u`` does not unbuffer stdin. Detach to the raw ``FileIO`` so the kernel
+    queue is the whole tail.
     """
     global _child_ipc_stdin
     if _child_ipc_stdin is not None:
@@ -202,12 +195,10 @@ def _numpy_reconstruct_nbytes(shape: object, dtype: object) -> int:
         # shape (0,) is what NumPy's own view pickles pass. The bytes arrive
         # later, inside the frame, via BUILD.
         return 0
-    # What was wrong: a dtype string, bytes spec, or tuple spec has no
-    # itemsize, and the bytes branch forced 1. _reconstruct then allocated
-    # product(shape) * the real element size from a few pickle bytes.
-    # How: getattr(dtype, "itemsize", 1) and isinstance(dtype, (bytes, bytearray)).
-    # Why: numpy.dtype is PyArray_DescrConverter, which _reconstruct uses,
-    # and a subarray dtype records its shape without allocating the array.
+    # A dtype string, bytes spec, or tuple spec has no itemsize; resolve size
+    # with numpy.dtype (PyArray_DescrConverter), which _reconstruct uses. A
+    # subarray dtype records its shape and does not allocate the array. Byte
+    # count is product(shape) * itemsize. Do not use getattr(..., "itemsize", 1).
     try:
         import numpy as np
 
@@ -261,17 +252,11 @@ def _reject_sized_buffer_alloc(func: object, args: object, kwargs: object = None
 def _reject_unbounded_numpy_reduce(func: object, args: object) -> None:
     """Refuse NumPy REDUCE targets that allocate past the frame cap.
 
-    What was wrong: find_class returned the real ``numpy.ndarray`` class,
-    which views need as a subtype. REDUCE then called ``ndarray(shape)``
-    or ``_reconstruct(ndarray, huge_shape, dtype)``. The frame cap never
-    saw that allocation. The shape is a few bytes.
-    How it happened: the allowlist is a name list. GLOBAL and REDUCE share
-    find_class, and the C unpickler has no other hook.
-    Why this change: ``load_reduce`` runs before the call. NumPy's own
-    pickles never REDUCE ``ndarray``. They do REDUCE ``_reconstruct`` with
-    an empty shape. A direct ``ndarray`` call is rejected. A reconstruct
-    whose nbytes exceed ``DEFAULT_MAX_PAYLOAD_BYTES`` is rejected.
-    ``_frombuffer`` only reshapes the buffer already in the frame.
+    ``find_class`` returns the real ``numpy.ndarray`` because views pass it as
+    the subtype. GLOBAL and REDUCE share ``find_class``. Reject a direct
+    ``ndarray`` call. NumPy pickles REDUCE ``_reconstruct`` with an empty
+    shape. Reject reconstruct whose nbytes exceed ``DEFAULT_MAX_PAYLOAD_BYTES``.
+    ``_frombuffer`` only reshapes bytes already in the frame.
     """
     _reject_ndarray_constructor(func)
     name = getattr(func, "__name__", "")
@@ -321,20 +306,17 @@ class AllowlistUnpickler(pickle._Unpickler):
         try:
             return super().load()
         except KeyError as exc:
-            # pickle._Unpickler looks the opcode up in dispatch. An unknown
-            # byte is KeyError. The C unpickler raises UnpicklingError
-            # ("invalid load key, 'n'."). unpack_pickle_frame only maps
-            # UnpicklingError, so b"notpickl" escaped read_message as KeyError.
-            # A string key from inside an opcode handler is not this case.
+            # An unknown opcode byte is KeyError from dispatch. unpack_pickle_frame
+            # maps UnpicklingError only, so rewrite an int key in 0..255 to
+            # UnpicklingError. A string key from an opcode handler is not this case.
             key = exc.args[0] if exc.args else None
             if isinstance(key, int) and 0 <= key <= 255:
                 shown = chr(key) if 32 <= key < 127 else "?"
                 raise pickle.UnpicklingError(f"invalid load key, '{shown}'.") from exc
             raise
         except EOFError as exc:
-            # pickle._Unpickler raises EOFError() with no text. The C
-            # unpickler says "Ran out of input". unpack_pickle_frame
-            # stringifies this. A truncated frame used to carry that text.
+            # pickle._Unpickler raises EOFError() with args == (). unpack_pickle_frame
+            # stringifies the exception, so the empty error must carry "Ran out of input".
             if exc.args:
                 raise
             raise EOFError("Ran out of input") from exc
@@ -342,15 +324,11 @@ class AllowlistUnpickler(pickle._Unpickler):
     def _instantiate(self, klass: Any, args: Any) -> None:
         """OBJ and INST. ``ndarray(shape)`` never reaches the REDUCE guard.
 
-        What was wrong: protocol 0 builds the array with OBJ or INST after
-        GLOBAL of the allowlisted class. Those opcodes call
-        ``_instantiate``, not REDUCE, so ``ndarray((n,))`` allocated.
-        How it happened: views need that class on the allowlist so
-        ``_reconstruct`` can take it as the subtype. GLOBAL succeeds, and
-        OBJ/INST then call the class.
-        Why this change: reject ``numpy.ndarray`` before the original
-        ``_instantiate``. NumPy's own pickles use REDUCE and BUILD, not
-        OBJ or INST. Any other class still uses the original.
+        Protocol 0 calls the allowlisted class via OBJ/INST, not REDUCE. Reject
+        ``numpy.ndarray`` before the original ``_instantiate``. NumPy pickles use
+        REDUCE and BUILD. Views need that class on the allowlist so
+        ``_reconstruct`` can take it as the subtype. Any other class still uses
+        the original ``_instantiate``.
         """
         # OBJ/INST call the class. _reconstruct is allowlisted and allocates here.
         _reject_unbounded_numpy_reduce(klass, tuple(args))
@@ -393,13 +371,10 @@ def _guarded_load_newobj_common(unpickler: pickle.Unpickler, stack_depth: int, m
 def _guarded_load_newobj(unpickler: pickle.Unpickler, /) -> None:
     """NEWOBJ opcode. ``ndarray.__new__`` is the same allocation as REDUCE.
 
-    What was wrong: the guard only replaced REDUCE. GLOBAL of the
-    allowlisted ``numpy.ndarray`` plus NEWOBJ calls ``__new__`` and skips
-    it. A few bytes then allocate the shape.
-    How it happened: views need the class on the stack so ``_reconstruct``
-    can take it as the subtype. NumPy's own pickles never NEWOBJ it.
-    Why this change: reject that class before ``load_newobj``. Other
-    classes still use the original opcode.
+    NEWOBJ calls ``ndarray.__new__`` and skips the REDUCE guard. Reject that
+    class before the original opcode. Other classes still use the original.
+    Views need the class on the stack so ``_reconstruct`` can take it as the
+    subtype. NumPy's own pickles never NEWOBJ it.
     """
     _guarded_load_newobj_common(unpickler, 2, "load_newobj")
 
@@ -407,12 +382,10 @@ def _guarded_load_newobj(unpickler: pickle.Unpickler, /) -> None:
 def _guarded_load_newobj_ex(unpickler: pickle.Unpickler, /) -> None:
     """NEWOBJ_EX opcode. Same ``ndarray.__new__`` hole, with kwargs.
 
-    What was wrong: NEWOBJ_EX also calls ``cls.__new__(cls, *args, **kwargs)``
-    and never entered ``_guarded_load_reduce``.
-    How it happened: the class is allowlisted for views, and this opcode
-    is a separate slot in ``dispatch``.
-    Why this change: reject ``numpy.ndarray`` before ``load_newobj_ex``.
-    The class sits under the args tuple and the kwargs dict.
+    NEWOBJ_EX also calls ``cls.__new__(cls, *args, **kwargs)`` and never enters
+    ``_guarded_load_reduce``. Reject ``numpy.ndarray`` before ``load_newobj_ex``.
+    The class is allowlisted so views can pass it to ``_reconstruct``. On
+    NEWOBJ_EX it sits under the args tuple and the kwargs dict.
     """
     _guarded_load_newobj_common(unpickler, 3, "load_newobj_ex")
 
@@ -509,10 +482,10 @@ class UserStopped(BaseException):
 # worker kill the child instead of dying inside the LibreOffice process.
 # An opcode handler (func(*args) in _guarded_load_reduce, or BUILD / __setstate__
 # on an allowlisted numpy object) can raise KeyError; AllowlistUnpickler.load
-# rewrites only an int key in 0..255; any other KeyError used to leave
-# unpack_pickle_frame and skip the harness except ValueError that writes a
-# bad-request frame. A short BININT, BINFLOAT, or FRAME header outside a pickle
-# frame raises struct.error, and callers only treat ValueError as a bad frame.
+# rewrites only an int key in 0..255; any other KeyError has to be in this tuple
+# or it skips the bad-frame handler. A short BININT, BINFLOAT, or FRAME header
+# outside a pickle frame raises struct.error, and callers only treat ValueError
+# as a bad frame.
 _PICKLE_LOAD_ERRORS = (
     pickle.UnpicklingError,
     EOFError,
@@ -751,10 +724,8 @@ def _stop_requested(cancel: SendCancellation | None) -> bool:
     """True when the user pressed Stop.
 
     A checker that raises (KeyError, or anything outside the IPC except
-    tuples) is not a stop. Calling it bare escaped ``run_code_in_user_venv``
-    and left the child blocked on an unread request. Log it and keep reading
-    so the pipe stays aligned. A tool_call frame is still answered in
-    ``host_rpc``, which has a frame to reply to.
+    tuples) is not a stop. Log it and keep reading so the pipe stays aligned.
+    A tool_call frame is still answered in ``host_rpc``, which has a frame to reply to.
     """
     if cancel is None:
         return False
@@ -944,8 +915,7 @@ def read_frame_payload(
 
         else:
             # PeekNamedPipe, not a daemon thread blocked in ReadFile. Closing the
-            # pipe while that thread was still in ReadFile crashed the xdist
-            # worker (CI 33453184665).
+            # pipe while that thread is still in ReadFile crashes the xdist worker.
             def _read_exact(n: int, *, frame_started: bool = False) -> bytes:
                 buf = bytearray()
                 while len(buf) < n:
@@ -1007,11 +977,10 @@ def unpack_pickle_frame(payload: bytes) -> Any:
     try:
         return _SafeUnpickler(io.BytesIO(payload)).load()
     except _PICKLE_LOAD_ERRORS as exc:
-        # A length-valid truncated payload (protocol header, no body) raises
-        # EOFError or KeyError, not only UnpicklingError. That escaped
-        # PythonWorkerManager.execute and left the child on the pipe. Map it
-        # to the same ValueError the worker already turns into
-        # WORKER_IPC_ERROR, which kills that child instead of replaying.
+        # A length-valid truncated payload raises EOFError or KeyError, not only
+        # UnpicklingError. Map them to ValueError. The worker turns that into
+        # WORKER_IPC_ERROR and kills the child instead of replaying.
+        # PythonWorkerManager still exists.
         raise ValueError(str(exc)) from exc
 
 
@@ -1042,9 +1011,9 @@ def read_pickle_frame(
     return decoded
 
 
-# One lock for every venv → host tool_call on this pipe, as well as heartbeat
-# and result frames written by write_child_ipc_frame. The LibrePy named-script
-# fallback used to write a frame with no lock, so two calls could interleave.
+# One lock for tool_call, heartbeat, and result frames on this pipe, all through
+# write_child_ipc_frame. An unlocked write interleaves two frames. Named-script
+# calls go through exchange_tool_call (host_tool_call.py).
 _tool_call_lock = threading.Lock()
 
 
@@ -1062,20 +1031,11 @@ def write_child_ipc_frame(
 def _pause_script_alarm() -> tuple[float, float, float] | None:
     """Turn off SIGALRM for the tool_call read. Return (delay, interval, start).
 
-    The script alarm used to fire inside this stdin read. The harness then wrote
-    an error frame while the host was still writing the tool reply, and the next
-    cell read that reply as a request.
-
-    What was wrong: ``signal.alarm(0)`` returns whole seconds, and resume
-    rounded up with ``int(left + 0.999)`` and a floor of 1. A tool call gave
-    the cell up to about a second it had already spent.
-    How it happened: the executor arms the timer with ``signal.alarm``, which
-    only has second resolution on the way in. The pause threw away the
-    fraction that was still left.
-    Why this change: ``setitimer(ITIMER_REAL, 0)`` is the same timer and
-    returns the fraction. Resume puts that fraction back. Platforms without
-    ``setitimer`` keep ``alarm``. The timer is process-wide, so this still
-    disarms a timer armed on the main thread.
+    SIGALRM must not fire inside this stdin read, or the harness writes an error
+    frame while the host is still writing the reply. ``signal.alarm(0)`` returns
+    whole seconds. ``setitimer(ITIMER_REAL, 0)`` returns the fraction. Resume
+    puts that fraction back. No ``int(left + 0.999)`` floor of 1. Platforms
+    without ``setitimer`` keep ``alarm``. The timer is process-wide.
     """
     if sys.platform == "win32":
         return None
@@ -1109,8 +1069,8 @@ def _drain_queued_pipe_bytes(
     After a tool_call id mismatch, one pickle frame has already been consumed
     and the raise discarded it. ``sys.stdin.buffer`` is a BufferedReader, so
     ``read(n)`` often pulls the next frame into that wrapper (the kernel pipe
-    can look empty). The tail then stayed in place, and every later call under
-    ``_tool_call_lock`` read it as its reply, so the worker stayed one frame
+    can look empty). The tail stays in place, and every later call under
+    ``_tool_call_lock`` reads it as its reply, so the worker stays one frame
     behind for the rest of the process. The caller still holds the lock. This
     reads through the same stream, with the fd non-blocking and a deadline, so
     both the wrapper cache and the kernel queue are dropped. ``os.read`` is
@@ -1253,8 +1213,7 @@ def exchange_tool_call(tool_name: str, args: dict[str, Any]) -> dict[str, Any]:
         message = response.get("message") or response.get("error") or "Stopped by user."
         raise UserStopped(str(message))
     if response.get("status") == "error":
-        # Copy response code onto the RuntimeError. Dropping it left callers
-        # with only the message string.
+        # Copy response["code"] onto the RuntimeError. Callers read err.code.
         err = RuntimeError(response.get("message", response.get("error", "Unknown error")))
         code = response.get("code")
         if code is not None:
@@ -1298,15 +1257,10 @@ def _line_from_pending(stream: IO[str], pending: bytearray, max_bytes: int) -> s
 def _read_json_tail_from_fd(stream: IO[str], fd: int, pending: bytearray, max_bytes: int) -> str:
     """Append fd bytes onto *pending* until a newline, then decode once.
 
-    What was wrong: the handoff decoded *pending* with ``errors="replace"``
-    and then appended ``readline()`` text. A timed ``os.read`` can stop on
-    the first byte of a UTF-8 character. That byte became U+FFFD, and the
-    text wrapper decoded the continuation as a second character.
-    How it happened: the timed reader keeps a bytearray. This path turned
-    it into text before the tail was attached.
-    Why this change: read the tail with ``os.read`` into the same
-    bytearray and decode the line once. The timed loop already does that
-    for a line that finishes before the deadline.
+    A timed ``os.read`` can stop on the first byte of a UTF-8 character. Append
+    into the same bytearray and decode the line once. Use ``errors="replace"``
+    before the tail turns that byte into U+FFFD and the text wrapper decodes the
+    continuation as a second character.
     """
     while True:
         line = _line_from_pending(stream, pending, max_bytes)
@@ -1325,9 +1279,8 @@ def _read_json_tail_from_fd(stream: IO[str], fd: int, pending: bytearray, max_by
 def _finish_saved_json_line(stream: IO[str], pending: bytearray, max_bytes: int) -> str:
     """Blocking read of the tail after a timed read saved *pending*.
 
-    The partial was already taken off the pipe. An untimed
-    ``read_json_line`` used to ignore this buffer and parse from the
-    middle of the line.
+    The partial is already off the pipe. The untimed read continues from this
+    buffer.
 
     An fd is read as bytes. ``readline`` is only the no-fd path
     (``StringIO``). Its size is a character count and ``max_bytes`` is a

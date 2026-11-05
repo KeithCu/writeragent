@@ -309,7 +309,14 @@ def _reject_chunked(environ: dict[str, Any], start_response: Any) -> list[bytes]
 
 
 def _read_request_body(environ: dict[str, Any], settings: ComputeSettings, start_response: Any) -> tuple[bytes | None, list[bytes] | None]:
-    """Read a bounded POST body with total read deadline enforcement. Returns ``(body, None)`` or ``(None, error_body)``."""
+    """Read a bounded POST body with total read deadline enforcement. Returns ``(body, None)`` or ``(None, error_body)``.
+
+    Shared with plugin.mcp.server.read_json_body: chunked transfer is 400 and
+    unread, a bad Content-Length is 400, declared length above
+    settings.max_body_bytes is 413. This reader also requires a positive
+    Content-Length and stops at the accept-clock deadline
+    (REQUEST_READ_TIMEOUT_SEC).
+    """
     rc = request_conn(environ)
     cached = rc.raw_body
     if cached is not None:

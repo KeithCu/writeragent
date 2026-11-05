@@ -110,6 +110,10 @@ def read_json_body(handler: Any, reply: Callable[..., Any] = write_http_json) ->
     (``TimeoutError``, or pre-3.10 ``socket.timeout``) while reading a body
     under the cap is 408. An empty body with no
     chunked coding is still ``{}`` and does not touch ``rfile``.
+
+    Shared with compute_service.server._read_request_body: chunked transfer is
+    400 and unread, a bad Content-Length is 400, over the cap is 413. Length 0
+    is {} here; that reader rejects missing or <=0 as 400.
     """
     def _fail(status: int, message: str, **details: Any) -> None:
         err = AgentParsingError(message, details=details)
