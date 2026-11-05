@@ -117,6 +117,43 @@ def test_document_properties_set_no_changes_and_conflicts():
     bad_kw = DocumentPropertiesSet().execute(ctx, keywords="one,two")
     assert bad_kw["code"] == "INVALID_PARAMETER"
 
+    bad_kw_item = DocumentPropertiesSet().execute(ctx, keywords=["ok", 1])
+    assert bad_kw_item["code"] == "INVALID_PARAMETER"
+
+
+def test_document_properties_set_partial_updated_on_ud_failure():
+    props = _UserDefinedProperties()
+    doc = _DocWithUserDefinedProperties(props)
+
+    class _DocProps:
+        def __init__(self):
+            self.UserDefinedProperties = props
+            self.Title = ""
+            self.Subject = ""
+            self.Author = ""
+            self.Description = ""
+            self.Keywords = ()
+
+    bag = _DocProps()
+    doc.getDocumentProperties = lambda: bag
+    ctx = MagicMock(doc=doc)
+    with (
+        patch("plugin.framework.queue_executor.main.run", side_effect=lambda fn: fn()),
+        patch(
+            "plugin.doc.document_research_tools.set_document_property",
+            side_effect=lambda _doc, key, _val: key != "bad",
+        ),
+    ):
+        res = DocumentPropertiesSet().execute(
+            ctx,
+            title="Saved title",
+            user_defined={"good": "v", "bad": "x"},
+        )
+    assert res["status"] == "error"
+    assert res["code"] == "SET_PROPERTY_FAILED"
+    assert bag.Title == "Saved title"
+    assert res.get("details", {}).get("updated") == ["title", "user_defined:good"]
+
 
 def test_document_properties_set_keywords_array():
     props = _UserDefinedProperties()

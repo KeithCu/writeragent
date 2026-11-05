@@ -207,6 +207,14 @@ class DocumentPropertiesSet(ToolBase):
                 code="INVALID_PARAMETER",
                 parameter="keywords",
             )
+        if keywords is not None:
+            for item in keywords:
+                if not isinstance(item, str):
+                    return self._tool_error(
+                        "keywords must be an array of strings.",
+                        code="INVALID_PARAMETER",
+                        parameter="keywords",
+                    )
 
         ud_writes: dict[str, str] = {}
         if user_defined is not None:
@@ -252,6 +260,12 @@ class DocumentPropertiesSet(ToolBase):
                         code="INVALID_PARAMETER",
                         parameter="user_defined",
                     )
+                if _is_product_udprop(key):
+                    return self._tool_error(
+                        "Cannot remove internal property %r." % key,
+                        code="INVALID_PARAMETER",
+                        parameter="remove_user_defined",
+                    )
                 ud_removes.append(key)
 
         builtin_fields: dict[str, Any] = {}
@@ -277,21 +291,19 @@ class DocumentPropertiesSet(ToolBase):
                     return self._tool_error(
                         "Could not write user-defined property %r." % key,
                         code="SET_PROPERTY_FAILED",
+                        updated=updated,
+                        removed=removed,
                     )
                 updated.append("user_defined:%s" % key)
             for key in ud_removes:
-                if _is_product_udprop(key):
-                    return self._tool_error(
-                        "Cannot remove internal property %r." % key,
-                        code="INVALID_PARAMETER",
-                        parameter="remove_user_defined",
-                    )
                 if remove_document_property(ctx.doc, key):
                     removed.append(key)
                 else:
                     return self._tool_error(
                         "Could not remove user-defined property %r." % key,
                         code="REMOVE_PROPERTY_FAILED",
+                        updated=updated,
+                        removed=removed,
                     )
             return {"status": "ok", "updated": updated, "removed": removed}
 
