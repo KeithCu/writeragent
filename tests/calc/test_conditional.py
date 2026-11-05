@@ -22,7 +22,7 @@ from plugin.calc.conditional import (
 )
 
 
-def test_add_conditional_format_validation_errors():
+def test_conditional_formatting_add_validation_errors():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -63,7 +63,7 @@ def test_add_conditional_format_validation_errors():
     assert "Pass exactly one range" in res_multi["message"]
 
 
-def test_remove_conditional_formats_error_handling():
+def test_conditional_formatting_remove_error_handling():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -90,7 +90,7 @@ def test_remove_conditional_formats_error_handling():
         assert "Rule index 5 not found" in res_out_of_range["message"]
 
 
-def test_list_conditional_formats_error_handling():
+def test_conditional_formatting_list_error_handling():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -107,7 +107,7 @@ def test_list_conditional_formats_error_handling():
         assert "Failed to list conditional formats" in res["message"]
 
 
-def test_add_conditional_format_operator_path():
+def test_conditional_formatting_add_operator_path():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -200,7 +200,7 @@ def test_entry_to_dict():
     assert d_b["formula2"] == "0"
 
 
-def test_list_conditional_formats_used_area_and_range_handling():
+def test_conditional_formatting_list_used_area_and_range_handling():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc

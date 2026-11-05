@@ -14,7 +14,7 @@ from plugin.calc.pivot import AVERAGE, CreatePivotTable, DeletePivotTable, ListP
 from plugin.framework.errors import UnoObjectError
 
 
-def test_list_pivot_tables_all_sheets():
+def test_pivot_table_list_all_sheets():
     doc = MagicMock()
     sheets = MagicMock()
     doc.getSheets.return_value = sheets
@@ -53,7 +53,7 @@ def test_list_pivot_tables_all_sheets():
     ]
 
 
-def test_list_pivot_tables_skips_internal_sheets():
+def test_pivot_table_list_skips_internal_sheets():
     doc = MagicMock()
     sheets = MagicMock()
     doc.getSheets.return_value = sheets
@@ -78,7 +78,7 @@ def test_list_pivot_tables_skips_internal_sheets():
     sheets.getByName.assert_called_once_with("Sheet1")
 
 
-def test_list_pivot_tables_sheet_not_found():
+def test_pivot_table_list_sheet_not_found():
     doc = MagicMock()
     sheets = MagicMock()
     doc.getSheets.return_value = sheets
@@ -108,7 +108,7 @@ def _make_mock_cell(val: str):
     return c
 
 
-def test_create_pivot_table_function_mapping_and_page_filters():
+def test_pivot_table_create_function_mapping_and_page_filters():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -188,7 +188,7 @@ def test_create_pivot_table_function_mapping_and_page_filters():
     assert fields_tuple[0].NumericValue == 2024.0
 
 
-def test_create_pivot_table_unknown_function_error():
+def test_pivot_table_create_unknown_function_error():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -239,7 +239,7 @@ def test_create_pivot_table_unknown_function_error():
     assert "Unknown data function 'NONEXISTENT'" in res["message"]
 
 
-def test_create_pivot_table_header_and_row_validation():
+def test_pivot_table_create_header_and_row_validation():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -290,7 +290,7 @@ def test_create_pivot_table_header_and_row_validation():
     assert "Header cell in column 2 of source range is empty" in res["message"]
 
 
-def test_create_pivot_table_cleanup_on_rename_or_refresh_failure():
+def test_pivot_table_create_cleanup_on_rename_or_refresh_failure():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -340,7 +340,7 @@ def test_create_pivot_table_cleanup_on_rename_or_refresh_failure():
     dp_tables.removeByName.assert_called_once_with("MyPivot_2")
 
 
-def test_refresh_and_delete_pivot_table():
+def test_pivot_table_refresh_and_delete():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc
@@ -436,7 +436,7 @@ def test_find_pivot():
         assert res == "Pivot table 'NoSuchPivot' not found."
 
 
-def test_create_pivot_table_page_filter_not_in_page_fields():
+def test_pivot_table_create_page_filter_not_in_page_fields():
     doc = MagicMock()
     ctx = MagicMock()
     ctx.doc = doc

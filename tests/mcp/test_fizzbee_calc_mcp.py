@@ -83,17 +83,17 @@ def _call_rpc(handler: MCPProtocolHandler, msg: dict) -> dict:
 # =========================================================================== #
 
 _EXPECTED_CALC_TOOL_NAMES = frozenset({
-    "add_cell_comment",
-    "add_conditional_format",
+    "cell_comment_add",
+    "conditional_formatting_add",
     "sheet_filter_apply",
     "sheet_filter_clear",
-    "create_pivot_table",
+    "pivot_table_create",
     "sheet_create",
     "delegate_read_document",
     "delegate_to_specialized_calc_toolset",
     "delegate_tool_domains",
-    "delete_cell_comment",
-    "delete_pivot_table",
+    "cell_comment_delete",
+    "pivot_table_delete",
     "sheet_delete",
     "delete_structure",
     "error_detect",
@@ -104,10 +104,10 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "grep_nearby_files",
     "insert_cell_html",
     "list_calc_functions",
-    "list_cell_comments",
-    "list_conditional_formats",
+    "cell_comment_list",
+    "conditional_formatting_list",
     "list_nearby_files",
-    "list_pivot_tables",
+    "pivot_table_list",
     "sheet_list",
     "chart_delete",
     "chart_get_info",
@@ -124,8 +124,8 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "query_folder_sql",
     "read_cell_range",
     "redo",
-    "refresh_pivot_table",
-    "remove_conditional_formats",
+    "pivot_table_refresh",
+    "conditional_formatting_remove",
     "sheet_rename",
     "search_replace",
     "run_venv_python_script",
@@ -170,7 +170,8 @@ def test_extract_full_calc_layout_count():
     assert "analysis" not in domains
     assert "shapes" in domains
     assert "charts" in domains
-    assert "comments" in domains
+    assert "cell_comments" in domains
+    assert "comments" not in domains
     assert "conditional_formatting" in domains
     assert "errors" in domains
     assert "pivot_tables" in domains

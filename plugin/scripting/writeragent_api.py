@@ -46,18 +46,18 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'read_cell_range',
                 'set_style',
                 'write_formula_range'],
+    'cell_comment': ['cell_comment_add', 'cell_comment_delete', 'cell_comment_list'],
     'chart': ['chart_delete', 'chart_get_info', 'chart_list', 'chart_upsert'],
-    'comment': [   'add_cell_comment',
-                   'comment_check_stop',
+    'comment': [   'comment_check_stop',
                    'comment_delete',
                    'comment_list',
                    'comment_resolve',
                    'comment_scan_tasks',
                    'comment_workflow_get',
-                   'comment_workflow_set',
-                   'delete_cell_comment',
-                   'list_cell_comments'],
-    'conditional_formatting': ['add_conditional_format', 'list_conditional_formats', 'remove_conditional_formats'],
+                   'comment_workflow_set'],
+    'conditional_formatting': [   'conditional_formatting_add',
+                                  'conditional_formatting_list',
+                                  'conditional_formatting_remove'],
     'core': [   'find_tools',
                 'get_guidance',
                 'get_image',
@@ -129,7 +129,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'page_set_columns',
                 'page_set_header_footer_text',
                 'page_set_style_properties'],
-    'pivot_table': ['create_pivot_table', 'delete_pivot_table', 'list_pivot_tables', 'refresh_pivot_table'],
+    'pivot_table': ['pivot_table_create', 'pivot_table_delete', 'pivot_table_list', 'pivot_table_refresh'],
     'python': ['symbolic_math'],
     'python/sql': ['query_folder_sql'],
     'range': [   'named_range_add',
@@ -191,9 +191,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                   'search_in_document',
                   'set_selection']}
 
-TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
-    'add_comment': ('writer', 'add_comment'),
-    'add_conditional_format': ('conditional_formatting', 'add_conditional_format'),
+TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'add_slide': ('draw', 'add_slide'),
     'align_shapes': ('shape', 'align_shapes'),
     'apply_design': ('draw', 'apply_design'),
@@ -206,6 +204,9 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'bookmark_list': ('bookmark', 'list'),
     'bookmark_rename': ('bookmark', 'rename'),
     'bookmark_resolve': ('bookmark', 'resolve'),
+    'cell_comment_add': ('cell_comment', 'add'),
+    'cell_comment_delete': ('cell_comment', 'delete'),
+    'cell_comment_list': ('cell_comment', 'list'),
     'chart_delete': ('chart', 'delete'),
     'chart_get_info': ('chart', 'get_info'),
     'chart_list': ('chart', 'list'),
@@ -217,10 +218,10 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'comment_scan_tasks': ('comment', 'scan_tasks'),
     'comment_workflow_get': ('comment', 'workflow_get'),
     'comment_workflow_set': ('comment', 'workflow_set'),
+    'conditional_formatting_add': ('conditional_formatting', 'add'),
+    'conditional_formatting_list': ('conditional_formatting', 'list'),
+    'conditional_formatting_remove': ('conditional_formatting', 'remove'),
     'create_diagram': ('shape', 'create_diagram'),
-    'create_pivot_table': ('pivot_table', 'create_pivot_table'),
-    'delete_cell_comment': ('comment', 'delete_cell_comment'),
-    'delete_pivot_table': ('pivot_table', 'delete_pivot_table'),
     'delete_slide': ('draw', 'delete_slide'),
     'delete_structure': ('calc', 'delete_structure'),
     'distribute_shapes': ('shape', 'distribute_shapes'),
@@ -285,13 +286,10 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'insert_cell_html': ('calc', 'insert_cell_html'),
     'insert_math': ('math', 'insert_math'),
     'list_calc_functions': ('calc', 'list_calc_functions'),
-    'list_cell_comments': ('comment', 'list_cell_comments'),
-    'list_conditional_formats': ('conditional_formatting', 'list_conditional_formats'),
     'list_designs': ('draw', 'list_designs'),
     'list_master_slides': ('slide_master', 'list_master_slides'),
     'list_open_documents': ('core', 'list_open_documents'),
     'list_pages': ('draw', 'list_pages'),
-    'list_pivot_tables': ('pivot_table', 'list_pivot_tables'),
     'list_placeholders': ('draw', 'list_placeholders'),
     'mail_merge_insert_field': ('mail_merge', 'insert_field'),
     'mail_merge_list_fields': ('mail_merge', 'list_fields'),
@@ -318,13 +316,15 @@ TOOL_METHODS = {   'add_cell_comment': ('comment', 'add_cell_comment'),
     'page_set_columns': ('page', 'set_columns'),
     'page_set_header_footer_text': ('page', 'set_header_footer_text'),
     'page_set_style_properties': ('page', 'set_style_properties'),
+    'pivot_table_create': ('pivot_table', 'create'),
+    'pivot_table_delete': ('pivot_table', 'delete'),
+    'pivot_table_list': ('pivot_table', 'list'),
+    'pivot_table_refresh': ('pivot_table', 'refresh'),
     'query_folder_sql': ('python_sql', 'query_folder_sql'),
     'range_sort': ('range', 'sort'),
     'read_cell_range': ('calc', 'read_cell_range'),
     'read_slide_text': ('draw', 'read_slide_text'),
     'redo': ('core', 'redo'),
-    'refresh_pivot_table': ('pivot_table', 'refresh_pivot_table'),
-    'remove_conditional_formats': ('conditional_formatting', 'remove_conditional_formats'),
     'rename_slide': ('draw', 'rename_slide'),
     'search_cells': ('search', 'cells'),
     'search_in_document': ('writer', 'search_in_document'),
@@ -382,6 +382,7 @@ __all__ = [   'DOMAIN_TOOLS',
     'WORKFLOW_TASK_PREFIXES',
     'bookmark',
     'calc',
+    'cell_comment',
     'chart',
     'comment',
     'conditional_formatting',
@@ -559,6 +560,39 @@ class _CalcProxy:
 calc = _CalcProxy()
 
 
+class _CellCommentProxy:
+    """Proxy for cell_comment tools."""
+
+    def add(self, cell: str, text: str, *, sheet: str | None = None) -> dict[str, Any]:
+        """Add a comment (annotation) to a specific cell in a Calc sheet.
+
+        Args:
+            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3').
+            text (required): Comment text.
+            sheet (optional): Sheet name (active sheet if omitted).
+        """
+        return call_host_tool("cell_comment_add", cell=cell, text=text, sheet=sheet)
+
+    def delete(self, cell: str, *, sheet: str | None = None) -> dict[str, Any]:
+        """Delete the comment (annotation) from a specific cell.
+
+        Args:
+            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3').
+            sheet (optional): Sheet name (active sheet if omitted).
+        """
+        return call_host_tool("cell_comment_delete", cell=cell, sheet=sheet)
+
+    def list(self, *, sheet: str | None = None) -> dict[str, Any]:
+        """List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text.
+
+        Args:
+            sheet (optional): Sheet name (active sheet if omitted).
+        """
+        return call_host_tool("cell_comment_list", sheet=sheet)
+
+cell_comment = _CellCommentProxy()
+
+
 class _ChartProxy:
     """Proxy for chart tools."""
 
@@ -624,16 +658,6 @@ chart = _ChartProxy()
 class _CommentProxy:
     """Proxy for comment tools."""
 
-    def add_cell_comment(self, cell: str, text: str, *, sheet: str | None = None) -> dict[str, Any]:
-        """Add a comment (annotation) to a specific cell in a Calc sheet.
-
-        Args:
-            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3').
-            text (required): Comment text.
-            sheet (optional): Sheet name (active sheet if omitted).
-        """
-        return call_host_tool("add_cell_comment", cell=cell, text=text, sheet=sheet)
-
     def check_stop(self) -> dict[str, Any]:
         """Detect STOP/CANCEL comments or a dashboard value exactly equal to stop or pause in the MCP-WORKFLOW dashboard."""
         return call_host_tool("comment_check_stop")
@@ -647,15 +671,6 @@ class _CommentProxy:
         """
         return call_host_tool("comment_delete", name=name, author=author)
 
-    def delete_cell_comment(self, cell: str, *, sheet: str | None = None) -> dict[str, Any]:
-        """Delete the comment (annotation) from a specific cell.
-
-        Args:
-            cell (required): Cell address (e.g. 'B3' or 'Sheet1.B3').
-            sheet (optional): Sheet name (active sheet if omitted).
-        """
-        return call_host_tool("delete_cell_comment", cell=cell, sheet=sheet)
-
     def list(self, *, author_filter: str | None = None) -> dict[str, Any]:
         """List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments.
 
@@ -663,14 +678,6 @@ class _CommentProxy:
             author_filter (optional): Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.
         """
         return call_host_tool("comment_list", author_filter=author_filter)
-
-    def list_cell_comments(self, *, sheet: str | None = None) -> dict[str, Any]:
-        """List all cell comments (annotations) in a Calc sheet. Returns cell address, author, date, and comment text.
-
-        Args:
-            sheet (optional): Sheet name (active sheet if omitted).
-        """
-        return call_host_tool("list_cell_comments", sheet=sheet)
 
     def resolve(self, name: str, *, resolution: str | None = None, author: str | None = None) -> dict[str, Any]:
         """Resolve a comment with an optional reason. Adds a reply with the resolution text, then marks as resolved.
@@ -709,7 +716,7 @@ comment = _CommentProxy()
 class _ConditionalFormattingProxy:
     """Proxy for conditional_formatting tools."""
 
-    def add_conditional_format(self, range_name: list[str], operator: str, style: str, *, formula1: str | None = None, formula2: str | None = None) -> dict[str, Any]:
+    def add(self, range_name: builtins.list[str], operator: str, style: str, *, formula1: str | None = None, formula2: str | None = None) -> dict[str, Any]:
         """Add a conditional formatting rule to a Calc cell range. Applies a cell style when the condition is met. Operators: EQUAL, NOT_EQUAL, GREATER, GREATER_EQUAL, LESS, LESS_EQUAL, BETWEEN, NOT_BETWEEN, FORMULA, DUPLICATE, NOT_DUPLICATE. DUPLICATE and NOT_DUPLICATE highlight duplicate or unique values in the range; formula1 may be omitted or empty for those. Use formula2 for BETWEEN and NOT_BETWEEN.
 
         Args:
@@ -719,24 +726,24 @@ class _ConditionalFormattingProxy:
             formula1 (optional): First formula/value. For FORMULA, the condition (e.g. 'A1>100'). For value comparisons, the threshold (e.g. '50'). Omit or leave empty for DUPLICATE / NOT_DUPLICATE.
             formula2 (optional): Second value (required for BETWEEN and NOT_BETWEEN).
         """
-        return call_host_tool("add_conditional_format", range=range_name, operator=operator, formula1=formula1, formula2=formula2, style=style)
+        return call_host_tool("conditional_formatting_add", range=range_name, operator=operator, formula1=formula1, formula2=formula2, style=style)
 
-    def list_conditional_formats(self, *, range_name: list[str] | None = None) -> dict[str, Any]:
+    def list(self, *, range_name: builtins.list[str] | None = None) -> dict[str, Any]:
         """List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present.
 
         Args:
             range_name (optional): Cell range (e.g. ["A1:D10"]). If omitted, scans used area.
         """
-        return call_host_tool("list_conditional_formats", range=range_name)
+        return call_host_tool("conditional_formatting_list", range=range_name)
 
-    def remove_conditional_formats(self, range_name: list[str], *, rule_index: int | None = None) -> dict[str, Any]:
-        """Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices.
+    def remove(self, range_name: builtins.list[str], *, rule_index: int | None = None) -> dict[str, Any]:
+        """Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use conditional_formatting_list to see current rules and their indices.
 
         Args:
             range_name (required): Cell range (e.g. ["A1:D10"]).
             rule_index (optional): 0-based index of the rule to remove. If omitted, all rules are cleared.
         """
-        return call_host_tool("remove_conditional_formats", range=range_name, rule_index=rule_index)
+        return call_host_tool("conditional_formatting_remove", range=range_name, rule_index=rule_index)
 
 conditional_formatting = _ConditionalFormattingProxy()
 
@@ -1578,7 +1585,7 @@ page = _PageProxy()
 class _PivotTableProxy:
     """Proxy for pivot_table tools."""
 
-    def create_pivot_table(self, name: str, source_range: str, destination_cell: str, data_fields: list[str], *, source_sheet: str | None = None, destination_sheet: str | None = None, row_fields: list[str] | None = None, column_fields: list[str] | None = None, page_fields: list[str] | None = None, data_functions: dict[str, Any] | None = None, page_filters: dict[str, Any] | None = None) -> dict[str, Any]:
+    def create(self, name: str, source_range: str, destination_cell: str, data_fields: builtins.list[str], *, source_sheet: str | None = None, destination_sheet: str | None = None, row_fields: builtins.list[str] | None = None, column_fields: builtins.list[str] | None = None, page_fields: builtins.list[str] | None = None, data_functions: dict[str, Any] | None = None, page_filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via sheet_create first).
 
         Args:
@@ -1594,33 +1601,33 @@ class _PivotTableProxy:
             data_functions (optional): Optional map of data field name to aggregate function: SUM, COUNT, AVERAGE, MAX, MIN, PRODUCT, COUNTNUMS, STDEV, STDEVP, VAR, VARP.
             page_filters (optional): Optional map of page field name to filter value.
         """
-        return call_host_tool("create_pivot_table", name=name, source_range=source_range, source_sheet=source_sheet, destination_cell=destination_cell, destination_sheet=destination_sheet, row_fields=row_fields, column_fields=column_fields, data_fields=data_fields, page_fields=page_fields, data_functions=data_functions, page_filters=page_filters)
+        return call_host_tool("pivot_table_create", name=name, source_range=source_range, source_sheet=source_sheet, destination_cell=destination_cell, destination_sheet=destination_sheet, row_fields=row_fields, column_fields=column_fields, data_fields=data_fields, page_fields=page_fields, data_functions=data_functions, page_filters=page_filters)
 
-    def delete_pivot_table(self, name: str, *, sheet: str | None = None) -> dict[str, Any]:
+    def delete(self, name: str, *, sheet: str | None = None) -> dict[str, Any]:
         """Delete a pivot table by name. If sheet is omitted, searches all sheets for name.
 
         Args:
             name (required): Name of the pivot table to delete.
             sheet (optional): Sheet containing the pivot table. Omit to search all sheets.
         """
-        return call_host_tool("delete_pivot_table", name=name, sheet=sheet)
+        return call_host_tool("pivot_table_delete", name=name, sheet=sheet)
 
-    def list_pivot_tables(self, *, sheet: str | None = None) -> dict[str, Any]:
+    def list(self, *, sheet: str | None = None) -> dict[str, Any]:
         """List pivot tables in the spreadsheet, optionally limited to one sheet.
 
         Args:
             sheet (optional): If set, only list pivot tables on this sheet.
         """
-        return call_host_tool("list_pivot_tables", sheet=sheet)
+        return call_host_tool("pivot_table_list", sheet=sheet)
 
-    def refresh_pivot_table(self, name: str, *, sheet: str | None = None) -> dict[str, Any]:
+    def refresh(self, name: str, *, sheet: str | None = None) -> dict[str, Any]:
         """Reload pivot table data from the source range. If sheet is omitted, searches all sheets for name.
 
         Args:
             name (required): Name of the pivot table.
             sheet (optional): Sheet containing the pivot. Omit to search the workbook.
         """
-        return call_host_tool("refresh_pivot_table", name=name, sheet=sheet)
+        return call_host_tool("pivot_table_refresh", name=name, sheet=sheet)
 
 pivot_table = _PivotTableProxy()
 
