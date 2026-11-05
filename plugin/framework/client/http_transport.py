@@ -35,6 +35,7 @@ import time
 from typing import Any, Callable, Literal
 
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.worker_pool import run_in_background
 
 from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC, USER_AGENT
 from plugin.framework.errors import NetworkError, format_error_message
@@ -43,6 +44,7 @@ from . import http_security
 from .errors import RETRYABLE_HTTP_STATUS, format_http_error_response
 from .provider_detection import is_openrouter_endpoint
 from .request_controls import (
+    RETRY_MAX_ATTEMPTS,
     RETRY_MAX_DELAY_SEC,
     RequestPacer,
     RetryBudget,
@@ -60,6 +62,7 @@ from .request_controls import (
     request_model_from_body,
     retry_after_exceeds_cap,
     ssl_mode_for,
+    stopped_error,
     wait_abortable,
     wait_host_gap,
 )
@@ -67,16 +70,10 @@ from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context
 
 log = logging.getLogger(__name__)
 
-CONNECTION_ERRORS = (http.client.HTTPException, OSError)
-RetryAction = Literal["retry", "stop"]
 _MAX_REDIRECTS = 5
 
 HttpObserve = Callable[[Any, str, str, Any], str]
 HttpSender = Callable[..., http.client.HTTPResponse]
-
-
-def stopped_error() -> NetworkError:
-    return NetworkError("LLM request aborted by Stop", code="STOPPED")
 
 
 def parse_strict_json(raw: Any) -> Any:
@@ -302,8 +299,6 @@ class LlmHttpTransport:
         deadlock). Poll Stop and the connect deadline, then close whatever
         socket has appeared. Do not wait for DNS to finish.
         """
-        from plugin.framework.worker_pool import run_in_background
-
         outcome: dict[str, Any] = {}
         cancelled = threading.Event()
         conn.timeout = LLM_CONNECT_TIMEOUT_SEC
@@ -352,15 +347,16 @@ class LlmHttpTransport:
         attempt: int = 1,
         secrets: list[str] | None = None,
         observe_http_error: HttpObserve | None = None,
-    ) -> RetryAction:
+    ) -> None:
         """On non-200: retry 429/503/529 while attempts remain; else raise.
 
         Reads the error body once. ``observe_http_error`` is the chat 500
         diagnostic hook; catalog and speech omit it and still get redaction.
+        A normal return means the caller should retry.
         """
         if is_cancelled(cancel):
             self.close()
-            return "stop"
+            raise stopped_error()
         raw_body = response.read()
         if isinstance(raw_body, (bytes, bytearray)):
             err_body = raw_body.decode("utf-8", errors="replace")
@@ -387,7 +383,7 @@ class LlmHttpTransport:
             log.error("HTTP %s for %s: %s", response.status, safe_target, message)
         self.close()
         if is_cancelled(cancel):
-            return "stop"
+            raise stopped_error()
         try:
             status = int(response.status)
         except (TypeError, ValueError):
@@ -409,8 +405,8 @@ class LlmHttpTransport:
             emit_retry_status(status_callback, delay)
             if not wait_abortable(delay, cancel):
                 clear_host_gap(self.pacing_key_for_model(model))
-                return "stop"
-            return "retry"
+                raise stopped_error()
+            return
         raise NetworkError(message, code="HTTP_ERROR", details=details)
 
     def exchange(
@@ -459,11 +455,11 @@ class LlmHttpTransport:
         current_model: str | None = None
         wire_secrets: list[str] | None = None
 
-        def on_connection_error(err: Exception) -> tuple[str, Any]:
-            return budget.connection_outcome(
+        def on_connection_error(err: Exception) -> None:
+            budget.connection_outcome(
                 err,
-                fatal=budget.exchange_connection_fatal(),
-                attempt_charged=budget.exchange_connection_attempt_charged(),
+                fatal=budget.body_in_hand,
+                attempt_charged=budget.attempt_charged,
                 secrets=wire_secrets,
                 path=path,
                 model=current_model,
@@ -471,7 +467,7 @@ class LlmHttpTransport:
                 close_on_fatal=False,
             )
 
-        def dispatch(current_body: Any) -> tuple[str, Any]:
+        def dispatch(current_body: Any) -> tuple[Literal["again", "done"], Any]:
             nonlocal method, path, wire_headers, redirects_followed, current_model, wire_secrets
             current_model = request_model_from_body(current_body)
             wire_secrets = http_security.collect_secrets(
@@ -479,7 +475,8 @@ class LlmHttpTransport:
                 http_security.secrets_from_headers(wire_headers),
                 http_security.secrets_from_target(path),
             )
-            budget.begin_exchange_attempt()
+            budget.body_in_hand = False
+            budget.attempt_charged = False
 
             self._raise_if_stopped(cancel)
             # A custom sender is bound to the caller's connection. After a
@@ -524,8 +521,10 @@ class LlmHttpTransport:
                     return "again", new_body
 
             if status != 200:
-                attempt = budget.record_http_status_attempt()
-                action = self.handle_http_status(
+                budget.sends_left -= 1
+                budget.attempt_charged = True
+                attempt = RETRY_MAX_ATTEMPTS - budget.sends_left
+                self.handle_http_status(
                     response,
                     request_body=current_body,
                     path=path,
@@ -537,8 +536,6 @@ class LlmHttpTransport:
                     secrets=wire_secrets,
                     observe_http_error=observe_http_error,
                 )
-                if action == "stop":
-                    raise stopped_error()
                 if on_retry is not None:
                     on_retry()
                 return "again", current_body
@@ -548,7 +545,7 @@ class LlmHttpTransport:
                 raw = self._read_bounded_response(response, max_bytes=max_bytes, cancel=cancel)
             else:
                 raw = response.read()
-            budget.record_body_in_hand()
+            budget.body_in_hand = True
             if after_read is not None:
                 after_read(response)
             parsed = parse_strict_json(raw) if parse_json else None
@@ -568,27 +565,36 @@ class LlmHttpTransport:
 
     def stream(
         self,
-        budget: RetryBudget,
         method: str,
         path: str,
         body: Any,
         headers: dict[str, str],
-        consume: Callable[[Any], str | None],
+        consume: Callable[[Any, RetryBudget], str | None],
         *,
         cancel: SendCancellation | None = None,
         status_callback: Callable[[str], None] | None = None,
         wire_secrets: list[str] | None = None,
+        on_bad_request: Callable[[bytes], bytes | None] | None = None,
     ) -> str | None:
-        """SSE streaming with the shared retry loop; dispatch lives on the transport like ``exchange``."""
-        from plugin.framework.errors import NetworkError
+        """SSE streaming with the shared retry loop; dispatch lives on the transport like ``exchange``.
 
+        Builds the ``RetryBudget``. Stop before ``consume`` returns ``None``.
+        ``consume``'s return value passes through, including a model finish_reason of ``stop``.
+        ``None`` after a latched Stop is mapped to finish reason ``stop`` in ``_run_streaming_loop``.
+        """
+        budget = RetryBudget(
+            self,
+            cancel=cancel,
+            status_callback=status_callback,
+            on_bad_request=on_bad_request,
+        )
         current_model: str | None = None
 
-        def on_connection_error(err: Exception) -> tuple[str, Any]:
-            return budget.connection_outcome(
+        def on_connection_error(err: Exception) -> None:
+            budget.connection_outcome(
                 err,
-                fatal=budget.stream_connection_fatal(),
-                attempt_charged=budget.exchange_connection_attempt_charged(),
+                fatal=budget.emitted_any,
+                attempt_charged=budget.attempt_charged,
                 secrets=None,
                 path=path,
                 model=current_model,
@@ -596,14 +602,14 @@ class LlmHttpTransport:
                 close_on_fatal=True,
             )
 
-        def dispatch(current_body: Any) -> tuple[str, Any]:
+        def dispatch(current_body: Any) -> tuple[Literal["again", "done"], Any]:
             nonlocal current_model
             if budget.stopped():
                 self.close()
-                return "stop", None
+                raise stopped_error()
 
             current_model = request_model_from_body(current_body)
-            budget.begin_stream_send()
+            budget.attempt_charged = False
 
             response = self.send(
                 method,
@@ -614,8 +620,10 @@ class LlmHttpTransport:
                 status_callback=status_callback,
             )
             if response.status != 200:
-                attempt = budget.record_http_status_attempt()
-                action = self.handle_http_status(
+                budget.sends_left -= 1
+                budget.attempt_charged = True
+                attempt = RETRY_MAX_ATTEMPTS - budget.sends_left
+                self.handle_http_status(
                     response,
                     request_body=current_body,
                     path=path,
@@ -627,19 +635,18 @@ class LlmHttpTransport:
                     secrets=wire_secrets,
                     observe_http_error=None,
                 )
-                if action == "stop":
-                    return "stop", None
                 return "again", current_body
 
             budget.clear_pacing_gap_when_unspent(current_model)
 
             try:
-                res = consume(response)
+                res = consume(response, budget)
                 return "done", res
             except StreamOverload:
                 if budget.emitted_any or budget.sends_left <= 0:
                     raise
-                attempt = budget.record_stream_overload_attempt()
+                budget.sends_left -= 1
+                attempt = RETRY_MAX_ATTEMPTS - budget.sends_left
                 delay = backoff_delay_sec(attempt=attempt)
                 remember_host_gap(
                     self.pacing_key_for_model(current_model),
@@ -647,14 +654,14 @@ class LlmHttpTransport:
                 )
                 emit_retry_status(status_callback, delay)
                 if not wait_abortable(delay, cancel):
-                    return "stop", None
+                    raise stopped_error()
                 return "again", current_body
 
         try:
             return budget.run_with_retries(body, dispatch, on_connection_error)
         except NetworkError as exc:
             if getattr(exc, "code", None) == "STOPPED":
-                return "stop"
+                return None
             raise
 
     def handle_connection_error(
@@ -669,20 +676,20 @@ class LlmHttpTransport:
         attempt: int = 1,
         model: str | None = None,
         secrets: list[str] | None = None,
-    ) -> RetryAction:
+    ) -> None:
         """Close failed connections and decide whether a request should retry."""
         # Stop closes the socket, which looks like a broken pipe. Check
         # cancel before log.error so a user cancel is debug, not ERROR.
         if is_cancelled(cancel):
             log.debug("Connection closed by user stop; exiting streaming loop")
             self.close()
-            return "stop"
+            raise stopped_error()
         log.error("Connection error, closing: %s" % http_security.redact_secrets(str(err), secrets))
         self.close()
         if retries_left > 0 and enable_local_unverified(self._endpoint_parts()[1], err):
             # Immediate reopen: TLS mode just changed; do not add backoff.
             self.close()
-            return "retry"
+            return
 
         err_msg = http_security.redact_secrets(format_error_message(err), secrets)
         if retries_left > 0:
@@ -695,8 +702,8 @@ class LlmHttpTransport:
             emit_retry_status(status_callback, delay)
             if not wait_abortable(delay, cancel):
                 clear_host_gap(self.pacing_key_for_model(model))
-                return "stop"
-            return "retry"
+                raise stopped_error()
+            return
         log.error("Connection retry failed: %s" % err_msg)
         raise NetworkError(err_msg, code="CONNECTION_ERROR", details={"url": path}) from err
 
