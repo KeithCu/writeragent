@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Read speaker notes from a slide."""
 
-    name: str | None = "get_speaker_notes"
+    name: str | None = "speaker_notes_get"
     description: str = "Read speaker notes from an Impress slide. Returns the notes text."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (active slide if omitted)."}}, "required": []}
 
@@ -35,7 +35,7 @@ class GetSpeakerNotes(ToolDrawSpeakerNotesBase):
 class SetSpeakerNotes(ToolDrawSpeakerNotesBase):
     """Set speaker notes on a slide."""
 
-    name: str | None = "set_speaker_notes"
+    name: str | None = "speaker_notes_set"
     description: str = "Set or replace speaker notes on an Impress slide."
     parameters: dict[str, Any] | None = {
         "type": "object",

@@ -80,19 +80,19 @@ def test_add_slide_blank_and_none_escape_empty(ctx, doc):
         assert details.get("suggest_layout") == "text", miss
         assert details.get("shape_text_count") == 0, miss
         assert "slide_layouts" in (details.get("hint") or ""), miss
-        assert "set_slide_layout" not in (details.get("hint") or ""), miss
+        assert "slide_layout_set" not in (details.get("hint") or ""), miss
 
 
 @native_test
 @with_native_doc("impress")
-def test_set_slide_layout_text_creates_placeholders_synchronously(ctx, doc):
+def test_slide_layout_set_text_creates_placeholders_synchronously(ctx, doc):
     """Root-cause path: Layout=1 instantiates placeholders with no event loop."""
     added = _exec_tool(doc, ctx, "add_slide", {"layout": "blank"})
     page_idx = added["active_page_index"]
     listed = _exec_tool(doc, ctx, "list_placeholders", {"page": page_idx})
     assert listed.get("count") == 0, listed
 
-    applied = _exec_tool(doc, ctx, "set_slide_layout", {"page": page_idx, "layout": "text"})
+    applied = _exec_tool(doc, ctx, "slide_layout_set", {"page": page_idx, "layout": "text"})
     assert applied.get("status") == "ok", applied
     assert applied.get("layout") == "text"
     page = doc.getDrawPages().getByIndex(page_idx)

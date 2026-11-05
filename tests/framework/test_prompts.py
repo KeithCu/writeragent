@@ -266,7 +266,7 @@ def test_get_chat_system_prompt_for_document_draw():
     assert "list_placeholders" in prompt
     assert "0-based" in prompt
     assert 'domain="slide_layouts"' in prompt
-    assert "set_slide_layout" not in prompt
+    assert "slide_layout_set" not in prompt
 
 
 def test_draw_prompt_omits_get_image_when_model_has_no_vision():

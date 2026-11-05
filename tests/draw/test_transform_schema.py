@@ -120,7 +120,7 @@ def test_autolayout_map_matches_collabora_ids():
     assert layout_id("AUTOLAYOUT_TITLE_ONLY") == 19
     assert layout_id("AUTOLAYOUT_NONE") == 20
     assert layout_id("AUTOLAYOUT_TITLE_2CONTENT") == 3
-    # Historic ids the Collabora subset omits. set_slide_layout still uses them.
+    # Historic ids the Collabora subset omits. slide_layout_set still uses them.
     assert layout_id("AUTOLAYOUT_CHART") == 2
     assert layout_id("AUTOLAYOUT_TAB") == 8
     assert layout_id("AUTOLAYOUT_OBJ") == 11
