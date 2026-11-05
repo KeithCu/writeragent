@@ -168,6 +168,51 @@ _SESSION_NEW_TIMEOUT_SEC = 30
 # returned by then, the agent ignored cancel and the tree is killed.
 _CANCEL_GRACE_SEC = 3.0
 
+# agy returns only this text for some Gemini schema failures; the executor log line is the real error.
+_AGENT_TERMINATED = "⚠ Agent execution terminated due to error."
+_AGENT_EXECUTOR_MARKER = "agent executor error:"
+_AGY_LOG_TAIL_MAX = 256 * 1024
+
+
+def _last_agent_executor_error(path: str | None, offset: int = 0) -> str | None:
+    """Last ``agent executor error:`` suffix from log bytes appended since ``offset``."""
+    if not path:
+        return None
+    try:
+        with open(path, "rb") as log_file:
+            log_file.seek(0, os.SEEK_END)
+            size = log_file.tell()
+            start = max(0, offset)
+            if start >= size:
+                return None
+            log_file.seek(start)
+            data = log_file.read(min(size - start, _AGY_LOG_TAIL_MAX)).decode("utf-8", errors="replace")
+    except OSError:
+        log.warning("Could not read Antigravity log at %s", path)
+        return None
+    marker_at = data.rfind(_AGENT_EXECUTOR_MARKER)
+    if marker_at < 0:
+        return None
+    return data[marker_at + len(_AGENT_EXECUTOR_MARKER) :].strip()
+
+
+def _is_terminated_banner(buffered: str, blocks_text: str) -> bool:
+    pending = buffered.strip()
+    if pending == _AGENT_TERMINATED:
+        return True
+    return not pending and blocks_text.strip() == _AGENT_TERMINATED
+
+
+def _text_from_content_blocks(content: Any) -> str:
+    items = _content_blocks(content) or []
+    parts: list[str] = []
+    for item in items:
+        if isinstance(item, dict) and item.get("type") == "text":
+            text = item.get("text", "")
+            if isinstance(text, str):
+                parts.append(text)
+    return "".join(parts)
+
 
 class _TurnStopped(Exception):
     """This turn was stopped before its JSON-RPC request was sent."""
@@ -381,6 +426,12 @@ class ACPBackend(AgentBackend):
         self._pending_permissions: dict[Any, tuple[ACPConnection, list[Any]]] = {}
         # Set when ``session/cancel`` is queued for the current inflight turn.
         self._session_cancel_notified: bool = False
+        self._answer_buf: list[str] = []
+        self._agent_log_path: str | None = None
+        self._agent_log_offset: int = 0
+        self._available_model_ids: frozenset[str] = frozenset()
+        self._session_model_id: str | None = None
+        self._model_warn_key: tuple[str, str] | None = None
         self._load_config()
 
     def _resolve_binary(self, path_setting: str, args_str: str) -> str | None:
@@ -420,6 +471,52 @@ class ACPBackend(AgentBackend):
         # str.split() breaks a quoted path into several argv entries.
         # posix=False on Windows so backslashes in paths stay literal.
         self._extra_args = self._launch_extra_args(self._binary_path, args_str)
+
+    def _resolve_agy_log_path(self) -> str | None:
+        """Path agy should log to; None when logging is unavailable or already in argv."""
+        if self.backend_id != "antigravity":
+            return None
+        log_flags = ("--log-file", "--cli_log_file")
+        for idx, arg in enumerate(self._extra_args):
+            if arg in log_flags:
+                if idx + 1 < len(self._extra_args):
+                    return self._extra_args[idx + 1]
+                log.warning("Antigravity --log-file has no path; executor errors will use the banner only")
+                return None
+        try:
+            from plugin.framework.config import user_config_dir
+
+            cfg_dir = user_config_dir()
+        except Exception:
+            log.warning("user_config_dir unavailable; Antigravity will run without --log-file")
+            return None
+        if not cfg_dir:
+            log.warning("user_config_dir unavailable; Antigravity will run without --log-file")
+            return None
+        return os.path.join(cfg_dir, "agy-acp.log")
+
+    def _managed_log_args(self) -> list[str]:
+        """Antigravity-only ``--log-file`` when settings did not already pass one."""
+        path = self._resolve_agy_log_path()
+        self._agent_log_path = path
+        if path is None:
+            return []
+        if any(flag in self._extra_args for flag in ("--log-file", "--cli_log_file")):
+            return []
+        return ["--log-file", path]
+
+    def _record_agent_log_offset(self) -> None:
+        """Byte offset in ``agy-acp.log`` at the start of the current ``session/prompt`` turn."""
+        path = self._agent_log_path
+        if not path:
+            self._agent_log_offset = 0
+            return
+        try:
+            with open(path, "rb") as log_file:
+                log_file.seek(0, os.SEEK_END)
+                self._agent_log_offset = log_file.tell()
+        except OSError:
+            self._agent_log_offset = 0
 
     def _binary_matches(self, path: str) -> bool:
         """True when ``path`` is this backend's CLI, including Windows launcher suffixes."""
@@ -513,6 +610,7 @@ class ACPBackend(AgentBackend):
 
             cmd_line = [self._binary_path]
             cmd_line.extend(self._extra_args)
+            cmd_line.extend(self._managed_log_args())
 
             # ACPConnection.start merges os.environ itself. Passing a full copy
             # here merged the process environment twice.
@@ -598,12 +696,16 @@ class ACPBackend(AgentBackend):
             if self._slot_lost_locked():
                 return
             # The session keeps the mcpServers from session/new, so a new MCP URL is a new session.
-            if self._session_id and self._session_url == url_key and self._session_mcp_url == effective_mcp:
-                return
-            # Read the connection slot once; raise if there is no process.
+            reuse_session = bool(
+                self._session_id and self._session_url == url_key and self._session_mcp_url == effective_mcp
+            )
             conn = self._conn
             if conn is None:
                 raise RuntimeError(f"{self.display_name} ACP process is not running.")
+
+        if reuse_session:
+            self._select_agy_model(conn)
+            return
 
         # mcp_servers is required by the ACP schema. A disabled MCP server
         # must not be handed to session/new (effective_mcp is None then).
@@ -619,6 +721,9 @@ class ACPBackend(AgentBackend):
             # An empty id used to be stored and sent on session/prompt.
             if not isinstance(session_id, str) or not session_id.strip():
                 raise RuntimeError(f"{self.display_name} ACP session/new returned no sessionId.")
+            available_ids, current_id = (
+                self._model_ids_from_session_new(result) if isinstance(result, dict) else (frozenset(), None)
+            )
             with self._state_lock:
                 if self._slot_lost_locked(conn):
                     return
@@ -626,7 +731,11 @@ class ACPBackend(AgentBackend):
                 self._session_url = url_key
                 self._session_mcp_url = effective_mcp
                 self._session_prompted = False
+                self._available_model_ids = available_ids
+                self._session_model_id = current_id
+                self._model_warn_key = None
             log.debug(f"ACP session created: {self._session_id}")
+            self._select_agy_model(conn)
         except _TurnStopped:
             # Stop won before session/new was sent. Not a session failure,
             # and the process is still the one the next message should use.
@@ -640,6 +749,54 @@ class ACPBackend(AgentBackend):
             if self._conn is conn and not conn.is_healthy:
                 self._drop_connection()
             raise
+
+    def _model_ids_from_session_new(self, result: dict[str, Any]) -> tuple[frozenset[str], str | None]:
+        """Parse ``session/new`` ``models.availableModels`` ``modelId`` values (not configOptions ids)."""
+        models = result.get("models")
+        if not isinstance(models, dict):
+            return frozenset(), None
+        available = models.get("availableModels")
+        ids: set[str] = set()
+        if isinstance(available, list):
+            for item in available:
+                if isinstance(item, dict):
+                    model_id = item.get("modelId")
+                    if isinstance(model_id, str) and model_id:
+                        ids.add(model_id)
+        current = models.get("currentModelId")
+        current_id = current if isinstance(current, str) else None
+        return frozenset(ids), current_id
+
+    def _select_agy_model(self, conn: ACPConnection) -> None:
+        """Apply ``agent_backend.agy_model`` via ``session/set_model`` when configured."""
+        if self.backend_id != "antigravity":
+            return
+        from plugin.framework.config import get_config
+
+        model_id = str(get_config("agent_backend.agy_model") or "").strip()
+        if not model_id or model_id == self._session_model_id:
+            return
+        if model_id not in self._available_model_ids:
+            warn_key = (self._session_id or "", model_id)
+            if self._model_warn_key != warn_key:
+                log.warning(
+                    "agent_backend.agy_model %r is not in session/new availableModels; keeping agy current model",
+                    model_id,
+                )
+                self._model_warn_key = warn_key
+            return
+        try:
+            self._request(
+                conn,
+                "session/set_model",
+                {"sessionId": self._session_id, "modelId": model_id},
+                _SESSION_NEW_TIMEOUT_SEC,
+            )
+            self._session_model_id = model_id
+        except _TurnStopped:
+            raise
+        except Exception as exc:
+            log.warning("agy session/set_model failed: %s", exc, exc_info=True)
 
     def _build_prompt_blocks(self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, document_url: Optional[str] = None, *, include_system: bool = True) -> tuple[list[dict[str, Any]], bool]:
         """Build ACP prompt content blocks.
@@ -691,7 +848,10 @@ class ACPBackend(AgentBackend):
         session_update = update.get("sessionUpdate")
         if isinstance(session_update, str) and session_update:
             if session_update == "agent_message_chunk":
-                _queue_text_blocks(update.get("content"), queue, StreamQueueKind.CHUNK)
+                if self.backend_id == "antigravity":
+                    self._agy_buffered_chunk(update, queue)
+                else:
+                    _queue_text_blocks(update.get("content"), queue, StreamQueueKind.CHUNK)
             elif session_update == "agent_thought_chunk":
                 # Thought text lives in ``content`` with ``type: text``. The legacy
                 # path queued that as CHUNK, and the agent drain appends every
@@ -707,6 +867,49 @@ class ACPBackend(AgentBackend):
             # updates are not the assistant answer, so they are not queued.
             return
         self._handle_legacy_content(update, queue)
+
+    def _agy_buffered_chunk(self, update: dict[str, Any], queue: Any) -> None:
+        """Hold banner-prefix chunks; quota and normal answers flush as soon as they diverge.
+
+        ``agent_message_chunk`` notifications for one prompt are delivered before
+        ``session/prompt`` returns, so ``_answer_buf`` needs no lock between reader
+        and prompt threads.
+        """
+        blocks = _content_blocks(update.get("content"))
+        if blocks is None:
+            return
+        for block in blocks:
+            if not isinstance(block, dict) or block.get("type") != "text":
+                continue
+            text = block.get("text", "")
+            if isinstance(text, str):
+                self._answer_buf.append(text)
+        joined = "".join(self._answer_buf)
+        stripped = joined.strip()
+        if not stripped:
+            return
+        if _AGENT_TERMINATED.startswith(stripped):
+            return
+        queue.put((StreamQueueKind.CHUNK, joined))
+        self._answer_buf.clear()
+
+    def _finish_antigravity_prompt(self, result: dict[str, Any], queue: Any) -> bool:
+        """Queue Antigravity terminal events. True when the turn is fully handled."""
+        content_blocks = result.get("contentBlocks") or []
+        blocks_text = _text_from_content_blocks(content_blocks) if content_blocks else ""
+        buffered = "".join(self._answer_buf)
+        if _is_terminated_banner(buffered, blocks_text):
+            if not self._user_stopped():
+                message = _last_agent_executor_error(self._agent_log_path, self._agent_log_offset) or _AGENT_TERMINATED
+                self._report_failure(queue, format_error_payload(RuntimeError(message)))
+            self._answer_buf.clear()
+            return True
+        if self._answer_buf:
+            joined = "".join(self._answer_buf)
+            if joined.strip():
+                queue.put((StreamQueueKind.CHUNK, joined))
+            self._answer_buf.clear()
+        return False
 
     def _handle_legacy_content(self, update: dict[str, Any], queue: Any) -> None:
         """Private ``content`` blocks: text / tool_call / tool_result.
@@ -804,6 +1007,9 @@ class ACPBackend(AgentBackend):
         self._session_url = None
         self._session_mcp_url = None
         self._session_prompted = False
+        self._available_model_ids = frozenset()
+        self._session_model_id = None
+        self._model_warn_key = None
 
     def _cancel_pending_permissions(self) -> None:
         """Answer every outstanding permission with the ACP ``cancelled`` outcome.
@@ -969,6 +1175,8 @@ class ACPBackend(AgentBackend):
                         self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} ACP process is not running.")))
                         return
 
+                    self._answer_buf.clear()
+                    self._record_agent_log_offset()
                     result = self._request(conn, "session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, _PROMPT_IDLE_SEC)
                     # A slash-first turn, or a turn with no system prompt, used to set the flag anyway,
                     # so later turns skipped the manual. The flag now follows the block that was actually built.
@@ -1026,9 +1234,13 @@ class ACPBackend(AgentBackend):
             return
         stop_reason = str(result.get("stopReason") or result.get("stop_reason") or "")
         log.info("Prompt completed: stop_reason=%s", stop_reason)
+        content_blocks = result.get("contentBlocks") or []
+
+        if self.backend_id == "antigravity" and self._finish_antigravity_prompt(result, queue):
+            return
+
         # Some ACP agents (Vibe) put final text in the prompt result.
         # Same block types as the legacy content path; drain if present.
-        content_blocks = result.get("contentBlocks") or []
         if content_blocks:
             self._handle_acp_update({"content": content_blocks}, queue)
         if stop_reason == "cancelled" or self._user_stopped():

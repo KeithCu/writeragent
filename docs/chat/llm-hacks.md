@@ -130,6 +130,8 @@ Tests: [`tests/contrib/smolagents/test_tool_call_parsing.py`](../../tests/contri
 
 **Solution**: [`to_openai_schema` / `to_mcp_schema`](../../plugin/framework/tool_schema.py) (re-exported from `tool.py`) run `_normalize_schema_for_strict_providers`, which emits `"type": [scalar, "null"]` for **optional** scalar properties (`integer`, `number`, `boolean`, `string`), including an optional union of those scalars (`["string", "number"]` becomes `["string", "number", "null"]`). Required parameters stay non-nullable. Every other source type stays too: `apply_document_content` `content` remains `["array", "string"]` because `validate` and execute accept a string or a list. A schema with `properties` and no `type` is still walked. `items` stays when `type` is missing or includes `array`. Tool implementations already treat omitted/`null` as default (e.g. no truncation when `max_chars` is null).
 
+**MCP vs OpenAI**: ``to_mcp_schema`` passes ``for_mcp=True`` into ``_normalize_schema_for_strict_providers``, so optional properties with an ``enum`` do not get JSON ``null`` in ``type`` or ``enum`` (Gemini rejects null enum elements when agy forwards MCP schemas). Non-enum optional scalars on MCP still get ``["scalar", "null"]``. The OpenAI wire from ``to_openai_schema`` is unchanged.
+
 Tests: [`tests/framework/test_tool_schema_convert.py`](../../tests/framework/test_tool_schema_convert.py).
 
 ---
