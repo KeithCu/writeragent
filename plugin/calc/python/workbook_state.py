@@ -13,7 +13,7 @@ import weakref
 from plugin.framework.errors import best_effort
 from plugin.framework.queue_executor import main
 from plugin.framework.stream_batch import DeadlineThread
-from plugin.framework.thread_guard import unwrap_uno
+from plugin.framework.thread_guard import main_thread_only, unwrap_uno
 from plugin.framework.uno_context import get_runtime_uid
 
 if TYPE_CHECKING:
@@ -181,6 +181,30 @@ class WorkbookState:
                 st.clear()
 
     @classmethod
+    def by_key(cls, key: str) -> WorkbookState | None:
+        """Return the state whose lifecycle key matches *key* (exact or scheduled alias)."""
+        if not key:
+            return None
+        with _LOCK:
+            seen: set[int] = set()
+            for st in _STATES.values():
+                oid = id(st)
+                if oid in seen:
+                    continue
+                seen.add(oid)
+                if st.key == key or st.scheduled_key_matches(key):
+                    return st
+            for entry in _STATE_BY_DOC_ID.values():
+                st = entry[0]
+                oid = id(st)
+                if oid in seen:
+                    continue
+                seen.add(oid)
+                if st.key == key or st.scheduled_key_matches(key):
+                    return st
+        return None
+
+    @classmethod
     def all_states(cls) -> list[WorkbookState]:
         """Return all active WorkbookState instances across all open documents."""
         with _LOCK:
@@ -210,9 +234,8 @@ class WorkbookState:
         return cls.for_doc(doc) or cls.known(doc)
 
     @classmethod
+    @main_thread_only
     def _install_unload_listener(cls, doc: Any, state: WorkbookState) -> None:
-        if not main.is_current():
-            return
         # Lazy import: workbook_lifecycle imports WorkbookState at module level.
         from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
         from plugin.framework.uno_context import get_ctx
@@ -269,6 +292,12 @@ class WorkbookState:
             import plugin.calc.python.workbook_lifecycle as _wb_lc
 
             key = _wb_lc.calc_workbook_base_session_id(doc)
+
+        existing = cls.by_key(key)
+        if existing is not None:
+            cls._remember(doc, existing)
+            cls._install_unload_listener(doc, existing)
+            return existing
 
         state = cls(key=key)
         cls._remember(doc, state)

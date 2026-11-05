@@ -54,7 +54,6 @@ def sheet_modify_scope() -> Generator[None, None, None]:
 def reset_sheet_modify_runtime_for_tests() -> None:
     """Drop debounce timers and the re-entrancy flag. Tests only."""
     global _DISPATCH_DEPTH
-    from plugin.calc.python.workbook_state import WorkbookState
 
     for s in WorkbookState.all_states():
         s.debounce.cancel_all()
@@ -93,29 +92,6 @@ def _sheet_name_of(sheet: Any) -> str:
     return str(best_effort(lambda: sheet.getName(), "sheet_modify: getName failed", "") or "")
 
 
-def _workbook_state_for_modify_pass(doc: Any | None, *, workbook_key: str = "") -> WorkbookState | None:
-    """Return workbook state for spill cleanup (rekey on UI thread, then listener id).
-
-    ``for_doc`` can attach a fresh empty state when PyUNO weakref lookup misses the
-    document object that still owns ``state.spills``. The debounced pass always
-    knows the listener's ``workbook_key``; prefer that state when it holds spills.
-    """
-    state = WorkbookState.for_doc(doc) if doc is not None else None
-    keyed: WorkbookState | None = None
-    if workbook_key:
-        for candidate in WorkbookState.all_states():
-            if candidate.scheduled_key_matches(workbook_key):
-                keyed = candidate
-                break
-    if keyed is None:
-        return state
-    if state is None:
-        return keyed
-    if keyed is not state and keyed.spills and not state.spills:
-        return keyed
-    return state
-
-
 def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", sheet_name: str = "", delay_sec: float = _MODIFY_DELAY_SEC) -> None:
     """Debounce: schedule a 0.1s UI-thread pass via WorkbookState.debounce."""
     if sheet is None or doc is None:
@@ -139,7 +115,7 @@ def schedule_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str =
                 if getattr(candidate, "doc", None) is doc and hasattr(candidate, "sheet_name"):
                     sname = candidate.sheet_name
                     break
-        run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=sname, workbook_key=state.key)
+        run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=sname)
 
     state.debounce.schedule(debounce_key, delay_sec, _pass)
 
@@ -150,8 +126,7 @@ def flush_sheet_modify_pass_for_tests(ctx: Any, doc: Any, sheet: Any, *, doc_url
     state = WorkbookState.lookup(doc)
     if state is not None:
         state.debounce.cancel(f"sheet:{name}")
-    wk = state.key if state is not None else ""
-    run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=name, workbook_key=wk)
+    run_sheet_modify_pass(ctx, doc, sheet, doc_url=doc_url, sheet_name=name)
 
 
 def migrate_sheet_rename(
@@ -234,7 +209,6 @@ def run_sheet_modify_pass(
     *,
     doc_url: str = "",
     sheet_name: str = "",
-    workbook_key: str = "",
 ) -> None:
     """UI-thread jobs after the shared debounce. Spill and geometric stay separate.
 
@@ -250,9 +224,8 @@ def run_sheet_modify_pass(
         log.debug("run_sheet_modify_pass: unreadable sheet name; skipping")
         return
     with sheet_modify_scope():
-        # Bugfix #3186: known-then-for_doc when is_current() was dead here because
-        # _skip_sheet_modify already returned off the UI thread; RuntimeUID rekey was skipped.
-        state = _workbook_state_for_modify_pass(doc, workbook_key=workbook_key)
+        # for_doc (not known) so RuntimeUID rekey runs; UI thread only (_skip_sheet_modify guards).
+        state = WorkbookState.for_doc(doc) if doc is not None else None
         # Job 1 — spill orphan cleanup. Walks state.spills only.
         try:
             from plugin.calc.python.spill import cleanup_orphans
@@ -311,8 +284,6 @@ def ensure_sheet_modify_listener(ctx: Any, doc: Any, sheet: Any) -> Any | None:
     name = _sheet_name_of(sheet)
     if not name:
         return None
-    from plugin.calc.python.workbook_state import WorkbookState
-
     state = WorkbookState.for_doc(doc)
     if state is None:
         return None
@@ -359,8 +330,6 @@ class SheetModifyDispatcher(BaseModifyListener):
             log.exception("Error in SheetModifyDispatcher.modified")
 
     def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-        from plugin.calc.python.workbook_state import WorkbookState
-
         state = WorkbookState.known(self.doc)
         if state is not None:
             if state.listeners.get(self.sheet_name) is self:

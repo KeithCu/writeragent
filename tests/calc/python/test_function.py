@@ -778,21 +778,18 @@ def test_untitled_docs_do_not_share_spill_registry(monkeypatch: pytest.MonkeyPat
         reset_calc_workbook_states()
 
 
-def test_session_key_and_init_kwargs_recursion_off_main_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_off_main_skips_uno_for_sk_and_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.framework.queue_executor import Policy, main
 
     main.install(Policy.test_inline)
 
-    # When off main thread, session_key and get_python_init_kwargs must not touch UNO
-    # or cause thread safety violations / recursion (Issue #402).
+    # Off main thread, build_cell_context must not touch UNO (Issue #402).
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     ctx = MagicMock()
-    key = python_function.session_key(_cell(ctx, "print('hello')"))
-    assert key == ("", "", "", "print('hello')", "")
-
-    kwargs = python_function.get_python_init_kwargs(_cell(ctx, "print('hello')"))
-    assert kwargs == {}
+    cell = _cell(ctx, "print('hello')")
+    assert cell.sk == ("", "", "", "print('hello')", "")
+    assert cell.init_kwargs == {}
 
 
 def test_finalize_python_return_triggers_spill_2d(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1209,12 +1206,12 @@ def test_off_main_spill_timer_key_follows_each_workbook(monkeypatch: pytest.Monk
         _clear_spill_timer_registry()
 
 
-def test_session_key_off_main_ignores_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_off_main_skips_session_key_tuple_on_cached_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     doc = MagicMock()
     doc.getURL.side_effect = AssertionError("getURL off main")
-    key = python_function.session_key(_cell(MagicMock(), "print('hello')", doc, on_main=False))
-    assert key == ("", "", "", "print('hello')", "")
+    cell = _cell(MagicMock(), "print('hello')", doc, on_main=False)
+    assert cell.sk == ("", "", "", "print('hello')", "")
     doc.getURL.assert_not_called()
 
 
@@ -1760,7 +1757,7 @@ def test_ragged_results_handling() -> None:
 
 
 
-def test_get_python_init_kwargs_off_main_returns_empty_without_touching_doc(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_off_main_returns_empty_init_kwargs_without_touching_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     """Off-main the caller doc is only passed through: its init script is UNO."""
 
     def boom(_doc: object) -> dict[str, Any]:
@@ -1768,10 +1765,11 @@ def test_get_python_init_kwargs_off_main_returns_empty_without_touching_doc(monk
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", boom)
-    assert python_function.get_python_init_kwargs(_cell(MagicMock(), "", CalcDocStub(), on_main=False)) == {}
+    cell = _cell(MagicMock(), "", CalcDocStub(), on_main=False)
+    assert cell.init_kwargs == {}
 
 
-def test_get_python_init_kwargs_without_doc_does_not_guess(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_without_doc_does_not_guess_init_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     """No caller document means no init kwargs; the front window is not consulted."""
 
     def boom(_ctx: object) -> object:
@@ -1779,10 +1777,10 @@ def test_get_python_init_kwargs_without_doc_does_not_guess(monkeypatch: pytest.M
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     monkeypatch.setattr("plugin.scripting.document_scripts.get_calc_document_from_ctx", boom)
-    assert python_function.get_python_init_kwargs(_cell(MagicMock(), "")) == {}
+    assert _cell(MagicMock(), "").init_kwargs == {}
 
 
-def test_get_python_init_kwargs_registers_unload_listener(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_registers_unload_listener_on_for_doc(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///fake_lifecycle.ods")
     calls: list[tuple] = []
 
@@ -1790,20 +1788,20 @@ def test_get_python_init_kwargs_registers_unload_listener(monkeypatch: pytest.Mo
     monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
     monkeypatch.setattr(
         "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
-        lambda ctx, doc, *, state=None: calls.append((ctx, doc, state)),
+        lambda ctx, doc, *, state: calls.append((ctx, doc, state)),
     )
 
     ctx = MagicMock()
     cell = build_cell_context(ctx, doc, "x")
-    assert python_function.get_python_init_kwargs(cell) == {"dummy": True}
+    assert cell.init_kwargs == {"dummy": True}
     assert len(calls) == 1
     assert calls[0][1] is doc
 
 
-def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_survives_listener_install_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     doc = CalcDocStub(url="file:///fake_lifecycle_fail.ods")
 
-    def _boom(_ctx, _doc):
+    def _boom(_ctx, _doc, *, state):
         raise RuntimeError("listener failed")
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
@@ -1816,26 +1814,11 @@ def test_get_python_init_kwargs_survives_listener_install_failure(monkeypatch: p
     assert cell.init_kwargs == {"dummy": True}
 
 
-def test_build_cell_context_registers_unload_listener_on_for_doc(monkeypatch: pytest.MonkeyPatch) -> None:
-    doc = CalcDocStub(url="file:///fake_lifecycle.ods")
-    calls: list[tuple] = []
-
-    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
-    monkeypatch.setattr("plugin.scripting.document_scripts.build_python_eval_init_kwargs", lambda _doc: {"dummy": True})
-    monkeypatch.setattr(
-        "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python",
-        lambda ctx, doc, *, state=None: calls.append((ctx, doc, state)),
-    )
-    build_cell_context(MagicMock(), doc, "x")
-    assert len(calls) == 1
-    assert calls[0][2] is not None
+def test_build_cell_context_scoped_dir_none_without_doc() -> None:
+    assert _cell(MagicMock(), "").scoped_dir is None
 
 
-def test_py_scoped_dir_bindings_none_doc() -> None:
-    assert python_function._py_scoped_dir_bindings(_cell(MagicMock(), "")) == {"scoped_dir": None}
-
-
-def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_cell_context_scoped_dir_off_main_skips_document_url(monkeypatch: pytest.MonkeyPatch) -> None:
     """Yellow / #402: off-main recalc must not call getURL() on the caller doc."""
     called: list[int] = []
 
@@ -1845,11 +1828,11 @@ def test_py_scoped_dir_bindings_off_main_skips_document_url(monkeypatch: pytest.
 
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.doc.document_research.get_document_directory", boom)
-    assert python_function._py_scoped_dir_bindings(_cell(MagicMock(), "", object(), on_main=False)) == {"scoped_dir": None}
+    assert _cell(MagicMock(), "", object(), on_main=False).scoped_dir is None
     assert called == []
 
 
-def test_py_scoped_dir_bindings_on_main_uses_document_directory(
+def test_build_cell_context_scoped_dir_on_main_uses_document_directory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
@@ -1858,7 +1841,7 @@ def test_py_scoped_dir_bindings_on_main_uses_document_directory(
         lambda doc: "/tmp/workbook-dir",
     )
     doc = CalcDocStub()
-    assert python_function._py_scoped_dir_bindings(_cell(MagicMock(), "", doc)) == {"scoped_dir": "/tmp/workbook-dir"}
+    assert _cell(MagicMock(), "", doc).scoped_dir == "/tmp/workbook-dir"
 
 
 def test_execute_python_addin_binds_scoped_dir(monkeypatch: pytest.MonkeyPatch) -> None:

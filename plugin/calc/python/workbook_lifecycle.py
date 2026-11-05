@@ -219,16 +219,9 @@ def _register(doc: Any, key: str, factory: Any, on_existing: Any) -> None:
         log.warning("python_workbook_lifecycle: addDocumentEventListener failed", exc_info=True)
 
 
-def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any, *, state: WorkbookState | None = None) -> None:
+def ensure_calc_workbook_unload_resets_python(ctx: Any, doc: Any, *, state: WorkbookState) -> None:
     """Register a one-time listener so closing *doc* clears worker init/cell sessions."""
     if not _HAVE_UNO_DOC_EVENTS or doc is None:
-        return
-    is_new = False
-    if state is None:
-        if WorkbookState.known(doc) is None:
-            is_new = True
-        state = WorkbookState.for_doc(doc)
-    if state is None or is_new:
         return
     session_id = calc_workbook_base_session_id(doc)
     _register(
@@ -250,7 +243,7 @@ def ensure_python_session_cleared_on_unload(ctx: Any, doc: Any, session_id: str 
     from plugin.scripting.session_key import SessionKey, SessionKind
 
     if SessionKey.parse(session_id).kind is SessionKind.CALC:
-        ensure_calc_workbook_unload_resets_python(ctx, doc)
+        WorkbookState.for_doc(doc)
         return
     from plugin.framework.uno_context import get_runtime_uid
 

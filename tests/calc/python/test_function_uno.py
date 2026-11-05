@@ -17,7 +17,6 @@ from com.sun.star.table import CellAddress
 
 from plugin.calc.calc_addin_data import calc_addin_data_to_python
 from plugin.calc.python.function import (
-    _py_scoped_dir_bindings,
     clear_python_addin_cache,
 )
 from plugin.calc.python.workbook_state import WorkbookState
@@ -213,7 +212,7 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
         try:
             from plugin.calc.python.function import build_cell_context
 
-            bindings = _py_scoped_dir_bindings(build_cell_context(ctx, doc, ""))
+            bindings = {"scoped_dir": build_cell_context(ctx, doc, "").scoped_dir}
             folder = bindings.get("scoped_dir")
             assert folder, bindings
             assert os.path.samefile(folder, temp_dir), bindings

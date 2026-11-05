@@ -3,7 +3,7 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""=PY() / =PYTHON() add-in entry: execute_python_addin, finalize_python_return, session_key, WorkerResultSession."""
+"""=PY() / =PYTHON() add-in entry: execute_python_addin, finalize_python_return, WorkerResultSession."""
 # pyright: reportUnusedFunction=false
 
 from __future__ import annotations
@@ -139,6 +139,7 @@ class CellContext:
     workbook_key: str = ""  # calc_workbook_base_session_id(doc) when on_main and doc is not None, else ""
     diag_workbook_key: str = "unknown"  # existing_calc_session_id(doc) or "unknown" when on_main, else "unknown"
     sk: tuple[str, ...] = ()
+    code: str = ""
 
 
 def _session_key_tuple(ctx: Any, code: str, doc: Any | None, *, on_main: bool) -> tuple[str, ...]:
@@ -178,6 +179,7 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = 
     if on_main is None:
         on_main = main.is_current()
     if on_main:
+        # Explicit on_main: use for_doc on UI thread; off-main callers use known() only (no UNO create).
         state = WorkbookState.for_doc(doc) if doc is not None else None
         sk = _session_key_tuple(ctx, code, doc, on_main=True)
         session_id = sk[2] or None
@@ -221,6 +223,7 @@ def build_cell_context(ctx: Any, doc: Any, code: str, *, on_main: bool | None = 
         workbook_key=workbook_key,
         diag_workbook_key=diag_workbook_key,
         sk=sk,
+        code=code,
     )
 
 
@@ -239,11 +242,6 @@ def _get_calc_doc(ctx: Any) -> Any | None:
         return None
 
     return uno_read(_probe, None)
-
-
-def session_key(cell: CellContext) -> tuple[str, ...]:
-    """Return the session key tuple captured when *cell* was built."""
-    return cell.sk
 
 
 def _expire_matrix_sessions(matrix: dict[tuple[Any, ...], WorkerResultSession], now: float) -> None:
@@ -289,16 +287,6 @@ def scalar_for_list_result(
         if state.next_index >= len(state.flat):
             wb_state.matrix.pop(key, None)
     return state.flat[idx]
-
-
-def get_python_init_kwargs(cell: CellContext) -> dict[str, Any]:
-    """Init-script kwargs captured when *cell* was built on the UI thread."""
-    return cell.init_kwargs
-
-
-def _py_scoped_dir_bindings(cell: CellContext) -> dict[str, Any]:
-    """Document folder for in-cell folder SQL."""
-    return {"scoped_dir": cell.scoped_dir}
 
 
 def clear_python_addin_cache() -> None:
@@ -360,7 +348,7 @@ def finalize_python_return(
 ) -> float | str | bool | tuple[Any, ...]:
     """Map worker result to a single value Calc's add-in bridge accepts."""
     on_main = cell.on_main
-    code = cell.sk[3]
+    code = cell.code
     doc = cell.doc
     ctx = cell.ctx
 
@@ -505,7 +493,7 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             res = run_code_in_user_venv(
                 code,
                 data=worker_data,
-                bindings=_py_scoped_dir_bindings(cell_ctx),
+                bindings={"scoped_dir": cell_ctx.scoped_dir},
                 session_id=session_id,
                 python_tool_domain="",
                 **init_kwargs,
