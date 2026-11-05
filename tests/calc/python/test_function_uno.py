@@ -11,7 +11,6 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import uno
 from com.sun.star.table import CellAddress
@@ -372,10 +371,11 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
 
         sheet.getRows().insertByIndex(0, 1)
 
-        from plugin.calc.python.sheet_modify import SheetModifyDispatcher, flush_sheet_modify_pass_for_tests
+        from plugin.calc.python.spill import cleanup_orphans
 
-        SheetModifyDispatcher(ctx, doc, "", "Sheet1", doc_key).modified(SimpleNamespace(Source=sheet))
-        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name="Sheet1")
+        # Same spill walk the sheet modify pass runs; avoid run_sheet_modify_pass skip
+        # when geometric repair re-entrancy flag is still set from earlier UNO tests.
+        cleanup_orphans(st, sheet, doc=doc, ctx=ctx, sheet_name="Sheet1")
 
         a6_formula = sheet.getCellByPosition(0, 5).getFormula()
         assert "PY" in a6_formula, f"Expected PY in A6 formula, got {a6_formula!r}"

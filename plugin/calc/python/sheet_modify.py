@@ -227,8 +227,13 @@ def run_sheet_modify_pass(ctx: Any, doc: Any, sheet: Any, *, doc_url: str = "", 
         return
     with sheet_modify_scope():
         from plugin.calc.python.workbook_state import WorkbookState
+        from plugin.framework.queue_executor import main
 
-        state = WorkbookState.for_doc(doc) if doc is not None else None
+        state = None
+        if doc is not None:
+            state = WorkbookState.known(doc)
+            if state is None and main.is_current():
+                state = WorkbookState.for_doc(doc)
         # Job 1 — spill orphan cleanup. Walks state.spills only.
         try:
             from plugin.calc.python.spill import cleanup_orphans
