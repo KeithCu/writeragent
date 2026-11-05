@@ -48,10 +48,10 @@ Existing tools to prefer (do not replace them):
 
 | Need | Tools | Where |
 |------|-------|--------|
-| Masters | `list_master_slides`, `get_slide_master`, `set_slide_master` | specialized `slide_masters` — `plugin/draw/masters.py` |
-| Layouts | `add_slide` (core, default `text`); `get_slide_layout` / `set_slide_layout` | `plugin/draw/pages.py`, specialized `slide_layouts` — `plugin/draw/transitions.py` |
+| Masters | `slide_master_list`, `slide_master_get`, `slide_master_set` | specialized `slide_masters` — `plugin/draw/masters.py` |
+| Layouts | `add_slide` (core, default `text`); `slide_layout_get` / `slide_layout_set` | `plugin/draw/pages.py`, specialized `slide_layouts` — `plugin/draw/transitions.py` |
 | Placeholders | `list_placeholders`, `get_placeholder_text`, `set_placeholder_text` | **core** — `plugin/draw/placeholders.py` (fill **after** layout; headed `available: []` was fill-before-layout) |
-| HF / slide numbers | `get_headers_footers`, `set_headers_footers` | specialized `headers_footers` — `plugin/draw/headers_footers.py` |
+| HF / slide numbers | `headers_footers_get`, `headers_footers_set` | specialized `headers_footers` — `plugin/draw/headers_footers.py` |
 
 A fresh doc’s only master is often `Default`. Arm B can assign a master **if one exists**; arm C is the arm that **brings in** a shipped design so a non-blank master exists.
 

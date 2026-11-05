@@ -113,7 +113,7 @@ def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[di
 
 # C1: available=[] is truthful (no presentation placeholders yet) but mercury
 # retried the same role call. Hint + suggest_layout points at delegate
-# slide_layouts — set_slide_layout is specialized and not on the main tool list.
+# slide_layouts — slide_layout_set is specialized and not on the main tool list.
 _EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Delegate domain=slide_layouts with layout='text', then list_placeholders."
 
 

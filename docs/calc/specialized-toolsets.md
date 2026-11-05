@@ -2,6 +2,8 @@
 
 This document describes how Calc implements **nested delegation** for specialized toolsets, similar to Writer's approach. For detailed background on the delegation model, API design philosophies (Fine-grained vs. Fat APIs), and architecture overview, see [Writer specialized toolsets](../writer/specialized-toolsets.md).
 
+Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps (naming rule and examples in the Writer doc above).
+
 This document focuses on **Calc-specific** domains, implementation status, and feature coverage.
 
 ---

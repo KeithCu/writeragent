@@ -228,7 +228,7 @@ def _resolve_hf_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[int, boo
 class GetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for reading header and footer properties of a presentation slide or master page."""
 
-    name: str | None = "get_headers_footers"
+    name: str | None = "headers_footers_get"
     description: str = "Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -263,7 +263,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
 class SetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for updating header and footer properties of a presentation slide or master page."""
 
-    name: str | None = "set_headers_footers"
+    name: str | None = "headers_footers_set"
     description: str = "Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
     parameters: dict[str, Any] | None = {
         "type": "object",

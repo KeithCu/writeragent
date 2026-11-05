@@ -73,7 +73,7 @@ Repeated tool errors of the form:
 Same pattern for `'body'`. Parallel `list_placeholders` often returned `count: 0` (or empty roles) until layout work / retries. The model then looped `set_placeholder_text` and `slide_layouts` delegate tasks.
 
 **Code:** `plugin/draw/placeholders.py` (`list_placeholders`, `set_placeholder_text` — role lookup calls `_list_placeholders` and errors when role missing).  
-**Layouts:** specialized domain `slide_layouts` via `plugin/draw/transitions.py` (`set_slide_layout` / `get_slide_layout`).  
+**Layouts:** specialized domain `slide_layouts` via `plugin/draw/transitions.py` (`slide_layout_set` / `slide_layout_get`).  
 **Add slide:** `plugin/draw/pages.py` (`add_slide`).
 
 ### 2. Slide / page index confusion
@@ -109,7 +109,7 @@ No SEGV in the successful session. Early `UnoObjectError` storm was the LibreHar
 | **Prompts** | Draw/Impress prompt lists tools and says verify `status='error'`, but does not hard-steer “always `list_placeholders` → use **index** if roles empty; set layout before fill.” “Colorful” steers ambition without a default visual recipe. |
 | **Model (mercury-2.5)** | Adequate tool caller for this scoped play; weak at index/layout recovery; no vision. Not the main blocker vs placeholder/layout brittleness. |
 
-> **Layout ids (current):** `page.Layout` is the LibreOffice `AutoLayout` enum (`include/xmloff/autolayout.hxx`). `set_slide_layout` / `get_slide_layout` share that table with `AUTOLAYOUT_ID` / `AUTOLAYOUT_BY_NAME`. `blank` = 20, `title_only` = 19, `text` = 1, `title` = 0, `two_column_text` = 3, `four_objects` = 18. Sentences below that cite `title_only`=10, `blank`=11, or a fresh slide labeled `two_column_and_object` describe the PowerPoint `PpSlideLayout`-minus-one table this replaced.
+> **Layout ids (current):** `page.Layout` is the LibreOffice `AutoLayout` enum (`include/xmloff/autolayout.hxx`). `slide_layout_set` / `slide_layout_get` share that table with `AUTOLAYOUT_ID` / `AUTOLAYOUT_BY_NAME`. `blank` = 20, `title_only` = 19, `text` = 1, `title` = 0, `two_column_text` = 3, `four_objects` = 18. Sentences below that cite `title_only`=10, `blank`=11, or a fresh slide labeled `two_column_and_object` describe the PowerPoint `PpSlideLayout`-minus-one table this replaced.
 
 ## Probe verification (2026-09-16)
 
@@ -128,7 +128,7 @@ No SEGV in the successful session. Early `UnoObjectError` storm was the LibreHar
 Takeaways that change the plan below:
 
 1. **A is the root-cause fix and needs no refresh workaround.** `page.Layout = 1` instantiates the title/body placeholders synchronously. The earlier worry that placeholders only appear “after retries” is unfounded on this build — the retries were the model re-running layout work, not a settle delay.
-2. **`insertNewByIndex` leaves `Layout=20` but no placeholder shapes.** So a fresh slide both lies to `get_slide_layout` (`two_column_and_object`) and gives role lookup nothing to find. Setting a layout on `add_slide` fixes both symptoms.
+2. **`insertNewByIndex` leaves `Layout=20` but no placeholder shapes.** So a fresh slide both lies to `slide_layout_get` (`two_column_and_object`) and gives role lookup nothing to find. Setting a layout on `add_slide` fixes both symptoms.
 3. **Use `"text"` (id 1), not `"title"`, as the Impress content default.** In `_LAYOUTS`, `title`=0 is a title+subtitle title slide, `text`=1 is Title + Content (title + body outline), and `title_only`=10 is title only.
 4. **Placeholder role/class tagging is effectively dead on this LibreOffice build.** `shape.ClassName` and `getPropertyValue("PresObj")` raise, and shape `Name` is empty, so `_list_placeholders` emits `{index, text}` with no `role`/`class`, and `_find_placeholder` matches only via strategy 3 (positional: first text = title, second = body). That is why title/body targeted correctly *after* layout, and why the errors were empty *before*.
 5. **The broad `"Text"` pattern in `_PLACEHOLDER_ROLES["body"]` is latent, not this bug's cause.** It could mis-target the title only on builds that expose `ClassName`; keep it as hardening, not as the failure to chase.
@@ -160,7 +160,7 @@ Same for `'body'`. Concurrent `list_placeholders` often reported `"count": 0` / 
 **Where**
 
 - `plugin/draw/pages.py` — `AddSlide.execute` → `DrawBridge.create_slide(...)` (no layout argument today; description is only “Inserts a new slide at index”)
-- `plugin/draw/transitions.py` — `set_slide_layout` / `get_slide_layout`; layout name `"text"` (and peers) already exist in `_LAYOUTS` / `_LAYOUT_NAMES`
+- `plugin/draw/transitions.py` — `slide_layout_set` / `slide_layout_get`; layout name `"text"` (and peers) already exist in `_LAYOUTS` / `_LAYOUT_NAMES`
 - Downstream consumer: `plugin/draw/placeholders.py` — `set_placeholder_text` / `_find_placeholder` / `_list_placeholders`
 
 **Proposed change (concrete)**
@@ -181,9 +181,9 @@ Same for `'body'`. Concurrent `list_placeholders` often reported `"count": 0` / 
 **Risk / tradeoff**
 
 - Callers who expect a blank canvas after `add_slide` must pass `layout: "blank"`.
-- Layout name strings must stay aligned with `_LAYOUTS` across LO versions (already a `set_slide_layout` concern).
+- Layout name strings must stay aligned with `_LAYOUTS` across LO versions (already a `slide_layout_set` concern).
 - Draw documents must ignore `layout` (tool already shared Drawing+Presentation).
-- Today a fresh page reports `Layout=20` (`two_column_and_object`) with 0 shapes, so any code or prompt that trusts `get_slide_layout` on a just-added slide is already wrong; pinning the layout fixes that too.
+- Today a fresh page reports `Layout=20` (`two_column_and_object`) with 0 shapes, so any code or prompt that trusts `slide_layout_get` on a just-added slide is already wrong; pinning the layout fixes that too.
 
 **Before / after tool sequence**
 
@@ -313,7 +313,7 @@ Error payload was:
 Placeholder 'title' not found.   details.available = []
 ```
 
-That is true but **not actionable**: it does not say “slide has no presentation placeholders; try set_slide_layout('text')” or “shapes exist as TitleTextShape/OutlinerShape — use index / get_draw_tree.” In the successful run’s document snapshot, content often appeared as `TitleTextShape` / `OutlinerShape` even when role lookup failed — `_list_placeholders` only includes shapes with `getString`, and role tagging depends on `ClassName` patterns in `_PLACEHOLDER_ROLES`.
+That is true but **not actionable**: it does not say “slide has no presentation placeholders; try slide_layout_set('text')” or “shapes exist as TitleTextShape/OutlinerShape — use index / get_draw_tree.” In the successful run’s document snapshot, content often appeared as `TitleTextShape` / `OutlinerShape` even when role lookup failed — `_list_placeholders` only includes shapes with `getString`, and role tagging depends on `ClassName` patterns in `_PLACEHOLDER_ROLES`.
 
 The probe confirmed the mechanism: before layout the slide has **zero** shapes, so `available` is genuinely empty (not a lookup failure); after layout it has `TitleTextShape` + `OutlinerShape`, but `ClassName`/`PresObj` raise and `Name` is empty on this build, so no `role`/`class` is ever attached and `_find_placeholder` resolves by position only. That means C1's hint is the main payoff here, and C2 must not assume clean class tags exist.
 
@@ -336,7 +336,7 @@ When role miss and `available` empty, return e.g.:
   "message": "Placeholder 'title' not found on this slide.",
   "details": {
     "available": [],
-    "hint": "Slide may lack a text layout. Call set_slide_layout (or delegate domain=slide_layouts) with layout='text', then list_placeholders.",
+    "hint": "Slide may lack a text layout. Call slide_layout_set (or delegate domain=slide_layouts) with layout='text', then list_placeholders.",
     "suggest_layout": "text",
     "shape_text_count": 0,
     "tool_name": "set_placeholder_text"

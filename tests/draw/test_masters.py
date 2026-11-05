@@ -15,7 +15,7 @@ from plugin.draw.masters import GetSlideMaster, ListMasterSlides, SetSlideMaster
 from plugin.framework.errors import DocumentDisposedError
 
 
-def test_list_master_slides():
+def test_slide_master_list():
     m0 = MagicMock()
     m0.Name = "DefaultMaster"
     m0.Width = 21000

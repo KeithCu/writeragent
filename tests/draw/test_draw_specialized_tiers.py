@@ -23,15 +23,15 @@ def _impress_doc() -> MagicMock:
 
 _SLIDE_SPECIALIZED_NAMES = frozenset(
     {
-        "get_speaker_notes",
-        "set_speaker_notes",
-        "get_slide_transition",
-        "set_slide_transition",
-        "get_slide_layout",
-        "set_slide_layout",
-        "list_master_slides",
-        "get_slide_master",
-        "set_slide_master",
+        "speaker_notes_get",
+        "speaker_notes_set",
+        "slide_transition_get",
+        "slide_transition_set",
+        "slide_layout_get",
+        "slide_layout_set",
+        "slide_master_list",
+        "slide_master_get",
+        "slide_master_set",
     }
 )
 
@@ -52,22 +52,22 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
 @pytest.mark.parametrize(
     ("domain", "expected_subset"),
     [
-        ("speaker_notes", {"get_speaker_notes", "set_speaker_notes"}),
+        ("speaker_notes", {"speaker_notes_get", "speaker_notes_set"}),
         (
             "slide_transitions",
             {
-                "get_slide_transition",
-                "set_slide_transition",
+                "slide_transition_get",
+                "slide_transition_set",
             },
         ),
         (
             "slide_layouts",
             {
-                "get_slide_layout",
-                "set_slide_layout",
+                "slide_layout_get",
+                "slide_layout_set",
             },
         ),
-        ("slide_masters", {"list_master_slides", "get_slide_master", "set_slide_master"}),
+        ("slide_masters", {"slide_master_list", "slide_master_get", "slide_master_set"}),
         ("tables", {"table_insert", "table_list", "table_get_cells", "table_set_cell", "table_manage_structure", "table_delete"}),
         ("images", {"image_insert", "image_list", "image_delete", "image_generate"}),
         (
