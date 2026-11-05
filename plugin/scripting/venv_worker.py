@@ -31,7 +31,7 @@ from plugin.framework.constants import (
     WORKER_POOL_EMBEDDINGS,
 )
 from plugin.framework.child_runtime import Deadline
-from plugin.framework.warm_child import ChildSpec, Death, Lease, LeaseCancelled, LeaseRefusal, WarmChild
+from plugin.framework.warm_child import ChildSpec, Death, Lease, WarmChild
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -449,8 +449,8 @@ class PythonWorkerManager:
         cancel: SendCancellation | None = None,
         *,
         spawn_deadline: Deadline | None = None,
-    ) -> Generator[Lease | dict[str, Any] | RetryWithNewLease, None, None]:
-        """Hold the warm-child pipe lock, or yield an error / retry value."""
+    ) -> Generator[Lease | dict[str, Any], None, None]:
+        """Hold the warm-child pipe lock, or yield an error dict."""
         acquire_end = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
         spawn_deadline = spawn_deadline or Deadline(float(WARM_WORKER_TIMEOUT_SEC))
         while True:
@@ -468,15 +468,19 @@ class PythonWorkerManager:
                     refuse=self._refuse_lease,
                     poll_sec=_IO_LOCK_POLL_SEC,
                 ) as leased:
-                    if isinstance(leased, LeaseCancelled):
-                        yield _worker_error("CANCELLED", "Python worker stopped by user")
-                        return
-                    if isinstance(leased, LeaseRefusal):
-                        yield leased.error
-                        return
                     if isinstance(leased, dict):
-                        if leased.get("code") == "PIPE_LOCK_BUSY":
+                        code = leased.get("code")
+                        if code == "CANCELLED":
+                            yield _worker_error("CANCELLED", "Python worker stopped by user")
+                            return
+                        if code == "PIPE_LOCK_BUSY":
                             yield _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
+                            return
+                        if code == "WORKER_REENTRY":
+                            yield leased
+                            return
+                        if code == "WORKER_IPC_ERROR" and leased.get("message") == _RETIRED_MESSAGE:
+                            yield leased
                             return
                         yield self._lease_error_to_worker(leased)
                         return
@@ -520,9 +524,7 @@ class PythonWorkerManager:
         retry: RetryWithNewLease | None = None
         for attempt in range(2):
             with self._io_session(cancel, spawn_deadline=spawn_deadline) as session:
-                if isinstance(session, RetryWithNewLease):
-                    retry = session
-                elif isinstance(session, dict):
+                if isinstance(session, dict):
                     return session
                 else:
                     outcome = body(session)
@@ -576,7 +578,7 @@ class PythonWorkerManager:
         warm = self._warm
         return warm is not None and warm.is_alive()
 
-    def _ensure_warmed_unlocked(self, leased: Any) -> dict[str, Any] | RetryWithNewLease | None:
+    def _ensure_warmed_unlocked(self, leased: Any) -> dict[str, Any] | None:
         """Prime auto-imports once per warm-child generation. Returns error dict or None."""
         if self._primed and self._primed_generation == leased.generation and self._warm is not None and self._warm.is_alive():
             return None
@@ -585,7 +587,7 @@ class PythonWorkerManager:
             leased=leased,
         )
         if isinstance(prime, RetryWithNewLease):
-            return prime
+            return prime.error
         if prime.get("status") != "ok":
             return prime
         self._primed = True
@@ -618,8 +620,6 @@ class PythonWorkerManager:
 
     def _ensure_warmed(self) -> dict[str, Any] | None:
         with self._io_session() as session:
-            if isinstance(session, RetryWithNewLease):
-                return session.error
             if isinstance(session, dict):
                 return session
             return None

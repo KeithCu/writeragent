@@ -300,18 +300,6 @@ class Death:
     during: str
 
 
-@dataclass(frozen=True)
-class LeaseCancelled:
-    """Lease wait aborted by ``cancel`` before the pipe lock was taken."""
-
-
-@dataclass(frozen=True)
-class LeaseRefusal:
-    """Lease wait aborted by ``refuse`` before the pipe lock was taken."""
-
-    error: dict[str, Any]
-
-
 class Lease:
     """Pipe ownership for one warm-child request while ``begin_io`` is held."""
 
@@ -428,49 +416,45 @@ class WarmChild:
         cancel: Callable[[], bool] | None = None,
         refuse: Callable[[], dict[str, Any] | None] | None = None,
         poll_sec: float = 0.05,
-    ) -> Generator[Lease | dict[str, Any] | LeaseCancelled | LeaseRefusal, None, None]:
-        """Take the pipe lock, ensure a live child, yield a Lease or an error dict."""
-        if cancel is None and refuse is None:
-            if wait is None:
-                acquired = self._io_lock.acquire()
-            elif wait == 0:
-                acquired = self._io_lock.acquire(blocking=False)
-            else:
-                acquired = self._io_lock.acquire(timeout=wait)
-            if not acquired:
+    ) -> Generator[Lease | dict[str, Any], None, None]:
+        """Acquire the pipe lock (with optional wait polling), spawn if needed, yield ``Lease`` or an error dict.
+
+        ``wait`` controls lock acquisition: ``None`` blocks until the lock is free (or ``cancel`` /
+        ``refuse`` fires); ``0`` tries once; ``>0`` bounds total wait time. ``cancel`` and ``refuse`` are
+        invoked only while waiting for the lock—not after it is held, because ``begin_io`` makes this
+        thread the io owner and ``refuse`` would false-trigger self-reentry (see in-body comment).
+        """
+        acquire_end: float | None = None
+        if wait is not None and wait > 0:
+            acquire_end = time.monotonic() + wait
+        while True:
+            if cancel is not None and cancel() is True:
+                yield error_dict("CANCELLED", "Lease wait cancelled.")
+                return
+            if refuse is not None:
+                refusal = refuse()
+                if refusal is not None:
+                    yield refusal
+                    return
+            if wait == 0:
+                if self._io_lock.acquire(blocking=False):
+                    break
                 yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
                 return
-        else:
-            acquire_end: float | None = None
-            if wait is not None and wait > 0:
-                acquire_end = time.monotonic() + wait
-            while True:
-                if cancel is not None and cancel() is True:
-                    yield LeaseCancelled()
+            if cancel is None and refuse is None and wait is None:
+                self._io_lock.acquire()
+                break
+            if wait is None:
+                slice_timeout = poll_sec
+            else:
+                assert acquire_end is not None
+                remaining = acquire_end - time.monotonic()
+                if remaining <= 0:
+                    yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
                     return
-                if refuse is not None:
-                    refusal = refuse()
-                    if refusal is not None:
-                        yield LeaseRefusal(refusal)
-                        return
-                if wait == 0:
-                    acquired = self._io_lock.acquire(blocking=False)
-                    if not acquired:
-                        yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
-                        return
-                    break
-                if wait is None:
-                    slice_timeout = poll_sec
-                else:
-                    assert acquire_end is not None
-                    remaining = acquire_end - time.monotonic()
-                    if remaining <= 0:
-                        yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
-                        return
-                    slice_timeout = min(poll_sec, remaining)
-                acquired = self._io_lock.acquire(timeout=slice_timeout)
-                if acquired:
-                    break
+                slice_timeout = min(poll_sec, remaining)
+            if self._io_lock.acquire(timeout=slice_timeout):
+                break
         try:
             # cancel/refuse are not consulted after the lock is held: begin_io() makes
             # this thread the io_owner, so refuse would false-trigger self-reentry.
@@ -515,10 +499,6 @@ class WarmChild:
         with self.lease(deadline) as leased:
             if isinstance(leased, dict):
                 return leased
-            if isinstance(leased, LeaseCancelled):
-                return error_dict("CANCELLED", "Request cancelled.")
-            if isinstance(leased, LeaseRefusal):
-                return leased.error
             try:
                 frame = pack_pickle_frame(payload, max_payload_bytes=self.spec.max_payload_bytes)
             except IpcFrameError as exc:

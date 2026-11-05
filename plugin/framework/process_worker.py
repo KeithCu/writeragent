@@ -41,7 +41,6 @@ from plugin.framework.ipc import (
 from plugin.framework.warm_child import (
     Child,
     FailPhase,
-    FramedRequestOnFail,
     SPAWN_READY_TIMEOUT_SEC,
     STDERR_LOG_CAP,
     error_dict,

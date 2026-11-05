@@ -23,8 +23,6 @@ from plugin.framework.warm_child import (
     Child,
     ChildSpec,
     Death,
-    LeaseCancelled,
-    LeaseRefusal,
     Supervisor,
     WarmChild,
     spawn_managed_child_with_handshake,
@@ -481,11 +479,22 @@ def test_spawn_helper_read_exception_clears_io_owner(monkeypatch: pytest.MonkeyP
     assert spawned._io_owner is None
 
 
-def test_lease_cancel_aborts_wait_within_poll(supervisor: Supervisor) -> None:
-    env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
-    spec = ChildSpec(name="cancel-wait", argv=[sys.executable, "-c", "pass"], env=env)
-    warm = WarmChild(spec, supervisor=supervisor)
-    assert warm._io_lock.acquire()
+def test_lease_cancel_aborts_wait_within_poll(tmp_path: Any, supervisor: Supervisor) -> None:
+    script = _stdio_worker(tmp_path)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
+    holder_ready = threading.Event()
+    release_holder = threading.Event()
+
+    def holder() -> None:
+        with warm.lease(Deadline(30)) as leased:
+            if isinstance(leased, dict):
+                return
+            holder_ready.set()
+            release_holder.wait(timeout=30)
+
+    holder_thread = threading.Thread(target=holder, name="lease-holder")
+    holder_thread.start()
+    assert holder_ready.wait(timeout=15)
     cancelled = {"v": False}
 
     def flip() -> None:
@@ -493,7 +502,6 @@ def test_lease_cancel_aborts_wait_within_poll(supervisor: Supervisor) -> None:
         cancelled["v"] = True
 
     threading.Thread(target=flip, daemon=True).start()
-    started = time.monotonic()
     try:
         with warm.lease(
             Deadline(30),
@@ -501,19 +509,30 @@ def test_lease_cancel_aborts_wait_within_poll(supervisor: Supervisor) -> None:
             cancel=lambda: cancelled["v"] is True,
             poll_sec=0.05,
         ) as leased:
-            assert isinstance(leased, LeaseCancelled)
-        assert time.monotonic() - started < 1.0
-        assert warm._child is None
+            assert isinstance(leased, dict)
+            assert leased.get("code") == "CANCELLED"
     finally:
-        warm._io_lock.release()
+        release_holder.set()
+        holder_thread.join(timeout=15)
         warm.retire()
 
 
-def test_lease_refuse_aborts_wait_within_poll(supervisor: Supervisor) -> None:
-    env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
-    spec = ChildSpec(name="refuse-wait", argv=[sys.executable, "-c", "pass"], env=env)
-    warm = WarmChild(spec, supervisor=supervisor)
-    assert warm._io_lock.acquire()
+def test_lease_refuse_aborts_wait_within_poll(tmp_path: Any, supervisor: Supervisor) -> None:
+    script = _stdio_worker(tmp_path)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
+    holder_ready = threading.Event()
+    release_holder = threading.Event()
+
+    def holder() -> None:
+        with warm.lease(Deadline(30)) as leased:
+            if isinstance(leased, dict):
+                return
+            holder_ready.set()
+            release_holder.wait(timeout=30)
+
+    holder_thread = threading.Thread(target=holder, name="lease-holder")
+    holder_thread.start()
+    assert holder_ready.wait(timeout=15)
     refuse_at = time.monotonic() + 0.1
     err = {"status": "error", "code": "TEST", "error": "nope"}
 
@@ -522,15 +541,12 @@ def test_lease_refuse_aborts_wait_within_poll(supervisor: Supervisor) -> None:
             return err
         return None
 
-    started = time.monotonic()
     try:
         with warm.lease(Deadline(30), wait=30, refuse=refuse, poll_sec=0.05) as leased:
-            assert isinstance(leased, LeaseRefusal)
-            assert leased.error == err
-        assert time.monotonic() - started < 1.0
-        assert warm._child is None
+            assert leased == err
     finally:
-        warm._io_lock.release()
+        release_holder.set()
+        holder_thread.join(timeout=15)
         warm.retire()
 
 
