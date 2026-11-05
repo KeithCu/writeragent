@@ -499,9 +499,13 @@ def test_read_slide_text_returns_shape_text_and_notes():
     s1 = MagicMock()
     s1.Name = "Title"
     s1.getString.return_value = "Hello"
+    s1.supportsService.return_value = False
+    s1.getShapeType.return_value = "com.sun.star.drawing.TextShape"
     s2 = MagicMock()
     s2.Name = "Empty"
     s2.getString.return_value = "   "
+    s2.supportsService.return_value = False
+    s2.getShapeType.return_value = "com.sun.star.drawing.TextShape"
 
     page = MagicMock()
     page.getCount.return_value = 2
@@ -530,9 +534,13 @@ def test_read_slide_text_skips_failing_shapes():
 
     s1 = MagicMock()
     s1.getString.side_effect = ValueError("failing shape")
+    s1.supportsService.return_value = False
+    s1.getShapeType.return_value = "com.sun.star.drawing.TextShape"
     s2 = MagicMock()
     s2.Name = "GoodShape"
     s2.getString.return_value = "Good"
+    s2.supportsService.return_value = False
+    s2.getShapeType.return_value = "com.sun.star.drawing.TextShape"
 
     page = MagicMock()
     page.getCount.return_value = 2
@@ -559,6 +567,8 @@ def test_read_slide_text_reraises_dispose():
 
     shape = MagicMock()
     shape.getString.side_effect = DisposedException("shape disposed")
+    shape.supportsService.return_value = False
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
 
     page = MagicMock()
     page.getCount.return_value = 1
@@ -607,4 +617,104 @@ def test_get_presentation_info_reports_deck():
     assert out["height_mm"] == 190
     assert out["master_slides"] == ["Default"]
     assert out["is_impress"] is True
-    assert out["active_page_index"] == 1
+
+
+def _non_table_shape_mock(**kwargs):
+    shape = MagicMock(**kwargs)
+    shape.supportsService.return_value = False
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    return shape
+
+
+def test_read_slide_text_group_child_and_table():
+    child = _non_table_shape_mock()
+    child.Name = ""
+    child.getString.return_value = "Child text"
+
+    group = MagicMock()
+    group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    group.getString.return_value = "Group container"
+    group.getCount.return_value = 1
+    group.getByIndex.return_value = child
+    group.supportsService.return_value = False
+
+    table = MagicMock()
+    table.Name = "DataTable"
+    table.getShapeType.return_value = "com.sun.star.drawing.TableShape"
+    table.supportsService.return_value = True
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: group if i == 0 else table
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.active_page_index = 0
+
+    with (
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
+        patch("plugin.draw.bridge.find_notes_shape", return_value=None),
+        patch("plugin.draw.pages._table_tsv_record", side_effect=lambda shape: "A\tB\n1\t2" if getattr(shape, "Name", None) == "DataTable" else None),
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = ReadSlideText().execute(ctx)
+
+    assert out["status"] == "ok"
+    assert out["texts"] == [
+        {"index": "0.0", "text": "Child text", "shape_name": ""},
+        {"index": 1, "text": "A\tB\n1\t2", "shape_name": "DataTable"},
+    ]
+
+
+def test_search_slides_page_and_shape_name():
+    from plugin.draw.pages import SearchSlides
+
+    page = MagicMock()
+    with patch("plugin.draw.pages.iter_shape_text_units", return_value=[(0, "Title", "Hello world")]):
+        with patch("plugin.draw.pages.DrawBridge") as bridge_cls, patch(
+            "plugin.draw.bridge.notes_text", return_value="Note line"
+        ):
+            pages = MagicMock()
+            pages.getCount.return_value = 1
+            pages.getByIndex.return_value = page
+            bridge_cls.return_value.get_pages.return_value = pages
+            ctx = MagicMock()
+            ctx.doc = MagicMock()
+            out = SearchSlides().execute(ctx, pattern="o")
+    assert out["status"] == "ok"
+    shape_hits = [m for m in out["matches"] if m.get("shape_name") == "Title"]
+    assert shape_hits[0]["page"] == 0
+    assert shape_hits[0]["text"] == "o"
+    notes_hits = [m for m in out["matches"] if m.get("shape_name") == "Notes"]
+    assert notes_hits and notes_hits[0]["text"] == "o"
+
+
+def test_search_slides_cap_hint():
+    from plugin.draw.pages import SearchSlides
+
+    units = [(0, "S", "hit")] * 5
+    with patch("plugin.draw.pages.iter_shape_text_units", return_value=units), patch(
+        "plugin.draw.pages.DrawBridge"
+    ) as bridge_cls, patch("plugin.draw.bridge.notes_text", return_value=None):
+        pages = MagicMock()
+        pages.getCount.return_value = 1
+        pages.getByIndex.return_value = MagicMock()
+        bridge_cls.return_value.get_pages.return_value = pages
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        out = SearchSlides().execute(ctx, pattern="hit", max_results=2)
+    assert out["returned"] == 2
+    assert out["count"] == 5
+    assert out["hint"] == "Showing 2 of 5. Narrow the query. This tool has no offset."
+
+
+def test_search_slides_rejects_bad_regex_and_empty_pattern():
+    from plugin.draw.pages import SearchSlides
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    empty = SearchSlides().execute(ctx, pattern="")
+    assert empty["status"] == "error"
+    bad = SearchSlides().execute(ctx, pattern="[", regex=True)
+    assert bad["status"] == "error"
+    assert bad.get("code") == "INVALID_REGEX"

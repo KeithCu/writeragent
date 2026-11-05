@@ -10,7 +10,7 @@ from typing import Any
 
 from dataclasses import dataclass, field
 
-from plugin.framework.doc_type import is_calc, is_writer
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
@@ -29,7 +29,7 @@ def supports_vision_manual(doc: Any) -> bool:
     """True when Run Python Script should expose Vision Helpers for *doc*."""
     if doc is None:
         return False
-    return is_writer(doc) or is_calc(doc)
+    return is_writer(doc) or is_calc(doc) or is_draw(doc)
 
 
 def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:

@@ -94,7 +94,9 @@ class ToolCalcChartBase(ToolCalcSpecialBase):
 
 class ToolCalcShapeBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
-    specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, connectors, and groups."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Create and edit drawing shapes, connectors, groups, align/distribute layouts, and diagrams."
+    )
 
 
 class ToolCalcRangeBase(ToolCalcSpecialBase):

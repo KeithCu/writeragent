@@ -339,6 +339,31 @@ def find_shape_on_page(
     return None, None, None, "Several shapes named %r; pass index as well." % wanted
 
 
+def resolve_shape_ref(
+    page: Any,
+    ref: Any,
+) -> tuple[int | str | None, Any | None, Any | None, str | None]:
+    """Resolve *ref* as a page index, dotted index path, or shape Name.
+
+    ``int`` (not ``bool``) and digit / dotted-digit strings use index lookup.
+    Any other non-empty string uses name lookup. Empty, ``bool``, and other
+    types return the same invalid-index string as ``find_shape_on_page``.
+    """
+    if isinstance(ref, bool):
+        return None, None, None, "Invalid shape index: %s" % ref
+    if isinstance(ref, int):
+        return find_shape_on_page(page, index=ref)
+    if isinstance(ref, str):
+        stripped = ref.strip()
+        if not stripped:
+            return None, None, None, "Invalid shape index: %s" % ref
+        parts = stripped.split(".")
+        if all(part.isdigit() for part in parts):
+            return find_shape_on_page(page, index=stripped)
+        return find_shape_on_page(page, name=stripped)
+    return None, None, None, "Invalid shape index: %s" % ref
+
+
 def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:
     """Recursively build a semantic tree from an XShapes collection."""
     tree: list[dict[str, Any]] = []

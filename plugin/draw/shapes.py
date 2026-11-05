@@ -33,14 +33,55 @@ log = logging.getLogger(__name__)
 
 
 class _AnyDocumentShapeTool(ToolDrawShapeBase):
-    """Writer and Calc as well as Draw and Impress.
-
-    ToolDrawShapeBase only lists Drawing and Presentation. Align, distribute,
-    and diagram stay on that base.
-    """
+    """Writer and Calc as well as Draw and Impress (align, distribute, diagram included)."""
 
     uno_services: list[str] | None = SHAPE_TOOL_UNO_SERVICES
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
+
+
+def _page_shape_names(page: Any) -> list[str]:
+    from plugin.draw.tree import iter_shape_addresses
+
+    seen: set[str] = set()
+    names: list[str] = []
+    for _path, shape, _parent in iter_shape_addresses(page):
+        raw = getattr(shape, "Name", None)
+        if raw is None:
+            continue
+        name = str(raw).strip()
+        if name and name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
+def _lookup_ref(
+    tool: ToolBase,
+    page: Any,
+    ref: Any,
+    *,
+    by_name: bool = False,
+) -> tuple[int | str | None, Any | None, Any | None, dict[str, Any] | None]:
+    from plugin.draw.tree import find_shape_on_page, resolve_shape_ref
+    from plugin.framework.errors import available_miss_details
+
+    if by_name:
+        wanted = str(ref).strip()
+        addr, shape, parent, err = find_shape_on_page(page, name=wanted)
+    else:
+        wanted = str(ref).strip() if isinstance(ref, str) else str(ref)
+        addr, shape, parent, err = resolve_shape_ref(page, ref)
+    if err or shape is None:
+        if err and err.startswith("No shape named"):
+            names = _page_shape_names(page)
+            capped = names[:40]
+            return None, None, None, tool._tool_error(
+                err,
+                available=capped,
+                **available_miss_details(wanted, capped),
+            )
+        return None, None, None, tool._tool_error(err or "Shape not found.")
+    return addr, shape, parent, None
 
 
 # LibreOffice interprets CustomShapeGeometry as EnhancedCustomShapeGeometry when this engine is set.
@@ -665,8 +706,8 @@ class ConnectShapes(_AnyDocumentShapeTool):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "start": {"type": "integer", "description": "Index of the starting shape."},
-            "end": {"type": "integer", "description": "Index of the ending shape."},
+            "start": {"type": ["integer", "string"], "description": "Index or Name of the starting shape."},
+            "end": {"type": ["integer", "string"], "description": "Index or Name of the ending shape."},
             "page": {"type": "integer", "description": "Page index containing the shapes"},
             "line_color": {"type": "string", "description": "Color of the connector line"},
             "line_width": {"type": "integer", "description": "Line width (100ths of mm)"},
@@ -685,18 +726,13 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
 
     page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
-    # Schema requires start and end as integers. validate() rejects a
-    # missing or non-integer value before execute.
-    start_idx = kwargs["start"]
-    end_idx = kwargs["end"]
-
-    try:
-        start_shape = page.getByIndex(start_idx)
-        end_shape = page.getByIndex(end_idx)
-    except Exception as e:
-        if is_disposal(e):
-            raise
-        return tool._tool_error(f"Failed to find shapes at given indices: {str(e)}")
+    start_addr, start_shape, _sp, start_err = _lookup_ref(tool, page, kwargs["start"])
+    if start_err is not None:
+        return start_err
+    end_addr, end_shape, _ep, end_err = _lookup_ref(tool, page, kwargs["end"])
+    if end_err is not None:
+        return end_err
+    assert start_shape is not None and end_shape is not None
 
     draw_shapes = DrawShapes()
     try:
@@ -727,7 +763,11 @@ def _execute_connect_shapes(tool: ToolBase, ctx: ToolContext, **kwargs: Any) -> 
                 raise
         raise
 
-    res: dict[str, Any] = {"status": "ok", "message": f"Connected shape {start_idx} to {end_idx}", "index": page.getCount() - 1}
+    res: dict[str, Any] = {
+        "status": "ok",
+        "message": f"Connected shape {start_addr} to {end_addr}",
+        "index": page.getCount() - 1,
+    }
     if failed_props:
         res["warnings"] = [f"Failed to apply properties: {', '.join(failed_props)}"]
     return res
@@ -771,11 +811,12 @@ class GroupShapes(_AnyDocumentShapeTool):
         "Pass every related shape index. "
         "The result is one group shape you can move with shape_upsert (action edit)."
     )
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": "integer"}, "description": "List of shape indices to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
+    parameters: dict[str, Any] | None = {"type": "object", "properties": {"indices": {"type": "array", "items": {"type": ["integer", "string"]}, "description": "List of shape indices or Names to group."}, "page": {"type": "integer", "description": "Page index containing the shapes"}}, "required": ["indices"]}
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
+        from plugin.framework.uno_context import uno_same
 
         page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
@@ -784,12 +825,16 @@ class GroupShapes(_AnyDocumentShapeTool):
         if not indices or len(indices) < 2:
             return self._tool_error("At least two shape indices are required to group.")
 
-        # page.group is the first page mutation. A failure propagates to
-        # execute_safe (TOOL_EXECUTION_ERROR and a log). The old catch
-        # repeated "Failed to group shapes" and dropped the traceback.
         shape_collection = _create_shape_collection(ctx.ctx)
-        for i in indices:
-            shape = page.getByIndex(i)
+        for ref in indices:
+            addr, shape, parent, err_res = _lookup_ref(self, page, ref)
+            if err_res is not None:
+                return err_res
+            assert shape is not None and parent is not None
+            if not uno_same(parent, page):
+                return self._tool_error(
+                    "Cannot group shape %s: it is not a top-level shape on the page." % addr,
+                )
             shape_collection.add(shape)
         page.group(shape_collection)
 
@@ -822,24 +867,32 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
     if len(indices) < min_count:
         return tool._tool_error(too_few)
     page, actual_idx = DrawBridge(ctx.doc).resolve_page(page_kwargs.get("page"), active_page_index=ctx.active_page_index)
-    shapes = [page.getByIndex(i) for i in indices]
+    shapes: list[Any] = []
+    resolved_indices: list[int | str] = []
+    for ref in indices:
+        addr, shape, _parent, err_res = _lookup_ref(tool, page, ref)
+        if err_res is not None:
+            return err_res
+        assert shape is not None and addr is not None
+        shapes.append(shape)
+        resolved_indices.append(addr)
     new_boxes = layout_fn([_shape_box(s) for s in shapes], layout_arg)
     for shape, box in zip(shapes, new_boxes):
         _apply_box(shape, box)
-    res: dict[str, Any] = {"status": "ok", "message": ok_message, "page": actual_idx, "indices": list(indices)}
+    res: dict[str, Any] = {"status": "ok", "message": ok_message, "page": actual_idx, "indices": resolved_indices}
     if any(_outside_page(page, s) for s in shapes):
         res["warnings"] = [_OUTSIDE_PAGE_WARNING]
     return res
 
 
-class AlignShapes(ToolDrawShapeBase):
+class AlignShapes(_AnyDocumentShapeTool):
     name: str | None = "shape_align"
-    description: str = "Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices."
+    description: str = "Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices or Names."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
-            "indices": {"type": "array", "items": {"type": "integer"}, "description": "Shape indices to align"},
+            "indices": {"type": "array", "items": {"type": ["integer", "string"]}, "description": "Shape indices or Names to align"},
             "alignment": {"type": "string", "enum": list(layout.ALIGNMENTS), "description": "Alignment axis"},
         },
         "required": ["indices", "alignment"],
@@ -854,14 +907,14 @@ class AlignShapes(ToolDrawShapeBase):
         return _layout_on_page(self, ctx, indices, alignment, min_count=2, too_few="At least two shape indices are required to align.", layout_fn=layout.align_boxes, ok_message="Shapes aligned", page_kwargs=kwargs)
 
 
-class DistributeShapes(ToolDrawShapeBase):
+class DistributeShapes(_AnyDocumentShapeTool):
     name: str | None = "shape_distribute"
     description: str = "Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
-            "indices": {"type": "array", "items": {"type": "integer"}, "description": "Shape indices to distribute"},
+            "indices": {"type": "array", "items": {"type": ["integer", "string"]}, "description": "Shape indices or Names to distribute"},
             "axis": {"type": "string", "enum": list(layout.DISTRIBUTE_AXES), "description": "Distribution axis"},
         },
         "required": ["indices", "axis"],
@@ -876,7 +929,7 @@ class DistributeShapes(ToolDrawShapeBase):
         return _layout_on_page(self, ctx, indices, axis, min_count=3, too_few="At least three shape indices are required to distribute.", layout_fn=layout.distribute_boxes, ok_message="Shapes distributed", page_kwargs=kwargs)
 
 
-class CreateDiagram(ToolDrawShapeBase):
+class CreateDiagram(_AnyDocumentShapeTool):
     name: str | None = "shape_diagram"
     description: str = "Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node."
     parameters: dict[str, Any] | None = {
@@ -1005,34 +1058,45 @@ class CreateDiagram(ToolDrawShapeBase):
 
 class DeleteShape(_AnyDocumentShapeTool):
     name: str | None = "shape_delete"
-    description: str = "Deletes a shape by page index or dotted path."
+    description: str = "Deletes a shape by page index, dotted path, or Name."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
             "index": {
                 "type": ["integer", "string"],
-                "description": '0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name)',
+                "description": '0-based index or dotted group path such as "2.0.1". When both index and name are passed, index wins.',
             },
+            "name": {"type": "string", "description": "Shape Name (use for all-digit names that would be parsed as an index)."},
             "page": {"type": "integer", "description": "0-based page index (active page if omitted)"},
         },
-        "required": ["index"],
+        "required": [],
     }
     is_mutation: bool | None = True
 
+    def validate(self, *, doc_type: str | None = None, **kwargs: Any) -> tuple[Literal[False], str] | tuple[Literal[True], None]:
+        ok, err = super().validate(doc_type=doc_type, **kwargs)
+        if not ok:
+            return False, err or "Invalid arguments"
+        if "index" not in kwargs and not str(kwargs.get("name") or "").strip():
+            return False, "Pass index or name to address the shape."
+        return True, None
+
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         from plugin.draw.bridge import DrawBridge
-        from plugin.draw.tree import find_shape_on_page
 
         page, _idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
-        shape_idx = kwargs["index"]
-        _addr, shape, parent, find_err = find_shape_on_page(page, index=shape_idx)
-        if find_err or shape is None:
-            return self._tool_error(find_err or "Shape not found.")
-        assert parent is not None
+        if "index" in kwargs:
+            _addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["index"])
+        else:
+            _addr, shape, parent, err_res = _lookup_ref(self, page, kwargs["name"], by_name=True)
+        if err_res is not None:
+            return err_res
+        assert parent is not None and shape is not None
         try:
             parent.remove(shape)
         except Exception as exc:
             if is_disposal(exc):
                 raise
-            return self._tool_error("Failed to delete shape at index %s: %s" % (shape_idx, exc))
+            label = kwargs.get("index", kwargs.get("name"))
+            return self._tool_error("Failed to delete shape at index %s: %s" % (label, exc))
         return {"status": "ok", "message": "Shape deleted"}

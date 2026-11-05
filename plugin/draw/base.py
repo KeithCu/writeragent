@@ -125,6 +125,16 @@ class ToolDrawTableBase(ToolDrawSpecialBase):
     uno_services: list[str] | None = DRAW_AND_IMPRESS
 
 
+class ToolDrawVisionBase(ToolDrawSpecialBase):
+    """Marker for Draw/Impress vision delegation (return text only; no document insert)."""
+
+    specialized_domain: ClassVar[str | None] = "vision"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Extract text and structure from embedded graphics; results are returned only (not inserted)."
+    )
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
+
+
 class ToolDrawPptMasterBase(ToolDrawSpecialBase):
     """PPT-Master sidebar mode — not exposed via delegate_to_specialized_draw_toolset."""
 
