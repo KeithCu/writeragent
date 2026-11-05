@@ -1062,7 +1062,7 @@ In priority order:
 
 3. **`set_document_protection`** — useful for "lock the document while I review AI edits" workflow.
 
-4. **`document_properties_get` / `document_properties_set`** — shipped as core tools (title,
+4. **`document_properties_get` / `document_properties_set`** — shipped as fields-domain specialized tools (title,
    author, subject, keywords, user-defined properties; product `WriterAgent*` names are read-only).
 
 ---

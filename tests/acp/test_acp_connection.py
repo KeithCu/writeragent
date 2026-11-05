@@ -586,6 +586,42 @@ class TestStdinWriteCapturesProc:
         with pytest.raises(ToolExecutionError, match="nope"):
             conn.send_request("initialize", {}, timeout=2)
 
+    def test_error_object_includes_rpc_code_when_int(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+
+        def flush() -> None:
+            with conn._lock:
+                entry = conn._pending.get(1)
+                if entry is not None and entry.response is None:
+                    entry.response = {"error": {"code": -32602, "message": "Unknown model ID: x"}}
+                    entry.event.set()
+
+        proc.stdin.flush.side_effect = flush
+        conn._proc = proc
+        conn._running = True
+        with pytest.raises(ToolExecutionError, match="Unknown model ID") as exc_info:
+            conn.send_request("session/set_model", {}, timeout=2)
+        assert exc_info.value.details.get("rpc_code") == -32602
+
+    def test_error_object_without_code_has_no_rpc_code(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+
+        def flush() -> None:
+            with conn._lock:
+                entry = conn._pending.get(1)
+                if entry is not None and entry.response is None:
+                    entry.response = {"error": {"message": "nope"}}
+                    entry.event.set()
+
+        proc.stdin.flush.side_effect = flush
+        conn._proc = proc
+        conn._running = True
+        with pytest.raises(ToolExecutionError, match="nope") as exc_info:
+            conn.send_request("initialize", {}, timeout=2)
+        assert "rpc_code" not in exc_info.value.details
+
     def test_send_request_closed_stdin_is_tool_error(self):
         """A pipe stop() already closed must not escape as ValueError.
 

@@ -238,7 +238,7 @@ class TestHamburgerMenu:
         assert "Debug" in labels
         assert "Run format tests" in labels
 
-    def test_draw_hamburger_omits_extend_and_edit_selection(self):
+    def test_draw_hamburger_includes_extend_and_edit_selection(self):
         ctx = MagicMock()
         smgr = MagicMock()
         popup = MagicMock()
@@ -258,8 +258,8 @@ class TestHamburgerMenu:
         ):
             show_hamburger_menu(ctx, MagicMock(), button_ctrl)
 
-        assert "org.extension.writeragent:chatbot.extend_selection" not in commands
-        assert "org.extension.writeragent:chatbot.edit_selection" not in commands
+        assert "org.extension.writeragent:chatbot.extend_selection" in commands
+        assert "org.extension.writeragent:chatbot.edit_selection" in commands
 
     def test_writer_hamburger_includes_extend_and_edit_selection(self):
         ctx = MagicMock()
@@ -342,8 +342,8 @@ class TestHamburgerMenu:
             ):
                 show_hamburger_menu(ctx, MagicMock(), button_ctrl)
             if is_draw_doc and not is_writer_doc and not is_calc_doc:
-                assert "org.extension.writeragent:chatbot.extend_selection" not in commands
-                assert "org.extension.writeragent:chatbot.edit_selection" not in commands
+                assert "org.extension.writeragent:chatbot.extend_selection" in commands
+                assert "org.extension.writeragent:chatbot.edit_selection" in commands
             union_commands |= commands
 
         commands = union_commands

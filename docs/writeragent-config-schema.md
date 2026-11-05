@@ -61,6 +61,7 @@ Top-level keys from the config dataclass (Settings dialog, chat, images).
 | `path` | `string` | `""` |  | Internal. Path to the backend CLI. Empty = search PATH. |
 | `args` | `string` | `""` |  | Internal. Optional arguments for the selected backend (space-separated). |
 | `prompt_for_permission` | `boolean` | `true` |  | Ask for confirmation before allowing the agent to use tools (read files, execute commands, etc.) |
+| `agy_model` | `string` | `""` |  | agy modelId from session/new models.availableModels, for example gemini-4-argon-medium. Empty keeps agy's current model. configOptions family ids such as gemini-4-argon are not modelIds. |
 
 ## Speech (`audio`)
 

@@ -7,9 +7,11 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.doc.document_research_tools import (
+    ListOpenDocuments,
+)
+from plugin.writer.specialized.fields import (
     DocumentPropertiesGet,
     DocumentPropertiesSet,
-    ListOpenDocuments,
 )
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
@@ -22,16 +24,18 @@ def test_list_open_documents_does_not_require_a_document():
 
 def test_document_properties_get_contract():
     tool = DocumentPropertiesGet()
-    assert tool.tier == "core"
-    assert tool.uno_services is None
+    assert tool.tier == "specialized"
+    assert tool.specialized_domain == "fields"
+    assert tool.uno_services is None  # Works for all document types
     assert tool.requires_document is True
     assert tool.detects_mutation() is False
 
 
 def test_document_properties_set_contract():
     tool = DocumentPropertiesSet()
-    assert tool.tier == "core"
-    assert tool.uno_services is None
+    assert tool.tier == "specialized"
+    assert tool.specialized_domain == "fields"
+    assert tool.uno_services is None  # Works for all document types
     assert tool.requires_document is True
     assert tool.detects_mutation() is True
 
@@ -140,7 +144,7 @@ def test_document_properties_set_partial_updated_on_ud_failure():
     with (
         patch("plugin.framework.queue_executor.main.run", side_effect=lambda fn: fn()),
         patch(
-            "plugin.doc.document_research_tools.set_document_property",
+            "plugin.doc.udprops.set_document_property",
             side_effect=lambda _doc, key, _val: key != "bad",
         ),
     ):
