@@ -79,6 +79,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'move_slide',
                 'read_slide_text',
                 'rename_slide',
+                'search_slides',
                 'set_active_page',
                 'set_placeholder_text'],
     'error': ['error_detect', 'evaluate_formula'],
@@ -321,6 +322,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'search_cells': ('search', 'cells'),
     'search_in_document': ('writer', 'search_in_document'),
     'search_replace': ('search', 'replace'),
+    'search_slides': ('draw', 'search_slides'),
     'section_list': ('structural', 'section_list'),
     'section_read': ('structural', 'section_read'),
     'set_active_page': ('draw', 'set_active_page'),
@@ -762,7 +764,7 @@ class _CoreProxy:
         return call_host_tool("find_tools", domain=domain)
 
     def get_guidance(self, *, topic: str | None = None) -> dict[str, Any]:
-        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, concurrency). Use this when unsure how an edit, the review modes, search, or image ops work. The no-topic index also returns current_local_datetime.
+        """Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; call with a topic to read just that section (so you don't load everything). Topics follow the open document's type (for Writer: editing, editing-html, review-modes, search, navigation, images, concurrency). Calc: workflow, formula-syntax, directives, concurrency. Draw and Impress: directives, get-image, concurrency. Use this when unsure how an edit, the review modes, search, or image ops work. The no-topic index also returns current_local_datetime.
 
         Args:
             topic (optional): Topic to read (see the no-topic call for the list; topics follow the document type). Omit for the topic list.
@@ -906,7 +908,7 @@ class _DrawProxy:
         return call_host_tool("move_slide", from_page=from_page, to_page=to_page)
 
     def read_slide_text(self, *, page: int | None = None) -> dict[str, Any]:
-        """Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape.
+        """Read text from shapes on a slide (including grouped descendants and table cells as TSV) and speaker notes. Returns structured text per shape or table.
 
         Args:
             page (optional): 0-based slide index (default: active slide).
@@ -921,6 +923,17 @@ class _DrawProxy:
             name (required): New slide name.
         """
         return call_host_tool("rename_slide", page=page, name=name)
+
+    def search_slides(self, pattern: str, *, regex: bool | None = None, case_sensitive: bool | None = None, max_results: int | None = None) -> dict[str, Any]:
+        """Search text in slide shapes (including grouped descendants and table cells) and speaker notes. Each match reports the page, shape name, matched text, and shape index when available.
+
+        Args:
+            pattern (required): Search string or regex pattern.
+            regex (optional): Use regular expression (default: false).
+            case_sensitive (optional): Case-sensitive search (default: false).
+            max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
+        """
+        return call_host_tool("search_slides", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results)
 
     def set_active_page(self, page: int) -> dict[str, Any]:
         """Changes the currently active slide (page) in Draw/Impress.
@@ -1818,35 +1831,36 @@ class _ShapeProxy:
     """Proxy for shape tools."""
 
     def align(self, indices: list[Any], alignment: str, *, page: int | None = None) -> dict[str, Any]:
-        """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices.
+        """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices or Names. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
-            indices (required): Shape indices to align.
+            indices (required): Shape indices or Names to align.
             alignment (required): Alignment axis. One of: left, center_horizontal, right, top, center_vertical, bottom.
             page (optional): 0-based page index (active page if omitted).
         """
         return call_host_tool("shape_align", page=page, indices=indices, alignment=alignment)
 
-    def connect(self, start: int, end: int, *, page: int | None = None, line_color: str | None = None, line_width: int | None = None) -> dict[str, Any]:
-        """Connect two shapes on the same page with a connector.
+    def connect(self, start: int | str, end: int | str, *, page: int | None = None, line_color: str | None = None, line_width: int | None = None) -> dict[str, Any]:
+        """Connect two shapes on the same page with a connector. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
-            start (required): Index of the starting shape.
-            end (required): Index of the ending shape.
+            start (required): Index or Name of the starting shape.
+            end (required): Index or Name of the ending shape.
             page (optional): Page index containing the shapes.
             line_color (optional): Color of the connector line.
             line_width (optional): Line width (100ths of mm).
         """
         return call_host_tool("shape_connect", start=start, end=end, page=page, line_color=line_color, line_width=line_width)
 
-    def delete(self, index: int | str, *, page: int | None = None) -> dict[str, Any]:
-        """Deletes a shape by page index or dotted path.
+    def delete(self, *, index: int | str | None = None, name: str | None = None, page: int | None = None) -> dict[str, Any]:
+        """Deletes a shape by page index, dotted path, or Name.
 
         Args:
-            index (required): 0-based index of the shape on the page, or a dotted group path such as "2.0.1" (edit: pass index or name).
+            index (optional): 0-based index or dotted group path such as "2.0.1". When both index and name are passed, index wins.
+            name (optional): Shape Name (use for all-digit names that would be parsed as an index).
             page (optional): 0-based page index (active page if omitted).
         """
-        return call_host_tool("shape_delete", index=index, page=page)
+        return call_host_tool("shape_delete", index=index, name=name, page=page)
 
     def diagram(self, nodes: list[Any], *, page: int | None = None, layout: str | None = None, connections: list[Any] | None = None) -> dict[str, Any]:
         """Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node.
@@ -1860,10 +1874,10 @@ class _ShapeProxy:
         return call_host_tool("shape_diagram", page=page, layout=layout, nodes=nodes, connections=connections)
 
     def distribute(self, indices: list[Any], axis: str, *, page: int | None = None) -> dict[str, Any]:
-        """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm.
+        """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
-            indices (required): Shape indices to distribute.
+            indices (required): Shape indices or Names to distribute.
             axis (required): Distribution axis. One of: horizontal, vertical.
             page (optional): 0-based page index (active page if omitted).
         """
@@ -1879,10 +1893,10 @@ class _ShapeProxy:
         return call_host_tool("shape_fill_fields", page=page, fields=fields)
 
     def group(self, indices: list[Any], *, page: int | None = None) -> dict[str, Any]:
-        """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit).
+        """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit). All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
-            indices (required): List of shape indices to group.
+            indices (required): List of shape indices or Names to group.
             page (optional): Page index containing the shapes.
         """
         return call_host_tool("shape_group", indices=indices, page=page)
@@ -2382,7 +2396,7 @@ class _VisionProxy:
 
         Args:
             image_name (optional): Graphic name from image_list (images domain). Empty = selected graphic(s).
-            insert_into_document (optional): When true (default), insert a high-quality representation into the document. When false, return extracted content only.
+            insert_into_document (optional): When true (default), insert a high-quality representation into the document. When false, return extracted content only. Draw and Impress refuse true.
             params (optional): Optional vision helper overrides (engine, lang, ocr_backend, …).
         """
         return call_host_tool("extract_structure_from_image", image_name=image_name, insert_into_document=insert_into_document, params=params)

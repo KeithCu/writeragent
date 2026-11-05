@@ -14,7 +14,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
-"""Registry of agent backends. Backend ids: builtin, hermes, claude, vibe, grok, opencode."""
+"""Registry of agent backends. Backend ids: builtin, hermes, claude, vibe, grok, opencode, antigravity."""
 
 from __future__ import annotations
 
@@ -89,12 +89,23 @@ class OpenCodeBackend(ACPBackend):
     default_extra_args = ("acp",)
 
 
+@final
+class AntigravityBackend(ACPBackend):
+    """Auth is agy's Google login cache. Sign in once with ``agy`` or ``agy acp --login``. ``acp`` is the stdio subcommand."""
+
+    backend_id = "antigravity"
+    display_name = "Antigravity"
+    binary_name = "agy"
+    default_extra_args = ("acp",)
+
+
 _ACP_BACKENDS: tuple[type[ACPBackend], ...] = (
     HermesBackend,
     ClaudeBackend,
     VibeBackend,
     GrokBackend,
     OpenCodeBackend,
+    AntigravityBackend,
 )
 
 AGENT_BACKEND_REGISTRY: dict[str, type[AgentBackend]] = {

@@ -17,6 +17,7 @@ from plugin.acp.builtin import BuiltinBackend
 from plugin.acp.registry import (
     AGENT_BACKEND_REGISTRY,
     _ACP_BACKENDS,
+    AntigravityBackend,
     ClaudeBackend,
     GrokBackend,
     HermesBackend,
@@ -59,7 +60,7 @@ def test_module_yaml_matches_registry_specs():
 
 
 def test_registry_classes_own_their_display_names():
-    assert list(AGENT_BACKEND_REGISTRY) == ["builtin", "hermes", "claude", "vibe", "grok", "opencode"]
+    assert list(AGENT_BACKEND_REGISTRY) == ["builtin", "hermes", "claude", "vibe", "grok", "opencode", "antigravity"]
     for key, cls in AGENT_BACKEND_REGISTRY.items():
         assert isinstance(cls, type)
         assert cls.backend_id == key
@@ -145,3 +146,14 @@ def test_vibe_env_vars():
 def test_grok_and_opencode_env_vars():
     assert GrokBackend().get_env_vars() == {}
     assert OpenCodeBackend().get_env_vars() == {}
+
+
+def test_antigravity_env_vars():
+    assert AntigravityBackend().get_env_vars() == {}
+    assert "api_key_env_by_provider" not in AntigravityBackend.__dict__
+    with patch(
+        "plugin.acp.acp_backend.get_current_endpoint",
+        side_effect=RuntimeError("should not be called"),
+    ) as mock_endpoint:
+        assert AntigravityBackend().get_env_vars() == {}
+        mock_endpoint.assert_not_called()

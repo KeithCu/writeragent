@@ -247,8 +247,8 @@ def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
         yield i, shape
 
 
-def _is_group(shape: Any) -> bool:
-    """GroupShape test for the address walk. Re-raise disposal; any other getShapeType failure is not a group."""
+def is_group(shape: Any) -> bool:
+    """True when *shape* is a GroupShape (disposal from getShapeType propagates)."""
     try:
         shape_type = shape.getShapeType()
     except Exception as exc:
@@ -256,6 +256,11 @@ def _is_group(shape: Any) -> bool:
             raise
         return False
     return "GroupShape" in str(shape_type)
+
+
+def _is_group(shape: Any) -> bool:
+    """Alias for internal tree walks; prefer :func:`is_group`."""
+    return is_group(shape)
 
 
 def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:
@@ -337,6 +342,31 @@ def find_shape_on_page(
     if not hits:
         return None, None, None, "No shape named %r on this page." % wanted
     return None, None, None, "Several shapes named %r; pass index as well." % wanted
+
+
+def resolve_shape_ref(
+    page: Any,
+    ref: Any,
+) -> tuple[int | str | None, Any | None, Any | None, str | None]:
+    """Resolve *ref* as a page index, dotted index path, or shape Name.
+
+    ``int`` (not ``bool``) and digit / dotted-digit strings use index lookup.
+    Any other non-empty string uses name lookup. Empty, ``bool``, and other
+    types return the same invalid-index string as ``find_shape_on_page``.
+    """
+    if isinstance(ref, bool):
+        return None, None, None, "Invalid shape index: %s" % ref
+    if isinstance(ref, int):
+        return find_shape_on_page(page, index=ref)
+    if isinstance(ref, str):
+        stripped = ref.strip()
+        if not stripped:
+            return None, None, None, "Invalid shape index: %s" % ref
+        parts = stripped.split(".")
+        if all(part.isdigit() for part in parts):
+            return find_shape_on_page(page, index=stripped)
+        return find_shape_on_page(page, name=stripped)
+    return None, None, None, "Invalid shape index: %s" % ref
 
 
 def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:

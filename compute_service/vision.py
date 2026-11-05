@@ -98,6 +98,20 @@ def _new_vision_pool(settings: ComputeSettings | None = None) -> VisionProcessPo
 get_vision_pool, shutdown_vision_pool = bind_pool_singleton(_POOL_SINGLETON, _new_vision_pool)
 
 
+def _missing_module_from_vision_result(res: dict[str, Any]) -> str | None:
+    details = res.get("details")
+    if not isinstance(details, dict):
+        return None
+    name = details.get("missing_module")
+    if isinstance(name, str) and name:
+        return name
+    return None
+
+
+def _ocr_backend_missing_message(name: str) -> str:
+    return f"OCR backend {name!r} is not installed on this server"
+
+
 # ---------------------------------------------------------------------------
 # Worker subprocess request handling
 # ---------------------------------------------------------------------------
@@ -129,6 +143,17 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     try:
         spec = {"helper": helper, "params": params}
         res = run_vision(spec=spec, image=image_bytes)
+        if isinstance(res, dict) and res.get("code") == "VISION_ERROR":
+            # run_vision sets details.missing_module on ModuleNotFoundError; VISION_ERROR is not in
+            # HTTP_STATUS, so _infrastructure_status keeps HTTP 200. Translate here only (501) so a
+            # proxy does not treat a permanent backend gap as a normal OCR result.
+            backend = _missing_module_from_vision_result(res)
+            if backend is not None:
+                return error_dict(
+                    ec.VISION_BACKEND_MISSING,
+                    _ocr_backend_missing_message(backend),
+                    req_id=req_id,
+                )
         if req_id is not None and isinstance(res, dict):
             res["id"] = req_id
         return res

@@ -76,6 +76,37 @@ def _is_table_shape(shape: Any) -> bool:
         return False
 
 
+def table_cells_for_shape(shape: Any) -> list[list[str]] | None:
+    """Cell strings for a TableShape, or None when not a table or cells could not be read.
+
+    Disposal propagates; any other failure is logged at debug and returns None.
+    """
+    if not _is_table_shape(shape):
+        return None
+    model = _table_model(shape)
+    if model is None:
+        return None
+    try:
+        return get_draw_cells({"model": model})
+    except Exception as exc:
+        if is_disposal(exc):
+            raise
+        log.debug("table_cells_for_shape failed", exc_info=True)
+        return None
+
+
+def table_matrix_to_tsv(matrix: list[list[str]]) -> str | None:
+    """One TSV block (rows joined by newline) or None when every cell is blank."""
+    lines: list[str] = []
+    for row in matrix:
+        if not any(cell.strip() for cell in row):
+            continue
+        lines.append("\t".join(cell.strip() for cell in row))
+    if not lines:
+        return None
+    return "\n".join(lines)
+
+
 def _ensure_table_dims(model: Any, rows: int, columns: int) -> tuple[int, int]:
     """Grow a TableShape model to at least ``rows`` x ``columns``.
 
