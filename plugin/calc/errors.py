@@ -68,13 +68,18 @@ class DetectErrors(ToolCalcErrorBase):
         ]
         total = sum(res.get("total_error_count", res.get("error_count", 0)) for res in results)
         truncated = any(res.get("truncated") for res in results)
+        combined: dict[str, Any] = {
+            "ranges": ranges,
+            "total_error_count": total,
+            "error_count": len(combined_errors),
+            "truncated": truncated,
+            "errors": combined_errors,
+        }
+        if truncated:
+            combined["hint"] = (
+                "First 50 of %d. Pass a range that starts after the last address in errors." % total
+            )
         return {
             "status": "ok",
-            "result": {
-                "ranges": ranges,
-                "total_error_count": total,
-                "error_count": len(combined_errors),
-                "truncated": truncated,
-                "errors": combined_errors,
-            },
+            "result": combined,
         }

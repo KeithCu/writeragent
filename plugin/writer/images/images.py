@@ -37,6 +37,7 @@ from plugin.framework.errors import (
     reraise_if_disposed,
     resolve_exception_message,
 )
+from plugin.framework.tool import name_miss_details
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from ..specialized_base import ToolWriterImageBase, enum_param
@@ -674,7 +675,12 @@ def _resolve_graphic(tool: Any, ctx: Any, image_name: str, sheet_index: int | No
         sheets = getattr(exc, "sheet_indices", None)
         return None, tool._tool_error(str(exc), code="AMBIGUOUS_NAME", image_name=image_name, sheet_indices=sheets, sheets=sheets)
     if not graphic:
-        return None, tool._tool_error("Image '%s' not found or document does not support graphic objects." % image_name, code="IMAGE_NOT_FOUND", image_name=image_name)
+        return None, tool._tool_error(
+            "Image '%s' not found or document does not support graphic objects." % image_name,
+            code="IMAGE_NOT_FOUND",
+            image_name=image_name,
+            **name_miss_details(image_name, [], "image_list"),
+        )
     return graphic, None
 
 

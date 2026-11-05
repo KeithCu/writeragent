@@ -1103,6 +1103,7 @@ def test_long_text_is_truncated_not_an_error(monkeypatch: pytest.MonkeyPatch) ->
     assert res["result"]["truncated"] == {
         "analyzed_chars": vta._MAX_ANALYZED_CHARS,
         "total_chars": vta._MAX_ANALYZED_CHARS + 10,
+        "hint": "Analysis used the first analyzed_chars of total_chars.",
     }
     assert res["result"]["entities"] == []
 

@@ -406,6 +406,11 @@ class ReadCellRange(ToolBase):
             distincts = _try_column_distinct_peek(bridge, range_name, preview)
             if distincts:
                 payload["column_distincts"] = distincts
+            payload["hint"] = (
+                "Peek only (%s). Row-wise formulas: write_formula_range on a 1-column or 1-row range. "
+                "A small reduction: =PY in one empty cell outside the data."
+                % preview["preview_range"]
+            )
             return payload
         except Exception as exc:
             if is_disposal(exc):

@@ -84,6 +84,16 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any) -> d
         "precedents": precedents,
         "truncated": total_cells > _MAX_PRECEDENT_CELLS,
         "total_cells": total_cells,
+        **(
+            {
+                "hint": (
+                    "Precedent list stopped at the cell cap. "
+                    "A whole-column reference was not expanded."
+                )
+            }
+            if total_cells > _MAX_PRECEDENT_CELLS
+            else {}
+        ),
     }
 
 

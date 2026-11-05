@@ -67,6 +67,7 @@ from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
 from plugin.framework.errors import ToolExecutionError, is_disposal
+from plugin.framework.tool import name_miss_details
 
 log = logging.getLogger(__name__)
 
@@ -191,6 +192,22 @@ def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any
     if sheet_name:
         return f"Pivot table '{name}' not found on sheet '{sheet_name}'."
     return f"Pivot table '{name}' not found."
+
+
+def _pivot_table_names(doc: Any) -> list[str]:
+    names: list[str] = []
+    sheets = doc.getSheets()
+    for sheet_name in sheets.getElementNames():
+        sheet = sheets.getByName(sheet_name)
+        dp_tables = _get_dp_tables(sheet)
+        names.extend(str(n) for n in dp_tables.getElementNames())
+    return names
+
+
+def _pivot_not_found_error(tool: Any, doc: Any, name: str, message: str) -> dict[str, Any]:
+    if message.startswith("No sheet named"):
+        return tool._tool_error(message)
+    return tool._tool_error(message, **name_miss_details(name, _pivot_table_names(doc), "pivot_table_list"))
 
 
 def _resolve_qualified_ref(
@@ -376,7 +393,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
 
         found = _find_pivot(doc, name, sheet_name=sheet_name)
         if isinstance(found, str):
-            return self._tool_error(found)
+            return _pivot_not_found_error(self, doc, name, found)
         tbl_any, _sheet = found
 
         dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
@@ -411,7 +428,7 @@ class DeletePivotTable(ToolCalcPivotBase):
 
         found = _find_pivot(doc, name, sheet_name=sheet_name)
         if isinstance(found, str):
-            return self._tool_error(found)
+            return _pivot_not_found_error(self, doc, name, found)
         _tbl, sheet = found
         dp_tables = _get_dp_tables(sheet)
         dp_tables.removeByName(name)

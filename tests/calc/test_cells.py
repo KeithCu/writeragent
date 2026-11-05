@@ -564,6 +564,9 @@ def test_read_cell_range_tool_truncates_large_range():
     assert "pass this A1 address to =PY instead of re-reading" not in result["message"]
     assert "write_formula_range" in result["message"]
     assert "fill-down" in result["message"]
+    assert "A1:H10" in result["hint"]
+    assert "write_formula_range" in result["hint"]
+    assert "next_range" not in result
     inspector_cls.return_value.read_range.assert_called_once_with("A1:H10", include_format_info=True)
 
 

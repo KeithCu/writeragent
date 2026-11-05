@@ -54,7 +54,7 @@ from plugin.draw.design_look import derive_otp_look
 from plugin.draw.masters import find_master, iter_masters
 from plugin.draw.otp_zip import extract_member, read_member
 from plugin.draw.shape_clone import clone_shape, copy_prop, fill_style_kind
-from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.tool import ToolBase, ToolContext, available_miss_details
 from plugin.framework.errors import is_disposal
 from plugin.framework.uno_context import uno_same
 from plugin.framework.url_utils import path_to_file_url
@@ -1003,7 +1003,12 @@ class ApplyDesign(ToolBase):
         entry = _match_listed_design(listed, design_key)
         if entry is None:
             available = [d["id"] for d in listed]
-            return self._tool_error("Design not found: %s" % design_key, available=available[:40])
+            avail = available[:40]
+            return self._tool_error(
+                "Design not found: %s" % design_key,
+                available=avail,
+                **available_miss_details(str(design_key), avail),
+            )
         try:
             return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)
         except Exception as e:

@@ -499,11 +499,18 @@ def _missing_style_error(tool: Any, style_name: str, family: str, style_family: 
     close = _close_style_names(style_name, names) if names else []
     hint = (" Did you mean '%s'?" % close[0]) if close else ""
     sample = (" Available styles include: %s." % ", ".join(sorted(names)[:15])) if names else ""
+    miss_details: dict[str, Any] = {"hint": "Call style_list with family=%s." % family}
+    if close:
+        miss_details["similar"] = close[:5]
     if label == "parent_style":
         return tool._tool_error(
-            "parent_style '%s' is not a %s style.%s%s" % (style_name, family, hint, sample))
+            "parent_style '%s' is not a %s style.%s%s" % (style_name, family, hint, sample),
+            **miss_details,
+        )
     return tool._tool_error(
-        "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample))
+        "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample),
+        **miss_details,
+    )
 
 
 def _para_adjust_to_uno(value: Any) -> int:
@@ -1009,6 +1016,7 @@ def _style_family(tool: Any, doc: Any, family: str) -> Any:
         family,
         missing_msg="Document does not support style families.",
         not_found_msg="Unknown style family: %s" % family,
+        list_tool="style_list",
     )
 
 
@@ -1137,7 +1145,7 @@ class StyleGetInfo(ToolWriterStyleBase):
             return style_family
 
         if not style_family.hasByName(style_name):
-            return self._tool_error("Style '%s' not found in %s." % (style_name, family))
+            return _missing_style_error(self, style_name, family, style_family)
 
         style = style_family.getByName(style_name)
         info = {"name": style_name, "family": family, "is_user_defined": style.isUserDefined(), "is_in_use": style.isInUse()}

@@ -250,6 +250,16 @@ class ErrorDetector:
             "total_error_count": len(errors),
             "error_count": len(detailed),
             "truncated": truncated,
+            **(
+                {
+                    "hint": (
+                        "First 50 of %d. Pass a range that starts after the last address in errors."
+                        % len(errors)
+                    )
+                }
+                if truncated
+                else {}
+            ),
             "errors": detailed,
         }
 

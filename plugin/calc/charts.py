@@ -39,6 +39,7 @@ from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.errors import DocumentDisposedError, document_is_disposed, is_disposal
+from plugin.framework.tool import name_miss_details
 from plugin.framework.uno_context import get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
@@ -1518,7 +1519,18 @@ def _require_chart(
     if lookup.error:
         return tool._tool_error(lookup.error, code="CHART_AMBIGUOUS")
     if not lookup.ref:
-        return tool._tool_error(f"Chart '{chart_name}' not found.")
+        names: list[str] = []
+        host = chart_host(doc)
+        if host is not None:
+            try:
+                names = sorted(str(n) for n in host.names())
+            except Exception as exc:
+                if is_disposal(exc):
+                    raise
+        return tool._tool_error(
+            f"Chart '{chart_name}' not found.",
+            **name_miss_details(chart_name, names, "chart_list"),
+        )
     return chart_name, lookup.ref
 
 
@@ -1699,7 +1711,18 @@ def upsert_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
 
         req_err = _create_requirements_error(kwargs, is_calc=is_calc)
         if req_err:
-            return tool._tool_error(_named_chart_miss_message(chart_name, req_err, kwargs, is_calc=is_calc))
+            host = chart_host(doc)
+            names: list[str] = []
+            if host is not None:
+                try:
+                    names = sorted(str(n) for n in host.names())
+                except Exception as exc:
+                    if is_disposal(exc):
+                        raise
+            return tool._tool_error(
+                _named_chart_miss_message(chart_name, req_err, kwargs, is_calc=is_calc),
+                **name_miss_details(chart_name, names, "chart_list"),
+            )
         if host is None:
             return tool._tool_error("Unsupported document type for chart creation.")
         return _mark_chart_created(_create_chart(tool, ctx, host, **kwargs))

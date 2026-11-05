@@ -344,7 +344,7 @@ flowchart LR
 
 **Outer sub-agent (`specialized_domain="document_research"`):**
 
-- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`list_nearby_files`](../../plugin/doc/document_research.py): `ALL_INDEXABLE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100).
+- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`list_nearby_files`](../../plugin/doc/document_research.py): `ALL_INDEXABLE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100). When a cap fires, the tool result also carries a one-sentence top-level `hint` (next call or argument). When a named object is missing, errors carry `details.similar` (up to five close names) and `details.hint` (which list tool to call).
 - [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): `path_or_name` + `task`; hidden+read-only open (or reuse open); spawns inner; returns `{ path, doc_type, result }`.
 - `specialized_workflow_finished` / final answer to main (same as other specialized domains).
 

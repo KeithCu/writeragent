@@ -26,6 +26,7 @@ from typing import Any, ClassVar, Generator
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_index_for_anchor
 from plugin.framework.errors import best_effort, reraise_if_disposed
+from plugin.framework.tool import name_miss_details
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
@@ -528,7 +529,11 @@ def _resolve_bookmark_target(
     bookmarks = ctx.doc.getBookmarks()
     has_bm = bookmarks.hasByName(name)
     if must_exist and not has_bm:
-        return None, "", tool._tool_error(f"Bookmark '{name}' not found.")
+        names = [str(n) for n in bookmarks.getElementNames()]
+        return None, "", tool._tool_error(
+            f"Bookmark '{name}' not found.",
+            **name_miss_details(name, names, "bookmark_list"),
+        )
     if not must_exist and has_bm:
         return None, "", tool._tool_error(f"A bookmark named '{name}' already exists.")
     return bookmarks, name, None
@@ -638,7 +643,11 @@ class BookmarkGet(ToolWriterBookmarkBase):
 
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(name):
-            return self._tool_error(f"Bookmark '{name}' not found.")
+            names = [str(n) for n in bookmarks.getElementNames()]
+            return self._tool_error(
+                f"Bookmark '{name}' not found.",
+                **name_miss_details(name, names, "bookmark_list"),
+            )
 
         bm = bookmarks.getByName(name)
         try:
@@ -669,12 +678,14 @@ class BookmarkResolve(ToolWriterBookmarkBase):
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(bookmark_name):
             hint = "Bookmark '%s' not found." % bookmark_name
+            names = [str(n) for n in bookmarks.getElementNames()]
+            miss = name_miss_details(bookmark_name, names, "bookmark_list")
             if bookmark_name.startswith("_mcp_"):
                 hint += " It may have been deleted or the document changed. Use heading_text:<text> locator for resilient heading addressing, or call get_document_tree to refresh bookmarks."
                 existing = [n for n in bookmarks.getElementNames() if n.startswith("_mcp_")]
                 if existing:
                     hint += " Existing bookmarks: %s" % ", ".join(existing[:10])
-            return self._tool_error(hint)
+            return self._tool_error(hint, **miss)
 
         bm = bookmarks.getByName(bookmark_name)
         try:

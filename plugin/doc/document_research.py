@@ -433,7 +433,9 @@ def list_nearby_files(
                 open_paths=open_paths,
                 cancel=cancel,
             )
-            return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root}
+            return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root, **(
+                {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
+            )}
         except InterruptedError:
             return user_stopped_payload()
         except OSError as e:
@@ -446,7 +448,9 @@ def list_nearby_files(
             "status": "error",
             "message": "No nearby files found. Save the document or open sibling files in LibreOffice.",
         }
-    return {"status": "ok", "files": files, "truncated": truncated, "listing_root": None}
+    return {"status": "ok", "files": files, "truncated": truncated, "listing_root": None, **(
+        {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
+    )}
 
 
 def resolve_path_or_name(

@@ -151,7 +151,8 @@ def test_switch_sheet_missing_name_raises_uno_object_error():
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert "No sheet named 'NoSuchSheet'." in res["message"]
     assert "Available: Sheet1, Data" in res["message"]
-    assert "_hidden" not in res["message"]
+    assert "sheet_list" in res["details"]["hint"]
+    assert "_hidden" not in res["details"].get("similar", [])
 
 
 def test_rename_sheet_missing_old_name_raises_uno_object_error():

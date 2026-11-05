@@ -104,7 +104,7 @@ class GetDocumentContent(ToolBase):
         "Get document (or selection/range) content. Result includes document_length (plain-text "
         "characters) and length (HTML characters). scope: full, selection, or range (requires start, "
         "end as plain-text offsets in the document_length space). max_chars counts returned HTML and "
-        "is approximate. The result may carry warning, truncated, tracked_changes, "
+        "is approximate. The result may carry warning, truncated, hint, tracked_changes, "
         "tracked_changes_total, and tracked_changes_truncated. scope='selection' with nothing selected "
         "returns empty content plus a warning. "
         "CJK ruby (furigana) is exported as HTML <ruby>base<rt>reading</rt></ruby> "
@@ -175,8 +175,15 @@ class GetDocumentContent(ToolBase):
         # Machine-readable truncation signal: without it the only clue was the in-band marker
         # string, which a model must know to look for. (length counts HTML chars; document_length
         # and scope='range' offsets are plain-text chars — use those for follow-up range reads.)
+        # Capped reads also set top-level ``hint`` (no ``next_range`` — HTML length ≠ plain-text range).
         if max_chars and isinstance(content, str) and content.endswith("[... truncated ...]"):
             result["truncated"] = True
+            result["hint"] = (
+                "HTML was cut at max_chars (%d chars returned). Continue with scope='range' and "
+                "plain-text start/end in 0..document_length (%d), or raise max_chars. "
+                "get_document_tree lists headings."
+                % (len(content), doc_len)
+            )
         if scope == "range":
             result["start"] = range_start
             result["end"] = range_end

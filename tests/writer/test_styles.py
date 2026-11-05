@@ -476,6 +476,21 @@ def test_update_style_unknown_suggests_close_name():
 
     assert res["status"] == "error"
     assert "Did you mean 'Heading 1'" in res["message"]
+    assert "Heading 1" in res["details"]["similar"]
+    assert "style_list" in res["details"]["hint"]
+
+
+def test_style_get_info_unknown_uses_missing_style_error():
+    style = MagicMock()
+    family = _style_family({"Heading 1": style, "Text body": style})
+    mock_ctx = _ctx_with_families(ParagraphStyles=family)
+
+    res = StyleGetInfo().execute(mock_ctx, style="heading 1", family="ParagraphStyles")
+
+    assert res["status"] == "error"
+    assert "Did you mean 'Heading 1'" in res["message"]
+    assert "Heading 1" in res["details"]["similar"]
+    assert "style_list" in res["details"]["hint"]
 
 
 def test_update_style_warns_when_font_not_installed():

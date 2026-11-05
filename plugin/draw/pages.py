@@ -24,7 +24,7 @@ from plugin.draw.bridge import DrawBridge, page_size
 from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.masters import iter_masters
 from plugin.framework.errors import is_disposal
-from plugin.framework.tool import ToolBase, ToolContext
+from plugin.framework.tool import ToolBase, ToolContext, available_miss_details
 from plugin.framework.uno_context import uno_same
 
 log = logging.getLogger("writeragent.draw.pages")
@@ -106,7 +106,12 @@ class AddSlide(ToolBase):
             layout_name = _DEFAULT_IMPRESS_LAYOUT if raw is None or (isinstance(raw, str) and not raw.strip()) else str(raw).strip().lower()
             # Validate before insert so a bad name does not leave a stray page.
             if layout_id(layout_name) is None:
-                return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
+                avail = available_layout_names()
+                return self._tool_error(
+                    "Unknown layout: %s" % layout_name,
+                    available=avail,
+                    **available_miss_details(str(layout_name), avail),
+                )
 
         # Bugfix: create_slide(switch=True) moved the view onto the new page
         # before master inheritance and layout. A failure then removed that page

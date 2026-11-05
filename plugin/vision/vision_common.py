@@ -260,14 +260,18 @@ def table_from_span_cells(
             continue
         spans.append({"row": row, "col": col, "rowspan": rowspan, "colspan": colspan})
     data_rows = grid[1:]
-    return {
+    truncated = len(data_rows) > MAX_TABLE_ROWS
+    out: dict[str, Any] = {
         "name": name,
         "columns": list(grid[0]),
         "rows": [list(row) for row in data_rows[:MAX_TABLE_ROWS]],
         "spans": spans,
-        "truncated": len(data_rows) > MAX_TABLE_ROWS,
+        "truncated": truncated,
         "total_rows": len(data_rows),
     }
+    if truncated:
+        out["hint"] = "Table shows the first rows of total_rows."
+    return out
 
 
 def table_to_tsv_lines(table: dict[str, Any]) -> list[str]:
