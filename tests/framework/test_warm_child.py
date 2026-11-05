@@ -23,6 +23,8 @@ from plugin.framework.warm_child import (
     Child,
     ChildSpec,
     Death,
+    LeaseCancelled,
+    LeaseRefusal,
     Supervisor,
     WarmChild,
     spawn_managed_child_with_handshake,
@@ -477,6 +479,59 @@ def test_spawn_helper_read_exception_clears_io_owner(monkeypatch: pytest.MonkeyP
     assert spawned._io_owner is not None
     spawned.end_io()
     assert spawned._io_owner is None
+
+
+def test_lease_cancel_aborts_wait_within_poll(supervisor: Supervisor) -> None:
+    env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
+    spec = ChildSpec(name="cancel-wait", argv=[sys.executable, "-c", "pass"], env=env)
+    warm = WarmChild(spec, supervisor=supervisor)
+    assert warm._io_lock.acquire()
+    cancelled = {"v": False}
+
+    def flip() -> None:
+        time.sleep(0.1)
+        cancelled["v"] = True
+
+    threading.Thread(target=flip, daemon=True).start()
+    started = time.monotonic()
+    try:
+        with warm.lease(
+            Deadline(30),
+            wait=30,
+            cancel=lambda: cancelled["v"] is True,
+            poll_sec=0.05,
+        ) as leased:
+            assert isinstance(leased, LeaseCancelled)
+        assert time.monotonic() - started < 1.0
+        assert warm._child is None
+    finally:
+        warm._io_lock.release()
+        warm.retire()
+
+
+def test_lease_refuse_aborts_wait_within_poll(supervisor: Supervisor) -> None:
+    env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
+    spec = ChildSpec(name="refuse-wait", argv=[sys.executable, "-c", "pass"], env=env)
+    warm = WarmChild(spec, supervisor=supervisor)
+    assert warm._io_lock.acquire()
+    refuse_at = time.monotonic() + 0.1
+    err = {"status": "error", "code": "TEST", "error": "nope"}
+
+    def refuse() -> dict[str, Any] | None:
+        if time.monotonic() >= refuse_at:
+            return err
+        return None
+
+    started = time.monotonic()
+    try:
+        with warm.lease(Deadline(30), wait=30, refuse=refuse, poll_sec=0.05) as leased:
+            assert isinstance(leased, LeaseRefusal)
+            assert leased.error == err
+        assert time.monotonic() - started < 1.0
+        assert warm._child is None
+    finally:
+        warm._io_lock.release()
+        warm.retire()
 
 
 def test_missing_interpreter_lease_raises_oserror(supervisor: Supervisor) -> None:

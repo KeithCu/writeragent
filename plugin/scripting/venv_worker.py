@@ -31,7 +31,7 @@ from plugin.framework.constants import (
     WORKER_POOL_EMBEDDINGS,
 )
 from plugin.framework.child_runtime import Deadline
-from plugin.framework.warm_child import ChildSpec, Death, Lease, WarmChild
+from plugin.framework.warm_child import ChildSpec, Death, Lease, LeaseCancelled, LeaseRefusal, WarmChild
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -114,6 +114,13 @@ ReadFailureKind = Literal["cancel", "read_timeout", "bad_frame", "after_start", 
 @dataclass(frozen=True)
 class Terminal:
     response: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RetryWithNewLease:
+    """Leave the current lease and take a new one (at most one retry per request)."""
+
+    error: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -279,19 +286,6 @@ _instances: dict[str, PythonWorkerManager] = {}
 _registry_lock = threading.Lock()
 
 
-class _IoSessionUnavailable(Exception):
-    """``_io_session`` could not start; ``args[0]`` is the error dict to return."""
-
-
-class _RetryWithNewLease(Exception):
-    """Leave the current lease and take a new one (at most one retry per request)."""
-
-    error: dict[str, Any]
-
-    def __init__(self, error: dict[str, Any]) -> None:
-        self.error = error
-
-
 @dataclass
 class _TurnState:
     """Replay guards for one request; survives an exception out of the read loop."""
@@ -441,57 +435,71 @@ class PythonWorkerManager:
         message = err.get("error") or "Python worker unavailable"
         return _worker_error(str(code or "WORKER_IPC_ERROR"), str(message))
 
+    def _refuse_lease(self) -> dict[str, Any] | None:
+        reentry = self._reentry_error()
+        if reentry is not None:
+            return reentry
+        if self._retired:
+            return _worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
+        return None
+
     @contextlib.contextmanager
     def _io_session(
         self,
         cancel: SendCancellation | None = None,
         *,
         spawn_deadline: Deadline | None = None,
-    ) -> Generator[Lease, None, None]:
-        """Hold the warm-child pipe lock; raise ``_IoSessionUnavailable`` otherwise."""
+    ) -> Generator[Lease | dict[str, Any] | RetryWithNewLease, None, None]:
+        """Hold the warm-child pipe lock, or yield an error / retry value."""
         acquire_end = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
         spawn_deadline = spawn_deadline or Deadline(float(WARM_WORKER_TIMEOUT_SEC))
         while True:
-            if is_cancelled(cancel):
-                raise _IoSessionUnavailable(_worker_error("CANCELLED", "Python worker stopped by user"))
-            reentry = self._reentry_error()
-            if reentry is not None:
-                raise _IoSessionUnavailable(reentry)
-            remaining = acquire_end - time.monotonic()
-            if remaining <= 0:
-                raise _IoSessionUnavailable(_worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE))
-            wait = 0.0 if main.is_current() else min(_IO_LOCK_POLL_SEC, remaining)
             warm = self._get_warm()
             if warm is None:
-                raise _IoSessionUnavailable(_worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE))
+                yield _worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
+                return
+            wait = 0.0 if main.is_current() else max(0.0, acquire_end - time.monotonic())
             lease_acquired = False
             try:
-                with warm.lease(spawn_deadline, wait=wait) as leased:
+                with warm.lease(
+                    spawn_deadline,
+                    wait=wait,
+                    cancel=lambda: is_cancelled(cancel),
+                    refuse=self._refuse_lease,
+                    poll_sec=_IO_LOCK_POLL_SEC,
+                ) as leased:
+                    if isinstance(leased, LeaseCancelled):
+                        yield _worker_error("CANCELLED", "Python worker stopped by user")
+                        return
+                    if isinstance(leased, LeaseRefusal):
+                        yield leased.error
+                        return
                     if isinstance(leased, dict):
                         if leased.get("code") == "PIPE_LOCK_BUSY":
-                            if main.is_current():
-                                raise _IoSessionUnavailable(_worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE))
-                            continue
-                        raise _IoSessionUnavailable(self._lease_error_to_worker(leased))
+                            yield _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
+                            return
+                        yield self._lease_error_to_worker(leased)
+                        return
                     lease_acquired = True
                     try:
                         if is_cancelled(cancel):
-                            raise _IoSessionUnavailable(_worker_error("CANCELLED", "Python worker stopped by user"))
+                            yield _worker_error("CANCELLED", "Python worker stopped by user")
+                            return
                         warm_err = self._ensure_warmed_unlocked(leased)
                         if warm_err is not None:
-                            raise _IoSessionUnavailable(warm_err)
+                            yield warm_err
+                            return
                         yield leased
                     finally:
                         self._serving_tool_call = False
-                    return
+                return
             except OSError as exc:
                 if lease_acquired:
                     raise
                 global _systemd_scope_disabled
                 if _systemd_scope_disabled or not _systemd_run_path(self.env):
-                    raise _IoSessionUnavailable(
-                        self._err("WORKER_SPAWN_FAILED", f"Failed to spawn Python worker: {exc}")
-                    ) from exc
+                    yield self._err("WORKER_SPAWN_FAILED", f"Failed to spawn Python worker: {exc}")
+                    return
                 log.warning("Python worker failed to start under systemd-run, retrying without a scope: %s", exc)
                 with _systemd_scope_lock:
                     _systemd_scope_disabled = True
@@ -502,23 +510,28 @@ class PythonWorkerManager:
 
     def _run_in_session(
         self,
-        body: Callable[[Any], dict[str, Any]],
+        body: Callable[[Any], dict[str, Any] | RetryWithNewLease],
         *,
         cancel: SendCancellation | None = None,
         timeout_sec: int | None = None,
     ) -> dict[str, Any]:
         """Run *body* while this manager holds the pipe, or return the session error."""
         spawn_deadline = Deadline(float(timeout_sec if timeout_sec is not None else WARM_WORKER_TIMEOUT_SEC))
+        retry: RetryWithNewLease | None = None
         for attempt in range(2):
-            try:
-                with self._io_session(cancel, spawn_deadline=spawn_deadline) as leased:
-                    return body(leased)
-            except _RetryWithNewLease as retry:
-                if attempt == 1:
-                    return retry.error
-                continue
-            except _IoSessionUnavailable as e:
-                return e.args[0]
+            with self._io_session(cancel, spawn_deadline=spawn_deadline) as session:
+                if isinstance(session, RetryWithNewLease):
+                    retry = session
+                elif isinstance(session, dict):
+                    return session
+                else:
+                    outcome = body(session)
+                    if isinstance(outcome, RetryWithNewLease):
+                        retry = outcome
+                    else:
+                        return outcome
+            if retry is not None and attempt == 1:
+                return retry.error
         return self._err("WORKER_IPC_ERROR", "Python worker failed after retry")
 
     @classmethod
@@ -563,7 +576,7 @@ class PythonWorkerManager:
         warm = self._warm
         return warm is not None and warm.is_alive()
 
-    def _ensure_warmed_unlocked(self, leased: Any) -> dict[str, Any] | None:
+    def _ensure_warmed_unlocked(self, leased: Any) -> dict[str, Any] | RetryWithNewLease | None:
         """Prime auto-imports once per warm-child generation. Returns error dict or None."""
         if self._primed and self._primed_generation == leased.generation and self._warm is not None and self._warm.is_alive():
             return None
@@ -571,6 +584,8 @@ class PythonWorkerManager:
             _ExecRequest("result = None", timeout_sec=WARM_WORKER_TIMEOUT_SEC),
             leased=leased,
         )
+        if isinstance(prime, RetryWithNewLease):
+            return prime
         if prime.get("status") != "ok":
             return prime
         self._primed = True
@@ -602,11 +617,12 @@ class PythonWorkerManager:
         return None
 
     def _ensure_warmed(self) -> dict[str, Any] | None:
-        try:
-            with self._io_session():
-                return None
-        except _IoSessionUnavailable as exc:
-            return exc.args[0]
+        with self._io_session() as session:
+            if isinstance(session, RetryWithNewLease):
+                return session.error
+            if isinstance(session, dict):
+                return session
+            return None
 
     def warm(self) -> None:
         """Spawn the worker and trigger auto-imports (numpy etc.) so the next real execute is instant."""
@@ -739,27 +755,13 @@ class PythonWorkerManager:
         except (subprocess.TimeoutExpired, IpcPartialFrameTimeout, ValueError, OSError, RuntimeError) as exc:
             return _classify_read_failure(exc, state)
 
-    def _ensure_running(self) -> bool:
-        """Ensure a live child (tests and reset_python_session guard)."""
-        if self._retired:
-            return False
-        if self._is_worker_alive():
-            return True
-        try:
-            with self._io_session():
-                return True
-        except _IoSessionUnavailable:
-            return False
-
-    def _execute_ipc_unlocked(self, req: _ExecRequest, *, leased: Lease) -> dict[str, Any]:
+    def _execute_ipc_unlocked(self, req: _ExecRequest, *, leased: Lease) -> dict[str, Any] | RetryWithNewLease:
         wire = req.wire()
         timeout_sec = req.timeout_sec
         if timeout_sec is None:
             raise RuntimeError("timeout_sec is required")
         stdin = leased.stdin
         stdout = leased.stdout
-        spawn_deadline = Deadline(float(max(timeout_sec, WARM_WORKER_TIMEOUT_SEC)))
-        del spawn_deadline  # lease already ensured a live child
         # Host-only preparation. A failure here must not reach the worker-kill
         # handlers below: no request byte has been written yet.
         try:
@@ -795,16 +797,16 @@ class PythonWorkerManager:
             log.warning("Python worker failed on initial write: %s", e)
             self._terminate_worker()
             self._clear_host_state_after_worker_death()
-            raise _RetryWithNewLease(
+            return RetryWithNewLease(
                 self._err("VENV_TIMEOUT", _worker_error_message(e), attempt=2)
-            ) from e
+            )
         except (ValueError, RuntimeError, OSError) as e:
             log.warning("Python worker failed on initial write: %s", e)
             self._terminate_worker()
             self._clear_host_state_after_worker_death()
-            raise _RetryWithNewLease(
+            return RetryWithNewLease(
                 self._err("WORKER_IPC_ERROR", _worker_error_message(e), attempt=2)
-            ) from e
+            )
 
         state = _TurnState()
         outcome = self._read_until_terminal(
@@ -823,7 +825,7 @@ class PythonWorkerManager:
             log.warning("Python worker failed before start: %s", outcome.error)
             self._terminate_worker()
             self._clear_host_state_after_worker_death()
-            raise _RetryWithNewLease(
+            return RetryWithNewLease(
                 self._err("WORKER_IPC_ERROR", _worker_error_message(outcome.error), attempt=2)
             )
 

@@ -300,6 +300,18 @@ class Death:
     during: str
 
 
+@dataclass(frozen=True)
+class LeaseCancelled:
+    """Lease wait aborted by ``cancel`` before the pipe lock was taken."""
+
+
+@dataclass(frozen=True)
+class LeaseRefusal:
+    """Lease wait aborted by ``refuse`` before the pipe lock was taken."""
+
+    error: dict[str, Any]
+
+
 class Lease:
     """Pipe ownership for one warm-child request while ``begin_io`` is held."""
 
@@ -408,18 +420,60 @@ class WarmChild:
         self._supervisor._unregister(self)
 
     @contextmanager
-    def lease(self, deadline: Deadline, *, wait: float | None = None) -> Generator[Lease | dict[str, Any], None, None]:
+    def lease(
+        self,
+        deadline: Deadline,
+        *,
+        wait: float | None = None,
+        cancel: Callable[[], bool] | None = None,
+        refuse: Callable[[], dict[str, Any] | None] | None = None,
+        poll_sec: float = 0.05,
+    ) -> Generator[Lease | dict[str, Any] | LeaseCancelled | LeaseRefusal, None, None]:
         """Take the pipe lock, ensure a live child, yield a Lease or an error dict."""
-        if wait is None:
-            acquired = self._io_lock.acquire()
-        elif wait == 0:
-            acquired = self._io_lock.acquire(blocking=False)
+        if cancel is None and refuse is None:
+            if wait is None:
+                acquired = self._io_lock.acquire()
+            elif wait == 0:
+                acquired = self._io_lock.acquire(blocking=False)
+            else:
+                acquired = self._io_lock.acquire(timeout=wait)
+            if not acquired:
+                yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
+                return
         else:
-            acquired = self._io_lock.acquire(timeout=wait)
-        if not acquired:
-            yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
-            return
+            acquire_end: float | None = None
+            if wait is not None and wait > 0:
+                acquire_end = time.monotonic() + wait
+            while True:
+                if cancel is not None and cancel() is True:
+                    yield LeaseCancelled()
+                    return
+                if refuse is not None:
+                    refusal = refuse()
+                    if refusal is not None:
+                        yield LeaseRefusal(refusal)
+                        return
+                if wait == 0:
+                    acquired = self._io_lock.acquire(blocking=False)
+                    if not acquired:
+                        yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
+                        return
+                    break
+                if wait is None:
+                    slice_timeout = poll_sec
+                else:
+                    assert acquire_end is not None
+                    remaining = acquire_end - time.monotonic()
+                    if remaining <= 0:
+                        yield error_dict("PIPE_LOCK_BUSY", "Could not acquire warm child pipe lock.")
+                        return
+                    slice_timeout = min(poll_sec, remaining)
+                acquired = self._io_lock.acquire(timeout=slice_timeout)
+                if acquired:
+                    break
         try:
+            # cancel/refuse are not consulted after the lock is held: begin_io() makes
+            # this thread the io_owner, so refuse would false-trigger self-reentry.
             with self._lifecycle_lock:
                 self._cancel_pending = False
             if self._supervisor.is_shutting_down() or self._retired:
@@ -461,6 +515,10 @@ class WarmChild:
         with self.lease(deadline) as leased:
             if isinstance(leased, dict):
                 return leased
+            if isinstance(leased, LeaseCancelled):
+                return error_dict("CANCELLED", "Request cancelled.")
+            if isinstance(leased, LeaseRefusal):
+                return leased.error
             try:
                 frame = pack_pickle_frame(payload, max_payload_bytes=self.spec.max_payload_bytes)
             except IpcFrameError as exc:

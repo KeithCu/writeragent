@@ -224,7 +224,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # reset races a reopen of the same calc: URL and wipes the new kernel.
         # reset_python_session returns without spawning when no child is alive,
         # so this thread waits only for in-place IPC on a worker that already
-        # exists (_ensure_running does not call _start_child in that case).
+        # exists.
         for sid in session_ids:
             if sid:
                 best_effort(lambda: self._reset_one(sid), "python_workbook_lifecycle: reset on unload")
