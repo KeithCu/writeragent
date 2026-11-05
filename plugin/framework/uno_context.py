@@ -562,7 +562,7 @@ def _desktop_enum_value_continues(enum: Any, seen: int, *, label: str) -> bool:
     return True
 
 
-def enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # private; the only callers are other modules, so this file looks unused
+def enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # cross-module helper; imported by document_scripts.py
     """False when *enum* is exhausted or past ``_ENUM_CAP``.
 
     Swallows ``hasMoreElements`` errors and returns False. Callers that need

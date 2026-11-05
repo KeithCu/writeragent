@@ -108,7 +108,7 @@ def read_json_body(handler: Any, reply: Callable[..., Any] = write_http_json) ->
     missing, zero, or set. Negative Content-Length stays 400. A length above
     :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read. A socket timeout
     (``TimeoutError``, or pre-3.10 ``socket.timeout``) while reading a body
-    under the cap is 408.     An empty body with no
+    under the cap is 408. An empty body with no
     chunked coding is still ``{}`` and does not touch ``rfile``.
 
     Shared with compute_service.server._read_request_body: chunked transfer is
