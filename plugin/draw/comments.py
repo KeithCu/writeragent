@@ -66,7 +66,16 @@ def _annotation_xy(ann: Any) -> tuple[Any, Any]:
 
 
 def _page_supports_annotations(page: Any) -> bool:
-    return uno_read(lambda: page.supportsService(_ANNOTATION_ACCESS_SVC), False) is True
+    # Prefer the published IDL service when LO reports it; live Impress/Draw pages implement
+    # XAnnotationAccess on SdGenericDrawPage (sd/source/ui/inc/unopage.hxx) but often return
+    # False from supportsService — then require the three IDL methods directly.
+    if uno_read(lambda: page.supportsService(_ANNOTATION_ACCESS_SVC), False) is True:
+        return True
+    return (
+        hasattr(page, "createAnnotationEnumeration")
+        and hasattr(page, "createAndInsertAnnotation")
+        and hasattr(page, "removeAnnotation")
+    )
 
 
 def _annotations_unavailable(tool: Any, page_index: int) -> dict[str, Any]:

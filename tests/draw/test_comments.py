@@ -100,6 +100,13 @@ class _MockUndoManager:
             self.titles.pop(0)
 
 
+class _NoAnnotationPage:
+    """Page object with neither the service nor XAnnotationAccess methods."""
+
+    def supportsService(self, name: str) -> bool:
+        return False
+
+
 class _FakePage:
     def __init__(
         self,
@@ -264,7 +271,7 @@ def test_validation_rejects_bad_params(tool, kwargs, code):
 
 
 def test_missing_annotation_access_service():
-    page = _FakePage(annotation_access=False)
+    page = _NoAnnotationPage()
     ctx = _FakeContext(_FakeDoc([page]))
     with _bridge(page=page, resolve=(page, 3)):
         res = ListPageComments().execute(ctx, page=3)
