@@ -39,7 +39,13 @@ from urllib.parse import unquote
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-from plugin.chatbot.agent_manual import writer_topic_list_text
+from plugin.chatbot.agent_manual import (
+    get_section,
+    list_topic_entries,
+    list_topics,
+    normalize_topic,
+    writer_topic_list_text,
+)
 from plugin.framework.doc_type import uno_services_for_document
 from plugin.framework import uno_context
 from plugin.framework.uno_context import get_runtime_uid, normalize_doc_url
@@ -769,8 +775,38 @@ class MCPProtocolHandler:
     def _mcp_resources_list(self, params: Any) -> Any:
         return {"resources": []}
 
-    def _mcp_prompts_list(self, params: Any) -> Any:
-        return {"prompts": []}
+    def _prompt_doc_type(self, document_url: str | None) -> str | None:
+        def _resolve() -> str | None:
+            _doc, doc_type = self._resolve_target(document_url)
+            return doc_type
+
+        return self.queue_executor.call(_resolve, timeout=10.0)
+
+    def _mcp_prompts_list(self, params: Any, document_url: str | None = None) -> Any:
+        doc_type = self._prompt_doc_type(document_url)
+        prompts = [{"name": topic_id, "description": summary} for topic_id, summary in list_topic_entries(doc_type)]
+        return {"prompts": prompts}
+
+    def _mcp_prompts_get(self, params: Any, document_url: str | None = None) -> Any:
+        if not isinstance(params, dict):
+            params = {}
+        name = params.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("prompts/get requires params.name")
+        doc_type = self._prompt_doc_type(document_url)
+        canonical = normalize_topic(name, doc_type)
+        if canonical is None:
+            known = ", ".join(list_topics(doc_type))
+            raise ValueError(f"Unknown prompt {name!r}; known prompts: {known}")
+        text = get_section(name, doc_type)
+        if text is None:
+            known = ", ".join(list_topics(doc_type))
+            raise ValueError(f"Unknown prompt {name!r}; known prompts: {known}")
+        summary_by_id = dict(list_topic_entries(doc_type))
+        return {
+            "description": summary_by_id[canonical],
+            "messages": [{"role": "user", "content": {"type": "text", "text": text}}],
+        }
 
     def _mcp_tools_call(self, params: Any, document_url: str | None = None, req_id: Any = None, session: Any = None, *, cancel: SendCancellation) -> Any:
         call_params = wire_types.CallToolRequestParams.from_params(params)
@@ -875,15 +911,23 @@ class MCPProtocolHandler:
 
         log.debug(f"*** MCP INCOMING METHOD: {method} (id={req_id}) ***")
 
-        # tools/list and tools/call take document_url. A mixed dict is an
-        # unknown callable to mypy, so only the one-argument methods live here.
-        one_arg: dict[str, Callable[[Any], Any]] = {"initialize": self._mcp_initialize, "ping": self._mcp_ping, "resources/list": self._mcp_resources_list, "prompts/list": self._mcp_prompts_list}
-        if method not in one_arg and method not in ("tools/list", "tools/call"):
+        # tools/list, tools/call, prompts/list, and prompts/get take document_url. A mixed dict is
+        # an unknown callable to mypy, so only the one-argument methods live here.
+        one_arg: dict[str, Callable[[Any], Any]] = {
+            "initialize": self._mcp_initialize,
+            "ping": self._mcp_ping,
+            "resources/list": self._mcp_resources_list,
+        }
+        if method not in one_arg and method not in ("tools/list", "tools/call", "prompts/list", "prompts/get"):
             return (400, wire_types.jsonrpc_failure(req_id, wire_types.METHOD_NOT_FOUND, "Unknown method: %s" % method))
 
         try:
             if method == "tools/list":
                 result = self._mcp_tools_list(params, document_url=document_url)
+            elif method == "prompts/list":
+                result = self._mcp_prompts_list(params, document_url=document_url)
+            elif method == "prompts/get":
+                result = self._mcp_prompts_get(params, document_url=document_url)
             elif method == "tools/call":
                 cancel_key = (session, req_id) if req_id is not None else None
                 scope = SendCancellation()
