@@ -715,7 +715,7 @@ def test_set_table_cell_never_blind_uppercases_real_lowercase_names():
     assert t._cells["a1"] == "new" and t._cells["A1"] == "first"  # A1 untouched
 
 
-def testwriter_cell_position_matches_get_cell_position():
+def test_writer_cell_position_matches_get_cell_position():
     """A, Z, a, AA — Writer base 52, not spreadsheet parse_a1."""
     from plugin.draw.tables import parse_a1
 

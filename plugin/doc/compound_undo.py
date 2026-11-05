@@ -151,8 +151,9 @@ class UndoOutcome:
     """Result of :func:`commit_or_rollback`.
 
     ``rolled_back`` is True only when ``rollback_if_top`` actually ran undo.
-    ``nothing_landed`` is True when undo ran (even if session discard failed) or when
-    ``session`` was passed and ``len(session.changes)`` did not grow during ``mutate``.
+    ``nothing_landed`` compares the session change count to the pre-mutate snapshot (or is
+    True when undo ran). Callers should read it only on failure paths (``error`` or
+    ``mutate_error`` set); on success it can be True even when no rollback was needed.
     ``ROLLBACK_FAILED`` in ``error`` means undo itself failed after a failed mutate.
     Document disposal still raises from :func:`commit_or_rollback`; it is never stored
     on ``mutate_error``.
@@ -241,12 +242,9 @@ def commit_or_rollback(
                 }
                 exc_cause = None
 
-    if rolled_back:
-        nothing_landed = True
-    elif session is not None:
-        nothing_landed = len(session.changes) == changes_snapshot
-    else:
-        nothing_landed = rolled_back
+    nothing_landed = rolled_back or (
+        session is not None and len(session.changes) == changes_snapshot
+    )
 
     if exc_cause is not None:
         reraise_if_disposed(exc_cause)

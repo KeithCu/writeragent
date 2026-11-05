@@ -358,6 +358,29 @@ def test_commit_or_rollback_mutation_exception_reports_error():
     assert "Rollback failed" in res["message"]
 
 
+def test_commit_or_rollback_mutation_surfaces_wrapper_errors():
+    from unittest.mock import patch
+
+    from plugin.doc.undo import commit_or_rollback_mutation
+
+    tool = MagicMock()
+    tool._tool_error.side_effect = lambda msg, **kw: {"status": "error", "message": msg, **kw}
+    doc = MagicMock()
+    with patch("plugin.doc.undo.commit_or_rollback", side_effect=RuntimeError("wrapper")):
+        res = commit_or_rollback_mutation(
+            tool,
+            doc,
+            "Title",
+            lambda: None,
+            "Undo unavail",
+            "Rollback failed",
+            code="WRAPPER",
+        )
+    assert res is not None
+    assert "wrapper" in res["message"]
+    assert res.get("code") == "WRAPPER"
+
+
 def test_undo_tolerates_null_and_non_numeric_steps():
     from plugin.doc.undo import Undo
 
