@@ -1509,13 +1509,14 @@ def test_get_or_create_rebuilds_on_policy_mismatch() -> None:
 def test_shared_policy_change_reruns_init_before_seed() -> None:
     sid = "calc:policy-init-rerun"
     init_sid = f"{sid}:init"
+    init_hash = "h-policy-fixed"
     try:
         first = run_sandboxed_code(
             "cell_only = 1\nresult = HELPER",
             session_id=sid,
             init_script="HELPER = 1",
             init_session_id=init_sid,
-            init_script_hash="h-policy-1",
+            init_script_hash=init_hash,
             sandbox_policy={"network": True},
         )
         assert first["status"] == "ok", first
@@ -1529,7 +1530,7 @@ def test_shared_policy_change_reruns_init_before_seed() -> None:
             session_id=sid,
             init_script="HELPER = 2",
             init_session_id=init_sid,
-            init_script_hash="h-policy-2",
+            init_script_hash=init_hash,
             sandbox_policy=None,
         )
         assert second["status"] == "ok", second

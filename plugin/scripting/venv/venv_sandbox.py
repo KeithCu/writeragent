@@ -100,6 +100,7 @@ class SessionStore:
     def _policy_current(
         rec: SessionRecord | None, policy: SandboxPolicy | None
     ) -> bool:
+        # None policy means the caller does not care, so never drop for policy alone.
         if rec is None or rec.executor is None or policy is None:
             return True
         return rec.executor._sandbox_policy == policy
@@ -109,9 +110,6 @@ class SessionStore:
     ) -> None:
         if not self._policy_current(self._records.get(key), policy):
             self._drop_unlocked(key)
-
-    def _record(self, key: SessionKey) -> SessionRecord | None:
-        return self._records.get(key)
 
     def _maybe_drop_record(self, key: SessionKey) -> None:
         rec = self._records.get(key)
@@ -133,17 +131,17 @@ class SessionStore:
 
     def executor(self, session_id: str) -> LocalPythonExecutor | None:
         with self._lock:
-            rec = self._record(SessionKey.parse(session_id))
+            rec = self._records.get(SessionKey.parse(session_id))
             return rec.executor if rec else None
 
     def init_script_hash(self, session_id: str) -> str | None:
         with self._lock:
-            rec = self._record(SessionKey.parse(session_id))
+            rec = self._records.get(SessionKey.parse(session_id))
             return rec.init_script_hash if rec else None
 
     def seeded_digest(self, session_id: str) -> str | None:
         with self._lock:
-            rec = self._record(SessionKey.parse(session_id))
+            rec = self._records.get(SessionKey.parse(session_id))
             return rec.seeded_digest if rec else None
 
     def isolated_lru_len(self) -> int:
@@ -163,7 +161,7 @@ class SessionStore:
         """Return True when init already ran for *script_digest* (refresh isolated LRU)."""
         with self._lock:
             key = SessionKey.parse(init_session_id)
-            prior = self._record(key)
+            prior = self._records.get(key)
             prior_hash = prior.init_script_hash if prior else None
             cached_exec = prior.executor if prior else None
             hash_stale = prior_hash is not None and prior_hash != script_digest
