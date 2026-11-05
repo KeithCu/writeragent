@@ -118,8 +118,8 @@ The end-to-end date/time architecture consists of three synchronized phases:
 | Sidebar Calc selection enrichment | Done | [`plugin/calc/analyzer.py`](../../plugin/calc/analyzer.py) `get_calc_context_for_chat` |
 | C. ISO + PT duration write ingestion | Done | [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) `write_formula_range`, [`plugin/calc/datetime_wire.py`](../../plugin/calc/datetime_wire.py) |
 | P1 column format inheritance on apply | Done | [`plugin/calc/manipulator.py`](../../plugin/calc/manipulator.py) `_find_column_temporal_templates` |
-| MCP `values` string\|array widen | Done | [`plugin/framework/tool.py`](../../plugin/framework/tool.py) `to_mcp_schema` |
-| MCP `range` string\|array widen | Done | [`plugin/framework/tool.py`](../../plugin/framework/tool.py) `to_mcp_schema` (array-typed tools only; OpenAI stays array) |
+| MCP `values` string\|array union (source schema) | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py) `WriteCellRange.parameters`, [`plugin/framework/tool_schema.py`](../../plugin/framework/tool_schema.py) |
+| MCP `range` string\|array widen | Done | [`plugin/framework/tool_schema.py`](../../plugin/framework/tool_schema.py) `to_mcp_schema` (array-typed tools only; OpenAI stays array) |
 | `number_format` omitted from LLM `set_style` (script-only) | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py), [`plugin/framework/tool.py`](../../plugin/framework/tool.py) |
 | Write-tool ISO guidance | Done | [`plugin/calc/cells.py`](../../plugin/calc/cells.py) `WriteCellRange.description` |
 | Unit / UNO tests (core path) | Done | [`tests/calc/test_datetime_serial.py`](../../tests/calc/test_datetime_serial.py), [`tests/calc/test_cells_uno.py`](../../tests/calc/test_cells_uno.py) |
@@ -196,11 +196,11 @@ Do not broaden write parsing to locale display forms. §8 shows `08/05/2026` res
 
 ### 4.3 MCP `values` / `range` schema (string \| array)
 
-**Shipped:** OpenAI/Gemini tool schemas keep `"type": "string"` on `values` (Gemini-friendly; fill-all via a single string). MCP `tools/list` → `inputSchema` widens to `["string","array"]` with flat `items: ["string","number"]` in [`to_mcp_schema`](../../plugin/framework/tool_schema.py) **after** `_normalize_schema_for_strict_providers`. `execute` already coerces lists via `json.dumps`.
+**Shipped:** The source tool schema declares `values` as `["string","array","null"]` with row `items`: each row is an array whose cells are `["string","number","boolean","null"]` (see [`WriteCellRange`](../../plugin/calc/cells.py)). Chat, OpenRouter, Cerebras, and MCP `tools/list` all emit that union after `_normalize_schema_for_strict_providers` — the old normalize collapse of `["string","array"]` to `"array"` only is gone, so a string fill-all and a native 2-D grid stay valid on every host. `execute` passes native lists through; bare numbers still coerce to string for single-value fill.
 
-The same post-normalize pass widens **top-level** array-typed `range` to `["string","array"]` (items stay string). OpenAI/Gemini stay `"array"`. Execute already coerces a bare string to `[str]`. Nested string ranges (e.g. DuckDB `tables.*.range`) are not widened. `conditional_formatting_list` and sheet-filter tools use the same array `range` schema as other Calc range tools.
+The same MCP pass widens **top-level** array-typed `range` to `["string","array"]` (items stay string). OpenAI/Gemini stay `"array"` on `range`. Execute already coerces a bare string to `[str]`. Nested string ranges (e.g. DuckDB `tables.*.range`) are not widened. `conditional_formatting_list` and sheet-filter tools use the same array `range` schema as other Calc range tools.
 
-**Why:** MCP hosts validate arguments against `inputSchema` before `tools/call`. A native JSON array was rejected at the host even though execute accepted lists; a bare `"A1:D10"` was rejected the same way for `range`. Putting `["string","array"]` on the source schema is not enough — normalize collapses that union to `"array"` only, which would break string fill-all on `values`. The MCP-only post-normalize override preserves both shapes on MCP while leaving chat/OpenAI on the Gemini-safe single type.
+**Why:** MCP hosts validate arguments against `inputSchema` before `tools/call`. A bare `"A1:D10"` was rejected when the source schema was array-only for `range`; the generic MCP widen fixes that. Typed `values` on the source schema lets hosts accept native grids without a separate MCP-only override.
 
 ---
 

@@ -965,39 +965,34 @@ class TestExecuteKwargsAndFailure:
         assert result["details"]["ignored_parameters"] == ["paragraph_index"]
 
     def test_execute_coerces_write_formula_range_array_and_number(self):
-        class WriteFormulaRange(ToolBase):
-            name = "write_formula_range"
-            description = "write"
-            parameters = {
-                "type": "object",
-                "properties": {
-                    "range": {"type": "array", "items": {"type": "string"}},
-                    "values": {"type": "string"},
-                },
-                "required": ["range"],
-            }
-            uno_services = ["com.sun.star.text.TextDocument"]
-
-            def execute(self, ctx, **kwargs):
-                return {"status": "ok", "values": kwargs.get("values")}
+        from plugin.calc.cells import WriteCellRange
 
         services = ServiceRegistry()
         reg = ToolRegistry(services)
-        reg.register(WriteFormulaRange())
-        ctx = ToolContext(doc=TestingFactory.create_doc(doc_type="writer"), ctx=None, doc_type="writer", services=services, caller="mcp")
+        reg.register(WriteCellRange())
+        ctx = ToolContext(
+            doc=TestingFactory.create_doc(doc_type="calc"),
+            ctx=None,
+            doc_type="calc",
+            services=services,
+            caller="mcp",
+        )
 
-        listed = reg.execute("write_formula_range", ctx, range=["A1:B1"], values=["a", "b"])
-        assert listed["status"] == "ok"
-        assert listed["values"] == '["a", "b"]'
+        with patch("plugin.calc.cells.CellManipulator") as manip_cls, patch(
+            "plugin.calc.cells.CalcBridge"
+        ), patch("plugin.calc.cells.WriterCompoundUndo"):
+            manip_cls.return_value.write_formula_range.return_value = "wrote"
+            listed = reg.execute("write_formula_range", ctx, range=["A1:B1"], values=["a", "b"])
+            assert listed["status"] == "ok"
+            assert manip_cls.return_value.write_formula_range.call_args[0][1] == ["a", "b"]
 
-        number = reg.execute("write_formula_range", ctx, range=["A1"], values=3)
-        assert number["values"] == "3"
+            reg.execute("write_formula_range", ctx, range=["A1"], values=3)
+            assert manip_cls.return_value.write_formula_range.call_args[0][1] == "3"
 
-        empty = reg.execute("write_formula_range", ctx, range=["A1"], values=[])
-        assert empty["values"] == ""
+            reg.execute("write_formula_range", ctx, range=["A1"], values=[])
+            assert manip_cls.return_value.write_formula_range.call_args[0][1] == []
 
-        # A plain string parameter must still reject a list. The coerce is
-        # only the MCP widening for write_formula_range values.
+        # A plain string parameter must still reject a list.
         class StringArg(ToolBase):
             name = "string_arg"
             description = "string only"
@@ -1008,7 +1003,14 @@ class TestExecuteKwargsAndFailure:
                 return {"status": "ok"}
 
         reg.register(StringArg())
-        rejected = reg.execute("string_arg", ctx, arg1=["nope"])
+        writer_ctx = ToolContext(
+            doc=TestingFactory.create_doc(doc_type="writer"),
+            ctx=None,
+            doc_type="writer",
+            services=services,
+            caller="mcp",
+        )
+        rejected = reg.execute("string_arg", writer_ctx, arg1=["nope"])
         assert rejected["status"] == "error"
         assert rejected["code"] == "VALIDATION_ERROR"
 

@@ -368,26 +368,39 @@ def test_coerce_call_args_wraps_array_range_and_formula_values():
 
     props = {
         "range": {"type": "array", "items": {"type": "string"}},
-        "values": {"type": "string"},
+        "values": {
+            "type": ["string", "array", "null"],
+            "items": {
+                "type": "array",
+                "items": {"type": ["string", "number", "boolean", "null"]},
+            },
+        },
     }
     out = coerce_call_args("write_formula_range", props, {"range": "A1", "values": ["a", 1]})
     assert out["range"] == ["A1"]
-    assert out["values"] == '["a", 1]'
+    assert out["values"] == ["a", 1]
+    empty = coerce_call_args("write_formula_range", props, {"range": "A1", "values": []})
+    assert empty["values"] == []
+    number = coerce_call_args("write_formula_range", props, {"range": "A1", "values": 3})
+    assert number["values"] == "3"
     plain = coerce_call_args("other", {"range": {"type": "string"}}, {"range": "A1"})
     assert plain["range"] == "A1"
 
 
-def test_write_formula_range_mcp_widens_values_to_string_or_array():
-    """#374 Bug 2: MCP hosts reject native arrays when schema is string-only."""
+def test_write_formula_range_values_schema_string_array_union():
+    """Chat and MCP share the source values union (string, 2-D array, null)."""
     from plugin.calc.cells import WriteCellRange
 
     tool = WriteCellRange()
     openai = to_openai_schema(tool)["function"]["parameters"]["properties"]["values"]
     mcp = to_mcp_schema(tool)["inputSchema"]["properties"]["values"]
-    # values is optional (source-only copy); strict providers get string|null.
-    assert openai["type"] == ["string", "null"]
-    assert mcp["type"] == ["string", "array"]
-    assert mcp["items"]["type"] == ["string", "number"]
+    for schema in (openai, mcp):
+        assert schema["type"] == ["string", "array", "null"]
+        assert schema["items"]["type"] == "array"
+        assert schema["items"]["items"]["type"] == ["string", "number", "boolean", "null"]
+    dumped = json.dumps(to_openai_schema(tool))
+    assert "anyOf" not in dumped
+    assert "oneOf" not in dumped
     openai_params = to_openai_schema(tool)["function"]["parameters"]
     assert "source" in openai_params["properties"]
     assert openai_params["required"] == ["range"]

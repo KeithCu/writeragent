@@ -482,7 +482,7 @@ Smells worth remembering, with **designs we are not doing**. Smaller follow-ups 
 | `MODULES is _DEFAULT_MODULES` dual dotted-key paths | delete the loop path without a dedicated test pass | **done:** loop path is gone; schema lookup reads the rebuilt dicts and `set_manifest_modules` is the only mutator |
 | `ToolBaseDummy` copies `get_collection` / `get_item` | mixin / second ABC | **done:** Dummy no longer copies those helpers (`_tool_error` stays) |
 | `SafeLogger` vs `safe_log_exception` vs `log_exception` | do not merge into one wrapper | `SafeLogger` and `safe_log_exception` are removed (they had no production callers); production paths are `log.exception` and `log_exception` |
-| `to_mcp_schema` name switches | `postprocess_mcp_schema` on every tool | move only `write_formula_range`/`values`; keep generic `range` string\|array in the converter |
+| `to_mcp_schema` name switches | `postprocess_mcp_schema` on every tool | keep generic `range` string\|array widen in the converter |
 | `ToolContext` many constructor fields | frozen dataclass + `ToolCallbacks` | keyword-only `__init__` if caller churn is acceptable |
 | `load_modules` MRO `__name__` | `issubclass(attr, ModuleBase)` | keep string MRO (duplicate classes on LO `sys.path`) |
 | Named test hooks (`_force_marshal_mode`, `_designated_main_thread`) | DI for tests | leave named hooks |

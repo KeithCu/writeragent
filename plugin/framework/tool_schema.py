@@ -195,9 +195,8 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     when this property's type includes array. Nested ``range`` fields are
     not walked.
 
-    ``write_formula_range`` values stay type string on the source schema
-    (Gemini/Groq must not see a union) while MCP sends a native array.
-    A list or number becomes the string ``execute`` already json-encodes.
+    ``write_formula_range`` values accept string or native array on the source
+    schema; only a bare number is coerced to string for single-cell fill.
     """
     if not isinstance(kwargs, dict):
         return kwargs
@@ -218,13 +217,8 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
 
     if tool_name == "write_formula_range":
         fov = out.get("values")
-        coerced: str | None = None
-        if isinstance(fov, list):
-            coerced = json.dumps(fov) if fov else ""
-        elif isinstance(fov, (int, float)) and not isinstance(fov, bool):
-            coerced = str(fov)
-        if coerced is not None:
-            out["values"] = coerced
+        if isinstance(fov, (int, float)) and not isinstance(fov, bool):
+            out["values"] = str(fov)
     return out
 
 
@@ -377,16 +371,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
             props["domain"]["description"] = format_specialized_domains_description(agent_label=agent_label)
 
     input_schema = _normalize_schema_for_strict_providers(input_schema)
-    # MCP hosts validate args against inputSchema before tools/call. Keep string|array for
-    # write_formula_range so native JSON arrays are accepted (OpenAI/Gemini stay string-only
-    # via to_openai_schema collapse — see docs/calc/date-time-handling.md §4.3).
     props = input_schema["properties"]
-    if tool.name == "write_formula_range" and "values" in props:
-        fov = props["values"]
-        fov["type"] = ["string", "array"]
-        fov["items"] = {"type": ["string", "number"]}
-        desc_bits = fov.get("description") or ""
-        fov["description"] = ((desc_bits + " " if desc_bits else "") + "Native JSON array of strings/numbers is accepted (same length as the range); a single string still fills the entire range.").strip()
     # Execute already coerces a bare range string to [str]. Source schemas stay
     # array-only; widen MCP so a host may send the string execute already wraps.
     rn = props.get("range")
