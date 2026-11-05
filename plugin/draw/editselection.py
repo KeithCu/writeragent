@@ -82,7 +82,7 @@ def _append_text_target(targets: list[Any], shape: Any) -> None:
     if not non_empty:
         return
     # Prefer the shape object when it holds the same text; Impress undo stacks more reliably on the shape.
-    for surface, unused_text in non_empty:
+    for surface, _text in non_empty:
         if surface is shape:
             targets.append(surface)
             return
