@@ -53,7 +53,7 @@ class CoerceResult:
 
 
 @deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
-def _dedupe_column_names(names: list[str]) -> list[str]:
+def dedupe_column_names(names: list[str]) -> list[str]:
     """Unique labels, one per input, on the default ``CalcRange.to_pandas`` path.
 
     The counter used to be stored only under the raw base. ``['a', 'a', 'a_1']``
@@ -865,7 +865,7 @@ def grid_to_dataframe(
             # Labels, not values. parse_strings on this row turned "00123" into the
             # column name "123.0" and str(2024.0) into "2024.0".
             raw_headers = [_coerce_cell(cell, parse=False) for cell in grid[header_idx]]
-            col_names = _dedupe_column_names([header_label(h) for h in raw_headers])
+            col_names = dedupe_column_names([header_label(h) for h in raw_headers])
             body = grid[header_idx + 1 :]
         else:
             width = max((len(row) for row in grid), default=0)

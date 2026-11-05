@@ -246,7 +246,7 @@ def test_run_units_check_dimensionality_compatible(value, value_2, expected):
     assert result["compatible"] is expected
 
 def test_run_units_missing_package():
-    with patch("plugin.scripting.venv.units._get_ureg", return_value=None):
+    with patch("plugin.scripting.venv.units.get_ureg", return_value=None):
         result = run_units({"helper": "convert_quantity", "params": {"value": "1", "from_unit": "m", "to_unit": "ft"}}, None, {})
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"

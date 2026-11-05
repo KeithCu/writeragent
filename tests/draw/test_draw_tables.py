@@ -188,6 +188,23 @@ def test_insert_table_ok():
     page.add.assert_called_once_with(shape)
 
 
+def test_insert_table_passes_active_page_index():
+    ctx = MagicMock()
+    ctx.active_page_index = 3
+    shape = MagicMock()
+    page = MagicMock()
+    ctx.doc.createInstance.return_value = shape
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge = bridge_cls.return_value
+        bridge.resolve_page.return_value = (page, 3)
+        with patch("plugin.draw.tables._table_model", return_value=_Table(1, 1)):
+            with patch("com.sun.star.awt.Point", MagicMock(), create=True), patch(
+                "com.sun.star.awt.Size", MagicMock(), create=True
+            ):
+                insert_draw_table(ctx, rows=2, columns=2)
+    bridge.resolve_page.assert_called_once_with(None, active_page_index=3)
+
+
 def test_insert_table_rejects_zero_rows():
     from plugin.framework.errors import ToolExecutionError
 

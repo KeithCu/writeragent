@@ -80,6 +80,23 @@ def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
     mgr._primed = True
     mgr._primed_generation = 0
 
+def _hold_pipe_in_thread(mgr: PythonWorkerManager) -> tuple[threading.Thread, threading.Event]:
+    warm = mgr._warm
+    assert warm is not None
+    held = threading.Event()
+    release = threading.Event()
+
+    def _run() -> None:
+        with warm.lease(Deadline(30), wait=0) as leased:
+            assert not isinstance(leased, dict)
+            held.set()
+            assert release.wait(timeout=5)
+
+    thread = threading.Thread(target=_run)
+    thread.start()
+    assert held.wait(timeout=2)
+    return thread, release
+
 def _session_ok(mgr: PythonWorkerManager) -> bool:
     from plugin.framework.warm_child import Lease
 
@@ -506,8 +523,7 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
             if t.name == 'ipc-stdin-write':
                 t.join(timeout=5)
                 assert not t.is_alive()
-        assert warm._io_lock.acquire(timeout=1)
-        warm._io_lock.release()
+        assert not warm.io_locked()
     finally:
         warm.retire()
 
@@ -520,7 +536,7 @@ def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_REENTRY'
     assert 'called back' in result['message']
-    assert not mgr._io_lock.locked()
+    assert mgr._warm is not None and not mgr._warm.io_locked()
 
 def test_large_stdin_write_completes_intact():
     mgr = PythonWorkerManager(sys.executable, {})
@@ -1181,10 +1197,18 @@ def test_split_grid_pickle_and_json_round_trip():
     assert unpacked_host_pickle_from_child == grid
 
 def test_warm_logs_prime_failure(caplog: pytest.LogCaptureFixture) -> None:
+    import contextlib
+
     mgr = PythonWorkerManager('/tmp/python-warm-fail', {'PATH': '/usr/bin'})
-    mgr._ensure_warmed = lambda: {'status': 'error', 'message': 'prime failed'}
-    with caplog.at_level(logging.WARNING, logger='plugin.scripting.venv_worker'):
-        mgr.warm()
+
+    @contextlib.contextmanager
+    def fake_session(*args: object, **kwargs: object):
+        del args, kwargs
+        yield {'status': 'error', 'message': 'prime failed'}
+
+    with patch.object(mgr, '_io_session', fake_session):
+        with caplog.at_level(logging.WARNING, logger='plugin.scripting.venv_worker'):
+            mgr.warm()
     assert 'prime failed' in caplog.text
 
 def test_retired_execute_does_not_clear_cache(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1686,9 +1710,7 @@ def test_execute_ui_thread_returns_busy_when_pipe_lock_held(monkeypatch):
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: True)
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    assert mgr._io_lock.acquire(timeout=1)
-    assert mgr._warm is not None
-    mgr._warm._fake_io_owner = threading.get_ident() + 1
+    thread, release = _hold_pipe_in_thread(mgr)
     try:
         started = time.monotonic()
         result = mgr.execute('result = 1', timeout_sec=1)
@@ -1696,8 +1718,8 @@ def test_execute_ui_thread_returns_busy_when_pipe_lock_held(monkeypatch):
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
-        mgr._warm._fake_io_owner = None
-        mgr._io_lock.release()
+        release.set()
+        thread.join(timeout=2)
 
 def test_execute_refuses_other_thread_during_tool_rpc():
     mgr = PythonWorkerManager(sys.executable, {})
@@ -1713,7 +1735,7 @@ def test_execute_leaves_when_holder_enters_tool_rpc(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    assert mgr._io_lock.acquire(timeout=1)
+    thread, release = _hold_pipe_in_thread(mgr)
 
     def set_tool_rpc() -> None:
         time.sleep(0.1)
@@ -1726,28 +1748,28 @@ def test_execute_leaves_when_holder_enters_tool_rpc(monkeypatch: pytest.MonkeyPa
         assert 'busy' in result['message']
     finally:
         mgr._serving_tool_call = False
-        mgr._io_lock.release()
+        release.set()
+        thread.join(timeout=2)
 
 def test_execute_lock_budget_is_worker_reentry(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
     monkeypatch.setattr(venv_worker_module, '_IO_LOCK_ACQUIRE_TIMEOUT_SEC', 0.25)
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    assert mgr._io_lock.acquire(timeout=1)
+    thread, release = _hold_pipe_in_thread(mgr)
     try:
         result = mgr.execute('result = 1', timeout_sec=1)
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
-        mgr._io_lock.release()
+        release.set()
+        thread.join(timeout=2)
 
 def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {})
     proc = MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO())
     _install_mock_proc(mgr, proc)
-    assert mgr._io_lock.acquire(timeout=1)
-    assert mgr._warm is not None
-    mgr._warm._fake_io_owner = threading.get_ident()
+    thread, release = _hold_pipe_in_thread(mgr)
     outcome: list[dict[str, Any]] = []
 
     def _other() -> None:
@@ -1761,8 +1783,8 @@ def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     waiter = threading.Thread(target=_other)
     waiter.start()
     time.sleep(0.1)
-    mgr._warm._fake_io_owner = None
-    mgr._io_lock.release()
+    release.set()
+    thread.join(timeout=2)
     waiter.join(timeout=2)
     assert not waiter.is_alive()
     assert outcome and outcome[0]['status'] == 'ok'
@@ -2613,9 +2635,49 @@ def test_ui_reentry_while_spawn_thread_owns_io(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_lease_error_keeps_error_text() -> None:
+    from plugin.framework.warm_child import error_dict
+
     err = {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": "handshake boom"}
     mapped = PythonWorkerManager._lease_error_to_worker(err)
     assert mapped["message"] == "handshake boom"
+
+    cancelled = PythonWorkerManager._lease_error_to_worker(error_dict("CANCELLED", "ignored"))
+    assert cancelled["code"] == "CANCELLED"
+    assert cancelled["message"] == "Python worker stopped by user"
+
+    busy = PythonWorkerManager._lease_error_to_worker(error_dict("PIPE_LOCK_BUSY", "ignored"))
+    assert busy["code"] == "WORKER_REENTRY"
+    assert "busy" in busy["message"]
+
+    shutdown = PythonWorkerManager._lease_error_to_worker(error_dict("SERVICE_SHUTDOWN", "ignored"))
+    assert shutdown["code"] == "WORKER_IPC_ERROR"
+    assert "will not be restarted" in shutdown["message"]
+
+
+def test_io_session_passes_refuse_dict_through() -> None:
+    mgr = PythonWorkerManager(sys.executable, {})
+    _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
+    real_refuse = PythonWorkerManager._refuse_lease
+    first = True
+
+    def refuse_then_retire() -> dict[str, Any] | None:
+        nonlocal first
+        if first:
+            first = False
+            mgr._retired = True
+            return real_refuse(mgr)
+        return None
+
+    try:
+        with patch.object(mgr, '_refuse_lease', side_effect=refuse_then_retire):
+            with mgr._io_session() as session:
+                assert isinstance(session, dict)
+                assert session.get("code") == "WORKER_IPC_ERROR"
+                assert "will not be restarted" in session.get("message", "")
+    finally:
+        warm = mgr._warm
+        if warm is not None:
+            warm.retire()
 
 
 def test_is_worker_alive_reads_proc_once(monkeypatch: pytest.MonkeyPatch) -> None:

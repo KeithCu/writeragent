@@ -23,7 +23,7 @@ from plugin.scripting.venv.coerce import (
     resolve_columns,
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
-    _dedupe_column_names,
+    dedupe_column_names,
 )
 from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.results import error_result as _error_result
@@ -710,7 +710,7 @@ def _flatten_result_columns(df: Any) -> Any:
         return df
 
     out_cols = [flat_label(col) for col in df.columns]
-    deduped = _dedupe_column_names(out_cols)
+    deduped = dedupe_column_names(out_cols)
     res = df.copy()
     res.columns = deduped
     return res

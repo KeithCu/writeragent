@@ -20,7 +20,7 @@ _TIMEOUT_FALLBACK_DEFAULT = 10
 _TIMEOUT_FALLBACK_MIN = 1
 _TIMEOUT_FALLBACK_MAX = 600
 
-# Spawn + auto-import prime in PythonWorkerManager._ensure_warmed — not charged against user timeout.
+# Spawn + auto-import prime in PythonWorkerManager._ensure_warmed_unlocked — not charged against user timeout.
 WARM_WORKER_TIMEOUT_SEC = 30
 
 # Local pipe writes should complete quickly even for large Calc payloads. A separate

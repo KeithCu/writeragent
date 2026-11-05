@@ -333,9 +333,8 @@ def main() -> None:
 
         lpe = sys.modules.get(_LPE_MODULE)
         if lpe is not None:
-            finalize = getattr(lpe, "finalize_thread_pool_timeout", None)
-            if callable(finalize):
-                finalize()
+            # Process backstop: sets abandoned_timeout before os._exit when a pool future outlives the frame.
+            lpe.finalize_thread_pool_timeout()
             if getattr(lpe, "abandoned_timeout", False):
                 setattr(lpe, "abandoned_timeout", False)
                 os._exit(1)

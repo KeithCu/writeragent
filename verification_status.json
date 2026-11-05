@@ -292,7 +292,7 @@
           "ensure_rectangular_2d",
           "is_calc_range_payload",
           "pack_calc_range_envelope",
-          "_dedupe_column_names"
+          "dedupe_column_names"
         ],
         "ci_integration": true
       },
