@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.tool import ToolBase, to_mcp_schema, to_openai_schema
-from plugin.framework.tool_schema import _normalize_schema_for_strict_providers
+from plugin.framework.tool_schema import _normalize_schema_for_strict_providers, _strip_mcp_null_enums
 
 class DummyTool(ToolBase):
     name = "dummy_tool"
@@ -214,6 +214,86 @@ def test_optional_scalar_nullable_mcp():
     props = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
     assert props["max_chars"]["type"] == ["integer", "null"]
     assert props["document_url"]["type"] == ["string", "null"]
+    assert props["scope"]["type"] == "string"
+    assert None not in props["scope"].get("enum", [])
+    assert "full" in props["scope"]["enum"]
+
+
+def test_mcp_optional_enum_strips_null_not_openai():
+    params = {
+        "type": "object",
+        "properties": {
+            "outer": {
+                "type": "object",
+                "properties": {
+                    "inner_scope": {"type": "string", "enum": ["a", "b"]},
+                },
+            },
+            "scope": {"type": "string", "enum": ["full", "selection"]},
+        },
+    }
+    normalized = _normalize_schema_for_strict_providers(params)
+    mcp = _strip_mcp_null_enums(normalized)
+    assert mcp["properties"]["scope"]["type"] == "string"
+    assert mcp["properties"]["scope"]["enum"] == ["full", "selection"]
+    assert None not in mcp["properties"]["scope"]["enum"]
+    inner = mcp["properties"]["outer"]["properties"]["inner_scope"]
+    assert inner["type"] == "string"
+    assert inner["enum"] == ["a", "b"]
+
+    tool = DummyTool()
+    tool.parameters = params  # type: ignore[misc]
+    openai_props = to_openai_schema(tool)["function"]["parameters"]["properties"]
+    assert openai_props["scope"]["type"] == ["string", "null"]
+    assert None in openai_props["scope"]["enum"]
+
+
+def test_mcp_enum_keeps_string_null_literal():
+    params = {
+        "type": "object",
+        "properties": {"mode": {"type": "string", "enum": ["null", "off"]}},
+    }
+    res = _strip_mcp_null_enums(_normalize_schema_for_strict_providers(params))
+    assert "null" in res["properties"]["mode"]["enum"]
+
+
+def test_mcp_required_enum_unchanged_by_strip():
+    params = {
+        "type": "object",
+        "properties": {"kind": {"type": "string", "enum": ["x", "y"]}},
+        "required": ["kind"],
+    }
+    res = _strip_mcp_null_enums(_normalize_schema_for_strict_providers(params))
+    assert res["properties"]["kind"]["type"] == "string"
+    assert res["properties"]["kind"]["enum"] == ["x", "y"]
+
+
+def test_mcp_writer_optional_enums_no_null_in_enum():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
+    from plugin.writer.outline import GetDocumentTree
+    from plugin.writer.styles import ApplyStyle
+
+    def assert_mcp_string_enum(props, key):
+        prop = props[key]
+        assert prop["type"] == "string", key
+        assert None not in prop.get("enum", []), key
+
+    adc = to_mcp_schema(ApplyDocumentContent())["inputSchema"]["properties"]
+    assert_mcp_string_enum(adc, "position")
+    assert_mcp_string_enum(adc, "target")
+    sty = to_mcp_schema(ApplyStyle())["inputSchema"]["properties"]
+    assert_mcp_string_enum(sty, "target")
+    assert_mcp_string_enum(sty, "clear_direct")
+    assert_mcp_string_enum(sty, "family")
+    gdc = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
+    assert_mcp_string_enum(gdc, "scope")
+    gdt = to_mcp_schema(GetDocumentTree())["inputSchema"]["properties"]
+    assert_mcp_string_enum(gdt, "strategy")
+
+    openai_adc = to_openai_schema(ApplyDocumentContent())["function"]["parameters"]["properties"]
+    assert None in openai_adc["position"]["enum"]
+    assert openai_adc["position"]["type"] == ["string", "null"]
 
 
 def test_required_scalar_not_nullable():

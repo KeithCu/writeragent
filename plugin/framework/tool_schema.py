@@ -305,6 +305,42 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     return params
 
 
+def _strip_mcp_null_enums(node: Any) -> Any:
+    """Remove JSON null from MCP enum lists; Gemini rejects enum[k] when agy forwards schemas.
+
+    OpenAI wire schemas keep null in optional enums via ``to_openai_schema`` only.
+    Optional enum params are omitted at call time; execute defaults are unchanged.
+    """
+    if isinstance(node, list):
+        return [_strip_mcp_null_enums(item) for item in node]
+    if not isinstance(node, dict):
+        return node
+    out = dict(node)
+    props = out.get("properties")
+    if isinstance(props, dict):
+        out["properties"] = {k: _strip_mcp_null_enums(v) for k, v in props.items()}
+    items = out.get("items")
+    if isinstance(items, dict):
+        out["items"] = _strip_mcp_null_enums(items)
+    enum_val = out.get("enum")
+    if isinstance(enum_val, list) and None in enum_val:
+        new_enum = [v for v in enum_val if v is not None]
+        if new_enum:
+            out["enum"] = new_enum
+        else:
+            out.pop("enum", None)
+        raw_type = out.get("type")
+        if isinstance(raw_type, list) and "null" in raw_type:
+            types = [t for t in raw_type if t != "null"]
+            if len(types) == 1:
+                out["type"] = types[0]
+            elif types:
+                out["type"] = types
+            else:
+                out.pop("type", None)
+    return out
+
+
 @deal.pre(lambda tool, **kwargs: getattr(tool, "name", None) is not None)
 @deal.post(lambda result: isinstance(result, dict) and result.get("type") == "function" and isinstance(result.get("function"), dict))
 @deal.ensure(lambda tool, doc_type=None, result=None, **kwargs: result is not None and isinstance(result, dict) and result.get("function", {}).get("name") == tool.name)
@@ -371,6 +407,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
             props["domain"]["description"] = format_specialized_domains_description(agent_label=agent_label)
 
     input_schema = _normalize_schema_for_strict_providers(input_schema)
+    input_schema = _strip_mcp_null_enums(input_schema)
     props = input_schema["properties"]
     # Execute already coerces a bare range string to [str]. Source schemas stay
     # array-only; widen MCP so a host may send the string execute already wraps.

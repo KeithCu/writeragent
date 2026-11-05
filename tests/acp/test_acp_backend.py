@@ -15,9 +15,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args, _tool_stream_kind
+from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args, _tool_stream_kind, _AGENT_TERMINATED
 from plugin.acp.acp_connection import ACPTimeoutError
 from plugin.acp.registry import ClaudeBackend, GrokBackend, HermesBackend, OpenCodeBackend, AntigravityBackend
+from plugin.framework.errors import ToolExecutionError
 from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.version import EXTENSION_VERSION
@@ -588,6 +589,11 @@ def _bare_backend():
     backend._send_lock = threading.Lock()
     backend._pending_permissions = {}
     backend._session_cancel_notified = False
+    backend._answer_buf = []
+    backend._agent_log_path = None
+    backend._available_model_ids = frozenset()
+    backend._session_model_id = None
+    backend._model_warn_key = None
     backend.display_name = "Test"
     backend.binary_name = "test-agent"
     return backend
@@ -2489,4 +2495,319 @@ def test_prompt_runtime_error_on_unhealthy_conn_shuts_down():
     assert backend._conn is None
 
 
+_AGY_AVAILABLE_MODELS = (
+    "gemini-4-argon-medium",
+    "gemini-4-argon",
+    "gemini-3.8-flash-medium",
+    "gemini-3.8-flash",
+    "gemini-3.8-flash-fast",
+    "gemini-4-argon-fast",
+)
+
+
+def _agy_session_new_result(*, session_id: str = "sess-agy", current: str = "gemini-4-argon-medium") -> dict:
+    return {
+        "sessionId": session_id,
+        "models": {
+            "availableModels": [{"modelId": mid, "name": mid} for mid in _AGY_AVAILABLE_MODELS],
+            "currentModelId": current,
+        },
+    }
+
+
+def _antigravity_backend():
+    backend = AntigravityBackend.__new__(AntigravityBackend)
+    backend._active_cancel = None
+    backend._closed = False
+    backend._inflight_token = None
+    backend._session_id = None
+    backend._session_url = None
+    backend._session_mcp_url = None
+    backend._session_prompted = False
+    backend._ready = False
+    backend._conn = None
+    backend._prompt_done = threading.Event()
+    backend._prompt_done.set()
+    backend._state_lock = threading.Lock()
+    backend._send_lock = threading.Lock()
+    backend._pending_permissions = {}
+    backend._session_cancel_notified = False
+    backend._answer_buf = []
+    backend._agent_log_path = None
+    backend._available_model_ids = frozenset()
+    backend._session_model_id = None
+    backend._model_warn_key = None
+    backend.display_name = "Antigravity"
+    backend.binary_name = "agy"
+    backend._binary_path = "/usr/bin/agy"
+    backend._extra_args = ["acp"]
+    return backend
+
+
+class TestAntigravityAgyModel:
+    def _run_send(self, backend, conn, *, agy_model: str):
+        calls: list[tuple[str, dict]] = []
+
+        def send_request(method, params=None, timeout=120):
+            calls.append((method, params or {}))
+            if method == "session/new":
+                return _agy_session_new_result()
+            if method == "session/set_model":
+                return {}
+            if method == "session/prompt":
+                return {"stopReason": "end_turn"}
+            raise AssertionError(method)
+
+        conn.send_request.side_effect = send_request
+
+        def ensure_connection(cancel=None):
+            backend._conn = conn
+            backend._ready = True
+
+        backend._ensure_connection = ensure_connection
+
+        def config_get(key, default=None):
+            if key == "mcp.mcp_enabled":
+                return "false"
+            if key == "agent_backend.agy_model":
+                return agy_model
+            return default
+
+        q = queue.Queue()
+        with patch("plugin.framework.config.get_config", side_effect=config_get):
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        return calls, _drain(q)
+
+    def test_set_model_after_session_new_when_configured(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        calls, _events = self._run_send(backend, conn, agy_model="gemini-3.8-flash-medium")
+        methods = [m for m, _p in calls]
+        assert methods.count("session/new") == 1
+        assert methods.count("session/set_model") == 1
+        _m, params = [pair for pair in calls if pair[0] == "session/set_model"][0]
+        assert params["modelId"] == "gemini-3.8-flash-medium"
+        assert params["sessionId"] == "sess-agy"
+        assert backend._session_id == "sess-agy"
+
+    def test_set_model_rpc_rejection_does_not_fail_turn(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+
+        def send_request(method, params=None, timeout=120):
+            if method == "session/new":
+                return _agy_session_new_result()
+            if method == "session/set_model":
+                raise ToolExecutionError(
+                    "ACP error: Unknown model ID: bad",
+                    details={"rpc_code": -32602},
+                )
+            if method == "session/prompt":
+                return {"stopReason": "end_turn"}
+            raise AssertionError(method)
+
+        conn.send_request.side_effect = send_request
+
+        def ensure_connection(cancel=None):
+            backend._conn = conn
+            backend._ready = True
+
+        backend._ensure_connection = ensure_connection
+
+        def config_get(key, default=None):
+            if key == "mcp.mcp_enabled":
+                return "false"
+            if key == "agent_backend.agy_model":
+                return "gemini-3.8-flash-medium"
+            return default
+
+        q = queue.Queue()
+        with patch("plugin.framework.config.get_config", side_effect=config_get):
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        events = _drain(q)
+        assert backend._session_id == "sess-agy"
+        assert StreamQueueKind.STREAM_DONE in [e[0] for e in events]
+        assert StreamQueueKind.ERROR not in [e[0] for e in events]
+
+    def test_empty_agy_model_skips_set_model(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        calls, _events = self._run_send(backend, conn, agy_model="")
+        assert "session/set_model" not in [m for m, _p in calls]
+
+    def test_unknown_agy_model_warns_and_skips_set_model(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        calls, _events = self._run_send(backend, conn, agy_model="claude-sonnet-5-5-medium")
+        assert "session/set_model" not in [m for m, _p in calls]
+
+    def test_current_model_matches_setting_skips_set_model(self):
+        backend = _antigravity_backend()
+        conn = _mock_conn()
+        calls, _events = self._run_send(backend, conn, agy_model="gemini-4-argon-medium")
+        assert "session/set_model" not in [m for m, _p in calls]
+
+    def test_hermes_ignores_agy_model(self):
+        backend = _bare_backend()
+        backend.backend_id = "hermes"
+        conn = _mock_conn()
+        calls: list[tuple[str, dict]] = []
+
+        def send_request(method, params=None, timeout=120):
+            calls.append((method, params or {}))
+            if method == "session/new":
+                return {"sessionId": "sess-h"}
+            if method == "session/prompt":
+                return {"stopReason": "end_turn"}
+            raise AssertionError(method)
+
+        conn.send_request.side_effect = send_request
+
+        def ensure_connection(cancel=None):
+            backend._conn = conn
+            backend._ready = True
+
+        backend._ensure_connection = ensure_connection
+
+        def config_get(key, default=None):
+            if key == "mcp.mcp_enabled":
+                return "false"
+            if key == "agent_backend.agy_model":
+                return "gemini-3.8-flash-medium"
+            return default
+
+        q = queue.Queue()
+        with patch("plugin.framework.config.get_config", side_effect=config_get):
+            backend.send(queue=q, user_message="hi", document_context=None, document_url=None)
+        assert "session/set_model" not in [m for m, _p in calls]
+
+
+class TestAntigravityTerminatedBanner:
+    def test_banner_becomes_error_from_log(self, tmp_path):
+        backend = _antigravity_backend()
+        log_path = tmp_path / "agy-acp.log"
+        log_path.write_text(
+            "noise\nagent executor error: first\nmore\nagent executor error: INVALID_ARGUMENT (code 400): enum bad\n",
+            encoding="utf-8",
+        )
+        backend._agent_log_path = str(log_path)
+        q = queue.Queue()
+        backend._answer_buf = ["\n⚠ Agent execution terminated due to error.\n"]
+        backend._finish_prompt_result({"stopReason": "end_turn"}, q)
+        events = _drain(q)
+        assert (StreamQueueKind.ERROR,) in [(e[0],) for e in events]
+        assert all(e[0] != StreamQueueKind.CHUNK for e in events)
+        err = next(e for e in events if e[0] == StreamQueueKind.ERROR)
+        assert "INVALID_ARGUMENT (code 400): enum bad" in err[1]["message"]
+
+    def test_missing_log_falls_back_to_banner(self):
+        backend = _antigravity_backend()
+        backend._agent_log_path = "/nonexistent/agy-acp.log"
+        q = queue.Queue()
+        backend._answer_buf = ["\n⚠ Agent execution terminated due to error.\n"]
+        backend._finish_prompt_result({"stopReason": "end_turn"}, q)
+        err = next(e for e in _drain(q) if e[0] == StreamQueueKind.ERROR)
+        assert _AGENT_TERMINATED in err[1]["message"]
+
+    def test_quota_chunk_stays_answer(self):
+        backend = _antigravity_backend()
+        q = queue.Queue()
+        update = {
+            "sessionUpdate": "agent_message_chunk",
+            "content": {"type": "text", "text": "⚠ Individual quota reached for today."},
+        }
+        backend._handle_acp_update(update, q)
+        backend._finish_prompt_result({"stopReason": "end_turn"}, q)
+        events = _drain(q)
+        assert (StreamQueueKind.CHUNK, "⚠ Individual quota reached for today.") in events
+        assert StreamQueueKind.STREAM_DONE in [e[0] for e in events]
+
+    def test_streaming_two_chunks_not_held(self):
+        backend = _antigravity_backend()
+        q = queue.Queue()
+        backend._handle_acp_update(
+            {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "I am"}},
+            q,
+        )
+        backend._handle_acp_update(
+            {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " here."}},
+            q,
+        )
+        assert _drain(q) == [
+            (StreamQueueKind.CHUNK, "I am"),
+            (StreamQueueKind.CHUNK, " here."),
+        ]
+
+    def test_banner_prefix_held_then_flushes_on_divergence(self):
+        backend = _antigravity_backend()
+        q = queue.Queue()
+        backend._handle_acp_update(
+            {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "\n⚠ Agent"}},
+            q,
+        )
+        assert _drain(q) == []
+        backend._handle_acp_update(
+            {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": " hello"}},
+            q,
+        )
+        assert _drain(q) == [(StreamQueueKind.CHUNK, "\n⚠ Agent hello")]
+
+    def test_hermes_banner_still_chunks(self):
+        backend = _bare_backend()
+        q = queue.Queue()
+        backend._handle_acp_update(
+            {
+                "sessionUpdate": "agent_message_chunk",
+                "content": {"type": "text", "text": "\n⚠ Agent execution terminated due to error.\n"},
+            },
+            q,
+        )
+        assert _drain(q) == [
+            (StreamQueueKind.CHUNK, "\n⚠ Agent execution terminated due to error.\n"),
+        ]
+
+
+class TestAntigravityManagedLogArgs:
+    def test_managed_log_args_appended_on_spawn(self):
+        captured: dict[str, list[str]] = {}
+
+        def conn_factory(*args, **kwargs):
+            captured["cmd_line"] = kwargs["cmd_line"]
+            return _startup_conn()
+
+        backend = AntigravityBackend()
+        with (
+            patch("plugin.framework.config.get_config", side_effect=_config_get(path="/usr/bin/agy", args="")),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+            patch("plugin.framework.config.user_config_dir", return_value="/tmp/wa-user"),
+            patch("plugin.acp.acp_backend.ACPConnection", side_effect=conn_factory),
+        ):
+            backend._ensure_connection()
+        cmd_line = captured["cmd_line"]
+        assert "--log-file" in cmd_line
+        assert "/tmp/wa-user/agy-acp.log" in cmd_line
+
+    def test_user_log_file_not_duplicated(self):
+        captured: dict[str, list[str]] = {}
+
+        def conn_factory(*args, **kwargs):
+            captured["cmd_line"] = kwargs["cmd_line"]
+            return _startup_conn()
+
+        with (
+            patch(
+                "plugin.framework.config.get_config",
+                side_effect=_config_get(path="/usr/bin/agy", args="--log-file /custom/agy.log"),
+            ),
+            patch("os.path.isfile", return_value=True),
+            patch("shutil.which", return_value=None),
+            patch("plugin.acp.acp_backend.ACPConnection", side_effect=conn_factory),
+        ):
+            backend = AntigravityBackend()
+            backend._ensure_connection()
+        cmd_line = captured["cmd_line"]
+        assert cmd_line.count("--log-file") == 1
+        assert "/custom/agy.log" in cmd_line
+        assert backend._agent_log_path == "/custom/agy.log"
 
