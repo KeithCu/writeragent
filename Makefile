@@ -823,11 +823,15 @@ excel-py-roundtrip:
 		"$(PYTHON)" scripts/roundtrip_excel_py_samples.py --samples PythonExcelSamples --out build/excel_py_roundtrip; \
 	fi
 
+# SKIP_UNO=1: typecheck + pytest + excel-py-roundtrip only (PR CI unit job).
 test:
 	@echo "=== make test: typecheck ==="
 	@$(MAKE) typecheck
 	@echo "=== make test: pytest + LibreOffice ==="
-	@$(MAKE) test-run
+	@$(MAKE) pytest PYTEST_WORKERS=6
+ifneq ($(SKIP_UNO),1)
+	@$(MAKE) test-uno
+endif
 	@$(MAKE) excel-py-roundtrip
 
 CROSSHAIR_MODULE = plugin/scripting/payload_codec.py
