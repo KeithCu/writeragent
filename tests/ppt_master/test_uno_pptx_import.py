@@ -27,7 +27,7 @@ from plugin.draw.shape_clone import (
     clone_shape,
 )
 from plugin.ppt_master.adapter.uno_pptx_import import copy_shapes_to_page
-from tests.harness.strip_bundle import is_release_build
+from tests.harness.strip_bundle import is_release_build, skip_if_release_build
 
 _NOTES = "com.sun.star.presentation.NotesShape"
 _HEADER = "com.sun.star.presentation.HeaderShape"
@@ -706,6 +706,7 @@ def test_copy_shapes_to_page_empty_group_remove_fails_logs_debug(monkeypatch, ca
 
 
 def test_import_pptx_public_entry_points_raise_off_main(monkeypatch, tmp_path: Path) -> None:
+    skip_if_release_build("skipped for release builds")
     import threading
 
     from plugin.framework import thread_guard as tg
