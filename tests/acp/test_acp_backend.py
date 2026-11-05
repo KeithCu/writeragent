@@ -551,6 +551,7 @@ def _bare_backend():
     backend._state_lock = threading.Lock()
     backend._send_lock = threading.Lock()
     backend._pending_permissions = {}
+    backend._session_cancel_notified = False
     backend.display_name = "Test"
     backend.binary_name = "test-agent"
     return backend
@@ -2263,6 +2264,7 @@ def test_stop_during_begin_request_cannot_queue_cancel_first():
 
     entered_begin = threading.Event()
     release_begin = threading.Event()
+    cancel_sent = threading.Event()
     events_log = []
 
     class FakeConn:
@@ -2280,6 +2282,8 @@ def test_stop_during_begin_request_cannot_queue_cancel_first():
 
         def send_notification(self, method, params=None):
             events_log.append(("notify", method))
+            if method == "session/cancel":
+                cancel_sent.set()
 
         def set_notification_callback(self, callback):
             pass
@@ -2305,6 +2309,7 @@ def test_stop_during_begin_request_cannot_queue_cancel_first():
     assert ("notify", "session/cancel") not in events_log
 
     release_begin.set()
+    assert cancel_sent.wait(timeout=5)
     t_stop.join(timeout=5)
     t_send.join(timeout=5)
 
