@@ -668,7 +668,7 @@ def skip_windows_awt_top_dialog(reason: str) -> None:
 
     ``skip_windows_leftover_hidden_load`` does not cover this — that
     helper is leftover_open>0. Overlay ``createWindow`` TOP + later
-    ``setVisible`` is the same VCL map. ENABLE_SLASH stays parked.
+    ``setVisible`` is the same VCL map. Overlay tests still map on Linux UNO.
     Linux UNO still maps the overlay. Do not map a TOP dialog on win32
     CI.
     """

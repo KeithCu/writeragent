@@ -38,7 +38,7 @@ This section is the **forward-looking backlog** implied by the comparison. Items
 | High | **`duplicate_slide` as a real, safe tool** | [`DrawBridge.duplicate_slide`](plugin/draw/bridge.py) exists but was **not** registered; implementation risk: `new_page.add(shape)` can **move** shapes instead of cloning. Need proper UNO clone/copy before parity with OO `duplicateSlide`. |
 | High | **Slide-embedded ** **`addChartToSlide`** | OO builds charts with in-memory series; WriterAgent [`create_chart`](plugin/calc/charts.py) is **SpreadsheetDocument-only**. Presentations need a dedicated path or a documented workflow. |
 | Medium | **`addTableToSlide`** | Verify whether [`create_shape`](plugin/draw/shapes.py) can target table services; otherwise add a thin wrapper. |
-| Medium | **`changeSlideBackground` / slide fill** | May need a dedicated tool beyond [`set_slide_transition`](plugin/draw/transitions.py) / layout APIs. |
+| Medium | **`changeSlideBackground` / slide fill** | May need a dedicated tool beyond [`slide_transition_set`](plugin/draw/transitions.py) / layout APIs. |
 | Lower | **`generatePresentationWithTheme`** | No WriterAgent twin; if ever built, mine OO for **decomposition prompts** only. |
 
 **Agent-facing detail:** OO examples often use **1-based** slide indices; WriterAgent schemas use **0-based** indices—keep that explicit in tool descriptions.

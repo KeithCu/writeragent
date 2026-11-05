@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Steerable slash-command completion menu attached to the sidebar Ask field.
 
-Prototype: disabled (ENABLE_SLASH = False) and kept on purpose; it will be enabled one day. Do not suggest deleting it.
+Shipped: ``ENABLE_SLASH = True`` — Ask-box ``/`` completion overlay is enabled in product builds.
 
 A native ``PopupMenu`` is modal — the user could not keep typing. The XDL
 placeholder is ``dlg:menulist`` (LibreOffice dialog.dtd has no ``listbox``).
@@ -82,8 +82,8 @@ def _dispose(obj: Any, msg: str) -> None:
         best_effort(obj.dispose, msg)
 
 
-# Feature flag: slash-command popup is currently disabled until stable.
-ENABLE_SLASH = False
+# Feature flag: set False only to park the overlay without removing wiring.
+ENABLE_SLASH = True
 
 _POPUP_MAX_ROWS = 6
 _POPUP_ROW_PX = 14
