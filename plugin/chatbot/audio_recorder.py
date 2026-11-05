@@ -274,7 +274,9 @@ class AudioRecorder:
     def _execute_effect(self, effect: object) -> None:
         import wave
 
-        testing = os.environ.get("WRITERAGENT_TESTING") == "1"
+        from plugin.framework.dev_build import is_dev_build
+
+        testing = is_dev_build()
         if isinstance(effect, InitializeDeviceEffect):
             self._auto_stop_notified = False
             if testing:

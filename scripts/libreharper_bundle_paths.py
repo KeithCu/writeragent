@@ -74,6 +74,7 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/subprocess_env.py",
     "plugin/framework/async_drain_guard.py",
     "plugin/framework/queue_executor.py",
+    "plugin/framework/dev_build.py",
     "plugin/framework/send_cancellation.py",
     "plugin/framework/llm_lanes.py",
     "plugin/framework/uno_listeners.py",

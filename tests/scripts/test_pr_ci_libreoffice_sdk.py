@@ -7,18 +7,64 @@ binary is in ``libreoffice-dev``, not the ``libreoffice`` metapackage.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
+
+import yaml
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "pr-ci.yml"
+_RELEASE_VERIFY = _REPO_ROOT / ".github" / "workflows" / "release-verify.yml"
+_UBUNTU_LO_APT_ACTION = (
+    _REPO_ROOT / ".github" / "actions" / "ubuntu-libreoffice-apt" / "action.yml"
+)
 _RDB_SCRIPT = _REPO_ROOT / "scripts" / "rebuild_librepy_rdb.sh"
+_COMPOSITE_ACTION = "./.github/actions/ubuntu-libreoffice-apt"
+
+
+def _ubuntu_lo_apt_pkgs_from_action() -> tuple[str, str]:
+    """Return (pkgs= cache-key list, apt-get install package list)."""
+    data = yaml.safe_load(_UBUNTU_LO_APT_ACTION.read_text(encoding="utf-8"))
+    steps = data["runs"]["steps"]
+    cache_run = steps[0]["run"]
+    install_run = next(
+        step["run"] for step in steps if step.get("name") == "apt-get install LibreOffice"
+    )
+    pkgs_assign = re.search(r'pkgs="([^"]*)"', cache_run)
+    assert pkgs_assign is not None, "lo_cache_key step must set pkgs= for apt cache hash"
+    apt_install = re.search(
+        r"apt-get install -y (.+?); then",
+        install_run,
+        re.DOTALL,
+    )
+    assert apt_install is not None, "apt-get install step must list Ubuntu LO packages"
+    return pkgs_assign.group(1), apt_install.group(1).strip()
+
+
+def _linux_jobs_use_ubuntu_lo_composite(workflow_path: Path) -> None:
+    data = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    jobs = data.get("jobs") or {}
+    for job_id, job in jobs.items():
+        steps = job.get("steps") or []
+        linux_lo_steps = [
+            step
+            for step in steps
+            if step.get("uses") == _COMPOSITE_ACTION
+            and step.get("if") == "runner.os == 'Linux'"
+        ]
+        assert linux_lo_steps, (
+            f"{workflow_path.name} job {job_id!r} must install LibreOffice via "
+            f"{_COMPOSITE_ACTION} when runner.os is Linux"
+        )
 
 
 def test_ubuntu_ci_installs_libreoffice_dev_for_rdb_core() -> None:
-    text = _WORKFLOW.read_text(encoding="utf-8")
-    ubuntu_block = text.split("Install LibreOffice and system tools (Ubuntu)", 1)[1]
-    ubuntu_block = ubuntu_block.split("Install LibreOffice and system tools (macOS)", 1)[0]
-    assert "libreoffice-dev" in ubuntu_block
+    cache_pkgs, install_pkgs = _ubuntu_lo_apt_pkgs_from_action()
+    assert "libreoffice-dev" in cache_pkgs.split()
+    assert "libreoffice-dev" in install_pkgs.split()
+    assert cache_pkgs.split() == install_pkgs.split()
+    _linux_jobs_use_ubuntu_lo_composite(_WORKFLOW)
+    _linux_jobs_use_ubuntu_lo_composite(_RELEASE_VERIFY)
 
 
 def test_rdb_core_invokes_bash_script_not_windows_ps1() -> None:

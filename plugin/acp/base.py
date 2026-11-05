@@ -16,7 +16,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Abstract base for agent backends. All adapters push events into a queue.Queue."""
 
-from typing import Any, ClassVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 
 class AgentBackend:
@@ -43,7 +48,7 @@ class AgentBackend:
         document_url: str | None,
         system_prompt: str | None = None,
         mcp_url: str | None = None,
-        cancel: Any = None,
+        cancel: SendCancellation | None = None,
     ) -> None:
         """Run the agent; push events to queue. Block until done or stopped.
 

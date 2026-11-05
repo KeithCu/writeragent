@@ -45,6 +45,7 @@ import threading
 import time
 from typing import Any, Callable, ClassVar, cast
 
+from plugin.framework.dev_build import is_dev_build
 from plugin.framework.send_cancellation import (
     SendCancelled,
     SendCancellation,
@@ -82,7 +83,7 @@ def install_from_environ(
     """Set process-wide policy from environment variables (eval harness or testing)."""
     if os.environ.get("WRITERAGENT_EVAL_HARNESS") == "1":
         policy = Policy.eval_harness
-    elif os.environ.get("WRITERAGENT_TESTING") == "1":
+    elif is_dev_build():
         policy = Policy.test_inline
     else:
         policy = Policy.production

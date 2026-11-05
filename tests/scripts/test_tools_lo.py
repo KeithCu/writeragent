@@ -49,20 +49,18 @@ def _boot(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
     ) -> None:
         import plugin.app as app
         import plugin.bootstrap as bootstrap
-        from plugin.bootstrap import BootstrapState
 
-        if bootstrap._bootstrap_state is BootstrapState.INITIALIZED:
+        if bootstrap.bootstrap_initialized():
             return
-        bootstrap._bootstrap_state = BootstrapState.BOOTSTRAPPING
         try:
             if register_prompt_hooks is not None:
                 register_prompt_hooks()
             app._services = MagicMock(name="services")
             app._tools = MagicMock(name="tools")
-            bootstrap._bootstrap_state = BootstrapState.INITIALIZED
-        finally:
-            if bootstrap._bootstrap_state is BootstrapState.BOOTSTRAPPING:
-                bootstrap._bootstrap_state = BootstrapState.UNINITIALIZED
+            bootstrap.mark_initialized()
+        except Exception:
+            bootstrap.mark_uninitialized()
+            raise
 
     monkeypatch.setattr("plugin.bootstrap.bootstrap_extension", _stub_bootstrap_extension)
     tl.LOBackend.start()

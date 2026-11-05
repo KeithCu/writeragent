@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import datetime
 import email.utils
+import http.client
 import json
 import logging
 import math
@@ -32,13 +33,16 @@ import random
 import re
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
     from .http_transport import LlmHttpTransport
 
+from plugin.framework.errors import NetworkError, format_error_message
+from plugin.framework.i18n import _
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
+from . import http_security
 from .errors import stream_error_message
 from .ssl_helpers import is_certificate_verify_error
 from .provider_detection import is_local_host
@@ -58,6 +62,14 @@ RETRY_MIN_DELAY_SEC = 0.3
 RETRY_MAX_DELAY_SEC = 30.0
 RETRY_WAIT_CHUNK_SEC = 0.05
 RETRY_MAX_ATTEMPTS = 3
+
+CONNECTION_ERRORS = (http.client.HTTPException, OSError)
+
+
+def stopped_error() -> NetworkError:
+    return NetworkError("LLM request aborted by Stop", code="STOPPED")
+
+
 # 529 is Anthropic "overloaded". A 200 SSE body that says overload is
 # already retried; the HTTP status was not, so that path never ran.
 RETRYABLE_HTTP_STATUS = frozenset({429, 503, 529})
@@ -83,8 +95,6 @@ def _shown_seconds(delay_sec: float) -> int | float:
 def emit_retry_status(status_callback: Callable[[str], None] | None, delay_sec: float) -> None:
     if status_callback is None:
         return
-    from plugin.framework.i18n import _
-
     status_callback(_("Provider busy, retrying in {0}s…").format(_shown_seconds(delay_sec)))
 
 
@@ -135,8 +145,6 @@ def retry_after_exceeds_cap(retry_after_sec: float | None) -> bool:
 
 
 def over_cap_retry_message(provider_message: str, retry_after_sec: float) -> str:
-    from plugin.framework.i18n import _
-
     return provider_message + " " + _("Provider asked to wait {0}s, which is above the {1}s retry cap.").format(_shown_seconds(retry_after_sec), _shown_seconds(RETRY_MAX_DELAY_SEC))
 
 
@@ -436,41 +444,16 @@ class RetryBudget:
     def stopped(self) -> bool:
         return is_cancelled(self._cancel)
 
-    def note_emitted(self) -> None:
-        self.emitted_any = True
-
-    def begin_exchange_attempt(self) -> None:
-        self.body_in_hand = False
-        self.attempt_charged = False
-
-    def record_http_status_attempt(self) -> int:
-        """Non-200 status on exchange or stream consumed one send attempt."""
-        self.sends_left -= 1
-        self.attempt_charged = True
-        return RETRY_MAX_ATTEMPTS - self.sends_left
-
-    def record_body_in_hand(self) -> None:
-        self.body_in_hand = True
-
     def clear_pacing_gap_when_unspent(self, model: str | None) -> None:
         if self.sends_left == RETRY_MAX_ATTEMPTS:
             clear_host_gap(self._transport.pacing_key_for_model(model))
 
-    def begin_stream_send(self) -> None:
-        self.attempt_charged = False
-
-    def record_stream_overload_attempt(self) -> int:
+    def charge_send(self, *, status: bool) -> int:
+        """Consume one send attempt. ``status`` True marks ``attempt_charged`` (HTTP status path)."""
         self.sends_left -= 1
+        if status:
+            self.attempt_charged = True
         return RETRY_MAX_ATTEMPTS - self.sends_left
-
-    def exchange_connection_fatal(self) -> bool:
-        return self.body_in_hand
-
-    def exchange_connection_attempt_charged(self) -> bool:
-        return self.attempt_charged
-
-    def stream_connection_fatal(self) -> bool:
-        return self.emitted_any
 
     def rejected_effort(self, exc: BaseException) -> bool:
         details = getattr(exc, "details", None)
@@ -495,8 +478,8 @@ class RetryBudget:
         model: str | None = None,
         retry_log_message: str = "Retrying HTTP request on a fresh connection",
         close_on_fatal: bool = False,
-    ) -> tuple[str, Any]:
-        """Evaluate connection error retry policy for exchange and streaming."""
+    ) -> None:
+        """Return to retry. Stop raises stopped_error(). Fatal loss raises NetworkError(code='CONNECTION_LOST')."""
         # stop() closes the socket, so the blocked read raises here.
         # Looking only at emitted_any reported Stop after the first
         # token as CONNECTION_LOST. A latched Stop (or cancel scope)
@@ -504,34 +487,29 @@ class RetryBudget:
         # still refuses retry once any token reached the UI.
         if self.stopped():
             self._transport.close()
-            return "stop", None
+            raise stopped_error()
 
         # A retry after tokens already reached the UI would duplicate text,
         # or after the body is in hand for an exchange.
         if fatal:
             if close_on_fatal:
                 self._transport.close()
-            from plugin.framework.errors import NetworkError, format_error_message
-            from . import http_security
-
             target = http_security.public_target(path)
             err_msg = http_security.redact_secrets(format_error_message(exc), secrets)
-            err = NetworkError(err_msg, code="CONNECTION_LOST", details={"url": target})
-            return "raise", err
+            raise NetworkError(err_msg, code="CONNECTION_LOST", details={"url": target})
 
         # handle_http_status reads the error body, and that read can
         # raise IncompleteRead, a reset, or a timeout. The non-200
         # branch above already decremented sends_left. Charging
         # again would consume two of the three attempts for one
         # failed read, and the last try would never run.
-        if not attempt_charged:
-            self.sends_left -= 1
-
-        from . import http_security
+        if attempt_charged:
+            attempt = RETRY_MAX_ATTEMPTS - self.sends_left
+        else:
+            attempt = self.charge_send(status=False)
 
         target = http_security.public_target(path)
-        attempt = RETRY_MAX_ATTEMPTS - self.sends_left
-        action = self._transport.handle_connection_error(
+        self._transport.handle_connection_error(
             exc,
             path=target,
             retries_left=self.sends_left,
@@ -542,20 +520,14 @@ class RetryBudget:
             model=model,
             secrets=secrets,
         )
-        if action == "stop":
-            return "stop", None
-        return "again", None
 
     def run_with_retries(
         self,
         body: Any,
-        dispatch: Callable[[Any], tuple[str, Any]],
-        on_connection_error: Callable[[Exception], tuple[str, Any]],
+        dispatch: Callable[[Any], tuple[Literal["again", "done"], Any]],
+        on_connection_error: Callable[[Exception], None],
     ) -> Any:
         """The single while True retry loop for all outbound HTTP requests."""
-        from plugin.framework.errors import NetworkError
-        from .http_transport import CONNECTION_ERRORS, stopped_error
-
         while True:
             try:
                 action, value = dispatch(body)
@@ -569,17 +541,11 @@ class RetryBudget:
                     continue
                 raise
             except CONNECTION_ERRORS as exc:
-                action, value = on_connection_error(exc)
-                if action == "again":
-                    continue
-                if action == "stop":
-                    raise stopped_error()
-                raise value
+                on_connection_error(exc)
+                continue
             if action == "again":
                 body = value
                 continue
-            if action == "stop":
-                raise stopped_error()
             return value
 
 

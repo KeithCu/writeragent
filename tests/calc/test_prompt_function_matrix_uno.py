@@ -64,8 +64,7 @@ def test_python_matrix_via_session_counter(ctx, doc):
     """
     from plugin.calc.python.addin import PythonFunction
     from plugin.calc.python.function import clear_python_addin_cache
-    from plugin.calc.python.spill import clear_in_memory_spill_state
-    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+    from plugin.calc.python.workbook_state import WorkbookState
 
     code = "result = [2, 3, 5]"
     sheet = doc.getCurrentController().getActiveSheet()
@@ -82,7 +81,9 @@ def test_python_matrix_via_session_counter(ctx, doc):
             assert func.python(doc, code) == 3.0
             assert func.python(doc, code) == 5.0
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
 
 
 @native_test
@@ -118,8 +119,7 @@ def test_ordinary_formula_multi_cell_selection_returns_corner(ctx, doc):
     """
     from plugin.calc.python.addin import PythonFunction
     from plugin.calc.python.function import clear_python_addin_cache
-    from plugin.calc.python.spill import clear_in_memory_spill_state
-    from plugin.calc.python.workbook_lifecycle import _lifecycle_key
+    from plugin.calc.python.workbook_state import WorkbookState
 
     code = "result = [2, 3, 5]"
     sheet = doc.getCurrentController().getActiveSheet()
@@ -135,4 +135,6 @@ def test_ordinary_formula_multi_cell_selection_returns_corner(ctx, doc):
             assert func.python(doc, code) == 2.0
             assert func.python(doc, code) == 2.0
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)

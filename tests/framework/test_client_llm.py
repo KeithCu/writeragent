@@ -2335,16 +2335,17 @@ def test_http_429_does_not_log_500_request_diag(client, caplog, _fast_retry_wait
         429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests"
     )
     caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
-    action = client._transport.handle_http_status(
-        resp,
-        request_body=body,
-        path="/v1/chat/completions",
-        retries_left=2,
-        emitted_any=False,
-        cancel=None,
-        observe_http_error=client._observe_provider_http_error,
-    )
-    assert action == "retry"
+    with patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as mock_wait:
+        client._transport.handle_http_status(
+            resp,
+            request_body=body,
+            path="/v1/chat/completions",
+            retries_left=2,
+            emitted_any=False,
+            cancel=None,
+            observe_http_error=client._observe_provider_http_error,
+        )
+    mock_wait.assert_called_once()
     joined = "\n".join(r.getMessage() for r in caplog.records)
     assert "HTTP 500 request diagnostic:" not in joined
     assert "UNIQUE_PROMPT_BLOB_FOR_429_NO_500_DIAG" not in joined
@@ -2521,7 +2522,7 @@ def test_request_with_tools_closes_on_connection_close(client):
 
 
 def test_stream_retry_backoff_stop_skips_second_send(client, _fast_retry_waits):
-    _fast_retry_waits["transport"].return_value = False
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)
@@ -2535,8 +2536,13 @@ def test_stream_retry_backoff_stop_skips_second_send(client, _fast_retry_waits):
 
 def test_stream_stop_during_host_gap_is_clean_stop_not_error(client):
     """wait_host_gap abort raises STOPPED internally; streaming loop returns stop, not HTTP_ERROR."""
+
+    def abort_host_gap(*_args, **_kwargs):
+        client.stop()
+        return False
+
     with (
-        patch("plugin.framework.client.http_transport.wait_host_gap", return_value=False),
+        patch("plugin.framework.client.http_transport.wait_host_gap", side_effect=abort_host_gap),
         patch("http.client.HTTPSConnection") as mock_https,
     ):
         result = client.stream_request_with_tools(
@@ -3626,7 +3632,7 @@ def test_image_rejected_params_logs_truncated_body(client, caplog):
 
 def test_sync_request_with_tools_wraps_parse_sync_response_error(client):
     """parse_sync_response exceptions (bad JSON / unexpected shape) must be wrapped in NetworkError with code BAD_RESPONSE."""
-    with patch.object(client, "_exchange_json", return_value=("ok", {"unexpected": "structure"})):
+    with patch.object(client, "_exchange_json", return_value={"unexpected": "structure"}):
         with patch.object(client._get_shim(), "parse_sync_response", side_effect=KeyError("choices")):
             with pytest.raises(NetworkError) as exc_info:
                 client.request_with_tools([{"role": "user", "content": "Hello"}], stream=False)

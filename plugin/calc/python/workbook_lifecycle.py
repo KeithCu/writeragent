@@ -34,12 +34,7 @@ log = logging.getLogger(__name__)
 __all__ = [
     "ensure_calc_workbook_unload_resets_python",
     "calc_workbook_base_session_id",
-    "off_main_spill_lifecycle_key",
-    "lifecycle_key_if_known",
     "rekey_listener",
-    "_lifecycle_key",
-    "_remember_doc_lifecycle_key",
-    "_forget_doc_lifecycle_key",
 ]
 
 # Re-entrant: ensure_* holds this lock while calling note_*, and note_* /
@@ -61,57 +56,6 @@ def rekey_listener(old: str, new: str) -> None:
             _LISTENERS[new] = listener
 
 
-def lifecycle_key_if_known(doc: Any | None) -> str:
-    """Lifecycle key recorded on the UI thread."""
-    st = WorkbookState.known(doc)
-    return st.key if st is not None else ""
-
-
-def _lifecycle_key(doc: Any) -> str:
-    """Per-open identity: RuntimeUID, else the first session id remembered for this object."""
-    st = WorkbookState.for_doc(doc)
-    return st.key if st is not None else ""
-
-
-def off_main_spill_lifecycle_key(doc: Any | None) -> str:
-    """Workbook key for an off-main spill timer, without UNO off the UI thread."""
-    if doc is None:
-        return ""
-    from plugin.framework.queue_executor import main
-
-    if main.is_current():
-        st = WorkbookState.for_doc(doc)
-    else:
-        st = WorkbookState.known(doc)
-    return st.key if st is not None else ""
-
-
-def _remember_doc_lifecycle_key(doc: Any, key: str) -> None:
-    st = WorkbookState.known(doc)
-    if st is not None:
-        if key:
-            st.key = key
-        return
-    from plugin.framework.queue_executor import main
-
-    if main.is_current():
-        try:
-            st = WorkbookState.for_doc(doc)
-        except Exception:
-            st = None
-        if st is not None:
-            if key:
-                st.key = key
-            return
-    if key:
-        st = WorkbookState(key=key)
-        WorkbookState._remember(doc, st)
-
-
-def _forget_doc_lifecycle_key(key: str) -> None:
-    WorkbookState.forget_key(key)
-
-
 def _is_reentry(res: Any) -> bool:
     return isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY"
 
@@ -128,16 +72,13 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         self,
         ctx: Any,
         workbook_session_id: str,
-        state: WorkbookState | str,
+        state: WorkbookState,
         *,
         calc_cleanup: bool = True,
-        **kwargs: Any,
     ) -> None:
         super().__init__()
         self._ctx = ctx
         self._workbook_session_id = workbook_session_id
-        if isinstance(state, str):
-            state = WorkbookState(key=state)
         self._state = state
         self._teardown_done = False
         self._calc_cleanup = calc_cleanup

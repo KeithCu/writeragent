@@ -984,7 +984,7 @@ def _ensure_writeragent_bind() -> None:
     import plugin.app as app
 
     # Inside LibreOffice, importing plugin.main again would create a second module object.
-    if app._finish is not None:
+    if app.is_bound():
         return
     from plugin.main import bind
 
@@ -1547,7 +1547,7 @@ def run_all_tests(ctx: Any) -> str:
     # UNO test file. Each suite below snapshots/restores sys.modules (uno, com,
     # …); if the first suite only pulled in a partial UNO graph, a later suite's
     # first ``get_tools()`` could otherwise see an empty registry or hit import
-    # edge cases. Extension startup already sets ``_bootstrap_state``; this is a
+    # edge cases. Extension startup already calls ``mark_initialized``; this is a
     # no-op then.
     try:
         _rebootstrap_ctx(ctx)
@@ -1808,9 +1808,6 @@ def main() -> int:
 
     _office.options.filters = list(_parse_cli_args(sys.argv[1:]))
 
-    # Suppress MCP server startup in the soffice child process; it inherits
-    # this env var and McpModule.start_background() checks it.
-    #
     # WRITERAGENT_TESTING only short-circuits MainThread inline execution; it does
     # NOT disable Layer A (WRITERAGENT_UNO_THREAD_GUARD). Use make lo-test-threadguard
     # to run this suite with the viral UNO proxy so worker-thread violations fail loudly.

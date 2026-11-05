@@ -116,8 +116,8 @@ def _writeragent_bootstrap_isolation(request):
     import plugin.app as app_module
     import plugin.bootstrap as bootstrap_mod
 
-    prev_state = bootstrap_mod._bootstrap_state
-    prev_err = bootstrap_mod._bootstrap_error
+    prev_initialized = bootstrap_mod.bootstrap_initialized()
+    prev_err = bootstrap_mod.bootstrap_error()
     prev_services = app_module._services
     prev_tools = app_module._tools
     prev_modules = list(app_module._modules)
@@ -132,8 +132,14 @@ def _writeragent_bootstrap_isolation(request):
     try:
         yield
     finally:
-        bootstrap_mod._bootstrap_state = prev_state
-        bootstrap_mod._bootstrap_error = prev_err
+        if prev_initialized:
+            bootstrap_mod.mark_initialized()
+        else:
+            bootstrap_mod.mark_uninitialized()
+        if prev_err is not None:
+            bootstrap_mod.set_bootstrap_error(prev_err)
+        else:
+            bootstrap_mod.clear_bootstrap_error()
         app_module._services = prev_services
         app_module._tools = prev_tools
         app_module._modules[:] = prev_modules

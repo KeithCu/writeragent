@@ -50,3 +50,31 @@ def test_invoke_prepared_short_circuits_when_stop_checker_is_latched():
     assert result == {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
     protocol.tool_registry.execute.assert_not_called()
 
+
+def test_invoke_prepared_does_not_treat_truthy_non_bool_as_stopped():
+    services_mock = MagicMock()
+    protocol = MCPProtocolHandler(services_mock)
+    protocol.tool_registry = MagicMock()
+    protocol.tool_registry.execute.return_value = {"status": "ok"}
+
+    ctx_mock = MagicMock(spec=ToolContext)
+
+    class _TruthyScope:
+        def is_cancelled(self) -> str:
+            return "yes"
+
+    ctx_mock.send_cancellation = _TruthyScope()
+
+    prepared = _PreparedMcpCall(
+        tool=MagicMock(),
+        context=ctx_mock,
+        doc=MagicMock(),
+        doc_key=MagicMock(),
+        needs_gate=False,
+        echo=None,
+    )
+
+    result = protocol._invoke_prepared_mcp_tool(prepared, "test_tool", {"a": 1})
+    assert result.get("status") == "ok"
+    protocol.tool_registry.execute.assert_called_once()
+
