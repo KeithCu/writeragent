@@ -78,8 +78,8 @@ def _ensure_html_linebreaks(content: str) -> str:
     content = escape_prose_angle_brackets(_normalize(content))
     # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
-        from .html_export import _strip_html_boilerplate
-        content = _strip_html_boilerplate(content)
+        from .html_export import strip_html_boilerplate
+        content = strip_html_boilerplate(content)
     # A block tag or <br> means the content has its own paragraphs; wrapping it in <p> is invalid.
     if _LINEBREAK_MARKUP_RE.search(content):
         return _wrap_html_fragment(content)

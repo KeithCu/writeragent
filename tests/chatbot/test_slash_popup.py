@@ -147,7 +147,7 @@ def _controller(lru: list[str] | None = None) -> tuple[SlashPopupController, Any
     query = _Query()
     query._stub_overlay = True
     query._stub_boxes = []
-    send = SimpleNamespace(query_control=query, slash_popup=None)
+    send = SimpleNamespace(query_control=query, slash_popup=None, sync_has_text_from_query=MagicMock())
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=lru or []):
         popup = SlashPopupController(placeholder, send, query)
     send.slash_popup = popup
@@ -322,7 +322,7 @@ def test_enter_on_exact_explain_runs_not_completes_draft():
     query = popup.query_control
     query.text = "/explain"
     send.dispatch = MagicMock()
-    send._sync_has_text_from_query = MagicMock()
+    send.sync_has_text_from_query = MagicMock()
     send.append_output = MagicMock()
     send.clear_ask = MagicMock()
     send.hide_popup = MagicMock(side_effect=popup.hide)
@@ -337,7 +337,7 @@ def test_enter_on_exact_explain_runs_not_completes_draft():
                     assert run_cmd.call_args.args[0].name == "explain"
                     run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
                     set_text.assert_not_called()
-                    send._sync_has_text_from_query.assert_called_once()
+                    send.sync_has_text_from_query.assert_called_once()
                     send.dispatch.assert_called_once()
                     from plugin.chatbot.send_state import SendEventKind
 
@@ -364,7 +364,7 @@ def test_enter_exact_continue_send_starts_send_when_has_text_was_false():
             ).state
         )
 
-    send._sync_has_text_from_query = sync_has_text
+    send.sync_has_text_from_query = sync_has_text
     events: list[SendEvent] = []
 
     def capture(event: SendEvent) -> None:

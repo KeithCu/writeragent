@@ -323,7 +323,7 @@ def next_state(state: SendButtonState, event: SendEvent) -> FsmTransition[SendBu
                 return _noop(state)
 
             # Completion clears typed text and has_audio; the panel's
-            # _sync_has_text_from_query puts back text typed during the turn.
+            # sync_has_text_from_query puts back text typed during the turn.
             return _return_idle(state, "Ready", clear_text=True)
 
         case SendEventKind.ERROR_OCCURRED:

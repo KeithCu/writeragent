@@ -31,6 +31,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from plugin.chatbot.chat_session import message_text, request_tail
+from plugin.framework.send_cancellation import is_cancelled
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -807,7 +808,7 @@ def _summarize_bounded(
     idx = 0
 
     while idx < len(lines):
-        if (cancel is not None and cancel.is_cancelled()) or stale():
+        if is_cancelled(cancel) or stale():
             return None, "aborted"
 
         next_chunk = _next_summary_chunk(
@@ -827,10 +828,6 @@ def _summarize_bounded(
         summarizer_extra = {"reasoning": {"effort": "low"}}
 
         def _request_summary(max_tokens_out: int) -> dict[str, Any] | None:
-            import urllib.error
-
-            from plugin.framework.client.auth import AuthError
-
             try:
                 return client.request_with_tools(
                     [
@@ -844,10 +841,10 @@ def _summarize_bounded(
                     prepend_dev_build_system_prefix=False,
                     chat_extra=summarizer_extra,
                 )
-            except AuthError:
-                raise
             except Exception as exc:
-                if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
+                from plugin.chatbot.slash_commands import compaction_auth_line
+
+                if compaction_auth_line(exc) is not None:
                     raise
                 log.exception("Compaction failed")
                 return None
@@ -860,7 +857,7 @@ def _summarize_bounded(
         finish_reason: str | None = None
         for attempt_idx, max_tokens_out in enumerate(attempt_outs):
             result = _request_summary(max_tokens_out)
-            if cancel is not None and cancel.is_cancelled():
+            if is_cancelled(cancel):
                 return None, "aborted"
             if result is None:
                 return None, "failed"

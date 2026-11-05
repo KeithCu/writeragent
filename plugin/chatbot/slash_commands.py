@@ -22,6 +22,7 @@ from typing import Any, Callable, Protocol, Sequence
 
 from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.i18n import N_, _
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled, spawn_scope
 
 log = logging.getLogger(__name__)
 
@@ -59,7 +60,7 @@ class SlashHost(Protocol):
     sidebar_state: Any
     cached_doc_type: Any
     cached_uno_services: Any
-    _send_cancellation: Any
+    _send_cancellation: SendCancellation | None
     query_control: Any
 
     def dispatch(self, event: Any) -> None: ...
@@ -73,6 +74,7 @@ class SlashHost(Protocol):
     def slash_run_rewrite(self, instruction: str) -> None: ...
     def slash_agent_edit_in_flight(self) -> bool: ...
     def run_slash_formula(self, description: str) -> None: ...
+    def sync_has_text_from_query(self) -> None: ...
 
 
 # Local slash commands safe to run during an in-flight tool loop (no new agent turn).
@@ -505,9 +507,13 @@ def slash_popup_runs_now(cmd: SlashCommand) -> bool:
     return cmd.run is SlashRun.LOCAL and not cmd.requires_arg
 
 
+def slash_run_needs_send(run: SlashRun) -> bool:
+    return run in _SEND_TURN_RUNS
+
+
 def slash_continues_send(cmd: SlashCommand, host: SlashHost) -> bool:
     """True when Send must call ``_begin_send`` before finishing the command."""
-    return plan_slash(cmd, host) in _SEND_TURN_RUNS
+    return slash_run_needs_send(plan_slash(cmd, host))
 
 
 def build_slash_answer_query(cmd: SlashCommand, arg: str, model: Any) -> str:
@@ -564,7 +570,7 @@ def tool_schemas_for_slash_compact(host: SlashHost, ctx: Any, session: Any) -> l
 
     model = host.slash_document_model()
     doc_type_str = host.cached_doc_type or "writer"
-    active_domain = getattr(session, "active_specialized_domain", None)
+    active_domain = session.active_specialized_domain if session is not None else None
     return get_tools().get_schemas(
         "openai",
         doc_type=doc_type_str,
@@ -609,12 +615,24 @@ def _complete_ask_draft(host: SlashHost, name: str) -> None:
     host.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=True))
 
 
-def _slash_compact_auth_line(client: Any) -> str | None:
-    """Return a sidebar line when /compact cannot authenticate, else None."""
+def compaction_auth_line(exc_or_client: BaseException | Any) -> str | None:
+    """Return a sidebar line for auth failures during /compact, else None."""
+    import urllib.error
+
     from plugin.framework.client.auth import AuthError, resolve_auth_for_config
     from plugin.framework.errors import format_error_message
 
-    cfg = getattr(client, "config", None)
+    if isinstance(exc_or_client, BaseException):
+        exc = exc_or_client
+        if isinstance(exc, AuthError):
+            if exc.code == "missing_api_key":
+                return "\n" + _("Configure an API key to compact.") + "\n"
+            return "\n" + format_error_message(exc) + "\n"
+        if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
+            return "\n" + format_error_message(exc) + "\n"
+        return None
+
+    cfg = getattr(exc_or_client, "config", None)
     if not isinstance(cfg, dict):
         return None
     try:
@@ -622,22 +640,6 @@ def _slash_compact_auth_line(client: Any) -> str | None:
     except AuthError as exc:
         if exc.code == "missing_api_key":
             return "\n" + _("Configure an API key to compact.") + "\n"
-        return "\n" + format_error_message(exc) + "\n"
-    return None
-
-
-def _slash_compact_exception_line(exc: BaseException) -> str | None:
-    """Map auth failures from compact workers to sidebar text, else None."""
-    import urllib.error
-
-    from plugin.framework.client.auth import AuthError
-    from plugin.framework.errors import format_error_message
-
-    if isinstance(exc, AuthError):
-        if exc.code == "missing_api_key":
-            return "\n" + _("Configure an API key to compact.") + "\n"
-        return "\n" + format_error_message(exc) + "\n"
-    if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
         return "\n" + format_error_message(exc) + "\n"
     return None
 
@@ -701,14 +703,14 @@ def run_slash_command(
     raise RuntimeError("slash command %r has no handler" % (cmd.name,))
 
 
-def run_slash_compact(host: SlashHost, focus: str, *, cancel: Any | None = None) -> None:
+def run_slash_compact(host: SlashHost, focus: str, *, cancel: SendCancellation | None = None) -> None:
     from plugin.framework.blocking_wait import run_blocking_in_thread
 
     if host.sidebar_state.tool_loop is not None:
         host.append_output("\n" + _("Wait for the current reply to finish before /compact.") + "\n")
         return
     if cancel is None:
-        cancel = host._send_cancellation
+        cancel = spawn_scope(host)
     host._set_status(_("Thinking..."))
     # Resolve UNO here: the caller holds SolarMutex while it waits for the worker
     # (run_blocking_in_thread with pump_idle), so UNO on the worker can deadlock.
@@ -734,7 +736,7 @@ def run_slash_compact_sync(
     *,
     focus: str,
     session: Any,
-    cancel: Any,
+    cancel: SendCancellation | None,
     client: Any,
     tools: list[Any],
 ) -> str:
@@ -747,7 +749,6 @@ def run_slash_compact_sync(
     from plugin.framework.config import get_config
     from plugin.framework.client.model_fetcher import resolve_context_window
     from plugin.framework.llm_lanes import llm_request_lane
-    from plugin.framework.send_cancellation import is_cancelled
 
     if not get_config("chat_compaction_enabled"):
         return "\n" + _("Chat compaction is disabled in settings.") + "\n"
@@ -758,7 +759,7 @@ def run_slash_compact_sync(
     if is_cancelled(cancel):
         return "\n" + _("Compaction cancelled.") + "\n"
 
-    auth_line = _slash_compact_auth_line(client)
+    auth_line = compaction_auth_line(client)
     if auth_line:
         return auth_line
 
@@ -774,7 +775,7 @@ def run_slash_compact_sync(
                 cancel=cancel,
             )
     except Exception as exc:
-        mapped = _slash_compact_exception_line(exc)
+        mapped = compaction_auth_line(exc)
         if mapped:
             return mapped
         log.exception("slash /compact failed")

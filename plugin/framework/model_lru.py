@@ -27,7 +27,7 @@ def _is_model_combobox_placeholder(val: str) -> bool:
     return False
 
 
-def _sanitize_model_combobox_value(val: str) -> str:  # pyright: ignore[reportUnusedFunction]
+def sanitize_model_combobox_value(val: str) -> str:
     """Drop Settings combobox placeholder strings; they are not real model ids."""
     cleaned = str(val or "").strip()
     return "" if _is_model_combobox_placeholder(cleaned) else cleaned

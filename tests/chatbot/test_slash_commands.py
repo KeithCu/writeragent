@@ -719,6 +719,47 @@ def test_run_slash_compact_sync_invalid_api_key_401():
     assert line.strip() != "Compaction failed."
 
 
+def test_compaction_auth_line_client_and_exception():
+    import urllib.error
+
+    from plugin.chatbot.slash_commands import compaction_auth_line
+    from plugin.framework.client.auth import AuthError
+
+    empty_key_client = SimpleNamespace(config={"api_key": "", "model": "gpt-4o", "endpoint": "https://api.openai.com/v1"})
+    line = compaction_auth_line(empty_key_client)
+    assert line is not None
+    assert "Configure an API key" in line
+
+    other_auth = compaction_auth_line(AuthError("bad key", code="invalid_key"))
+    assert other_auth is not None
+    assert "Configure an API key" not in other_auth
+
+    http401 = compaction_auth_line(
+        urllib.error.HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+    )
+    assert http401 is not None
+
+    http500 = compaction_auth_line(
+        urllib.error.HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=500,
+            msg="Server Error",
+            hdrs=None,
+            fp=None,
+        )
+    )
+    assert http500 is None
+
+    assert compaction_auth_line(SimpleNamespace(config="not-a-dict")) is None
+    assert compaction_auth_line(RuntimeError("boom")) is None
+
+
 def test_run_remember_writes_user_md(tmp_path, monkeypatch):
     from plugin.chatbot.memory import MemoryStore
 

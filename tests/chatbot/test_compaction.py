@@ -1597,3 +1597,28 @@ def test_summarizer_accepts_length_when_partial_content_present():
     result = C.compact_session(session, client, window=4096)
     assert result.compacted is True
     assert len(client.calls) == 1
+
+
+def test_compact_session_propagates_auth_errors():
+    from plugin.framework.client.auth import AuthError
+    import urllib.error
+
+    client_missing = DummyClient(error=AuthError("missing", code="missing_api_key"))
+    with pytest.raises(AuthError):
+        C.compact_session(DummySession(_history_3x1000()), client_missing, window=4096)
+
+    client_401 = DummyClient(
+        error=urllib.error.HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+    )
+    with pytest.raises(urllib.error.HTTPError):
+        C.compact_session(DummySession(_history_3x1000()), client_401, window=4096)
+
+    client_runtime = DummyClient(error=RuntimeError("summarizer down"))
+    result = C.compact_session(DummySession(_history_3x1000()), client_runtime, window=4096)
+    assert result.reason == "failed"

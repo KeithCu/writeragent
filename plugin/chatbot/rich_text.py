@@ -179,10 +179,12 @@ def _tighten_list_indent(body_range: Any) -> None:
     """
     import uno
 
+    from plugin.framework.uno_context import enum_has_more
+
     enum = body_range.createEnumeration()
 
     processed_levels = set()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         para = enum.nextElement()
         if not uno_read(lambda: para.getPropertyValue("NumberingIsNumber"), False):
             continue
@@ -280,9 +282,9 @@ def _sidebar_import_html(text: str) -> str:
         and "<body" in lowered
         and "</body>" in lowered
     ):
-        from plugin.writer.html_export import _strip_html_boilerplate
+        from plugin.writer.html_export import strip_html_boilerplate
 
-        return _strip_html_boilerplate(text)
+        return strip_html_boilerplate(text)
     return text
 
 

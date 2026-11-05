@@ -28,10 +28,10 @@ from plugin.framework.default_models import (
     merge_provider_default_models,
     together_speech_ids,
 )
-from plugin.framework.client.model_fetcher import fetch_available_models, _filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
+from plugin.framework.client.model_fetcher import fetch_available_models, filter_fetched_models, endpoint_url_suitable_for_v1_models_fetch
 from plugin.framework.model_lru import (
     _is_model_combobox_placeholder,
-    _sanitize_model_combobox_value,
+    sanitize_model_combobox_value,
     lru_config_key,
     next_lru_list,
 )
@@ -242,7 +242,7 @@ def populate_combobox_with_lru(
             if remote_models is not None and (req_cap == "image" or modality_list or together_audio):
                 filtered = list(fetched_models)
             else:
-                filtered = _filter_fetched_models(fetched_models, req_cap)
+                filtered = filter_fetched_models(fetched_models, req_cap)
             for mid in _filter_models_for_provider(filtered, provider):
                 if modality_list:
                     _prefer_openrouter_api_id(to_show, mid)
@@ -256,7 +256,7 @@ def populate_combobox_with_lru(
             to_show.remove("openrouter/free")
             to_show.insert(0, "openrouter/free")
 
-    curr_val_str = _sanitize_model_combobox_value(current_val)
+    curr_val_str = sanitize_model_combobox_value(current_val)
     if not auth_blocked and not curr_val_str and req_cap in _REQ_CAP_DEFAULTS:
         if req_cap == "text":
             # After an endpoint switch, use this endpoint's last-used model (the
@@ -268,7 +268,7 @@ def populate_combobox_with_lru(
         if not curr_val_str and provider:
             curr_val_str = str(get_provider_defaults(provider).get(cfg_key, "") or "").strip()
         if not curr_val_str:
-            curr_val_str = _sanitize_model_combobox_value(str(fetcher() or ""))
+            curr_val_str = sanitize_model_combobox_value(str(fetcher() or ""))
 
     is_incompatible = _is_incompatible_model_for_provider(curr_val_str, provider)
     if auth_blocked:
@@ -316,7 +316,7 @@ def _sync_sidebar_model(
 ) -> str | None:
     if not ctrl or not hasattr(ctrl, "getText"):
         return None
-    txt = _sanitize_model_combobox_value(str(ctrl.getText() or ""))
+    txt = sanitize_model_combobox_value(str(ctrl.getText() or ""))
     if not txt:
         return None
 
