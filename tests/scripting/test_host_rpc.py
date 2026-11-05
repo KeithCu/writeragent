@@ -726,6 +726,11 @@ def test_writeragent_api_exports_and_tool_methods():
     assert hasattr(api, "TOOL_METHODS")
     assert isinstance(api.TOOL_METHODS, dict)
     assert api.TOOL_METHODS["shape_upsert"] == ("shape", "upsert")
+    assert api.TOOL_METHODS["tracking_start"] == ("tracking", "start")
+    assert api.TOOL_METHODS["tracking_stop"] == ("tracking", "stop")
+    assert api.TOOL_METHODS["tracking_list"] == ("tracking", "list")
+    assert api.TOOL_METHODS["tracking_show"] == ("tracking", "show")
+    assert api.TOOL_METHODS["tracking_manage"] == ("tracking", "manage")
     assert hasattr(api, "__all__")
     assert "shape" in api.__all__
     assert "core" in api.__all__

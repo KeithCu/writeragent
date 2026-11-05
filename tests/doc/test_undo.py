@@ -467,4 +467,45 @@ def test_commit_or_rollback_session_discard_error_is_swallowed():
     assert isinstance(outcome.mutate_error, ValueError)
     assert str(outcome.mutate_error) == "original"
     assert outcome.rolled_back is True
+    assert outcome.nothing_landed is True
     mgr.undo.assert_called_once()
+
+
+def test_nothing_landed_follows_undo_or_unchanged_session():
+    from plugin.doc.compound_undo import commit_or_rollback
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Title",)]
+    doc.getUndoManager.return_value = mgr
+
+    def mutate_fail():
+        raise ValueError("boom")
+
+    outcome = commit_or_rollback(doc, "Title", mutate_fail)
+    assert outcome.rolled_back is True
+    assert outcome.nothing_landed is True
+
+    session = MagicMock()
+    session.changes = [1]
+    mgr.reset_mock()
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Title",)]
+
+    def mutate_grow():
+        session.changes.append(2)
+
+    outcome2 = commit_or_rollback(doc, "Title", mutate_grow, session=session)
+    assert outcome2.rolled_back is False
+    assert outcome2.nothing_landed is False
+
+    session.changes = [1]
+    mgr.reset_mock()
+    mgr.getAllUndoActionTitles.side_effect = [("Title",), ("Title",)]
+
+    def mutate_ok():
+        return None
+
+    outcome3 = commit_or_rollback(doc, "Title", mutate_ok, session=session)
+    assert outcome3.rolled_back is False
+    assert outcome3.nothing_landed is True

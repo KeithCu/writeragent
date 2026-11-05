@@ -19,6 +19,10 @@ from plugin.framework.uno_listeners import ListenerBoundary
 from plugin.writer import change_context_menu, review_view_attachment as rva
 
 
+def _registered_controllers() -> list[tuple[Any, Any]]:
+    return [(c, i) for att in rva.attachments().values() for c, i, _h in att.controllers]
+
+
 class DisposedException(Exception):
     pass
 
@@ -135,7 +139,7 @@ class _StubController:
 
 def test_register_controller_dedups_by_uno_identity(monkeypatch):
     monkeypatch.setattr(
-        "plugin.framework.uno_context.uno_same",
+        "plugin.writer.review_view_attachment.uno_same",
         lambda a, b: a is not None and b is not None and getattr(a, "ident", None) == getattr(b, "ident", None),
     )
     model = MagicMock()
@@ -156,11 +160,11 @@ def test_register_controller_dedups_by_uno_identity(monkeypatch):
 
     rva.register_controller(ctrl1)
     assert len(ctrl1.registered) == 1
-    assert len(rva.registered_controllers()) == 1
+    assert len(_registered_controllers()) == 1
 
     rva.register_controller(ctrl2)
     assert len(ctrl2.registered) == 0
-    assert len(rva.registered_controllers()) == 1
+    assert len(_registered_controllers()) == 1
 
 
 def _seed_controller_hooks(
@@ -195,7 +199,7 @@ def test_unload_removes_interceptor_and_pair():
     rva.unregister_controllers_for_model(model1)
     assert ctrl1.removed == [interceptor1]
     assert ctrl2.removed == []
-    assert rva.registered_controllers() == [(ctrl2, interceptor2)]
+    assert _registered_controllers() == [(ctrl2, interceptor2)]
 
 
 def test_unload_swallows_removal_disposal():
@@ -210,7 +214,7 @@ def test_unload_swallows_removal_disposal():
     _seed_controller_hooks(ctrl, interceptor)
 
     rva.unregister_controllers_for_model(model)
-    assert rva.registered_controllers() == []
+    assert _registered_controllers() == []
 
 
 def test_on_unload_event_removes_registered_interceptor():
@@ -225,7 +229,7 @@ def test_on_unload_event_removes_registered_interceptor():
     event = SimpleNamespace(EventName="OnUnload", ViewController=None, Source=model)
     listener.documentEventOccured(event)
     assert ctrl.removed == [interceptor]
-    assert rva.registered_controllers() == []
+    assert _registered_controllers() == []
 
 
 @pytest.fixture

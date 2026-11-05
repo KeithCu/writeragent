@@ -76,7 +76,7 @@ from typing import Any
 from plugin.framework.deal_shim import deal
 
 _MAX_DIFF_WORDS = 4000
-_DEFAULT_THRESHOLD = 0.6
+DEFAULT_THRESHOLD = 0.6
 
 __all__ = [
     "Token",
@@ -84,6 +84,7 @@ __all__ = [
     "SplitResult",
     "tokenize",
     "split_change",
+    "DEFAULT_THRESHOLD",
 ]
 
 
@@ -209,7 +210,7 @@ def _opcodes_with_affix(
 
 
 @deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
-def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> SplitResult:
+def split_change(old: str, new: str, threshold: float = DEFAULT_THRESHOLD) -> SplitResult:
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.
 
     Args:

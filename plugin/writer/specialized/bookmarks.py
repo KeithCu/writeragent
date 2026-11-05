@@ -125,9 +125,9 @@ class BookmarkService(ServiceBase):
     def _doc_key(self, doc: Any) -> str:
         if self._doc_svc is not None:
             return self._doc_svc.doc_key(doc)
-        from plugin.doc.document_helpers import _compute_doc_key
+        from plugin.doc.document_helpers import compute_doc_key
 
-        return _compute_doc_key(doc)
+        return compute_doc_key(doc)
 
     def _ignore_cache(self) -> Any:
         if self._doc_svc is not None:

@@ -110,7 +110,7 @@ Most AI tools see a document as a flat "wall of text." WriterAgent sees the **st
 - **Writer `writer_tree`** builds a navigable index of headings/body paragraphs from `OutlineLevel`, letting the model "skim" a TOC and zoom into sections rather than read 100 pages linearly.
 - **Writer `get_page_objects`** jumps the view cursor to a specific physical page and returns a multimodal snapshot: exact visible paragraph text, anchored images/tables, and embedded draw shapes (cross-referenced from Writer's hidden draw page against physical page boundaries). This solves the "what am I looking at on page 12?" needle-in-a-haystack problem.
 
-**Proximity awareness** lets the agent navigate by headings, sections, and bookmarks; **tracked-changes integration** (`track_changes_start/stop/list`, `tracking_manage`) respects the editorial process — and `get_string_without_tracked_deletions()` in `text_helpers` ensures prompts and edits never see text the author has already deleted.
+**Proximity awareness** lets the agent navigate by headings, sections, and bookmarks; **tracked-changes integration** (`tracking_start/stop/list`, `tracking_manage`) respects the editorial process — and `get_string_without_tracked_deletions()` in `text_helpers` ensures prompts and edits never see text the author has already deleted.
 
 ### 3. Advanced AI Pipelines (The Specialized Skills)
 

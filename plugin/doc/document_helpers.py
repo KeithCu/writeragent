@@ -425,9 +425,6 @@ def compute_doc_key(doc: Any) -> str:
     return UNKNOWN_DOC_KEY
 
 
-_compute_doc_key = compute_doc_key
-
-
 def _emit_cache_invalidated(*, doc: Any | None = None, key: str | None = None) -> None:
     from plugin.framework.event_bus import get_event_bus
 
@@ -591,14 +588,14 @@ class DocumentService(ServiceBase):
 
     def open_documents(self) -> list[Any]:
         """Every open real document (Start Center excluded), in desktop order. Main-thread only."""
-        from plugin.framework.uno_context import get_desktop
+        from plugin.framework.uno_context import enum_has_more, get_desktop
 
         docs = []
         try:
             desktop = get_desktop()
             comps = desktop.getComponents() if desktop is not None else None
             enum = comps.createEnumeration() if comps else None
-            while enum and enum.hasMoreElements():
+            while enum is not None and enum_has_more(enum):
                 doc = enum.nextElement()
                 try:
                     if doc.supportsService("com.sun.star.document.OfficeDocument"):
