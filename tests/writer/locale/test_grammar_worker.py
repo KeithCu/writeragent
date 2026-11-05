@@ -1301,6 +1301,8 @@ def test_worker_batch_skips_harper_provider() -> None:
         patch("plugin.writer.locale.grammar_worker.run_grammar_check") as mock_run,
     ):
         run_llm_and_cache_batch([item], grammar_queue_instance=GrammarWorkQueue())
-    mock_obs.assert_any_call("worker_batch_skip", reason="harper_not_queued", item_count=1)
+    # Early return survives strip; grammar_obs call sites are removed in release bundles.
     mock_run.assert_not_called()
+    if _grammar_obs_call_sites_present():
+        mock_obs.assert_any_call("worker_batch_skip", reason="harper_not_queued", item_count=1)
 

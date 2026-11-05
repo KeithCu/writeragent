@@ -1374,6 +1374,7 @@ def test_harper_close_does_not_block_on_stuck_stdin() -> None:
     client = HarperLSClient.__new__(HarperLSClient)
     client.uri = "file:///tmp/unused.txt"
     client._doc_opened = True
+    client.stdout_thread = None
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
     mock_proc.stdin.write.side_effect = lambda *_a, **_k: time.sleep(30)
@@ -1897,6 +1898,7 @@ def test_harper_stdout_reader_stays_a_raw_thread() -> None:
 def test_harper_close_order_when_terminate_succeeds(caplog: pytest.LogCaptureFixture) -> None:
     client = HarperLSClient.__new__(HarperLSClient)
     client._doc_opened = True
+    client.stdout_thread = None
 
     events: list[str] = []
     mock_stdin = MagicMock()
@@ -1922,7 +1924,7 @@ def test_harper_close_order_when_terminate_succeeds(caplog: pytest.LogCaptureFix
         client.close()
         elapsed = time.monotonic() - t0
 
-    assert events == ["stdin.close", "stdout.close", "terminate", "wait(0.5)"]
+    assert events == ["stdin.close", "terminate", "wait(0.5)", "stdout.close"]
     mock_proc.kill.assert_not_called()
     assert client.proc is None
     mock_kill_tree.assert_not_called()
@@ -1935,6 +1937,7 @@ def test_harper_close_order_when_terminate_succeeds(caplog: pytest.LogCaptureFix
 def test_harper_close_kills_only_when_wait_raises() -> None:
     client = HarperLSClient.__new__(HarperLSClient)
     client._doc_opened = True
+    client.stdout_thread = None
 
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None
@@ -1956,6 +1959,7 @@ def test_harper_close_kills_only_when_wait_raises() -> None:
 def test_harper_close_returns_after_pipes_when_already_exited() -> None:
     client = HarperLSClient.__new__(HarperLSClient)
     client._doc_opened = True
+    client.stdout_thread = None
 
     mock_proc = MagicMock()
     mock_proc.poll.return_value = 0
@@ -1976,6 +1980,7 @@ def test_harper_close_returns_after_pipes_when_already_exited() -> None:
 def test_harper_close_swallows_pipe_close_errors() -> None:
     client = HarperLSClient.__new__(HarperLSClient)
     client._doc_opened = True
+    client.stdout_thread = None
 
     mock_proc = MagicMock()
     mock_proc.poll.return_value = None

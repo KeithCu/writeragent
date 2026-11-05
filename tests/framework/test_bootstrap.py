@@ -125,11 +125,48 @@ def test_bind_writeragent_first_call_wins(monkeypatch):
 
 def test_unbound_bootstrap_raises_and_does_not_import_main():
     repo = Path(__file__).resolve().parents[2]
+    # Clean subprocess has no tests/conftest UNO mocks. CI release-verify .venv
+    # ships a com.sun.star stub that raises unless uno was imported first, and
+    # may lack pyuno entirely. Install the same minimal stubs conftest uses so
+    # plugin.app can import; the assertion is that unbound bootstrap fails
+    # without loading plugin.main.
     code = """
+import sys
+import types
+from unittest.mock import MagicMock
+
+sys.modules.setdefault("uno", MagicMock())
+if "unohelper" not in sys.modules:
+    _uh = types.ModuleType("unohelper")
+    class _Base:
+        pass
+    _uh.Base = _Base
+    sys.modules["unohelper"] = _uh
+
+def _ensure_star(name: str):
+    if name in sys.modules:
+        return sys.modules[name]
+    mod = types.ModuleType(name)
+    mod.__path__ = []  # type: ignore[attr-defined]
+    sys.modules[name] = mod
+    return mod
+
+_ensure_star("com")
+_ensure_star("com.sun")
+star = _ensure_star("com.sun.star")
+for sub in ("task", "frame", "lang"):
+    _ensure_star(f"com.sun.star.{sub}")
+# Interfaces used at import by bootstrap / main_shared.
+for iface in ("XJob", "XJobExecutor"):
+    setattr(sys.modules["com.sun.star.task"], iface, type(iface, (), {}))
+for iface in ("XDispatch", "XDispatchProvider", "DispatchDescriptor"):
+    setattr(sys.modules["com.sun.star.frame"], iface, type(iface, (), {}))
+for iface in ("XInitialization", "XServiceInfo"):
+    setattr(sys.modules["com.sun.star.lang"], iface, type(iface, (), {}))
+
 import plugin.app as app
 from plugin.bootstrap import BootstrapState
 from plugin.framework.errors import WriterAgentException
-import sys
 app._finish = None
 try:
     app.bootstrap(None)

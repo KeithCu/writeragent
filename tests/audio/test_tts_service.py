@@ -23,7 +23,7 @@ from plugin.audio.tts_service import (
     stop_speech,
     uses_sentence_by_sentence,
 )
-from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.send_cancellation import SendCancellation, wait_for_approval
 
 
 def test_clean_text_for_speech_markdown():
@@ -556,13 +556,37 @@ def test_stop_drops_ready_clips_and_ignores_late_synth(tmp_path):
     assert not late_path.exists()
 
 
+def _wait_until(deadline: float, predicate, *, interval: float = 0.02) -> bool:
+    while time.monotonic() < deadline:
+        if predicate():
+            return True
+        time.sleep(interval)
+    return False
+
+
 def test_stop_during_synthesis_plays_nothing(tmp_path):
     """Stop while synthesis is blocked must not play or fall back to system speech."""
     import plugin.audio.tts_service as tts
 
     synth_entered = threading.Event()
     release_synth = threading.Event()
+    prefetch_done = threading.Event()
     temp_path: list[str] = []
+    play_calls: list[str] = []
+    system_calls: list[str] = []
+    real_bg = tts.run_in_background
+
+    def track_bg(fn, **kwargs):
+        if kwargs.get("name") != "tts-prefetch":
+            return real_bg(fn, **kwargs)
+
+        def wrapped() -> None:
+            try:
+                fn()
+            finally:
+                prefetch_done.set()
+
+        return real_bg(wrapped, **kwargs)
 
     def blocking_synth(sentence, provider, voice, speed, on_status, utt):
         del sentence, provider, voice, speed, on_status
@@ -573,21 +597,33 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
         with open(path, "wb") as handle:
             handle.write(b"wav")
         synth_entered.set()
-        release_synth.wait(5)
+        if not wait_for_approval(release_synth, cancel, timeout=0.05):
+            tts._release_temp(path)
+            return None
         return tts._ReadyClip(path, "Hello.", 3)
 
+    def track_play(path, cancel=None):
+        del cancel
+        play_calls.append(path)
+        return True
+
+    def track_system(text, speed=1.0, *, cancel=None):
+        del speed, cancel
+        system_calls.append(text)
+
     utt = tts._begin_utterance()
+    scope = utt.scope
     finished = threading.Event()
-    mocks: list[Any] = []
 
     def run() -> None:
         try:
-            with patch.object(tts, "resolve_kokoro_python", return_value="/venv/bin/python"), patch.object(
-                tts, "_prepare_kokoro_misaki", return_value=True
-            ), patch.object(tts, "_synthesize_sentence_clip", side_effect=blocking_synth), patch.object(
-                tts, "_play_audio_file"
-            ) as mock_play, patch.object(tts, "_speak_system") as mock_system:
-                mocks.extend([mock_play, mock_system])
+            with patch.object(tts, "run_in_background", side_effect=track_bg), patch.object(
+                tts, "resolve_kokoro_python", return_value="/venv/bin/python"
+            ), patch.object(tts, "_prepare_kokoro_misaki", return_value=True), patch.object(
+                tts, "_synthesize_sentence_clip", side_effect=blocking_synth
+            ), patch.object(tts, "_play_audio_file", side_effect=track_play), patch.object(
+                tts, "_speak_system", side_effect=track_system
+            ):
                 tts._run_sentence_pipeline(
                     ["Hello."],
                     "kokoro",
@@ -601,22 +637,24 @@ def test_stop_during_synthesis_plays_nothing(tmp_path):
 
     worker = threading.Thread(target=run)
     worker.start()
+    deadline = time.monotonic() + 30.0
     try:
-        assert synth_entered.wait(2)
+        assert _wait_until(deadline, synth_entered.is_set), "synthesis did not reach blocked state"
         tts.stop_speech()
-        release_synth.set()
-        assert finished.wait(2)
-        assert len(mocks) == 2
-        assert mocks[0].called is False
-        assert mocks[1].called is False
+        assert scope.is_cancelled()
+        assert _wait_until(deadline, finished.is_set), "sentence pipeline did not finish after stop"
+        assert _wait_until(deadline, prefetch_done.is_set), "prefetch thread did not finish after stop"
+        assert play_calls == []
+        assert system_calls == []
         tracked = temp_path[0] if temp_path else ""
-        deadline = time.monotonic() + 2.0
-        while tracked and os.path.exists(tracked) and time.monotonic() < deadline:
-            time.sleep(0.02)
-        assert not tracked or not os.path.exists(tracked)
+        assert tracked
+        assert _wait_until(deadline, lambda: not os.path.exists(tracked)), (
+            f"temp file still present after stop: {tracked}"
+        )
     finally:
         release_synth.set()
-        worker.join(2)
+        tts.stop_speech()
+        worker.join(5)
 
 
 def test_stop_before_start_spawns_nothing():

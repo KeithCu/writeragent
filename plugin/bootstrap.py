@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-import unohelper
-
-from com.sun.star.task import XJob, XJobExecutor
 from plugin.framework.logging import init_logging, log
 from plugin.framework.uno_context import get_ctx, set_fallback_ctx, set_package_extension_id
 
@@ -141,8 +138,8 @@ def bootstrap_extension(
             _bootstrap_state = BootstrapState.UNINITIALIZED
 
 
-class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
-    """Base UNO Job implementation for extension bootstrap."""
+class _MainBootstrapJobCore:
+    """Shared UNO Job implementation for extension bootstrap."""
 
     ctx: Any
 
@@ -169,3 +166,36 @@ class MainBootstrapJob(unohelper.Base, XJobExecutor, XJob):
 
     def trigger(self, Event: str) -> None:
         raise NotImplementedError
+
+
+if TYPE_CHECKING:
+    import unohelper
+    from com.sun.star.task import XJob, XJobExecutor
+
+    class MainBootstrapJob(_MainBootstrapJobCore, unohelper.Base, XJobExecutor, XJob):
+        """Base UNO Job implementation for extension bootstrap."""
+
+else:
+    # UNO types are only needed for MainBootstrapJob (loaded inside LibreOffice /
+    # when conftest mocks are installed). Keep BootstrapState / bootstrap_extension
+    # importable in a clean interpreter for out-of-office scripts and the
+    # release-verify subprocess that checks unbound bootstrap without pyuno.
+    try:
+        import uno  # noqa: F401 — com.sun.star stub requires uno first
+        import unohelper
+        from com.sun.star.task import XJob, XJobExecutor
+    except ImportError:  # headless / release-verify subprocess without pyuno
+        unohelper = None  # type: ignore[assignment,misc]
+
+    if unohelper is not None:
+
+        class MainBootstrapJob(_MainBootstrapJobCore, unohelper.Base, XJobExecutor, XJob):
+            """Base UNO Job implementation for extension bootstrap."""
+
+    else:
+
+        class MainBootstrapJob(_MainBootstrapJobCore):
+            """Placeholder when pyuno is unavailable (headless / release-verify subprocess)."""
+
+            def __init__(self, ctx: Any) -> None:
+                raise RuntimeError("MainBootstrapJob requires LibreOffice UNO")
