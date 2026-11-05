@@ -582,7 +582,6 @@ def _cell(value: str) -> str:
 _SVG_COLS: tuple[tuple[str, int], ...] = (
     ("Suite", 168),
     ("OS", 118),
-    ("Source", 108),
     ("Conclusion", 100),
     ("SHA", 72),
     ("When", 172),
@@ -696,16 +695,15 @@ def render_svg(
         parts.append(_row_rect(y, "#fff", "bg"))
         # Conclusion tint only on that cell so the row stays readable.
         parts.append(
-            f'<rect class="{css}" x="{_x_at(3)}" y="{y}" '
-            f'width="{_SVG_COLS[3][1]}" height="{_SVG_ROW_H}" fill="{bg}"/>\n'
+            f'<rect class="{css}" x="{_x_at(2)}" y="{y}" '
+            f'width="{_SVG_COLS[2][1]}" height="{_SVG_ROW_H}" fill="{bg}"/>\n'
         )
         parts.append(_grid(y))
         parts.append(_cell_text(0, y, row.suite))
         parts.append(_cell_text(1, y, row.os))
-        parts.append(_cell_text(2, y, row.source))
-        parts.append(_cell_text(3, y, row.conclusion, css=f"{css}t", fill=ink))
-        parts.append(_cell_text(4, y, row.sha, mono=True))
-        parts.append(_cell_text(5, y, row.when))
+        parts.append(_cell_text(2, y, row.conclusion, css=f"{css}t", fill=ink))
+        parts.append(_cell_text(3, y, row.sha, mono=True))
+        parts.append(_cell_text(4, y, row.when))
 
     parts.append("</svg>\n")
     return "".join(parts)
@@ -729,7 +727,6 @@ def render_html(
             "<tr>"
             f"<td>{_cell(row.suite)}</td>"
             f"<td>{_cell(row.os)}</td>"
-            f"<td>{_cell(row.source)}</td>"
             f'<td class="{_cell(css)}">{_cell(row.conclusion)}</td>'
             f"<td><code>{_cell(row.sha)}</code></td>"
             f"<td>{_cell(row.when)}</td>"
@@ -758,7 +755,7 @@ def render_html(
         f"<p>Latest Actions jobs for {_cell(repo)}. Generated { _cell(generated_at) }.</p>\n"
         "<table>\n"
         "<thead><tr>"
-        "<th>Suite</th><th>OS</th><th>Source</th><th>Conclusion</th>"
+        "<th>Suite</th><th>OS</th><th>Conclusion</th>"
         "<th>SHA</th><th>When</th><th>Run</th>"
         "</tr></thead>\n"
         f"<tbody>\n{table_body}\n</tbody>\n"
@@ -790,7 +787,6 @@ def render_json(
                 "run_url": r.run_url,
                 "run_id": r.run_id,
                 "run_attempt": r.run_attempt,
-                "source": r.source,
             }
             for r in rows
         ],
