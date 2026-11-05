@@ -1024,7 +1024,6 @@ def read_pickle_frame(
     require_dict: bool = False,
     is_alive: Callable[[], bool] | None = None,
     unpacker: Callable[[bytes], Any] | None = None,
-    cancel: SendCancellation | None = None,
 ) -> Any | None:
     """Read and unpickle one length-prefixed message. Return None on clean EOF."""
     payload = read_frame_payload(
@@ -1033,7 +1032,6 @@ def read_pickle_frame(
         max_payload_bytes=max_payload_bytes,
         frame_label=frame_label,
         is_alive=is_alive,
-        cancel=cancel,
     )
     if payload is None:
         return None

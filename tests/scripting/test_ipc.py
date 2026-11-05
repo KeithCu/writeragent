@@ -549,7 +549,7 @@ def test_json_line_timeout_on_pipe():
         os.close(write_fd)
 
 
-def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
+def test_win32_read_raising_cancel_keeps_reading(monkeypatch):
     """A raising cancel scope is not a stop; the peek loop still returns the bytes."""
     import struct
     from plugin.framework import ipc
@@ -562,53 +562,53 @@ def test_win32_read_raising_stop_checker_keeps_reading(monkeypatch):
     monkeypatch.setattr(ipc.time, "monotonic", lambda: 0.0)
     seen: list[BaseException] = []
 
-    class _RaisingScope:
+    class _RaisingCancel(SendCancellation):
         def is_cancelled(self) -> bool:
             if not seen:
-                err = KeyError("stop_checker blew up")
+                err = KeyError("is_cancelled blew up")
                 seen.append(err)
                 raise err
             return False
 
     data = ipc.read_frame_payload(
-        stream, 10.0, cmd="frame", cancel=_RaisingScope()
+        stream, 10.0, cmd="frame", cancel=_RaisingCancel()
     )
     assert data == b"abcd"
     assert seen
 
 
-def _raising_then_false_stop_checker():
+def _raising_then_false_cancel_scope():
     seen: list[BaseException] = []
 
-    class _RaisingScope:
+    class _RaisingCancel(SendCancellation):
         def is_cancelled(self) -> bool:
             if not seen:
-                err = KeyError("stop_checker blew up")
+                err = KeyError("is_cancelled blew up")
                 seen.append(err)
                 raise err
             return False
 
-    return seen, _RaisingScope()
+    return seen, _RaisingCancel()
 
 
-def test_read_frame_payload_raising_stop_checker_threaded_path_returns_frame():
+def test_read_frame_payload_raising_cancel_threaded_path_returns_frame():
     """A broken cancel scope must not escape or abandon the queued frame (no-fd)."""
     frame = pack_pickle_frame({"status": "ok", "result": 1})
     stream = io.BytesIO(frame)
-    seen, cancel = _raising_then_false_stop_checker()
+    seen, cancel = _raising_then_false_cancel_scope()
     payload = read_frame_payload(stream, 5.0, cancel=cancel)
     assert seen
     assert unpack_pickle_frame(payload) == {"status": "ok", "result": 1}
 
 
-def test_read_frame_payload_raising_stop_checker_select_path_returns_frame():
+def test_read_frame_payload_raising_cancel_select_path_returns_frame():
     """A broken cancel scope must not escape or abandon the queued frame (fd path)."""
     frame = pack_pickle_frame({"status": "ok", "result": 1})
     r_fd, w_fd = os.pipe()
     os.write(w_fd, frame)
     os.close(w_fd)
     reader = os.fdopen(r_fd, "rb", buffering=0)
-    seen, cancel = _raising_then_false_stop_checker()
+    seen, cancel = _raising_then_false_cancel_scope()
     try:
         payload = read_frame_payload(reader, 5.0, cancel=cancel)
     finally:

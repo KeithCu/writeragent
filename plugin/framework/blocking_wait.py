@@ -43,7 +43,11 @@ _gc_suspend_was_enabled = False
 
 
 def gc_suspended() -> bool:
-    """True while any ``automatic_gc_suspended`` context is active."""
+    """True while any ``automatic_gc_suspended`` context is active.
+
+    Best-effort unlocked read of ``_gc_suspend_depth`` (int compare only).
+    For ``gc_policy``'s ticker only; do not use elsewhere for correctness.
+    """
     # Do not take _gc_suspend_lock; gc.enable() under that lock while
     # automatic_gc_suspended is active is intentional.
     return _gc_suspend_depth != 0

@@ -818,6 +818,7 @@ supervisor = process_global("warm_child_supervisor", Supervisor)
 
 
 def _default_supervisor() -> Supervisor:
+    """Module singleton; avoid ``process_global`` from ``WarmChild.__init__``."""
     return supervisor
 
 
