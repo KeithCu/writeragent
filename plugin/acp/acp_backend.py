@@ -36,7 +36,7 @@ from plugin.framework.client.shim_helpers import snapshot_text
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
 from plugin.framework.config import get_api_key_for_endpoint, get_current_endpoint
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.errors import format_error_payload, ToolExecutionError
+from plugin.framework.errors import format_error_payload
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.framework.worker_pool import run_in_background
 from plugin.version import EXTENSION_VERSION
@@ -174,24 +174,44 @@ _AGENT_EXECUTOR_MARKER = "agent executor error:"
 _AGY_LOG_TAIL_MAX = 256 * 1024
 
 
-def _last_agent_executor_error(path: str | None) -> str | None:
-    """Last ``agent executor error:`` suffix from the tail of the agy log file."""
+def _last_agent_executor_error(path: str | None, offset: int = 0) -> str | None:
+    """Last ``agent executor error:`` suffix from log bytes appended since ``offset``."""
     if not path:
         return None
     try:
         with open(path, "rb") as log_file:
             log_file.seek(0, os.SEEK_END)
             size = log_file.tell()
-            log_file.seek(max(0, size - _AGY_LOG_TAIL_MAX))
-            data = log_file.read().decode("utf-8", errors="replace")
+            start = max(0, offset)
+            if start >= size:
+                return None
+            log_file.seek(start)
+            data = log_file.read(min(size - start, _AGY_LOG_TAIL_MAX)).decode("utf-8", errors="replace")
     except OSError:
         log.warning("Could not read Antigravity log at %s", path)
         return None
     marker_at = data.rfind(_AGENT_EXECUTOR_MARKER)
     if marker_at < 0:
-        log.warning("No agent executor error line in Antigravity log at %s", path)
         return None
     return data[marker_at + len(_AGENT_EXECUTOR_MARKER) :].strip()
+
+
+def _is_terminated_banner(buffered: str, blocks_text: str) -> bool:
+    pending = buffered.strip()
+    if pending == _AGENT_TERMINATED:
+        return True
+    return not pending and blocks_text.strip() == _AGENT_TERMINATED
+
+
+def _text_from_content_blocks(content: Any) -> str:
+    items = _content_blocks(content) or []
+    parts: list[str] = []
+    for item in items:
+        if isinstance(item, dict) and item.get("type") == "text":
+            text = item.get("text", "")
+            if isinstance(text, str):
+                parts.append(text)
+    return "".join(parts)
 
 
 class _TurnStopped(Exception):
@@ -408,6 +428,7 @@ class ACPBackend(AgentBackend):
         self._session_cancel_notified: bool = False
         self._answer_buf: list[str] = []
         self._agent_log_path: str | None = None
+        self._agent_log_offset: int = 0
         self._available_model_ids: frozenset[str] = frozenset()
         self._session_model_id: str | None = None
         self._model_warn_key: tuple[str, str] | None = None
@@ -451,29 +472,51 @@ class ACPBackend(AgentBackend):
         # posix=False on Windows so backslashes in paths stay literal.
         self._extra_args = self._launch_extra_args(self._binary_path, args_str)
 
-    def _managed_log_args(self) -> list[str]:
-        """Antigravity-only ``--log-file`` under the WriterAgent user config dir."""
+    def _resolve_agy_log_path(self) -> str | None:
+        """Path agy should log to; None when logging is unavailable or already in argv."""
         if self.backend_id != "antigravity":
-            return []
+            return None
         log_flags = ("--log-file", "--cli_log_file")
         for idx, arg in enumerate(self._extra_args):
             if arg in log_flags:
                 if idx + 1 < len(self._extra_args):
-                    self._agent_log_path = self._extra_args[idx + 1]
-                return []
+                    return self._extra_args[idx + 1]
+                log.warning("Antigravity --log-file has no path; executor errors will use the banner only")
+                return None
         try:
             from plugin.framework.config import user_config_dir
 
             cfg_dir = user_config_dir()
         except Exception:
             log.warning("user_config_dir unavailable; Antigravity will run without --log-file")
-            return []
+            return None
         if not cfg_dir:
             log.warning("user_config_dir unavailable; Antigravity will run without --log-file")
-            return []
-        path = os.path.join(cfg_dir, "agy-acp.log")
+            return None
+        return os.path.join(cfg_dir, "agy-acp.log")
+
+    def _managed_log_args(self) -> list[str]:
+        """Antigravity-only ``--log-file`` when settings did not already pass one."""
+        path = self._resolve_agy_log_path()
         self._agent_log_path = path
+        if path is None:
+            return []
+        if any(flag in self._extra_args for flag in ("--log-file", "--cli_log_file")):
+            return []
         return ["--log-file", path]
+
+    def _record_agent_log_offset(self) -> None:
+        """Byte offset in ``agy-acp.log`` at the start of the current ``session/prompt`` turn."""
+        path = self._agent_log_path
+        if not path:
+            self._agent_log_offset = 0
+            return
+        try:
+            with open(path, "rb") as log_file:
+                log_file.seek(0, os.SEEK_END)
+                self._agent_log_offset = log_file.tell()
+        except OSError:
+            self._agent_log_offset = 0
 
     def _binary_matches(self, path: str) -> bool:
         """True when ``path`` is this backend's CLI, including Windows launcher suffixes."""
@@ -708,7 +751,7 @@ class ACPBackend(AgentBackend):
             raise
 
     def _model_ids_from_session_new(self, result: dict[str, Any]) -> tuple[frozenset[str], str | None]:
-        """Parse ``session/new`` model list; debug-log configOptions without using them as ids."""
+        """Parse ``session/new`` ``models.availableModels`` ``modelId`` values (not configOptions ids)."""
         models = result.get("models")
         if not isinstance(models, dict):
             return frozenset(), None
@@ -722,15 +765,6 @@ class ACPBackend(AgentBackend):
                         ids.add(model_id)
         current = models.get("currentModelId")
         current_id = current if isinstance(current, str) else None
-        config_opts = result.get("configOptions")
-        if isinstance(config_opts, list):
-            for opt in config_opts:
-                if isinstance(opt, dict):
-                    log.debug(
-                        "agy configOption id=%s values=%s",
-                        opt.get("id"),
-                        opt.get("values"),
-                    )
         return frozenset(ids), current_id
 
     def _select_agy_model(self, conn: ACPConnection) -> None:
@@ -759,14 +793,10 @@ class ACPBackend(AgentBackend):
                 _SESSION_NEW_TIMEOUT_SEC,
             )
             self._session_model_id = model_id
-        except ToolExecutionError as exc:
-            rpc_code = exc.details.get("rpc_code") if exc.details else None
-            if rpc_code == -32602:
-                log.warning("agy session/set_model rejected: %s", exc)
-            else:
-                log.exception("agy session/set_model failed")
-        except Exception:
-            log.exception("agy session/set_model failed")
+        except _TurnStopped:
+            raise
+        except Exception as exc:
+            log.warning("agy session/set_model failed: %s", exc, exc_info=True)
 
     def _build_prompt_blocks(self, user_message: str, document_context: Optional[str] = None, system_prompt: Optional[str] = None, document_url: Optional[str] = None, *, include_system: bool = True) -> tuple[list[dict[str, Any]], bool]:
         """Build ACP prompt content blocks.
@@ -819,7 +849,7 @@ class ACPBackend(AgentBackend):
         if isinstance(session_update, str) and session_update:
             if session_update == "agent_message_chunk":
                 if self.backend_id == "antigravity":
-                    self._queue_antigravity_message_chunk(update, queue)
+                    self._agy_buffered_chunk(update, queue)
                 else:
                     _queue_text_blocks(update.get("content"), queue, StreamQueueKind.CHUNK)
             elif session_update == "agent_thought_chunk":
@@ -838,8 +868,13 @@ class ACPBackend(AgentBackend):
             return
         self._handle_legacy_content(update, queue)
 
-    def _queue_antigravity_message_chunk(self, update: dict[str, Any], queue: Any) -> None:
-        """Hold banner-prefix chunks; quota and normal answers flush as soon as they diverge."""
+    def _agy_buffered_chunk(self, update: dict[str, Any], queue: Any) -> None:
+        """Hold banner-prefix chunks; quota and normal answers flush as soon as they diverge.
+
+        ``agent_message_chunk`` notifications for one prompt are delivered before
+        ``session/prompt`` returns, so ``_answer_buf`` needs no lock between reader
+        and prompt threads.
+        """
         blocks = _content_blocks(update.get("content"))
         if blocks is None:
             return
@@ -857,6 +892,24 @@ class ACPBackend(AgentBackend):
             return
         queue.put((StreamQueueKind.CHUNK, joined))
         self._answer_buf.clear()
+
+    def _finish_antigravity_prompt(self, result: dict[str, Any], queue: Any) -> bool:
+        """Queue Antigravity terminal events. True when the turn is fully handled."""
+        content_blocks = result.get("contentBlocks") or []
+        blocks_text = _text_from_content_blocks(content_blocks) if content_blocks else ""
+        buffered = "".join(self._answer_buf)
+        if _is_terminated_banner(buffered, blocks_text):
+            if not self._user_stopped():
+                message = _last_agent_executor_error(self._agent_log_path, self._agent_log_offset) or _AGENT_TERMINATED
+                self._report_failure(queue, format_error_payload(RuntimeError(message)))
+            self._answer_buf.clear()
+            return True
+        if self._answer_buf:
+            joined = "".join(self._answer_buf)
+            if joined.strip():
+                queue.put((StreamQueueKind.CHUNK, joined))
+            self._answer_buf.clear()
+        return False
 
     def _handle_legacy_content(self, update: dict[str, Any], queue: Any) -> None:
         """Private ``content`` blocks: text / tool_call / tool_result.
@@ -1122,7 +1175,8 @@ class ACPBackend(AgentBackend):
                         self._report_failure(queue, format_error_payload(RuntimeError(f"{self.display_name} ACP process is not running.")))
                         return
 
-                    self._answer_buf = []
+                    self._answer_buf.clear()
+                    self._record_agent_log_offset()
                     result = self._request(conn, "session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, _PROMPT_IDLE_SEC)
                     # A slash-first turn, or a turn with no system prompt, used to set the flag anyway,
                     # so later turns skipped the manual. The flag now follows the block that was actually built.
@@ -1182,33 +1236,11 @@ class ACPBackend(AgentBackend):
         log.info("Prompt completed: stop_reason=%s", stop_reason)
         content_blocks = result.get("contentBlocks") or []
 
-        if self.backend_id == "antigravity":
-            pending = "".join(self._answer_buf).strip()
-            blocks_text = ""
-            if content_blocks:
-                block_items = _content_blocks(content_blocks) or []
-                parts: list[str] = []
-                for item in block_items:
-                    if isinstance(item, dict) and item.get("type") == "text":
-                        text = item.get("text", "")
-                        if isinstance(text, str):
-                            parts.append(text)
-                blocks_text = "".join(parts).strip()
-            is_banner = pending == _AGENT_TERMINATED or (not pending and blocks_text == _AGENT_TERMINATED)
-            if is_banner:
-                if not self._user_stopped():
-                    message = _last_agent_executor_error(self._agent_log_path) or _AGENT_TERMINATED
-                    self._report_failure(queue, format_error_payload(RuntimeError(message)))
-                self._answer_buf.clear()
-                return
+        if self.backend_id == "antigravity" and self._finish_antigravity_prompt(result, queue):
+            return
 
         # Some ACP agents (Vibe) put final text in the prompt result.
         # Same block types as the legacy content path; drain if present.
-        if self.backend_id == "antigravity" and self._answer_buf:
-            joined = "".join(self._answer_buf)
-            if joined.strip():
-                queue.put((StreamQueueKind.CHUNK, joined))
-            self._answer_buf.clear()
         if content_blocks:
             self._handle_acp_update({"content": content_blocks}, queue)
         if stop_reason == "cancelled" or self._user_stopped():

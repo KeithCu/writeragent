@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args, _tool_stream_kind, _AGENT_TERMINATED
+from plugin.acp.acp_backend import ACPBackend, _TurnStopped, _split_cli_args, _tool_stream_kind, _AGENT_TERMINATED, _is_terminated_banner
 from plugin.acp.acp_connection import ACPTimeoutError
 from plugin.acp.registry import ClaudeBackend, GrokBackend, HermesBackend, OpenCodeBackend, AntigravityBackend
 from plugin.framework.errors import ToolExecutionError
@@ -591,6 +591,7 @@ def _bare_backend():
     backend._session_cancel_notified = False
     backend._answer_buf = []
     backend._agent_log_path = None
+    backend._agent_log_offset = 0
     backend._available_model_ids = frozenset()
     backend._session_model_id = None
     backend._model_warn_key = None
@@ -2534,6 +2535,7 @@ def _antigravity_backend():
     backend._session_cancel_notified = False
     backend._answer_buf = []
     backend._agent_log_path = None
+    backend._agent_log_offset = 0
     backend._available_model_ids = frozenset()
     backend._session_model_id = None
     backend._model_warn_key = None
@@ -2683,14 +2685,24 @@ class TestAntigravityAgyModel:
 
 
 class TestAntigravityTerminatedBanner:
+    def test_is_terminated_banner_predicate(self):
+        assert _is_terminated_banner(f"\n{_AGENT_TERMINATED}\n", "")
+        assert _is_terminated_banner("", f"\n{_AGENT_TERMINATED}\n")
+        assert not _is_terminated_banner("hello", "")
+        assert not _is_terminated_banner("\n⚠ Agent", "")
+
     def test_banner_becomes_error_from_log(self, tmp_path):
         backend = _antigravity_backend()
         log_path = tmp_path / "agy-acp.log"
+        log_path.write_text("agent executor error: STALE\n", encoding="utf-8")
+        turn_offset = log_path.stat().st_size
         log_path.write_text(
-            "noise\nagent executor error: first\nmore\nagent executor error: INVALID_ARGUMENT (code 400): enum bad\n",
+            log_path.read_text(encoding="utf-8")
+            + "agent executor error: INVALID_ARGUMENT (code 400): enum bad\n",
             encoding="utf-8",
         )
         backend._agent_log_path = str(log_path)
+        backend._agent_log_offset = turn_offset
         q = queue.Queue()
         backend._answer_buf = ["\n⚠ Agent execution terminated due to error.\n"]
         backend._finish_prompt_result({"stopReason": "end_turn"}, q)
@@ -2699,6 +2711,20 @@ class TestAntigravityTerminatedBanner:
         assert all(e[0] != StreamQueueKind.CHUNK for e in events)
         err = next(e for e in events if e[0] == StreamQueueKind.ERROR)
         assert "INVALID_ARGUMENT (code 400): enum bad" in err[1]["message"]
+        assert "STALE" not in err[1]["message"]
+
+    def test_banner_ignores_stale_executor_error_before_offset(self, tmp_path):
+        backend = _antigravity_backend()
+        log_path = tmp_path / "agy-acp.log"
+        log_path.write_text("agent executor error: STALE\n", encoding="utf-8")
+        backend._agent_log_path = str(log_path)
+        backend._agent_log_offset = log_path.stat().st_size
+        q = queue.Queue()
+        backend._answer_buf = ["\n⚠ Agent execution terminated due to error.\n"]
+        backend._finish_prompt_result({"stopReason": "end_turn"}, q)
+        err = next(e for e in _drain(q) if e[0] == StreamQueueKind.ERROR)
+        assert _AGENT_TERMINATED in err[1]["message"]
+        assert "STALE" not in err[1]["message"]
 
     def test_missing_log_falls_back_to_banner(self):
         backend = _antigravity_backend()

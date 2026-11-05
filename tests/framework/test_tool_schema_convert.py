@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.tool import ToolBase, to_mcp_schema, to_openai_schema
-from plugin.framework.tool_schema import _normalize_schema_for_strict_providers, _strip_mcp_null_enums
+from plugin.framework.tool_schema import _normalize_schema_for_strict_providers
 
 class DummyTool(ToolBase):
     name = "dummy_tool"
@@ -219,7 +219,27 @@ def test_optional_scalar_nullable_mcp():
     assert "full" in props["scope"]["enum"]
 
 
-def test_mcp_optional_enum_strips_null_not_openai():
+@pytest.mark.parametrize(
+    "schema_fn,scope_type,scope_enum",
+    [
+        ("openai", ["string", "null"], lambda e: None in e and "full" in e),
+        ("mcp", "string", lambda e: None not in e and "full" in e),
+    ],
+)
+def test_optional_enum_nullable_openai_vs_mcp(schema_fn, scope_type, scope_enum):
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    tool = GetDocumentContent()
+    if schema_fn == "openai":
+        props = to_openai_schema(tool)["function"]["parameters"]["properties"]
+    else:
+        props = to_mcp_schema(tool)["inputSchema"]["properties"]
+    assert props["scope"]["type"] == scope_type
+    assert scope_enum(props["scope"].get("enum", []))
+    assert props["max_chars"]["type"] == ["integer", "null"]
+
+
+def test_mcp_optional_enum_nested_object():
     params = {
         "type": "object",
         "properties": {
@@ -229,43 +249,13 @@ def test_mcp_optional_enum_strips_null_not_openai():
                     "inner_scope": {"type": "string", "enum": ["a", "b"]},
                 },
             },
-            "scope": {"type": "string", "enum": ["full", "selection"]},
         },
     }
-    normalized = _normalize_schema_for_strict_providers(params)
-    mcp = _strip_mcp_null_enums(normalized)
-    assert mcp["properties"]["scope"]["type"] == "string"
-    assert mcp["properties"]["scope"]["enum"] == ["full", "selection"]
-    assert None not in mcp["properties"]["scope"]["enum"]
+    mcp = _normalize_schema_for_strict_providers(params, for_mcp=True)
     inner = mcp["properties"]["outer"]["properties"]["inner_scope"]
     assert inner["type"] == "string"
     assert inner["enum"] == ["a", "b"]
-
-    tool = DummyTool()
-    tool.parameters = params  # type: ignore[misc]
-    openai_props = to_openai_schema(tool)["function"]["parameters"]["properties"]
-    assert openai_props["scope"]["type"] == ["string", "null"]
-    assert None in openai_props["scope"]["enum"]
-
-
-def test_mcp_enum_keeps_string_null_literal():
-    params = {
-        "type": "object",
-        "properties": {"mode": {"type": "string", "enum": ["null", "off"]}},
-    }
-    res = _strip_mcp_null_enums(_normalize_schema_for_strict_providers(params))
-    assert "null" in res["properties"]["mode"]["enum"]
-
-
-def test_mcp_required_enum_unchanged_by_strip():
-    params = {
-        "type": "object",
-        "properties": {"kind": {"type": "string", "enum": ["x", "y"]}},
-        "required": ["kind"],
-    }
-    res = _strip_mcp_null_enums(_normalize_schema_for_strict_providers(params))
-    assert res["properties"]["kind"]["type"] == "string"
-    assert res["properties"]["kind"]["enum"] == ["x", "y"]
+    assert None not in inner["enum"]
 
 
 def test_mcp_writer_optional_enums_no_null_in_enum():
@@ -290,10 +280,6 @@ def test_mcp_writer_optional_enums_no_null_in_enum():
     assert_mcp_string_enum(gdc, "scope")
     gdt = to_mcp_schema(GetDocumentTree())["inputSchema"]["properties"]
     assert_mcp_string_enum(gdt, "strategy")
-
-    openai_adc = to_openai_schema(ApplyDocumentContent())["function"]["parameters"]["properties"]
-    assert None in openai_adc["position"]["enum"]
-    assert openai_adc["position"]["type"] == ["string", "null"]
 
 
 def test_required_scalar_not_nullable():

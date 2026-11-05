@@ -222,16 +222,21 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     return out
 
 
-@deal.ensure(lambda prop_schema, result: not isinstance(prop_schema, dict) or isinstance(result, dict))
-def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any]:
+@deal.ensure(lambda prop_schema, result, for_mcp=False: not isinstance(prop_schema, dict) or isinstance(result, dict))
+def _make_optional_scalar_nullable(prop_schema: dict[str, Any], *, for_mcp: bool = False) -> dict[str, Any]:
     """Add null to optional scalar property types (strict providers reject bare null otherwise).
 
     A union of scalars is optional in the same way as one scalar. Null is
     appended; the other members stay. ``["string", "number"]`` must not
     become ``["string", "null"]``.
+
+    MCP/Gemini rejects JSON null inside ``enum`` when agy forwards tool schemas.
+    Optional enum properties stay non-nullable on the MCP wire; callers omit the key.
     """
     # crosshair: off
     if not isinstance(prop_schema, dict):
+        return prop_schema
+    if for_mcp and isinstance(prop_schema.get("enum"), list):
         return prop_schema
     raw = prop_schema.get("type")
     types = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else None
@@ -247,9 +252,9 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     return out
 
 
-@deal.ensure(lambda params, result: (not isinstance(params, dict) or not params) or isinstance(result, dict))
-@deal.ensure(lambda params, result: not isinstance(result, dict) or result.get("required") != [])
-def _normalize_schema_for_strict_providers(params: Any) -> Any:
+@deal.ensure(lambda params, result, for_mcp=False: (not isinstance(params, dict) or not params) or isinstance(result, dict))
+@deal.ensure(lambda params, result, for_mcp=False: not isinstance(result, dict) or result.get("required") != [])
+def _normalize_schema_for_strict_providers(params: Any, *, for_mcp: bool = False) -> Any:
     """Normalize JSON Schema for strict upstream validators (Gemini, Groq, etc.).
 
     - Optional scalar properties, including a union of scalars, get ``null``
@@ -296,49 +301,13 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     if isinstance(params.get("properties"), dict):
         req = required_keys(params)
         for k, v in params["properties"].items():
-            v = _normalize_schema_for_strict_providers(v)
+            v = _normalize_schema_for_strict_providers(v, for_mcp=for_mcp)
             if k not in req:
-                v = _make_optional_scalar_nullable(v)
+                v = _make_optional_scalar_nullable(v, for_mcp=for_mcp)
             params["properties"][k] = v
     if "items" in params and isinstance(params["items"], dict):
-        params["items"] = _normalize_schema_for_strict_providers(params["items"])
+        params["items"] = _normalize_schema_for_strict_providers(params["items"], for_mcp=for_mcp)
     return params
-
-
-def _strip_mcp_null_enums(node: Any) -> Any:
-    """Remove JSON null from MCP enum lists; Gemini rejects enum[k] when agy forwards schemas.
-
-    OpenAI wire schemas keep null in optional enums via ``to_openai_schema`` only.
-    Optional enum params are omitted at call time; execute defaults are unchanged.
-    """
-    if isinstance(node, list):
-        return [_strip_mcp_null_enums(item) for item in node]
-    if not isinstance(node, dict):
-        return node
-    out = dict(node)
-    props = out.get("properties")
-    if isinstance(props, dict):
-        out["properties"] = {k: _strip_mcp_null_enums(v) for k, v in props.items()}
-    items = out.get("items")
-    if isinstance(items, dict):
-        out["items"] = _strip_mcp_null_enums(items)
-    enum_val = out.get("enum")
-    if isinstance(enum_val, list) and None in enum_val:
-        new_enum = [v for v in enum_val if v is not None]
-        if new_enum:
-            out["enum"] = new_enum
-        else:
-            out.pop("enum", None)
-        raw_type = out.get("type")
-        if isinstance(raw_type, list) and "null" in raw_type:
-            types = [t for t in raw_type if t != "null"]
-            if len(types) == 1:
-                out["type"] = types[0]
-            elif types:
-                out["type"] = types
-            else:
-                out.pop("type", None)
-    return out
 
 
 @deal.pre(lambda tool, **kwargs: getattr(tool, "name", None) is not None)
@@ -406,8 +375,7 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
         if "domain" in props and isinstance(props["domain"], dict):
             props["domain"]["description"] = format_specialized_domains_description(agent_label=agent_label)
 
-    input_schema = _normalize_schema_for_strict_providers(input_schema)
-    input_schema = _strip_mcp_null_enums(input_schema)
+    input_schema = _normalize_schema_for_strict_providers(input_schema, for_mcp=True)
     props = input_schema["properties"]
     # Execute already coerces a bare range string to [str]. Source schemas stay
     # array-only; widen MCP so a host may send the string execute already wraps.
