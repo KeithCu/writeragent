@@ -67,8 +67,8 @@ _TIMEOUT_AFTER = " timed out after "
 
 # Non-UI callers wait this long for the pipe, then get WORKER_REENTRY.
 # Matches the scripting timeout ceiling so a second background script can
-# still run after a long one. The UI thread does not wait to acquire
-# _io_lock. Killing a worker does not wait on the caller either: the
+# still run after a long one. The UI thread does not wait to acquire the
+# warm-child pipe lock. Killing a worker does not wait on the caller either: the
 # process tree is reaped in the background. The next spawn joins that
 # reap first. A waiter also leaves within _IO_LOCK_POLL_SEC if the
 # holder enters a tool RPC.
@@ -447,6 +447,7 @@ class PythonWorkerManager:
         while True:
             refused: dict[str, Any] | None = None
 
+            # Identity compare distinguishes our refusal from a WarmChild error dict with the same code.
             def _take_refusal() -> dict[str, Any] | None:
                 nonlocal refused
                 refused = self._refuse_lease()
@@ -518,6 +519,7 @@ class PythonWorkerManager:
                     return outcome
                 if attempt == 1:
                     return outcome.error
+        # Unreachable: attempt 1 always returns on RetryWithNewLease or a plain dict.
         raise AssertionError("retry loop exited without a result")
 
     @classmethod
@@ -1100,7 +1102,7 @@ class PythonWorkerManager:
 
         # Each heartbeat used to set the deadline to now+grace with no end.
         # Trusted actions do not use the sandbox alarm, so a loop that kept
-        # emitting held _io_lock until something else killed the child.
+        # emitting heartbeats held the warm-child pipe lock until something else killed the child.
         # Heartbeats may move the short deadline forward, but never past an
         # absolute ceiling from the start of this call. They do not reset it.
         # _read_until_terminal starts a new ceiling after a non-heartbeat

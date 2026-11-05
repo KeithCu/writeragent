@@ -14,7 +14,7 @@ Thread B, while A is in the non-UNO
 sleep that stands in for an LLM wait, ``setString``s its own document.
 
 Pass: B's text is intact, A's exported ``.odt`` contains the shape name,
-B's ``.odt`` does not. This does not take the warm-venv ``_io_lock``;
+B's ``.odt`` does not. This does not take the warm-child pipe lock;
 two real flag scripts still run one after another.
 
 Usage (from the repo root; ``make manifest`` once so ``plugin/_manifest.py`` exists):

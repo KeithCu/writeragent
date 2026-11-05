@@ -37,8 +37,8 @@ from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 log = logging.getLogger(__name__)
 
-# ``run_venv_python_script`` would re-enter the same warm worker while
-# ``_io_lock`` is held and deadlock the pipe.
+# ``run_venv_python_script`` would re-enter the same warm worker while the
+# warm-child pipe lock is held and deadlock the pipe.
 _BLOCKED_FROM_VENV = frozenset({"run_venv_python_script"})
 
 # Host sentinel: disable venv → LO tool RPC (Calc ``=PY()`` recalc).
