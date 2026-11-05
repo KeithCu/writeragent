@@ -41,6 +41,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
     'calc': [   'delete_structure',
                 'get_sheet_summary',
                 'insert_cell_html',
+                'insert_structure',
                 'list_calc_functions',
                 'merge_cells',
                 'read_cell_range',
@@ -151,12 +152,15 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                  'shape_group',
                  'shape_summary',
                  'shape_upsert'],
-    'sheet': [   'sheet_create',
+    'sheet': [   'sheet_copy',
+                 'sheet_create',
                  'sheet_delete',
                  'sheet_filter_apply',
                  'sheet_filter_clear',
                  'sheet_filter_get',
+                 'sheet_hide',
                  'sheet_list',
+                 'sheet_move',
                  'sheet_protect',
                  'sheet_rename',
                  'sheet_switch'],
@@ -275,6 +279,7 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'indexes_refresh_toc_entry': ('index', 'refresh_toc_entry'),
     'indexes_update_all': ('index', 'update_all'),
     'insert_cell_html': ('calc', 'insert_cell_html'),
+    'insert_structure': ('calc', 'insert_structure'),
     'list_calc_functions': ('calc', 'list_calc_functions'),
     'list_designs': ('draw', 'list_designs'),
     'list_open_documents': ('core', 'list_open_documents'),
@@ -338,12 +343,15 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'shape_group': ('shape', 'group'),
     'shape_summary': ('shape', 'summary'),
     'shape_upsert': ('shape', 'upsert'),
+    'sheet_copy': ('sheet', 'copy'),
     'sheet_create': ('sheet', 'create'),
     'sheet_delete': ('sheet', 'delete'),
     'sheet_filter_apply': ('sheet', 'filter_apply'),
     'sheet_filter_clear': ('sheet', 'filter_clear'),
     'sheet_filter_get': ('sheet', 'filter_get'),
+    'sheet_hide': ('sheet', 'hide'),
     'sheet_list': ('sheet', 'list'),
+    'sheet_move': ('sheet', 'move'),
     'sheet_protect': ('sheet', 'protect'),
     'sheet_rename': ('sheet', 'rename'),
     'sheet_switch': ('sheet', 'switch'),
@@ -498,13 +506,23 @@ class _CalcProxy:
         return call_host_tool("get_sheet_summary", sheet=sheet)
 
     def insert_cell_html(self, cell: str, html: str) -> dict[str, Any]:
-        """Parses HTML with the same filter as Writer and pastes rich text into one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders.
+        """Parses HTML with the same filter as Writer and pastes rich text into one cell (e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) selects that sheet; otherwise the active sheet. Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders.
 
         Args:
-            cell (required): Single cell (e.g. "A1") on the active sheet.
+            cell (required): Single cell (e.g. "A1" or "Sheet2.A1").
             html (required): HTML fragment or small document (UTF-8).
         """
         return call_host_tool("insert_cell_html", cell=cell, html=html)
+
+    def insert_structure(self, structure_type: str, start: int | str, *, count: int | None = None) -> dict[str, Any]:
+        """Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations.
+
+        Args:
+            structure_type (required): Type of structure to insert. One of: rows, columns.
+            start (required): For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5).
+            count (optional): Number to insert (default 1).
+        """
+        return call_host_tool("insert_structure", structure_type=structure_type, start=start, count=count)
 
     def list_calc_functions(self, *, filter: str | None = None) -> dict[str, Any]:
         """Lists available Calc spreadsheet functions. Use the 'filter' parameter to perform a case-insensitive search for a partial substring anywhere in function names or descriptions to avoid context window bloat.
@@ -514,14 +532,15 @@ class _CalcProxy:
         """
         return call_host_tool("list_calc_functions", filter=filter)
 
-    def merge_cells(self, range_name: list[str], *, center: bool | None = None) -> dict[str, Any]:
+    def merge_cells(self, range_name: list[str], *, center: bool | None = None, unmerge: bool | None = None) -> dict[str, Any]:
         """Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas.
 
         Args:
             range_name (required): Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).
             center (optional): Center content (default: true).
+            unmerge (optional): Split merged cells instead of merging (default: false).
         """
-        return call_host_tool("merge_cells", range=range_name, center=center)
+        return call_host_tool("merge_cells", range=range_name, center=center, unmerge=unmerge)
 
     def read_cell_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:
         """Reads values from the specified cell range(s). Inspection only — keep ranges small (headers or a few dozen cells). A large dump overloads chat context; oversized reads return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); reductions that spill a small result use =PY into one empty cell outside the data. Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, `PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and `types` maps only where needed. Use `format=cells` for one object per cell (address, value, formula, type, format_category, format_code). Supports lists for non-contiguous areas.
@@ -771,15 +790,16 @@ class _CoreProxy:
         """
         return call_host_tool("get_guidance", topic=topic)
 
-    def get_image(self, *, image: str | None = None, selection: bool | None = None, page: int | None = None) -> dict[str, Any]:
+    def get_image(self, *, image: str | None = None, selection: bool | None = None, page: int | None = None, sheet_index: int | None = None) -> dict[str, Any]:
         """Return an image so you can SEE it (vision-capable models). One of: image=<the graphic's name from image_list / get_page_objects> for an embedded picture; selection=true for the image currently selected; or page=<n> (0-based) to render that whole PAGE as an image (Writer/Draw/Impress layout). On Draw/Impress, get_draw_tree is the shape tree — use page= here when you need to see the rendered page. Returns the picture itself, not a description. b64 is stripped from normal reads, so use this when you actually need to look. Pass at most one of image, selection, or page.
 
         Args:
             image (optional): Name of the embedded graphic to fetch (from image_list / get_page_objects). Pass at most one of image, selection, or page.
             selection (optional): If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page.
-            page (optional): 0-based page/slide index. Renders that whole page layout as an image, instead of fetching one embedded image. Pass at most one of image, selection, or page.
+            page (optional): 0-based page/slide index. Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page.
+            sheet_index (optional): Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names).
         """
-        return call_host_tool("get_image", image=image, selection=selection, page=page)
+        return call_host_tool("get_image", image=image, selection=selection, page=page, sheet_index=sheet_index)
 
     def list_open_documents(self) -> dict[str, Any]:
         """List all currently open documents in LibreOffice. Returns the path, name, URL, a stable id (uid), document type (writer, calc, draw), whether it is the currently active document, and whether it has unsaved changes (modified). Pass a document's url OR uid as the document_url argument on any tool to target that document; the uid also works for unsaved/untitled documents that have no URL yet. You cannot save documents yourself; when modified is true and the work is done, tell the user to save. Also returns current_local_datetime with the host's wall clock."""
@@ -1940,6 +1960,16 @@ shape = _ShapeProxy()
 class _SheetProxy:
     """Proxy for sheet tools."""
 
+    def copy(self, source: str, new_name: str, *, position: int | None = None) -> dict[str, Any]:
+        """Copies an existing sheet to a new tab (cells included; does not activate the copy).
+
+        Args:
+            source (required): Name of the sheet to copy.
+            new_name (required): Name for the new sheet tab.
+            position (optional): 0-based index for the copy (appended if omitted).
+        """
+        return call_host_tool("sheet_copy", source=source, new_name=new_name, position=position)
+
     def create(self, sheet: str, *, position: int | None = None) -> dict[str, Any]:
         """Creates a new empty sheet (tab exists; no cells copied). sheet_create is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet.
 
@@ -1984,9 +2014,27 @@ class _SheetProxy:
         """
         return call_host_tool("sheet_filter_get", range=range_name)
 
+    def hide(self, sheet: str, *, visible: bool | None = None) -> dict[str, Any]:
+        """Hides or shows a sheet tab (visible=false hides; default hides).
+
+        Args:
+            sheet (required): Name of the sheet.
+            visible (optional): True to show the tab; false to hide (default: false).
+        """
+        return call_host_tool("sheet_hide", sheet=sheet, visible=visible)
+
     def list(self) -> dict[str, Any]:
-        """Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."""
+        """Lists user-visible sheets (omits leading-`_` internal tabs). Each entry is {name, protected, visible}."""
         return call_host_tool("sheet_list")
+
+    def move(self, sheet: str, position: int) -> dict[str, Any]:
+        """Moves a sheet to a new 0-based index in the workbook.
+
+        Args:
+            sheet (required): Name of the sheet to move.
+            position (required): New 0-based index (0..sheet count minus 1).
+        """
+        return call_host_tool("sheet_move", sheet=sheet, position=position)
 
     def protect(self, *, sheet: str | None = None, protect: bool | None = None) -> dict[str, Any]:
         """Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked.
@@ -2223,10 +2271,10 @@ class _StylesProxy:
         return call_host_tool("style_import", path=path, overwrite=overwrite, load_paragraph_styles=load_paragraph_styles, load_page_styles=load_page_styles, load_frame_styles=load_frame_styles, load_numbering_styles=load_numbering_styles)
 
     def list(self, *, family: str | None = None) -> dict[str, Any]:
-        """List available styles in the document. Omit family to list all style family names; set family to list styles in that family.
+        """List available styles in the document. Omit family to list style family names; set family to list styles in that family (Writer: paragraph, character, and page styles; Calc: cell styles only).
 
         Args:
-            family (optional): Omit to list family names. Otherwise ParagraphStyles, CharacterStyles, or PageStyles. One of: ParagraphStyles, CharacterStyles, PageStyles.
+            family (optional): Omit to list family names. On Writer: ParagraphStyles, CharacterStyles, or PageStyles. On Calc: CellStyles. One of: ParagraphStyles, CharacterStyles, PageStyles, CellStyles.
         """
         return call_host_tool("style_list", family=family)
 

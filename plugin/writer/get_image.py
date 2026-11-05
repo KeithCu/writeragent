@@ -21,7 +21,7 @@ import tempfile
 from typing import TYPE_CHECKING, Any
 
 from plugin.doc import visual_helpers
-from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
+from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.doc.text_helpers import clone_text_range
 from plugin.framework.errors import best_effort, reraise_if_disposed
 from plugin.framework.tool import ToolBase
@@ -196,12 +196,18 @@ class GetImage(ToolBase):
         "properties": {
             "image": {"type": "string", "description": "Name of the embedded graphic to fetch (from image_list / get_page_objects). Pass at most one of image, selection, or page."},
             "selection": {"type": "boolean", "description": "If true, fetch the currently selected image instead of naming one. Pass at most one of image, selection, or page."},
-            "page": {"type": "integer", "description": "0-based page/slide index. Renders that whole page layout as an image, instead of fetching one embedded image. Pass at most one of image, selection, or page."},
+            "page": {"type": "integer", "description": "0-based page/slide index. Renders that whole page layout as an image (Writer/Draw/Impress only). Pass at most one of image, selection, or page."},
+            "sheet_index": {"type": "integer", "description": "Optional 0-based sheet index on Calc when fetching by image name (disambiguates duplicate names)."},
         },
         "required": [],
     }
     # Impress also supports DrawingDocument; list both so execution accepts either service set.
-    uno_services: list[str] | None = [TEXT_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE]
+    uno_services: list[str] | None = [
+        TEXT_DOCUMENT_SERVICE,
+        DRAW_DOCUMENT_SERVICE,
+        IMPRESS_DOCUMENT_SERVICE,
+        CALC_DOCUMENT_SERVICE,
+    ]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # page, image, and selection are exclusive; bad types are errors, not a silent mode pick.
@@ -212,11 +218,21 @@ class GetImage(ToolBase):
 
         name = kwargs.get("image")
         page = kwargs.get("page")
+        sheet_index = kwargs.get("sheet_index")
+        if sheet_index is not None:
+            if isinstance(sheet_index, bool) or not isinstance(sheet_index, int) or sheet_index < 0:
+                return self._tool_error("sheet_index must be a non-negative integer (0-based).")
+            if name is None:
+                return self._tool_error("sheet_index applies only with image=<name>.")
         if page is not None:
             if isinstance(page, bool) or not isinstance(page, int) or page < 0:
                 return self._tool_error("page must be a non-negative integer (0-based).")
-            if name is not None or selection is True:
+            if name is not None or selection is True or sheet_index is not None:
                 return self._tool_error("Pass only one of page, image, or selection.")
+            if ctx.doc_type == "calc":
+                return self._tool_error(
+                    "page render is for Writer, Draw, or Impress; on Calc pass image=<name> or selection=true."
+                )
             raw, reason = _render_page_png(ctx.ctx, doc, page)
             if raw is None:
                 return self._tool_error(reason or "Could not render the page.")
@@ -227,12 +243,20 @@ class GetImage(ToolBase):
                 return self._tool_error("image must be a non-empty string (the graphic's name).")
             if selection is True:
                 return self._tool_error("Pass only one of page, image, or selection.")
-            # visual_helpers walks Writer GraphicObjects and Draw/Impress GraphicObjectShapes.
-            # Do not call getGraphicObjects() here — that Writer-only API is missing on Draw
-            # and would look like a successful miss ("no such name") instead of a real lookup.
-            from plugin.doc.visual_helpers import get_graphic_object_by_name
+            from plugin.doc.visual_helpers import AmbiguousGraphicNameError, get_graphic_object_by_name
 
-            obj = get_graphic_object_by_name(doc, name)
+            lookup_kwargs: dict[str, Any] = {}
+            if sheet_index is not None:
+                lookup_kwargs["sheet_index"] = sheet_index
+            try:
+                obj = get_graphic_object_by_name(doc, name, **lookup_kwargs)
+            except AmbiguousGraphicNameError as exc:
+                return self._tool_error(
+                    str(exc),
+                    code="AMBIGUOUS_NAME",
+                    image_name=name,
+                    sheet_indices=exc.sheet_indices,
+                )
             if obj is None:
                 return self._tool_error(f"No embedded image named '{name}'. Call image_list to see the available names.")
             raw = export_graphic_object_to_bytes(ctx.ctx, obj)

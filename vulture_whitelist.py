@@ -144,6 +144,10 @@ _.DeleteCellComment  # class: plugin/calc/comments.py:164
 _.DeleteSheet  # class: plugin/calc/sheets.py:134
 _.DeleteSlide  # class: plugin/draw/pages.py:134
 _.DeleteStructure  # class: plugin/calc/cells.py:973
+_.InsertStructure  # class: plugin/calc/cells.py
+_.SheetCopy  # class: plugin/calc/sheets.py
+_.SheetMove  # class: plugin/calc/sheets.py
+_.SheetHide  # class: plugin/calc/sheets.py
 _.DetectErrors  # class: plugin/calc/errors.py:38
 _.DistributeShapes  # class: plugin/draw/shapes.py:896
 _.DocumentURL  # attribute: plugin/writer/specialized/mail_merge.py:534

@@ -237,3 +237,36 @@ def test_conditional_formatting_list_used_area_and_range_handling():
         assert res_none["status"] == "ok"
         assert res_none["range"] == "A1:D10"
 
+
+def test_conditional_sub_agent_includes_style_list_not_style_create():
+    from plugin.calc.conditional import AddConditionalFormat
+    from plugin.framework.tool import ToolRegistry
+    from plugin.writer.styles import StyleCreate, StyleList
+
+    registry = ToolRegistry(MagicMock())
+    registry.register(AddConditionalFormat())
+    registry.register(StyleList())
+    registry.register(StyleCreate())
+    names = {t.name for t in registry.get_tools(doc_type="calc", active_domain="conditional_formatting", exclude_tiers=())}
+    assert "style_list" in names
+    assert "style_create" not in names
+
+
+def test_get_image_supports_calc_document():
+    from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE
+    from plugin.framework.tool import tool_supports_document
+    from plugin.writer.get_image import GetImage
+
+    assert tool_supports_document(
+        GetImage(),
+        doc_type="calc",
+        uno_services_supported=frozenset({CALC_DOCUMENT_SERVICE}),
+    ) is True
+
+
+def test_calc_specialized_catalog_excludes_styles_domain():
+    from plugin.doc.specialized_catalog import get_specialized_domain_catalog
+
+    domains = {entry["domain"] for entry in get_specialized_domain_catalog(agent_label="Calc")}
+    assert "styles" not in domains
+

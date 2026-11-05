@@ -61,3 +61,18 @@ def test_clear_part_of_array_is_refused(ctx, doc):
 
     manipulator.clear_range("A5:A6")
     assert sheet.getCellByPosition(0, 4).getFormula() == ""
+
+
+@native_test
+@with_native_doc("calc")
+def test_manipulator_insert_structure_and_unmerge(ctx, doc):
+    from plugin.calc.bridge import CalcBridge
+    from plugin.calc.manipulator import CellManipulator
+
+    bridge = CalcBridge(doc)
+    manipulator = CellManipulator(bridge)
+    manipulator.insert_structure("rows", 1, count=1)
+    sheet = bridge.get_active_sheet()
+    sheet.getCellRangeByPosition(0, 0, 1, 0).merge(True)
+    manipulator.merge_cells("A1:B1", center=False, unmerge=True)
+

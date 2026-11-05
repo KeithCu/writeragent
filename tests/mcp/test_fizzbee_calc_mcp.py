@@ -96,6 +96,7 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "pivot_table_delete",
     "sheet_delete",
     "delete_structure",
+    "insert_structure",
     "error_detect",
     "evaluate_formula",
     "get_guidance",
@@ -109,6 +110,9 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
     "list_nearby_files",
     "pivot_table_list",
     "sheet_list",
+    "sheet_copy",
+    "sheet_move",
+    "sheet_hide",
     "chart_delete",
     "chart_get_info",
     "chart_list",
@@ -148,14 +152,15 @@ _EXPECTED_CALC_TOOL_NAMES = frozenset({
 
 
 def test_extract_full_calc_layout_count():
-    """Verify that full layout extraction returns all 65 Calc tools across tiers."""
+    """Verify full layout extraction: core+specialized names and total tier count."""
     layout = extract_full_calc_layout()
 
     all_tool_names = {t.name for t in layout["core_tools"] + layout["specialized_tools"]}
     assert all_tool_names == _EXPECTED_CALC_TOOL_NAMES
-    assert layout["total_count"] == 65
+    assert layout["total_count"] == len(layout["all_tools"])
+    assert layout["total_count"] == len(_EXPECTED_CALC_TOOL_NAMES) + 4
     assert len(layout["core_tools"]) >= 10
-    assert len(layout["specialized_tools"]) >= 42
+    assert len(layout["specialized_tools"]) >= 39
 
     # Check key core tools
     core_names = {t.name for t in layout["core_tools"]}
