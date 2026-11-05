@@ -329,7 +329,7 @@ def test_align_and_insert_table(ctx, doc):
         "x": 5000, "y": 4000, "width": 2000, "height": 1000, "text": "R",
     })
     n = page.getCount()
-    result = _exec_tool(doc, ctx, "align_shapes", {
+    result = _exec_tool(doc, ctx, "shape_align", {
         "indices": [n - 2, n - 1], "alignment": "top",
     })
     data = json.loads(result)
@@ -556,9 +556,9 @@ def test_insert_math_draw(ctx, doc):
     from plugin.tests.testing_utils import mark_windows_math_ole_doc
 
     # GHA 34606276107: load done uid=48 then ~8s later close_doc dispose
-    # and soffice exited 0. Name insert_math vs close_doc teardown.
-    _progress("insert_math_draw: insert_math start")
-    result = _exec_tool(doc, ctx, "insert_math", {
+    # and soffice exited 0. Name math_insert vs close_doc teardown.
+    _progress("insert_math_draw: math_insert start")
+    result = _exec_tool(doc, ctx, "math_insert", {
         "formula_type": "latex",
         "formula": "E = mc^2",
         "page": 0,
@@ -567,10 +567,10 @@ def test_insert_math_draw(ctx, doc):
     })
 
     data = json.loads(result)
-    _progress("insert_math_draw: insert_math done status=%s" % data.get("status"))
-    assert data.get("status") == "ok", f"insert_math failed: {result}"
+    _progress("insert_math_draw: math_insert done status=%s" % data.get("status"))
+    assert data.get("status") == "ok", f"math_insert failed: {result}"
 
-    # insert_math used page_index 0 — read shape from that page (current slide may differ after prior tests).
+    # math_insert used page_index 0 — read shape from that page (current slide may differ after prior tests).
     target_page = doc.getDrawPages().getByIndex(0)
     shape = target_page.getByIndex(data.get("index"))
 

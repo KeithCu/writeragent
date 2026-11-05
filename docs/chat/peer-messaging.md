@@ -346,7 +346,7 @@ GDPval GMP change-control ([`docs/eval/gdpval/58ac1cc5-…`](../eval/gdpval/58ac
 
 **Staging fact, not a product claim:** LibreOffice File → Open on a PDF often imports as **editable Draw text and shapes**, not live AcroForm widgets. A headed poke may land the gold PDF in Draw. That is eval/harness staging. It is **not** “WriterAgent edits PDFs” and **not** an AcroForm API.
 
-The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty boxes as fill targets; `delegate_to_specialized_draw_toolset` → `fill_draw_fields` / `shape_upsert` by name from the tree; shared `form_*` only for live ControlShapes). Do not spawn new ControlShapes for paper-form blanks. Then it `send_peer_result`s back.
+The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty boxes as fill targets; `delegate_to_specialized_draw_toolset` → `shape_fill_fields` / `shape_upsert` by name from the tree; shared `form_*` only for live ControlShapes). Do not spawn new ControlShapes for paper-form blanks. Then it `send_peer_result`s back.
 
 ### 4.8 Worked scenarios
 
@@ -363,7 +363,7 @@ The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty
 
 1. Writer drafts the memo with Writer tools.
 2. Writer document_research `send_peer_work(document_url=<stand-in uid>, message="Fill the change-control fields from this discrepancy summary: … Reply with a short confirmation.")` → `{ok, accepted}` then `specialized_workflow_finished`. Writer Readys.
-3. Draw **main** sees the Writer envelope, runs `get_draw_tree` then `fill_draw_fields` (or `shape_upsert` by name) **on the Draw model only**, then `delegate_to_specialized_draw_toolset(domain="document_research")` to reply. Empty text boxes are the fill targets; use the name from the tree. `form_*` is only for live ControlShapes.
+3. Draw **main** sees the Writer envelope, runs `get_draw_tree` then `shape_fill_fields` (or `shape_upsert` by name) **on the Draw model only**, then `delegate_to_specialized_draw_toolset(domain="document_research")` to reply. Empty text boxes are the fill targets; use the name from the tree. `form_*` is only for live ControlShapes.
 4. Draw document_research `send_peer_result(document_url=<Writer uid or url from the envelope>, message=<confirmation>)`` then `specialized_workflow_finished`. Writer follow-up cites the form in the memo.
 
 Reverse (Draw asks Writer for a paragraph) is the same tool with a Writer uid.

@@ -19,7 +19,7 @@ Adapted from OnlyOfficeAI patterns. Original source: onlyofficeai/scripts/helper
 
 These tools address live LibreOffice ControlShapes (com.sun.star.form.component.*).
 They do not fill PDF/AcroForm widgets. Draw "paper forms" (empty TextShapes next
-to labels) use get_draw_tree + fill_draw_fields / shape_upsert instead.
+to labels) use get_draw_tree + shape_fill_fields / shape_upsert instead.
 """
 
 import logging
@@ -350,7 +350,7 @@ class FormCreateControl(ToolWriterFormBase):
         "Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) "
         "because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. "
         "Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). "
-        "Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets."
+        "Do not use this to fill paper-form blanks (empty TextShapes) — those are shape_fill_fields / shape_upsert targets."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",

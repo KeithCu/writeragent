@@ -184,7 +184,7 @@ def _apply_control_value(shape: Any, value: Any) -> tuple[bool, str]:
 class FillDrawFields(ToolDrawShapeBase):
     """Batch-write existing blanks / widgets. Does not spawn new controls."""
 
-    name: str | None = "fill_draw_fields"
+    name: str | None = "shape_fill_fields"
     description: str = (
         "Fill existing empty text boxes (paper-form fields) or ControlShape values on a Draw/Impress page "
         "so a GMP-style stand-in can be completed in one call. Empty boxes are fill targets — do not create "

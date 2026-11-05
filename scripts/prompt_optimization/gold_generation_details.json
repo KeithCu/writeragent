@@ -151,7 +151,7 @@
     "trace_names": [
       "get_presentation_info",
       "shape_summary",
-      "create_diagram",
+      "shape_diagram",
       "shape_upsert",
       "shape_upsert",
       "shape_upsert",

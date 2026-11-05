@@ -830,7 +830,7 @@ def _layout_on_page(tool: ToolBase, ctx: ToolContext, indices: list[Any], layout
 
 
 class AlignShapes(ToolDrawShapeBase):
-    name: str | None = "align_shapes"
+    name: str | None = "shape_align"
     description: str = "Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -852,7 +852,7 @@ class AlignShapes(ToolDrawShapeBase):
 
 
 class DistributeShapes(ToolDrawShapeBase):
-    name: str | None = "distribute_shapes"
+    name: str | None = "shape_distribute"
     description: str = "Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -874,7 +874,7 @@ class DistributeShapes(ToolDrawShapeBase):
 
 
 class CreateDiagram(ToolDrawShapeBase):
-    name: str | None = "create_diagram"
+    name: str | None = "shape_diagram"
     description: str = "Create a flowchart/diagram of multiple nodes and connectors in one turn. Node positions are 1/100 mm. Auto layouts: horizontal_flow, vertical_flow, grid; custom requires x/y on each node."
     parameters: dict[str, Any] | None = {
         "type": "object",
