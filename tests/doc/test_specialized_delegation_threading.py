@@ -678,6 +678,10 @@ def test_calc_list_sheets_runs_uno_only_when_current():
         raw_sheets.getCount.return_value = 1
         raw_sheets.getByIndex.return_value = raw_sheet
         raw_sheets.getElementNames.return_value = ("Sheet1",)
+        list_sheet = MagicMock()
+        list_sheet.isProtected.return_value = False
+        list_sheet.getPropertyValue.return_value = True
+        raw_sheets.getByName.return_value = list_sheet
         raw_doc = MagicMock()
         raw_doc.supportsService.return_value = True
         raw_doc.getSheets.return_value = raw_sheets
@@ -700,7 +704,7 @@ def test_calc_list_sheets_runs_uno_only_when_current():
         t.join(timeout=3.0)
         assert err is None, f"direct UNO from worker: {err}"
         assert result is not None and result.get("status") == "ok"
-        assert result.get("result") == ["Sheet1"]
+        assert result.get("result") == [{"name": "Sheet1", "protected": False, "visible": True}]
     finally:
         session.close()
 

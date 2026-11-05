@@ -212,9 +212,14 @@ def draw_topic_list_text() -> str:
     return ", ".join(t.id for t in _DRAW_TOPICS)
 
 
+def list_topic_entries(doc_type: str | None = "writer") -> list[tuple[str, str]]:
+    """Canonical topic ids and summaries in display order for a document type."""
+    return [(t.id, t.summary) for t in _MANUALS[_app(doc_type)]]
+
+
 def list_topics(doc_type: str | None = "writer") -> list[str]:
     """Canonical topic ids in display order for a document type."""
-    return [t.id for t in _MANUALS[_app(doc_type)]]
+    return [topic_id for topic_id, _summary in list_topic_entries(doc_type)]
 
 
 def _resolve_topic(topic: str | None, doc_type: str | None = "writer") -> _Topic | None:

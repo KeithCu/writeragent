@@ -13,7 +13,7 @@ Conditional formatting tools live in the **specialized** tier (`conditional_form
 | `conditional_formatting_list` | List rules on a range (or the used area if `range` is omitted). |
 | `conditional_formatting_remove` | Remove one rule by **0-based** index, or **clear all** rules on the range if `rule_index` is omitted. |
 
-Implementation: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py).
+Implementation: [`plugin/calc/conditional.py`](../../plugin/calc/conditional.py). Base class: `ToolCalcConditionalBase` in [`plugin/calc/base.py`](../../plugin/calc/base.py). The conditional sub-agent also receives core **`style_list`** (`family=CellStyles`) to discover valid cell style names.
 ---
 
 ## 2. LibreOffice UNO — two different models (critical)

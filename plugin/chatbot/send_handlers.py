@@ -484,10 +484,23 @@ class SendHandlersMixin:
                 mcp_running = is_mcp_server_running()
                 mcp_url = self._get_mcp_url() if mcp_running else None
 
+                # ACP session/new cannot attach per-request headers; when MCP is off or down the
+                # model still gets full_manual but had no in-chat hint that edits require the server.
+                if mcp_url is None:
+                    turn.put((
+                        StreamQueueKind.STATUS,
+                        _(
+                            "MCP server is off: LibreOffice edits from this agent require the MCP server. "
+                            "Enable it in Settings → MCP → Enable MCP Server."
+                        ),
+                    ))
+
                 mcp_instructions = ""
                 if mcp_url:
                     mcp_instructions = (
-                        f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\nYou can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\nTarget the current document by passing the 'X-Document-URL' header: {document_url}\n"
+                        f"\n\n[MCP SERVER AVAILABLE]\nA Model Context Protocol (MCP) server is running at: {mcp_url}\n"
+                        f"You can discover and use all LibreOffice tools (Writer, Calc, Draw) via this server.\n"
+                        f"Target the current document by passing document_url (a url or uid from list_open_documents): {document_url}\n"
                     )
 
                 # Inject the FULL shared manual: the same prompt pieces (constants) that feed the

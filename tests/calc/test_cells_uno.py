@@ -826,3 +826,25 @@ def test_write_time_does_not_inherit_incompatible_date_format(ctx, doc):
     cell_c51 = active_sheet.getCellByPosition(2, 50)  # C51
     assert int(cell_c51.getPropertyValue("NumberFormat")) != date_key
 
+
+@native_test
+@with_native_doc("calc")
+def test_insert_structure_and_unmerge(ctx, doc):
+    active = doc.getCurrentController().getActiveSheet()
+    active.getCellByPosition(0, 0).setString("hdr")
+    _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["A1:B1"]})
+    res_unmerge = _execute_calc_tool(doc, ctx, "merge_cells", {"range": ["A1:B1"], "unmerge": True})
+    assert res_unmerge.get("status") == "ok", res_unmerge
+    _execute_calc_tool(doc, ctx, "insert_structure", {"structure_type": "rows", "start": 2, "count": 1})
+    _execute_calc_tool(doc, ctx, "insert_structure", {"structure_type": "columns", "start": "C", "count": 1})
+
+
+@native_test
+@with_native_doc("calc")
+def test_delete_structure_on_prefixed_sheet(ctx, doc):
+    sheets = doc.getSheets()
+    sheets.insertNewByName("Sheet2", sheets.getCount())
+    sheet2 = sheets.getByName("Sheet2")
+    sheet2.getCellByPosition(0, 4).setString("row5")
+    _execute_calc_tool(doc, ctx, "delete_structure", {"structure_type": "rows", "start": "Sheet2.5"})
+

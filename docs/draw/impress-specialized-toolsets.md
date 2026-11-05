@@ -48,7 +48,7 @@ These tools are **always available** to the main agent for Draw/Impress document
 | `list_designs` | `designs.py` | Drawing+Presentation | Enumerate shipped Impress `.otp` via PathSettings (no hardcoded install prefix). Each entry includes a short `look` vibe string from the template ZIP thumbnail (mood, accent hues, illustrated / graphic chrome). Thumbnails whose width×height exceeds the decoder pixel cap are skipped before one RGB tuple is allocated per pixel (a few-KB 1-bit PNG must not expand into millions of tuples); look then uses the styles.xml / SVG hex fallback. ZIP member reads (thumbnail, styles.xml, Pictures/*.svg) do not trust the declared uncompressed size — a forged ``file_size`` used to inflate up to ``ZipExtFile.MAX_N`` before the member-byte cap — and 1/2/4-bit grayscale samples are scaled to 0–255 so an all-white thumbnail stays a light background. |
 | `apply_design` | `designs.py` | Drawing+Presentation | Restyle the **open** Impress deck: Hidden `.otp` master clone + assign-all (no system clipboard, no new window). The master matching the deck's aspect ratio and design name is cloned and assigned to every slide; other layout masters are not imported. Groups, custom-shape geometry, polygons, rotation, gradient and hatch structs, solid master backgrounds, line and character properties, and pictures are cloned; bitmap fills and presentation style families are not (copying them shares the hidden source pool and aborts LibreOffice). The result may include `clone_warnings` when a property is rejected, an aspect ratio mismatch occurs, or a bitmap fill was not reproduced. The result includes `source_master` and `selection`; a fallback warning names the master when several untitled masters tie. Existing placeholder text stays on current styles; reapplying the same design replaces the previously imported master of that name. Partial slide assignments roll back and report slides updated/restored. When apply succeeds with partial chrome, the message notes how many chrome shapes imported. Draw → not-Impress |
 | `get_draw_tree` | `tree.py` | Drawing+Presentation | JSON DOM of shapes and layout; `fillable` blanks + ControlShape value/state |
-| `get_image` | `writer/get_image.py` | Text+Drawing+Presentation | Vision: embedded graphic, selection, or `page=N` PNG of the rendered page. **`page` is 0-based.** Complements `get_draw_tree`; does not replace it. |
+| `get_image` | `writer/get_image.py` | Text+Drawing+Presentation+Spreadsheet | Vision: embedded graphic or selection on all four; **`page=N` PNG** on Writer/Draw/Impress only (0-based). Complements `get_draw_tree`; does not replace it. |
 | `list_placeholders` | `placeholders.py` | Presentation | List placeholder shapes (title, subtitle, body) |
 | `get_placeholder_text` | `placeholders.py` | Presentation | Get text from a placeholder |
 | `set_placeholder_text` | `placeholders.py` | Presentation | Set text in a placeholder |
@@ -82,6 +82,9 @@ Core tools use `verb_noun`; specialized tools use `domain_verb` across all apps 
 | `slide_master_set` | `slide_masters` | `draw/masters.py` | Assign a master to a slide | Drawing+Presentation |
 | `speaker_notes_get` | `speaker_notes` | `draw/notes.py` | Read speaker notes (Impress) | Presentation |
 | `speaker_notes_set` | `speaker_notes` | `draw/notes.py` | Set speaker notes (Impress) | Presentation |
+| `page_comment_list` | `page_comments` | `draw/comments.py` | List page comments (annotations) | Drawing+Presentation |
+| `page_comment_add` | `page_comments` | `draw/comments.py` | Add a page comment | Drawing+Presentation |
+| `page_comment_delete` | `page_comments` | `draw/comments.py` | Delete a page comment by index | Drawing+Presentation |
 | `headers_footers_get` | `headers_footers` | `draw/headers_footers.py` | Read slide/master header and footer settings (Impress) | Presentation |
 | `headers_footers_set` | `headers_footers` | `draw/headers_footers.py` | Update slide/master header and footer settings (Impress) | Presentation |
 | `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | `charts` | `draw/charts.py` | Charts CRUD (four tools) | Drawing+Presentation |
@@ -164,6 +167,7 @@ The existing sidebar doesn't need new UI elements; the "Insert Image" action dyn
 | **Pages/Slides (core)** | ✅ Complete | 7 tools | List, add (inherits assigned master), delete, duplicate, move, rename, read text |
 | **Master Slides (specialized)** | ✅ Complete | 3 tools | `slide_masters`: list, get, set |
 | **Speaker Notes (specialized)** | ✅ Complete | 2 tools | `speaker_notes`: get, set (Impress only — Draw has no speaker notes) |
+| **Page comments (specialized)** | ✅ Complete | 3 tools | `page_comments`: list (cap 100 + offset hint), add, delete (Draw + Impress) |
 | **Placeholders (core)** | ✅ Complete | 3 tools | List, get text, set text (Impress only) |
 | **Transitions (specialized)** | ✅ Complete | 4 tools | `slide_transitions`: get/set transition, get/set layout |
 | **Charts (specialized)** | ✅ Complete | 5 tools | Full CRUD + info |
@@ -405,6 +409,7 @@ Use the existing Writer/Calc `image_*` tools (`domain="images"`). On Draw/Impres
 | `slide_layouts` | `slide_layout_get`, `slide_layout_set` | Impress slide layouts |
 | `slide_masters` | `slide_master_list`, `slide_master_get`, `slide_master_set` | Presentation templates |
 | `speaker_notes` | `speaker_notes_get`, `speaker_notes_set` | Presenter talking points |
+| `page_comments` | `page_comment_list`, `page_comment_add`, `page_comment_delete` | Slide/page sticky notes (annotations) |
 | `headers_footers` | `headers_footers_get`, `headers_footers_set` | Page numbers, dates, footers |
 | `charts` | `chart_list`, `chart_get_info`, `chart_upsert`, `chart_delete` | Data visualizations |
 | `media` | `insert_audio`, `insert_video`, `control_media` | Multimedia presentations |
