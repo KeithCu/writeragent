@@ -283,9 +283,9 @@ def main() -> int:
             )
             print_row(model, stats)
     finally:
-        from plugin.framework.warm_child import get_supervisor
+        from plugin.framework.warm_child import supervisor
 
-        get_supervisor().shutdown_all()
+        supervisor.shutdown_all()
         shutdown_venv_workers_for_tests()
 
     return 0

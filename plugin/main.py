@@ -108,11 +108,11 @@ def _install_terminate_listener(ctx: Any) -> None:
             def notifyTermination(self, Event: Any) -> None:
                 try:
                     from plugin.framework.quit_hooks import register_quit_hook_last, run_quit_hooks
-                    from plugin.framework.warm_child import get_supervisor
+                    from plugin.framework.warm_child import supervisor
 
                     # Last: cooperative hooks (e.g. MCP tunnel stop) need their child alive;
                     # the managed sweep SIGKILLs registered peers.
-                    register_quit_hook_last(get_supervisor().shutdown_all)
+                    register_quit_hook_last(supervisor.shutdown_all)
                     run_quit_hooks()
                 except Exception:
                     # UNO boundary: XTerminateListener.notifyTermination callback

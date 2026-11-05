@@ -30,7 +30,8 @@ from plugin.framework.constants import (
     WORKER_POOL_DEFAULT,
     WORKER_POOL_EMBEDDINGS,
 )
-from plugin.framework.warm_child import ChildSpec, Death, Deadline, Lease, WarmChild
+from plugin.framework.child_runtime import Deadline
+from plugin.framework.warm_child import ChildSpec, Death, Lease, WarmChild
 from plugin.scripting.config_limits import (
     HOST_IPC_READ_GRACE_SEC,
     VENV_IPC_WRITE_TIMEOUT_SEC,
@@ -391,23 +392,13 @@ class PythonWorkerManager:
         self.pool = pool
         self._warm = None
         # Same-thread owner -> WORKER_REENTRY; tool RPC in flight or UI thread while
-        # locked -> busy; UI never blocks (WarmChild lease wait=0). _io_owner and
-        # _serving_tool_call are plain GIL-atomic attributes read without the warm
+        # locked -> busy; UI never blocks (WarmChild lease wait=0). Child._io_owner
+        # and _serving_tool_call are plain GIL-atomic attributes read without the warm
         # pipe lock on purpose: the holder keeps it across host RPC.
-        self._io_owner: int | None = None
         self._serving_tool_call: bool = False
         self._primed = False
         self._primed_generation = -1
         self._retired = False
-
-    def _worker_popen(self) -> subprocess.Popen[Any] | None:
-        warm = self._warm
-        if warm is None:
-            return None
-        child = warm._child
-        if child is None:
-            return None
-        return child.managed.popen
 
     @property
     def _io_lock(self) -> threading.Lock:
@@ -447,7 +438,7 @@ class PythonWorkerManager:
         code = err.get("code")
         if code == "SERVICE_SHUTDOWN":
             return _worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
-        message = err.get("error") or err.get("message") or "Python worker unavailable"
+        message = err.get("error") or "Python worker unavailable"
         return _worker_error(str(code or "WORKER_IPC_ERROR"), str(message))
 
     @contextlib.contextmanager
@@ -483,7 +474,6 @@ class PythonWorkerManager:
                             continue
                         raise _IoSessionUnavailable(self._lease_error_to_worker(leased))
                     lease_acquired = True
-                    self._io_owner = threading.get_ident()
                     try:
                         if is_cancelled(cancel):
                             raise _IoSessionUnavailable(_worker_error("CANCELLED", "Python worker stopped by user"))
@@ -493,7 +483,6 @@ class PythonWorkerManager:
                         yield leased
                     finally:
                         self._serving_tool_call = False
-                        self._io_owner = None
                     return
             except OSError as exc:
                 if lease_acquired:
@@ -571,8 +560,8 @@ class PythonWorkerManager:
         return mgr
 
     def _is_worker_alive(self) -> bool:
-        proc = self._worker_popen()
-        return proc is not None and proc.poll() is None
+        warm = self._warm
+        return warm is not None and warm.is_alive()
 
     def _ensure_warmed_unlocked(self, leased: Any) -> dict[str, Any] | None:
         """Prime auto-imports once per warm-child generation. Returns error dict or None."""
@@ -591,6 +580,7 @@ class PythonWorkerManager:
     def _reentry_error(self) -> dict[str, Any] | None:
         """Refuse a nested execute that would deadlock this worker's pipe."""
         me = threading.get_ident()
+        warm = self._warm
         # Any other thread used to call Lock.acquire() with no timeout. The
         # holder can be inside a tool RPC that is waiting on the thread stuck
         # in acquire (the UI pump, or whichever worker must run the host
@@ -602,13 +592,12 @@ class PythonWorkerManager:
         # sentence is only true when this thread already holds the pipe.
         # The locked() check can pass, then another thread takes the pipe via
         # lease(wait=0); non-blocking acquire closes that race for the UI thread.
-        if self._io_owner == me:
+        if warm is not None and warm.io_owner() == me:
             return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
         if self._serving_tool_call:
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         if main.is_current():
-            warm = self._warm
-            if warm is not None and warm._io_lock.locked() and self._io_owner != me:
+            if warm is not None and warm.io_locked() and warm.io_owner() != me:
                 return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
 
@@ -1195,14 +1184,7 @@ class PythonWorkerManager:
         warm = self._warm
         if warm is None:
             return ""
-        child = warm._child
-        if child is None:
-            return ""
-        tail = child.diagnostic_tail().strip()
-        if not tail and warm.spec.stderr_tail_chars:
-            managed = child.managed
-            if managed.stderr_tail is not None:
-                tail = managed.stderr_text().strip()
+        tail = warm.diagnostic_tail().strip()
         return f"\nWorker stderr:\n{tail}" if tail else ""
 
     def _terminate_worker(self) -> None:

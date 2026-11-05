@@ -18,7 +18,7 @@ Provides:
 
 Child stdio framing (``RestrictedUnpickler``, ``run_worker_stdio_loop``) lives in
 ``worker_stdio``; ``die_with_parent`` from ``child_runtime`` runs at loop start.
-``Deadline`` and ``error_dict`` are re-exported from ``process_worker``.
+``Deadline`` lives in ``child_runtime``; ``error_dict`` in ``warm_child``.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
 from compute_service.worker_stdio import COMPUTE_THREAD_ENV_VARS, RestrictedUnpickler, configure_compute_worker_env, run_compute_worker, run_worker_stdio_loop, unpack_restricted_pickle_frame
-from plugin.framework.process_worker import MIN_REQUEST_SEC, BaseProcessWorker, Child, Deadline, error_dict
+from plugin.framework.process_worker import BaseProcessWorker
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES
 
@@ -50,7 +50,7 @@ def install_image_pkgs(project_root: str) -> None:
 
 install_image_pkgs(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-__all__ = ["BaseProcessPool", "BaseProcessWorker", "COMPUTE_THREAD_ENV_VARS", "Child", "Deadline", "MIN_REQUEST_SEC", "PoolSingleton", "RestrictedUnpickler", "configure_compute_worker_env", "error_dict", "install_image_pkgs", "resolve_override", "run_compute_worker", "run_worker_stdio_loop", "unpack_restricted_pickle_frame"]
+__all__ = ["BaseProcessPool", "BaseProcessWorker", "COMPUTE_THREAD_ENV_VARS", "PoolSingleton", "RestrictedUnpickler", "configure_compute_worker_env", "install_image_pkgs", "resolve_override", "run_compute_worker", "run_worker_stdio_loop", "unpack_restricted_pickle_frame"]
 
 log = logging.getLogger("compute_service.worker")
 

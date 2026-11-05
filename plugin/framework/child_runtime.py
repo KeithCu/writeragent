@@ -2,15 +2,68 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Child-side helpers for warm worker subprocesses (stdlib only)."""
+"""Child-side helpers for warm worker subprocesses (stdlib only).
+
+``Deadline`` / ``MIN_REQUEST_SEC`` are the shared request clock (importable
+without the compute host pool). ``die_with_parent`` stays stdlib-only.
+``announce_ready`` is the only import of ``ipc`` here.
+"""
 
 from __future__ import annotations
 
 import logging
 import os
 import sys
+import time
+from typing import IO
 
 log = logging.getLogger(__name__)
+
+MIN_REQUEST_SEC = 1.0
+
+
+class Deadline:
+    """Accept-time budget for a pool, or the worker clock started under its lock."""
+
+    __slots__: tuple[str, ...] = ("budget_sec", "_end")
+    budget_sec: float
+    _end: float
+
+    def __init__(self, timeout_sec: float, *, end: float | None = None) -> None:
+        self.budget_sec = float(timeout_sec)
+        self._end = float(end) if end is not None else time.monotonic() + self.budget_sec
+
+    @classmethod
+    def from_absolute(cls, requested_sec: float, end: float) -> Deadline:
+        return cls(requested_sec, end=end)
+
+    def left(self) -> float:
+        return self._end - time.monotonic()
+
+    def usable(self) -> float | None:
+        remaining = self.left()
+        if remaining <= 0 or self.budget_sec < MIN_REQUEST_SEC:
+            return None
+        if self.budget_sec > MIN_REQUEST_SEC and remaining < MIN_REQUEST_SEC:
+            return None
+        return remaining
+
+    def run_for(self) -> float:
+        return max(self.left(), MIN_REQUEST_SEC)
+
+
+def ready_payload() -> dict[str, int | str]:
+    return {"status": "ready", "pid": os.getpid()}
+
+
+def announce_ready(stream: IO[bytes]) -> None:
+    from plugin.framework.ipc import write_pickle_frame
+
+    write_pickle_frame(stream, ready_payload())
+
+
+def is_ready_payload(data: object) -> bool:
+    return isinstance(data, dict) and data.get("status") == "ready"
 
 
 def die_with_parent() -> bool:

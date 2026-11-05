@@ -104,7 +104,9 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     stdout_bin = claim_ipc_channel()
 
     # Signal readiness to supervisor
-    write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
+    from plugin.framework.child_runtime import announce_ready
+
+    announce_ready(stdout_bin)
 
     _shutdown_requested = False
 

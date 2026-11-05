@@ -15,14 +15,18 @@ import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import IO, Any
+from typing import IO, Any, Literal, Protocol
 
+from plugin.framework.child_runtime import Deadline, is_ready_payload
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
     IpcPartialFrameTimeout,
     pack_pickle_frame,
+    read_pickle_frame,
+    write_packed_frame_with_timeout,
 )
+from plugin.framework.process_global import process_global
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.worker_pool import run_in_background
 
@@ -31,53 +35,44 @@ _child_log = logging.getLogger("compute_service.worker")
 
 SPAWN_READY_TIMEOUT_SEC = 15.0
 _STDERR_SNIPPET = 500
-_STDERR_LOG_CAP = 64 * 1024
-MIN_REQUEST_SEC = 1.0
+STDERR_LOG_CAP = 64 * 1024
 _MIN_SPAWN_REMAINING_SEC = 0.25
+FailPhase = Literal["before_send", "write_timeout", "pipe_broken", "after_send", "read_timeout", "bad_frame", "crashed", "empty"]
 _OMIT_ID = object()
 _SPAWN_SHUTDOWN = object()
 
 
-def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | None = None, **extra: Any) -> dict[str, Any]:
+class FramedRequestOnFail(Protocol):
+    def __call__(self, code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]: ...
+
+
+def fail_phase_message(phase: FailPhase, detail: str) -> str:
+    """User-facing error text for one ``framed_request_roundtrip`` failure (WarmChild lease path)."""
+    if phase == "pipe_broken":
+        return f"Failed to send request: {detail}"
+    if phase == "bad_frame":
+        return f"Invalid response frame: {detail}"
+    if phase == "crashed":
+        return f"Worker error: {detail}"
+    if phase in ("before_send", "after_send"):
+        return "Execution budget exhausted."
+    if phase == "write_timeout":
+        return "Write timed out."
+    if phase == "read_timeout":
+        return "Read timed out."
+    if phase == "empty":
+        return "No response returned from worker."
+    raise AssertionError(f"unhandled FailPhase: {phase!r}")
+
+
+def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, **extra: Any) -> dict[str, Any]:
     """Build ``{"status": "error", "code", "error"}``."""
     res: dict[str, Any] = {"status": "error", "code": code, "error": error}
     if req_id is not _OMIT_ID:
         res["id"] = req_id
-    if message is not None:
-        res["message"] = message
     if extra:
         res.update(extra)
     return res
-
-
-class Deadline:
-    """Accept-time budget for a pool, or the worker clock started under its lock."""
-
-    __slots__: tuple[str, ...] = ("budget_sec", "_end")
-    budget_sec: float
-    _end: float
-
-    def __init__(self, timeout_sec: float, *, end: float | None = None) -> None:
-        self.budget_sec = float(timeout_sec)
-        self._end = float(end) if end is not None else time.monotonic() + self.budget_sec
-
-    @classmethod
-    def from_absolute(cls, requested_sec: float, end: float) -> Deadline:
-        return cls(requested_sec, end=end)
-
-    def left(self) -> float:
-        return self._end - time.monotonic()
-
-    def usable(self) -> float | None:
-        remaining = self.left()
-        if remaining <= 0 or self.budget_sec < MIN_REQUEST_SEC:
-            return None
-        if self.budget_sec > MIN_REQUEST_SEC and remaining < MIN_REQUEST_SEC:
-            return None
-        return remaining
-
-    def run_for(self) -> float:
-        return max(self.left(), MIN_REQUEST_SEC)
 
 
 def spawn_budget(deadline: Deadline) -> float | None:
@@ -168,9 +163,7 @@ def read_ready_frame_during_io(
     ready_data: Any = None
     if proc is not None and proc.stdout is not None:
         try:
-            from plugin.framework import process_worker as pw
-
-            ready_data = pw.read_pickle_frame(  # pyright: ignore[reportAttributeAccessIssue]
+            ready_data = read_pickle_frame(
                 proc.stdout,
                 timeout_sec,
                 is_alive=is_alive,
@@ -184,7 +177,7 @@ def read_ready_frame_during_io(
         return ("interrupted", None)
     # Only status "ready" counts. EOF or any other dict would mark the worker idle,
     # and the next execute would wait out the full timeout before EMPTY_RESPONSE.
-    if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
+    if not is_ready_payload(ready_data):
         status = ready_data.get("status") if isinstance(ready_data, dict) else None
         return ("not_ready", status)
     return ("ready", ready_data)
@@ -249,25 +242,23 @@ def framed_request_roundtrip(
     is_alive: Callable[[], bool],
     max_payload_bytes: int,
     unpacker: Callable[[bytes], Any] | None,
-    on_fail: Callable[[str, str], dict[str, Any]],
+    on_fail: FramedRequestOnFail,
 ) -> dict[str, Any]:
     """Write one packed frame and read the response dict under *deadline*."""
-    from plugin.framework import process_worker as pw
-
     usable = deadline.usable()
     if usable is None:
-        return on_fail("EXECUTION_TIMEOUT", "Execution budget exhausted.")
+        return on_fail("EXECUTION_TIMEOUT", "", phase="before_send")
     try:
-        pw.write_packed_frame_with_timeout(stdin, frame, usable, is_alive=is_alive)  # pyright: ignore[reportAttributeAccessIssue]
+        write_packed_frame_with_timeout(stdin, frame, usable, is_alive=is_alive)
     except subprocess.TimeoutExpired:
-        return on_fail("EXECUTION_TIMEOUT", "Write timed out.")
+        return on_fail("EXECUTION_TIMEOUT", "", phase="write_timeout")
     except (OSError, TypeError, ValueError) as exc:
-        return on_fail("WORKER_PIPE_BROKEN", f"Failed to send request: {exc}")
+        return on_fail("WORKER_PIPE_BROKEN", str(exc), phase="pipe_broken")
     remaining = deadline.left()
     if remaining <= 0:
-        return on_fail("EXECUTION_TIMEOUT", "Execution budget exhausted.")
+        return on_fail("EXECUTION_TIMEOUT", "", phase="after_send")
     try:
-        resp = pw.read_pickle_frame(  # pyright: ignore[reportAttributeAccessIssue]
+        resp = read_pickle_frame(
             stdout,
             remaining,
             is_alive=is_alive,
@@ -275,13 +266,13 @@ def framed_request_roundtrip(
             unpacker=unpacker,
         )
     except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
-        return on_fail("EXECUTION_TIMEOUT", "Read timed out.")
+        return on_fail("EXECUTION_TIMEOUT", "", phase="read_timeout")
     except ValueError as exc:
-        return on_fail("WORKER_IPC_ERROR", f"Invalid response frame: {exc}")
+        return on_fail("WORKER_IPC_ERROR", str(exc), phase="bad_frame")
     except Exception as exc:
-        return on_fail("WORKER_CRASHED", f"Worker error: {exc}")
+        return on_fail("WORKER_CRASHED", str(exc), phase="crashed")
     if not isinstance(resp, dict):
-        return on_fail("EMPTY_RESPONSE", "No response returned from worker.")
+        return on_fail("EMPTY_RESPONSE", "", phase="empty")
     return resp
 
 
@@ -295,7 +286,7 @@ class ChildSpec:
     command_wrapper: Callable[..., list[str]] | None = None
     ready_timeout_sec: float = 20.0
     idle_ttl_sec: float | None = None
-    stderr_tail_chars: int = _STDERR_LOG_CAP
+    stderr_tail_chars: int = STDERR_LOG_CAP
     max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES
     unpacker: Callable[[bytes], Any] | None = None
     # False keeps a missing interpreter as OSError (venv systemd-run retry depends on it).
@@ -337,8 +328,8 @@ class Lease:
     def is_alive(self) -> bool:
         return self._warm.is_alive()
 
-    def fail(self, code: str, msg: str) -> dict[str, Any]:
-        return self._warm.fail_lease(code, msg)
+    def fail(self, code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]:
+        return self._warm.fail_lease(code, detail, phase=phase)
 
 
 class WarmChild:
@@ -352,7 +343,7 @@ class WarmChild:
         on_death: Callable[[Death], None] | None = None,
     ) -> None:
         self.spec: ChildSpec = spec
-        self._supervisor: Supervisor = supervisor if supervisor is not None else get_supervisor()
+        self._supervisor: Supervisor = supervisor if supervisor is not None else process_global("warm_child_supervisor", Supervisor)
         self._on_death: Callable[[Death], None] | None = on_death
         self._child: Child | None = None
         self._io_lock: threading.Lock = threading.Lock()
@@ -385,7 +376,23 @@ class WarmChild:
             return
         self._drop_child(child)
 
-    def fail_lease(self, code: str, msg: str) -> dict[str, Any]:
+    def diagnostic_tail(self) -> str:
+        child = self._child
+        if child is None:
+            return ""
+        return child.diagnostic_tail()
+
+    def io_owner(self) -> int | None:
+        child = self._child
+        if child is None:
+            return None
+        return child._io_owner
+
+    def io_locked(self) -> bool:
+        return self._io_lock.locked()
+
+    def fail_lease(self, code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]:
+        msg = fail_phase_message(phase, detail)
         child = self._child
         if child is not None:
             self.kill()
@@ -768,36 +775,22 @@ class Supervisor:
         ms_shutdown_all()
 
 
-_module_supervisor: Supervisor | None = None
-
-
-def get_supervisor() -> Supervisor:
-    global _module_supervisor
-    if _module_supervisor is None:
-        _module_supervisor = Supervisor()
-    return _module_supervisor
-
-
-class _LazySupervisor:
-    def __getattr__(self, name: str) -> Any:
-        return getattr(get_supervisor(), name)
-
-
-supervisor = _LazySupervisor()
+supervisor = process_global("warm_child_supervisor", Supervisor)
 
 __all__ = [
     "Child",
     "ChildSpec",
-    "Deadline",
     "Death",
+    "FailPhase",
+    "FramedRequestOnFail",
     "Lease",
-    "MIN_REQUEST_SEC",
     "SPAWN_READY_TIMEOUT_SEC",
+    "STDERR_LOG_CAP",
     "Supervisor",
     "WarmChild",
     "error_dict",
+    "fail_phase_message",
     "framed_request_roundtrip",
-    "get_supervisor",
     "read_ready_frame_during_io",
     "spawn_budget",
     "spawn_managed_child_with_handshake",

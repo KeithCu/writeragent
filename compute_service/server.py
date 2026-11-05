@@ -28,7 +28,7 @@ from compute_service import __version__
 from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS, ComputeSettings, ConfigError, clamp_timeout_sec, load_settings, ocr_path_is_allowed
 from compute_service.wsgi_server import HTTP_DRAIN_SEC, REQUEST_READ_TIMEOUT_SEC, REQUEST_WRITE_TIMEOUT_SEC, WSGIDualStackServer, admission_permits, listener_thread_count, request_conn
-from compute_service.worker_base import Deadline
+from plugin.framework.child_runtime import Deadline
 from compute_service.json_forward import (
     ExecuteRequestError,
     ExecuteRequestParts,

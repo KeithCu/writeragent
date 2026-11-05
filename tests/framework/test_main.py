@@ -269,7 +269,7 @@ def test_terminate_listener_runs_only_quit_hooks(monkeypatch):
 
     monkeypatch.setattr(quit_hooks, "_hooks", [])
     local_supervisor = Supervisor()
-    monkeypatch.setattr("plugin.framework.warm_child.get_supervisor", lambda: local_supervisor)
+    monkeypatch.setattr("plugin.framework.warm_child.supervisor", local_supervisor)
 
     calls: list[str] = []
     inside_run: list[bool] = [False]
@@ -329,7 +329,7 @@ def test_terminate_listener_cooperative_hook_before_supervisor_sweep(monkeypatch
 
     monkeypatch.setattr(quit_hooks, "_hooks", [])
     local_supervisor = Supervisor()
-    monkeypatch.setattr("plugin.framework.warm_child.get_supervisor", lambda: local_supervisor)
+    monkeypatch.setattr("plugin.framework.warm_child.supervisor", local_supervisor)
 
     order: list[str] = []
 

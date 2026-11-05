@@ -3271,7 +3271,7 @@ def test_wsgi_app_uses_the_current_formula_pool() -> None:
 def test_run_with_logging_deadline_errors_before_headers() -> None:
     """A raise before headers sends one JSON 500 and releases the permit."""
     from compute_service.server import _Admission, _gated
-    from compute_service.worker_base import Deadline
+    from plugin.framework.child_runtime import Deadline
 
     calls: list[str] = []
 
@@ -4239,7 +4239,7 @@ def test_wsgi_chunked_401_closes_connection() -> None:
 
 def test_reset_queue_timeout_closes_connection() -> None:
     from compute_service.server import _Admission, _gated
-    from compute_service.worker_base import Deadline
+    from plugin.framework.child_runtime import Deadline
 
     # Gated route timing out before execution.
     stream = io.BytesIO(b"smuggled GET /health")
@@ -4380,7 +4380,7 @@ def test_reset_body_read_before_permit(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_execute_receives_the_admission_deadline() -> None:
     """The handler builds one Deadline at admission and the pool receives that object, not a timeout to restart."""
-    from compute_service.worker_base import Deadline
+    from plugin.framework.child_runtime import Deadline
 
     seen: dict[str, Any] = {}
 

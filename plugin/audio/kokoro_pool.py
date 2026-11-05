@@ -25,9 +25,9 @@ import os
 import threading
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.process_worker import Deadline, error_dict
+from plugin.framework.child_runtime import Deadline
 from plugin.framework.subprocess_env import scrub_subprocess_env
-from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, get_supervisor
+from plugin.framework.warm_child import ChildSpec, Supervisor, WarmChild, error_dict, supervisor as warm_supervisor
 from plugin.scripting.sandbox import resolve_venv_python
 
 if TYPE_CHECKING:
@@ -76,7 +76,7 @@ class KokoroProcessPool:
             ready_timeout_sec=_SPAWN_READY_TIMEOUT_SEC,
             idle_ttl_sec=ttl,
         )
-        sup = supervisor if supervisor is not None else get_supervisor()
+        sup = supervisor if supervisor is not None else warm_supervisor
         self._warm: WarmChild = WarmChild(spec, supervisor=sup)
         self._job_lock: threading.Lock = threading.Lock()
         self._state_lock: threading.Lock = threading.Lock()

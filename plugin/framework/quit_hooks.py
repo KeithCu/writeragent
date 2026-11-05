@@ -8,7 +8,7 @@
 """Callbacks run on the UI thread from the desktop terminate listener.
 
 Cooperative hooks register during module init; the WriterAgent listener calls
-``register_quit_hook_last(get_supervisor().shutdown_all)`` immediately before
+``register_quit_hook_last(supervisor.shutdown_all)`` immediately before
 ``run_quit_hooks()`` so warm-child retire and the managed sweep run after
 cooperative stop (tunnel funnel reset needs its child alive; ``shutdown_all``
 SIGKILLs registered peers). Other hooks run in list order. Each hook must return

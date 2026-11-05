@@ -16,10 +16,8 @@
 
 """Compute pool adapter: ``BaseProcessWorker`` delegates spawn/IPC core to ``warm_child``.
 
-Shared ``Child``, ``Deadline``, handshake, and framed request logic live in
-``plugin.framework.warm_child``. This module keeps the multi-slot compute
-worker slot (``BaseProcessWorker``) and re-exports types the compute service
-imports.
+Shared handshake and framed request logic live in ``plugin.framework.warm_child``.
+This module is the multi-slot compute worker slot (``BaseProcessWorker``) only.
 """
 
 from __future__ import annotations
@@ -33,40 +31,55 @@ from typing import IO, TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from plugin.framework.child_runtime import Deadline
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
     pack_pickle_frame,
-    read_pickle_frame,
-    write_packed_frame_with_timeout,
 )
 from plugin.framework.warm_child import (
     Child,
-    Deadline,
-    MIN_REQUEST_SEC,
+    FailPhase,
+    FramedRequestOnFail,
     SPAWN_READY_TIMEOUT_SEC,
+    STDERR_LOG_CAP,
     error_dict,
     framed_request_roundtrip,
-    get_supervisor,
     spawn_budget,
     spawn_managed_child_with_handshake,
+    supervisor,
 )
 
-__all__ = ["BaseProcessWorker", "Child", "Deadline", "MIN_REQUEST_SEC", "error_dict", "read_pickle_frame", "write_packed_frame_with_timeout"]
+__all__ = ["BaseProcessWorker"]
 
 # Same logger the compute tests capture. The class moved; the log name did not.
 log = logging.getLogger("compute_service.worker")
 
-_SPAWN_READY_TIMEOUT_SEC = SPAWN_READY_TIMEOUT_SEC
-_STDERR_SNIPPET = 500
-_STDERR_LOG_CAP = 64 * 1024
-_spawn_budget = spawn_budget
+
+def _compute_slot_fail_message(
+    code: str,
+    phase: FailPhase,
+    detail: str,
+    *,
+    worker_name: str,
+    worker_id: int,
+) -> str:
+    """User-facing error text for a compute slot ``framed_request_roundtrip`` failure."""
+    del phase
+    if code == "WORKER_PIPE_BROKEN":
+        return f"Failed to send request to {worker_name} #{worker_id}: {detail}"
+    if code == "WORKER_IPC_ERROR":
+        return f"{worker_name} rejected a response frame: {detail}"
+    if code == "EMPTY_RESPONSE":
+        return f"No response returned from {worker_name}."
+    if code == "WORKER_CRASHED":
+        return f"{worker_name} error: {detail}"
+    raise AssertionError(f"unhandled fail code {code!r}")
+
 # ``kill`` stays a call-site choice. Nothing here increments
 # ``tasks_executed``: only a consumed response does, and a ready
 # handshake resets that count.
-_MIRROR_MESSAGE = frozenset({"EXECUTION_TIMEOUT", "WORKER_CRASHED"})
-
 # A killing failure while the slot is stopping. _fail_request reports
 # SERVICE_SHUTDOWN instead, and does not kill again. A spent clock passes
 # kill=False and stays EXECUTION_TIMEOUT. HTTP 500 or 200 here would hide a stop.
@@ -207,20 +220,20 @@ class BaseProcessWorker:
         if self._shutting_down or self.child is not None:
             return
         # Refuse spawn when the remaining budget is insufficient for the handshake.
-        if deadline is not None and _spawn_budget(deadline) is None:
+        if deadline is not None and spawn_budget(deadline) is None:
             return
         managed = ManagedSubprocess(
             [sys.executable, self.script_path],
             base_env=None,
             scrub_env=True,
             optimize_pipes=True,
-            stderr_tail_chars=_STDERR_LOG_CAP,
+            stderr_tail_chars=STDERR_LOG_CAP,
             stderr_name=self._drain_name(),
             label=f"{self.worker_name} #{self.worker_id}",
         )
         spawned: Child | None = None
         published = False
-        cap_sec = _SPAWN_READY_TIMEOUT_SEC
+        cap_sec = SPAWN_READY_TIMEOUT_SEC
 
         def _publish(child: Child) -> bool:
             nonlocal published
@@ -239,7 +252,7 @@ class BaseProcessWorker:
                 unpacker=self._unpacker,
                 # Not the caller thread: an HTTP worker exits at shutdown and
                 # PDEATHSIG would kill this child with it.
-                start=get_supervisor().spawn,
+                start=supervisor.spawn,
                 publish=_publish,
                 deadline=deadline,
                 cap_sec=cap_sec,
@@ -370,8 +383,7 @@ class BaseProcessWorker:
             if snippet:
                 msg = f"{msg}\n{snippet}"
             log.warning("%s request failed (%s) on worker #%d; terminating pid=%s", self.worker_name, code, self.worker_id, pid)
-        message = msg if code in _MIRROR_MESSAGE else None
-        return error_dict(code, msg, message=message)
+        return error_dict(code, msg)
 
     def _shutdown_error(self) -> dict[str, Any]:
         """The slot is stopping. Do not kill, and do not read stderr.
@@ -435,7 +447,7 @@ class BaseProcessWorker:
             pid = proc.pid if proc is not None else None
             if self._shutting_down:
                 return self._shutdown_error()
-            if _spawn_budget(deadline) is None:
+            if spawn_budget(deadline) is None:
                 return self._fail_timeout(deadline, pid, kill=False)
             return None
 
@@ -443,7 +455,7 @@ class BaseProcessWorker:
             refused = _refused_dead_slot()
             if refused is not None:
                 return refused
-            # respawn recomputes the handshake timeout from _spawn_budget
+            # respawn recomputes the handshake timeout from spawn_budget
             # after Popen. A budget taken before the reap wait can disagree
             # with the time left, and the argument is unused when deadline is set.
             self.respawn(deadline=deadline)
@@ -513,25 +525,19 @@ class BaseProcessWorker:
             else:
                 child = None
 
-            def _on_fail(code: str, msg: str) -> dict[str, Any]:
+            def _on_fail(code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]:
                 if code == "EXECUTION_TIMEOUT":
-                    if msg == "Execution budget exhausted." and deadline.usable() is None:
-                        return self._fail_timeout(deadline, pid, kill=False)
-                    return self._fail_timeout(deadline, pid)
-                if code == "WORKER_PIPE_BROKEN":
-                    prefix = "Failed to send request: "
-                    detail = msg[len(prefix) :] if msg.startswith(prefix) else msg
-                    msg = f"Failed to send request to {self.worker_name} #{self.worker_id}: {detail}"
-                elif code == "WORKER_IPC_ERROR":
-                    prefix = "Invalid response frame: "
-                    detail = msg[len(prefix) :] if msg.startswith(prefix) else msg
-                    msg = f"{self.worker_name} rejected a response frame: {detail}"
-                elif code == "EMPTY_RESPONSE":
-                    msg = f"No response returned from {self.worker_name}."
-                elif code == "WORKER_CRASHED":
-                    prefix = "Worker error: "
-                    detail = msg[len(prefix) :] if msg.startswith(prefix) else msg
-                    msg = f"{self.worker_name} error: {detail}"
+                    # before_send: nothing was written. after_send/write/read: the child
+                    # already has the frame or is mid-I/O — kill so the slot respawns clean.
+                    kill = phase != "before_send"
+                    return self._fail_timeout(deadline, pid, kill=kill)
+                msg = _compute_slot_fail_message(
+                    code,
+                    phase,
+                    detail,
+                    worker_name=self.worker_name,
+                    worker_id=self.worker_id,
+                )
                 return self._fail_request(code, msg, pid=pid)
 
             try:

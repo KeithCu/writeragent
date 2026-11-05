@@ -21,13 +21,19 @@ import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.session_key import SessionKey
 from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
-from plugin.framework.process_worker import Deadline
+from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
 
 def _mgr_proc(mgr: PythonWorkerManager) -> Any:
     """Test helper: Popen for the live warm child, if any."""
-    return mgr._worker_popen()
+    warm = mgr._warm
+    if warm is None:
+        return None
+    child = warm._child
+    if child is None:
+        return None
+    return child.managed.popen
 
 def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
     """Attach a mock Popen to *mgr* for unit tests that stub IPC."""
@@ -37,6 +43,9 @@ def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
     warm._child = child
     warm._io_lock = threading.Lock()
     warm.is_alive.return_value = proc.poll() is None if callable(getattr(proc, 'poll', None)) else True
+    warm.io_owner.return_value = None
+    warm.io_locked.side_effect = lambda: warm._io_lock.locked()
+    warm.diagnostic_tail.return_value = ""
     mgr._warm = warm
     mgr._primed = True
     mgr._primed_generation = 0
@@ -431,7 +440,7 @@ def test_terminate_worker_kills_grandchild(tmp_path, monkeypatch):
 
 def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
     """A child that never reads stdin must not hold the warm-child pipe lock forever."""
-    from plugin.framework.process_worker import Deadline
+    from plugin.framework.child_runtime import Deadline
     from plugin.framework.warm_child import ChildSpec, WarmChild
     import plugin.scripting.venv_worker as venv_worker_module
     child = tmp_path / 'blocked_stdin_worker.py'
@@ -468,7 +477,8 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
 def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
-    mgr._io_owner = threading.get_ident()
+    assert mgr._warm is not None
+    mgr._warm.io_owner.return_value = threading.get_ident()
     result = mgr.execute('result = 1', timeout_sec=1)
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_REENTRY'
@@ -1365,6 +1375,8 @@ def test_io_session_body_oserror_does_not_disable_systemd_scope():
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     warm = MagicMock()
     warm._io_lock = threading.Lock()
+    warm.io_owner.return_value = None
+    warm.io_locked.return_value = False
 
     @contextlib.contextmanager
     def fake_lease(*args: object, **kwargs: object):
@@ -1618,7 +1630,9 @@ def test_execute_ui_thread_returns_busy_when_pipe_lock_held(monkeypatch):
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     assert mgr._io_lock.acquire(timeout=1)
-    mgr._io_owner = threading.get_ident() + 1
+    assert mgr._warm is not None
+    mgr._warm.io_owner.return_value = threading.get_ident() + 1
+    mgr._warm.io_locked.return_value = True
     try:
         started = time.monotonic()
         result = mgr.execute('result = 1', timeout_sec=1)
@@ -1626,14 +1640,16 @@ def test_execute_ui_thread_returns_busy_when_pipe_lock_held(monkeypatch):
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
-        mgr._io_owner = None
+        mgr._warm.io_owner.return_value = None
+        mgr._warm.io_locked.return_value = False
         mgr._io_lock.release()
 
 def test_execute_refuses_other_thread_during_tool_rpc():
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     mgr._serving_tool_call = True
-    mgr._io_owner = threading.get_ident() + 1
+    assert mgr._warm is not None
+    mgr._warm.io_owner.return_value = threading.get_ident() + 1
     result = mgr.execute('result = 1', timeout_sec=1)
     assert result['code'] == 'WORKER_REENTRY'
     assert 'busy' in result['message']
@@ -1643,7 +1659,8 @@ def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     proc = MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO())
     _install_mock_proc(mgr, proc)
     assert mgr._io_lock.acquire(timeout=1)
-    mgr._io_owner = threading.get_ident()
+    assert mgr._warm is not None
+    mgr._warm.io_owner.return_value = threading.get_ident()
     outcome: list[dict[str, Any]] = []
 
     def _other() -> None:
@@ -1657,7 +1674,7 @@ def test_execute_serialized_after_pipe_lock_release(monkeypatch):
     waiter = threading.Thread(target=_other)
     waiter.start()
     time.sleep(0.1)
-    mgr._io_owner = None
+    mgr._warm.io_owner.return_value = None
     mgr._io_lock.release()
     waiter.join(timeout=2)
     assert not waiter.is_alive()
@@ -2495,22 +2512,43 @@ class _MockProc:
     def poll(self) -> int | None:
         return self.returncode
 
-def test_is_worker_alive_reads_proc_once(monkeypatch: pytest.MonkeyPatch) -> None:
-    alive = _MockProc(None)
-    loads = _ProcLoads([alive, None])
+def test_ui_reentry_while_spawn_thread_owns_io(monkeypatch: pytest.MonkeyPatch) -> None:
+    """UI busy check during spawn must not treat the spawner thread as the UI thread."""
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     mgr = PythonWorkerManager(sys.executable, {})
-    monkeypatch.setattr(mgr, '_worker_popen', loads)
+    warm = MagicMock()
+    lock = threading.Lock()
+    assert lock.acquire(blocking=False)
+    warm._io_lock = lock
+    warm.io_locked.return_value = True
+    spawn_owner = threading.get_ident() + 1
+    warm.io_owner.return_value = spawn_owner
+    mgr._warm = warm
+    err = mgr._reentry_error()
+    assert err is not None
+    assert err["code"] == "WORKER_REENTRY"
+    assert "busy" in err["message"]
+    lock.release()
+
+
+def test_lease_error_keeps_error_text() -> None:
+    err = {"status": "error", "code": "WORKER_SPAWN_FAILED", "error": "handshake boom"}
+    mapped = PythonWorkerManager._lease_error_to_worker(err)
+    assert mapped["message"] == "handshake boom"
+
+
+def test_is_worker_alive_reads_proc_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    mgr = PythonWorkerManager(sys.executable, {})
+    warm = MagicMock()
+    warm.is_alive = MagicMock(side_effect=[True, False, False])
+    mgr._warm = warm
     assert mgr._is_worker_alive() is True
-    assert loads.seen == [alive]
-    loads.seen.clear()
-    loads.values = [None]
     assert mgr._is_worker_alive() is False
-    assert loads.seen == [None]
-    loads.seen.clear()
-    dead = _MockProc(0)
-    loads.values = [dead, None]
+    assert warm.is_alive.call_count == 2
+    warm.is_alive.reset_mock()
+    warm.is_alive.return_value = False
     assert mgr._is_worker_alive() is False
-    assert loads.seen == [dead]
+    assert warm.is_alive.call_count == 1
 
 def test_execute_cancel_returns_cancelled_before_io(monkeypatch):
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: False)
@@ -2637,7 +2675,7 @@ def test_orphan_venv_harness_dies_with_parent(tmp_path: Any) -> None:
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     harness = os.path.join(root, 'plugin', 'scripting', 'venv', 'worker_harness.py')
     parent_script = tmp_path / 'parent_venv_warm.py'
-    parent_script.write_text('\n'.join(['import os, sys, time', f'sys.path.insert(0, {root!r})', 'from plugin.framework.process_worker import Deadline', 'from plugin.framework.warm_child import ChildSpec, WarmChild', 'from plugin.scripting.venv_worker import wrap_command_for_sandbox', f'harness = {harness!r}', 'env = {k: v for k, v in os.environ.items() if isinstance(v, str)}', "env['WRITERAGENT_IS_WORKER'] = '1'", 'spec = ChildSpec(', "    name='orphan-venv',", '    argv=[sys.executable, harness],', '    env=env,', '    command_wrapper=wrap_command_for_sandbox,', '    ready_timeout_sec=30.0,', ')', 'warm = WarmChild(spec)', 'with warm.lease(Deadline(60)) as leased:', '    if isinstance(leased, dict):', '        raise SystemExit(2)', '    pid = leased.pid', "    with open(sys.argv[1], 'w', encoding='utf-8') as f:", '        f.write(str(pid))', 'time.sleep(120)']), encoding='utf-8')
+    parent_script.write_text('\n'.join(['import os, sys, time', f'sys.path.insert(0, {root!r})', 'from plugin.framework.child_runtime import Deadline', 'from plugin.framework.warm_child import ChildSpec, WarmChild', 'from plugin.scripting.venv_worker import wrap_command_for_sandbox', f'harness = {harness!r}', 'env = {k: v for k, v in os.environ.items() if isinstance(v, str)}', "env['WRITERAGENT_IS_WORKER'] = '1'", 'spec = ChildSpec(', "    name='orphan-venv',", '    argv=[sys.executable, harness],', '    env=env,', '    command_wrapper=wrap_command_for_sandbox,', '    ready_timeout_sec=30.0,', ')', 'warm = WarmChild(spec)', 'with warm.lease(Deadline(60)) as leased:', '    if isinstance(leased, dict):', '        raise SystemExit(2)', '    pid = leased.pid', "    with open(sys.argv[1], 'w', encoding='utf-8') as f:", '        f.write(str(pid))', 'time.sleep(120)']), encoding='utf-8')
     pid_file = tmp_path / 'child.pid'
     parent = subprocess.Popen([sys.executable, str(parent_script), str(pid_file)])
     try:
