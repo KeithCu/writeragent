@@ -1792,7 +1792,7 @@ class _ShapeProxy:
     """Proxy for shape tools."""
 
     def align(self, indices: list[Any], alignment: str, *, page: int | None = None) -> dict[str, Any]:
-        """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices or Names.
+        """Align multiple shapes on a page to a shared edge or center axis. Coordinates are 1/100 mm. Needs at least two indices or Names. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
             indices (required): Shape indices or Names to align.
@@ -1802,7 +1802,7 @@ class _ShapeProxy:
         return call_host_tool("shape_align", page=page, indices=indices, alignment=alignment)
 
     def connect(self, start: int | str, end: int | str, *, page: int | None = None, line_color: str | None = None, line_width: int | None = None) -> dict[str, Any]:
-        """Connect two shapes on the same page with a connector.
+        """Connect two shapes on the same page with a connector. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
             start (required): Index or Name of the starting shape.
@@ -1835,7 +1835,7 @@ class _ShapeProxy:
         return call_host_tool("shape_diagram", page=page, layout=layout, nodes=nodes, connections=connections)
 
     def distribute(self, indices: list[Any], axis: str, *, page: int | None = None) -> dict[str, Any]:
-        """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm.
+        """Evenly distribute three or more shapes between the first and last along an axis. Coordinates are 1/100 mm. All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
             indices (required): Shape indices or Names to distribute.
@@ -1854,7 +1854,7 @@ class _ShapeProxy:
         return call_host_tool("shape_fill_fields", page=page, fields=fields)
 
     def group(self, indices: list[Any], *, page: int | None = None) -> dict[str, Any]:
-        """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit).
+        """Group related shapes into one composite object so the user can select and move them together. After you place pieces that belong to the same thing (a flag, logo, diagram, icon), ALWAYS call this before finishing — leaving loose parts is wrong. Pass every related shape index. The result is one group shape you can move with shape_upsert (action edit). All-digit strings are page indices, not Names (only shape_delete accepts name= for digit-only Names).
 
         Args:
             indices (required): List of shape indices or Names to group.
