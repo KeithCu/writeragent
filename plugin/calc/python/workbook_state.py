@@ -205,6 +205,24 @@ class WorkbookState:
             _STATE_BY_DOC_ID.clear()
 
     @classmethod
+    def lookup(cls, doc: Any | None) -> WorkbookState | None:
+        """Return workbook state, creating or rekeying on the UI thread when needed."""
+        return cls.for_doc(doc) or cls.known(doc)
+
+    @classmethod
+    def _install_unload_listener(cls, doc: Any, state: WorkbookState) -> None:
+        if not main.is_current():
+            return
+        # Lazy import: workbook_lifecycle imports WorkbookState at module level.
+        from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
+        from plugin.framework.uno_context import get_ctx
+
+        best_effort(
+            lambda: ensure_calc_workbook_unload_resets_python(get_ctx(), doc, state=state),
+            "python workbook unload listener install",
+        )
+
+    @classmethod
     def known(cls, doc: Any | None) -> WorkbookState | None:
         """Lookup existing state recorded on UI thread. No UNO."""
         if doc is None:
@@ -237,6 +255,7 @@ class WorkbookState:
                 from plugin.calc.python.workbook_lifecycle import rekey_listener
 
                 rekey_listener(old_key, uid)
+            cls._install_unload_listener(doc, state)
             return state
 
         # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute
@@ -254,12 +273,5 @@ class WorkbookState:
         state = cls(key=key)
         cls._remember(doc, state)
 
-        # Register unload listener the first time the state is created
-        from plugin.calc.python.workbook_lifecycle import ensure_calc_workbook_unload_resets_python
-        from plugin.framework.uno_context import get_ctx
-
-        best_effort(
-            lambda: ensure_calc_workbook_unload_resets_python(get_ctx(), doc, state=state),
-            "python workbook unload listener install",
-        )
+        cls._install_unload_listener(doc, state)
         return state

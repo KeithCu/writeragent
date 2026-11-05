@@ -211,7 +211,9 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
         shutil.copy2(_ZIP_CSV, dest_csv)
         doc = _open_showcase(ctx, Path(dest_xlsx), xlsx=True)
         try:
-            bindings = _py_scoped_dir_bindings(doc)
+            from plugin.calc.python.function import build_cell_context
+
+            bindings = _py_scoped_dir_bindings(build_cell_context(ctx, doc, ""))
             folder = bindings.get("scoped_dir")
             assert folder, bindings
             assert os.path.samefile(folder, temp_dir), bindings
@@ -349,26 +351,6 @@ def test_py_multi_document_spill_and_plot(ctx):
         shutdown_venv_workers_for_tests()
 
 
-def _calc_spill_modify_listener_for_tests(ctx, doc_key: str, sheet_name: str, sheet) -> None:
-    """Test-only stand-in for the removed CalcSpillModifyListener (same modified() body)."""
-    from plugin.calc.python.function import _get_calc_doc
-    from plugin.calc.python.sheet_modify import _owning_calc_doc
-    from plugin.calc.python.spill import cleanup_orphans
-    from plugin.framework.queue_executor import main
-
-    doc = _owning_calc_doc(sheet)
-    if doc is None and ctx is not None and main.is_current():
-        doc = _get_calc_doc(ctx)
-    state = None
-    if doc_key:
-        for candidate in WorkbookState.all_states():
-            if candidate.scheduled_key_matches(doc_key):
-                state = candidate
-                break
-    if state is None and doc is not None:
-        state = WorkbookState.for_doc(doc)
-    cleanup_orphans(state, sheet, doc=doc, ctx=ctx, sheet_name=sheet_name)
-
 
 @native_test
 def test_row_insert_does_not_clear_moved_spill(ctx):
@@ -400,9 +382,11 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
         cells = [SpillCell(row=r, col=0, kind="n", value=float(r - 4)) for r in range(5, 10)]
         SPILL_REGISTRY[(doc_key, "Sheet1", 4, 0)] = SpillRecord(code=code, cells=cells)
 
+        from plugin.calc.python.sheet_modify import run_sheet_modify_pass
+
         sheet.getRows().insertByIndex(0, 1)
 
-        _calc_spill_modify_listener_for_tests(ctx, doc_key, "Sheet1", sheet)
+        run_sheet_modify_pass(ctx, doc, sheet, sheet_name="Sheet1")
 
         a6_formula = sheet.getCellByPosition(0, 5).getFormula()
         assert "PY" in a6_formula, f"Expected PY in A6 formula, got {a6_formula!r}"

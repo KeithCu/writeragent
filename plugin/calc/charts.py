@@ -39,7 +39,7 @@ from plugin.calc.base import ToolCalcChartBase
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
 from plugin.framework.errors import DocumentDisposedError, document_is_disposed, is_disposal, name_miss_details
-from plugin.framework.uno_context import get_ctx, get_desktop, process_events_to_idle, uno_same
+from plugin.framework.uno_context import enum_has_more, get_ctx, get_desktop, process_events_to_idle, uno_same
 import uno
 
 _MAX_CHART_DATA_CELLS = 10_000
@@ -324,7 +324,7 @@ def _validate_chart_upsert(kwargs: dict[str, Any], doc_type: str | None = None) 
                 return False, err or "Invalid headers or rows"
         return True, None
 
-    req_err = _create_requirements_error_for_doc_type(kwargs, doc_type)
+    req_err = _create_requirements_error(kwargs, is_calc=(doc_type == "calc"))
     if req_err:
         return False, req_err
     return True, None
@@ -487,11 +487,6 @@ def _create_requirements_error(kwargs: dict[str, Any], *, is_calc: bool) -> str 
     if not ok:
         return err or "Invalid headers or rows"
     return None
-
-
-def _create_requirements_error_for_doc_type(kwargs: dict[str, Any], doc_type: str | None) -> str | None:
-    is_calc = doc_type == "calc"
-    return _create_requirements_error(kwargs, is_calc=is_calc)
 
 
 def _named_chart_miss_message(chart_name: str, req_err: str | None, kwargs: dict[str, Any], *, is_calc: bool) -> str:
@@ -740,10 +735,10 @@ def _remove_writer_chart(doc: Any, chart_obj: Any, name: str) -> None:
 def _writer_body_has_no_text(text: Any) -> bool:
     """Return True if the text body has no content (empty or single empty paragraph)."""
     enum = text.createEnumeration()
-    if not enum.hasMoreElements():
+    if not enum_has_more(enum):
         return True
     first = enum.nextElement()
-    if enum.hasMoreElements():
+    if enum_has_more(enum):
         return False
     if hasattr(first, "getString"):
         return first.getString() == ""
@@ -1525,17 +1520,23 @@ def _require_chart(
     tool: Any,
     doc: Any,
     kwargs: dict[str, Any],
-) -> tuple[str, ChartRef] | dict[str, Any]:
+) -> tuple[str, ChartRef, SheetCharts | WriterEmbeds | DrawPage] | dict[str, Any]:
     chart_name = kwargs["name"]
-    lookup = _lookup_chart(doc, chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
+    host = chart_host(doc)
+    if host is None:
+        return tool._tool_error(
+            f"Chart '{chart_name}' not found.",
+            **name_miss_details(chart_name, [], "chart_list"),
+        )
+    lookup = host.find(chart_name, sheet=kwargs.get("sheet"), page=kwargs.get("page"))
     if lookup.error:
         return tool._tool_error(lookup.error, code="CHART_AMBIGUOUS")
     if not lookup.ref:
         return tool._tool_error(
             f"Chart '{chart_name}' not found.",
-            **name_miss_details(chart_name, _chart_list_names(chart_host(doc)), "chart_list"),
+            **name_miss_details(chart_name, _chart_list_names(host), "chart_list"),
         )
-    return chart_name, lookup.ref
+    return chart_name, lookup.ref, host
 
 
 def list_charts(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1558,7 +1559,7 @@ def get_chart_info(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]
     target = _require_chart(tool, doc, kwargs)
     if isinstance(target, dict):
         return target
-    chart_name, ref = target
+    chart_name, ref, _host = target
 
     chart_obj = ref.host
 
@@ -1673,7 +1674,7 @@ def _edit_chart(
 def _create_chart(
     tool: Any,
     ctx: ToolContext,
-    host: SheetCharts | WriterEmbeds | DrawPage | None,
+    host: SheetCharts | WriterEmbeds | DrawPage,
     **kwargs: Any,
 ) -> dict[str, Any]:
     chart_type = kwargs["chart_type"]
@@ -1682,8 +1683,6 @@ def _create_chart(
     rect = uno.createUnoStruct("com.sun.star.awt.Rectangle", X=1000, Y=1000, Width=12000, Height=8000)
 
     try:
-        if host is None:
-            return tool._tool_error("Unsupported document type for chart creation.")
         return host.create(tool, ctx, rect, chart_service, **kwargs)
     except Exception as e:
         # Disposal re-raises via _chart_op_error so execute_safe reports DOCUMENT_DISPOSED.
@@ -1737,13 +1736,9 @@ def delete_chart(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     target = _require_chart(tool, doc, kwargs)
     if isinstance(target, dict):
         return target
-    chart_name, ref = target
+    chart_name, ref, host = target
 
     try:
-        # _lookup_chart already used chart_host; None here is the same miss. Reachable deletes use adapter remove.
-        host = chart_host(doc)
-        if host is None:
-            return tool._tool_error(f"Chart '{chart_name}' not found.")
         host.remove(ref, chart_name)
 
         if ref.kind == "calc_sheet":

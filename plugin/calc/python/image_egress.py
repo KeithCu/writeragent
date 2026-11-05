@@ -17,6 +17,7 @@ import struct
 from typing import Any, NoReturn
 
 from plugin.framework.errors import best_effort
+from plugin.framework.queue_executor import main
 from plugin.scripting.payload_codec import write_image_payload_to_temp
 
 log = logging.getLogger(__name__)
@@ -310,7 +311,6 @@ def insert_image_result_on_sheet(
     image_path: str | None = None,
     image_count: int | None = None,
     notify_cell: bool = False,
-    on_main: bool | None = None,
 ) -> None:
     """Write image payload bytes to a temp file and insert as a cell-anchored shape on the target sheet.
 
@@ -327,8 +327,6 @@ def insert_image_result_on_sheet(
             "WriterAgent image: "; any other note is left unchanged. main.post
             can still raise TimeoutError or RuntimeError to this caller.
     """
-    from plugin.framework.queue_executor import main
-
     # Thread safety invariant: Drawing layer manipulation (DrawPage, GraphicObjectShape, cell geometry)
     # must run on LibreOffice's main VCL thread to prevent internal C++ state corruption and deadlocks.
     # If called from a background recalculation or script worker thread, post asynchronously to the main thread.
@@ -346,7 +344,7 @@ def insert_image_result_on_sheet(
         if notify_cell:
             _clear_image_cell_annotation(doc, code)
 
-    is_ui_thread = on_main if on_main is not None else main.is_current()
+    is_ui_thread = main.is_current()
     if not is_ui_thread:
         def _off_main_wrapper() -> None:
             try:

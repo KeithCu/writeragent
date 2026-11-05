@@ -69,6 +69,14 @@ _ARRAY_PREVIEW_ROWS = 5
 _ARRAY_PREVIEW_COLS = 10
 
 
+class _CommitResult(NamedTuple):
+    formula_warning: str
+    data_array: list[list[Any]]
+    dest_categories: dict[tuple[int, int], str | None]
+    category_cache: dict[int, str | None]
+    cols_needing: dict[int, str]
+
+
 class _CellWrite(NamedTuple):
     data: Any
     formula: str
@@ -738,7 +746,7 @@ class CellManipulator:
         *,
         literal_text: bool = False,
         data_text: bool = False,
-    ) -> tuple[str, list[list[Any]], dict[tuple[int, int], str | None], dict[int, str | None], dict[int, str]]:
+    ) -> _CommitResult:
         """Commit data, formulas, and text writes to the sheet and restore number format snapshots."""
         data_array: list[list[Any]] = []
         formula_cells: list[tuple[int, int, str]] = []  # (col, row, formula)
@@ -814,7 +822,7 @@ class CellManipulator:
         for col, row, text_value in literal_text_cells:
             sheet.getCellByPosition(col, row).setString(text_value)
 
-        return formula_warning, data_array, dest_categories, category_cache, cols_needing
+        return _CommitResult(formula_warning, data_array, dest_categories, category_cache, cols_needing)
 
     def apply_temporal_formats(
         self,
@@ -823,12 +831,13 @@ class CellManipulator:
         start: tuple[int, int],
         range_str: str,
         cell_metas: list[_CellWrite],
-        data_array: list[list[Any]],
-        dest_categories: dict[tuple[int, int], str | None],
-        category_cache: dict[int, str | None],
-        cols_needing: dict[int, str],
+        committed: _CommitResult,
     ) -> str:
         """Apply detected temporal formats with upward template inheritance and coalesced writes."""
+        data_array = committed.data_array
+        dest_categories = committed.dest_categories
+        category_cache = committed.category_cache
+        cols_needing = committed.cols_needing
         if not any(m.kind == "temporal" for m in cell_metas):
             return ""
 
@@ -1017,7 +1026,7 @@ class CellManipulator:
                 data_text=data_text,
             )
 
-            formula_warning, data_array, dest_categories, category_cache, cols_needing = self.commit(
+            committed = self.commit(
                 sheet,
                 start,
                 end,
@@ -1033,10 +1042,7 @@ class CellManipulator:
                 start,
                 range_str,
                 cell_metas,
-                data_array,
-                dest_categories,
-                category_cache,
-                cols_needing,
+                committed,
             )
 
             counts = Counter(
@@ -1055,7 +1061,7 @@ class CellManipulator:
             detail = f" ({', '.join(parts)})" if parts else ""
             n_vals = len(values)
             values_word = "value" if n_vals == 1 else "values"
-            msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{format_warning}{formula_warning}."
+            msg = f"Range {range_str} filled with {n_vals} {values_word}{detail}{format_warning}{committed.formula_warning}."
 
             if expand_overwrite_warning:
                 msg = f"{msg} ({expand_overwrite_warning})"

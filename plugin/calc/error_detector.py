@@ -28,6 +28,7 @@ from typing import Any
 from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
 from plugin.calc.bridge import used_range_address
 from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.uno_context import enum_has_more
 
 try:
     from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
@@ -162,7 +163,7 @@ class ErrorDetector:
         formula_cells = cell_range.queryFormulaCells(RESULT_ERROR)
 
         enum = formula_cells.getCells().createEnumeration()
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             cell = enum.nextElement()
             error_info = self.get_error_type(cell)
             if error_info:

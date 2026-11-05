@@ -15,7 +15,7 @@ from plugin.framework.thread_guard import unwrap_uno
 
 
 @contextmanager
-def _undo_lock(doc: Any) -> Generator[Any, None, None]:
+def undo_lock(doc: Any) -> Generator[Any, None, None]:
     """Temporarily hide or lock undo recording during background spill operations.
 
     If an undo action exists (e.g. user just typed =PY()), enterHiddenUndoContext()
@@ -39,7 +39,7 @@ def _undo_lock(doc: Any) -> Generator[Any, None, None]:
                     um.lock()
                     locked = True
 
-            best_effort(_lock_um, "enterHiddenUndoContext/lock failed in _undo_lock")
+            best_effort(_lock_um, "enterHiddenUndoContext/lock failed in undo_lock")
     try:
         yield um
     finally:

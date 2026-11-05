@@ -9,7 +9,7 @@ closing and reopening the same file (same URL / session key) would reuse the cac
 ``calc:…:init`` executor. Clearing on unload matches the expectation that init runs
 again when the spreadsheet is opened later.
 
-Wired from ``get_python_init_kwargs`` on the first ``=PY()`` for a workbook.
+Wired from ``WorkbookState.for_doc`` on create and on later UI-thread hits.
 ``reset_sandbox_session`` on the ``calc:…`` id also drops the companion ``:init``
 session. Init-script *edits* still invalidate via hash + ``reset_python_session``
 on save.
@@ -173,10 +173,9 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
     def _release_calc_state(self, session_ids: tuple[str, ...], *args: Any) -> None:
         """Drop in-memory Calc state and worker kernels. Caller does not hold ``_LOCK``."""
         if self._calc_cleanup:
-            from plugin.calc.python.function import clear_python_addin_cache
-
+            # state.clear() drops this workbook's matrix; global clear_python_addin_cache
+            # wiped every open workbook's =PY() matrix cache on one unload.
             best_effort(self._state.clear, "python_workbook_lifecycle: spill state clear")
-            best_effort(clear_python_addin_cache, "python_workbook_lifecycle: matrix cache clear")
 
             from plugin.calc.python.geometric_recalc import clear_in_memory_geometric_state
 
