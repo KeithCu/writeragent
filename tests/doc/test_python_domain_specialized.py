@@ -229,6 +229,7 @@ def test_validate_domains_by_app():
     assert "ranges" in calc
     assert "footnotes" not in calc
     assert "speaker_notes" in draw
+    assert "page_comments" in draw
     assert "ppt-master" not in draw
 
     message, code = validate_requested_domains(["footnotes", "shapes"], "Writer")

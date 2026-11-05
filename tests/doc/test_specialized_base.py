@@ -399,6 +399,7 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     """Impress and Draw both carry doc_type "draw"; only PresentationDocument keeps slide domains."""
     import plugin.draw.headers_footers  # noqa: F401
     import plugin.draw.notes  # noqa: F401
+    import plugin.draw.comments  # noqa: F401
     from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
     from plugin.doc.specialized_base import narrow_delegate_domain_enums
     from plugin.draw.specialized import DelegateToSpecializedDraw
@@ -413,6 +414,9 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     impress = frozenset({DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE})
     assert not impress_only & set(gateway.domains_for_services(draw))
     assert "shapes" in gateway.domains_for_services(draw)
+    assert "page_comments" in gateway.domains_for_services(draw)
+    assert "page_comments" in gateway.domains_for_services(impress)
+    assert "page_comments" not in impress_only
     assert impress_only <= set(gateway.domains_for_services(impress))
 
     oa = to_openai_schema(gateway, doc_type="draw")

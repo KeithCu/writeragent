@@ -130,6 +130,7 @@ DOMAIN_TOOLS = {   'bookmark': [   'bookmark_cleanup',
                 'page_set_columns',
                 'page_set_header_footer_text',
                 'page_set_style_properties'],
+    'page_comment': ['page_comment_add', 'page_comment_delete', 'page_comment_list'],
     'pivot_table': ['pivot_table_create', 'pivot_table_delete', 'pivot_table_list', 'pivot_table_refresh'],
     'python': ['symbolic_math'],
     'python/sql': ['query_folder_sql'],
@@ -297,6 +298,9 @@ TOOL_METHODS = {   'add_comment': ('writer', 'add_comment'),
     'nav_heading': ('structural', 'nav_heading'),
     'nav_heading_children': ('structural', 'nav_heading_children'),
     'nav_surroundings': ('structural', 'nav_surroundings'),
+    'page_comment_add': ('page_comment', 'add'),
+    'page_comment_delete': ('page_comment', 'delete'),
+    'page_comment_list': ('page_comment', 'list'),
     'page_get_columns': ('page', 'get_columns'),
     'page_get_header_footer_text': ('page', 'get_header_footer_text'),
     'page_get_style_properties': ('page', 'get_style_properties'),
@@ -397,6 +401,7 @@ __all__ = [   'DOMAIN_TOOLS',
     'mail_merge',
     'math',
     'page',
+    'page_comment',
     'pivot_table',
     'python',
     'python_sql',
@@ -1590,6 +1595,40 @@ class _PageProxy:
         return call_host_tool("page_set_style_properties", style=style, width_mm=width_mm, height_mm=height_mm, is_landscape=is_landscape, left_margin_mm=left_margin_mm, right_margin_mm=right_margin_mm, top_margin_mm=top_margin_mm, bottom_margin_mm=bottom_margin_mm, gutter_margin_mm=gutter_margin_mm, header_is_on=header_is_on, footer_is_on=footer_is_on, header_is_shared=header_is_shared, footer_is_shared=footer_is_shared, first_is_shared=first_is_shared, header_height_mm=header_height_mm, footer_height_mm=footer_height_mm, header_body_distance_mm=header_body_distance_mm, footer_body_distance_mm=footer_body_distance_mm, back_color=back_color, back_transparent=back_transparent, numbering_type=numbering_type, footnote_height_mm=footnote_height_mm, register_paragraph_style=register_paragraph_style, page_style_layout=page_style_layout)
 
 page = _PageProxy()
+
+
+class _PageCommentProxy:
+    """Proxy for page_comment tools."""
+
+    def add(self, text: str, *, page: int | None = None, author: str | None = None) -> dict[str, Any]:
+        """Add a comment (annotation) on a Draw or Impress page.
+
+        Args:
+            text (required): Comment text.
+            page (optional): 0-based page index (active page if omitted).
+            author (optional): Author name (optional).
+        """
+        return call_host_tool("page_comment_add", text=text, page=page, author=author)
+
+    def delete(self, index: int, *, page: int | None = None) -> dict[str, Any]:
+        """Delete a comment on a Draw or Impress page by its 0-based index (the index field from page_comment_list on that page). Indices shift after a delete.
+
+        Args:
+            index (required): 0-based index on the page.
+            page (optional): 0-based page index (active page if omitted).
+        """
+        return call_host_tool("page_comment_delete", index=index, page=page)
+
+    def list(self, *, page: int | None = None, offset: int | None = None) -> dict[str, Any]:
+        """List comments (annotations) on Draw or Impress pages. Omit page to scan every page; pass page for one slide. Use offset to paginate (up to 100 per call). Each row includes x/y as raw RealPoint2D Position values from LibreOffice (not slide mm).
+
+        Args:
+            page (optional): 0-based page index (all pages if omitted).
+            offset (optional): Skip this many comments in deck order (default 0).
+        """
+        return call_host_tool("page_comment_list", page=page, offset=offset)
+
+page_comment = _PageCommentProxy()
 
 
 class _PivotTableProxy:
