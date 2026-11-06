@@ -842,8 +842,6 @@ msgid ""
 "{mode}\n"
 "Venv: {path}"
 msgstr ""
-"{mode}\n"
-"Venv: {path}"
 
 #: plugin/librepy/python_sidebar.py
 #, python-brace-format
@@ -1809,15 +1807,15 @@ msgstr "最後のドラフトを適用（モック）"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Web research (mock)"
-msgstr "Web research (mock)"
+msgstr ""
 
 #: plugin/chatbot/slash_commands.py
 msgid "Switch model (mock)"
-msgstr "Switch model (mock)"
+msgstr ""
 
 #: plugin/chatbot/slash_commands.py
 msgid "Slash commands:"
-msgstr "Slash commands:"
+msgstr ""
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
@@ -2572,7 +2570,7 @@ msgstr "失敗"
 
 #: plugin/scripting/venv_probe_ui.py
 msgid "Venv OK"
-msgstr "Venv OK"
+msgstr ""
 
 #: plugin/scripting/venv_probe_ui.py
 msgid "Venv check failed"
@@ -2957,11 +2955,11 @@ msgstr "{domain} '{helper}' が完了しました。(所要時間: {time})"
 
 #: plugin/scripting/domain_registry.py
 msgid "Vision Helpers"
-msgstr "Vision Helpers"
+msgstr ""
 
 #: plugin/scripting/domain_registry.py
 msgid "Math Helpers"
-msgstr "Math Helpers"
+msgstr ""
 
 #: plugin/scripting/domain_registry.py
 msgid "Units Helpers"
@@ -3736,7 +3734,7 @@ msgstr "応答数:"
 
 #: plugin/xdl_strings.py
 msgid "OK"
-msgstr "OK"
+msgstr ""
 
 #: plugin/xdl_strings.py
 msgid "OpenRouter"
@@ -4538,7 +4536,6 @@ msgstr "幾何学的再計算順序 (実験的)"
 msgid ""
 "Ensures PY cells evaluate in sheet order. Most useful with Shared kernel."
 msgstr ""
-"Ensures PY cells evaluate in sheet order. Most useful with Shared kernel."
 
 msgid "Python auto spill in Calc"
 msgstr "Calc での Python 自動スピル"
