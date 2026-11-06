@@ -61,7 +61,7 @@ def generate_pot(pot_only: bool = False, root_path: Path = PROJECT_ROOT) -> int:
                 tf.write(f"{p}\n")
             list_path = tf.name
 
-        cmd = ["xgettext", "--add-location=file", "--keyword=N_"]
+        cmd = ["xgettext", "--add-location=file", "--keyword=N_", "--keyword=NC_:1c,2"]
         cmd.extend([
             "-d",
             "writeragent",

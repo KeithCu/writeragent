@@ -4938,3 +4938,125 @@ msgstr "Doclingi dokumendi ajalõpp (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Doclingi-sisene teisenduse ajalõpp. 0 = piiranguta."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "abi"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "tühjenda"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "peata"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "kokkuvõte"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "korrektsioon"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "lühenda"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "laienda"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "toon"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "tõlgi"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "selgita"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "mäleta"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "tihenda"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "tühista"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "valem"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Valige tekstikujund."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Valige tekstikujund. Tabeleid ei kirjutata ümber."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: valiku redigeerimine (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Selle redigeerimise tagasivõttu ei saanud registreerida. Muudatust ei rakendatud."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Ümberkirjutusel said tokenid otsa enne teksti tekkimist. Proovige uuesti või lühendage valikut."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Mudel ei tagastanud teksti. Proovige uuesti."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Valemilahtrid jäetakse vahele."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fookus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[siht]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[mida]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<kirjeldus>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<keel>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakt>"

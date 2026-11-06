@@ -4999,3 +4999,125 @@ msgstr "Docling dokumentum-időtúllépés (mp)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Konverziónkénti időtúllépés a Doclingben. 0 = nincs korlát."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "súgó"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "törlés"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "leállítás"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "összefoglal"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "korrektúra"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "rövidít"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "bővít"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "hangnem"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "fordít"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "magyaráz"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "megjegyez"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "tömörít"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "visszavon"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "képlet"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Válasszon egy szöveges alakzatot."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Válasszon egy szöveges alakzatot. A táblázatok nem íródnak újra."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Kijelölés szerkesztése (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Nem sikerült visszavonást regisztrálni ehhez a szerkesztéshez. A módosítás nem került alkalmazásra."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Az átírás kifogyott a tokenekből, mielőtt szöveg készült. Próbálja újra, vagy rövidítse a kijelölést."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "A modell nem adott vissza szöveget. Próbálja újra."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "A képletcellák kimaradnak."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fókusz]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[cél]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[mit]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<leírás>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<nyelv>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<tény>"

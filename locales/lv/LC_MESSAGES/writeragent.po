@@ -4961,3 +4961,125 @@ msgstr "Docling dokumenta noildze (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Noildze katrai konvertēšanai Docling ietvaros. 0 = bez ierobežojuma."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "palīdzība"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "notīrīt"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "apturēt"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "kopsavilkums"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "korektūra"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "saīsināt"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "paplašināt"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "tonis"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "tulkot"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "paskaidrot"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "atcerēties"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "saspiest"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "atsaukt"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "formula"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Atlasiet teksta figūru."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Atlasiet teksta figūru. Tabulas netiek pārrakstītas."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Rediģēt atlasi (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Neizdevās reģistrēt šī labojuma atsaukšanu. Izmaiņa netika piemērota."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Pārrakstīšana iztērēja tokenus, pirms radās teksts. Mēģiniet vēlreiz vai saīsiniet atlasi."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Modelis neatgrieza tekstu. Mēģiniet vēlreiz."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Formulu šūnas tiek izlaistas."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fokuss]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[mērķis]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[ko]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<apraksts>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<valoda>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakts>"

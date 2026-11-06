@@ -4534,3 +4534,125 @@ msgstr ""
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr ""
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr ""
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr ""
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr ""
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr ""
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr ""
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr ""
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr ""
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr ""

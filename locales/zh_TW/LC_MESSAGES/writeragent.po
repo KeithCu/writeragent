@@ -4662,3 +4662,125 @@ msgstr "Docling 文件逾時時間 (秒)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling 內部每次轉換的逾時時間。0 = 無限制。"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "說明"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "清除"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "停止"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "摘要"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "校對"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "縮短"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "擴充"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "語氣"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "翻譯"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "解釋"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "記住"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "壓縮"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "復原"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "公式"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "請選取一個文字形狀。"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "請選取一個文字形狀。表格不會被改寫。"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent：編輯選取 (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "無法為這次編輯登記復原。變更尚未套用。"
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "改寫在產生文字之前用盡了權杖。請再試一次或縮短選取範圍。"
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "模型沒有傳回文字。請再試一次。"
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "公式儲存格會被略過。"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[重點]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[目標]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[內容]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<說明>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<語言>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<事實>"

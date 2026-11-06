@@ -198,3 +198,32 @@ def N_(message: str) -> str:
     """No-op gettext marker for extractable strings translated dynamically at runtime."""
     return message
 
+
+def pgettext(context: str, message: str) -> str:
+    """Translate *message* in gettext context *context*. English msgid if missing.
+
+    Slash-command ids use this so a short English word (``help``, ``stop``)
+    does not share a catalog entry with a different UI string.
+    """
+    if not isinstance(message, str) or not isinstance(context, str):
+        raise TypeError("gettext msgid must be str")
+
+    if _translation is None:
+        init_i18n()
+
+    translation = _translation
+    if translation is None:
+        return message
+    # GNUTranslations.pgettext is 3.8+. Older runtimes keep the English id.
+    translate = getattr(translation, "pgettext", None)
+    if translate is None:
+        return message
+    result = translate(context, message)
+    return result if isinstance(result, str) else message
+
+
+def NC_(context: str, message: str) -> str:
+    """No-op marker. xgettext ``--keyword=NC_:1c,2`` extracts msgctxt + msgid."""
+    del context
+    return message
+

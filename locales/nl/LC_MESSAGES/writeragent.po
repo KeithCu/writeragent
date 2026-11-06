@@ -4977,3 +4977,125 @@ msgstr "Docling document-time-out (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Time-out per conversie binnen Docling. 0 = geen limiet."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "hulp"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "wissen"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "stop"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "samenvatten"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "corrigeren"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "inkorten"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "uitbreiden"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "toon"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "vertalen"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "uitleggen"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "onthouden"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "comprimeren"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "ongedaan"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "formule"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Selecteer een tekstvorm."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Selecteer een tekstvorm. Tabellen worden niet herschreven."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Selectie bewerken (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Ongedaan maken voor deze bewerking kon niet worden geregistreerd. De wijziging is niet toegepast."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Het herschrijven had geen tokens meer voordat er tekst kwam. Probeer het opnieuw of kort de selectie in."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Het model gaf geen tekst terug. Probeer het opnieuw."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Formulecellen worden overgeslagen."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[onderwerp]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[doel]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[wat]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<omschrijving>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<taal>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<feit>"

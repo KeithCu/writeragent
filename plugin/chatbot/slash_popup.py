@@ -37,6 +37,8 @@ from plugin.chatbot.slash_commands import (
     parse_slash_text,
     run_slash_command,
     slash_ask_past_command_name,
+    slash_command_tokens,
+    slash_display_name,
     slash_typed_prefix,
 )
 from plugin.framework.errors import best_effort, suppress_disposed, uno_read
@@ -619,9 +621,9 @@ class SlashPopupController:
         self._select_row(self._selected)
 
     def complete_selected(self) -> None:
-        name = self.selected_name
-        if not name:
+        if not self._matches:
             return
+        name = slash_display_name(self._matches[self._selected])
         set_control_text(self.query_control, "/" + name)
         self.on_query_text("/" + name)
 
@@ -633,9 +635,12 @@ class SlashPopupController:
         parsed = parse_slash_text(raw.strip())
         typed = raw.strip()
         # Bugfix (QA N1): exact "/explain" + Enter should run, not complete to "/explain ".
+        # The same is true for the active locale's alias ("/解説" when that is explain).
         if parsed is not None:
             cmd, arg = parsed
-            if typed.lower() == ("/" + cmd.name) and not slash_ask_past_command_name(raw):
+            first = typed.split()[0] if typed else ""
+            token = first[1:].lower() if first.startswith("/") else ""
+            if token in slash_command_tokens(cmd) and not slash_ask_past_command_name(raw):
                 # Bugfix (QA N1): ANSWER presets return False so Send runs _do_send; without
                 # SEND_CLICKED the draft stays in Ask until a second Enter.
                 def _accept_exact_or_send() -> None:

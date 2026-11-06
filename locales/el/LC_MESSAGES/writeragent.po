@@ -5052,3 +5052,125 @@ msgstr "Χρονικό όριο εγγράφου Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Χρονικό όριο ανά μετατροπή εντός του Docling. 0 = χωρίς όριο."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "βοήθεια"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "καθαρισμός"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "διακοπή"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "σύνοψη"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "διόρθωση"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "σύντμηση"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "επέκταση"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "ύφος"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "μετάφραση"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "εξήγηση"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "απομνημόνευση"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "σύμπτυξη"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "αναίρεση"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "τύπος"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Επιλέξτε ένα σχήμα κειμένου."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Επιλέξτε ένα σχήμα κειμένου. Οι πίνακες δεν ξαναγράφονται."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Επεξεργασία επιλογής (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Δεν ήταν δυνατή η καταχώριση αναίρεσης για αυτή την επεξεργασία. Η αλλαγή δεν εφαρμόστηκε."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Η αναδιατύπωση εξάντλησε τα token πριν παραχθεί κείμενο. Δοκιμάστε ξανά ή συντομεύστε την επιλογή."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Το μοντέλο δεν επέστρεψε κείμενο. Δοκιμάστε ξανά."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Τα κελιά τύπου παραλείπονται."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[εστίαση]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[στόχος]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[τι]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<περιγραφή>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<γλώσσα>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<γεγονός>"

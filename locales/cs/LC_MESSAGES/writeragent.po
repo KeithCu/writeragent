@@ -4945,3 +4945,125 @@ msgstr "Časový limit dokumentu Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Časový limit na konverzi v rámci Docling. 0 = bez omezení."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "nápověda"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "vymazat"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "zastavit"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "shrnout"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "korektura"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "zkrátit"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "rozšířit"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "tón"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "přeložit"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "vysvětlit"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "zapamatovat"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "zhustit"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "zpět"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "vzorec"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Vyberte textový tvar."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Vyberte textový tvar. Tabulky se nepřepisují."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Upravit výběr (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Nepodařilo se zaregistrovat vrácení této úpravy. Změna nebyla použita."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Přepis vyčerpal tokeny dříve, než vznikl text. Zkuste to znovu nebo výběr zkraťte."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Model nevrátil žádný text. Zkuste to znovu."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Buňky se vzorci se přeskakují."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[zaměření]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[cíl]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[co]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<popis>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<jazyk>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakt>"

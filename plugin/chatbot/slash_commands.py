@@ -8,6 +8,9 @@ Product commands include Tier 1 presets (rewrite / answer / local), plus
 ``/help``, ``/clear``, and ``/stop``. Echo-only ``[mock]`` stubs register only
 through ``enable_mock_slash_commands()`` for the debug sidebar harness.
 Ranking is prefix match, then ``slash_command_lru`` in ``writeragent.json``.
+The command id stays English for dispatch, the LRU key, and logs. The active
+UI locale may also match one alias from msgctxt ``slash-command``; a missing
+alias falls back to the English id. Other locales' names do not match.
 Do not implement the consider-list in ``docs/chat/slash-commands.md`` here.
 """
 
@@ -21,7 +24,7 @@ from enum import Enum
 from typing import Any, Callable, Protocol, Sequence
 
 from plugin.framework.doc_type import DocumentType, get_document_type
-from plugin.framework.i18n import N_, _
+from plugin.framework.i18n import N_, NC_, _, pgettext
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.chatbot.send_state import spawn_scope
 
@@ -29,6 +32,23 @@ log = logging.getLogger(__name__)
 
 # Persist via the same LRU helper as model/prompt history (not a sidecar file).
 SLASH_LRU_KEY = "slash_command_lru"
+
+# msgctxt for the English command id. One alias per active catalog, not a
+# global alias list: Japanese 「ヘルプ」 matches only while that catalog is loaded.
+SLASH_NAME_CONTEXT = "slash-command"
+
+# Argument chrome in /help and the missing-argument line. The command token
+# in front is the active-locale alias (or the English id). These literals
+# exist so xgettext extracts the placeholders; command_usage_hint translates
+# the same strings at display time.
+_USAGE_ARG_MSGIDS = (
+    N_("[focus]"),
+    N_("[target]"),
+    N_("[what]"),
+    N_("<description>"),
+    N_("<language>"),
+    N_("<fact>"),
+)
 
 # com.sun.star.awt.Key — integers so unit tests need no soffice.
 KEY_DOWN = 1024
@@ -147,18 +167,18 @@ def _run_undo(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
 
 
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
-    SlashCommand("help", N_("Print the command list"), usage="/help", handler=_run_help),
-    SlashCommand("clear", N_("Start a new chat"), usage="/clear", handler=_run_clear),
-    SlashCommand("stop", N_("Cancel the in-flight send"), usage="/stop", handler=_run_stop),
+    SlashCommand(NC_("slash-command", "help"), N_("Print the command list"), usage="/help", handler=_run_help),
+    SlashCommand(NC_("slash-command", "clear"), N_("Start a new chat"), usage="/clear", handler=_run_clear),
+    SlashCommand(NC_("slash-command", "stop"), N_("Cancel the in-flight send"), usage="/stop", handler=_run_stop),
     SlashCommand(
-        "summarize",
+        NC_("slash-command", "summarize"),
         N_("Summarize the selection or document in the sidebar"),
         run=SlashRun.ANSWER,
         instruction=N_("Summarize the selected text, or the whole document if nothing is selected."),
         usage="/summarize [focus]",
     ),
     SlashCommand(
-        "proofread",
+        NC_("slash-command", "proofread"),
         N_("Fix spelling, grammar, and punctuation without restyling"),
         run=SlashRun.REWRITE,
         instruction=N_("Fix spelling, grammar, and punctuation only. Do not change style, tone, or meaning."),
@@ -166,7 +186,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        "shorten",
+        NC_("slash-command", "shorten"),
         N_("Shorten the selection"),
         run=SlashRun.REWRITE,
         instruction=N_("Make the text shorter while preserving the meaning."),
@@ -174,7 +194,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        "expand",
+        NC_("slash-command", "expand"),
         N_("Expand the selection with more detail"),
         run=SlashRun.REWRITE,
         instruction=N_("Expand the text with more detail and clarity."),
@@ -182,7 +202,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        "tone",
+        NC_("slash-command", "tone"),
         N_("Rewrite the selection to match a described tone"),
         run=SlashRun.REWRITE,
         instruction=N_("Rewrite the text to match this tone or style: {arg}"),
@@ -191,7 +211,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        "translate",
+        NC_("slash-command", "translate"),
         N_("Translate the selection (sidebar when nothing is selected in Writer)"),
         run=SlashRun.REWRITE,
         instruction=N_("Translate the text into {arg}. Keep formatting and structure."),
@@ -200,34 +220,34 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        "explain",
+        NC_("slash-command", "explain"),
         N_("Explain the selection or active Calc formula"),
         run=SlashRun.ANSWER,
         instruction=N_("Explain the following in plain language."),
         usage="/explain",
     ),
     SlashCommand(
-        "remember",
+        NC_("slash-command", "remember"),
         N_("Save a fact to persistent memory"),
         requires_arg=True,
         usage="/remember <fact>",
         handler=_run_remember,
     ),
     SlashCommand(
-        "compact",
+        NC_("slash-command", "compact"),
         N_("Compact older chat history now"),
         run=SlashRun.COMPACT,  # Send after _begin_send; run_slash_compact, not run_slash_command handler
         usage="/compact [focus]",
         handler=None,  # COMPACT: no popup/local handler
     ),
     SlashCommand(
-        "undo",
+        NC_("slash-command", "undo"),
         N_("Undo the last agent edit as one step"),
         usage="/undo",
         handler=_run_undo,
     ),
     SlashCommand(
-        "formula",
+        NC_("slash-command", "formula"),
         N_("Write a Calc formula from a plain-English description"),
         run=SlashRun.FORMULA,  # Send after _begin_send; panel run_slash_formula
         requires_arg=True,
@@ -265,12 +285,74 @@ def registered_slash_commands() -> tuple[SlashCommand, ...]:
     return SLASH_COMMANDS
 
 
+def _raw_localized_name(english_name: str) -> str:
+    """Catalog spelling of the active-locale alias, or the English id."""
+    translated = pgettext(SLASH_NAME_CONTEXT, english_name)
+    return (translated or "").strip().lstrip("/")
+
+
+def _usable_alias(english_name: str) -> str | None:
+    """Lowercased alias, or None when it cannot be matched safely.
+
+    Missing translations come back as the English id. A token with a space
+    or slash would not survive ``parse_slash_text``. An alias equal to a
+    different command's English id is dropped so ``/help`` cannot run
+    ``clear``.
+    """
+    raw = _raw_localized_name(english_name)
+    if not raw or any(ch.isspace() for ch in raw) or "/" in raw:
+        return None
+    token = raw.lower()
+    if token == english_name.lower():
+        return None
+    english_ids = {cmd.name.lower() for cmd in registered_slash_commands()}
+    if token in english_ids:
+        return None
+    return token
+
+
+def slash_command_tokens(cmd: SlashCommand) -> tuple[str, ...]:
+    """English id, plus the active-locale alias when it is usable."""
+    english = cmd.name.lower()
+    alias = _usable_alias(cmd.name)
+    if alias is None:
+        return (english,)
+    return (english, alias)
+
+
+def slash_display_name(cmd: SlashCommand) -> str:
+    """Token shown in the popup, /help, and a completed Ask draft.
+
+    Dispatch, logs, and ``slash_command_lru`` stay on ``cmd.name``.
+    """
+    alias = _usable_alias(cmd.name)
+    if alias is None:
+        return cmd.name
+    raw = _raw_localized_name(cmd.name)
+    if raw.lower() == alias:
+        return raw
+    return cmd.name
+
+
 def _registry_map() -> dict[str, SlashCommand]:
-    return {c.name: c for c in registered_slash_commands()}
+    """English ids plus the active locale's aliases.
+
+    English ids are written last so they win a collision. Two commands
+    that share one alias keep the earlier command's alias.
+    """
+    commands = registered_slash_commands()
+    by_token: dict[str, SlashCommand] = {}
+    for cmd in commands:
+        alias = _usable_alias(cmd.name)
+        if alias is not None:
+            by_token.setdefault(alias, cmd)
+    for cmd in commands:
+        by_token[cmd.name.lower()] = cmd
+    return by_token
 
 
 def get_slash_command(name: str) -> SlashCommand | None:
-    """Lookup a registered command by name (without leading slash)."""
+    """Lookup by English id or the active locale's alias (no leading slash)."""
     clean = (name or "").lstrip("/").strip().lower()
     if not clean:
         return None
@@ -339,9 +421,10 @@ def filter_slash_commands(
 ) -> list[SlashCommand]:
     """Prefix-filter ``commands`` and rank by LRU then registry order.
 
-    ``typed`` is raw Ask-box text (``/he``). Recently used names float to
-    the top when the filter is empty and as a tie-break among equal
-    prefix matches.
+    ``typed`` is raw Ask-box text (``/he`` or the active locale's alias).
+    The prefix matches the English id or that locale's alias. Recently
+    used English ids float to the top when the filter is empty and as a
+    tie-break among equal prefix matches.
     """
     registry = registered_slash_commands()
     prefix = slash_typed_prefix(typed)
@@ -350,7 +433,8 @@ def filter_slash_commands(
     matches = [
         cmd
         for cmd in registry
-        if cmd.name.startswith(prefix) and slash_visible_for_doc(cmd, doc_type)
+        if any(token.startswith(prefix) for token in slash_command_tokens(cmd))
+        and slash_visible_for_doc(cmd, doc_type)
     ]
     seq = tuple(lru or ())
     lru_index = {n: i for i, n in enumerate(seq)}
@@ -373,23 +457,34 @@ def classify_slash_key(key_code: int, modifiers: int = 0) -> str | None:
 
 
 def command_usage_hint(cmd: SlashCommand) -> str:
-    if cmd.usage:
-        return cmd.usage
-    if cmd.requires_arg:
-        return "/%s <…>" % cmd.name
-    return "/%s" % cmd.name
+    """``/name`` or ``/name <arg>`` using the display token and a translated arg."""
+    token = slash_display_name(cmd)
+    raw = (cmd.usage or "").strip()
+    if not raw:
+        if cmd.requires_arg:
+            return "/%s <…>" % token
+        return "/%s" % token
+    body = raw[1:] if raw.startswith("/") else raw
+    pieces = body.split(maxsplit=1)
+    if len(pieces) == 1:
+        return "/%s" % token
+    suffix = pieces[1]
+    if suffix in _USAGE_ARG_MSGIDS:
+        suffix = _(suffix)
+    return "/%s %s" % (token, suffix)
 
 
 def _popup_shows_usage_hint(cmd: SlashCommand) -> bool:
-    return command_usage_hint(cmd) != ("/%s" % cmd.name)
+    return command_usage_hint(cmd) != ("/%s" % slash_display_name(cmd))
 
 
 def format_slash_item(cmd: SlashCommand) -> str:
     tag = " [mock]" if cmd in MOCK_SLASH_COMMANDS else ""
     desc = _(cmd.description)
+    label = slash_display_name(cmd)
     if _popup_shows_usage_hint(cmd):
-        return "/%s%s — %s (%s)" % (cmd.name, tag, desc, command_usage_hint(cmd))
-    return "/%s%s — %s" % (cmd.name, tag, desc)
+        return "/%s%s — %s (%s)" % (label, tag, desc, command_usage_hint(cmd))
+    return "/%s%s — %s" % (label, tag, desc)
 
 
 _POPUP_DESC_MAX = 52
@@ -401,7 +496,7 @@ def format_slash_popup_item(cmd: SlashCommand) -> str:
     desc = _(cmd.description)
     if len(desc) > _POPUP_DESC_MAX:
         desc = desc[: _POPUP_DESC_MAX - 1] + "\u2026"
-    return "/%s%s — %s" % (cmd.name, tag, desc)
+    return "/%s%s — %s" % (slash_display_name(cmd), tag, desc)
 
 
 def format_help_text(doc_type: str | None = None) -> str:
@@ -673,7 +768,7 @@ def run_slash_command(
     """
     if from_popup and not slash_popup_runs_now(cmd):
         _commit_slash_command(cmd, host)
-        _complete_ask_draft(host, cmd.name)
+        _complete_ask_draft(host, slash_display_name(cmd))
         return SlashResult.HANDLED
 
     if cmd.requires_arg and not (arg or "").strip():

@@ -4996,3 +4996,125 @@ msgstr "Tempo limite do documento Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Tempo limite por conversão dentro do Docling. 0 = sem limite."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "ajuda"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "limpar"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "parar"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "resumir"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "revisar"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "encurtar"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "expandir"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "tom"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "traduzir"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "explicar"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "lembrar"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "compactar"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "desfazer"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "fórmula"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Selecione uma forma de texto."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Selecione uma forma de texto. As tabelas não são reescritas."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Editar seleção (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Não foi possível registrar desfazer para esta edição. A alteração não foi aplicada."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "A reescrita ficou sem tokens antes de produzir texto. Tente novamente ou encurte a seleção."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "O modelo não devolveu texto. Tente novamente."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "As células com fórmula são ignoradas."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[foco]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[alvo]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[o quê]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<descrição>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<idioma>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fato>"

@@ -4953,3 +4953,125 @@ msgstr "Docling ডকুমেন্ট টাইমআউট (সেকেন�
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling-এর মধ্যে প্রতি রূপান্তরের টাইমআউট। ০ = কোনো সীমা নেই।"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "সাহায্য"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "মুছুন"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "থামুন"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "সারাংশ"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "সংশোধন"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "সংক্ষিপ্ত"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "বিস্তার"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "সুর"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "অনুবাদ"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "ব্যাখ্যা"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "মনেরাখুন"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "ঘন"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "পূর্বাবস্থা"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "সূত্র"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "একটি টেক্সট আকৃতি নির্বাচন করুন।"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "একটি টেক্সট আকৃতি নির্বাচন করুন। সারণি পুনর্লিখন করা হয় না।"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: নির্বাচন সম্পাদনা করুন (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "এই সম্পাদনার পূর্বাবস্থা নিবন্ধন করা যায়নি। পরিবর্তন প্রয়োগ হয়নি।"
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "টেক্সট তৈরির আগেই টোকেন শেষ হয়ে গেছে। আবার চেষ্টা করুন বা নির্বাচন ছোট করুন।"
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "মডেল কোনো টেক্সট দেয়নি। আবার চেষ্টা করুন।"
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "সূত্রের ঘর এড়িয়ে যাওয়া হয়।"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[ফোকাস]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[লক্ষ্য]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[কী]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<বর্ণনা>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<ভাষা>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<তথ্য>"

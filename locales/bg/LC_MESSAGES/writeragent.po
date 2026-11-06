@@ -5000,3 +5000,125 @@ msgstr "Таймаут за документи в Docling (сек.)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Таймаут за преобразуване в Docling. 0 = без ограничение."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "помощ"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "изчисти"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "спри"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "обобщи"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "коректура"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "съкрати"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "разшири"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "тон"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "преведи"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "обясни"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "запомни"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "уплътни"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "отмени"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "формула"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Изберете текстова фигура."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Изберете текстова фигура. Таблиците не се пренаписват."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Редактиране на селекцията (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Неуспешна регистрация на отмяна за тази редакция. Промяната не е приложена."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Пренаписването изчерпа токените, преди да създаде текст. Опитайте отново или съкратете селекцията."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Моделът не върна текст. Опитайте отново."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Клетките с формули се пропускат."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[фокус]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[цел]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[какво]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<описание>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<език>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<факт>"

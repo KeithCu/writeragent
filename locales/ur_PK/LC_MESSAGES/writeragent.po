@@ -4942,3 +4942,125 @@ msgstr "Docling دستاویز کا ٹائم آؤٹ (سیکنڈ)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling کے اندر فی کنورژن ٹائم آؤٹ۔ 0 = کوئی حد نہیں۔"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "مدد"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "صاف"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "روکیں"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "خلاصہ"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "درستگی"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "مختصر"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "توسیع"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "لہجہ"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "ترجمہ"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "وضاحت"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "یاد"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "سکیڑیں"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "کالعدم"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "فارمولا"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "ایک متنی شکل منتخب کریں۔"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "ایک متنی شکل منتخب کریں۔ جدول دوبارہ نہیں لکھے جاتے۔"
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: انتخاب میں ترمیم کریں (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "اس ترمیم کے لیے کالعدم رجسٹر نہیں ہو سکا۔ تبدیلی لاگو نہیں ہوئی۔"
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "متن بننے سے پہلے ٹوکن ختم ہو گئے۔ دوبارہ کوشش کریں یا انتخاب مختصر کریں۔"
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "ماڈل نے کوئی متن نہیں دیا۔ دوبارہ کوشش کریں۔"
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "فارمولے والے خانے چھوڑ دیے جاتے ہیں۔"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[مرکز]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[ہدف]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[کیا]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<تفصیل>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<زبان>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<حقیقت>"

@@ -4961,3 +4961,125 @@ msgstr "Vremensko ograničenje Docling dokumenta (s)"
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr ""
 "Vremensko ograničenje po pretvorbi unutar Doclinga. 0 = bez ograničenja."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "pomoć"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "očisti"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "zaustavi"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "sažetak"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "lektura"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "skrati"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "proširi"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "ton"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "prevedi"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "objasni"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "zapamti"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "zgusni"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "poništi"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "formula"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Odaberite tekstualni oblik."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Odaberite tekstualni oblik. Tablice se ne prepisuju."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Uredi odabir (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Nije moguće registrirati poništavanje ovog uređivanja. Promjena nije primijenjena."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Prepisivanje je ostalo bez tokena prije nego što je nastao tekst. Pokušajte ponovo ili skratite odabir."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Model nije vratio tekst. Pokušajte ponovo."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Ćelije s formulom se preskaču."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fokus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[cilj]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[što]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<opis>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<jezik>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<činjenica>"

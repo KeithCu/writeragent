@@ -4951,3 +4951,125 @@ msgstr "Batas waktu dokumen Docling (detik)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Batas waktu per konversi di dalam Docling. 0 = tanpa batas."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "bantuan"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "bersihkan"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "berhenti"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "ringkas"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "koreksi"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "persingkat"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "perluas"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "nada"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "terjemahkan"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "jelaskan"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "ingat"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "padatkan"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "urungkan"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "rumus"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Pilih bentuk teks."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Pilih bentuk teks. Tabel tidak ditulis ulang."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Sunting Pilihan (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Tidak dapat mendaftarkan urungkan untuk suntingan ini. Perubahan tidak diterapkan."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Penulisan ulang kehabisan token sebelum menghasilkan teks. Coba lagi atau persingkat pilihan."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Model tidak mengembalikan teks. Coba lagi."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Sel rumus dilewati."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fokus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[sasaran]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[apa]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<deskripsi>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<bahasa>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakta>"

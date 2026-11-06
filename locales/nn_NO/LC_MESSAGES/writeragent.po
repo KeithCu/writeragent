@@ -4934,3 +4934,125 @@ msgstr "Tidsavbrot for Docling-dokument (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Tidsavbrot per konvertering i Docling. 0 = inga grense."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "hjelp"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "tøm"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "stopp"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "oppsummer"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "korrektur"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "forkort"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "utvid"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "tone"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "omset"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "forklar"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "hugs"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "komprimer"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "angre"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "formel"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Vel ein tekstfigur."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Vel ein tekstfigur. Tabellar blir ikkje skrivne om."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Rediger utval (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Kunne ikkje registrere angre for denne redigeringa. Endringa blei ikkje brukt."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Omskrivinga gjekk tom for token før det kom tekst. Prøv igjen, eller forkort utvalet."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Modellen returnerte ingen tekst. Prøv igjen."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Formelceller blir hoppa over."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fokus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[mål]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[kva]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<skildring>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<språk>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<faktum>"

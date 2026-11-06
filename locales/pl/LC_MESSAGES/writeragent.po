@@ -4986,3 +4986,125 @@ msgstr "Limit czasu dokumentu Docling (s)"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Limit czasu na konwersję wewnątrz Docling. 0 = brak limitu."
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "help"
+msgstr "pomoc"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "clear"
+msgstr "wyczyść"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "stop"
+msgstr "stop"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "summarize"
+msgstr "streszcz"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "proofread"
+msgstr "korekta"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "shorten"
+msgstr "skróć"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "expand"
+msgstr "rozwiń"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "tone"
+msgstr "ton"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "translate"
+msgstr "przetłumacz"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "explain"
+msgstr "wyjaśnij"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "remember"
+msgstr "zapamiętaj"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "compact"
+msgstr "kompaktuj"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "undo"
+msgstr "cofnij"
+
+#: plugin/chatbot/slash_commands.py
+msgctxt "slash-command"
+msgid "formula"
+msgstr "formuła"
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape."
+msgstr "Wybierz kształt tekstowy."
+
+#: plugin/draw/editselection.py
+msgid "Select a text shape. Tables are not rewritten."
+msgstr "Wybierz kształt tekstowy. Tabele nie są przepisywane."
+
+#: plugin/draw/editselection.py
+msgid "WriterAgent: Edit Selection (Draw)"
+msgstr "WriterAgent: Edytuj zaznaczenie (Draw)"
+
+#: plugin/draw/editselection.py
+msgid "Could not register undo for this edit. The change was not applied."
+msgstr "Nie można zarejestrować cofnięcia tej edycji. Zmiana nie została zastosowana."
+
+#: plugin/writer/editselection.py
+msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
+msgstr "Przepisanie wyczerpało tokeny, zanim powstał tekst. Spróbuj ponownie lub skróć zaznaczenie."
+
+#: plugin/calc/editselection.py
+msgid "The model returned no text. Try again."
+msgstr "Model nie zwrócił tekstu. Spróbuj ponownie."
+
+#: plugin/calc/editselection.py
+msgid "Formula cells are skipped."
+msgstr "Komórki z formułami są pomijane."
+
+#: plugin/chatbot/slash_commands.py
+msgid "[focus]"
+msgstr "[fokus]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[target]"
+msgstr "[cel]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "[what]"
+msgstr "[co]"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<description>"
+msgstr "<opis>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<language>"
+msgstr "<język>"
+
+#: plugin/chatbot/slash_commands.py
+msgid "<fact>"
+msgstr "<fakt>"

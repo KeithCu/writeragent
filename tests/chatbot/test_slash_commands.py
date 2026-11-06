@@ -306,7 +306,7 @@ def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
     monkeypatch.setattr(slash, "_", lambda msg: "T:" + msg)
     assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list"
     tone = next(c for c in slash.SLASH_COMMANDS if c.name == "tone")
-    assert slash.format_slash_item(tone) == "/tone — T:Rewrite the selection to match a described tone (/tone <description>)"
+    assert slash.format_slash_item(tone) == "/tone — T:Rewrite the selection to match a described tone (/tone T:<description>)"
     assert "/help — T:Print the command list" in slash.format_help_text()
 
 
@@ -1161,3 +1161,214 @@ def test_slash_registry_handler_invariant():
     for cmd in SLASH_COMMANDS + MOCK_SLASH_COMMANDS:
         preset_kind = cmd.run in _SEND_TURN_RUNS or cmd.run is SlashRun.REWRITE
         assert preset_kind != (cmd.handler is not None), cmd.name
+
+
+class _Catalog:
+    """Stand-in gettext catalog: plain strings plus slash-command msgctxt."""
+
+    def __init__(self, names: dict[str, str] | None = None, strings: dict[str, str] | None = None) -> None:
+        self.names = names or {}
+        self.strings = strings or {}
+
+    def gettext(self, message: str) -> str:
+        return self.strings.get(message, message)
+
+    def pgettext(self, context: str, message: str) -> str:
+        if context == "slash-command":
+            return self.names.get(message, message)
+        return message
+
+
+def _use_catalog(monkeypatch, catalog: _Catalog, locale: str = "ja") -> None:
+    import plugin.framework.i18n as i18n
+
+    monkeypatch.setattr(i18n, "_translation", catalog)
+    monkeypatch.setattr(i18n, "_active_locale", locale)
+
+
+def test_english_slash_name_matches_with_no_catalog():
+    from plugin.chatbot.slash_commands import get_slash_command, parse_slash_text
+
+    assert get_slash_command("help").name == "help"
+    assert get_slash_command("HELP").name == "help"
+    parsed = parse_slash_text("/help")
+    assert parsed is not None and parsed[0].name == "help" and parsed[1] == ""
+    assert parse_slash_text("/ヘルプ") is None
+    assert parse_slash_text("/ayuda") is None
+    assert parse_slash_text("help") is None
+    assert parse_slash_text("/not-a-command") is None
+
+
+def test_localized_alias_matches_only_for_the_active_catalog(monkeypatch):
+    from plugin.chatbot.slash_commands import filter_slash_commands, get_slash_command, parse_slash_text
+
+    _use_catalog(monkeypatch, _Catalog({"help": "ヘルプ", "tone": "文体"}))
+    assert get_slash_command("ヘルプ").name == "help"
+    assert get_slash_command("help").name == "help"
+    assert get_slash_command("HELP").name == "help"
+    parsed = parse_slash_text("/ヘルプ extra")
+    assert parsed is not None and parsed[0].name == "help" and parsed[1] == "extra"
+    assert parse_slash_text("/ayuda") is None
+    assert parse_slash_text("/文体 formal")[0].name == "tone"
+    assert [cmd.name for cmd in filter_slash_commands("/ヘ")] == ["help"]
+    assert "help" in [cmd.name for cmd in filter_slash_commands("/he")]
+    assert filter_slash_commands("/ayu") == []
+
+
+def test_other_locale_alias_does_not_match_when_catalog_changes(monkeypatch):
+    from plugin.chatbot.slash_commands import parse_slash_text
+
+    _use_catalog(monkeypatch, _Catalog({"help": "ayuda", "stop": "detener"}), locale="es")
+    assert parse_slash_text("/ayuda")[0].name == "help"
+    assert parse_slash_text("/Ayuda")[0].name == "help"
+    assert parse_slash_text("/help")[0].name == "help"
+    assert parse_slash_text("/ヘルプ") is None
+    assert parse_slash_text("/detener")[0].name == "stop"
+
+
+def test_bad_alias_does_not_steal_another_english_command(monkeypatch):
+    from plugin.chatbot.slash_commands import get_slash_command, parse_slash_text
+
+    _use_catalog(monkeypatch, _Catalog({"clear": "help", "summarize": "too many words"}))
+    assert get_slash_command("help").name == "help"
+    assert get_slash_command("clear").name == "clear"
+    assert parse_slash_text("/too") is None
+    assert parse_slash_text("/too many words") is None
+
+
+def test_display_name_follows_alias_and_usage_arg_is_translated(monkeypatch):
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, format_slash_item, format_slash_popup_item
+
+    help_cmd = next(cmd for cmd in SLASH_COMMANDS if cmd.name == "help")
+    tone = next(cmd for cmd in SLASH_COMMANDS if cmd.name == "tone")
+    _use_catalog(
+        monkeypatch,
+        _Catalog(
+            {"help": "ヘルプ", "tone": "文体"},
+            {
+                "Print the command list": "コマンド一覧を表示",
+                "Rewrite the selection to match a described tone": "選択範囲を指定した文体に書き換える",
+                "<description>": "<説明>",
+            },
+        ),
+    )
+    assert format_slash_item(help_cmd) == "/ヘルプ — コマンド一覧を表示"
+    assert format_slash_popup_item(tone).startswith("/文体 — ")
+    assert "<説明>" in format_slash_item(tone)
+    assert "/tone" not in format_slash_item(tone)
+
+
+def test_shipped_locales_translate_descriptions_and_aliases():
+    """Every shipped catalog has a real description and a safe command alias."""
+    from pathlib import Path
+
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("locales/*.po not in stripped release tree")
+    import polib
+
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, SLASH_NAME_CONTEXT
+    from plugin.framework.i18n import get_locales_dir
+
+    descriptions = [cmd.description for cmd in SLASH_COMMANDS]
+    # Usage chrome and the slash notices that used to ship in English.
+    extra_ui = [
+        "Slash commands:",
+        "Web research (mock)",
+        "Switch model (mock)",
+        "[focus]",
+        "[target]",
+        "[what]",
+        "<description>",
+        "<language>",
+        "<fact>",
+        "Select a text shape.",
+        "Select a text shape. Tables are not rewritten.",
+        "WriterAgent: Edit Selection (Draw)",
+        "Could not register undo for this edit. The change was not applied.",
+        "The rewrite ran out of tokens before producing text. Try again or shorten the selection.",
+        "The model returned no text. Try again.",
+        "Formula cells are skipped.",
+    ]
+    english_ids = {cmd.name.lower() for cmd in SLASH_COMMANDS}
+    root = Path(get_locales_dir())
+    locales = sorted(p.parent.parent.name for p in root.glob("*/LC_MESSAGES/writeragent.po"))
+    assert len(locales) >= 34
+
+    for lang in locales:
+        catalog = polib.pofile(str(root / lang / "LC_MESSAGES" / "writeragent.po"))
+        for msgid in descriptions + extra_ui:
+            entry = catalog.find(msgid)
+            assert entry is not None, f"{lang} missing description {msgid!r}"
+            assert entry.msgstr.strip(), f"{lang} empty description {msgid!r}"
+            assert "fuzzy" not in entry.flags, f"{lang} fuzzy description {msgid!r}"
+            assert entry.msgstr != msgid, f"{lang} description still English: {msgid!r}"
+
+        aliases: dict[str, str] = {}
+        for entry in catalog:
+            if entry.msgctxt != SLASH_NAME_CONTEXT or entry.obsolete:
+                continue
+            aliases[entry.msgid] = entry.msgstr.strip()
+        assert set(aliases) == {cmd.name for cmd in SLASH_COMMANDS}, lang
+        seen: dict[str, str] = {}
+        for english, alias in aliases.items():
+            assert alias, f"{lang} empty alias for {english}"
+            assert " " not in alias and "\t" not in alias and "/" not in alias, f"{lang} {english} -> {alias!r}"
+            token = alias.lower()
+            if token == english.lower():
+                continue
+            assert token not in english_ids, f"{lang} alias {alias!r} collides with English id"
+            assert token not in seen, f"{lang} alias {alias!r} used for {seen.get(token)} and {english}"
+            seen[token] = english
+
+    ja = polib.pofile(str(root / "ja" / "LC_MESSAGES" / "writeragent.po"))
+    es = polib.pofile(str(root / "es" / "LC_MESSAGES" / "writeragent.po"))
+    ja_help = next(e.msgstr for e in ja if e.msgctxt == SLASH_NAME_CONTEXT and e.msgid == "help")
+    es_help = next(e.msgstr for e in es if e.msgctxt == SLASH_NAME_CONTEXT and e.msgid == "help")
+    assert ja_help == "ヘルプ"
+    assert es_help == "ayuda"
+    assert ja_help != es_help
+
+
+def test_runtime_ja_and_es_catalogs_resolve_alias_and_description(monkeypatch, tmp_path):
+    from pathlib import Path
+
+    from tests.harness.strip_bundle import skip_if_release_build
+
+    skip_if_release_build("locales/*.po not in stripped release tree")
+    from scripts.compile_translations import compile_po
+
+    import plugin.framework.i18n as i18n
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, format_slash_item, parse_slash_text
+    from plugin.framework.i18n import get_locales_dir, load_translation
+
+    help_cmd = next(cmd for cmd in SLASH_COMMANDS if cmd.name == "help")
+    localedir = Path(get_locales_dir())
+
+    def load(lang: str):
+        dest_root = tmp_path / lang
+        mo_dir = dest_root / lang / "LC_MESSAGES"
+        mo_dir.mkdir(parents=True)
+        compile_po(localedir / lang / "LC_MESSAGES" / "writeragent.po", mo_dir / "writeragent.mo")
+        return load_translation([lang], str(dest_root), fallback=False)
+
+    ja = load("ja")
+    monkeypatch.setattr(i18n, "_translation", ja)
+    monkeypatch.setattr(i18n, "_active_locale", "ja")
+    assert parse_slash_text("/ヘルプ")[0].name == "help"
+    assert parse_slash_text("/help")[0].name == "help"
+    assert parse_slash_text("/HELP")[0].name == "help"
+    assert parse_slash_text("/ayuda") is None
+    line = format_slash_item(help_cmd)
+    assert line.startswith("/ヘルプ — ")
+    assert "Print the command list" not in line
+
+    es = load("es")
+    monkeypatch.setattr(i18n, "_translation", es)
+    monkeypatch.setattr(i18n, "_active_locale", "es")
+    assert parse_slash_text("/ayuda")[0].name == "help"
+    assert parse_slash_text("/help")[0].name == "help"
+    assert parse_slash_text("/ヘルプ") is None
+    es_line = format_slash_item(help_cmd)
+    assert es_line.startswith("/ayuda — ")
+    assert "Print the command list" not in es_line
