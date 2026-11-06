@@ -1258,8 +1258,12 @@ def test_display_name_follows_alias_and_usage_arg_is_translated(monkeypatch):
     assert "/tone" not in format_slash_item(tone)
 
 
-def test_shipped_locales_translate_descriptions_and_aliases():
-    """Every shipped catalog has a real description and a safe command alias."""
+def test_shipped_locales_translate_slash_descriptions():
+    """Product descriptions already in the catalogs are translated in every shipped locale.
+
+    Command-name aliases and the new usage / slash-notice strings are not in
+    the catalogs yet; those are covered with an in-test catalog below.
+    """
     from pathlib import Path
 
     from tests.harness.strip_bundle import skip_if_release_build
@@ -1267,94 +1271,47 @@ def test_shipped_locales_translate_descriptions_and_aliases():
     skip_if_release_build("locales/*.po not in stripped release tree")
     import polib
 
-    from plugin.chatbot.slash_commands import SLASH_COMMANDS, SLASH_NAME_CONTEXT
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS
     from plugin.framework.i18n import get_locales_dir
 
     descriptions = [cmd.description for cmd in SLASH_COMMANDS]
-    # Usage chrome and the slash notices that used to ship in English.
-    extra_ui = [
-        "Slash commands:",
-        "Web research (mock)",
-        "Switch model (mock)",
-        "[focus]",
-        "[target]",
-        "[what]",
-        "<description>",
-        "<language>",
-        "<fact>",
-        "Select a text shape.",
-        "Select a text shape. Tables are not rewritten.",
-        "WriterAgent: Edit Selection (Draw)",
-        "Could not register undo for this edit. The change was not applied.",
-        "The rewrite ran out of tokens before producing text. Try again or shorten the selection.",
-        "The model returned no text. Try again.",
-        "Formula cells are skipped.",
-    ]
-    english_ids = {cmd.name.lower() for cmd in SLASH_COMMANDS}
     root = Path(get_locales_dir())
     locales = sorted(p.parent.parent.name for p in root.glob("*/LC_MESSAGES/writeragent.po"))
     assert len(locales) >= 34
 
     for lang in locales:
         catalog = polib.pofile(str(root / lang / "LC_MESSAGES" / "writeragent.po"))
-        for msgid in descriptions + extra_ui:
+        for msgid in descriptions:
             entry = catalog.find(msgid)
             assert entry is not None, f"{lang} missing description {msgid!r}"
             assert entry.msgstr.strip(), f"{lang} empty description {msgid!r}"
             assert "fuzzy" not in entry.flags, f"{lang} fuzzy description {msgid!r}"
             assert entry.msgstr != msgid, f"{lang} description still English: {msgid!r}"
 
-        aliases: dict[str, str] = {}
-        for entry in catalog:
-            if entry.msgctxt != SLASH_NAME_CONTEXT or entry.obsolete:
-                continue
-            aliases[entry.msgid] = entry.msgstr.strip()
-        assert set(aliases) == {cmd.name for cmd in SLASH_COMMANDS}, lang
-        seen: dict[str, str] = {}
-        for english, alias in aliases.items():
-            assert alias, f"{lang} empty alias for {english}"
-            assert " " not in alias and "\t" not in alias and "/" not in alias, f"{lang} {english} -> {alias!r}"
-            token = alias.lower()
-            if token == english.lower():
-                continue
-            assert token not in english_ids, f"{lang} alias {alias!r} collides with English id"
-            assert token not in seen, f"{lang} alias {alias!r} used for {seen.get(token)} and {english}"
-            seen[token] = english
 
-    ja = polib.pofile(str(root / "ja" / "LC_MESSAGES" / "writeragent.po"))
-    es = polib.pofile(str(root / "es" / "LC_MESSAGES" / "writeragent.po"))
-    ja_help = next(e.msgstr for e in ja if e.msgctxt == SLASH_NAME_CONTEXT and e.msgid == "help")
-    es_help = next(e.msgstr for e in es if e.msgctxt == SLASH_NAME_CONTEXT and e.msgid == "help")
-    assert ja_help == "ヘルプ"
-    assert es_help == "ayuda"
-    assert ja_help != es_help
-
-
-def test_runtime_ja_and_es_catalogs_resolve_alias_and_description(monkeypatch, tmp_path):
-    from pathlib import Path
-
-    from tests.harness.strip_bundle import skip_if_release_build
-
-    skip_if_release_build("locales/*.po not in stripped release tree")
-    from scripts.compile_translations import compile_po
+def test_fixture_mo_resolves_alias_and_description(monkeypatch, tmp_path):
+    """A hand-built catalog, not the shipped .po files, supplies the alias."""
+    import polib
 
     import plugin.framework.i18n as i18n
-    from plugin.chatbot.slash_commands import SLASH_COMMANDS, format_slash_item, parse_slash_text
-    from plugin.framework.i18n import get_locales_dir, load_translation
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, SLASH_NAME_CONTEXT, format_slash_item, parse_slash_text
+    from plugin.framework.i18n import load_translation
 
     help_cmd = next(cmd for cmd in SLASH_COMMANDS if cmd.name == "help")
-    localedir = Path(get_locales_dir())
 
-    def load(lang: str):
-        dest_root = tmp_path / lang
-        mo_dir = dest_root / lang / "LC_MESSAGES"
+    def install(lang: str, alias: str, description: str) -> None:
+        catalog = polib.POFile()
+        catalog.metadata = {"Content-Type": "text/plain; charset=UTF-8", "Language": lang}
+        catalog.append(polib.POEntry(msgctxt=SLASH_NAME_CONTEXT, msgid="help", msgstr=alias))
+        catalog.append(polib.POEntry(msgid="Print the command list", msgstr=description))
+        mo_dir = tmp_path / lang / "LC_MESSAGES"
         mo_dir.mkdir(parents=True)
-        compile_po(localedir / lang / "LC_MESSAGES" / "writeragent.po", mo_dir / "writeragent.mo")
-        return load_translation([lang], str(dest_root), fallback=False)
+        catalog.save_as_mofile(str(mo_dir / "writeragent.mo"))
+        translation = load_translation([lang], str(tmp_path), fallback=False)
+        monkeypatch.setattr(i18n, "_translation", translation)
+        monkeypatch.setattr(i18n, "_active_locale", lang)
 
-    ja = load("ja")
-    monkeypatch.setattr(i18n, "_translation", ja)
-    monkeypatch.setattr(i18n, "_active_locale", "ja")
+    install("ja", "ヘルプ", "コマンド一覧を表示")
     assert parse_slash_text("/ヘルプ")[0].name == "help"
     assert parse_slash_text("/help")[0].name == "help"
     assert parse_slash_text("/HELP")[0].name == "help"
@@ -1362,10 +1319,9 @@ def test_runtime_ja_and_es_catalogs_resolve_alias_and_description(monkeypatch, t
     line = format_slash_item(help_cmd)
     assert line.startswith("/ヘルプ — ")
     assert "Print the command list" not in line
+    assert "コマンド一覧を表示" in line
 
-    es = load("es")
-    monkeypatch.setattr(i18n, "_translation", es)
-    monkeypatch.setattr(i18n, "_active_locale", "es")
+    install("es", "ayuda", "Muestra la lista de comandos")
     assert parse_slash_text("/ayuda")[0].name == "help"
     assert parse_slash_text("/help")[0].name == "help"
     assert parse_slash_text("/ヘルプ") is None

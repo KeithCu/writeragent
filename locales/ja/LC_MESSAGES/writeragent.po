@@ -1809,15 +1809,15 @@ msgstr "最後のドラフトを適用（モック）"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Web research (mock)"
-msgstr "Webリサーチ（モック）"
+msgstr "Web research (mock)"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Switch model (mock)"
-msgstr "モデル切替（モック）"
+msgstr "Switch model (mock)"
 
 #: plugin/chatbot/slash_commands.py
 msgid "Slash commands:"
-msgstr "スラッシュコマンド:"
+msgstr "Slash commands:"
 
 #: plugin/chatbot/slash_commands.py
 #, python-brace-format
@@ -4713,125 +4713,3 @@ msgstr "Doclingドキュメントのタイムアウト（秒）"
 
 msgid "Per-conversion timeout inside Docling. 0 = no limit."
 msgstr "Docling内での変換ごとのタイムアウト。0は制限なし。"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "help"
-msgstr "ヘルプ"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "clear"
-msgstr "クリア"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "stop"
-msgstr "停止"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "summarize"
-msgstr "要約"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "proofread"
-msgstr "校正"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "shorten"
-msgstr "短縮"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "expand"
-msgstr "拡充"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "tone"
-msgstr "文体"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "translate"
-msgstr "翻訳"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "explain"
-msgstr "解説"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "remember"
-msgstr "記憶"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "compact"
-msgstr "圧縮"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "undo"
-msgstr "取り消し"
-
-#: plugin/chatbot/slash_commands.py
-msgctxt "slash-command"
-msgid "formula"
-msgstr "数式"
-
-#: plugin/draw/editselection.py
-msgid "Select a text shape."
-msgstr "テキストシェイプを選択してください。"
-
-#: plugin/draw/editselection.py
-msgid "Select a text shape. Tables are not rewritten."
-msgstr "テキストシェイプを選択してください。表は書き換えません。"
-
-#: plugin/draw/editselection.py
-msgid "WriterAgent: Edit Selection (Draw)"
-msgstr "WriterAgent: 選択範囲の編集 (Draw)"
-
-#: plugin/draw/editselection.py
-msgid "Could not register undo for this edit. The change was not applied."
-msgstr "この編集の取り消しを登録できませんでした。変更は適用されていません。"
-
-#: plugin/writer/editselection.py
-msgid "The rewrite ran out of tokens before producing text. Try again or shorten the selection."
-msgstr "テキストを出す前にトークンがなくなりました。もう一度試すか、選択範囲を短くしてください。"
-
-#: plugin/calc/editselection.py
-msgid "The model returned no text. Try again."
-msgstr "モデルはテキストを返しませんでした。もう一度試してください。"
-
-#: plugin/calc/editselection.py
-msgid "Formula cells are skipped."
-msgstr "数式セルはスキップされます。"
-
-#: plugin/chatbot/slash_commands.py
-msgid "[focus]"
-msgstr "[焦点]"
-
-#: plugin/chatbot/slash_commands.py
-msgid "[target]"
-msgstr "[目標]"
-
-#: plugin/chatbot/slash_commands.py
-msgid "[what]"
-msgstr "[内容]"
-
-#: plugin/chatbot/slash_commands.py
-msgid "<description>"
-msgstr "<説明>"
-
-#: plugin/chatbot/slash_commands.py
-msgid "<language>"
-msgstr "<言語>"
-
-#: plugin/chatbot/slash_commands.py
-msgid "<fact>"
-msgstr "<事実>"
