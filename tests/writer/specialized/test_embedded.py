@@ -188,8 +188,8 @@ def test_embedded_insert_sequence_and_cell_writes():
     cells[(0, 1)].setFormula.assert_called_once_with("=SUM(B2:B3)")
     cells[(1, 1)].setValue.assert_called_once_with(2.0)
     cells[(0, 2)].setValue.assert_called_once_with(3.0)
-    assert emb.Width == expected_size.Width
-    assert emb.Height == expected_size.Height
+    assert emb.Width == expected_size.width
+    assert emb.Height == expected_size.height
     emb.getExtendedControlOverEmbeddedObject.assert_not_called()
 
 

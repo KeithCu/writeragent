@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, NamedTuple
 
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
@@ -125,18 +125,28 @@ _DEFAULT_EMBED_WIDTH = 9033
 _DEFAULT_EMBED_HEIGHT = 2260
 
 
-def _embed_size_for_used_range(rows: int, cols: int) -> Any:
-    import uno
+class _EmbedSize100thMm(NamedTuple):
+    """Embed frame size in 1/100 mm for TextEmbeddedObject.Width/Height.
 
+    We used to hold this as ``uno.createUnoStruct("com.sun.star.awt.Size", ...)``.
+    Some pytest/CI UNO stubs return an empty ``types.SimpleNamespace``-like object
+    from ``createUnoStruct``, which has no ``Width``/``Height``—then reading
+    ``size.Width`` before assigning to the embed raised AttributeError. Plain
+    ints are enough for the host frame and stay mock-friendly.
+    """
+
+    width: int
+    height: int
+
+
+def _embed_size_for_used_range(rows: int, cols: int) -> _EmbedSize100thMm:
     width = max(int(_DEFAULT_EMBED_WIDTH * cols / _DEFAULT_EMBED_COLS), 1000)
     height = max(int(_DEFAULT_EMBED_HEIGHT * rows / _DEFAULT_EMBED_ROWS), 500)
-    return uno.createUnoStruct("com.sun.star.awt.Size", Width=width, Height=height)
+    return _EmbedSize100thMm(width, height)
 
 
-def _embed_size_from_args(width: int, height: int) -> Any:
-    import uno
-
-    return uno.createUnoStruct("com.sun.star.awt.Size", Width=width, Height=height)
+def _embed_size_from_args(width: int, height: int) -> _EmbedSize100thMm:
+    return _EmbedSize100thMm(width, height)
 
 
 class EmbeddedInsert(ToolWriterEmbeddedBase):
@@ -296,10 +306,10 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
             if size is not None:
                 # Direct host size: XEmbeddedObject setVisualAreaSize/getVisualAreaSize
                 # blocked for 30s+ on headless CI after Calc OLE insert.
-                emb.Width = size.Width
-                emb.Height = size.Height
-                read_w = size.Width
-                read_h = size.Height
+                emb.Width = size.width
+                emb.Height = size.height
+                read_w = size.width
+                read_h = size.height
 
             for r_idx, row in enumerate(data):
                 for c_idx, cell_val in enumerate(row):
