@@ -3,6 +3,8 @@
 **Assume the reader knows nothing about this project.** This file lists **invariants** and **easy mistakes**. Everything else is in the linked modules and docs—open those when you change behavior. Entry points and topic hubs: [`docs/repo-map.md`](docs/repo-map.md).
 
 > [!IMPORTANT]
+> **Translations:** WriterAgent extracts and translates strings itself (`make extract-strings` and the translation workflow). Mark new user-facing strings with the existing gettext wrappers. Agents and subprocesses must not translate UI strings, fill `msgstr` values, or edit `.po`/`.pot` catalogs. Do not spend tokens on translations.
+> [!IMPORTANT]
 > **Docs:** After any nontrivial change, update documentation. Prefer the **topic doc** under `docs/`; touch **`AGENTS.md`** only when the change affects **many areas** or **global rules**.
 > [!IMPORTANT]
 > **Complexity:** This codebase is complicated for its size. When asked to do a new feature, always figure out the way using the least amount of code or extra complexity. Using existing functions, there are many functions which can just be used or refactored to make the change small for a new feature.
@@ -118,7 +120,7 @@ when you open that tree; other agents should open them explicitly.
 
 **Logging / MCP:** Logs go to `writeragent_debug.log` next to `writeragent.json`. `enable_agent_log` is separate (structured `[Agent]` traces are written even when `log_level` is above DEBUG). In unexpected `except` blocks, use **`log.exception("Context")`**. MCP work drains on the main thread ([docs/mcp-protocol.md](docs/mcp-protocol.md)). Do not read API keys from the environment in production; do not use **`tempfile.mktemp()`**. For scratch debug files under `/tmp`, prefer `flush=True`.
 
-**Tests / packaging:** UNO tests go through `testing_runner`; debug-menu suites run on the UI thread ([docs/archive/test_architecture_analysis.md](docs/archive/test_architecture_analysis.md)). New extension components must be registered in `extension/META-INF/manifest.xml`. **`locales/*.pot` is generated at build** (`make extract-strings` / `refresh-pot`); do not hand-edit it and do not spend review time on POT diffs.
+**Tests / packaging:** UNO tests go through `testing_runner`; debug-menu suites run on the UI thread ([docs/archive/test_architecture_analysis.md](docs/archive/test_architecture_analysis.md)). New extension components must be registered in `extension/META-INF/manifest.xml`. **`locales/*.pot` is generated at build** (`make extract-strings` / `refresh-pot`); do not hand-edit `.po`/`.pot` catalogs or spend review time on POT diffs.
 
 ### Global Python
 
