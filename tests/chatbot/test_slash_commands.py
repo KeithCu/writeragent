@@ -303,7 +303,16 @@ def test_slash_descriptions_are_translated_at_display_time(monkeypatch):
     import plugin.chatbot.slash_commands as slash
 
     assert slash.SLASH_COMMANDS[0].description == "Print the command list"
-    monkeypatch.setattr(slash, "_", lambda msg: "T:" + msg)
+    _slash_ids = {c.name for c in slash.registered_slash_commands()}
+
+    def fake_translate(msg: str) -> str:
+        # Command ids share the same `_()` as UI strings; leave English names unchanged
+        # so display tokens stay `/help` while descriptions still pick up the marker.
+        if msg in _slash_ids:
+            return msg
+        return "T:" + msg
+
+    monkeypatch.setattr(slash, "_", fake_translate)
     assert slash.format_slash_item(slash.SLASH_COMMANDS[0]) == "/help — T:Print the command list"
     tone = next(c for c in slash.SLASH_COMMANDS if c.name == "tone")
     assert slash.format_slash_item(tone) == "/tone — T:Rewrite the selection to match a described tone (/tone T:<description>)"
@@ -1164,19 +1173,15 @@ def test_slash_registry_handler_invariant():
 
 
 class _Catalog:
-    """Stand-in gettext catalog: plain strings plus slash-command msgctxt."""
+    """Stand-in gettext catalog: msgid lookups for UI strings and slash command ids."""
 
     def __init__(self, names: dict[str, str] | None = None, strings: dict[str, str] | None = None) -> None:
-        self.names = names or {}
-        self.strings = strings or {}
+        merged = dict(strings or {})
+        merged.update(names or {})
+        self._table = merged
 
     def gettext(self, message: str) -> str:
-        return self.strings.get(message, message)
-
-    def pgettext(self, context: str, message: str) -> str:
-        if context == "slash-command":
-            return self.names.get(message, message)
-        return message
+        return self._table.get(message, message)
 
 
 def _use_catalog(monkeypatch, catalog: _Catalog, locale: str = "ja") -> None:
@@ -1294,7 +1299,7 @@ def test_fixture_mo_resolves_alias_and_description(monkeypatch, tmp_path):
     import polib
 
     import plugin.framework.i18n as i18n
-    from plugin.chatbot.slash_commands import SLASH_COMMANDS, SLASH_NAME_CONTEXT, format_slash_item, parse_slash_text
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, format_slash_item, parse_slash_text
     from plugin.framework.i18n import load_translation
 
     help_cmd = next(cmd for cmd in SLASH_COMMANDS if cmd.name == "help")
@@ -1302,7 +1307,7 @@ def test_fixture_mo_resolves_alias_and_description(monkeypatch, tmp_path):
     def install(lang: str, alias: str, description: str) -> None:
         catalog = polib.POFile()
         catalog.metadata = {"Content-Type": "text/plain; charset=UTF-8", "Language": lang}
-        catalog.append(polib.POEntry(msgctxt=SLASH_NAME_CONTEXT, msgid="help", msgstr=alias))
+        catalog.append(polib.POEntry(msgid="help", msgstr=alias))
         catalog.append(polib.POEntry(msgid="Print the command list", msgstr=description))
         mo_dir = tmp_path / lang / "LC_MESSAGES"
         mo_dir.mkdir(parents=True)

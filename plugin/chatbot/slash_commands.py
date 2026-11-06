@@ -9,8 +9,11 @@ Product commands include Tier 1 presets (rewrite / answer / local), plus
 through ``enable_mock_slash_commands()`` for the debug sidebar harness.
 Ranking is prefix match, then ``slash_command_lru`` in ``writeragent.json``.
 The command id stays English for dispatch, the LRU key, and logs. The active
-UI locale may also match one alias from msgctxt ``slash-command``; a missing
-alias falls back to the English id. Other locales' names do not match.
+UI locale may also match one alias from the gettext catalog: the English id is
+extracted as msgid (``N_("help")``) and translators set ``msgstr`` to that
+locale's alias when it should differ (e.g. Japanese ``ヘルプ``). A missing or
+identity translation falls back to the English id. Other locales' aliases do
+not match.
 Do not implement the consider-list in ``docs/chat/slash-commands.md`` here.
 """
 
@@ -24,7 +27,7 @@ from enum import Enum
 from typing import Any, Callable, Protocol, Sequence
 
 from plugin.framework.doc_type import DocumentType, get_document_type
-from plugin.framework.i18n import N_, NC_, _, pgettext
+from plugin.framework.i18n import N_, _
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 from plugin.chatbot.send_state import spawn_scope
 
@@ -32,10 +35,6 @@ log = logging.getLogger(__name__)
 
 # Persist via the same LRU helper as model/prompt history (not a sidecar file).
 SLASH_LRU_KEY = "slash_command_lru"
-
-# msgctxt for the English command id. One alias per active catalog, not a
-# global alias list: Japanese 「ヘルプ」 matches only while that catalog is loaded.
-SLASH_NAME_CONTEXT = "slash-command"
 
 # Argument chrome in /help and the missing-argument line. The command token
 # in front is the active-locale alias (or the English id). These literals
@@ -167,18 +166,18 @@ def _run_undo(host: SlashHost, _cmd: SlashCommand, _arg: str) -> None:
 
 
 SLASH_COMMANDS: tuple[SlashCommand, ...] = (
-    SlashCommand(NC_("slash-command", "help"), N_("Print the command list"), usage="/help", handler=_run_help),
-    SlashCommand(NC_("slash-command", "clear"), N_("Start a new chat"), usage="/clear", handler=_run_clear),
-    SlashCommand(NC_("slash-command", "stop"), N_("Cancel the in-flight send"), usage="/stop", handler=_run_stop),
+    SlashCommand(N_("help"), N_("Print the command list"), usage="/help", handler=_run_help),
+    SlashCommand(N_("clear"), N_("Start a new chat"), usage="/clear", handler=_run_clear),
+    SlashCommand(N_("stop"), N_("Cancel the in-flight send"), usage="/stop", handler=_run_stop),
     SlashCommand(
-        NC_("slash-command", "summarize"),
+        N_("summarize"),
         N_("Summarize the selection or document in the sidebar"),
         run=SlashRun.ANSWER,
         instruction=N_("Summarize the selected text, or the whole document if nothing is selected."),
         usage="/summarize [focus]",
     ),
     SlashCommand(
-        NC_("slash-command", "proofread"),
+        N_("proofread"),
         N_("Fix spelling, grammar, and punctuation without restyling"),
         run=SlashRun.REWRITE,
         instruction=N_("Fix spelling, grammar, and punctuation only. Do not change style, tone, or meaning."),
@@ -186,7 +185,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        NC_("slash-command", "shorten"),
+        N_("shorten"),
         N_("Shorten the selection"),
         run=SlashRun.REWRITE,
         instruction=N_("Make the text shorter while preserving the meaning."),
@@ -194,7 +193,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        NC_("slash-command", "expand"),
+        N_("expand"),
         N_("Expand the selection with more detail"),
         run=SlashRun.REWRITE,
         instruction=N_("Expand the text with more detail and clarity."),
@@ -202,7 +201,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        NC_("slash-command", "tone"),
+        N_("tone"),
         N_("Rewrite the selection to match a described tone"),
         run=SlashRun.REWRITE,
         instruction=N_("Rewrite the text to match this tone or style: {arg}"),
@@ -211,7 +210,7 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        NC_("slash-command", "translate"),
+        N_("translate"),
         N_("Translate the selection (sidebar when nothing is selected in Writer)"),
         run=SlashRun.REWRITE,
         instruction=N_("Translate the text into {arg}. Keep formatting and structure."),
@@ -220,34 +219,34 @@ SLASH_COMMANDS: tuple[SlashCommand, ...] = (
         apps=("writer", "calc", "draw", "impress"),
     ),
     SlashCommand(
-        NC_("slash-command", "explain"),
+        N_("explain"),
         N_("Explain the selection or active Calc formula"),
         run=SlashRun.ANSWER,
         instruction=N_("Explain the following in plain language."),
         usage="/explain",
     ),
     SlashCommand(
-        NC_("slash-command", "remember"),
+        N_("remember"),
         N_("Save a fact to persistent memory"),
         requires_arg=True,
         usage="/remember <fact>",
         handler=_run_remember,
     ),
     SlashCommand(
-        NC_("slash-command", "compact"),
+        N_("compact"),
         N_("Compact older chat history now"),
         run=SlashRun.COMPACT,  # Send after _begin_send; run_slash_compact, not run_slash_command handler
         usage="/compact [focus]",
         handler=None,  # COMPACT: no popup/local handler
     ),
     SlashCommand(
-        NC_("slash-command", "undo"),
+        N_("undo"),
         N_("Undo the last agent edit as one step"),
         usage="/undo",
         handler=_run_undo,
     ),
     SlashCommand(
-        NC_("slash-command", "formula"),
+        N_("formula"),
         N_("Write a Calc formula from a plain-English description"),
         run=SlashRun.FORMULA,  # Send after _begin_send; panel run_slash_formula
         requires_arg=True,
@@ -287,7 +286,7 @@ def registered_slash_commands() -> tuple[SlashCommand, ...]:
 
 def _raw_localized_name(english_name: str) -> str:
     """Catalog spelling of the active-locale alias, or the English id."""
-    translated = pgettext(SLASH_NAME_CONTEXT, english_name)
+    translated = _(english_name)
     return (translated or "").strip().lstrip("/")
 
 

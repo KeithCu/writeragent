@@ -61,7 +61,6 @@ def test_generate_pot_default_mode_argv(
     cmd = mock_run.call_args[0][0]
     assert cmd[0] == "xgettext"
     assert "--keyword=N_" in cmd
-    assert "--keyword=NC_:1c,2" in cmd
     assert "--add-location=file" in cmd
     assert "-f" in cmd
     assert "-d" in cmd
@@ -90,7 +89,6 @@ def test_generate_pot_pot_only_omits_keyword(
     assert "Regenerating translation templates (.pot) without updating .po..." in out
     cmd = mock_run.call_args[0][0]
     assert "--keyword=N_" in cmd
-    assert "--keyword=NC_:1c,2" in cmd
     assert "--add-location=file" in cmd
     assert "-f" in cmd
 
