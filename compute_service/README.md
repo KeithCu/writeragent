@@ -181,7 +181,7 @@ Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This
   ```json
   { "id": "corr-1", "status": "ok" }
   ```
-- **Errors:** `400` missing/empty query `session_id`, `session_id` in the JSON body, or reserved `session_id`; `401` auth (case-insensitive Bearer); worker reset failure → `{ "id?", "status": "error", "error": "..." }` with HTTP `500`; worker lease failure → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
+- **Errors:** `400` missing/empty query `session_id`, `session_id` in the JSON body, or reserved `session_id`; `401` auth (case-insensitive Bearer); worker reset failure → `{ "id?", "status": "error", "error": "..." }` with HTTP `500`; worker lease or session-gate timeout → `{ "id?", "status": "error", "code": "WORKER_POOL_BUSY", "error": "..." }` with HTTP `503`.
 - The supervisor drops its session map only when the worker reset returns `status: ok`. A failed reset is logged and the map stays: that process may still hold the namespace. Forgetting the id would make the next sticky cell look new on a kernel that is not empty.
 - Idle worker TTL (`idle_worker_ttl_sec`) is the safety net if reset is missed: once the worker sits idle past that timeout, the process is terminated and its sessions die with it.
 

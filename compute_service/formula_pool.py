@@ -133,8 +133,8 @@ class FormulaProcessPool(BaseProcessPool):
             entry.users += 1
             lock = entry.lock
 
-        # What was wrong: an unbounded Lock.acquire() waited indefinitely while
-        # the waiter already held a listener thread and an admission permit.
+        # What was wrong: an unbounded Lock.acquire() waited out the holder's whole
+        # cell while the waiter already held a listener thread and an admission permit.
         # How it happened: the gate wraps the whole cell (up to max_timeout_sec +
         # IPC grace), so concurrent requests for a busy sticky session tied up
         # server resources.
