@@ -26,8 +26,10 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 > See `tests/chatbot/test_hamburger_menu_uno.py` as an example: write a quick `@native_test` function (takes `ctx`), instantiate the UNO service, and inspect `dir(obj)` or test the exact call directly. In seconds you get the real runtime methods, argument counts, and types.
 
 > [!IMPORTANT]
-> **Comments:** Write why this code is there for the reader who would otherwise be **lost**. **Good comments are the bridge** from opaque to understandable and maintainable code. Some files have no comments: inserting footnotes is standard, little different from other UNO objects. Meanwhile some comments are critical to understanding why this code is there. Write clear, short comments.
-> - **Bugfixes (required):** at the fix, **what was wrong**, **how it happened**, and **why this change** fixes it.
+> **Comments:** Explain the code that is here **now**, for a reader who would otherwise be **lost**. They are the bridge from opaque to understandable and maintainable code. Assume the reader is not a coding expert and does not already know this project. Write clear comments with enough detail to follow—two or three short sentences is often right; do not use cryptic one-liners.
+> - Do **not** write “what went wrong” boilerplate or bug-history narration: no “this used to…”, “previously…”, “the bug was…”, “Bugfix:”, how the old code failed, or a postmortem of the fix.
+> - It **is** fine (and often useful) to say in present tense what would go wrong for the user or the program if this code were not here—that explains the current invariant, not the war story of the bug.
+> - Some files have almost no comments; adding footnotes where a reader would be lost is normal.
 > - **LibreOffice / UNO / Etc.:** quirks. When matching upstream behavior, cite **source** (file + line or function), not a vague “like Lightproof.”
 
 ---

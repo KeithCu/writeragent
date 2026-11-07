@@ -228,12 +228,7 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
     takes the sheet from resolved.getSpreadsheet().getName() and always
     uses '.'.
     """
-    # Bugfix: Clipped addresses for oversized reads lost sheet prefixes for named
-    # ranges or lost quote-escaping on sheet names with apostrophes/special chars.
-    # This happened because _format_sheet_address only looked at the input range_name
-    # string and dropped quotes without re-escaping. _sheet_prefix_for_clip preserves
-    # the original quotes and separator (or falls back to the resolved sheet) with
-    # doubled apostrophes so Calc resolves clipped ranges on the proper sheet.
+    # _sheet_prefix_for_clip keeps sheet prefix and quote escaping when clipping oversized reads.
     sheet, _unused_local = split_sheet_prefix(range_name)
     if sheet:
         sep = "!" if "!" in range_name else "."
@@ -370,11 +365,7 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
     Columns whose first cell is text treat that cell as a header label and scan
     subsequent rows; numeric or blank first cells are counted as data including row 0.
     """
-    # Bugfix: Numeric or empty top-row values were skipped from distinct counts
-    # when a column had no text header. This happened because the function sliced
-    # data_array[1:] globally across all columns. Checking each column's row 0 cell
-    # allows text headers to label columns while non-text cells are counted as data
-    # starting from row 0.
+    # Per-column row 0 decides header vs data so numeric or empty headers do not hide distinct values.
     if not data_array:
         return []
     header_row = data_array[0]
@@ -858,8 +849,7 @@ class SetCellStyle(ToolBase):
         if len(rn) == 0:
             return self._tool_error("range is required")
 
-        # Bugfix: Style calls with no properties performed empty mutations and opened
-        # useless undo steps. Checking if all style properties are None avoids this.
+        # Reject style calls where every property is None—empty mutations create useless undo steps.
         if all(v is None for v in style_kwargs.values()):
             return self._tool_error("No style properties were provided.")
 

@@ -214,7 +214,7 @@ class CellInspector:
             except Exception as e:
                 if is_disposal(e):
                     raise
-                # Format metadata must never turn a previously valid core read into an error.
+                # Format enrichment failure must not replace an otherwise valid cell payload with an error.
                 log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address)
         return info
 

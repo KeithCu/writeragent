@@ -195,16 +195,8 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
 def _commit_spin_peer_value(ctrl: Any) -> float | None:
     """Copy a pending numeric edit into the model. ``None`` means "not committed".
 
-    Bugfix: Settings could store the previous spin value.
-    What was wrong: OK saved the number already in the model after the user
-    typed a new one and activated OK without leaving the field.
-    How it happened: UnoControlNumericField.getValue reads the model Value.
-    The peer parses the VCL entry (NumericFormatter::GetValue). The model
-    catches up on textChanged, or on focus loss (Formatter::EntryLostFocus
-    → Commit). This control has no UNO commit(). getText is the inherited
-    edit caption and must not be written over a spun value.
-    Why this change: setValue(peer.getValue()) when they differ, then the
-    caller reads getValue. No peer leaves the caller on today's path.
+    Numeric OK without focus loss leaves the model stale. When peer.getValue differs from
+    getValue, setValue(peer.getValue()) before the caller reads the committed spin.
     """
     try:
         peer = ctrl.getPeer()

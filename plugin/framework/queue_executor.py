@@ -348,14 +348,7 @@ class MainThread:
                     enqueued += 1
             except Exception as exc:
                 # Keep tail pending and continue caller work; later flush retries the tail.
-                # Bugfix: lock order cycle between _order_lock and logging handler lock.
-                # What was wrong: flush failure logged while still holding _order_lock.
-                # How it happened: a dev worker logging a UNO proxy acquires the logging
-                # handler lock, enters __str__ -> assert_main_thread -> main.post, which
-                # needs _order_lock. Meanwhile flush held _order_lock and logged, needing
-                # the logging handler lock.
-                # Why this change: snapshot the counts and exception, restore pending posts
-                # under _pending_lock, release _order_lock, then log outside it.
+                # Log only after releasing _order_lock to avoid deadlock with the logging handler (UNO proxy __str__ can post work that needs _order_lock).
                 with self._pending_lock:
                     self._pending_posts = list(pending[enqueued:]) + self._pending_posts
                 put_back = len(pending) - enqueued

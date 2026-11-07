@@ -683,9 +683,8 @@ def _capture_open_figures_payload(*, fmt: str = "svg") -> tuple[dict[str, Any] |
         return payload, note
     finally:
         # Close even when rendering raises or figure(num) fails. A figure(num)
-        # failure used to skip close("all") because the list was built outside
-        # the try, and the next cell then returned that leftover figure.
-        # A leftover figure is what the next cell returns. A close failure must
+        # close("all") runs in finally so a render failure still drops open figures; otherwise the next cell returns a stale pyplot figure.
+        # A close failure must
         # not replace the payload or the original render error (same swallow as
         # _close_open_figures).
         try:
@@ -778,12 +777,7 @@ def _seed_executor_from_init(
     custom_tools = _snapshot_init_custom_tools(init_session_id)
     if custom_tools:
         executor.custom_tools.update(custom_tools)
-        # What was wrong: custom_tools was written back into state, so an init
-        # ``result = lambda: 99`` (skipped by _snapshot_init_bindings, copied by
-        # _sync_custom_tools) became the next cell's result.
-        # How it happened: state.update ran after the snapshot filter.
-        # Why this change: state comes only from the snapshot. custom_tools stays
-        # the library-visible copy and does not reintroduce a skipped name.
+        # custom_tools are not written back into executor state so init lambdas in custom_tools do not become the next cell's printed result.
 
 
 def _resolve_init_digest(init_script: str | None, init_script_hash: str | None) -> str:
@@ -854,9 +848,7 @@ def _ensure_init_executed(
     init_executor, _ = SESSIONS.get_or_create(
         init_session_id, timeout_sec, policy=policy
     )
-    # Init and the cell used to each get a fresh alarm for the full budget, so
-    # a slow init plus a slow cell outlived the single host read and killed
-    # the worker (every other workbook on that process).
+    # Init shares the request deadline with the cell so init plus execution cannot exceed the host read budget and kill the worker for other workbooks.
     left = _executor_alarm_seconds(deadline)
     if left is None:
         return _budget_timeout_error(timeout_sec)
@@ -1124,22 +1116,14 @@ def _run_on_executor(
             if not result_optional:
                 raise
             # The init result is discarded. The executor had already stored the
-            # names. Failing here used to make _ensure_init_executed clear the
-            # init session, so the first cell never saw a helper instance the
-            # script had built (``h = Helper()`` is the cell value).
+            # Dropping an unpickleable init result must not abort the init session or the first cell loses helpers the init script already bound.
             log.debug(
                 "dropping unpickleable init result %s.%s",
                 type(result).__module__,
                 type(result).__name__,
                 exc_info=True,
             )
-            # What was wrong: an unpickleable init result left pyplot figures
-            # open. The next cell's implicit capture returned that SVG.
-            # How it happened: serialize_result raises before
-            # _capture_open_figures_payload's finally, and this arm did not
-            # close. result_optional is only the init path.
-            # Why this change: close here, and do not render. The init value
-            # is discarded. _fail_cell already closes on a real error.
+            # Unpickleable init results still close pyplot figures here so implicit capture on the next cell does not return a leftover plot.
             _close_open_figures()
             serialized, extra_stdout = None, ""
 

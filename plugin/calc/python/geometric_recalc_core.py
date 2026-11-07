@@ -314,10 +314,8 @@ def compute_eval_index(
     """Strip-safe iff every discovered cell with that triple is attached and ours.
 
     The cell's trailing single-cell argument must match rec.predecessor
-    via same_cell_ref. compute_eval_index used to accept any address that
-    was already in records. A leftover from an edit between passes would
-    then mark the group strip-safe after the user replaced the attached
-    predecessor with real data, and that data would be stripped.
+    via same_cell_ref. compute_eval_index ignores addresses merely present in
+    records from an earlier pass—otherwise replaced predecessor data can be stripped.
     """
     seen: set[EvalIndexKey] = set()
     bad: set[EvalIndexKey] = set()

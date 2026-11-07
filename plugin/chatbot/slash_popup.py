@@ -500,10 +500,7 @@ class SlashPopupController:
             return False
         if prefix is None:
             _ovlog("on_query_text hide (not a slash prefix)")
-            # Bugfix: main.post raises TimeoutError when the pending
-            # list is full before AsyncCallback exists (queue_executor.post).
-            # hide() / _show_matches() on this Ask textChanged stack deadlock
-            # VCL. _defer_to_next_turn logs the failure and does not run them.
+            # hide on the textChanged stack can deadlock VCL when main.post is full; defer to next turn.
             _defer_to_next_turn(self.hide)
             return False
         matches = filter_slash_commands(

@@ -50,7 +50,7 @@ DOCUMENT_SCRIPTS_UDPROP = "WriterAgentDocumentPythonScripts"
 _MAX_DOCUMENT_SCRIPTS_BYTES = 900_000
 _ENVELOPE_VERSION = 1
 # Workbook init lives in the same map as named document scripts. The picker and
-# wa.doc must not expose it; deleting "[Doc] INIT" used to wipe the init script.
+# wa.doc must not expose INIT; deleting that entry would clear the workbook init script stored in the same map.
 _CALC_INIT_SCRIPT_NAMES = frozenset({"INIT", "Init"})
 
 
@@ -184,7 +184,7 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
         set_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, payload)
     except Exception as exc:
         # A disposed document is not "read-only". Callers that swallow the
-        # message used to keep writing as if the file were still open.
+        # Disposed documents re-raise instead of returning read-only so callers do not keep saving after close.
         if is_disposal(exc):
             raise
         log.exception("document_scripts: failed to persist on document")
@@ -192,7 +192,7 @@ def set_document_scripts(doc: Any, scripts: dict[str, str]) -> DocumentScriptErr
         return _readonly_document_error()
     # set_document_property returns None after a real write and also when the
     # document has no UserDefinedProperties bag (that path does not raise).
-    # The missing bag used to look like success while the next read was empty.
+    # Verify the property round-trips so a missing UserDefinedProperties bag does not look like a successful save.
     stored = get_document_property(doc, DOCUMENT_SCRIPTS_UDPROP, default=None)
     if stored != payload:
         log.error("document_scripts: persist did not store %s", DOCUMENT_SCRIPTS_UDPROP)
@@ -236,14 +236,7 @@ def _enumerate_calc_documents(desktop: Any) -> list[Any]:
         enum = comps.createEnumeration()
         if not enum:
             return matches
-        # _enumerate_calc_documents used to continue when nextElement() raised
-        # while hasMoreElements() stayed true, so a stuck desktop enum spun
-        # on the UI thread. There was no cap, and any truthy hasMoreElements()
-        # counted as more. uno_context.enumeration_should_continue stops
-        # at _ENUM_CAP and accepts only True or 1. Counting every attempt, then
-        # continuing, stops the spin and still keeps a later Calc model when one
-        # element's getURL throws. iter_open_models breaks on nextElement
-        # and would drop that later model.
+        # enumeration_should_continue caps desktop enumeration so a broken nextElement() cannot spin the UI thread forever.
         seen = 0
         while True:
             if not enumeration_should_continue(enum, seen, label="document_scripts"):
@@ -281,14 +274,7 @@ def get_calc_document_from_ctx(ctx: Any) -> Any | None:
         log.debug("document_scripts: could not resolve active Calc document", exc_info=True)
         return None
     if doc is not None and (is_writer(doc) or is_draw(doc)):
-        # What was wrong: comments said Impress still enumerates.
-        # How: is_draw is Draw or Impress (plugin/framework/doc_type.py). 725df4915
-        # returned None for Writer or is_draw so a focused non-Calc document
-        # would not bind a background workbook. e9e5f4b35 described that check
-        # as Writer and Draw only.
-        # Why this stays: a focused Impress document must not bind a Calc init
-        # script. Base and Math are not is_draw, so they still fall through
-        # to _enumerate_calc_documents.
+        # Writer and Impress (is_draw) skip Calc init binding when focused; Base/Math still enumerate Calc documents.
         return None
     if doc is None or not is_calc(doc):
         matches = _enumerate_calc_documents(desktop)
@@ -353,8 +339,7 @@ def attach_document_script(
 
 def delete_document_script(doc: Any, name: str) -> DocumentScriptError | None:
     # INIT shares this property map with named scripts. The picker hides it,
-    # but deleting the storage name used to pop the entry and wipe the
-    # workbook init script. attach_document_script already rejects this name.
+    # Deleting INIT by storage name is blocked like attach_document_script so the workbook init script is not wiped accidentally.
     if is_calc_init_script_name(name):
         return new_script_name_error(name, attach=True)
     scripts, err = _load_document_script_map(doc)
@@ -400,8 +385,7 @@ def script_origin_is_writable(origin: str) -> bool:
 def document_scripts_write_is_stale(session_doc: Any | None, session_doc_url: str | None) -> bool:
     """True when the document opened with the editor is no longer that same file.
 
-    The picker used to save onto whichever window was focused. Writes stay on
-    the launch document, and are refused when that document's identity changed.
+    Writes target the document that opened the editor; stale session identity refuses save when the file URL changed.
     """
     if session_doc is None or session_doc_url is None:
         return False
@@ -562,16 +546,7 @@ def build_scripts_list_message(
     # only considers user scripts and templates.
     selection_doc = None if document_stale else doc
 
-    # What was wrong: sections came from one property read and one
-    # domain_template_entries(doc) call, then resolve_run_script_selection
-    # called build_xdl_script_picker_state, which read the property again and
-    # expanded templates again.
-    # How: picker_state existed to skip that rebuild, and this caller did not
-    # pass it.
-    # Why this fixes it: the non-stale path reuses loaded and domain_entries.
-    # The stale path still selects with {} and domain_template_entries(None),
-    # not the section templates, so a template supported only by the stale
-    # document is not stored as the selection.
+    # Reuse one property read and template expansion for picker_state so Monaco does not double-load document scripts on each scripts_list message.
     if selection_doc is None:
         picker_state = _picker_state_from_parts(
             user_scripts, {}, domain_template_entries(None)
@@ -624,11 +599,7 @@ def readonly_fallback_name_taken_message(name: str, document_error: object) -> s
 
 
 def save_user_script(name: str, code: str) -> DocumentScriptError | None:
-    # What was wrong: A reserved name raised ValueError. Monaco New does not
-    # pre-check prefixes, and _on_save_script did not catch it, so
-    # editor_host._handle_picker showed str(ValueError).
-    # Why this change fixes it: attach_document_script already returns RESERVED_NAME.
-    # Returning that error writes nothing and gives the picker a translated sentence.
+    # Reserved script names return DocumentScriptError instead of ValueError so Monaco picker shows translated errors.
     if is_reserved_script_name(name):
         return new_script_name_error(name, attach=False)
     scripts = get_user_scripts()

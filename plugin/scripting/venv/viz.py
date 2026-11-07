@@ -38,9 +38,7 @@ _MAX_SVG_BYTES = 8 * 1024 * 1024
 
 def _figure_payload(fig: Any) -> dict[str, Any]:
     # Render only. _open_figure closes the figure, including when savefig raises.
-    # Closing here used to run only after a successful render, so a failure left
-    # the figure registered on the warm worker. The next sandbox cell returns
-    # whatever pyplot still has open.
+    # _open_figure closes the figure even when savefig fails so the warm worker does not leak pyplot state into the next cell.
     from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
 
     payload = _figure_to_image_payload(fig)
@@ -190,8 +188,7 @@ def plot_data(
     df = coerced.df
     x_col = spec.get("x")
     y_col = spec.get("y")
-    # hue used to set a legend title and result["legend"] without splitting or
-    # coloring series. Nothing in the tool schema passes it. Ignore the key.
+    # hue is ignored: the tool schema does not expose it and honoring it would mis-label series without real grouping.
     title = str(spec.get("title") or "Plot")
 
     if y_col is not None:
@@ -288,9 +285,7 @@ def correlation_heatmap(
 
             sns.heatmap(corr, annot=n_cols <= 8, fmt=".2f", cmap="coolwarm", ax=ax)
         except Exception as exc:
-            # Heatmap used to be guarded only for ImportError. Any other seaborn
-            # error skipped the imshow fallback and skipped plt.close.
-            # ImportError stays silent: missing seaborn is the expected fallback.
+            # Non-ImportError seaborn failures fall back to imshow; ImportError stays quiet when seaborn is simply absent.
             if not isinstance(exc, ImportError):
                 log.debug("seaborn heatmap failed; using imshow", exc_info=True)
             im = ax.imshow(corr.values, cmap="coolwarm", aspect="auto")
@@ -332,9 +327,7 @@ def time_series_plot(
     if date_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Unknown date column {date_col!r}", helper="time_series_plot")
 
-    # historical_value_col used to fall back to value_col when absent from df,
-    # silently plotting the wrong data or obscuring the missing column name.
-    # When provided, it must name an existing column.
+    # When historical_value_col is set, it must exist in the frame so missing columns surface as UNKNOWN_COLUMN instead of silently reusing value_col.
     if historical_value_col:
         if historical_value_col not in df.columns:
             return _error_result(
@@ -392,12 +385,7 @@ def time_series_plot(
         assert lower_values is not None and upper_values is not None
         band_mask = dated & lower_values.notna() & upper_values.notna()
 
-    # What was wrong: an all-null forecast column bypassed INSUFFICIENT_DATA
-    # because the guard checked column presence instead of valid data points,
-    # opening an empty figure. Also, a valid confidence band alone was ignored.
-    # How it happened: the guard only tested hist_mask.any() or forecast_col in series.columns.
-    # Why this change: require at least one plottable row across history, forecast,
-    # or confidence band before opening a figure.
+    # Require at least one plottable history, forecast, or confidence-band row so all-null forecast columns cannot open an empty figure.
     has_hist = bool(hist_mask.any())
     has_forecast = bool(forecast_mask is not None and forecast_mask.any())
     has_band = bool(band_mask is not None and band_mask.any())

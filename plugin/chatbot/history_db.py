@@ -70,8 +70,7 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
         if "input_audio" in kinds:
             markers.append("[Audio Attached]")
         if "image_url" in kinds:
-            # A vision turn used to reload as ordinary text, with the image
-            # parts dropped and no marker that one had been attached.
+            # Vision turns persist an [Image Attached] marker when image parts are stripped.
             markers.append("[Image Attached]")
         content = " ".join(p for p in [text, *markers] if p)
 
@@ -202,8 +201,7 @@ class SQLite3History:
                 try:
                     parsed = json.loads(raw)
                 except json.JSONDecodeError:
-                    # One torn row used to raise out of the whole session, so
-                    # later turns inserted and then vanished on the next open.
+                    # Skip undecodable rows so one corrupt JSON blob does not drop the whole session.
                     log.exception("SQLite3: skipping undecodable message id=%s session=%s", row_id, self.session_id)
                     continue
                 if not isinstance(parsed, dict):
@@ -311,8 +309,7 @@ class JSONHistory:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 msgs = json.load(f)
             if not isinstance(msgs, list) or any(not isinstance(item, dict) for item in msgs):
-                # A JSON object or a bare null used to become session.messages
-                # and then throw on append, or look empty and get overwritten.
+                # Session file must be a JSON list of objects; other top-level shapes are rejected.
                 log.error("JSONHistory: session %s is not a list of objects", self.session_id)
                 raise json.JSONDecodeError("session is not a list of objects", "", 0)
             log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")

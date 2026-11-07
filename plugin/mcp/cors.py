@@ -55,9 +55,7 @@ PREFLIGHT_MAX_AGE = "86400"
 
 def deal_origin_ok(origin: object) -> bool:
     # Browser Origin headers are not limited to DEAL_MAX_ORIGIN or the
-    # URL-safe alphabet. A junk or huge Origin used to raise
-    # PreContractError out of send_cors_headers (HTTP 500). The body
-    # returns False / None.
+    # Junk or oversized Origin values return False; send_cors_headers must not raise PreContractError.
     return isinstance(origin, str)
 
 
@@ -93,16 +91,7 @@ def normalize_cors_origin(value: str | None) -> str | None:
         host = parsed.hostname
         port = parsed.port
     except ValueError:
-        # What was wrong: only urlparse() was guarded. CPython defers the
-        # port check to ParseResult.port, which raises ValueError for
-        # out-of-range and non-integer ports (http://host:99999, :abc, :-1).
-        # How: do_OPTIONS and _dispatch call reject_forbidden_origin before
-        # their try, and BaseHTTPRequestHandler.handle_one_request does not
-        # catch ValueError, so the worker logged a traceback and wrote no
-        # status. send_cors_headers raised the same way after
-        # _response_started, so the handler's except refused a second write.
-        # Why: ValueError is an invalid origin. None makes is_safe_origin
-        # false and the existing 403 path runs.
+        # Invalid ports raise ValueError from parsed.port; treat as invalid origin (None → 403).
         return None
     scheme = parsed.scheme.lower()
     if scheme not in ("http", "https") or not host:
@@ -264,11 +253,8 @@ def _write_forbidden(handler: Any) -> None:
 def reject_forbidden_origin(handler: Any) -> bool:
     """If Origin is present and unsafe, write 403 and return True.
 
-    Bug: CORS only omitted Access-Control-Allow-Origin for unsafe browser
-    Origins; OPTIONS still returned 204 and POST still ran JSON-RPC. A
-    non-preflighted or CORS-ignoring client could mutate. Unsafe Origins get 403
-    with no CORS headers so the request never reaches a route. WriterAgent keeps loopback +
-    private/LAN defaults; only the already-unsafe set is refused.
+    Unsafe Origins get HTTP 403 without CORS headers so JSON-RPC never runs. Loopback and
+    private/LAN defaults remain allowed; only forbidden origins are refused.
     """
     if not origin_is_forbidden(handler):
         return False

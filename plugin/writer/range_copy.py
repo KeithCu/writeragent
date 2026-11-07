@@ -200,11 +200,10 @@ def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
 ) -> None:
     """Re-apply the source paragraph's direct formatting to the copy just written.
 
-    The copy is made with setString, which carries plain text and nothing else — so a range read
-    used to hand the caller a flattened slice where a block quote was indistinguishable from body
-    text. Done as a second pass over character OFFSETS rather than by inserting run by run: the
-    text is already in place, so there is no insertion-point bookkeeping to get wrong, and a
-    failure here degrades to the old plain-text result instead of corrupting the copy.
+    setString copies plain text only; this second pass repaints direct Para*/Char* formatting
+    over character offsets so block quotes and body text stay distinguishable. Offset painting
+    avoids run-by-run insertion bookkeeping, and failures here leave plain text intact instead
+    of corrupting the scratch copy.
     """
     def paragraph_start() -> tuple[Any, Any]:
         # The copy always appends, so the paragraph just written is the one at the document end.
@@ -222,8 +221,8 @@ def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
         para_cursor.gotoEndOfParagraph(True)
         _copy_properties(para, para_cursor, _COPIED_PARA_PROPERTIES, style)
 
-    # A refused Para* used to return here and skip the Char* loop, dropping bold/colour
-    # for the whole range — the reason the temp-doc path exists. Log and keep painting.
+    # Para* refusal is logged and the Char* loop still runs so direct character formatting
+    # is not dropped for the entire copied range.
     best_effort(paint_paragraph, "_paint_direct_formatting: paragraph properties skipped")
 
     offset = 0  # position within the visible (tracked-deletions removed) paragraph text
@@ -535,19 +534,10 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
     clipboard, and does not open a scratch Writer or run XHTML / flat ODF.
     Returns how many fields were inserted.
 
-    Bugfix: xtext_to_content used to controller.select the live header or
-    footer, getTransferable / insertTransferable into a hidden Writer, export
-    XHTML (in-process libxslt, stderr "XSL Vendor: 'libxslt'") and flat ODF,
-    then temp_doc.close(True) while that selection and clipboard could still
-    alias header nodes, fields, and titled draw frames. A titled AT_PARAGRAPH
-    graphic makes the ODF export hit the default rule in LibreOffice
-    filter/source/xslt/odf2xhtml/export/common/body.xsl (match="*"), which
-    logs "Using default element rule for ODF element 'svg:title'.". glibc
-    then reported "malloc(): unsorted double linked list corrupted", or
-    soffice died SIGSEGV 139 / VCL SalAbort. Python usually saw that on a
-    later pages.getByName ("Binary URP bridge disposed"), sometimes many
-    tests later in the pooled soffice (GHA 38526445257, 38584920511,
-    38584636315). This walk never selects and never exports.
+    The walk copies inside the live document without selecting, clipboard transfer,
+    or in-process XHTML/ODF export — that export path could corrupt soffice when
+    header/footer content includes titled AT_PARAGRAPH graphics. Fields and direct
+    formatting are preserved by the enumeration instead.
     """
     cursor = dest_text.createTextCursor()
     cursor.gotoStart(False)
@@ -691,13 +681,10 @@ def _copy_xtext_into_doc(  # pyright: ignore[reportUnusedFunction]
 ) -> None:
     """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body.
 
-    Bugfix: this called controller.select on the user's document and
-    insertTransferable into the scratch Writer, then xtext_to_content ran
-    XHTML and closed that Writer. That moved the visible caret and is the
-    select + clipboard + hidden-export pattern that corrupted the heap on
-    header reads (see _copy_flow_into_xtext). Portion copy keeps fields,
-    tables, and direct formatting. Anchored graphics are cloned afterwards
-    because setString in the portion walk would drop a graphic inserted first.
+    Portion copy moves header/footer/body text into the scratch Writer without
+    selecting the user's document or running hidden XHTML export (see
+    _copy_flow_into_xtext). Anchored graphics are cloned after the text walk
+    because an early graphic insert would be dropped by subsequent setString steps.
     """
     _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records)
     _copy_anchored_graphics(src_doc, src_text, dest_doc)

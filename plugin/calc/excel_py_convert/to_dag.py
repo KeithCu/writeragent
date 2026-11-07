@@ -516,8 +516,7 @@ def convert_cell_to_dag(model: ExcelWorkbookModel, cell: ExcelPyCell, *, has_pri
         _deal_convert_scripts_ok(model)
         and isinstance(model.cells, list)
         and len(model.cells) <= DEAL_MAX_CMD_ARGS
-        # convert_cell_to_dag's cell.deps bound is tighter than this wrapper used to be
-        # (empty scripts + a 3-dep cell passed here, then PreconditionFailed inside).
+        # convert_cell_to_dag enforces tighter deps than this wrapper; every cell must pass _deal_convert_cell_ok.
         and all(_deal_convert_cell_ok(c) for c in model.cells)
     )
 )

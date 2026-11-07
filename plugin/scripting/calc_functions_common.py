@@ -9,8 +9,7 @@ from __future__ import annotations
 
 ANALYSIS_MAX_TABLE_ROWS = 50
 # Cleaned sheets, pivots, and decompositions are the user's data, not an LLM
-# summary. 50 rows used to drop the rest with only a truncated flag the sheet
-# egress buried. 200 matches the DuckDB result cap and still bounds a chat reply.
+# Cap analysis tables at 200 rows so large sheet egress stays bounded like DuckDB limits and chat summaries stay readable.
 ANALYSIS_DATA_TABLE_ROWS = 200
 ANALYSIS_MAX_COLS = 40
 

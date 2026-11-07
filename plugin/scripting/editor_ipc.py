@@ -149,9 +149,7 @@ def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
     out: dict[str, str] = {}
     for key in _TARGET_KEYS:
         raw = target.get(key)
-        # str() on a UNO object or other non-str used to land in
-        # target_identity_key. Callers build these fields as str; a non-str
-        # must not become a session id.
+        # Skip non-str identity fields so UNO objects are not coerced into session ids.
         if not isinstance(raw, str):
             continue
         text = raw.strip()

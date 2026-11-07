@@ -84,10 +84,7 @@ def build_project_pptx(
 
     stdout_tail = start_stderr_drain(managed.stdout, max_tail_chars=800, name="pptx-build-stdout")
 
-    # Bugfix: subprocess.run ignored Stop, was not registered, and was not a session leader,
-    # so quit could not killpg it and it could write exports/*.pptx after soffice was gone.
-    # kill_tree on Stop or the build deadline happens before the function returns a path,
-    # so the caller does not import.
+    # Poll Stop and deadline on the managed child; kill_tree before return so orphan builds cannot write exports/*.pptx.
     deadline = time.monotonic() + timeout_sec
     stopped = False
     timed_out = False

@@ -171,9 +171,7 @@ def format_peer_envelope(
         f"[{label}: {_sanitize_peer_field(name)[:PEER_NAME_MAX_CHARS]} | "
         f"uid={_sanitize_peer_field(uid)} | url={_sanitize_peer_field(url)}]"
     )
-    # What was wrong: None became the body text "None" in the f-string.
-    # How: format_peer_envelope is public; only execute coerces with str(... or "").
-    # Why: an empty body, not the word None.
+    # None message becomes an empty body, not the literal "None".
     body = "" if message is None else message.rstrip("\n")
     if kind == "result":
         return f"{header}\n\n{body}"
@@ -285,11 +283,7 @@ def resolve_peer_target(
             model = _resolve_open_model(uno_ctx, name_hits[0]["uid"])
 
     if model is None:
-        # What was wrong: list_v1_peers omits self, so the caller's own display
-        # name came back PEER_NOT_FOUND.
-        # How: URL/uid resolve misses a title, then the name scan never sees self.
-        # Why: identity_from_doc name is the same label the envelope stamps;
-        # PEER_SELF stops the model hunting for another document.
+        # list_v1_peers omits self; match identity_from_doc so the caller does not get PEER_NOT_FOUND.
         if self_doc is not None and target == identity_from_doc(self_doc)["name"]:
             return None, "PEER_SELF", "Cannot send a peer message to the same document."
         return None, "PEER_NOT_FOUND", f"No open Writer, Calc, Draw, or Impress peer matches {target!r}."
@@ -347,10 +341,7 @@ def _rebuild_global_fifo(
     drop_listener: Any = None,
     drop_turn: PeerPendingTurn | None = None,
 ) -> None:
-    # What was wrong: dead (ref, turn) pairs stayed in _global_fifo.
-    # How: drop_listener_queue kept entries where ref() is None because None is not listener.
-    # Why: rebuilds already walk the deque; drop collected listeners in the same pass
-    # so their wrapped text does not sit until a later kick.
+    # Drop dead weakrefs from _global_fifo in the same pass as drop_listener_queue rebuilds.
     kept: list[tuple[weakref.ref[Any], PeerPendingTurn]] = []
     for ref, turn in _global_fifo:
         listener = ref()
@@ -422,10 +413,7 @@ def kick_pending_peer_starts() -> None:
             continue
         start_fn = getattr(listener, "start_extracted_peer_send", None)
         if not callable(start_fn):
-            # What was wrong: the turn was already removed from both queues and then discarded with no log.
-            # How: getattr miss when listener has no start_extracted_peer_send.
-            # Why: re-queue would keep this listener at the front of _global_fifo forever;
-            # drop it and keep scanning so a later turn in the same kick can start.
+            # Missing start_extracted_peer_send: drop the turn (re-queue would pin this listener forever).
             log.error(
                 "kick_pending_peer_starts: listener %s has no start_extracted_peer_send; dropping queued turn",
                 type(listener).__name__,
@@ -563,10 +551,7 @@ def _list_v1_peers_or_empty(uno_ctx: Any, doc: Any, where: str) -> list[dict[str
     try:
         return list_v1_peers(uno_ctx, doc)
     except RuntimeError:
-        # What was wrong: the filters caught Exception and set peers = [].
-        # How: assert_main_thread raises RuntimeError in dev builds.
-        # Why: an off-main call must not look like an empty desktop;
-        # other catalog errors still hide the tools so schema build continues.
+        # assert_main_thread failures must propagate, not masquerade as an empty peer list.
         raise
     except Exception:
         log.debug("%s: catalog failed", where, exc_info=True)
@@ -599,11 +584,7 @@ def filter_peer_message_schemas(
     """
     if not any(_schema_function_name(s) in PEER_TOOL_NAMES for s in schemas):
         return schemas
-    # What was wrong: every outer get_schemas ran list_v1_peers / get_open_documents /
-    # resolve_document_by_url and then threw the catalog away.
-    # How: peer tools are tier="chat", so any(...) is true on the outer wire, and
-    # active_domain is None there and on MCP.
-    # Why: strip first; the desktop walk stays on document_research only.
+    # Outer get_schemas strips peer tools unless active_domain is document_research—desktop walks stay there.
     if not _document_research_domain(active_domain):
         return [s for s in schemas if _schema_function_name(s) not in PEER_TOOL_NAMES]
     peers: list[dict[str, str]] = []

@@ -376,11 +376,7 @@ def execute_tool(
         else:
             doc_type = ""
         registry = get_tools()
-        # What was wrong: ToolContext had no send_cancellation, so web_research and
-        # image generation started from a script ran the HTTP request to completion after Stop.
-        # How it happened: Stop was checked only before execute_tool on a separate callable,
-        # while the scope that registers HTTP lived beside the worker turn.
-        # Why this change: The turn's scope is copied onto ToolContext so existing readers abort the wait.
+        # Copy send_cancellation onto ToolContext so script-started HTTP tools honor Stop instead of finishing the request after cancellation.
         tctx = ToolContext(
             doc=doc,
             ctx=uno_ctx,
@@ -496,8 +492,7 @@ def handle_tool_call_frame(
         try:
             frame = pack_pickle_frame(payload, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except IpcFrameError as exc:
-            # An oversized tool result used to be written anyway. The host read
-            # then killed the child and restarted every workbook's shared kernel.
+            # Oversized tool results become error frames so the host does not kill the shared worker parsing a huge pickle.
             frame = pack_pickle_frame(_error_frame(str(exc)), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except Exception as exc:
             # Unpicklable tool result. Fall back to sending an error frame instead of hanging.
@@ -509,8 +504,7 @@ def handle_tool_call_frame(
         # writing to a closed file in Python, or OSError). Letting that escape
         # aborted the stop path, so the child never received USER_STOPPED and
         # kept calling tools after the sidebar went idle (or the host replayed
-        # the script). The tool may already have run; raising here used to abort
-        # the worker loop. Pipe failure stays here and the host keeps reading.
+        # Pipe write failures are logged without aborting the worker loop so Stop and further frames can still be processed.
         try:
             stdin_write(frame)
         except (OSError, ValueError):

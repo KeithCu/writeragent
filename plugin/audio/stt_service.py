@@ -414,10 +414,7 @@ def _transcribe_local(
     if not os.path.isfile(_WHISPER_SCRIPT):
         raise ConfigError(_("Local Whisper script is missing from the extension."))
 
-    # What was wrong: local Whisper status updates were dropped, so weight download
-    # was not surfaced to the sidebar while waiting for transcription.
-    # How it happened: on_status callback and _emit helper were removed during cleanup.
-    # Why this change: emit _local_whisper_status so the user knows weights are downloading.
+    # Surface local Whisper weight download via on_status before transcription starts.
     _emit(on_status, _local_whisper_status(model_name))
     cmd = [py_exe, _WHISPER_SCRIPT, "--wav", wav_path, f"--model={model_name}"]
     completed = _run_cmd(cmd, _TRANSCRIBE_TIMEOUT_SEC, on_spawn=on_spawn)

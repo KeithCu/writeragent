@@ -123,8 +123,8 @@ def _render_writer_page_png(doc: Any, page: int) -> tuple[bytes | None, str | No
 def _render_draw_page_png(ctx: Any, doc: Any, page: int) -> tuple[bytes | None, str | None]:
     """Render 0-based *page* of a Draw/Impress doc to PNG bytes, or (None, reason).
 
-    *page* is already the ``getByIndex`` index (first slide = 0). No ±1 here — that used to
-    exist when the tool was 1-based and is what made get_image the Draw/Impress oddball.
+    *page* is the 0-based ``getByIndex`` index (first slide = 0). Applying ±1 would
+    skip or mis-render slides because callers already pass the native index.
 
     Native ``com.sun.star.drawing.GraphicExportFilter`` with the XDrawPage as source (MediaType
     image/png). Verified live 2026-09-09: this yields a valid PNG and different pages produce

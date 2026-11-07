@@ -633,7 +633,7 @@ def dispatch_text_analytics(
         # Pass params so model can be overridden via JSON config (see WriterAgentConfig).
         sent_data = _extract_sentiment(text, params=params)
         if sent_data.get("error"):
-            # A missing model used to be status ok, so the runner reported success.
+            # A missing model must not be status ok, so the runner reported success.
             return _text_analytics_error(helper, str(sent_data.get("error")), sent_data)
         res = {
             "sentiment": sent_data.get("overall", {}),

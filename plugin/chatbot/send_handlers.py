@@ -194,7 +194,7 @@ class SendHandlersMixin:
             if isinstance(payload, dict):
                 # Store the answer before a mode handoff aborts this turn.
                 # Web, librarian, brainstorm, writing, PPT, and deep research
-                # used to persist on the worker. That write raced Clear.
+                # Specialized handlers persist assistant text on the worker before mode handoff; that races Clear.
                 if handler_type != "agent":
                     answer = payload.get("assistant_content")
                     if isinstance(answer, str) and answer:
@@ -216,7 +216,7 @@ class SendHandlersMixin:
             nonlocal status
             # The turn commits the open row and writes the stop line.
             # Agent still prefers the non-thinking chunks it accumulated.
-            # Only agent Stop used to store a row. Web and image pass no
+            # Agent Stop commits partial text via close_stopped; web and image pass no
             # on_stopped_callback, and finalize skips rerender after Stop,
             # so the painted partial never lands in session.messages.
             turn = current_turn(self._panel)
@@ -303,9 +303,7 @@ class SendHandlersMixin:
         # Probe on the UI thread. The tool re-reads the selection when it
         # executes; this flag only decides whether to request img2img.
         source_image = _direct_image_source_arg(model)
-        # getText on these controls, and update_lru_history, used to run inside
-        # the image worker. getText is UNO; the LRU write emits config:changed
-        # and refreshes sidebar controls, which must stay on the UI thread.
+        # Read aspect ratio and image model on the UI thread; getText and LRU refresh are UNO/VCL.
         aspect_ratio_str = "Square"
         if self._panel.aspect_ratio_selector and hasattr(self._panel.aspect_ratio_selector, "getText"):
             aspect_ratio_str = self._panel.aspect_ratio_selector.getText()
@@ -451,9 +449,7 @@ class SendHandlersMixin:
 
 
         backend_id = normalize_backend_id(get_config("agent_backend.backend_id"))
-        # What was wrong: checked `if not adapter` and raised not-found error.
-        # Why: an unknown id is already normalized to builtin by normalize_backend_id,
-        # so get_backend / _retained_agent_backend always returns an adapter.
+        # normalize_backend_id always yields a known id; adapters are missing only when not installed.
         adapter = self._retained_agent_backend(backend_id)
         if not adapter.is_available(self._panel.ctx):
             name = getattr(adapter, "display_name", None)
@@ -477,10 +473,7 @@ class SendHandlersMixin:
 
                 from plugin.mcp import is_mcp_server_running
 
-                # What was wrong: session/new was given the URL whenever the flag was
-                # set, and the session keeps that mcpServers list for the document URL.
-                # Why: check is_mcp_server_running() once; if the server is down,
-                # pass mcp_url=None and omit MCP instructions from the prompt.
+                # Pass mcp_url only when is_mcp_server_running(); a dead server omits MCP from the prompt.
                 mcp_running = is_mcp_server_running()
                 mcp_url = self._get_mcp_url() if mcp_running else None
 

@@ -135,11 +135,7 @@ def _env_name_is_credential(name: str) -> bool:
         return False
     if nu == "DATABASE_URL" or nu == "DSN" or nu.endswith("_DSN"):
         return True
-    # Bugfix: segment matching left OPENAIAPIKEY (no _ or -) in the child env
-    # because token splitting only inspected delimited tokens. Substring
-    # matching the glued compounds fixes this; the glued compounds are specific
-    # enough that a substring does not hit MONKEY, SECRETARY, KEYWORD, or
-    # TOKENIZERS_PARALLELISM.
+    # Glued credential tokens (e.g. OPENAIAPIKEY) match by substring, not delimiter-split segments.
     if any(glued in nu for glued in _GLUED_CREDENTIAL_TOKENS):
         return True
     tokens = [part for part in nu.replace("-", "_").split("_") if part]

@@ -539,7 +539,7 @@ _USER_PROFILE_ONLY_UNO = frozenset(
 
 # Product-video scenes (make demo-video). Never load under make test / test-uno /
 # test-mock-sidebar: setup raises SkipTest without WRITERAGENT_DEMO=1, and the
-# suite-level handler used to count that as a failure (GHA PR 2811).
+# Demo UNO modules skip without WRITERAGENT_DEMO=1—that skip must not count as failure.
 _DEMO_ONLY_UNO = frozenset({"test_demo_video_uno.py"})
 
 
@@ -1231,10 +1231,7 @@ def run_module_suite(
     # Discovery fallback: if no @test functions, check for old run_*_tests approach
     if not test_funcs:
         fallback_func_name = f"run_{name.split('.')[-1].replace('_tests', '').replace('test_', '')}_tests"
-        # Bugfix: #2584 dropped this override, so "calc.tests" derived
-        # "run_tests_tests", found nothing, and the Calc debug menu reported a
-        # false-green 0 passed / 0 failed. The generic rule cannot map the bare
-        # "tests" suffix to test_calc_uno.run_calc_tests, so name it explicitly.
+        # calc.tests must map to run_calc_tests—the generic suffix rule yields run_tests_tests.
         if name == "calc.tests":
             fallback_func_name = "run_calc_tests"
         fallback_func = getattr(module, fallback_func_name, None)
@@ -1677,8 +1674,7 @@ def run_all_tests(ctx: Any) -> str:
                             skip_keeper_close = True
                 except Exception as e:
                     # A *_uno.py that fails to import (renamed symbol or
-                    # syntax error) used to print and continue, so
-                    # total_failed stayed 0 and main() exited 0.
+                    # Import/syntax errors must increment failures—do not print-and-continue with exit 0.
                     # SKIP_NATIVE_RUN_ALL above is the only skip.
                     load_name = sys_module_name.replace("plugin.tests.", "")
                     message = "%s: %s" % (type(e).__name__, e)
@@ -1733,7 +1729,7 @@ def _ensure_libreoffice_python_path() -> None:
 
     On macOS, ``officehelper.py`` / ``uno.py`` live in ``Contents/Resources``
     (LibreOffice ``LIBO_LIB_PYUNO_FOLDER``), not next to the framework
-    ``python3`` that Makefile used to pick (CI 33708366478). Homebrew Caskroom
+    ``python3`` symlink (not LO's bundled interpreter on macOS). Homebrew Caskroom
     copies of the same app bundle are included so a non-``/Applications``
     install still resolves.
     """

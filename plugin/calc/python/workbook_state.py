@@ -281,9 +281,7 @@ class WorkbookState:
             cls._install_unload_listener(doc, state)
             return state
 
-        # Bugfix: a property-only RuntimeUID read missed getRuntimeUID() and the attribute
-        # and accepted non-strings. get_runtime_uid walks method, attribute, then property,
-        # and keeps only str or int.
+        # get_runtime_uid tries method, attribute, then property and keeps only str or int.
         uid = get_runtime_uid(doc)
         if uid:
             key = uid

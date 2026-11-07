@@ -113,12 +113,7 @@ def run_kokoro_stdio_loop(handler: Any) -> int:
 def _fallback_voice(kokoro: Any, requested: str) -> str:
     """Choose a fallback voice if the requested voice is missing.
 
-    What was wrong: voices[0] on an NpzFile raises KeyError ('0 is not a file
-    in the archive').
-    How it happened: kokoro_onnx stores np.load of the voices pack (NpzFile);
-    the tests used a list and a pack that still contained af_sky.
-    Why this change: iterate the archive keys into a list and take the first
-    (voices[0] raises KeyError).
+    Kokoro voice packs are NpzFile; enumerate archive keys instead of indexing voices[0].
     """
     voices = kokoro.voices
     names = [str(name) for name in voices]
@@ -162,7 +157,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         return {"status": "error", "error": "voices_path is required"}
 
     voice = str(req.get("voice") or "af_sky")
-    # What was wrong: float(req.get("speed") or 1.0) mapped a real 0.0 to 1.0.
+    # speed uses get default 1.0 so explicit 0.0 is preserved (not falsy-or).
     try:
         speed = float(req.get("speed", 1.0))
     except (TypeError, ValueError):

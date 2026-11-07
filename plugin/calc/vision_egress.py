@@ -103,9 +103,7 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
 
 def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) -> tuple[str, int, int]:
     """Return (sheet_name, start_col, start_row) one row below the graphic's anchor cell, on the graphic's sheet."""
-    # Writer already inserts by name; Calc used to ignore image_name and write under the selection.
-    # Named OCR then landed under whatever graphic happened to be selected. Resolve the named
-    # shape first so the insert uses that graphic's cell anchor, not a second selection lookup.
+    # Calc must resolve image_name to the named graphic's cell anchor; otherwise the insert follows the active selection.
     name = str(image_name or "").strip()
     if name:
         obj = get_graphic_object_by_name(doc, name)

@@ -160,14 +160,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         if res.get("status") == "ok":
             images = find_image_payloads(result)
             if images:
-                # Bugfix: What was wrong: a write failure on a later image payload abandoned
-                # earlier temp files and leaked them on disk.
-                # How it happened: the list comprehension aborted on exception, but
-                # write_image_payload_to_temp only unlinks a file whose own write failed,
-                # leaving earlier successes uncollected before out exists.
-                # Why this change fixes it: we append each successful path in a loop and,
-                # on any exception, unlink all paths already written before re-raising.
-                # Paths that later sit on out stay the caller's.
+                # Write image temps in a loop; unlink all paths written so far before re-raising on failure.
                 img_paths: list[str] = []
                 try:
                     for img in images:
@@ -210,8 +203,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                             break
                         inserted += 1
                     # Only embedded plots lose their temp file; a path is handed back
-                    # when its plot was not inserted. Partial failure used to keep
-                    # every file, including the embedded bitmaps.
+                    # Unlink only paths for plots actually inserted; partial failure keeps later temp files for the user.
                     _unlink_quiet(img_paths[:inserted])
                     shown = img_paths[inserted:]
 

@@ -211,8 +211,7 @@ class _VisitWebpageDedupTool(Tool):
         # Record the URL only after non-empty, non-error text, under the
         # same lock as the check. An error string is retryable. An empty
         # extract is too: a blank page or whitespace-only innerText is not
-        # an error prefix, so it used to be stored as visited and the next
-        # sub-query was told the URL was already read.
+        # an error prefix; only non-empty success text marks the URL visited.
         body = str(text or "").strip()
         if body and not body.startswith(("Error", "Failed")):
             with self._visited_urls.lock:
@@ -564,7 +563,7 @@ def _run_deep_web_research(
     def _chat_via(client: Any) -> Callable[[list[dict[str, str]], int], str]:
         # Planning and synthesis stay on this thread, outside the sub-query pool.
         # chat_completion_sync raises USER_STOPPED when the checker fires; an
-        # empty string used to look like a finished plan and was cached.
+        # USER_STOPPED must not become an empty cached plan string.
         def chat(messages: list[dict[str, str]], max_tok: int) -> str:
             return client.chat_completion_sync(
                 messages,
@@ -594,10 +593,7 @@ def _run_deep_web_research(
 
     def worker_factory() -> tuple[Any, Any, Any]:
         # One LlmClient owns one HTTP connection and is not safe on two threads.
-        # The deep pool (default concurrency 2) used to share the parent client,
-        # so sub-query sockets raced the planning request. Build a client on the
-        # worker. Pool threads have no send-cancellation thread-local, so pass
-        # the scope explicitly or Stop cannot close this socket.
+        # Each deep worker gets its own LlmClient and explicit cancel scope; the parent socket is not shared.
         worker_client = LlmClient(
             parent_client.config,
             parent_client.ctx,
@@ -624,9 +620,7 @@ def _run_deep_web_research(
         approval_result = agent_params.approval_callback(query_str, "web_search", {"query": query_str})
         proceed, query_override = _unpack_approval(approval_result)
         if not proceed:
-            # Reject used to skip only the preview, then run_deep_research
-            # kept going after the sidebar went idle. Same stop payload as
-            # a rejected shallow search.
+            # Reject at planning time returns the same stop payload as a rejected shallow search.
             return (
                 _user_stopped_payload(),
                 query_str,
@@ -700,9 +694,7 @@ class WebResearchTool(ToolBase):
         raw_mb = get_config("chatbot.web_cache_max_mb")
         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
         # web_cache_max_mb 0 disables the shared web cache. Page and search
-        # tools skip both the read and the write. Research used to look up
-        # whenever the db file existed and only drop the path before the
-        # write, so a disabled cache still served a stale report.
+        # web_cache_max_mb 0 omits cache_path entirely so reads and writes both stay off.
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
         cache_max_age_days = get_config("chatbot.web_cache_validity_days")
 
@@ -710,9 +702,7 @@ class WebResearchTool(ToolBase):
 
         instruction = get_research_completion_instruction(ctx.doc_type)
 
-        # deep used to be read only after this lookup, so a shallow row for the
-        # same words was returned as a deep report and a deep row could be
-        # served to ordinary web_research. Mode selects the key before any hit.
+        # cache_mode (deep vs shallow) is part of the lookup key before any cache hit.
         deep = bool(kwargs.get("deep"))
         cache_mode = "deep" if deep else ""
 

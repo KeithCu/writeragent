@@ -305,10 +305,8 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             if content and str(content).strip():
                 effects.extend(_assistant_text_effects(str(content), event_data))
             else:
-                # Bugfix: on backends that ignore tool_choice="none", the final stream
-                # may emit only a tool call and no text. Showing an empty "AI: " reply
-                # confuses the user. Display a clear localized message explaining that
-                # tool rounds were exhausted without a response.
+                # Backends may finish with tool calls only and no text. Show a localized
+                # message instead of an empty assistant bubble.
                 msg = _("Reached the maximum number of tool rounds.")
                 effects.append(
                     AddMessageEffect(

@@ -213,9 +213,8 @@ class AddComment(ToolBase):
             return self._tool_error("Provide search.")
         from ..search import find_occurrence_range, parse_non_negative_int
 
-        # What was wrong: numeric strings, floats, and empty string were rejected.
-        # How it happened: parse_non_negative_int without coerce=True rejected non-ints.
-        # Why this change: restore int() coercion via coerce=True.
+        # coerce=True lets occurrence accept string numbers and floats from the model;
+        # without it, values like "2" or 1.0 are rejected as non-integers.
         occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
         if occ_err:
             return self._tool_error(occ_err)

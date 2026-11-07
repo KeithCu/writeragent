@@ -671,9 +671,7 @@ def messages_for_llm(session: Any) -> list[dict[str, Any]]:
     if state is None:
         return sanitize_tool_pairs(list(messages))
     tail = _apply_tail_stubs(messages, state.first_kept_index, state.stubbed_tool_call_ids)
-    # Bugfix: The cut may land on an assistant message, and summary_pair includes
-    # an assistant ack by default. Strict backends reject adjacent assistant rows.
-    # Dropping the ack keeps the cut and tool pairs intact without adjacent assistant messages.
+    # When the cut starts on an assistant row, omit_ack avoids adjacent assistant messages.
     omit_ack = bool(tail) and tail[0].get("role") == "assistant"
     view = [messages[0]] + summary_pair(state.summary, omit_ack=omit_ack) + tail
     return sanitize_tool_pairs(view)
@@ -684,9 +682,7 @@ def is_context_overflow_error(text: str | None) -> bool:
     lower = (text or "").lower()
     if any(m in lower for m in _PROCESS_DEATH_MARKERS):
         return False
-    # Bugfix: "tpm" was previously a substring in _NON_OVERFLOW_MARKERS, which
-    # caused false-positive matches on words like "footpm". Using \btpm\b
-    # matches TPM as a whole word (e.g. "TPM", "foo-tpm-70b") without matching substrings.
+    # TPM rate limits match as whole word (\\btpm\\b), not substrings like "footpm".
     if any(m in lower for m in _NON_OVERFLOW_MARKERS) or _TPM_WORD.search(lower):
         return False
     if any(m in lower for m in _OVERFLOW_MARKERS):
@@ -987,10 +983,7 @@ def compact_session(
         max_out = min(max_out, max_tokens)
 
     previous = state.summary if state else ""
-    # Bugfix: The slice was sent in full with only max_tokens capped, so on force=True
-    # or a reloaded history the summarizer prompt itself overflowed, compact_session
-    # returned "failed", and should_retry_overflow stopped retrying. Chunks keep each
-    # request inside window - gen_reserve.
+    # Summarize in bounded chunks so the summarizer prompt stays inside window - gen_reserve.
     summary, reason = _summarize_bounded(
         client,
         slice_to_summarize,

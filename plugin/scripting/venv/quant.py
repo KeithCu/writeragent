@@ -64,9 +64,7 @@ def _flatten_tickers(raw_tickers: Any) -> list[str]:
 def _order_by_date(df: Any) -> Any:
     """Sort ascending on a date column. Sheet order stays when there is none.
 
-    MACD and RSI follow row order. A newest-first sheet used to be left as-is,
-    so the path was reversed and the indicators were silently wrong. The date
-    text itself is not rewritten.
+    Sort by detected date column ascending so MACD/RSI match row order; newest-first sheets would otherwise reverse indicators. Date text is not rewritten.
     """
     col = date_column(df)
     if col is None:
@@ -183,7 +181,7 @@ def technical_analysis(
 
     raw_indicators = params.get("indicators", _INDICATOR_NAMES)
     # A string is one indicator name, not a sequence of characters.
-    # An unknown name is INVALID_PARAMS. An int used to be replaced with
+    # An unknown name is INVALID_PARAMS. An int must not be replaced with.
     # the default list and return ok.
     if raw_indicators is None:
         indicators = list(_INDICATOR_NAMES)
@@ -298,9 +296,7 @@ def portfolio_tearsheet(
             returns = returns.loc[valid_mask]
             dates = dates.loc[valid_mask]
             returns.index = dates
-            # Drawdown follows date order. A newest-first sheet used to
-            # keep that order, so the path was reversed. Duplicate dates
-            # are averaged, same as the forecast time-series prep.
+            # Sort returns by date ascending before drawdown so newest-first sheets are not reversed; duplicate dates are averaged.
             returns = returns.sort_index(kind="mergesort")
             if not returns.index.is_unique:
                 returns = returns.groupby(level=0).mean()
@@ -371,7 +367,7 @@ def efficient_frontier(
             noun = "row" if n_dropped_rows == 1 else "rows"
             notes.append(f"Dropped {n_dropped_rows} {noun} with missing or non-finite returns.")
 
-        # A non-numeric rate used to escape as EXECUTION_ERROR. A weight_bounds
+        # A non-numeric rate must not escape as EXECUTION_ERROR. A weight_bounds.
         # value that was not a pair was ignored, and the library default ran.
         raw_rfr = params.get("risk_free_rate", 0.02)
         try:

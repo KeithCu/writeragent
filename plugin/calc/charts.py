@@ -64,10 +64,7 @@ def _supports_service(obj: Any, service_name: str) -> bool:
     try:
         return obj.supportsService(service_name)
     except Exception as exc:
-        # Bugfix: a closed document raises DisposedException from supportsService, and this
-        # except turned that into a missing chart or an empty list.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing error path.
+        # Re-raise document disposal; other errors become a false service miss.
         if is_disposal(exc):
             raise
         return False
@@ -78,8 +75,7 @@ def _is_draw_doc(doc: Any) -> bool:
 
     Both orders accept a live Draw doc and a live Impress doc (Impress supports
     both services, so the OR is true). A disposed document raises on the first
-    call either way. upsert_chart used to probe Presentation first; the branch
-    taken is the same.
+    call either way; either probe order is equivalent for live documents.
     """
     return _supports_service(doc, "com.sun.star.drawing.DrawingDocument") or _supports_service(
         doc, "com.sun.star.presentation.PresentationDocument"
@@ -189,10 +185,7 @@ def _chart_document_from_host(host: Any) -> Any | None:
                         return comp
                 return ed
     except Exception as e:
-        # Bugfix: a closed document raises DisposedException from the chart host, and this
-        # except turned that into a missing chart.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing error path.
+        # Re-raise document disposal; other errors look like a missing chart host.
         if is_disposal(e):
             raise
         log.debug("_chart_document_from_host getEmbeddedObject failed: %s", e)
@@ -598,8 +591,7 @@ def _apply_chart_styling(chart_doc: Any, **kwargs: Any) -> list[str]:
                 log.warning("%s", msg)
             else:
                 def _set_legend_pos() -> None:
-                    # Setting legend_position enables the legend like title setters enable titles;
-                    # previously a False HasLegend silently skipped placement.
+                    # legend_position implies HasLegend=True (False HasLegend must not skip placement).
                     chart_doc.HasLegend = True
                     member = _LEGEND_POSITION_MEMBER[legend_pos]
                     # Tip: Alignment takes ChartLegendPosition; ChartLegendAlignment is not in the API.
@@ -703,8 +695,7 @@ def _drop_failed_chart_insert(remove: Callable[[], None], name: str) -> None:
     """Remove a chart inserted before a later create step failed.
 
     A failed delete is logged and does not replace the original error.
-    A later step (diagram, title, legend) used to leave the inserted chart
-    in the document while the tool reported that the create failed.
+    Remove the chart when a post-insert configure step fails so the document does not keep a half-built chart.
     """
     try:
         remove()
@@ -777,10 +768,7 @@ def _with_warnings(out: dict[str, Any], warnings: list[str]) -> dict[str, Any]:
 def _chart_list_failure(doc: Any, exc: Exception, errors: list[dict[str, Any]], **where: Any) -> None:
     """Record one chart-list read failure, or re-raise when *doc* is closed.
 
-    Calc used to re-raise only is_disposal and then return status ok
-    with the charts appended before the failure. Draw/Writer skipped disposal
-    and raised other errors, so one bad shape aborted the list. A closed
-    document propagates. A live-document failure is appended to *errors*.
+    Closed document: re-raise disposal. Live document: append the failure to *errors* without aborting the list.
     """
     if is_disposal(exc):
         raise exc
@@ -871,10 +859,7 @@ def _iter_page_shapes(
                     raise
                 continue
             log.debug("_iter_page_shapes getShapeType failed: %s", exc)
-            # What was wrong: dropping the exception caused list_charts to silently skip
-            # broken shapes and return status: ok with a partial chart list.
-            # Why this change: notify on_probe_error callback (if provided) so list_charts records
-            # the per-shape error, while keeping shape_type as str | None (no tri-state).
+            # on_probe_error records per-shape failures instead of silently omitting broken charts.
             if on_probe_error is not None:
                 on_probe_error(i, exc)
             shape_type = None
@@ -1009,10 +994,7 @@ class SheetCharts:
             try:
                 sheet = bridge.get_sheet(target_sheet_name)
             except Exception as exc:
-                # Bugfix: a closed document raises DisposedException from get_sheet, and this
-                # except turned that into a missing sheet.
-                # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-                # Any other failure stays on the existing error path.
+                # Re-raise document disposal; other errors become a missing sheet.
                 if is_disposal(exc):
                     raise
                 return tool._tool_error(f"Sheet '{target_sheet_name}' not found in document.")
@@ -1178,10 +1160,7 @@ class WriterEmbeds:
             if cursor is None:
                 cursor = text.createTextCursorByRange(text.getEnd())
         except Exception as exc:
-            # Bugfix: a closed document raises DisposedException while creating a Writer chart, and this
-            # except turned that into a chart configure or insert error.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing error path.
+            # Re-raise document disposal; other errors become a generic chart insert failure.
             if is_disposal(exc):
                 raise
             cursor = text.createTextCursor()
@@ -1570,10 +1549,7 @@ def get_chart_info(tool: Any, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]
         try:
             info["data_ranges"] = [format_range_address(r) for r in chart_obj.getRanges()]
         except Exception as exc:
-            # Bugfix: a closed document raises DisposedException from the chart info read, and this
-            # except turned that into a partial chart.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing error path.
+            # Re-raise document disposal; other errors yield partial chart info.
             if is_disposal(exc):
                 raise
             info["data_ranges"] = []

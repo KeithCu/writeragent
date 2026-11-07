@@ -686,9 +686,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
             # Build the empty result before the try. A failure here (missing ``uno``,
             # ``createUnoStruct``) must propagate out of ``doProofreading``. The
-            # handler used to call ``_create_empty_result`` again with the same
-            # arguments when ``a_res`` was still None. That second failure left the
-            # Linguistic worker with an unhandled exception and could crash or hang Writer.
+            # ``_create_empty_result`` is called once; a second attempt on failure would
+            # leave the Linguistic worker with an unhandled exception.
             a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition, u16_map=u16_map)
             try:
                 self._ensure_document_bound(aDocumentIdentifier)
@@ -913,8 +912,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         """Ask Writer's grammar iterator to walk the document again (PROOFREAD_AGAIN)."""
         if not self._lingu_listeners:
             # Remember the miss: first addLinguServiceEventListener recovers it.
-            # Dropping this used to leave first-session Harper with a ready
-            # status bar and no grammar marks until LibreOffice restart.
+            # ``_pending_proofread_again`` schedules a later proofread when the first
+            # listener attach fails, so grammar marks are not stuck off until restart.
             self._pending_proofread_again = True
             return
         self._pending_proofread_again = False

@@ -112,12 +112,8 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
     (review off), or its anchor -- for a paragraph anchor, the paragraph's break -- inside
     a pending tracked deletion (review on). Anything else is still in place and must not be
     duplicated, e.g. a search replace of the text of the paragraph a picture is anchored to."""
-    # Bugfix: Calling original.getAnchor() crashes soffice with a null pointer dereference
-    # inside SwXFrame::getSwAnchor (sw/source/core/unocore/unoframe.cxx) when a review-off
-    # delete leaves SwXTextGraphicObject alive with an empty/null anchor. Check whether
-    # doc.getGraphicObjects().hasByName(name) still has it before calling getAnchor(). If missing,
-    # it was deleted by the edit so return True. Non-disposal lookup errors are logged and
-    # treated as deleted (reraise_if_disposed first).
+    # hasByName is tested before getAnchor() because a deleted graphic can remain in
+    # getGraphicObjects with a null anchor that crashes SwXFrame::getSwAnchor.
     try:
         graphics = model.getGraphicObjects()
         if not graphics.hasByName(name):

@@ -28,7 +28,7 @@ def _grammar_status_area(phase: str, result: str, preview: str) -> Literal["lang
         return "language"
     # SidebarGrammarStatus clips the preview to 10 characters before this
     # runs (slice_preview_debug). A language-detection failure therefore
-    # arrives as "Language d…" and used to take the Grammar label.
+    # Clipped "Language d…" failures map to the language bucket, not grammar.
     clipped = preview.strip().lower()
     if phase == "failed" and clipped in ("language detection", "language d\u2026"):
         return "language"

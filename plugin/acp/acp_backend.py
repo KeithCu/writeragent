@@ -672,8 +672,7 @@ class ACPBackend(AgentBackend):
                 if self._slot_lost_locked(conn):
                     return
             log.exception("ACP initialize failed")
-            # A crash during the handshake used to say only "process
-            # terminated". The stderr tail is the CLI's own reason.
+            # Handshake failures include stderr tail from the CLI when the process is already dead.
             detail = conn.stderr_text().strip() if not conn.is_alive else ""
             self._release_connection(conn)
             if detail:
@@ -718,7 +717,7 @@ class ACPBackend(AgentBackend):
         try:
             result = self._request(conn, "session/new", params, _SESSION_NEW_TIMEOUT_SEC)
             session_id = result.get("sessionId") if isinstance(result, dict) else None
-            # An empty id used to be stored and sent on session/prompt.
+            # session/new must return a non-empty sessionId before session/prompt.
             if not isinstance(session_id, str) or not session_id.strip():
                 raise RuntimeError(f"{self.display_name} ACP session/new returned no sessionId.")
             available_ids, current_id = (
@@ -1052,8 +1051,7 @@ class ACPBackend(AgentBackend):
                 raise
         cancelled_before_await = False
         try:
-            # Latched before await_response returns: used to deliver session/cancel from
-            # finally when the cancel hook blocked on _state_lock during begin_request.
+            # Record cancel-before-await so session/cancel is not sent twice after begin_request lock contention.
             cancelled_before_await = is_cancelled(self._active_cancel)
             return conn.await_response(handle, timeout)
         finally:
@@ -1178,8 +1176,7 @@ class ACPBackend(AgentBackend):
                     self._answer_buf.clear()
                     self._record_agent_log_offset()
                     result = self._request(conn, "session/prompt", {"sessionId": self._session_id, "prompt": prompt_blocks}, _PROMPT_IDLE_SEC)
-                    # A slash-first turn, or a turn with no system prompt, used to set the flag anyway,
-                    # so later turns skipped the manual. The flag now follows the block that was actually built.
+                    # _session_prompted tracks whether the manual block was included in this prompt.
                     if included_manual:
                         self._session_prompted = True
 

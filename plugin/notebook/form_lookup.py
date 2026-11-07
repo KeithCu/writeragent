@@ -148,8 +148,7 @@ def read_code_from_field(doc: Any, field_name: str) -> str | None:
     """Read multiline source from an in-flow form ``TextField`` by control name.
 
     ``None`` means the control is gone. ``""`` means the field is there and
-    empty. Callers used to treat both as ``""``, so Run All skipped a deleted
-    field with the same silence as a blank cell.
+    empty. Return distinct sentinels: ``None`` deleted vs ``""`` blank—Run All must not treat them the same.
     """
     model = find_form_control_model_by_name(doc, field_name)
     if model is None or not hasattr(model, "Text"):

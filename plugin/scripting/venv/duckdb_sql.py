@@ -156,8 +156,7 @@ def resolve_flat_file_path(scoped_dir: str, spec: str) -> str:
 def _read_flat_relation(con: Any, path: str) -> Any:
     """Bind a scoped flat file with the DuckDB reader that matches its suffix.
 
-    Unknown suffixes used to fall through to ``read_csv``, so Parquet/JSON
-    mis-reads looked like CSV parse noise (or a later missing table).
+    Pick the reader by file suffix so Parquet/JSON paths are not misread as CSV.
     """
     ext = _flat_ext(path)
     if ext in FLAT_CSV_EXTS:
@@ -209,7 +208,7 @@ def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
     """Explicit id, else the current shared-kernel sandbox session (if persistable).
 
     Host callers (trusted SQL, tests) may name a workbook. A sandboxed cell
-    must not: ``session_duckdb("calc:other")`` used to open that catalog.
+    A sandboxed cell must not open another workbook's catalog when an explicit session id is passed.
     """
     live_sid, _scoped, cell_active = _sandbox_context()
     current = persistable_duckdb_session_id(live_sid)
@@ -358,11 +357,8 @@ def invalidate_session_tables(
         if not name:
             continue
         try:
-            # Bugfix: unregister() is a silent no-op on CREATE TABLE / CREATE VIEW, and
-            # hasattr(raw, "unregister") made the old DROP VIEW branch dead. Flat files
-            # materialize via CREATE TABLE, so invalidate left those snapshots queryable.
-            # Look up catalog types in information_schema to drop the correct object type,
-            # and drop any stem view whose definition selects from the dropped table.
+            # Drop via information_schema because unregister() is a no-op for CREATE TABLE/VIEW materialized snapshots.
+            # Also drop stem views that select from the dropped table.
             stem = os.path.splitext(name)[0]
             stem_def: str | None = None
             if stem and stem != name:
@@ -468,7 +464,7 @@ _TOKEN_RE = re.compile(
 
 
 # Methods a script may call on session_duckdb() besides execute/sql/close.
-# __getattr__ used to forward every connection method, and ``_con`` was public,
+# __getattr__ must not forward every connection method, and ``_con`` was public,.
 # so read_csv / ``con._con.execute`` skipped the read-only firewall.
 _GUARDED_FORWARDED = frozenset({"register", "unregister", "df"})
 

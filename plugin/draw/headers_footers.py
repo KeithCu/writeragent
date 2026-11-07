@@ -169,9 +169,8 @@ def _set_visible(shape: Any, vis: bool) -> bool:
 
 
 def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
-    # What was wrong: hasattr(shape, "getPropertyValue") outside try raised UnknownPropertyException on PyUNO objects.
-    # How it happened: hasattr was lifted before the try block during cleanup.
-    # Why this change: put hasattr inside try; re-raise disposal and fall back/return False on other exceptions.
+    # PyUNO hasattr outside try can raise UnknownPropertyException. The probe stays inside try;
+    # disposal re-raises and other failures fall back or return False.
     if shape is None:
         return False
     try:

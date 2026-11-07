@@ -125,11 +125,8 @@ def parse_non_negative_int(
     raw: Any, *, name: str = "occurrence", coerce: bool = False
 ) -> tuple[int | None, str | None]:
     """Validate a non-negative integer parameter, optionally coercing via int()."""
-    # What was wrong: comments, footnotes, and page break tools rejected string numbers
-    # (e.g. "2"), floats (1.0), and empty strings that previously coerced via int().
-    # How it happened: parse_non_negative_int strictly checked type(raw) is int without
-    # an option for callers that need int() coercion.
-    # Why this change: support coerce=True so comments/footnotes/page tools can coerce.
+    # coerce=True normalizes string numbers, floats, and empty strings through int()
+    # for shared occurrence parameters; strict int-only checks reject common model input.
     if raw is None:
         return None, None
     if coerce:
@@ -390,14 +387,13 @@ def _chain_hit_range(found: Any, parts: list[str], anchor_idx: int) -> Any | Non
 
     start_range = first_start_cursor.getStart() if first_start_cursor else found.getStart()
     # Use getEnd(): last_end_cursor is collapsed (goRight with expand=False), so
-    # getStart()==getEnd() here and the old code was harmless in practice, but getEnd()
-    # is semantically correct for a range endpoint and safe if it were ever non-collapsed.
+    # last_end_cursor is collapsed today, but getEnd() is the correct range endpoint
+    # if that cursor is ever widened.
     end_range = last_end_cursor.getEnd() if last_end_cursor else found.getEnd()
 
-    # A same-text combine failure used to be logged at debug and the hit
-    # dropped. That failure is a real UNO error and must propagate.
-    # Different XText endpoints cannot be one cursor; skipping those is
-    # not a dropped same-text hit.
+    # Same-text combine failures propagate as UNO errors instead of being logged and
+    # dropped. Ranges in different XText objects are still skipped without counting
+    # as a dropped hit.
     if uno_same(start_range.getText(), end_range.getText()):
         result_range = text.createTextCursorByRange(start_range)
         result_range.gotoRange(end_range, True)
@@ -973,9 +969,8 @@ class SearchInDocument(ToolBase):
                 warning = "Text-model search ended early after a getString failure; count may be incomplete."
                 break
             if hit_text == "":
-                # What was wrong: silent break, and getString errors were folded into it by setting hit_text = ""
-                # How it happened: getEnd() does not advance a zero-length hit; b06524930 removed the comment and the distinct failure path
-                # Why this change: warn and still sweep shapes and comments; do not step one character
+                # Zero-width matches log a warning and stop the sweep so getString
+                # failures are not treated as benign empty hits with a silent count.
                 warning = "Search stopped on a zero-width match; count may be incomplete."
                 break
             total_count += 1

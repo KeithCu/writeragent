@@ -39,7 +39,7 @@ from com.sun.star.container import NoSuchElementException
 # Ensure the extension's install directory is on sys.path so that normal
 # "import plugin.xxx" statements work when LibreOffice loads this module.
 # See plugin/framework/uno_bootstrap.py for the centralized implementation
-# and rationale (this used to be duplicated fragile path logic).
+# and rationale (centralized here; do not duplicate path bootstrap).
 
 # Minimal stdlib-only bootstrap (must run before the "from plugin..." import below)
 # because unopkg writeRegistryInfo loads this file before the OXT root is on sys.path.
@@ -344,9 +344,8 @@ def plan_session_id(
 def header_third_button_kind(model: Any) -> str:
     """Shared btn_latex slot: ``python_cell``, ``latex``, or ``""`` (hide).
 
-    Draw and Impress used to get LatexButtonListener because the slot only
-    special-cased Calc. The hamburger already shows Insert LaTeX for Writer
-    only, so other documents hide the button instead of opening that dialog.
+    Only Writer and Calc get a third header button; Draw/Impress hide the LaTeX slot.
+    Calc uses python_cell; Writer uses latex.
     """
     from plugin.framework.doc_type import is_calc, is_writer
 
@@ -648,10 +647,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             model_selector = get_optional_control(root, "model_selector")
             image_model_selector = get_optional_control(root, "image_model_selector")
 
-            # Bugfix: Reading text and image models, and populating those
-            # comboboxes, had no except handler. An exception here skipped
-            # sidebar mode restore, chk_voice sync, and the backend indicator,
-            # leaving the config:changed handler prematurely.
+            # Model combobox refresh failures must log and not skip the rest of _refresh_controls_from_config.
             try:
                 self._populate_model_combos(model_selector, image_model_selector)
             except Exception:
@@ -970,10 +966,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # applies Chat and paint_session clears the transcript.
                 if panel._in_refresh_controls:
                     return
-                # A click during processEventsToIdle used to swap host.session
-                # and write [DOCUMENT CONTENT] onto the other chat. Librarian
-                # handoff calls apply_mode directly while the send is busy;
-                # only this combo listener is ignored.
+                # Ignore mode combo changes while send is busy so idle pumping cannot rebind host.session.
                 if send_listener.sidebar_state.send.is_busy:
                     # Revert the selector to the applied mode under a
                     # re-entrancy guard. The combobox has already updated, so

@@ -71,9 +71,8 @@ def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len
         ):
             continue
         if length == 0:
-            # Missing length used to fall through ``effective_len <= 0`` and
-            # drop. Only an explicit zero is an insert; an omitted length is
-            # not one.
+            # Only an explicit zero n_error_length counts as an insert; omitted
+            # length must not be clipped by the effective_len <= 0 path.
             if "n_error_length" in e:
                 clipped.append(e)
             continue

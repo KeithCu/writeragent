@@ -225,9 +225,8 @@ def split_change(old: str, new: str, threshold: float = DEFAULT_THRESHOLD) -> Sp
         definition and boundary semantics.
     """
     # crosshair: off
-    # What was wrong: identical strings over the word cap fell back to a whole-block redline.
-    # How it happened: _MAX_DIFF_WORDS cap was evaluated before checking if old == new.
-    # Why this change fixes it: return early with zero sub-edits when old == new before word capping.
+    # old == new returns zero sub-edits before the word cap runs, so long unchanged spans
+    # are not reported as one full-block redline.
     if old == new:
         return SplitResult("surgical", 0.0, [])
 
@@ -241,9 +240,8 @@ def split_change(old: str, new: str, threshold: float = DEFAULT_THRESHOLD) -> Sp
         mid_old_len = len(old_words) - prefix - suffix
         mid_new_len = len(new_words) - prefix - suffix
         if mid_old_len + mid_new_len > _MAX_DIFF_WORDS:
-            # What was wrong: inputs over the cap reported 1.0 even when a long affix was unchanged.
-            # How it happened: cap bail-out hardcoded fraction=1.0 on the entire string without stripping matching prefix/suffix words.
-            # Why this change fixes it: strip matching affixes and compute upper-bound fraction on the middle words.
+            # Above the cap, strip matching word prefix/suffix before scoring so unchanged
+            # affixes do not inflate the reported change fraction to 1.0.
             denom = prefix + suffix + mid_old_len + mid_new_len
             fraction = (mid_old_len + mid_new_len) / denom if denom else 0.0
             return SplitResult("block", fraction, [])
