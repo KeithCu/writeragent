@@ -1247,6 +1247,68 @@ def test_flush_pending_posts_keeps_unenqueued_tail():
     assert [row[0] for row in qe._pending_posts] == [second, third, newcomer]
 
 
+def test_flush_failure_logs_after_order_lock_released(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.queue_executor import MainThread, log
+
+    qe = MainThread()
+    qe._initialized = True
+    qe._async_callback_service = object()
+
+    def pending_fn() -> None:
+        pass
+
+    qe._pending_posts.append((pending_fn, (), {}, None))
+
+    class ProbeRLock:
+        def __init__(self) -> None:
+            self._lock = threading.RLock()
+            self.depth = 0
+
+        def acquire(self, blocking: bool = True, timeout: float = -1.0) -> bool:
+            acquired = self._lock.acquire(blocking, timeout)
+            if acquired:
+                self.depth += 1
+            return acquired
+
+        def release(self) -> None:
+            self.depth -= 1
+            self._lock.release()
+
+        def __enter__(self) -> bool:
+            return self.acquire()
+
+        def __exit__(self, *args: object) -> None:
+            self.release()
+
+    probe = ProbeRLock()
+    qe._order_lock = probe  # type: ignore[assignment]
+
+    fail_exc = RuntimeError("enqueue failed")
+
+    def failing_enqueue(fn: object, args: object, kwargs: object, blocking: bool = True, *, bound_scope: object = None, poke: bool = True) -> object:
+        raise fail_exc
+
+    qe._enqueue_work = failing_enqueue  # type: ignore[method-assign]
+
+    logged: list[tuple[int, str, tuple[object, ...], object]] = []
+
+    def mock_log_error(msg: str, *args: object, **kwargs: object) -> None:
+        logged.append((probe.depth, msg, args, kwargs.get("exc_info")))
+
+    monkeypatch.setattr(log, "error", mock_log_error)
+
+    qe._flush_pending_posts()
+
+    assert len(logged) == 1
+    depth, msg, args, exc_info = logged[0]
+    assert depth == 0
+    assert msg == "MainThread: flush failed after %d pending post(s); %d put back"
+    assert args == (0, 1)
+    assert exc_info is fail_exc
+    assert exc_info.__traceback__ is not None
+    assert [row[0] for row in qe._pending_posts] == [pending_fn]
+
+
 def test_execute_post_and_set_context_proceed_when_pending_flush_fails():
     from plugin.framework.queue_executor import MainThread
 
