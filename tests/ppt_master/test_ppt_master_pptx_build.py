@@ -40,6 +40,25 @@ def pid_is_alive(pid: int | None) -> bool:
     return True
 
 
+def _wait_grandchild_gone(gpid: int, timeout: float = 5.0) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            os.kill(gpid, 0)
+        except (ProcessLookupError, OSError):
+            return True
+        try:
+            state = Path(f"/proc/{gpid}/stat").read_text().split()[2]
+        except (FileNotFoundError, ProcessLookupError):
+            return True
+        except OSError:
+            state = ""
+        if state == "Z":
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def _wait_for_build_child(timeout: float = 5.0) -> ManagedSubprocess:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -161,9 +180,14 @@ def test_build_project_pptx_cancel_kills_child(mock_cfg, mock_resolve, tmp_path:
             assert target_inst not in _instances
         assert not pid_is_alive(pid)
         if sys.platform != "win32" and gc_pid is not None:
-            assert not pid_is_alive(gc_pid)
+            assert _wait_grandchild_gone(gc_pid), f"grandchild pid {gc_pid} survived kill_tree"
     finally:
         shutdown_all()
+        if gc_pid is not None and sys.platform != "win32":
+            try:
+                os.kill(gc_pid, 9)
+            except OSError:
+                pass
 
 
 @patch("plugin.ppt_master.pptx_build.resolve_venv_python")
