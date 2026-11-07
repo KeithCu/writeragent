@@ -382,14 +382,13 @@ def _ensure_debug_file_handler(logger: logging.Logger) -> None:
 
 def init_logging(ctx: Any | None = None) -> None:
     """Set global debug log path (LO user config dir) and enable_agent_log from ctx. Idempotent."""
-    # What was wrong: init_lock was held across init_config(ctx) and get_config calls.
-    # How it happened: init_config calls main.set_context(ctx), which can take
-    # queue_executor._init_lock, createInstanceWithContext when posts are waiting,
-    # and _order_lock, and query PathSettings while the config path is unset;
-    # meanwhile, UI dispatch waits on init_lock under SolarMutex, creating a deadlock.
-    # Why this change fixes it: read config and check paths outside init_lock;
-    # lock only the shared state updates and debug handler install; run excepthooks
-    # and audit after releasing init_lock.
+    # Config reads and path checks run outside init_lock. init_config/get_config
+    # can take queue_executor._init_lock and _order_lock, call
+    # createInstanceWithContext while posts wait, and query PathSettings while
+    # the config path is unset. UI dispatch can wait on init_lock while holding
+    # SolarMutex, so holding init_lock across these calls can deadlock.
+    # The lock covers only shared state updates and debug handler installation.
+    # Excepthooks and the plugin-root audit run after the lock is released.
     config_exc: Exception | None = None
     prefetched_path: str | None = None
     prefetched_enable_agent_log: Any = None
