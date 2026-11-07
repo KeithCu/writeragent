@@ -37,6 +37,7 @@ class DummyPanel:
         self._set_status = MagicMock()
         self._start_local_error_turn = MagicMock()
         self._interpret_effect = MagicMock()
+        self._close_turn_ui = MagicMock()
 
     def exit_hands_free_record(self) -> None:
         self._record_gesture = RecordGesture(sticky=False)
@@ -123,9 +124,30 @@ def test_on_capture_stopped_when_stop_requested():
     panel._wait_for_take = True
     panel.stop_requested = True
     controller = PanelVoiceController(panel)
-    with patch.object(controller, "resolve_voice_query") as mock_resolve:
+    with patch("plugin.audio.stt_service.uses_local_stt", return_value=False), patch(
+        "plugin.framework.client.model_fetcher.get_stt_model", return_value=None
+    ):
         controller.on_capture_stopped("/tmp/test.wav")
         assert panel._wait_for_take is False
-        assert panel.audio_wav_path == "/tmp/test.wav"
         panel._interpret_effect.assert_not_called()
-        mock_resolve.assert_called_once_with("")
+        panel._close_turn_ui.assert_called_once_with(speak=False)
+
+
+def test_on_capture_stopped_when_path_is_none():
+    panel = DummyPanel()
+    panel._wait_for_take = True
+    controller = PanelVoiceController(panel)
+    controller.on_capture_stopped(None)
+    assert panel._wait_for_take is False
+    panel._interpret_effect.assert_not_called()
+    panel._close_turn_ui.assert_called_once_with(speak=False)
+
+
+def test_on_capture_stopped_when_panel_gone_deletes_wav(tmp_path):
+    wav = tmp_path / "abandoned.wav"
+    wav.write_bytes(b"data")
+    panel = DummyPanel()
+    panel.ctx = None  # panel gone
+    controller = PanelVoiceController(panel)
+    controller.on_capture_stopped(str(wav))
+    assert not wav.exists()

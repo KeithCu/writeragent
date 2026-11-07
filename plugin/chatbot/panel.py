@@ -888,11 +888,8 @@ class SendButtonListener(BaseActionListener):
                 try:
                     self.audio_recorder.start_recording()
                 except Exception as exc:
-                    # Bugfix: dispatch writes is_recording=True before this effect runs;
-                    # a non-RuntimeError used to escape _interpret_effect and skip the
-                    # ERROR_OCCURRED re-entry, leaving the FSM recording after
-                    # start_recording had failed. audio_recorder.start_recording
-                    # reports start failures as RuntimeError; anything else is still that same recovery.
+                    # Start failures now arrive via on_error (background job); synchronous
+                    # exceptions (e.g. stub initialize) still raise here and recover via ERROR_OCCURRED.
                     if not isinstance(exc, RuntimeError):
                         log.exception("start_recording failed")
                     self._start_local_error_turn("\n[Audio error: %s]\n" % str(exc))
@@ -906,7 +903,7 @@ class SendButtonListener(BaseActionListener):
                     path = self.audio_recorder.stop_recording()
                     if path:
                         self.audio_wav_path = path
-                    elif getattr(self.audio_recorder, "commit_is_pending", lambda: False)() is True:
+                    elif getattr(self.audio_recorder, "stop_deferred", False) is True:
                         self._wait_for_take = True
                 except Exception as e:
                     from plugin.framework.errors import WriterAgentException

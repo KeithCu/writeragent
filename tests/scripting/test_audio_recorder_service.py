@@ -16,7 +16,6 @@ from plugin.scripting.audio_recorder_service import (
     is_audio_recording_configured,
     resolve_recording_python,
     signal_recording_stop,
-    stop_recording_process,
     wait_for_recording_ready,
 )
 
@@ -88,35 +87,16 @@ def test_wait_for_recording_ready_accepts_ready_line():
     wait_for_recording_ready(_recording_child(proc))
 
 
-def test_stop_recording_process_returns_path():
+def test_finish_recording_stop_returns_path():
     from plugin.scripting.audio_recorder_service import RecordingStopHandoff
 
     proc = MagicMock()
     proc.poll.return_value = None
-    proc.stdin = MagicMock()
-    # _write_all rejects a write() that does not return a positive byte count.
-    # Without this, the known path hides the OSError and the stop line is never accepted.
-    proc.stdin.write.side_effect = lambda data: len(data)
     proc.wait.return_value = 0
     handoff = RecordingStopHandoff()
     handoff.note_ok("/tmp/x.wav")
 
-    assert stop_recording_process(_recording_child(proc), handoff=handoff) == "/tmp/x.wav"
-    proc.stdin.write.assert_called_once_with(json.dumps({"command": "stop"}) + "\n")
-
-
-def test_stop_recording_process_uses_json_stop_command():
-    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
-
-    proc = MagicMock()
-    proc.poll.return_value = None
-    proc.stdin = _ClosingStringIO()
-    proc.wait.return_value = 0
-    handoff = RecordingStopHandoff()
-    handoff.note_ok("/tmp/x.wav")
-
-    assert stop_recording_process(_recording_child(proc), handoff=handoff) == "/tmp/x.wav"
-    assert proc.stdin.getvalue() == json.dumps({"command": "stop"}) + "\n"
+    assert finish_recording_stop(_recording_child(proc), handoff=handoff) == "/tmp/x.wav"
 
 
 def test_signal_recording_stop_writes_stop_command():
@@ -186,7 +166,7 @@ def test_stop_recording_via_handoff_reaps_on_timeout():
     handoff = RecordingStopHandoff()
     # Note nothing so wait_for_path times out
     with pytest.raises(RuntimeError, match="timed out"):
-        stop_recording_process(child, handoff=handoff, timeout_sec=0.01)
+        finish_recording_stop(child, handoff=handoff, timeout_sec=0.01)
 
     proc.wait.assert_called_with(timeout=_RECORDING_REAP_TIMEOUT_SEC)
     drain.join.assert_called()
@@ -213,7 +193,7 @@ def test_stop_gets_ok_path_already_consumed_by_stdout_monitor():
     """Manual Stop Rec must still get the WAV while the silence monitor is running.
 
     The monitor is the only stdout reader. It used to ignore ``{"status":"ok"}``,
-    so a second reader in ``stop_recording_process`` lost the path and timed out.
+    so a second reader in ``finish_recording_stop`` lost the path and timed out.
     Stop now waits on the handoff after that line has already been consumed.
     """
     import time
@@ -249,7 +229,8 @@ def test_stop_gets_ok_path_already_consumed_by_stdout_monitor():
     assert stdout.read() == ""
     assert progress == [250]
     assert handoff.snapshot_path() == wav_path
-    assert stop_recording_process(child, handoff=handoff, timeout_sec=1) == wav_path
+    signal_recording_stop(child)
+    assert finish_recording_stop(child, handoff=handoff, timeout_sec=1) == wav_path
     assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
 
 
@@ -293,10 +274,10 @@ def test_stdin_stop_reader_sets_event_when_read_raises(monkeypatch):
     assert stop_event.is_set()
 
 
-def test_stop_recording_process_requires_handoff():
+def test_finish_recording_stop_requires_handoff():
     proc = MagicMock()
     with pytest.raises(TypeError):
-        stop_recording_process(proc)  # type: ignore[call-arg]
+        finish_recording_stop(proc)  # type: ignore[call-arg]
 
 
 def test_error_line_wakes_handoff_without_callback():
@@ -595,7 +576,7 @@ def test_reap_skips_monitor_join_on_the_monitor_thread() -> None:
 
 
 
-def test_stop_recording_process_child_already_exited_returns_known_path():
+def test_finish_recording_stop_child_already_exited_returns_known_path():
     """Child exited before Stop: return the WAV path the monitor already saw, no stop line."""
     from plugin.scripting.audio_recorder_service import RecordingStopHandoff
 
@@ -604,11 +585,11 @@ def test_stop_recording_process_child_already_exited_returns_known_path():
     proc.stdout = StringIO("")
     handoff = RecordingStopHandoff()
     handoff.note_ok("/tmp/already-done.wav")
-    assert stop_recording_process(_recording_child(proc), handoff=handoff, timeout_sec=0.05) == "/tmp/already-done.wav"
+    assert finish_recording_stop(_recording_child(proc), handoff=handoff, timeout_sec=0.05) == "/tmp/already-done.wav"
     proc.stdin.write.assert_not_called()
 
 
-def test_stop_recording_process_child_already_exited_without_path_raises():
+def test_finish_recording_stop_child_already_exited_without_path_raises():
     from plugin.scripting.audio_recorder_service import RecordingStopHandoff
 
     proc = MagicMock()
@@ -616,5 +597,5 @@ def test_stop_recording_process_child_already_exited_without_path_raises():
     proc.stdout = StringIO("")
     handoff = RecordingStopHandoff()
     with pytest.raises(RuntimeError, match="already exited without a WAV path"):
-        stop_recording_process(_recording_child(proc), handoff=handoff, timeout_sec=0.05)
+        finish_recording_stop(_recording_child(proc), handoff=handoff, timeout_sec=0.05)
     proc.stdin.write.assert_not_called()

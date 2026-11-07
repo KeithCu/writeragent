@@ -117,6 +117,7 @@ class AudioRecorder:
     _auto_stop_notified: bool
     _wav_lock: threading.Lock
     _lifecycle_lock: threading.Lock
+    stop_deferred: bool
     state: AudioRecorderState
 
     def __init__(self) -> None:
@@ -131,11 +132,11 @@ class AudioRecorder:
         # that callback has dropped the file.
         self._wav_lock = threading.Lock()
         self._lifecycle_lock = threading.Lock()
+        self.stop_deferred = False
         self._epoch: int = 0
         self._start_job: BackgroundHandle | None = None
         self._stop_job: BackgroundHandle | None = None
         self._commit_pending: bool = False
-        self._committed_path: str | None = None
         self._discard_take: bool = False
         self.stream: Any = None
         self.wav_file: Any = None
@@ -269,58 +270,38 @@ class AudioRecorder:
         self._close_host_wav()
         self._silence_detector = None
 
-    def _keep_recorded_wav_or_cleanup(
-        self,
-        proc: ManagedSubprocess | None,
-        auto_path: str | None,
-        exc: BaseException,
-        *,
-        monitor: BackgroundHandle | None = None,
-        handoff: RecordingStopHandoff | None = None,
-    ) -> None:
-        """Prefer an on-disk WAV over deleting it when stop's handshake fails.
-
-        A lost ``ok`` must not delete the WAV. The stdout monitor and
-        ``stop_recording_process`` both read the child pipe, and the monitor
-        ignores ``ok``, so the handshake can fail after the child has already
-        written the path. A non-empty file is still the recording.
-        ``auto_path`` is the same idea for silence auto-stop, which publishes
-        the path before ``ok``.
-        """
-        path = auto_path or self.temp_filename
-        finalized = finalize_wav_header(path)
-        terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-        if finalized:
-            if not auto_path:
-                log.warning("Stop handshake failed; using WAV already on disk: %s", exc)
-            self.temp_filename = path
-            return
-        log.debug("Failed to stop recording subprocess: %s", exc)
-        self._teardown_capture()
-        self._delete_wav()
-
     def _finish_stop(
         self,
         proc: ManagedSubprocess,
-        handoff: RecordingStopHandoff,
+        handoff: RecordingStopHandoff | None,
         monitor: BackgroundHandle | None,
         auto_path: str | None,
         temp_path: str | None,
     ) -> None:
+        """Wait for WAV path and reap child process off the UI thread.
+
+        Bugfix: the listener previously blocked in ready/reap under the VCL lock.
+        Handoff wait and process reap now run on this background job and deliver the
+        WAV path (or None) via on_capture_stopped.
+        A lost handshake or dead child must not delete an existing WAV with valid
+        audio data: the bytes on disk are the take.
+        """
         path: str | None = None
         try:
-            try:
-                path = finish_recording_stop(proc, handoff=handoff, monitor=monitor)
-            except Exception as exc:
+            if handoff is not None:
+                try:
+                    path = finish_recording_stop(proc, handoff=handoff, monitor=monitor)
+                except Exception as exc:
+                    log.warning("finish_recording_stop failed: %s", exc)
+            if path is None:
                 wav_candidate = auto_path or temp_path
-                finalized = finalize_wav_header(wav_candidate)
+                finalized = finalize_wav_header(wav_candidate) if wav_candidate else False
                 terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-                if finalized:
+                if finalized and wav_candidate:
                     if not auto_path:
-                        log.warning("Stop handshake failed; using WAV already on disk: %s", exc)
+                        log.warning("Stop handshake failed; using WAV already on disk")
                     path = wav_candidate
                 else:
-                    log.debug("Failed to stop recording subprocess: %s", exc)
                     if temp_path:
                         try:
                             os.remove(temp_path)
@@ -330,7 +311,6 @@ class AudioRecorder:
         finally:
             with self._lifecycle_lock:
                 self._commit_pending = False
-                self._committed_path = path
                 discard = self._discard_take
             if discard:
                 if path:
@@ -339,14 +319,51 @@ class AudioRecorder:
                     except OSError:
                         pass
             else:
-                if self._on_capture_stopped is not None:
-                    self._on_capture_stopped(path)
+                callback = self._on_capture_stopped
+                if callback is not None:
+                    best_effort(lambda: callback(path), "on_capture_stopped")
+
+    def _handle_stale_start_exit(
+        self,
+        temp_path: str | None = None,
+        proc: ManagedSubprocess | None = None,
+    ) -> None:
+        """Clean up resources when start_capture exits early due to cancellation, stop, or error.
+
+        Reads and clears commit_pending under the lifecycle lock, terminates the process,
+        deletes the temp WAV, and notifies on_capture_stopped(None) if a commit was pending
+        and take was not discarded.
+        """
+        with self._lifecycle_lock:
+            commit = self._commit_pending
+            self._commit_pending = False
+            discard = self._discard_take
+            reap_proc = self._proc
+            self._proc = None
+
+        target_proc = proc or reap_proc
+        if target_proc is not None:
+            terminate_recording_process(target_proc)
+
+        if temp_path:
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
+
+        self._close_host_wav()
+
+        if commit and not discard:
+            callback = self._on_capture_stopped
+            if callback is not None:
+                best_effort(lambda: callback(None), "on_capture_stopped")
 
     def _start_capture(self, epoch: int) -> None:
         import wave
 
         silence_config = load_silence_detector_config()
         self._auto_stopped_path = None
+        temp_path: str | None = None
         exe, _err = resolve_recording_python()
         if exe:
             proc: ManagedSubprocess | None = None
@@ -355,14 +372,12 @@ class AudioRecorder:
                 proc = spawn_recording_process(exe, temp_path, silence_config=silence_config)
                 with self._lifecycle_lock:
                     if self._epoch != epoch:
-                        reap_proc = proc
                         stale = True
                     else:
                         self._proc = proc
-                        reap_proc = None
                         stale = False
                 if stale:
-                    terminate_recording_process(reap_proc)
+                    self._handle_stale_start_exit(temp_path, proc)
                     return
 
                 log.info(
@@ -372,19 +387,12 @@ class AudioRecorder:
                 wait_for_recording_ready(proc)
                 with self._lifecycle_lock:
                     if self._epoch != epoch:
-                        reap_proc = self._proc
-                        self._proc = None
                         stale = True
                     else:
                         self._start_stdout_monitor()
-                        reap_proc = None
                         stale = False
                 if stale:
-                    terminate_recording_process(reap_proc)
-                    if self.commit_is_pending() and not self._discard_take:
-                        self._commit_pending = False
-                        if self._on_capture_stopped is not None:
-                            self._on_capture_stopped(None)
+                    self._handle_stale_start_exit(temp_path, proc)
                     return
 
                 if self._on_device_ready is not None:
@@ -393,20 +401,11 @@ class AudioRecorder:
                     self.apply_device_ready()
             except Exception as exc:
                 with self._lifecycle_lock:
-                    reap_proc = self._proc
-                    self._proc = None
-                    commit = self._commit_pending
-                    self._commit_pending = False
-                    discard = self._discard_take
-                if reap_proc is not None:
-                    terminate_recording_process(reap_proc)
-                elif proc is not None:
-                    terminate_recording_process(proc)
-                if commit and not discard:
-                    if self._on_capture_stopped is not None:
-                        self._on_capture_stopped(None)
-                msg = str(exc) if isinstance(exc, RuntimeError) else f"Venv audio recording failed to start: {exc}"
-                self._notify_recording_error(msg)
+                    stale = (self._epoch != epoch)
+                self._handle_stale_start_exit(temp_path, proc)
+                if not stale:
+                    msg = str(exc) if isinstance(exc, RuntimeError) else f"Venv audio recording failed to start: {exc}"
+                    self._notify_recording_error(msg)
         else:
             # Host-side capture via downloaded sounddevice binaries (no venv).
             try:
@@ -465,10 +464,15 @@ class AudioRecorder:
                 )
                 with self._lifecycle_lock:
                     if self._epoch != epoch:
-                        best_effort(stream.close, "close stream")
-                        self._close_host_wav()
-                        return
-                    self.stream = stream
+                        stale = True
+                    else:
+                        self.stream = stream
+                        stale = False
+                if stale:
+                    best_effort(stream.close, "close stream")
+                    self._close_host_wav()
+                    self._handle_stale_start_exit(temp_path)
+                    return
 
                 if self._on_device_ready is not None:
                     self._on_device_ready()
@@ -476,10 +480,14 @@ class AudioRecorder:
                     self.apply_device_ready()
             except Exception as exc:
                 self._close_host_wav()
-                self._notify_recording_error(
-                    f"Audio recording failed to start. "
-                    f"Please configure a Python venv or click 'Download Audio' in Settings → Python. Error: {exc}"
-                )
+                with self._lifecycle_lock:
+                    stale = (self._epoch != epoch)
+                self._handle_stale_start_exit(temp_path)
+                if not stale:
+                    self._notify_recording_error(
+                        f"Audio recording failed to start. "
+                        f"Please configure a Python venv or click 'Download Audio' in Settings → Python. Error: {exc}"
+                    )
 
     def _execute_effect(self, effect: object) -> None:
         from plugin.framework.dev_build import is_dev_build
@@ -497,11 +505,8 @@ class AudioRecorder:
                 self._epoch += 1
                 epoch = self._epoch
                 self._commit_pending = False
-                self._committed_path = None
                 self._discard_take = False
 
-            # Bugfix: the listener blocked in ready/reap under the VCL lock;
-            # the job posts the existing events so Stop and repaint run.
             self._start_job = run_in_background(
                 self._start_capture,
                 epoch,
@@ -540,65 +545,47 @@ class AudioRecorder:
                 self._auto_stopped_path = None
 
                 # If the start job is alive and _stop_handoff is None, bump epoch,
-                # kill_process_tree without waiting (unblock read_json_line), return; the start job reaps.
+                # kill_process_tree without waiting on UI thread; the start job reaps.
                 if start_alive and handoff is None:
                     self._epoch += 1
                     if proc is not None:
-                        proc_popen = getattr(proc, "popen", None)
-                        if proc_popen is not None:
-                            kill_process_tree(proc_popen)
+                        run_in_background(
+                            kill_process_tree,
+                            proc.popen,
+                            name="audio-rec-stop",
+                            dedicated=True,
+                            daemon=True,
+                        )
                     if not self._discard_take:
                         self._commit_pending = True
+                        self.stop_deferred = True
                     self.temp_filename = None
                     return
 
                 if proc is not None and temp_path and self.state.status != "error":
-                    if auto_path and not proc.is_alive():
-                        terminate_recording_process(proc, monitor=monitor, handoff=handoff)
-                        if not self._discard_take:
-                            self.temp_filename = auto_path
-                        else:
-                            self.temp_filename = None
-                        return
                     if proc.is_alive() and handoff is not None:
                         try:
                             signal_recording_stop(proc)
                         except Exception as exc:
                             log.warning("signal_recording_stop failed: %s", exc)
-                        if not self._discard_take:
-                            self._commit_pending = True
-                        self.temp_filename = None
-                        # Bugfix: the listener blocked in ready/reap under the VCL lock;
-                        # the job posts the existing events so Stop and repaint run.
-                        self._stop_job = run_in_background(
-                            self._finish_stop,
-                            proc,
-                            handoff,
-                            monitor,
-                            auto_path,
-                            temp_path,
-                            name="audio-rec-stop",
-                            dedicated=True,
-                            daemon=True,
-                        )
-                        return
-                    else:
-                        self.temp_filename = None
-                        # Bugfix: the listener blocked in ready/reap under the VCL lock;
-                        # the job posts the existing events so Stop and repaint run.
-                        self._stop_job = run_in_background(
-                            terminate_recording_process,
-                            proc,
-                            monitor=monitor,
-                            handoff=handoff,
-                            name="audio-rec-stop",
-                            dedicated=True,
-                            daemon=True,
-                        )
+                    if not self._discard_take:
+                        self._commit_pending = True
+                        self.stop_deferred = True
+                    self.temp_filename = None
+                    self._stop_job = run_in_background(
+                        self._finish_stop,
+                        proc,
+                        handoff,
+                        monitor,
+                        auto_path,
+                        temp_path,
+                        name="audio-rec-stop",
+                        dedicated=True,
+                        daemon=True,
+                    )
+                    return
                 else:
                     if proc is not None:
-                        # Bugfix: the listener blocked in ready/reap under the VCL lock;
-                        # the job posts the existing events so Stop and repaint run.
                         self._stop_job = run_in_background(
                             terminate_recording_process,
                             proc,
@@ -627,9 +614,11 @@ class AudioRecorder:
             self._execute_effect(effect)
 
     def start_recording(self) -> None:
+        self.stop_deferred = False
         self._apply_event(StartRequestedEvent())
 
     def stop_recording(self) -> str | None:
+        self.stop_deferred = False
         self._apply_event(StopRequestedEvent())
         path = self.temp_filename
         self.temp_filename = None
@@ -654,23 +643,6 @@ class AudioRecorder:
         with self._lifecycle_lock:
             self._discard_take = True
             self._commit_pending = False
-            start_alive = self._start_job is not None and self._start_job.is_alive()
-            stop_alive = self._stop_job is not None and self._stop_job.is_alive()
-
-        if stop_alive:
-            self._close_host_wav()
-            return
-
-        if start_alive:
-            with self._lifecycle_lock:
-                self._epoch += 1
-                proc = self._proc
-            if proc is not None:
-                proc_popen = getattr(proc, "popen", None)
-                if proc_popen is not None:
-                    kill_process_tree(proc_popen)
-            self._close_host_wav()
-            return
 
         if self._proc is not None or self.stream is not None or self.state.status in ("initializing", "recording"):
             try:
@@ -680,6 +652,7 @@ class AudioRecorder:
                 # callback can still be inside writeframes, so stop the
                 # stream first (that waits for the callback) and close after.
                 self._teardown_capture()
+        self._close_host_wav()
         self._delete_wav()
 
     def _delete_wav(self) -> None:

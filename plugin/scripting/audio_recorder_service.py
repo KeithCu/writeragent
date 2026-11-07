@@ -104,7 +104,7 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
 
 
 class RecordingStopHandoff:
-    """WAV path stashed by the sole stdout monitor for ``stop_recording_process``.
+    """WAV path stashed by the sole stdout monitor for ``finish_recording_stop``.
 
     Manual Stop Rec used to call ``read_json_line`` on the same pipe the silence
     monitor was already reading. The monitor only handled ``silence_progress``,
@@ -290,26 +290,8 @@ def finish_recording_stop(
                 ) from None
             raise
     finally:
-        # Bugfix: this used to pass the 15s path timeout again, so Stop on the
-        # VCL thread could block 15s plus another 15s before terminate. The
-        # path wait above is the long timeout. After it returns or raises, 2s
-        # plus the existing kill escalation is enough.
+        # Reap on every exit (success, timeout, or exception) so the process is never leaked.
         _reap_recording_process(managed, _RECORDING_REAP_TIMEOUT_SEC, monitor=monitor, handoff=handoff)
-
-
-def stop_recording_process(
-    managed: ManagedSubprocess,
-    *,
-    handoff: RecordingStopHandoff,
-    timeout_sec: float | None = None,
-    monitor: BackgroundHandle | None = None,
-) -> str:
-    """Send the stop line and wait on the handoff for the WAV path.
-
-    The monitor is the sole stdout reader; this function does not read stdout.
-    """
-    signal_recording_stop(managed)
-    return finish_recording_stop(managed, handoff=handoff, timeout_sec=timeout_sec, monitor=monitor)
 
 
 def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingStopHandoff, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None, on_error: Callable[[str], None] | None) -> None:
@@ -347,7 +329,7 @@ def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingSto
 def monitor_recording_stdout(managed: ManagedSubprocess, *, handoff: RecordingStopHandoff, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None = None, on_error: Callable[[str], None] | None = None) -> BackgroundHandle:
     """Sole stdout reader for venv recorder IPC.
 
-    Pass the same *handoff* to ``stop_recording_process``. This thread consumes
+    Pass the same *handoff* to ``finish_recording_stop``. This thread consumes
     ``silence_progress``, ``auto_stopped``, ``error``, and the final ``ok``
     line. Stop must not read the pipe or it races this loop and loses the path.
     """
