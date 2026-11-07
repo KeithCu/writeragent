@@ -559,6 +559,7 @@ class SendButtonListener(BaseActionListener):
             preset_instruction=instruction,
             allow_whole_document=True,
             sidebar_notify=lambda msg: self.append_output("\n" + msg + "\n"),
+            host=self,
         )
 
     def slash_agent_edit_in_flight(self) -> bool:

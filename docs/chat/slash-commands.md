@@ -45,7 +45,7 @@ Typed in the **chat sidebar** Ask box. Not a LibreOffice menu, not LibrePy, not 
 
 **Effort:** S = a row in a preset table plus a prompt, reusing an existing path. M = new routing or a small new helper. L = new product work.
 
-Most Tier 1 verbs share one mechanism: a table of `(name, instruction, target)` presets. A **rewrite** preset runs the existing Edit Selection path (`plugin/chatbot/selection.py`), so Writer edits land as reviewable tracked changes. An **answer** preset sends a normal chat turn with the instruction prepended and the selection quoted. One table and one router cover all of them. Each preset should fall back to the whole document (or the used range in Calc) when nothing is selected.
+Most Tier 1 verbs share one mechanism: a table of `(name, instruction, target)` presets. A **rewrite** preset runs the existing Edit Selection path (`plugin/chatbot/selection.py`), so Writer edits land as reviewable tracked changes (rewrite presets use that sidebar Stop scope). An **answer** preset sends a normal chat turn with the instruction prepended and the selection quoted. One table and one router cover all of them. Each preset should fall back to the whole document (or the used range in Calc) when nothing is selected.
 
 ### Tier 1: build these first
 

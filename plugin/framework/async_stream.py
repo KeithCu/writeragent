@@ -1303,6 +1303,8 @@ def run_stream_completion_async(
     batched = BatchingStreamQueue(StreamQueue(), batch_interval=0.25)
 
     def worker(q: queue.Queue[Any]) -> None:
+        if cancel is not None:
+            cancel.register_client(client)
         kwargs: dict[str, Any] = {
             "append_callback": lambda t: q.put((StreamQueueKind.CHUNK, t)),
             "append_thinking_callback": lambda t: q.put((StreamQueueKind.THINKING, t)),

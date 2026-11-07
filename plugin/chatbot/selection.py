@@ -17,8 +17,9 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 from plugin.framework.model_lru import update_lru_history
 from plugin.framework.doc_type import DocumentType, get_document_type
@@ -28,14 +29,102 @@ from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.llm_client import LlmClient
 
-if TYPE_CHECKING:
-    from plugin.framework.send_cancellation import SendCancellation
-
+from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.uno_listeners import BaseListener
+from plugin.chatbot.send_state import SendEvent, SendEventKind, spawn_scope
 from plugin.framework.config import get_api_config, save, validate_api_config
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx, get_document_from_frame
 from .dialogs import msgbox
 from .dialog_views import input_box
+
+
+@dataclass
+class _SelectionArm:
+    scope: SendCancellation
+    host: Any | None
+    armed: bool
+    detach: Callable[[], None]
+    ended: bool = False
+
+
+class _SelectionDocListener(BaseListener):
+    _scope: SendCancellation
+
+    def __init__(self, scope: SendCancellation) -> None:
+        super().__init__()
+        self._scope = scope
+
+    def on_disposing(self, Source: Any) -> None:
+        self._scope.cancel()
+
+
+def bind_selection_cancel(
+    host: Any | None,
+    model: Any,
+    cancel: SendCancellation | None = None,
+) -> _SelectionArm:
+    scope: SendCancellation
+    armed = False
+
+    if cancel is not None:
+        scope = cancel
+    elif host is not None and hasattr(host, "_send_cancellation"):
+        existing_scope = spawn_scope(host)
+        if existing_scope is not None:
+            scope = existing_scope
+        else:
+            send_state = getattr(getattr(host, "sidebar_state", None), "send", None)
+            if send_state is not None and not send_state.is_busy and not send_state.is_recording:
+                scope = SendCancellation()
+                host._send_cancellation = scope
+                if hasattr(host, "_stop_requested_fallback"):
+                    host._stop_requested_fallback = False
+                host.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
+                armed = True
+            else:
+                scope = SendCancellation()
+    else:
+        scope = SendCancellation()
+
+    listener: _SelectionDocListener | None = None
+    if model is not None and hasattr(model, "addEventListener"):
+        listener = _SelectionDocListener(scope)
+        with contextlib.suppress(Exception):
+            model.addEventListener(listener)
+
+    def detach() -> None:
+        if listener is not None and model is not None and hasattr(model, "removeEventListener"):
+            with contextlib.suppress(Exception):
+                model.removeEventListener(listener)
+
+    return _SelectionArm(scope=scope, host=host, armed=armed, detach=detach)
+
+
+def end_selection_cancel(arm: _SelectionArm) -> None:
+    """Tear down a selection cancel arm; idempotent."""
+    if arm.ended:
+        return
+    arm.ended = True
+    with contextlib.suppress(Exception):
+        arm.detach()
+
+    if not arm.armed:
+        return
+    host = arm.host
+    if host is None or getattr(host, "_panel_teardown", False):
+        return
+    if getattr(host, "_send_cancellation", None) is arm.scope:
+        host._send_cancellation = None
+    if hasattr(host, "_stop_requested_fallback"):
+        host._stop_requested_fallback = False
+
+    send_state = getattr(getattr(host, "sidebar_state", None), "send", None)
+    if send_state is not None and getattr(send_state, "is_busy", False):
+        host.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+        sync_fn = getattr(host, "sync_has_text_from_query", None)
+        if callable(sync_fn):
+            sync_fn()
 
 
 @dataclass
@@ -117,6 +206,7 @@ def stream_completion_tasks(
     prepare_task_fn: PrepareTaskFn,
     on_finished: Callable[[], None] | None = None,
     *,
+    cancel: SendCancellation | None = None,
     completion_out: dict[str, Any] | None = None,
 ) -> None:
     """Run simple completion streams sequentially, advancing from each done callback.
@@ -186,6 +276,8 @@ def stream_completion_tasks(
             apply_chunk_fn,
             schedule_next_when_idle,
             on_error,
+            cancel=cancel,
+            on_stopped_fn=finish_once,
             completion_out=completion_out,
         )
 
@@ -204,6 +296,8 @@ def do_selection_action_for_document(
     preset_instruction: str | None = None,
     allow_whole_document: bool = False,
     sidebar_notify: Callable[[str], None] | None = None,
+    cancel: SendCancellation | None = None,
+    host: Any | None = None,
 ) -> None:
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
@@ -217,9 +311,11 @@ def do_selection_action_for_document(
                 preset_instruction=preset_instruction,
                 allow_whole_document=allow_whole_document,
                 sidebar_notify=sidebar_notify,
+                cancel=cancel,
+                host=host,
             )
         else:
-            do_extend_selection(ctx, model)
+            do_extend_selection(ctx, model, cancel=cancel, host=host)
         return
 
     if doc_type == DocumentType.CALC:
@@ -232,6 +328,8 @@ def do_selection_action_for_document(
             preset_instruction=preset_instruction,
             sidebar_notify=sidebar_notify,
             allow_whole_document=allow_whole_document,
+            cancel=cancel,
+            host=host,
         )
         return
 
@@ -245,6 +343,8 @@ def do_selection_action_for_document(
             preset_instruction=preset_instruction,
             sidebar_notify=sidebar_notify,
             allow_whole_document=allow_whole_document,
+            cancel=cancel,
+            host=host,
         )
         return
 
@@ -265,7 +365,13 @@ def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
     uses the focused document.
     """
     ctx = get_ctx()
+    host = None
     if frame is not None:
+        from plugin.framework.frame_session import session_for_frame
+
+        session = session_for_frame(frame)
+        if session is not None and getattr(session, "panel", None) is not None:
+            host = getattr(session.panel, "send_listener", None)
         doc = get_document_from_frame(frame)
     else:
         doc = services.document.get_active_document()
@@ -273,7 +379,7 @@ def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
         msgbox(ctx, "WriterAgent", _("No document open"))
         return
 
-    do_selection_action_for_document(ctx, doc, is_edit)
+    do_selection_action_for_document(ctx, doc, is_edit, host=host)
 
 
 def action_extend_selection(services: Any, frame: Any = None) -> None:

@@ -17,12 +17,26 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Operations for Calc (Extend/Edit Selection)."""
 
-from typing import Any, Callable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Callable
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.calc.calc_utils import FORMULA, TEXT
 from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
 from plugin.chatbot.dialogs import msgbox
-from plugin.chatbot.selection import ApplyChunkFn, ErrorFn, StreamCompletionTask, create_validated_client, prompt_for_edit_instructions, stream_completion_tasks
+from plugin.chatbot.selection import (
+    ApplyChunkFn,
+    ErrorFn,
+    StreamCompletionTask,
+    bind_selection_cancel,
+    create_validated_client,
+    end_selection_cancel,
+    prompt_for_edit_instructions,
+    stream_completion_tasks,
+)
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.framework.config import get_config
 from plugin.framework.errors import format_error_message
@@ -40,6 +54,8 @@ def do_calc_extend_edit(
     preset_instruction: str | None = None,
     sidebar_notify: Callable[[str], None] | None = None,
     allow_whole_document: bool = False,
+    cancel: SendCancellation | None = None,
+    host: Any | None = None,
 ) -> None:
     sheet = model.CurrentController.ActiveSheet
     selection = model.CurrentController.Selection
@@ -187,22 +203,26 @@ def do_calc_extend_edit(
     undo = WriterCompoundUndo(model, title)
 
     def on_finished() -> None:
-        undo.close()
-        record_agent_turn_after(model)
-        if (
-            is_edit
-            and preset_instruction is not None
-            and sidebar_notify is not None
-            and not produced_text[0]
-        ):
-            finish = completion_meta.get("finish_reason")
-            if finish == "length":
-                sidebar_notify(
-                    _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
-                )
-            elif finish == "stop":
-                sidebar_notify(_("The model returned no text. Try again."))
+        try:
+            undo.close()
+            record_agent_turn_after(model)
+            if (
+                is_edit
+                and preset_instruction is not None
+                and sidebar_notify is not None
+                and not produced_text[0]
+            ):
+                finish = completion_meta.get("finish_reason")
+                if finish == "length":
+                    sidebar_notify(
+                        _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
+                    )
+                elif finish == "stop":
+                    sidebar_notify(_("The model returned no text. Try again."))
+        finally:
+            end_selection_cancel(arm)
 
+    arm = bind_selection_cancel(host, model, cancel)
     try:
         stream_completion_tasks(
             ctx,
@@ -210,9 +230,13 @@ def do_calc_extend_edit(
             tasks,
             prepare_task,
             on_finished,
+            cancel=arm.scope,
             completion_out=completion_meta,
         )
     except BaseException:
-        undo.close()
-        record_agent_turn_after(model)
+        try:
+            undo.close()
+            record_agent_turn_after(model)
+        finally:
+            end_selection_cancel(arm)
         raise

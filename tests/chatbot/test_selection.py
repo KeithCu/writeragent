@@ -5,6 +5,7 @@
 """Extend/Edit uses the sidebar frame when the hamburger passes one."""
 
 from __future__ import annotations
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -31,7 +32,7 @@ def test_frame_model_is_used(monkeypatch) -> None:
         assert got is frame
         return model
 
-    def _do(ctx, doc, is_edit):
+    def _do(ctx, doc, is_edit, **kwargs):
         seen["doc"] = doc
         seen["is_edit"] = is_edit
 
@@ -49,7 +50,7 @@ def test_no_frame_uses_active_document(monkeypatch) -> None:
     def _from_frame(got):
         raise AssertionError(got)
 
-    def _do(ctx, doc, is_edit):
+    def _do(ctx, doc, is_edit, **kwargs):
         seen["doc"] = doc
         seen["is_edit"] = is_edit
 
@@ -68,7 +69,7 @@ def test_registered_handler_passes_frame(monkeypatch) -> None:
     model = object()
     seen: dict[str, object] = {}
 
-    def _do(ctx, doc, is_edit):
+    def _do(ctx, doc, is_edit, **kwargs):
         seen["doc"] = doc
         seen["edit"] = is_edit
 
@@ -375,6 +376,138 @@ def test_initialize_registers_all_module_yaml_actions() -> None:
     for action_key in actions:
         handler = get_action_handler(f"chatbot.{action_key}")
         assert handler is not None, f"Missing handler for chatbot.{action_key}"
+
+
+def test_bind_and_end_selection_cancel_idle_and_busy_hosts() -> None:
+    from plugin.chatbot.selection import bind_selection_cancel, end_selection_cancel
+    from plugin.chatbot.send_state import SendEventKind
+    from plugin.framework.send_cancellation import SendCancellation
+
+    # Idle fake host
+    class FakeIdleHost:
+        def __init__(self) -> None:
+            self._send_cancellation = None
+            self._stop_requested_fallback = False
+            self.sidebar_state = SimpleNamespace(send=SimpleNamespace(is_busy=False, is_recording=False))
+            self.dispatched: list[Any] = []
+            self.synced = False
+
+        def dispatch(self, event: Any) -> None:
+            self.dispatched.append(event)
+            if event.kind == SendEventKind.EXTRACTED_SEND:
+                self.sidebar_state.send.is_busy = True
+            elif event.kind == SendEventKind.SEND_COMPLETED:
+                self.sidebar_state.send.is_busy = False
+
+        def sync_has_text_from_query(self) -> None:
+            self.synced = True
+
+    idle_host = FakeIdleHost()
+    model = object()
+    arm = bind_selection_cancel(idle_host, model)
+    assert arm.armed is True
+    assert isinstance(idle_host._send_cancellation, SendCancellation)
+    assert arm.scope is idle_host._send_cancellation
+    assert len(idle_host.dispatched) == 1
+    assert idle_host.dispatched[0].kind == SendEventKind.EXTRACTED_SEND
+
+    end_selection_cancel(arm)
+    assert idle_host._send_cancellation is None
+    assert idle_host.synced is True
+    assert len(idle_host.dispatched) == 2
+    assert idle_host.dispatched[1].kind == SendEventKind.SEND_COMPLETED
+
+    # Busy fake host
+    class FakeBusyHost:
+        def __init__(self, existing_scope: SendCancellation) -> None:
+            self._send_cancellation = existing_scope
+            self._stop_requested_fallback = False
+            self.sidebar_state = SimpleNamespace(send=SimpleNamespace(is_busy=True, is_recording=False))
+            self.dispatched: list[Any] = []
+            self.synced = False
+
+        def dispatch(self, event: Any) -> None:
+            self.dispatched.append(event)
+
+        def sync_has_text_from_query(self) -> None:
+            self.synced = True
+
+    existing_scope = SendCancellation()
+    busy_host = FakeBusyHost(existing_scope)
+    busy_arm = bind_selection_cancel(busy_host, model)
+    assert busy_arm.armed is False
+    assert busy_arm.scope is existing_scope
+    assert busy_host.dispatched == []
+
+    end_selection_cancel(busy_arm)
+    assert busy_host._send_cancellation is existing_scope
+    assert busy_host.dispatched == []
+    assert busy_host.synced is False
+
+
+def test_bind_selection_cancel_model_disposing_cancels_scope() -> None:
+    from plugin.chatbot.selection import bind_selection_cancel, end_selection_cancel
+
+    class FakeModel:
+        def __init__(self) -> None:
+            self.listeners: list[Any] = []
+
+        def addEventListener(self, listener: Any) -> None:
+            self.listeners.append(listener)
+
+        def removeEventListener(self, listener: Any) -> None:
+            self.listeners.remove(listener)
+
+    model = FakeModel()
+    arm = bind_selection_cancel(None, model)
+    assert len(model.listeners) == 1
+    assert not arm.scope.is_cancelled()
+
+    model.listeners[0].disposing(None)
+    assert arm.scope.is_cancelled() is True
+
+    end_selection_cancel(arm)
+    assert len(model.listeners) == 0
+
+
+def test_stream_completion_tasks_stopped_fn_aborts_subsequent_tasks() -> None:
+    from plugin.chatbot.selection import stream_completion_tasks, StreamCompletionTask
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    tasks = [
+        StreamCompletionTask("p1", "s1", 10),
+        StreamCompletionTask("p2", "s2", 10),
+    ]
+
+    started_tasks: list[StreamCompletionTask] = []
+    finished_calls: list[bool] = []
+
+    def prepare_task(task: StreamCompletionTask) -> tuple[Any, Any]:
+        started_tasks.append(task)
+        return (lambda chunk, is_t=False: None), (lambda exc: None)
+
+    def fake_stream_completion(*args: Any, **kwargs: Any) -> None:
+        on_stopped_fn = kwargs.get("on_stopped_fn")
+        cancel = kwargs.get("cancel")
+        if cancel is not None:
+            cancel.cancel()
+        if on_stopped_fn is not None:
+            on_stopped_fn()
+
+    with patch("plugin.chatbot.selection.stream_completion", side_effect=fake_stream_completion):
+        stream_completion_tasks(
+            MagicMock(),
+            MagicMock(),
+            tasks,
+            prepare_task,
+            on_finished=lambda: finished_calls.append(True),
+            cancel=scope,
+        )
+
+    assert len(started_tasks) == 1
+    assert len(finished_calls) == 1
+
 
 
 
