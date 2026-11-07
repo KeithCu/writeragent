@@ -566,3 +566,49 @@ def test_folder_store_lancedb_lists_collection_once(tmp_path):
     assert folder.is_empty is False
     assert folder.search_path is not None
 
+
+def test_resolve_index_context_does_not_delete_stale_schema(tmp_path):
+    listing = str(tmp_path / "folder")
+    cache_dir = Path(listing) / embeddings_cache.EMBEDDINGS_CACHE_DIRNAME
+    cache_dir.mkdir(parents=True)
+    meta_path = cache_dir / embeddings_cache.CORPUS_META_FILENAME
+    meta_path.write_text('{"schema_version": "0"}', encoding="utf-8")
+    db_path = cache_dir / embeddings_cache.CORPUS_DB_FILENAME
+    db_path.write_text("data", encoding="utf-8")
+    zvec_dir = cache_dir / "zvec"
+    zvec_dir.mkdir()
+    (zvec_dir / "entry").write_text("data", encoding="utf-8")
+
+    with patch("plugin.embeddings.embeddings_cache.shutil.rmtree") as rmtree_mock:
+        folder_key, resolved_db, resolved_meta, resolved_listing = embeddings_cache.resolve_index_context(listing_root=listing)
+
+    rmtree_mock.assert_not_called()
+    assert zvec_dir.exists()
+    assert db_path.exists()
+    assert meta_path.exists()
+    assert folder_key == embeddings_cache.folder_corpus_key(listing)
+    assert resolved_db == db_path
+    assert resolved_meta == meta_path
+    assert resolved_listing == listing
+
+
+def test_folder_store_foreign_schema_is_empty_without_delete(tmp_path):
+    listing = str(tmp_path / "folder")
+    cache_dir = Path(listing) / embeddings_cache.EMBEDDINGS_CACHE_DIRNAME
+    cache_dir.mkdir(parents=True)
+    meta_path = cache_dir / embeddings_cache.CORPUS_META_FILENAME
+    meta_path.write_text('{"schema_version": "5", "chunk_count": "3"}', encoding="utf-8")
+    db_path = cache_dir / embeddings_cache.CORPUS_DB_FILENAME
+    db_path.write_text("sqlite", encoding="utf-8")
+
+    store = embeddings_cache.folder_store(listing, meta_path, db_path, mode="fts")
+    assert store.is_empty is True
+    assert store.search_path is None
+    assert db_path.exists()
+    assert meta_path.exists()
+
+    meta_path.write_text(f'{{"schema_version": "{embeddings_cache.SCHEMA_VERSION}", "chunk_count": "3"}}', encoding="utf-8")
+    store_matching = embeddings_cache.folder_store(listing, meta_path, db_path, mode="fts")
+    assert store_matching.is_empty is False
+    assert store_matching.search_path == str(db_path)
+
