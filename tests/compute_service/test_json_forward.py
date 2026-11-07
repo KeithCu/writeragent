@@ -19,6 +19,7 @@ from compute_service.json_forward import (
     ExecuteRequestParts,
     MAX_META_BYTES,
     _disposition_name,
+    derive_execute_mode,
     dumps_response,
     is_multipart_content_type,
     parse_execute_request,
@@ -894,7 +895,7 @@ class TestPeelAndMultipartAgree:
         assert seen_p["data_json"] == data
         assert seen_p["mode"] == "isolated"
 
-    def test_over_cap_and_bad_mode_rejected_on_both(self) -> None:
+    def test_over_cap_rejected_on_both(self) -> None:
         limit = 64
         code = "α" * (limit + 1)
 
@@ -910,14 +911,16 @@ class TestPeelAndMultipartAgree:
         _assert_rejected(peel, "application/json")
         _assert_rejected(multipart, content_type)
 
-        for mode in (False, 0, "Shared"):
+    def test_leftover_client_mode_ignored_on_both(self) -> None:
+        """Malformed mode in peel or multipart meta does not affect routing (no query session_id)."""
+        for mode in (False, 0, "Shared", "bogus"):
             peel_mode = json.dumps({"id": "mode", "code": "result = 1", "mode": mode}).encode()
             mp_type, mp_body = encode_multipart_execute({"id": "mode", "mode": mode}, code="result = 1")
             for body, ctype in ((peel_mode, "application/json"), (mp_body, mp_type)):
-                status, seen, out = self._run(body, ctype, limit=64)
-                assert status.startswith("400"), (mode, ctype, out)
-                assert seen == {}
-                assert "mode" in json.loads(out).get("error", "")
+                status, seen, _out = self._run(body, ctype, limit=64)
+                assert status.startswith("200"), (mode, ctype)
+                assert seen.get("mode") == "isolated"
+                assert seen.get("session_id") is None
 
     def test_empty_init_script_is_absent_on_both(self) -> None:
         peel = json.dumps({"id": "e", "code": "result = 1", "init_script": ""}).encode()
@@ -1006,6 +1009,13 @@ class TestHttpLargeRoundTrip:
         assert parsed["id"] == "http-mp-big"
         assert parsed["result"][0][0] == 0.0
         assert parsed["result"][-1][-1] == float(rows * cols - 1)
+
+
+def test_derive_execute_mode_from_session_id() -> None:
+    assert derive_execute_mode(None) == "isolated"
+    assert derive_execute_mode("") == "isolated"
+    assert derive_execute_mode("   ") == "isolated"
+    assert derive_execute_mode("doc-7") == "shared"
 
 
 def test_validate_session_id() -> None:

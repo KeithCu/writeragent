@@ -25,7 +25,7 @@ import pytest
 
 from compute_service.config import ComputeSettings, ConfigError, clamp_timeout_sec, load_settings
 from compute_service.formula_worker import _handle_request
-from compute_service.formula_pool import shutdown_formula_pool
+from compute_service.formula_pool import FormulaProcessPool, shutdown_formula_pool
 from compute_service.json_egress import normalize_execute_response, sanitize_for_strict_json, to_dumb_json_value
 from tests.compute_service.multipart_encode import encode_multipart_vision
 from compute_service.server import create_wsgi_app
@@ -758,14 +758,14 @@ class TestComputeHttp:
         )
         assert r2["status"] == "ok" and r2["result"] == 99
 
-    @pytest.mark.parametrize(
-        "value, value_2, value_3, expected, value_4",
-        [
-            pytest.param("session_id", "body-sid-req", "bad-body-sid", "body-sid-req", "query parameter", id="test_session_id_in_json_body_returns_400"),
-            pytest.param("mode", "missing-sid-req", "shared", "missing-sid-req", "requires a 'session_id' URL query parameter", id="test_shared_mode_missing_session_id_returns_400"),
-        ],
-    )
-    def test_session_id_in_json_body_returns_400(self, compute_url: str, value, value_2, value_3, expected, value_4) -> None:
+    def test_session_id_in_json_body_returns_400(self, compute_url: str) -> None:
+        value, value_2, value_3, expected, value_4 = (
+            "session_id",
+            "body-sid-req",
+            "bad-body-sid",
+            "body-sid-req",
+            "query parameter",
+        )
         req = urllib.request.Request(
             f"{compute_url}/v1/execute",
             data=json.dumps({"id": value_2, "code": "result = 1", value: value_3}).encode("utf-8"),
@@ -2253,9 +2253,12 @@ class TestSessionResetHttp:
         assert parsed.get("code") == "VISION_POOL_BUSY"
         assert parsed.get("id") == "vslow"
 
-    def test_unknown_mode_is_400(self) -> None:
-        def execute_fn(**_kwargs):
-            raise AssertionError("bad mode must not run")
+    def test_unknown_mode_is_ignored(self) -> None:
+        seen: dict[str, Any] = {}
+
+        def execute_fn(**kwargs):
+            seen.update(kwargs)
+            return {"status": "ok", "result": 1, "stdout": ""}
 
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
         status, _headers, body = _wsgi_post(
@@ -2263,9 +2266,10 @@ class TestSessionResetHttp:
             json.dumps({"id": "mode-1", "code": "result = 1", "mode": "Shared"}).encode("utf-8"),
             path="/v1/execute",
         )
-        assert status.startswith("400")
+        assert status.startswith("200")
         assert body.get("id") == "mode-1"
-        assert "mode" in body.get("error", "")
+        assert body.get("status") == "ok"
+        assert seen.get("mode") == "isolated"
 
     def test_peel_init_script_over_cap_is_400(self) -> None:
         def execute_fn(**_kwargs):
@@ -3679,21 +3683,85 @@ def test_empty_multi_data_result() -> None:
     assert out["result"] == []
 
 
-def test_isolated_mode_with_session_id_rejected() -> None:
-    """An isolated execute request carrying ?session_id= must return HTTP 400."""
-    settings = ComputeSettings()
-    app = create_wsgi_app(settings, execute_fn=lambda **kwargs: {"status": "ok"})
-
-    for body in (b'{"code": "result = 1", "mode": "isolated"}', b'{"code": "result = 1"}'):
-        status, _headers, parsed = _wsgi_post(
+def test_query_session_id_selects_shared_ignoring_client_mode() -> None:
+    """?session_id= enables sticky shared state even when the body still says mode=isolated."""
+    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    app = create_wsgi_app(
+        ComputeSettings(host="127.0.0.1", workers=1),
+        execute_fn=lambda **kw: pool.execute(**kw),
+    )
+    sid = "query-sid-overrides-mode"
+    try:
+        status1, _h1, first = _wsgi_post(
             app,
-            body,
+            json.dumps({"code": "x = 9\nresult = x", "mode": "isolated"}).encode("utf-8"),
             path="/v1/execute",
-            query="session_id=valid_sid",
+            query=f"session_id={sid}",
             headers={"Content-Type": "application/json"},
         )
-        assert status == "400 Bad Request"
-        assert "session_id URL query parameter is only permitted with mode='shared'" in parsed.get("error", "")
+        assert status1.startswith("200") and first.get("result") == 9
+        status2, _h2, second = _wsgi_post(
+            app,
+            json.dumps({"code": "result = x + 1", "mode": "shared"}).encode("utf-8"),
+            path="/v1/execute",
+            query=f"session_id={sid}",
+            headers={"Content-Type": "application/json"},
+        )
+        assert status2.startswith("200") and second.get("result") == 10
+        status3, _h3, third = _wsgi_post(
+            app,
+            json.dumps({"code": "result = x", "mode": "bogus"}).encode("utf-8"),
+            path="/v1/execute",
+            query=f"session_id={sid}",
+            headers={"Content-Type": "application/json"},
+        )
+        assert status3.startswith("200") and third.get("result") == 9
+    finally:
+        pool.shutdown()
+        shutdown_formula_pool()
+
+
+def test_omitted_query_session_id_is_isolated_even_with_mode_shared() -> None:
+    """Without ?session_id=, leftover mode=shared in JSON does not keep state."""
+    pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+    app = create_wsgi_app(
+        ComputeSettings(host="127.0.0.1", workers=1),
+        execute_fn=lambda **kw: pool.execute(**kw),
+    )
+    try:
+        _s1, _h1, r1 = _wsgi_post(
+            app,
+            json.dumps({"code": "flag = 3\nresult = flag", "mode": "shared"}).encode("utf-8"),
+            path="/v1/execute",
+            headers={"Content-Type": "application/json"},
+        )
+        assert r1["status"] == "ok" and r1["result"] == 3
+        _s2, _h2, r2 = _wsgi_post(
+            app,
+            json.dumps({"code": "result = flag", "mode": "shared"}).encode("utf-8"),
+            path="/v1/execute",
+            headers={"Content-Type": "application/json"},
+        )
+        assert r2["status"] == "error"
+    finally:
+        pool.shutdown()
+        shutdown_formula_pool()
+
+
+def test_malformed_client_mode_is_ignored() -> None:
+    """Arbitrary mode values are not validated; routing uses ?session_id= only."""
+    seen: list[str] = []
+
+    def execute_fn(**kwargs):
+        seen.append(kwargs.get("mode", ""))
+        return {"status": "ok", "result_json": b'{"status":"ok","result":1}'}
+
+    app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
+    for mode in (False, 0, "Shared", "bogus"):
+        body = json.dumps({"code": "result = 1", "mode": mode}).encode()
+        status, _headers, _parsed = _wsgi_post(app, body, path="/v1/execute", headers={"Content-Type": "application/json"})
+        assert status.startswith("200")
+    assert seen == ["isolated"] * 4
 
 
 def test_slow_body_drip_is_408() -> None:

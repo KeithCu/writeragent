@@ -101,8 +101,8 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         )
 
     session_id = req.get("session_id")
-    # Pool execute() already rejected a bad mode. The stdio dict
-    # carries that canonical mode; checking again duplicated the gate.
+    # Pool execute() derives this internal mode from the validated session_id,
+    # never from a client mode field.
     mode = req.get("mode", "isolated")
     timeout_sec = req.get("timeout_sec")
     init_script = req.get("init_script")

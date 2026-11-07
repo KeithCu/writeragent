@@ -45,29 +45,14 @@ def cleanup_formula_pool():
     shutdown_formula_pool()
 
 
-def test_shared_mode_without_session_id_does_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """mode=shared with no session id must not run as an isolated cell.
-
-    HTTP already rejects this. The pool used to lease a worker, and the
-    child treated a missing id as isolated.
-    """
-    spawns = {"n": 0}
-
-    def _no_spawn(self: object, timeout_sec: float = 0.0) -> None:
-        del self, timeout_sec
-        spawns["n"] += 1
-
-    monkeypatch.setattr("compute_service.worker_base.BaseProcessWorker.respawn", _no_spawn)
+def test_shared_mode_without_session_id_runs_isolated() -> None:
+    """Leftover mode=shared without a session id is one-shot isolated (no sticky state)."""
     pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0)
     try:
-        spawned_at_init = spawns["n"]
-        for sid in (None, "", "   "):
-            res = pool.execute(code="result = 1", session_id=sid, mode="shared", req_id="nosid")
-            assert res.get("status") == "error"
-            assert res.get("code") == "INVALID_REQUEST"
-            assert res.get("id") == "nosid"
-            assert "session_id" in str(res.get("error"))
-        assert spawns["n"] == spawned_at_init
+        r1 = pool.execute(code="a = 5\nresult = a", mode="shared", req_id="iso-1")
+        assert r1.get("status") == "ok" and r1.get("result") == 5
+        r2 = pool.execute(code="result = a", mode="shared", req_id="iso-2")
+        assert r2.get("status") == "error"
     finally:
         pool.shutdown()
 
@@ -1307,13 +1292,12 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_bad_mode_does_not_run(self) -> None:
+    def test_bad_client_mode_runs_isolated(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             res = pool.execute(code="result = 1", mode="Shared", req_id="bad-mode")
-            assert res.get("status") == "error"
-            assert res.get("code") == "INVALID_REQUEST"
-            assert res.get("result") != 1
+            assert res.get("status") == "ok"
+            assert res.get("result") == 1
         finally:
             pool.shutdown()
 
