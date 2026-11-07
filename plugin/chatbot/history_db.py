@@ -20,7 +20,8 @@ import hashlib
 import json
 import logging
 import os
-from contextlib import closing
+import threading
+from contextlib import closing, suppress
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -85,6 +86,42 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
 # ---------------------------------------------------------------------------
 # Native SQLite3 Implementation
 # ---------------------------------------------------------------------------
+_keepers: dict[str, Any] = {}
+_keepers_lock = threading.Lock()
+
+
+def reset_history_keepers_for_tests() -> None:
+    """Close and clear keeper connection(s) (for test isolation)."""
+    with _keepers_lock:
+        for conn in _keepers.values():
+            with suppress(Exception):
+                conn.close()
+        _keepers.clear()
+
+
+def _open_wal(db_path: str, **kwargs: Any) -> Any:
+    assert sqlite3 is not None
+    conn = sqlite3.connect(db_path, **kwargs)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+def _ensure_keeper(db_path: str) -> None:
+    if db_path in _keepers:
+        return
+    with _keepers_lock:
+        if db_path not in _keepers:
+            # A connection attaches to the WAL only once it has read the database,
+            # and connect or SELECT 1 does not read it. Setting the pragmas joins
+            # the WAL index; the keeper is never used after it opens.
+            _keepers[db_path] = _open_wal(db_path, check_same_thread=False)
+
+
 class SQLite3History:
     session_id: str
     db_path: str
@@ -95,18 +132,20 @@ class SQLite3History:
         self._init_db()
 
     def _connect(self) -> closing[Any]:
-        assert sqlite3 is not None
-        # Default FULL fsyncs every UI/drain commit; WAL persists, synchronous does
-        # not, so both pragmas run on every connect; WAL+NORMAL is process-crash
-        # consistent and a power loss can drop the last commit.
+        # Default FULL fsyncs every UI/drain commit; WAL persists across connections,
+        # but synchronous does not, so both pragmas run on every connect.
+        # SQLite checkpoints and unlinks the WAL when its last connection closes;
+        # holding a process-lifetime keeper connection per db_path prevents that,
+        # so commits append to the WAL without a checkpoint.
+        # WAL history assumes a single host at a time (multi-host profile sharing is unsupported).
+        # WAL+NORMAL is process-crash consistent and a power loss can drop uncheckpointed commits.
         # sqlite3.Connection's context manager commits or rolls back and does
         # not close. Each history call left a connection until GC. closing()
         # calls close() on the way out, including when execute raises. Every
-        # connect in this file uses the same wrap.
-        conn = sqlite3.connect(self.db_path)
+        # per-call connect in this file uses the same wrap.
+        conn = _open_wal(self.db_path)
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA synchronous=NORMAL")
+            _ensure_keeper(self.db_path)
         except BaseException:
             conn.close()
             raise
