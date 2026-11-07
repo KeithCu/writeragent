@@ -43,6 +43,8 @@ The first search may return **“index building in the background — retry shor
 
 **WriterAgent → Search Nearby Files…** opens a modeless dialog ([`search_ui.py`](../plugin/embeddings/search_ui.py), [`SearchDialog.xdl`](../extension/Dialogs/SearchDialog.xdl)) that runs the same hybrid path as the agent tool. It shows cache status, ranked hits, and a **Rebuild** button to cold-reindex the folder.
 
+Cancel and closing the window stop an in-flight search or rebuild on dedicated threads via that dialog's `SendCancellation`. Cancelling an in-flight RPC terminates the shared embeddings worker, so the next search cold-starts the worker and reloads the model. Rebuild still deletes the folder cache before maintain (unless cancelled before deletion begins), so a cancel mid-rebuild can leave the index empty or partial until the next maintain.
+
 ### What gets indexed
 
 Same extensions as `list_nearby_files` / maintain ([`embeddings_fs.py`](../plugin/embeddings/embeddings_fs.py)):
