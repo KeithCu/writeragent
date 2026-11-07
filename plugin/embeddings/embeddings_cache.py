@@ -432,6 +432,9 @@ def folder_store(
     resolved_mode = configured_folder_search_mode() if mode is None else mode
     meta = CorpusMeta.load(meta_path)
     empty = index_is_empty(meta_path, db_path, search_mode=resolved_mode, listing_root=listing_root, meta=meta)
+    if not empty and meta.schema_version and meta.schema_version != SCHEMA_VERSION:
+        # This read must not delete; the corpus-index worker does.
+        empty = True
     if empty:
         search_path = None
     else:
@@ -472,7 +475,7 @@ def clear_folder_cache(listing_root: str) -> None:
 
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
-    """Drop stale v1/v2 stores. Called from resolve_index_context on every resolve.
+    """Drop stale v1/v2 stores. Called from _index_worker and maintain_folder_corpus.
 
     Missing, corrupt, or non-object meta: return without deleting.
     schema_version == SCHEMA_VERSION: remove legacy index.db, fts5.db, and
@@ -501,19 +504,14 @@ def resolve_index_context(ctx: Any = None, model: Any = None, *, listing_root: A
     three are None and the fourth is the error string. Callers must branch on
     folder_key is None before using the fourth value as a path.
 
-    Calls maybe_upgrade_legacy_index before returning paths. That deletes the
-    folder cache when corpus_meta.json is an object whose schema_version is
-    not SCHEMA_VERSION. When the version already matches, it only removes
-    legacy index.db, fts5.db, and fts_meta.json if those files exist. Missing,
-    corrupt, or non-object meta does not delete. This stays here so the search
-    dialog, enqueue, FTS, and both research tools share one upgrade point.
+    Returns paths only without deleting stale indexes or creating the cache
+    directory; stale-schema deletion runs on the corpus-index worker.
     """
     if listing_root is _USE_DEFAULT:
         listing_root = resolve_folder_for_active_doc(ctx, model)
     if not listing_root:
         return None, None, None, "No nearby files found. Save the document or open sibling files in LibreOffice."
     folder_key = folder_corpus_key(listing_root)
-    maybe_upgrade_legacy_index(listing_root)
     # This resolve is a read; writers already mkdir in CorpusMeta.save and connect_corpus_db.
     db_path = corpus_db_path(listing_root, create_parent=False)
     meta = corpus_meta_path(listing_root, create_parent=False)
