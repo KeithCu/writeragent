@@ -123,7 +123,7 @@ class SkillStore:
         try:
             path = self.get_humanizer_skill_path()
             os.makedirs(os.path.dirname(path), exist_ok=True)
-            atomic_write_text(path, content.strip() + "\n", prefix=".skill-", fsync=False)
+            atomic_write_text(path, content.strip() + "\n", prefix=".skill-")
         except OSError as e:
             log.exception("Failed to write humanizer skill: %s", e)
 

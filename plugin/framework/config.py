@@ -35,6 +35,7 @@ GitHub. Those comments are stripped on read. ``save`` does not validate,
 write, or emit ``config:changed`` when the coerced value already matches the
 stored value, or the schema default when that key is omitted from the file.
 The default itself is not a change. If nothing changed, it does not write or emit.
+Writes are ``os.replace`` and do not ``fsync``.
 
 Concurrency: ``save`` and ``update_config_mapping`` hold ``_config_write_lock``
 (an ``RLock``) across the read, merge, validate, and write. Values for
@@ -254,16 +255,13 @@ def _try_repair_config_dict(text: str) -> dict[str, Any] | None:
     return None
 
 
-def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-", fsync: bool = False) -> None:
+def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-") -> None:
     """Atomically write text to path using a temp file in the same directory and os.replace."""
     directory = os.path.dirname(path) or "."
     fd, tmp_path = tempfile.mkstemp(prefix=prefix, suffix=".tmp", dir=directory)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(text)
-            if fsync:
-                f.flush()
-                os.fsync(f.fileno())
         os.replace(tmp_path, path)
     except BaseException:
         try:
@@ -274,7 +272,10 @@ def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-", fsync: boo
 
 
 def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
-    """Write config via temp file + ``os.replace`` so a crash cannot truncate the live file."""
+    """Write config via temp file + ``os.replace`` so a crash cannot truncate the live file.
+
+    This write does not ``fsync``; a power loss can lose it.
+    """
     # Non-serializable values raise ConfigError with CONFIG_SAVE_ERROR.
     try:
         body = json.dumps(data, indent=4)
@@ -282,7 +283,7 @@ def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
         raise ConfigError(f"Config value is not JSON-serializable: {e}", code="CONFIG_SAVE_ERROR") from e
     body += "\n"
     content = CONFIG_SCHEMA_COMMENT + body
-    atomic_write_text(config_file_path, content, prefix=".writeragent-", fsync=True)
+    atomic_write_text(config_file_path, content, prefix=".writeragent-")
 
 
 def _invalidate_config_cache() -> None:
