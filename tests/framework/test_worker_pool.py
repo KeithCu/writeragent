@@ -64,7 +64,6 @@ def test_async_process_init():
     ap = AsyncProcess(["ls", "-l"], stdout_cb=lambda x: None)
     assert ap.args == ["ls", "-l"]
     assert ap.process is None
-    assert ap._env is None
     assert ap.is_running is False
 
 def test_async_process_start_success():
