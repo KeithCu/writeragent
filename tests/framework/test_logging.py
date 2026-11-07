@@ -344,6 +344,75 @@ class TestInitLogging:
         assert log.level == logging.DEBUG
         assert len(getattr(probe_logger, "_cache", {})) == 0
 
+    def test_init_logging_does_not_hold_init_lock_across_config(self):
+        import plugin.framework.logging as logging_mod
+
+        lock_samples: dict[str, bool] = {}
+
+        def spy_init_config(ctx=None):
+            lock_samples["init_config"] = logging_mod._shared()["init_lock"].locked()
+
+        def spy_get_config(key, default=None):
+            lock_samples[key] = logging_mod._shared()["init_lock"].locked()
+            if key == "enable_agent_log":
+                return True
+            if key == "core.log_level":
+                return "WARN"
+            return default
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            mock_ctx = MagicMock()
+            with (
+                patch("plugin.framework.config.init_config", side_effect=spy_init_config),
+                patch("plugin.framework.config.user_config_dir", return_value=tmp),
+                patch("plugin.framework.config.get_config", side_effect=spy_get_config),
+            ):
+                init_logging(mock_ctx)
+
+            assert "init_config" in lock_samples
+            assert "enable_agent_log" in lock_samples
+            assert "core.log_level" in lock_samples
+            assert all(locked is False for locked in lock_samples.values())
+
+            self._release_debug_handlers()
+
+    def test_init_logging_none_does_not_wait_on_blocked_init_config(self):
+        import threading
+
+        in_init_config = threading.Event()
+        release_init_config = threading.Event()
+
+        def blocking_init_config(ctx):
+            if ctx is not None:
+                in_init_config.set()
+                release_init_config.wait(timeout=5.0)
+
+        mock_ctx = MagicMock()
+        thread_a = None
+        thread_b = None
+        try:
+            with (
+                patch("plugin.framework.config.init_config", side_effect=blocking_init_config),
+                patch("plugin.framework.config.user_config_dir", return_value="/nonexistent/missing/dir"),
+                patch("plugin.framework.config.get_config", return_value="WARN"),
+            ):
+                thread_a = threading.Thread(target=init_logging, args=(mock_ctx,), name="test-init-a")
+                thread_b = threading.Thread(target=init_logging, args=(None,), name="test-init-b")
+
+                thread_a.start()
+                assert in_init_config.wait(timeout=2.0) is True
+
+                thread_b.start()
+                thread_b.join(timeout=2.0)
+                assert not thread_b.is_alive()
+        finally:
+            release_init_config.set()
+            if thread_a is not None:
+                thread_a.join(timeout=2.0)
+            if thread_b is not None:
+                thread_b.join(timeout=2.0)
+            self._release_debug_handlers()
+
 
 class TestLogRedaction:
 
