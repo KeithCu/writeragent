@@ -655,6 +655,77 @@ def test_wire_all_lost_race_detaches_its_duplicate_listener():
             notebook_controls._listener_refs.clear()
 
 
+def test_uno_same_compares_containers_outside_lock():
+    """Container comparisons with uno_same must happen outside _lock."""
+    ctx = MagicMock()
+    doc = MagicMock()
+    doc.RuntimeUID = "lock_test_uid"
+    container = MagicMock()
+    control = MagicMock()
+    container.getControls.return_value = [control]
+
+    calls = 0
+
+    def mock_uno_same(a, b):
+        nonlocal calls
+        assert not notebook_controls._lock.locked()
+        calls += 1
+        return a is b
+
+    state = MagicMock(code_cells=[1])
+
+    with (
+        patch("plugin.framework.uno_context.resolve_document_by_url", return_value=(doc, "writer")),
+        patch("plugin.notebook.notebook_controls.load_registry", return_value=state),
+        patch("plugin.notebook.notebook_controls._form_and_container", return_value=(MagicMock(), container)),
+        patch("plugin.framework.uno_context.uno_same", side_effect=mock_uno_same),
+    ):
+        notebook_controls._listener_refs.clear()
+        try:
+            # First wire_all_notebook_run_buttons(ctx, doc) returns 1.
+            # Call count may stay 0 (empty snapshot never calls uno_same).
+            assert notebook_controls.wire_all_notebook_run_buttons(ctx, doc) == 1
+            assert calls == 0
+            assert len(notebook_controls._listener_refs) == 2
+            assert container.addContainerListener.call_count == 1
+
+            # Second call, same container, returns 1, call count increases,
+            # len(_listener_refs) == 2, addContainerListener still once.
+            prev_calls = calls
+            assert notebook_controls.wire_all_notebook_run_buttons(ctx, doc) == 1
+            assert calls > prev_calls
+            assert len(notebook_controls._listener_refs) == 2
+            assert container.addContainerListener.call_count == 1
+
+            # Clear refs. addContainerListener side effect appends a
+            # NotebookFormContainerListener built with
+            # NotebookFormRunListener(ctx, doc) and this same container.
+            notebook_controls._listener_refs.clear()
+            container.addContainerListener.reset_mock()
+            container.removeContainerListener.reset_mock()
+
+            def _racer_wins(_our_container_listener):
+                racer = notebook_controls.NotebookFormContainerListener(
+                    notebook_controls.NotebookFormRunListener(ctx, doc), container
+                )
+                notebook_controls._listener_refs.append(racer)
+
+            container.addContainerListener.side_effect = _racer_wins
+
+            # Third wire_all returns 1, call count increases again,
+            # removeContainerListener called once with our listener, that
+            # listener is absent from _listener_refs, the racer remains, length 1.
+            prev_calls = calls
+            assert notebook_controls.wire_all_notebook_run_buttons(ctx, doc) == 1
+            assert calls > prev_calls
+            ours = container.addContainerListener.call_args.args[0]
+            container.removeContainerListener.assert_called_once_with(ours)
+            assert ours not in notebook_controls._listener_refs
+            assert len(notebook_controls._listener_refs) == 1
+        finally:
+            notebook_controls._listener_refs.clear()
+
+
 def test_doc_event_on_unload_removes_listeners_and_preserves_other_docs():
     ctx = MagicMock()
     doc1, run_ctrl1, container1, state1 = _play_button_doc("uid-doc-1")
