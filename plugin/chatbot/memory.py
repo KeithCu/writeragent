@@ -43,7 +43,7 @@ class MemoryStore:
 
     def write(self, content: str) -> None:
         # crosshair: off
-        atomic_write_text(self.path, content, prefix=".memory-", fsync=True)
+        atomic_write_text(self.path, content, prefix=".memory-")
 
     def upsert(self, key: str, content: Any) -> dict[str, Any]:
         # crosshair: off
