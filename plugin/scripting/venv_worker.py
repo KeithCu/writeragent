@@ -22,7 +22,6 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, IO, Generator, Literal
 
 from plugin.framework.config import get_config
-from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background
 from plugin.framework.constants import (
     EMBEDDINGS_HEARTBEAT_GRACE_S,
@@ -65,13 +64,13 @@ log = logging.getLogger(__name__)
 
 _TIMEOUT_AFTER = " timed out after "
 
-# Non-UI callers wait this long for the pipe, then get WORKER_REENTRY.
-# Matches the scripting timeout ceiling so a second background script can
-# still run after a long one. The UI thread does not wait to acquire the
-# warm-child pipe lock. Killing a worker does not wait on the caller either: the
-# process tree is reaped in the background. The next spawn joins that
-# reap first. A waiter also leaves within _IO_LOCK_POLL_SEC if the
-# holder enters a tool RPC.
+# Every caller waits up to _IO_LOCK_ACQUIRE_TIMEOUT_SEC for the pipe, then gets
+# WORKER_REENTRY. Matches the scripting timeout ceiling so a second script can
+# still run after a long one. Refusal is only for the owner thread, or while the
+# holder serves a host callback. Killing a worker does not wait on the caller
+# either: the process tree is reaped in the background. The next spawn joins
+# that reap first. A waiter also leaves within _IO_LOCK_POLL_SEC if the holder
+# enters a tool RPC.
 _IO_LOCK_ACQUIRE_TIMEOUT_SEC = 600.0
 _IO_LOCK_POLL_SEC = 0.05
 
@@ -378,8 +377,8 @@ class PythonWorkerManager:
         self.env["WRITERAGENT_IS_WORKER"] = "1"
         self.pool = pool
         self._warm = None
-        # Same-thread owner -> WORKER_REENTRY; tool RPC in flight or UI thread while
-        # locked -> busy; UI never blocks (WarmChild lease wait=0).
+        # Same-thread owner -> WORKER_REENTRY; tool RPC in flight -> busy.
+        # Every caller waits up to _IO_LOCK_ACQUIRE_TIMEOUT_SEC.
         # _serving_tool_call is a plain GIL-atomic bool on this manager, read
         # without the pipe lock: the holder keeps that lock across host RPC, so a
         # waiter has to see the flag without acquiring it.
@@ -457,7 +456,7 @@ class PythonWorkerManager:
             if warm is None:
                 yield _worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
                 return
-            wait = 0.0 if main.is_current() else max(0.0, acquire_end - time.monotonic())
+            wait = max(0.0, acquire_end - time.monotonic())
             lease_acquired = False
             try:
                 with warm.lease(
@@ -584,26 +583,19 @@ class PythonWorkerManager:
         """Refuse a nested execute that would deadlock this worker's pipe."""
         me = threading.get_ident()
         warm = self._warm
-        # Any other thread used to call Lock.acquire() with no timeout. The
-        # holder can be inside a tool RPC that is waiting on the thread stuck
+        # The holder can be inside a tool RPC that is waiting on the thread stuck
         # in acquire (the UI pump, or whichever worker must run the host
-        # callback), so the wait never ends and the UI stays frozen. Refuse
-        # the owner, anyone while a tool call is in progress, and the UI
-        # thread while the pipe lock is held.
+        # callback), so the wait never ends. Refuse the owner (true reentry),
+        # or anyone while a tool call is in progress. Every other caller waits.
         # _serving_tool_call is per manager. =PY() during a chat script is a
         # different thread, not a callback into the same worker. The reentry
         # sentence is only true when this thread already holds the pipe.
-        # The locked() check can pass, then another thread takes the pipe via
-        # lease(wait=0); non-blocking acquire closes that race for the UI thread.
         # Child._io_owner is a plain GIL-atomic int on the child, read here
         # without the pipe lock: the holder keeps that lock across host RPC.
         if warm is not None and warm.io_owner() == me:
             return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
         if self._serving_tool_call:
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
-        if main.is_current():
-            if warm is not None and warm.io_locked() and warm.io_owner() != me:
-                return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
 
     def warm(self) -> None:
