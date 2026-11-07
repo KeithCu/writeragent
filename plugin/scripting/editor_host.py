@@ -40,6 +40,7 @@ from plugin.scripting.editor_errors import (
 from plugin.scripting.editor_ipc import (
     PARENT_TO_CHILD_TYPES,
     message_type,
+    pack_message,
     session_id_of,
     stamp_session,
     target_from_load,
@@ -48,8 +49,6 @@ from plugin.scripting.editor_ipc import (
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
 from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
-    IpcPayloadSizeError,
-    pack_pickle_frame,
     read_pickle_frame,
     write_packed_frame_with_timeout,
 )
@@ -486,10 +485,7 @@ class PersistentEditor:
                 raise RuntimeError(f"Editor process already exited (code={exit_code}). {detail}")
             if proc.stdin is None:
                 raise RuntimeError("Editor process stdin is closed")
-            try:
-                frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
-            except IpcPayloadSizeError as exc:
-                raise ValueError(str(exc)) from exc
+            frame = pack_message(message)
             try:
                 write_packed_frame_with_timeout(
                     proc.stdin,
@@ -510,10 +506,7 @@ class PersistentEditor:
             # How it happened: a frame larger than the pipe buffer, or any frame once the pipe is already full.
             # Why this change fixes it: write_packed_frame_with_timeout bounds the write, then the child
             # is killed because a partial frame must not be reused.
-            if self is _PERSISTENT_EDITOR:
-                terminate_persistent_editor()
-            else:
-                self.terminate()
+            terminate_persistent_editor()
             detail = self.read_stderr_tail()
             raise RuntimeError(f"Editor unresponsive. {detail}")
 

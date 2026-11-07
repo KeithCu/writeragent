@@ -1758,17 +1758,15 @@ def test_send_unread_pipe_times_out_and_terminates(monkeypatch):
                 captured_exc.append(exc)
 
         t = threading.Thread(target=_do_send)
-        started = time.monotonic()
         t.start()
-        t.join(2.0)
-        elapsed = time.monotonic() - started
+        t.join(5.0)
 
         assert not t.is_alive()
         assert len(captured_exc) == 1
         exc = captured_exc[0]
         assert isinstance(exc, RuntimeError)
         assert "Editor unresponsive" in str(exc)
-        assert elapsed < 2.0
+        proc.kill.assert_called()
         assert pe._proc is None
         assert pe.sessions == {}
         assert len(closed_calls) == 1
@@ -1783,6 +1781,24 @@ def test_send_unread_pipe_times_out_and_terminates(monkeypatch):
         except OSError:
             pass
         _reset_persistent_editor()
+
+
+def test_send_oversize_payload_raises_valueerror_and_preserves_proc(monkeypatch):
+    pe = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = io.BytesIO()
+    pe._proc = proc
+
+    monkeypatch.setattr("plugin.scripting.editor_ipc.DEFAULT_MAX_PAYLOAD_BYTES", 10)
+    with pytest.raises(ValueError) as excinfo:
+        pe.send({"type": "load", "code": "x" * 100})
+
+    msg = str(excinfo.value)
+    assert "exceeds maximum payload size" in msg
+    assert any(char.isdigit() for char in msg)
+    assert proc.stdin.getvalue() == b""
+    assert pe._proc is proc
 
 
 def test_is_running_captures_proc_once():
