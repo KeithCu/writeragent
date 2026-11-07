@@ -612,3 +612,118 @@ def test_folder_store_foreign_schema_is_empty_without_delete(tmp_path):
     assert store_matching.is_empty is False
     assert store_matching.search_path == str(db_path)
 
+
+def test_corpus_meta_has_foreign_schema(tmp_path):
+    missing_path = tmp_path / "missing.json"
+    assert embeddings_cache.CorpusMeta.load(missing_path).has_foreign_schema is False
+
+    corrupt_path = tmp_path / "corrupt.json"
+    corrupt_path.write_text("not json", encoding="utf-8")
+    assert embeddings_cache.CorpusMeta.load(corrupt_path).has_foreign_schema is False
+
+    empty_ver_path = tmp_path / "empty_ver.json"
+    empty_ver_path.write_text('{"schema_version": ""}', encoding="utf-8")
+    assert embeddings_cache.CorpusMeta.load(empty_ver_path).has_foreign_schema is False
+
+    current_path = tmp_path / "current.json"
+    current_path.write_text(f'{{"schema_version": "{embeddings_cache.SCHEMA_VERSION}"}}', encoding="utf-8")
+    assert embeddings_cache.CorpusMeta.load(current_path).has_foreign_schema is False
+
+    foreign_path = tmp_path / "foreign.json"
+    foreign_path.write_text('{"schema_version": "0"}', encoding="utf-8")
+    assert embeddings_cache.CorpusMeta.load(foreign_path).has_foreign_schema is True
+
+
+def test_clear_folder_cache_removes_meta_last_hiding_store(tmp_path):
+    listing = str(tmp_path / "folder")
+    cache_dir = Path(listing) / embeddings_cache.EMBEDDINGS_CACHE_DIRNAME
+    cache_dir.mkdir(parents=True)
+    meta_path = cache_dir / embeddings_cache.CORPUS_META_FILENAME
+    meta_path.write_text('{"schema_version": "0", "chunk_count": "5"}', encoding="utf-8")
+    db_path = cache_dir / embeddings_cache.CORPUS_DB_FILENAME
+    db_path.write_text("data", encoding="utf-8")
+    zvec_dir = cache_dir / "zvec"
+    zvec_dir.mkdir()
+    (zvec_dir / "entry").write_text("vector_data", encoding="utf-8")
+
+    zvec_checked = False
+    real_remove_path = embeddings_cache._remove_path
+
+    def spy_remove_path(path: Path) -> bool:
+        nonlocal zvec_checked
+        if path == zvec_dir:
+            # While zvec/ is being removed, corpus_meta.json must still be present with foreign
+            # schema, ensuring folder_store continues to hide the store (is_empty is True).
+            store = embeddings_cache.folder_store(listing, meta_path, db_path, mode="zvec")
+            assert store.is_empty is True
+            assert store.search_path is None
+            assert meta_path.exists()
+            zvec_checked = True
+        return real_remove_path(path)
+
+    with patch.object(embeddings_cache, "_remove_path", side_effect=spy_remove_path):
+        embeddings_cache.clear_folder_cache(listing)
+
+    assert zvec_checked is True
+    assert not zvec_dir.exists()
+    assert not meta_path.exists()
+    assert not db_path.exists()
+
+
+def test_folder_cache_lock_held_during_clear_and_upgrade(tmp_path):
+    import threading
+
+    listing = str(tmp_path / "folder")
+    cache_dir = Path(listing) / embeddings_cache.EMBEDDINGS_CACHE_DIRNAME
+    cache_dir.mkdir(parents=True)
+    meta_path = cache_dir / embeddings_cache.CORPUS_META_FILENAME
+    meta_path.write_text('{"schema_version": "0"}', encoding="utf-8")
+
+    locked_during_clear = False
+    locked_during_upgrade = False
+
+    def probe_lock() -> bool:
+        # Try to acquire lock from another thread; must fail if held.
+        acquired: list[bool] = []
+
+        def _try() -> None:
+            got = embeddings_cache._folder_cache_lock.acquire(blocking=False)
+            if got:
+                embeddings_cache._folder_cache_lock.release()
+            acquired.append(got)
+
+        t = threading.Thread(target=_try)
+        t.start()
+        t.join()
+        return not acquired[0]
+
+    real_remove = embeddings_cache._remove_path
+
+    def spy_remove_clear(path: Path) -> bool:
+        nonlocal locked_during_clear
+        if probe_lock():
+            locked_during_clear = True
+        return real_remove(path)
+
+    with patch.object(embeddings_cache, "_remove_path", side_effect=spy_remove_clear):
+        embeddings_cache.clear_folder_cache(listing)
+
+    assert locked_during_clear is True
+
+    # Re-create meta to test maybe_upgrade_legacy_index
+    meta_path.write_text('{"schema_version": "0"}', encoding="utf-8")
+
+    real_load = embeddings_cache._load_meta_object
+
+    def spy_load_upgrade(path: Path):
+        nonlocal locked_during_upgrade
+        if probe_lock():
+            locked_during_upgrade = True
+        return real_load(path)
+
+    with patch.object(embeddings_cache, "_load_meta_object", side_effect=spy_load_upgrade):
+        embeddings_cache.maybe_upgrade_legacy_index(listing)
+
+    assert locked_during_upgrade is True
+
+
