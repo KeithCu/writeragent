@@ -11,17 +11,6 @@ import pytest
 from plugin.chatbot.history_db import JSONHistory
 
 
-@pytest.fixture(autouse=True)
-def _cleanup_history_keepers():
-    from plugin.chatbot.history_db import reset_history_keepers_for_tests
-
-    reset_history_keepers_for_tests()
-    try:
-        yield
-    finally:
-        reset_history_keepers_for_tests()
-
-
 def test_json_history_roundtrip_and_no_temp_leftovers(tmp_path):
     history = JSONHistory("session_abc", str(tmp_path / "writeragent_history.db"))
     history.add_message("user", "Hello JSON!")
@@ -220,7 +209,7 @@ def test_sqlite_closes_connection_and_saves_null_text(tmp_path, monkeypatch):
             conn.execute("SELECT 1")
     # Keeper remains open until explicitly reset.
     keeper.execute("SELECT 1")
-    history_db.reset_history_keepers_for_tests(db_path)
+    history_db.reset_history_keepers_for_tests()
     with pytest.raises(sqlite3.ProgrammingError):
         keeper.execute("SELECT 1")
 
@@ -261,7 +250,7 @@ def test_sqlite_wal_persists_across_commits(tmp_path):
     assert os.path.exists(wal_path)
     assert os.path.getsize(wal_path) > 0
 
-    history_db.reset_history_keepers_for_tests(db_path)
+    history_db.reset_history_keepers_for_tests()
     assert not os.path.exists(wal_path)
 
 
@@ -292,7 +281,7 @@ def test_sqlite_connect_closes_connection_on_pragma_failure(tmp_path, monkeypatc
     monkeypatch.setattr(history_db.sqlite3, "connect", _failing_connect)
 
     with pytest.raises(sqlite3.OperationalError, match="forced pragma failure"):
-        history._connect()
+        history.add_message("user", "x")
 
     assert captured_conn is not None
     with pytest.raises(sqlite3.ProgrammingError):
