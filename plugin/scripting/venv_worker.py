@@ -23,7 +23,7 @@ from typing import Any, Callable, IO, Generator, Literal
 
 from plugin.framework.config import get_config
 from plugin.framework.queue_executor import main
-from plugin.framework.thread_guard import background
+from plugin.framework.thread_guard import background, in_sync_host_dispatch
 from plugin.framework.constants import (
     EMBEDDINGS_HEARTBEAT_GRACE_S,
     HEARTBEAT_ABSOLUTE_CAP_SEC,
@@ -65,12 +65,13 @@ log = logging.getLogger(__name__)
 
 _TIMEOUT_AFTER = " timed out after "
 
-# Non-UI callers wait this long for the pipe, then get WORKER_REENTRY.
-# Matches the scripting timeout ceiling so a second background script can
-# still run after a long one. The UI thread does not wait to acquire the
-# warm-child pipe lock. Killing a worker does not wait on the caller either: the
-# process tree is reaped in the background. The next spawn joins that
-# reap first. A waiter also leaves within _IO_LOCK_POLL_SEC if the
+# Callers that block the UI (the UI thread, a thread in in_sync_host_dispatch(),
+# or a notebook cell wait via ui_blocked) do not wait to acquire the warm-child
+# pipe lock (they use wait=0). Other callers wait this long for the pipe, then
+# get WORKER_REENTRY. Matches the scripting timeout ceiling so a second background
+# script can still run after a long one. Killing a worker does not wait on the
+# caller either: the process tree is reaped in the background. The next spawn
+# joins that reap first. A waiter also leaves within _IO_LOCK_POLL_SEC if the
 # holder enters a tool RPC.
 _IO_LOCK_ACQUIRE_TIMEOUT_SEC = 600.0
 _IO_LOCK_POLL_SEC = 0.05
@@ -81,6 +82,16 @@ _WORKER_REENTRY_MESSAGE = (
 _WORKER_BUSY_MESSAGE = (
     "Python worker is busy; waiting on its pipe would block this thread."
 )
+
+_ui_blocked_lease = threading.local()  # attribute "active", only written when ui_blocked=True
+
+
+def _pipe_wait_blocks_ui() -> bool:
+    """Return True if the current thread is blocking the UI.
+
+    Covers the main thread, =PY() sync host dispatch, or notebook cell wait.
+    """
+    return main.is_current() or in_sync_host_dispatch() or bool(getattr(_ui_blocked_lease, "active", False))
 
 
 def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -378,8 +389,9 @@ class PythonWorkerManager:
         self.env["WRITERAGENT_IS_WORKER"] = "1"
         self.pool = pool
         self._warm = None
-        # Same-thread owner -> WORKER_REENTRY; tool RPC in flight or UI thread while
-        # locked -> busy; UI never blocks (WarmChild lease wait=0).
+        # Same-thread owner -> WORKER_REENTRY; tool RPC in flight or UI-blocking
+        # thread (UI thread, =PY() sync host dispatch, notebook cell wait) while
+        # locked -> busy; UI-blocking callers never block (WarmChild lease wait=0).
         # _serving_tool_call is a plain GIL-atomic bool on this manager, read
         # without the pipe lock: the holder keeps that lock across host RPC, so a
         # waiter has to see the flag without acquiring it.
@@ -457,7 +469,15 @@ class PythonWorkerManager:
             if warm is None:
                 yield _worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
                 return
-            wait = 0.0 if main.is_current() else max(0.0, acquire_end - time.monotonic())
+            # What was wrong: wait followed main.is_current() on the lease caller,
+            # so threads that synchronously block the UI waited up to 600s for a held pipe.
+            # How it happened: notebook lease runs on "blocking-thread" under
+            # run_blocking_in_thread(pump_idle=False); =PY() lease runs inside
+            # sync_host_dispatch on a tagged Dummy thread while the bridge holds the main thread.
+            # Why this change: _pipe_wait_blocks_ui() uses wait=0, so a held pipe
+            # returns WORKER_REENTRY at once to prevent freezing the UI; a free
+            # lock still spawns and runs.
+            wait = 0.0 if _pipe_wait_blocks_ui() else max(0.0, acquire_end - time.monotonic())
             lease_acquired = False
             try:
                 with warm.lease(
@@ -588,20 +608,21 @@ class PythonWorkerManager:
         # holder can be inside a tool RPC that is waiting on the thread stuck
         # in acquire (the UI pump, or whichever worker must run the host
         # callback), so the wait never ends and the UI stays frozen. Refuse
-        # the owner, anyone while a tool call is in progress, and the UI
-        # thread while the pipe lock is held.
+        # the owner, anyone while a tool call is in progress, and any
+        # UI-blocking caller (UI thread, =PY() sync host dispatch, or notebook
+        # cell wait) while the pipe lock is held.
         # _serving_tool_call is per manager. =PY() during a chat script is a
         # different thread, not a callback into the same worker. The reentry
         # sentence is only true when this thread already holds the pipe.
         # The locked() check can pass, then another thread takes the pipe via
-        # lease(wait=0); non-blocking acquire closes that race for the UI thread.
+        # lease(wait=0); non-blocking acquire closes that race for UI-blocking callers.
         # Child._io_owner is a plain GIL-atomic int on the child, read here
         # without the pipe lock: the holder keeps that lock across host RPC.
         if warm is not None and warm.io_owner() == me:
             return _worker_error("WORKER_REENTRY", _WORKER_REENTRY_MESSAGE)
         if self._serving_tool_call:
             return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
-        if main.is_current():
+        if _pipe_wait_blocks_ui():
             if warm is not None and warm.io_locked() and warm.io_owner() != me:
                 return _worker_error("WORKER_REENTRY", _WORKER_BUSY_MESSAGE)
         return None
@@ -1274,6 +1295,7 @@ def run_code_in_user_venv(
     action: str | None = None,
     cancel: SendCancellation | None = None,
     sandbox_policy: dict[str, Any] | None = None,
+    ui_blocked: bool = False,
 ) -> dict[str, Any]:
     """Execute *code* or handle *action* via :class:`PythonWorkerManager` (warm process).
 
@@ -1312,6 +1334,37 @@ def run_code_in_user_venv(
             "os": allow_os,
             "extra_modules": extra_modules,
         }
+
+    if ui_blocked:
+        has_prev = hasattr(_ui_blocked_lease, "active")
+        prev = getattr(_ui_blocked_lease, "active", False)
+        _ui_blocked_lease.active = True
+        try:
+            return manager.execute(
+                code,
+                data=data,
+                bindings=bindings,
+                timeout_sec=timeout_sec,
+                session_id=session_id,
+                init_script=init_script,
+                init_session_id=init_session_id,
+                init_script_hash=init_script_hash,
+                allow_heartbeat=allow_heartbeat,
+                on_heartbeat=on_heartbeat,
+                action=action,
+                python_tool_domain=python_tool_domain,
+                script_session_id=script_session_id,
+                cancel=cancel,
+                sandbox_policy=sandbox_policy,
+            )
+        finally:
+            if has_prev:
+                _ui_blocked_lease.active = prev
+            else:
+                try:
+                    del _ui_blocked_lease.active
+                except AttributeError:
+                    pass
 
     return manager.execute(
         code,

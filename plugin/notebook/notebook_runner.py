@@ -159,11 +159,13 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
             # so the per-doc Event cannot flip during the pipe wait — read it once here.
             if _is_stop_requested(busy_key):
                 return {"status": "stopped", "message": "Stopped."}
+            # This thread is the pump_idle=False wait, so a held pipe must not use the 600s budget.
             return run_code_in_user_venv(
                 code,
                 session_id=session_id,
                 script_session_id=script_session_id,
                 cancel=get_current_send_cancellation(),
+                ui_blocked=True,
             )
         except Exception:
             if _is_stop_requested(busy_key):

@@ -20,7 +20,7 @@ from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, Ipc
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.session_key import SessionKey
-from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RetryWithNewLease, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
+from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RetryWithNewLease, Terminal, _IO_LOCK_POLL_SEC, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
@@ -1758,9 +1758,76 @@ def test_execute_lock_budget_is_worker_reentry(monkeypatch: pytest.MonkeyPatch) 
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     thread, release = _hold_pipe_in_thread(mgr)
     try:
+        t0 = time.monotonic()
         result = mgr.execute('result = 1', timeout_sec=1)
+        elapsed = time.monotonic() - t0
+        assert elapsed >= 0.15
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
+    finally:
+        release.set()
+        thread.join(timeout=2)
+
+
+def test_run_code_in_user_venv_ui_blocked_returns_busy_within_one_poll(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    monkeypatch.setattr("plugin.scripting.venv_worker.get_config", lambda *a, **k: "")
+    monkeypatch.setattr("plugin.scripting.venv_worker.configured_python_exec_timeout", lambda: 10)
+    mgr = PythonWorkerManager(sys.executable, {})
+    _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
+    monkeypatch.setattr("plugin.scripting.venv_worker._get_worker_manager", lambda **kw: (mgr, None))
+    thread, release = _hold_pipe_in_thread(mgr)
+    try:
+        result_holder: list[dict[str, Any]] = []
+        elapsed_holder: list[float] = []
+
+        def _call() -> None:
+            t0 = time.monotonic()
+            res = run_code_in_user_venv("result = 1", ui_blocked=True)
+            elapsed = time.monotonic() - t0
+            elapsed_holder.append(elapsed)
+            result_holder.append(res)
+
+        worker = threading.Thread(target=_call, name="blocking-thread")
+        worker.start()
+        worker.join(timeout=5)
+        assert len(result_holder) == 1
+        res = result_holder[0]
+        assert elapsed_holder[0] < _IO_LOCK_POLL_SEC
+        assert res["code"] == "WORKER_REENTRY"
+        assert "busy" in res["message"]
+    finally:
+        release.set()
+        thread.join(timeout=2)
+
+
+def test_execute_sync_host_dispatch_returns_busy_within_1s(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.thread_guard import sync_host_dispatch
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    mgr = PythonWorkerManager(sys.executable, {})
+    _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
+    thread, release = _hold_pipe_in_thread(mgr)
+    try:
+        result_holder: list[dict[str, Any]] = []
+        elapsed_holder: list[float] = []
+
+        def _call() -> None:
+            with sync_host_dispatch():
+                t0 = time.monotonic()
+                res = mgr.execute("result = 1", timeout_sec=30)
+                elapsed = time.monotonic() - t0
+                elapsed_holder.append(elapsed)
+                result_holder.append(res)
+
+        worker = threading.Thread(target=_call)
+        worker.start()
+        worker.join(timeout=5)
+        assert len(result_holder) == 1
+        res = result_holder[0]
+        assert elapsed_holder[0] < 1.0
+        assert res["code"] == "WORKER_REENTRY"
+        assert "busy" in res["message"]
     finally:
         release.set()
         thread.join(timeout=2)

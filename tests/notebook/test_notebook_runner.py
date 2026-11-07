@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -126,6 +127,7 @@ def test_execute_code_does_not_pump_idle():
         func()
         run_venv.assert_called_once()
         kwargs = run_venv.call_args.kwargs
+        assert kwargs["ui_blocked"] is True
         assert kwargs.get("python_tool_domain") is None
         assert kwargs.get("session_id") == "notebook:test"
         assert kwargs.get("script_session_id") == "doc:test"
@@ -1899,4 +1901,44 @@ def test_run_cell_leaves_no_stop_state():
     ):
         assert run_cell(ctx, doc, cell.cell_id).status == "ok"
     assert notebook_runner._stop_flags == {}
+
+
+def test_execute_code_surfaces_busy_and_releases_doc_key():
+    from plugin.notebook import notebook_runner
+
+    ctx = MagicMock()
+    cell = new_code_cell_entry(0, None, "nb_cell_0_code")
+    state = NotebookDocState(code_cells=[cell], next_execution_count=1)
+    doc = MagicMock()
+    doc.getURL.return_value = ""
+    notebook_runner._stop_flags.clear()
+    recorded_results: list[dict[str, Any]] = []
+    busy_payload = {
+        "status": "error",
+        "code": "WORKER_REENTRY",
+        "message": "Python worker is busy; waiting on its pipe would block this thread.",
+    }
+    with (
+        patch("plugin.notebook.notebook_runner.load_registry", return_value=state),
+        patch("plugin.notebook.form_lookup.read_code_from_field", return_value="print(1)"),
+        patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
+        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
+        patch("plugin.notebook.notebook_runner.release_script_document") as mock_release,
+        patch("plugin.notebook.notebook_runner.run_blocking_in_thread", side_effect=lambda ctx, func, **kw: func()),
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv", return_value=busy_payload) as mock_run_venv,
+        patch("plugin.notebook.notebook_runner.clear_cell_output"),
+        patch("plugin.notebook.notebook_runner.apply_run_result", side_effect=lambda doc, cell, res, ctx=None: recorded_results.append(res)),
+        patch("plugin.notebook.notebook_runner.update_in_prompt"),
+        patch("plugin.notebook.notebook_runner.save_registry"),
+    ):
+        result = run_cell(ctx, doc, cell.cell_id)
+
+    assert result.status == "error"
+    assert "busy" in result.message
+    assert len(recorded_results) == 1
+    assert recorded_results[0]["code"] == "WORKER_REENTRY"
+    assert mock_run_venv.call_args.kwargs.get("ui_blocked") is True
+    mock_release.assert_called_once_with("doc:test")
+    assert notebook_runner._stop_flags == {}
+
 
