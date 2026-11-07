@@ -1394,3 +1394,82 @@ def test_compact_bound_session_disabled_skips_compact():
          patch("plugin.chatbot.tool_loop.compact_session") as mock_compact:
         assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, cancel=None, force=True, status_cb=Mock()) is True
         mock_compact.assert_not_called()
+
+
+def test_tool_loop_lane_status_callback_queues_status() -> None:
+    import queue
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from typing import Any
+    from unittest.mock import MagicMock, patch
+
+    import plugin.framework.llm_lanes
+    import plugin.framework.queue_executor
+    from plugin.chatbot.tool_loop import ToolCallingMixin
+    from plugin.chatbot.tool_loop_actions import TurnController, put_for_turn
+    from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
+
+    turn = TurnController(SimpleNamespace(messages=[]))
+    turn.queue = queue.Queue()
+    turn.batcher = None
+
+    def emit(item: Any) -> bool:
+        return put_for_turn(turn, item)
+
+    bound = (turn, SimpleNamespace(messages=[]), None, emit, lambda: False)
+
+    class _SpyLock:
+        def __init__(self) -> None:
+            self.acquire_count = 0
+
+        def acquire(self, *args: Any, **kwargs: Any) -> bool:
+            self.acquire_count += 1
+            return True
+
+        def release(self) -> None:
+            pass
+
+    spy_lock = _SpyLock()
+    captured: dict[str, Any] = {}
+
+    @contextmanager
+    def fake_llm_request_lane(*, status_callback: Any = None, resume_status: Any = None, **kwargs: Any) -> Any:
+        captured["status_callback"] = status_callback
+        captured["resume_status"] = resume_status
+        if status_callback is not None:
+            with (
+                patch.object(plugin.framework.queue_executor.main, "call", side_effect=AssertionError("main.call called")),
+                patch.object(plugin.framework.queue_executor.main, "run", side_effect=AssertionError("main.run called")),
+                patch.object(plugin.framework.queue_executor.main, "post", side_effect=AssertionError("main.post called")),
+                patch.object(plugin.framework.llm_lanes, "_LLM_REQUEST_LOCK", spy_lock),
+            ):
+                status_callback("lane-probe")
+        yield
+
+    raw_q = queue.Queue()
+    batched = BatchingStreamQueue(raw_q, batch_interval=10.0)
+    try:
+        with (
+            patch("plugin.chatbot.tool_loop.llm_request_lane", fake_llm_request_lane),
+            patch("plugin.chatbot.tool_loop.get_config", return_value=False),
+        ):
+            ToolCallingMixin()._run_stream_worker(
+                bound,
+                batched=batched,
+                client=MagicMock(),
+                max_tokens=1000,
+                resume_status="Thinking...",
+                stream_call=lambda session, content_cb, thinking_cb, status_cb, bound_scope: "ok",
+                done_kind=StreamQueueKind.STREAM_DONE,
+                error_log_msg="x",
+                strip_round_0_image=False,
+            )
+    finally:
+        batched._timer.stop()
+
+    assert captured["resume_status"] == "Thinking..."
+    assert callable(captured["status_callback"])
+    assert spy_lock.acquire_count == 0
+    queued_items = list(turn.queue.queue)
+    assert (StreamQueueKind.STATUS, "lane-probe") in queued_items
+
