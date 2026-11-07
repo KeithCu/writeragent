@@ -31,7 +31,6 @@ import logging
 import os
 import queue
 import subprocess
-import sys
 import threading
 import uuid
 from collections import deque
@@ -40,7 +39,6 @@ from typing import Optional, Callable, Any, ClassVar, IO, Iterator
 
 from plugin.framework.constants import BACKGROUND_POOL_MAX_WORKERS
 from plugin.framework.errors import ToolExecutionError, WorkerPoolError
-from plugin.framework.subprocess_env import get_subprocess_creationflags as _get_subprocess_creationflags
 
 # Thread-safety guard (Layer A): tag threads born here so assert_main_thread
 # can name the offending background task in diagnostics.
@@ -509,42 +507,35 @@ class AsyncProcess:
     ``terminate`` closes pipes on the ``Popen`` it captured before
     ``Popen.terminate`` (that syscall releases the GIL). ``_wait_for_exit``
     and ``_reap`` already receive that same captured child.
+
+    Spawning delegates to ``ManagedSubprocess.start``. Pipes stay binary; the
+    constructor does not take ``text``, ``encoding``, or ``creationflags``.
     """
 
     args: str | list[str]
     stdout_cb: Optional[Callable[[str], None]]
     stderr_cb: Optional[Callable[[str], None]]
     on_exit_cb: Optional[Callable[[int], None]]
+    _env: Optional[dict[str, str]]
 
-    def __init__(self, args: str | list[str], stdout_cb: Optional[Callable[[str], None]] = None, stderr_cb: Optional[Callable[[str], None]] = None, on_exit_cb: Optional[Callable[[int], None]] = None, **popen_kwargs: Any) -> None:
+    def __init__(
+        self,
+        args: str | list[str],
+        stdout_cb: Optional[Callable[[str], None]] = None,
+        stderr_cb: Optional[Callable[[str], None]] = None,
+        on_exit_cb: Optional[Callable[[int], None]] = None,
+        *,
+        env: dict[str, str] | None = None,
+    ) -> None:
         self.args = args
         self.stdout_cb = stdout_cb
         self.stderr_cb = stderr_cb
         self.on_exit_cb = on_exit_cb
         self._child_generation: int = 0
-        # Pipes stay binary. text=True is ignored; see the popen kwargs below.
+        # Pipes stay binary. Spawning delegates to ManagedSubprocess.start;
+        # constructor does not take text, encoding, or creationflags.
         self.process: Optional[subprocess.Popen[Any]] = None
-
-        # Copy: setdefault must not mutate the caller's dict.
-        self._popen_kwargs: dict[str, Any] = dict(popen_kwargs)
-        for key, value in _get_subprocess_creationflags().items():
-            self._popen_kwargs.setdefault(key, value)
-        self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
-        self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
-        if sys.platform != "win32":
-            self._popen_kwargs.setdefault("start_new_session", True)
-        # Force binary pipes. _read_stream reads the binary buffer and
-        # decodes UTF-8; a TextIOWrapper plus that read desyncs the two
-        # buffers. No AsyncProcess caller passes text=True (the tunnel uses
-        # the binary default). encoding, errors, or universal_newlines
-        # would still open text mode after text=False.
-        if self._popen_kwargs.get("text") or self._popen_kwargs.get("universal_newlines") or self._popen_kwargs.get("encoding") or self._popen_kwargs.get("errors"):
-            log.debug("AsyncProcess forces binary pipes; text mode and encoding arguments are ignored")
-        self._popen_kwargs["text"] = False
-        self._popen_kwargs.pop("encoding", None)
-        self._popen_kwargs.pop("errors", None)
-        self._popen_kwargs.pop("universal_newlines", None)
-        self._popen_kwargs.setdefault("bufsize", 0)
+        self._env = env
 
         self._managed: Any = None
         self._stdout_thread: BackgroundHandle | None = None
@@ -572,15 +563,34 @@ class AsyncProcess:
                 log.warning("Previous process still alive after terminate")
                 if old_managed is not None:
                     old_managed.kill_tree()
-        try:
-            proc: subprocess.Popen[Any] = subprocess.Popen(self.args, **self._popen_kwargs)
-        except Exception as e:
-            raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
-
-        self.process = proc
         from plugin.framework.managed_subprocess import ManagedSubprocess
 
-        managed = ManagedSubprocess.wrap_existing(proc, label=f"asyncproc-{getattr(proc, 'pid', 'unknown')}", register=True)
+        # Drain stays false because these reader threads are the only stdout/stderr
+        # readers; log_start_failure stays false so the tunnel still sees
+        # FileNotFoundError as __cause__; no command_wrapper because the version
+        # probe uses the same PATH and a flatpak-spawn child would sit outside
+        # kill_tree; DEVNULL because the worker path cannot inherit and it keeps
+        # proc.stdin is None; base_env so the caller's dict is not merged again;
+        # scrub stays off so the three token names survive.
+        cmd_line = [self.args] if isinstance(self.args, str) else list(self.args)
+        kwargs: dict[str, Any] = {
+            "drain_stderr": False,
+            "log_start_failure": False,
+            "stdin": subprocess.DEVNULL,
+            "label": "asyncproc",
+        }
+        if self._env is None:
+            kwargs["inherit_env"] = True
+        else:
+            kwargs["base_env"] = self._env
+        managed = ManagedSubprocess(cmd_line, **kwargs)
+        try:
+            managed.start()
+        except Exception as e:
+            raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
+        proc = managed.popen
+        assert proc is not None
+        self.process = proc
         self._managed = managed
         stdout_thread: BackgroundHandle | None = None
         stderr_thread: BackgroundHandle | None = None
