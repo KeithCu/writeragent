@@ -73,7 +73,7 @@ _TIMEOUT_AFTER = " timed out after "
 # the holder serves a host callback. Killing a worker does not wait on the caller
 # either: the process tree is reaped in the background. The next spawn joins
 # that reap first. A waiter also leaves within _IO_LOCK_POLL_SEC if the holder
-# enters a tool RPC.
+# enters a host callback (tool RPC or on_heartbeat).
 _IO_LOCK_ACQUIRE_TIMEOUT_SEC = 600.0
 _IO_LOCK_POLL_SEC = 0.05
 
@@ -380,7 +380,7 @@ class PythonWorkerManager:
         self.env["WRITERAGENT_IS_WORKER"] = "1"
         self.pool = pool
         self._warm = None
-        # Same-thread owner -> WORKER_REENTRY; tool RPC in flight -> busy.
+        # Same-thread owner -> WORKER_REENTRY; host callback in flight (tool RPC or on_heartbeat) -> busy.
         # Every caller waits up to _IO_LOCK_ACQUIRE_TIMEOUT_SEC.
         # _serving_tool_call is a plain GIL-atomic bool on this manager, read
         # without the pipe lock: the holder keeps that lock across host RPC, so a
@@ -589,10 +589,11 @@ class PythonWorkerManager:
         """Refuse a nested execute that would deadlock this worker's pipe."""
         me = threading.get_ident()
         warm = self._warm
-        # The holder can be inside a tool RPC that is waiting on the thread stuck
-        # in acquire (the UI pump, or whichever worker must run the host
-        # callback), so the wait never ends. Refuse the owner (true reentry),
-        # or anyone while a tool call is in progress. Every other caller waits.
+        # The holder can be inside a host callback (tool RPC or on_heartbeat) that
+        # is waiting on the thread stuck in acquire (the UI pump, or whichever
+        # worker must run the host callback), so the wait never ends. Refuse the
+        # owner (true reentry), or anyone while a host callback is in progress.
+        # Every other caller waits.
         # _serving_tool_call is per manager. =PY() during a chat script is a
         # different thread, not a callback into the same worker. The reentry
         # sentence is only true when this thread already holds the pipe.
@@ -1142,10 +1143,17 @@ class PythonWorkerManager:
             if frame_type == FRAME_HEARTBEAT:
                 payload = data.get("payload")
                 if on_heartbeat is not None and isinstance(payload, dict):
+                    # The flag used to cover only tool_call / llm_request / worker_event;
+                    # this callback also runs under the pipe lock and can need the
+                    # thread stuck in lease(); the flag makes _refuse_lease return busy
+                    # for the callback and finally clears it before the next frame.
+                    self._serving_tool_call = True
                     try:
                         on_heartbeat(payload)
                     except Exception:
                         log.exception("Heartbeat callback failed (ignoring)")
+                    finally:
+                        self._serving_tool_call = False
                 extended = time.monotonic() + grace
                 if extended > ceiling:
                     deadline = ceiling

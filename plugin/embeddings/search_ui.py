@@ -410,7 +410,13 @@ class SearchDialog:
                             except Exception as exc:
                                 log.debug("search rebuild heartbeat UI update failed (%s)", type(exc).__name__)
 
-                        main.call(ui_update)
+                        # The return value is unused, and call blocks this pipe holder
+                        # for up to 30s when the UI thread is not pumping;
+                        # bound_scope=None because run_in_background copies the caller
+                        # context (worker_pool.py:217-219) and a chat SendCancellation
+                        # must not drop the progress paint (is_cancelled(None) is false;
+                        # cancel_pending_work(scope) keeps a different scope).
+                        main.post(ui_update, bound_scope=None)
                         del hb_data[file]
 
                 # Use the service function (mocked in tests) to rebuild the cache
