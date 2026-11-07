@@ -10,8 +10,11 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import re
 import sqlite3
+import sys
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, cast
 
@@ -173,6 +176,145 @@ CREATE VIRTUAL TABLE IF NOT EXISTS {tbl_name} USING vec0(
 """
 
 
+_REMOTE_FSTYPES: frozenset[str] = frozenset(
+    {
+        "9p",
+        "afpfs",
+        "afs",
+        "ceph",
+        "cifs",
+        "davfs",
+        "fuse.davfs",
+        "fuse.gvfsd-fuse",
+        "fuse.rclone",
+        "fuse.sshfs",
+        "glusterfs",
+        "lustre",
+        "ncpfs",
+        "nfs",
+        "nfs4",
+        "smb",
+        "smb3",
+        "smbfs",
+        "webdav",
+    }
+)
+
+
+def fstype_is_local(fstype: str | None) -> bool:
+    """Return True unless the filesystem type matches a known network mount.
+
+    Empty or None filesystem types default to local to avoid unnecessary
+    fallbacks when inspection fails.
+    """
+    if not fstype:
+        return True
+    return fstype.strip().casefold() not in _REMOTE_FSTYPES
+
+
+def _unescape_mountpoint(val: str) -> str:
+    """Decode octal escape sequences used by /proc/self/mountinfo for whitespace and backslashes."""
+    return (
+        val.replace(r"\040", " ")
+        .replace(r"\011", "\t")
+        .replace(r"\012", "\n")
+        .replace(r"\134", "\\")
+    )
+
+
+def _fstype_from_mountinfo(lines: Iterable[str], path: str | Path) -> str | None:
+    """Find the filesystem type for a path from mountinfo lines by longest prefix match.
+
+    Each mount entry contains the mount point at index 4 and the filesystem type
+    immediately after the separator dash. Returns None when no mountpoint matches.
+    """
+    target = os.path.realpath(str(path))
+    best_match: tuple[int, str] | None = None
+    for line in lines:
+        parts = line.strip().split()
+        if len(parts) < 5 or "-" not in parts:
+            continue
+        dash_idx = parts.index("-")
+        if dash_idx + 1 >= len(parts):
+            continue
+        fstype = parts[dash_idx + 1]
+        mp = _unescape_mountpoint(parts[4])
+        if target == mp:
+            mp_len = len(mp)
+        elif mp == "/" and target.startswith("/"):
+            mp_len = 1
+        elif target.startswith(mp.rstrip("/") + "/"):
+            mp_len = len(mp.rstrip("/"))
+        else:
+            continue
+
+        if best_match is None or mp_len > best_match[0]:
+            best_match = (mp_len, fstype)
+
+    return best_match[1] if best_match else None
+
+
+def _windows_drive_is_local(drive: str, kind: int | None = None) -> bool:
+    """Classify a Windows drive prefix or GetDriveTypeW return code as local or remote.
+
+    UNC network paths and DRIVE_REMOTE (4) return False. Other drive types,
+    including DRIVE_FIXED (3) and unknown drives without a kind, return True.
+    """
+    if drive.startswith(("\\\\", "//")):
+        return False
+    if not drive:
+        return True
+    if kind == 4:
+        return False
+    return True
+
+
+def path_is_local_disk(path: str | Path) -> bool:
+    """Check whether a folder resides on a local disk rather than a network mount."""
+    if sys.platform == "win32":
+        drive, _rest = os.path.splitdrive(str(path))
+        if drive.startswith(("\\\\", "//")):
+            return False
+        if not drive:
+            return True
+        try:
+            import ctypes
+
+            root = drive if drive.endswith("\\") else drive + "\\"
+            kind = int(ctypes.windll.kernel32.GetDriveTypeW(root))  # type: ignore[attr-defined]
+            return _windows_drive_is_local(drive, kind)
+        except (AttributeError, OSError):
+            return True
+
+    if sys.platform == "darwin":
+        try:
+            import ctypes
+            import ctypes.util
+
+            libc_name = ctypes.util.find_library("c") or "libc.dylib"
+            libc = ctypes.CDLL(libc_name)
+            buf = ctypes.create_string_buffer(4096)
+            path_bytes = os.fsencode(str(path))
+            ret = libc.statfs(path_bytes, buf)
+            if ret != 0:
+                return True
+            raw_fstype = buf.raw[72:88].split(b"\x00", 1)[0]
+            fstype = raw_fstype.decode("ascii")
+            if not fstype:
+                return True
+            return fstype_is_local(fstype)
+        except (AttributeError, OSError, UnicodeDecodeError):
+            return True
+
+    try:
+        with open("/proc/self/mountinfo", "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        fstype = _fstype_from_mountinfo(lines, path)
+        return fstype_is_local(fstype)
+    except OSError:
+        return True
+
+
 def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
     """Open corpus.db with row factory.
 
@@ -184,7 +326,21 @@ def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = dbapi.connect(str(path))
     conn.row_factory = dbapi.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    wanted = "wal" if path_is_local_disk(path.parent) else "delete"
+    # WAL on a local disk; a known network filesystem uses DELETE so two
+    # hosts do not share one WAL; an unrecognized type stays WAL.
+    if wanted == "wal":
+        res = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+    else:
+        res = conn.execute("PRAGMA journal_mode=DELETE").fetchone()
+    actual = str(res[0]).casefold() if res else ""
+    if actual != wanted:
+        log.warning(
+            "Corpus database journal mode mismatch in %s: wanted %s, got %s",
+            path.parent,
+            wanted,
+            actual,
+        )
     return cast(sqlite3.Connection, conn)
 
 

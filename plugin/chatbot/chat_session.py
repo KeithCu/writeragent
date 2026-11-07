@@ -21,6 +21,14 @@ def strip_legacy_document_suffix(content: str) -> str:
             return content[:idx]
     return content
 
+
+def history_open_failed_text() -> str:
+    """Return _("Chat history could not be opened. This conversation will not be saved.")."""
+    from plugin.framework.i18n import _
+
+    return _("Chat history could not be opened. This conversation will not be saved.")
+
+
 def request_tail(session: Any) -> str:
     """Return dynamic per-request context (such as the document snapshot).
 
@@ -50,10 +58,12 @@ class ChatSession:
     active_specialized_domain: str | None
     python_tool_domain: str | None
     compaction: Any
+    history_notice: str
 
     def __init__(self, system_prompt: str | None = None, session_id: str | None = None) -> None:
         self.session_id = session_id
         self.db = None
+        self.history_notice = ""
         self.messages = []
         self.base_system_prompt = system_prompt or ""
         self.document_context = ""
@@ -76,7 +86,9 @@ class ChatSession:
             except Exception:
                 # Load failure with an open DB must not seed a lone system row over corrupt history.
                 log.exception("ChatSession history load failed")
-                if self.db is not None:
+                if self.db is None:
+                    self.history_notice = history_open_failed_text()
+                else:
                     # Backend opened, then get_messages raised: must not insert
                     # a system row, which would replace a corrupt history with a
                     # one-message session.

@@ -342,3 +342,53 @@ def test_missing_vector_chunks_with_and_without_vec_table(tmp_path):
         assert embeddings_sqlite.has_missing_vector_chunks(conn, "m1") is False
     finally:
         conn.close()
+
+
+def test_connect_corpus_journal_wal_on_local_delete_on_remote(tmp_path, monkeypatch):
+    db_path = tmp_path / "corpus.db"
+    monkeypatch.setattr(embeddings_sqlite, "path_is_local_disk", lambda _p: True)
+    conn1 = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        mode = conn1.execute("PRAGMA journal_mode").fetchone()[0]
+        assert str(mode).casefold() == "wal"
+    finally:
+        conn1.close()
+
+    monkeypatch.setattr(embeddings_sqlite, "path_is_local_disk", lambda _p: False)
+    conn2 = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        mode = conn2.execute("PRAGMA journal_mode").fetchone()[0]
+        assert str(mode).casefold() == "delete"
+    finally:
+        conn2.close()
+
+
+def test_mountinfo_longest_remote_prefix():
+    lines = [
+        "42 1 259:2 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw",
+        "43 42 0:28 / /tmp rw,nosuid,nodev shared:3 - tmpfs tmpfs rw",
+        "50 42 0:50 / /mnt/share rw shared:4 - nfs server:/share rw",
+    ]
+    assert embeddings_sqlite._fstype_from_mountinfo(lines, "/mnt/share/sub/file.txt") == "nfs"
+    assert embeddings_sqlite._fstype_from_mountinfo(lines, "/tmp/scratch") == "tmpfs"
+    assert embeddings_sqlite._fstype_from_mountinfo(lines, "/home/user") == "ext4"
+
+    synthetic_no_root = [
+        "50 42 0:50 / /mnt/share rw shared:4 - nfs server:/share rw",
+    ]
+    assert embeddings_sqlite._fstype_from_mountinfo(synthetic_no_root, "/var/log") is None
+
+
+def test_fstype_is_local():
+    for remote in ("nfs", "cifs", "fuse.sshfs", "9p"):
+        assert embeddings_sqlite.fstype_is_local(remote) is False
+    for local in (None, "", "ext4", "tmpfs", "fuse"):
+        assert embeddings_sqlite.fstype_is_local(local) is True
+
+
+def test_windows_unc_and_remote_drive():
+    assert embeddings_sqlite._windows_drive_is_local(r"\\server\share") is False
+    assert embeddings_sqlite._windows_drive_is_local("//server/share") is False
+    assert embeddings_sqlite._windows_drive_is_local("Z:", 4) is False
+    assert embeddings_sqlite._windows_drive_is_local("C:", 3) is True
+    assert embeddings_sqlite._windows_drive_is_local("C:", None) is True
