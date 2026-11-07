@@ -10,13 +10,11 @@ from plugin.tests.testing_utils import CalcDocStub
 def _restore_drain_idle_callbacks():
     """Drop the next-task hooks ``stream_completion_tasks`` registers here.
 
-    What was wrong: each test's on_done added a ``main.post(run_next_task)``
-    lambda to the process-wide drain-idle list, which is never cleared. Every
-    later drain on the same xdist worker then queued stale ``run_next_task``
-    items on ``main``, and unrelated drain tests pumped them.
-    Why this change: after each test, remove only the hooks that
-    ``plugin.chatbot.selection`` added. A blanket restore could drop the
-    persistent ``peer_message`` callback if that module first imports here.
+    Each test's on_done posts ``run_next_task`` onto the process-wide drain-idle
+    list, which is never cleared; stale hooks on the same xdist worker poison
+    unrelated drain tests. After each test, remove only hooks from
+    ``plugin.chatbot.selection``. A blanket restore could drop the persistent
+    ``peer_message`` callback if that module first imports here.
     """
     from plugin.framework import async_drain_guard as guard
 

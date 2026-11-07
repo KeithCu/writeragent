@@ -102,7 +102,7 @@ def test_to_calc_compatible_finite_float_unchanged() -> None:
 
 
 def test_to_calc_compatible_bool_coercion() -> None:
-    # Bugfix (#413): Python bool maps to float 1.0/0.0 for Calc compatibility
+    # Python bool maps to float 1.0/0.0 for Calc compatibility (#413).
     res_true = to_calc_compatible(True)
     assert res_true == 1.0
     assert isinstance(res_true, float)
@@ -1389,7 +1389,7 @@ def test_scalar_for_list_result_no_share_without_unique_origin() -> None:
 
 
 def test_finalize_python_return_located_array_does_not_break_scalar_session(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bugfix: unpacking locate_formula_cell_in_doc must not shadow the CellContext parameter."""
+    """Unpacking locate_formula_cell_in_doc must not shadow the CellContext parameter."""
     from unittest.mock import patch
 
     doc = CalcDocStub()

@@ -203,10 +203,8 @@ def test_run_returns_without_waiting_on_fake_http(monkeypatch: pytest.MonkeyPatc
     dash = EvalDashboard(MagicMock())
     dash._dlg = dialog
     listener = EvalRunListener(dash)
-    # What was wrong: joining the suite worker was enough to see "Finished".
-    # post() no longer runs inline on a tagged background task, so the worker
-    # only queues _show_summary. The line stays "Running..." until this thread
-    # drains that post. Force-marshal keeps the post instead of dropping it
+    # The suite worker only queues _show_summary on main; status stays "Running..."
+    # until the UI thread drains that post. test_marshal forces the post through
     # when AsyncCallback is missing.
     from plugin.framework import queue_executor as qe
 
@@ -270,9 +268,7 @@ def test_raised_suite_sets_finished_status(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
-    # What was wrong: tests.eval_runner imports dev scripts (scripts.lib.pricing)
-    # which are not present in stripped release verification trees.
-    # Why: skip when running against stripped release bundle.
+    # Stripped release trees omit scripts/; skip when pricing imports are absent.
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("scripts/ not in stripped release tree")
@@ -310,8 +306,7 @@ def test_tool_execution_hops_to_the_main_thread_from_the_suite_worker() -> None:
 
 def test_populate_locks_endpoint_so_edits_are_not_ignored() -> None:
     """The suite reads the saved endpoint. The dialog field must not look editable."""
-    # What was wrong: extension/ directory is not at root in stripped release bundle.
-    # Why: skip when running against stripped release bundle.
+    # Stripped release bundles omit extension/ at the repo root; skip there.
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("extension/ not in stripped release tree")

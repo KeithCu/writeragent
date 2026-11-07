@@ -388,8 +388,7 @@ def test_run_vision_rejects_oversized_image():
 
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_paddle_fallback_failure_preserves_docling_error(mock_convert):
-    # What was wrong: an unhandled exception in the Paddle fallback replaced the original Docling error with VISION_ERROR.
-    # Why this change: verify the fallback failure is caught and logged, returning the original docling_result.
+    # Paddle fallback failures must not mask the original Docling error; return the docling_result after logging.
     mock_convert.side_effect = ImportError("docling is not installed")
 
     with patch("plugin.vision.venv.vision_paddle.extract_text", side_effect=RuntimeError("paddle crashed")):

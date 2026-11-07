@@ -64,7 +64,7 @@ def test_extract_library_source_keeps_computed_assigns_and_rejects_loops():
 
 
 def test_extract_library_source_rejects_calls_hidden_in_assignments():
-    """A call in an assignment used to run while the library loaded."""
+    """Calls in assignments must not run while the library source is extracted."""
     with pytest.raises(ValueError, match="lines 2"):
         extract_library_source("K = 1\nx = print('nope')\n")
     with pytest.raises(ValueError, match="lines 1"):
@@ -154,7 +154,7 @@ def test_extract_library_source_rejects_class_body_target_calls():
 
 
 def test_extract_library_source_rejects_module_walrus():
-    """A walrus Expr used to disappear with no error, so the name never bound."""
+    """Module-level walrus expressions must be rejected so names never bind silently."""
     with pytest.raises(ValueError, match="lines 1"):
         extract_library_source("(count := 1)\n")
     src = extract_library_source("def f():\n    return 1\nprint('skip')\n")
@@ -664,9 +664,8 @@ def test_extract_library_source_rejects_decorators():
 
 
 def test_extract_library_source_rejects_default_arg_calls():
-    # What was wrong: Default arguments and kw_defaults evaluate when the function is defined
-    # at module import time, executing side-effects during library load.
-    # Why this change: Check function args.defaults and args.kw_defaults for Call nodes.
+    # Default and keyword-default values run at function definition time, so any Call
+    # there would execute during library load. Reject defaults and kw_defaults that contain calls.
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("def f(x=wa.writer.read()):\n    pass\n")
     with pytest.raises(ValueError, match="not library definitions"):
@@ -674,8 +673,8 @@ def test_extract_library_source_rejects_default_arg_calls():
 
 
 def test_extract_library_source_rejects_annotation_calls():
-    # What was wrong: Type annotations (e.g. `x: wa.read()`) evaluate at function/class definition time.
-    # Why this change: Check parameter annotations, return annotations, and class annotations for Call nodes.
+    # Type annotations evaluate at definition time, so a call in an annotation runs
+    # during library load. Reject parameter, return, and class annotations that contain calls.
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("def f(x: wa.read()) -> None:\n    pass\n")
     with pytest.raises(ValueError, match="not library definitions"):
@@ -683,8 +682,8 @@ def test_extract_library_source_rejects_annotation_calls():
 
 
 def test_extract_library_source_rejects_class_body_non_def_assign():
-    # What was wrong: Arbitrary statements in class bodies (like `for`, `try`, expressions) run at class creation.
-    # Why this change: Only def methods, assignments, pass, or an initial docstring are permitted in class bodies.
+    # Class bodies run at class creation, so loose statements would execute during library load.
+    # Only def methods, assignments, pass, or an initial docstring are allowed in class bodies.
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("class C:\n    print('side effect')\n")
     with pytest.raises(ValueError, match="not library definitions"):
@@ -710,9 +709,8 @@ def test_script_library_dir_and_contains():
 
 
 def test_bind_and_reset_named_scripts_executor():
-    # What was wrong: The ContextVar token from bind_named_scripts_executor was never reset in finally blocks,
-    # causing executors to leak across subsequent tasks.
-    # Why this change: bind_named_scripts_executor returns token, reset_named_scripts_executor resets it.
+    # bind_named_scripts_executor returns a token that reset_named_scripts_executor must apply.
+    # Without reset, the ContextVar leaks the executor into later tasks.
     from plugin.scripting.named_scripts import (
         _current_executor,
         bind_named_scripts_executor,
@@ -732,9 +730,9 @@ def test_bind_and_reset_named_scripts_executor():
 def test_bind_does_not_leak_context_when_attach_fails(monkeypatch: pytest.MonkeyPatch):
     """A failed attach must not leave _current_executor set.
 
-    What was wrong: bind set the ContextVar and then attached. The token
-    is returned only on success, so _run_on_executor's finally never reset
-    it when attach raised.
+    bind sets the ContextVar before attach. The token is returned only on
+    success, so a failed attach must not leave _current_executor set for
+    _run_on_executor's finally to miss.
     """
     from types import SimpleNamespace
 

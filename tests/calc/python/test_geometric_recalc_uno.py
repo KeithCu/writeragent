@@ -153,7 +153,7 @@ def _session_config_paths(ctx) -> list[str]:
     ctx-resolved / client ``get_config_file_path`` only when it sits under that
     profile (or when there is no throwaway — ``--user-profile`` mode).
     Never rewrite the default user profile while a throwaway is active;
-    leftover diag previously dumped production API keys from there.
+    stray writes there can leak production API keys into session diagnostics.
     """
     from plugin.framework.config import _resolve_config_path_from_ctx, get_config_file_path
     from plugin.testing_runner import throwaway_writeragent_json

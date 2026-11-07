@@ -172,8 +172,8 @@ def test_handle_request_unknown_action_does_not_execute(mock_execute) -> None:
 def test_system_exit_during_request_writes_terminal_frame(monkeypatch) -> None:
     """SystemExit after EXEC_STARTED must become a terminal error frame.
 
-    What was wrong: the harness only caught Exception. raise SystemExit
-    killed the process with no terminal frame, and the host refused replay.
+    SystemExit is BaseException. The harness must catch it, emit a terminal
+    error frame after EXEC_STARTED, and leave the host able to replay.
     """
     from plugin.framework.ipc import EXEC_STARTED, read_pickle_frame, write_pickle_frame
     from plugin.scripting.venv import worker_harness

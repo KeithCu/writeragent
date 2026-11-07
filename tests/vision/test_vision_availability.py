@@ -22,7 +22,7 @@ class _Tool:
 
 
 def test_vision_venv_configured_propagates_config_error():
-    # Why this change: config typos must propagate ConfigError rather than being swallowed as False.
+    # Config typos must propagate ConfigError rather than being swallowed as False.
     with patch("plugin.vision.vision_availability.get_config", side_effect=ConfigError("broken config")):
         with pytest.raises(ConfigError):
             vision_venv_configured()
@@ -37,9 +37,7 @@ def test_vision_venv_configured_success():
 
 
 def test_filter_vision_delegate_schemas_consistent_with_ctx_none():
-    # What was wrong: filter_vision_delegate_schemas returned early when ctx=None, advertising vision when unavailable,
-    # while filter_vision_specialized_tools hid it.
-    # Why this change: verify schemas are filtered out when vision is unavailable even if ctx is None.
+    # When vision is unavailable, delegate schemas must be filtered even if ctx is None (same policy as specialized tools).
     schemas = [
         {
             "type": "function",

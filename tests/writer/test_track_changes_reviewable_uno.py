@@ -737,11 +737,10 @@ def test_apply_document_content_wait_timeout_zero_returns_pending_uno(ctx, doc):
 def test_streamed_rewrite_refuses_tracked_deletion_uno(ctx, doc):
     """A streamed rewrite over a tracked deletion raises and leaves that redline alone.
 
-    What was wrong: the session used to turn RecordChanges off and setString the
-    range before the model returned. That write accepts a tracked deletion, so
-    abort_and_restore could not put the redline back. WriterStreamedRewriteSession
-    now raises TrackedChangesInSelection in __init__, before the undo context,
-    before RecordChanges changes, and before setString.
+    setString on a tracked-deletion range accepts the deletion, so the session must
+    raise TrackedChangesInSelection in __init__—before the undo context, before
+    RecordChanges changes, and before setString—so abort_and_restore can still
+    restore the redline.
     """
     from plugin.doc.text_helpers import get_string_without_tracked_deletions
 

@@ -110,7 +110,8 @@ class TestErrorHandling:
 
         err = http.client.RemoteDisconnected("Remote end closed connection")
         msg = format_error_message(err)
-        # No HTTP status. "HTTP Error" alone used to pass for "HTTP Error 0: ".
+        # No HTTP status: the message must not look like "HTTP Error 0: " when
+        # only "HTTP Error" is present.
         assert "Remote end closed connection" in msg
         assert "HTTP Error 0" not in msg
 
@@ -312,8 +313,8 @@ class TestSafeJsonLoads:
     def test_long_runtime_message_does_not_raise_precontract(self):
         """Provider and UNO text longer than the msgid bound must still construct.
 
-        What was wrong: WriterAgentException passed that text through i18n._(),
-        whose deal pre rejects strings longer than DEAL_MAX_MSGID.
+        Passing provider text through ``i18n._()`` rejects strings longer than
+        ``DEAL_MAX_MSGID``; long runtime messages must still construct.
         """
         from plugin.framework.deal_shim import DEAL_MAX_MSGID
         from plugin.framework.errors import NetworkError, make_tool_error
@@ -698,8 +699,9 @@ class TestSuppressDisposed:
 def test_illegal_argument_is_not_document_disposal():
     """Real pyuno: IllegalArgumentException subclasses RuntimeException.
 
-    isinstance(exc, RuntimeException) used to report it as disposal. uno_call
-    now wraps a bare RuntimeException as UnoObjectError.
+    ``IllegalArgumentException`` subclasses ``RuntimeException``. Treating every
+    ``RuntimeException`` as disposal mislabels real argument errors; ``uno_call``
+    must wrap a bare ``RuntimeException`` as ``UnoObjectError``.
     """
     uno = pytest.importorskip("uno")
     del uno

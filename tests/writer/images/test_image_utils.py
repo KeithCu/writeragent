@@ -788,7 +788,7 @@ def test_resolve_edit_generation_size_uses_base_size_and_closest_aspect():
 
     # 16:9 long edge stays 1024 (create would grow the long side to ~1792 / 2K).
     assert resolve_edit_generation_size(1024, 1920, 1080) == (1024, 576, "16:9")
-    # The 135mm frame is ~510px. That used to become resolution "512".
+    # The 135mm frame is ~510px; resolution must stay on the 16:9 long-edge bucket, not "512".
     assert resolve_edit_generation_size(1024, 510, 287) == (1024, 576, "16:9")
     # 1:2 is outside the 7% window of 9:16. Edit still snaps instead of sending raw WxH.
     assert resolve_edit_generation_size(1024, 1000, 2000) == (576, 1024, "9:16")
@@ -856,9 +856,8 @@ def test_save_b64_rejects_oversized(monkeypatch, tmp_path):
 
     provider = EndpointImageProvider({"model": "test"}, None)
     monkeypatch.setattr("plugin.writer.images.image_utils.IMAGE_DOWNLOAD_MAX_BYTES", 100)
-    # Isolate temp dir to tmp_path: previously, checking the shared system temp dir
-    # caused flakiness in parallel test runs (pytest -n) because concurrent tests
-    # on other xdist workers could create wa-img-* files in /tmp during execution.
+    # Isolate temp dir to tmp_path: globbing the shared system /tmp is flaky under pytest -n
+    # because other xdist workers can create wa-img-* files there during this test.
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
     # 101 bytes raw base64 encoded

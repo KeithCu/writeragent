@@ -206,9 +206,8 @@ def test_long_running_tool_can_opt_out_of_document_lock():
     )
 
 def test_unknown_tool_is_rejected_up_front_without_executing():
-    """An unknown tool name returns a structured UNKNOWN_TOOL error BEFORE the mutation gate and
-    the registry ever run (previously it flowed through the gate and died later as a raw KeyError
-    serialized under INTERNAL_ERROR, which reads as a server bug instead of a bad tool name)."""
+    """Unknown tool names must return UNKNOWN_TOOL before the mutation gate or registry run,
+    not a late KeyError surfaced as INTERNAL_ERROR."""
 
     class _UnknownRegistry(_Registry):
         def get(self, name):
@@ -291,9 +290,9 @@ class _DepthMainThread:
 def test_backpressure_waits_for_document_gate_off_the_main_thread():
     """A mutating backpressure call must not occupy the main thread while the gate is held.
 
-    What was wrong: the old execution path marshalled _execute_tool_on_main, and
-    that function acquired the per-document gate. The UI thread blocked until the
-    30s timeout (BusyError) while a long-running mutator held the same gate.
+    Backpressure calls must wait for the document gate off the main thread. Holding
+    the gate inside marshalled main-thread work can BusyError the UI while a long
+    mutator keeps the same gate.
     """
     release = threading.Event()
     long_in_body = threading.Event()

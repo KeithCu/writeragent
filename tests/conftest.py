@@ -218,12 +218,9 @@ for _worker_var in _WORKER_ENV_VARS:
 def _isolate_worker_env_vars():
     """Start every test as the LibreOffice host, not a compute worker.
 
-    What was wrong: compute_service/formula_worker.py and vision.py set these
-    env vars at import time. Test modules import them during collection, so the
-    whole pytest (xdist) process looked like a worker and fail-closed guards
-    such as call_host_tool raised in unrelated tests.
-    Why this fix: clear before each test (tests that need the markers set them
-    explicitly) and clean up afterwards so worker modes never leak to other tests.
+    Worker env markers set at import time make the whole xdist process look like
+    a compute worker and trip fail-closed guards in unrelated tests. Clear them
+    before each test and after teardown; tests that need worker mode set vars explicitly.
     """
     for k in _WORKER_ENV_VARS:
         os.environ.pop(k, None)
@@ -579,8 +576,8 @@ setattr(frame, "XDispatch", MockXDispatch)
 setattr(frame, "XDispatchProvider", MockXDispatchProvider)
 setattr(frame, "XTerminateListener", MockBase)
 
-# Shells and attributes that setup_uno_mocks() used to install per test module.
-# They live here so a module-level setup_uno_mocks() call is a no-op under pytest.
+# Shared UNO mock modules loaded once for the session. Module-level
+# setup_uno_mocks() is a no-op when these shells are already present.
 _create_mock_module("com.sun.star.document")
 _create_mock_module("com.sun.star.style")
 _create_mock_module("com.sun.star.style.BreakType")

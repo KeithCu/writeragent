@@ -539,8 +539,7 @@ def test_vision_insert_marshaled_with_unscoped_scope():
 
 
 def test_stop_break_reports_partial_and_stopped():
-    # What was wrong: stop break returned status: ok, "OCR complete (N images)", and full image_names list.
-    # Why this change: verify stopped=True, partial=True, image_names truncated to processed, and message "Stopped after N of M images."
+    # Stop mid-run must set stopped/partial, truncate image_names to processed count, and report "Stopped after N of M images."
     from plugin.framework.send_cancellation import SendCancellation
 
     ctx = MagicMock()
@@ -571,8 +570,7 @@ def test_stop_break_reports_partial_and_stopped():
 
 
 def test_send_cancelled_escapes_discovery_as_user_stopped():
-    # What was wrong: SendCancelled during discovery escaped as generic VISION_ERROR.
-    # Why this change: verify SendCancelled raises USER_STOPPED directly.
+    # SendCancelled during discovery must return USER_STOPPED, not a generic VISION_ERROR.
     from plugin.framework.send_cancellation import SendCancelled
 
     with patch("plugin.framework.queue_executor.main.call", side_effect=SendCancelled("cancel")):

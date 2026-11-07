@@ -342,17 +342,10 @@ def test_drain_scheduler_override_forces_blocking_and_restores() -> None:
 def test_drain_scheduler_override_none_uses_blocking_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """A None hook selects _run_stream_drain_blocking (pumps idle before return).
 
-    What was wrong: this asserted ``toolkit.idle_calls >= 1`` and failed in CI
-    (run 37510062234) with ``0 >= 1`` while the chunk and STREAM_DONE were
-    applied. ``pump_ui_idle`` skips VCL whenever the process-wide drain depth
-    is above 1, and it runs work other tests left in ``main``. On
-    an xdist worker both are shared with every earlier test, so the count
-    measured leftover state, not the scheduler choice. The silent
-    ``on_error`` also hid any crash inside the pump.
-    Why this change: spy the blocking loop and its ``pump_ui_idle`` calls,
-    give the pump a private executor, start from a clean drain guard, and
-    fail on any error. VCL gating by depth is covered by the
-    ``test_pump_ui_idle_*`` tests.
+    Counting global ``pump_ui_idle`` calls mixes leftover drain depth and queued
+    main work from other tests on the same xdist worker. Spy the blocking loop
+    directly, use a private executor, reset the drain guard, and surface
+    ``on_error``. Depth gating belongs in ``test_pump_ui_idle_*``.
     """
     from plugin.framework import async_stream as stream_mod
     from plugin.framework import queue_executor as qe

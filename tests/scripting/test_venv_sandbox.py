@@ -58,9 +58,9 @@ def _reset_abandoned_timeout() -> Any:
 def test_user_base_exception_does_not_drop_the_shared_session(code: str, label: str):
     """SystemExit and KeyboardInterrupt must stay in the cell.
 
-    What was wrong: both are BaseException. The vendored executor only
-    catches Exception, so they left run_sandboxed_code, the warm worker
-    died after EXEC_STARTED, and the host dropped every shared session.
+    SystemExit and KeyboardInterrupt are BaseException, not Exception.
+    The sandbox must treat them like other user aborts: return an error
+    frame, keep the worker alive, and preserve the shared session.
     """
     sid = f"calc:base-exception-{label}"
     try:
@@ -362,8 +362,9 @@ def test_serialize_result_allows_shared_sublist():
 def test_serialize_result_set_of_range_falls_back_to_list():
     """range coerces to a list, which cannot live inside a set.
 
-    What was wrong: the set comprehension raised TypeError and a successful
-    value became an error frame.
+    A set containing range must coerce to a list wire value. Otherwise the
+    comprehension raises TypeError and a successful result becomes an error
+    frame.
     """
     assert serialize_result({1}) == {1}
     assert serialize_result(frozenset({1})) == frozenset({1})

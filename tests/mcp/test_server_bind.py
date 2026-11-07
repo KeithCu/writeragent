@@ -51,7 +51,7 @@ def test_start_binds_on_free_port():
 
 
 def test_start_raises_immediately_when_port_busy(monkeypatch):
-    # Persistent holder — must not sleep/retry (used to block LO bootstrap ~4s).
+    # A busy port must fail immediately with no sleep/retry so LibreOffice bootstrap is not blocked.
     occupier = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     occupier.bind(("127.0.0.1", 0))
     occupier.listen(1)
@@ -151,9 +151,8 @@ def test_mcp_module_does_not_register_api_config(monkeypatch):
     from plugin.mcp.routes import HttpRouteRegistry
 
     # McpModule.initialize() publishes the instance to global _current_module.
-    # Previously mcp_mod._current_module = None was set directly and mod.shutdown()
-    # was outside try/finally, leaking the half-built module to subsequent tests.
-    # Monkeypatch guarantees restoration and shutdown() unregisters the module.
+    # initialize() publishes _current_module; tests must restore it and call shutdown()
+    # so a half-built McpModule does not leak into later cases.
     monkeypatch.setattr(mcp_mod, "_current_module", None)
 
     services = MagicMock()

@@ -337,8 +337,7 @@ def test_extract_structure_v3_predict_result(mock_get_engine, mock_decode):
 
 
 def test_parse_v3_structure_page_preserves_table_html_positions_when_first_empty():
-    # What was wrong: filtering empty strings from htmls shifted indices, causing subsequent tables to be matched to the wrong HTML.
-    # Why this change: verify table 2 gets html 2 even when table 1 has empty HTML.
+    # Empty table HTML must not shift indices: table 2 still pairs with its HTML when table 1 is empty.
     payload = {
         "table_res_list": [
             {"pred_html": ""},  # empty HTML for table 1
@@ -358,8 +357,7 @@ def test_parse_v3_structure_page_preserves_table_html_positions_when_first_empty
 
 
 def test_get_paddle_ocr_attribute_error_guard(monkeypatch: MonkeyPatch):
-    # What was wrong: missing AttributeError guard if paddleocr module lacked PaddleOCR class.
-    # Why this change: guard (ImportError, AttributeError) and report PADDLEOCR_UNAVAILABLE.
+    # A paddleocr module without PaddleOCR must return PADDLEOCR_UNAVAILABLE, not an unhandled AttributeError.
     empty_mod = SimpleNamespace()
     monkeypatch.setattr(paddle_mod, "_paddle_ocr_engine", None)
     monkeypatch.setattr(paddle_mod, "_paddle_ocr_lang", None)
@@ -371,8 +369,7 @@ def test_get_paddle_ocr_attribute_error_guard(monkeypatch: MonkeyPatch):
 
 
 def test_get_paddle_ocr_constructor_error(monkeypatch: MonkeyPatch):
-    # What was wrong: constructor errors in _get_paddle_ocr escaped as unhandled exceptions.
-    # Why this change: catch constructor exceptions and return error_result with VISION_ERROR.
+    # PaddleOCR constructor failures must surface as VISION_ERROR, not escape as unhandled exceptions.
     def _exploding_ocr(**kwargs):
         raise RuntimeError("PaddleOCR constructor failed")
 
@@ -450,8 +447,7 @@ def test_html_from_paddle_structure_keeps_plain_table_text():
 
 
 def test_decode_image_bytes_composites_transparent_image_onto_white():
-    # What was wrong: convert("RGB") on transparent images converted transparent background to black.
-    # Why this change: composite alpha channel onto white background before converting to RGB.
+    # Transparent PNGs must be composited onto white before RGB conversion so the background is not black.
     img = Image.new("RGBA", (10, 10), (0, 0, 0, 0))  # fully transparent
     buf = io.BytesIO()
     img.save(buf, format="PNG")

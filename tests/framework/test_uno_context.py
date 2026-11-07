@@ -556,11 +556,9 @@ def test_resolve_document_by_url_reraises_disposed_on_nextelement():
     # Actually, _reraise_document_disposed in errors.py looks for "disposed" or DisposedException type.
     enum.nextElement.side_effect = exc
 
-    # What was wrong: saved_ctx = set_fallback_ctx(ctx) assigned None because
-    # set_fallback_ctx previously returned None, which caused the finally block
-    # to clobber the global fallback ctx with None for subsequent tests.
-    # Why this change: save uc._fallback_ctx before setting the test context
-    # and restore the saved value in finally.
+    # Save ``uc._fallback_ctx`` before overriding it for this test and restore
+    # it in ``finally``. Otherwise a teardown that calls ``set_fallback_ctx``
+    # can leave the global fallback as ``None`` for later tests.
     import plugin.framework.uno_context as uc
 
     saved_ctx = uc._fallback_ctx

@@ -665,8 +665,9 @@ class TestSessionUpdateDiscriminator:
     def test_tool_call_update_in_progress_with_content_is_activity(self):
         """Streaming content is not a finished result.
 
-        What was wrong: ``content`` on an in_progress update was queued as
-        TOOL_RESULT, so one call showed several "[Tool result]" lines.
+        Streaming ``content`` on an in_progress tool update is activity, not a
+        finished result. Queueing it as TOOL_RESULT duplicates "[Tool result]"
+        lines for one call.
         """
         update = {
             "sessionUpdate": "tool_call_update",
@@ -1384,8 +1385,8 @@ class TestStopAndShutdown:
     def test_notification_callback_is_registered_before_session_new(self):
         """A session/update emitted during session/new must reach the queue.
 
-        What was wrong: send() installed the callback after session/new.
-        Notifications during that request saw no callback and were dropped.
+        The notification callback must be registered before ``session/new``.
+        Updates emitted during that request are lost if no callback is installed yet.
         """
         backend = _bare_backend()
         conn = _mock_conn()

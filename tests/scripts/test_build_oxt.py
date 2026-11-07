@@ -87,7 +87,7 @@ def test_should_exclude_component_matching():
     assert should_exclude("plugin/foo/tests/helper.py", with_tests=False) is True
     assert should_exclude("plugin/foo/tests/helper.py", with_tests=True) is True
 
-    # Retained files that substring 'test_' or '.git' previously dropped
+    # Paths that merely contain the substrings test_ or .git must not be excluded:
     assert should_exclude("contest_entry.py") is False
     assert should_exclude("latest_thing.py") is False
     assert should_exclude(".github/workflows/ci.yml") is False

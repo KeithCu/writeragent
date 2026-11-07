@@ -1224,11 +1224,9 @@ def test_b21_clear_during_ramble_then_stop(ctx):
         if clear is None:
             raise unittest.SkipTest("B21 needs controls['clear'] over URP")
         uno_click(clear)
-        # What was wrong: this case required Clear to leave Stop enabled.
-        # Clear wiped the transcript on the UI thread and the in-flight ramble
-        # was then appended onto that greeting. Clear now dispatches
-        # STOP_CLICKED while is_busy (#958). Stop stays enabled until the
-        # drain finishes, so wait for that idle instead of pressing Stop.
+        # Clear must stop the in-flight stream (STOP_CLICKED while busy) before
+        # the greeting is shown. Wait until is_busy clears instead of assuming
+        # Stop stays enabled or that the ramble cannot land after Clear.
         deadline = time.monotonic() + 25.0
         while time.monotonic() <= deadline and _is_busy():
             time.sleep(0.1)
@@ -2858,10 +2856,9 @@ def _prepare_k_sidebar(ctx: Any) -> None:
     """Re-bind Packet K to the live Writer deck (not a leftover Calc panel).
 
     Packet P / E12 leave extra ChatPanelElements in the soffice WeakSet.
-    Inflate used to pad WeakSet[0] while URP Send clicked Writer — hello
-    POSTs were n_messages=2 with no summarizer. Re-adopt Writer and pin
-    ``writeragent-mock`` on the same controls ``_send_and_wait`` uses so
-    ``sync_sidebar_text_model`` cannot restore a slash-LRU id (no_window).
+    Leftover sidebar panels in the WeakSet can make URP Send target the wrong deck.
+    Re-adopt Writer and pin ``writeragent-mock`` on the controls ``_send_and_wait``
+    uses so ``sync_sidebar_text_model`` does not restore a stale model id.
     """
     from plugin.chatbot.dialogs import set_control_text
     from plugin.chatbot.sidebar_test_hooks import (

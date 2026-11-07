@@ -312,9 +312,8 @@ def test_unresolved_list_and_dict_value_are_omitted():
 
 
 def test_format_elapsed_time_boundary_rounding():
-    # What was wrong: 59.999s formatted as 60.00s instead of 1m 0s, and sub-second
-    # times like 0.999s could round up to seconds prematurely.
-    # Why this change: Round to 2 decimal places before testing >= 60.0, and keep >= 1.0 for seconds.
+    # format_elapsed_time rounds to two decimals before choosing minutes vs seconds.
+    # Values like 59.999s must show as 1m 0s, and sub-second times stay in milliseconds.
     assert format_elapsed_time(59.999) == "1m 0s"
     assert format_elapsed_time(59.994) == "59.99s"
     assert format_elapsed_time(0.999) == "999 ms"

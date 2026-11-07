@@ -287,8 +287,8 @@ def test_weakref_subscribe_callable():
 def test_get_event_bus_reuses_bus_with_same_qualified_name():
     """Two EventBus classes with the same qualified name must share one bus.
 
-    A second import defines a new class object. isinstance against the class
-    from this import used to miss the stored bus and overwrite it.
+    A second import defines a new class object. Matching only ``isinstance`` against
+    the class from this import would miss the stored bus and overwrite it.
     """
     import sys
 
@@ -327,10 +327,9 @@ def test_get_event_bus_reuses_bus_with_same_qualified_name():
 def test_subscribe_weak_builtin_inline_survives_gc():
     """Inline ``items.append`` with ``weak=True`` must still run after GC.
 
-    What was wrong: WeakMethod rejects the builtin, and ``weakref.ref``
-    kept the temporary bound method. The test that stashed
-    ``method = items.append`` kept that object alive, so the drop never
-    showed up. Callers subscribe inline and do not keep the method.
+    ``WeakMethod`` rejects builtins; a ``weakref.ref`` on the temporary bound method
+    dies only when nothing else holds it. Production callers subscribe inline
+    (for example ``items.append``) without stashing the method object.
     """
     bus = EventBus()
     items: list[int] = []
@@ -371,8 +370,8 @@ def test_subscribe_weak_slots_method_inline_survives_gc():
 def test_unsubscribe_builtin_does_not_drop_sibling():
     """``append`` and ``clear`` on one list are different callbacks.
 
-    Both have ``__self__`` and neither has ``__func__``. Treating the
-    missing ``__func__`` as equal used to remove both.
+    Both have ``__self__`` and neither has ``__func__``. Treating missing
+    ``__func__`` as equality would unsubscribe both ``append`` and ``clear``.
     """
     bus = EventBus()
     items: list[int] = []
@@ -396,9 +395,9 @@ def test_subscribe_weak_method_wrapper_falls_back_to_strong_ref():
 def test_weakref_cleanup_while_lock_held_does_not_deadlock():
     """GC of a cyclic weak subscriber must not hang on the bus lock.
 
-    What was wrong: emit/subscribe allocate while holding a non-reentrant
-    Lock. Collecting the subscriber ran ``_cleanup``, which took that lock
-    again on the same thread and never returned.
+    If ``emit`` or ``subscribe`` allocates while holding a non-reentrant lock,
+    GC of a cyclic weak subscriber runs ``_cleanup`` and tries to take the same
+    lock again on this thread, which deadlocks.
     """
     import threading
 

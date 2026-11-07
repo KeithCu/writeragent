@@ -259,8 +259,9 @@ def test_get_async_callback_explicit_ctx_does_not_call_uno_getComponentContext(m
 def test_get_async_callback_unwraps_layer_a_proxy():
     """Creating AsyncCallback from a worker must not getattr() a guard proxy.
 
-    That used to fire Layer A while _init_lock was held and deadlock startup
-    (set_context on the UI thread vs nested main.call).
+    Without unwrapping, getattr on a guard proxy fires Layer A while
+    ``_init_lock`` is held and startup deadlocks (UI ``set_context`` vs nested
+    ``main.call``).
     """
     import plugin.framework.thread_guard as tg
 
@@ -832,8 +833,9 @@ class TestWorkItemClaimLockTimeoutRace:
         assert item.cancelled is False
 
     def test_claimed_timeout_waits_for_in_flight_result(self):
-        # The UI thread already claimed the item. TimeoutError used to abandon
-        # that call; a retry then applied the change twice.
+        # The UI thread already claimed the item. A TimeoutError must keep
+        # waiting for that in-flight result; abandoning it lets a retry apply
+        # the change twice.
         from plugin.framework.queue_executor import MainThread, _WorkItem
 
         qe = MainThread()
@@ -1098,8 +1100,8 @@ def test_cancel_reput_pokes_kept_work():
 def test_scoped_cancel_requeues_survivors_ahead_of_concurrent_enqueue():
     """A put that arrives during a scoped drain stays behind the survivors.
 
-    What was wrong: cancel dropped ``_claim_lock`` and re-queued survivors
-    afterwards, so the newer item landed first. The late enqueue uses
+    If cancel drops ``_claim_lock`` and re-queues survivors afterwards, a
+    concurrent enqueue can land ahead of them. The late enqueue uses
     ``poke=False`` so the single poke is the one cancel issues after both
     locks are released.
     """

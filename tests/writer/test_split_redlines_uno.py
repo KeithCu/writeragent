@@ -253,9 +253,8 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
 @with_native_doc("writer")
 def test_split_three_runs_resolve_individually_and_reconstruct_uno(ctx, doc):
     """THREE surgical changes in one paragraph -> three independently reviewable changes. This
-    exercises the real right-to-left offset application for 3+ runs (the central risk, previously
-    only smoke-tested with two words): resolve the middle one alone, then accept the rest and confirm
-    the paragraph reconstructs to the agent's text exactly."""
+    exercises right-to-left offset application for 3+ runs (not just two words): resolve the middle
+    one alone, then accept the rest and confirm the paragraph reconstructs to the agent's text exactly."""
     base = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
     _body(doc, ctx, "Intro.", base)
     found = _find(doc, base)
@@ -325,7 +324,7 @@ def test_block_safe_for_surgical_guard_uno(ctx, doc):
 @with_native_doc("writer")
 def test_go_right_chunks_past_short_cap_uno(ctx, doc):
     """_go_right moves/selects correctly PAST goRight's 32767 short cap (chunked). This is
-    the offset helper the surgical path uses; before the fix a raw goRight(>32767) overflowed.
+    the offset helper the surgical path uses; a raw goRight(>32767) overflows without chunking.
     Tested directly because the surgical path needs a search range (which we can't build for a
     35000-char block via findFirst)."""
     from plugin.doc.text_helpers import go_right
