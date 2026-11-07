@@ -167,9 +167,12 @@ def test_search_in_document_zero_width_regex_is_truncated(ctx, doc):
 @with_native_doc("writer")
 def test_tracked_deletions_hidden_from_reads_and_searches(ctx, doc):
     """Pending tracked deletions spanning multiple paragraphs must be hidden from
-    get_string_without_tracked_deletions, range reads, full export, search_in_document,
-    and find_text_ranges offsets."""
+    get_string_without_tracked_deletions, range reads, full export, get_document_content,
+    search_in_document, and find_text_ranges offsets. get_document_content must list the
+    deleted text only under tracked_changes and leave the live document untouched."""
     from plugin.doc.text_helpers import get_string_without_tracked_deletions
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.get_document_content import GetDocumentContent
     from plugin.writer.html_export import document_to_content
     from plugin.writer.search import SearchInDocument, find_text_ranges
 
@@ -202,6 +205,11 @@ def test_tracked_deletions_hidden_from_reads_and_searches(ctx, doc):
         del_cursor.gotoRange(hit2.getEnd(), True)
         del_cursor.setString("")
 
+        show_changes = doc.getPropertyValue("ShowChanges")
+        modified = doc.isModified()
+        redline_count = doc.getRedlines().getCount()
+        assert redline_count >= 1
+
         # 1. get_string_without_tracked_deletions on body
         visible_text = get_string_without_tracked_deletions(text)
         assert "To be deleted in P1." not in visible_text
@@ -229,7 +237,35 @@ def test_tracked_deletions_hidden_from_reads_and_searches(ctx, doc):
         assert "P3 live end." in full_read
         assert "P4 delta live text." in full_read
         assert doc.getPropertyValue("RecordChanges") is True
-        assert doc.getRedlines().getCount() >= 1
+        assert doc.getPropertyValue("ShowChanges") == show_changes
+        assert doc.isModified() == modified
+        assert doc.getRedlines().getCount() == redline_count
+        assert "P2 entire paragraph deleted." in text.getString()
+
+        # 3b. get_document_content: content is the accept view; deleted text is only
+        # in tracked_changes; the live document is untouched.
+        tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+        tool_res = GetDocumentContent().execute(tool_ctx, scope="full")
+        assert tool_res["status"] == "ok", tool_res
+        tool_html = tool_res.get("content") or ""
+        assert "To be deleted in P1." not in tool_html
+        assert "P2 entire paragraph deleted." not in tool_html
+        assert "P3 deleted start." not in tool_html
+        assert "P1 start." in tool_html
+        assert "P3 live end." in tool_html
+        assert "P4 delta live text." in tool_html
+        changes = tool_res.get("tracked_changes") or []
+        deletion_text = " ".join(
+            item.get("text", "") for item in changes if item.get("type") == "deletion"
+        )
+        assert "To be deleted in P1." in deletion_text, changes
+        assert "P2 entire paragraph deleted." in deletion_text, changes
+        assert "P3 deleted start." in deletion_text, changes
+        assert tool_res.get("tracked_changes_total", 0) >= 1
+        assert doc.getPropertyValue("RecordChanges") is True
+        assert doc.getPropertyValue("ShowChanges") == show_changes
+        assert doc.isModified() == modified
+        assert doc.getRedlines().getCount() == redline_count
         assert "P2 entire paragraph deleted." in text.getString()
 
         # 4. search_in_document for a word inside the deletion returns 0 hits,
