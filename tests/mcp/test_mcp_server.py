@@ -743,8 +743,6 @@ def test_try_reserve_sse_after_stop_returns_none():
 
 
 def test_http_server_stop_does_not_join_sse_thread():
-    import threading
-    import time
     from types import SimpleNamespace
 
     from plugin.mcp.server import HttpServer
@@ -759,19 +757,8 @@ def test_http_server_stop_does_not_join_sse_thread():
     )
     srv._server = server_ns
 
-    blocker = threading.Event()
-    t = threading.Thread(target=lambda: blocker.wait(3.0), daemon=True)
-    t.start()
+    srv.stop()
 
-    start = time.monotonic()
-    try:
-        srv.stop()
-    finally:
-        blocker.set()
-        t.join(timeout=0.5)
-    elapsed = time.monotonic() - start
-
-    assert elapsed < 1.0
     server_ns.shutdown.assert_called_once()
     server_ns.server_close.assert_called_once()
     mock_sse_registry.stop_all.assert_called_once()

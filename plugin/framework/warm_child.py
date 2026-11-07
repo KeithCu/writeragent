@@ -138,6 +138,16 @@ class Child:
             self.managed.abandon()
             return True
 
+    def abandon(self) -> None:
+        """Drop this child on quit without waiting for stdio or reap.
+
+        soffice exits right after the quit hooks, and the managed reaper finishes the reap.
+        """
+        self._signaled = True
+        self._settled = True
+        self.managed.kill_tree()
+        self.managed.abandon()
+
 
 def read_ready_frame_during_io(
     spawned: Child,
@@ -394,15 +404,11 @@ class WarmChild:
             self._retired = True
             self._killed_by_us = True
             child = self._child
-            self._child = None
             if child is None:
                 self._cancel_pending = True
         if child is not None:
-            with child._once:
-                child._signaled = True
-                child._settled = True
-                child.managed.kill_tree()
-                child.managed.abandon()
+            self._drop_child(child)
+            child.abandon()
         self._supervisor._unregister(self)
 
     def retire(self) -> None:

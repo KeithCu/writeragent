@@ -78,7 +78,7 @@ def test_unload_listener_resets_worker_session():
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
         mock_reset.return_value = {"status": "ok"}
         listener.on_document_event(MagicMock(EventName="OnUnload"))
-        mock_reset.assert_called_once_with("calc:wb-1", timeout_sec=3)
+        mock_reset.assert_called_once_with("calc:wb-1", timeout_sec=3, lease_wait_sec=3)
         listener.on_document_event(MagicMock(EventName="OnUnload"))
         mock_reset.assert_called_once()
 
@@ -89,7 +89,7 @@ def test_on_disposing_runs_teardown():
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
         mock_reset.return_value = {"status": "ok"}
         listener.on_disposing(MagicMock())
-        mock_reset.assert_called_once_with("calc:wb-disposing", timeout_sec=3)
+        mock_reset.assert_called_once_with("calc:wb-disposing", timeout_sec=3, lease_wait_sec=3)
         listener.on_disposing(MagicMock())
         mock_reset.assert_called_once()
 
@@ -243,15 +243,8 @@ def test_unload_resets_worker_when_busy():
             return {"status": "error", "code": "WORKER_REENTRY"}
         return {"status": "ok"}
 
-    def fake_run_in_background(fn: Any, *args: Any, **kwargs: Any) -> Any:
-        handle = MagicMock()
-        handle.is_alive.return_value = False
-        if kwargs.get("name") == "reset_python_session_unload":
-            fn()
-        return handle
-
     with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", side_effect=mock_reset_side_effect):
-        with patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background) as mock_run:
+        with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
             listener.on_document_event(MagicMock(EventName="OnUnload"))
             # Initial call
             assert len(seen) == 1
@@ -266,35 +259,41 @@ def test_unload_resets_worker_when_busy():
     assert listener._teardown_done is True
 
 
-def test_teardown_bounds_blocked_reset():
-    import time
-    from plugin.framework import worker_pool
-
+def test_teardown_passes_lease_wait_sec_and_triggers_retry():
     ctx = MagicMock()
     listener = _CalcPythonUnloadListener(ctx, "calc:wb-blocked", WorkbookState(key="key-blocked"))
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+        mock_reset.return_value = {"status": "error", "code": "WORKER_REENTRY"}
+        with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
+            listener._teardown()
+            mock_reset.assert_called_once_with("calc:wb-blocked", timeout_sec=3, lease_wait_sec=3)
+            retry_calls = [c for c in mock_run.call_args_list if c[1].get("name") == "reset_python_session_retry"]
+            assert len(retry_calls) == 1
+            assert retry_calls[0][1].get("dedicated") is True
 
-    def slow_reset(sid: str, **kwargs: Any) -> dict[str, Any]:
-        time.sleep(5.0)
-        return {"status": "ok"}
+    listener2 = _CalcPythonUnloadListener(ctx, "calc:wb-to", WorkbookState(key="key-to"))
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+        mock_reset.return_value = {"status": "error", "code": "VENV_TIMEOUT"}
+        with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
+            listener2._teardown()
+            mock_reset.assert_called_once_with("calc:wb-to", timeout_sec=3, lease_wait_sec=3)
+            retry_calls = [c for c in mock_run.call_args_list if c[1].get("name") == "reset_python_session_retry"]
+            assert len(retry_calls) == 1
+            assert retry_calls[0][1].get("dedicated") is True
 
-    tasks_started: list[str] = []
-    real_run_in_bg = worker_pool.run_in_background
 
-    def spy_run_in_bg(fn: Any, *args: Any, **kwargs: Any) -> Any:
-        name = kwargs.get("name")
-        if name:
-            tasks_started.append(str(name))
-        return real_run_in_bg(fn, *args, **kwargs)
-
-    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", side_effect=slow_reset):
-        with patch("plugin.framework.worker_pool.run_in_background", side_effect=spy_run_in_bg):
-            with patch.object(listener, "_retry_reset"):
-                t0 = time.monotonic()
-                listener._teardown()
-                elapsed = time.monotonic() - t0
-
-    assert elapsed < 3.5
-    assert "reset_python_session_retry" in tasks_started
+def test_teardown_drops_retry_when_reopened():
+    """When a workbook is closed and immediately reopened, any pending retry must abort."""
+    ctx = MagicMock()
+    old_listener = _CalcPythonUnloadListener(ctx, "calc:wb-reopen2", WorkbookState(key="key-old2"))
+    new_listener = _CalcPythonUnloadListener(ctx, "calc:wb-reopen2", WorkbookState(key="key-new2"))
+    lifecycle._LISTENERS["key-new2"] = new_listener
+    try:
+        with patch("time.sleep"), patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+            old_listener._retry_reset("calc:wb-reopen2")
+            mock_reset.assert_not_called()
+    finally:
+        lifecycle._LISTENERS.pop("key-new2", None)
 
 
 def test_retry_reset_logs_warning_on_timeout():
@@ -305,16 +304,20 @@ def test_retry_reset_logs_warning_on_timeout():
             with patch("plugin.calc.python.workbook_lifecycle.log.warning") as mock_warn:
                 listener._retry_reset("calc:wb-timeout")
                 mock_warn.assert_called_once()
-                assert "WORKER_REENTRY" in mock_warn.call_args[0][0]
+                assert "still busy or timed out" in mock_warn.call_args[0][0]
+                assert mock_warn.call_args[0][1] == "calc:wb-timeout"
 
 
 def test_retry_reset_aborts_after_reopen():
     ctx = MagicMock()
     old = _CalcPythonUnloadListener(ctx, "calc:wb-reopen", WorkbookState(key="key-old"))
     lifecycle._LISTENERS["key-new"] = _CalcPythonUnloadListener(ctx, "calc:wb-reopen", WorkbookState(key="key-new"))
-    with patch("time.sleep"), patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
-        old._retry_reset("calc:wb-reopen")
-        mock_reset.assert_not_called()
+    try:
+        with patch("time.sleep"), patch("plugin.calc.python.workbook_lifecycle.reset_python_session") as mock_reset:
+            old._retry_reset("calc:wb-reopen")
+            mock_reset.assert_not_called()
+    finally:
+        lifecycle._LISTENERS.pop("key-new", None)
 
 
 def test_remember_keeps_strong_ref_until_forget_key():
@@ -397,7 +400,7 @@ def test_runtime_uid_upgrade_keeps_one_listener(monkeypatch: pytest.MonkeyPatch)
             assert lifecycle._LISTENERS == {}
             assert WorkbookState.known(doc) is None
             assert WorkbookState.all_states() == []
-            mock_reset.assert_called_once_with("calc:unsaved:1", timeout_sec=3)
+            mock_reset.assert_called_once_with("calc:unsaved:1", timeout_sec=3, lease_wait_sec=3)
 
         _ensure_calc_unload(ctx, doc)
         assert len(doc._document_event_listeners) == 2

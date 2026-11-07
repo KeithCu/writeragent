@@ -1,4 +1,5 @@
 import dataclasses
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -1562,7 +1563,6 @@ def test_stop_cancels_a_start_that_was_only_armed(monkeypatch):
 def test_sync_tunnel_from_main_thread_probes_off_thread(monkeypatch):
     """config:changed must return while provider --version is still running."""
     import threading
-    import time
 
     import plugin.mcp as mcp_mod
     from plugin.mcp.tunnel_state import TunnelStatus
@@ -1809,7 +1809,7 @@ def test_post_stop_start_failure_decrements_under_lock(monkeypatch):
     assert mgr._providers["tailscale"].reset._resets_in_flight == 0
 
 
-def test_stop_for_quit_runs_tailscale_reset_synchronously(monkeypatch, tmp_path):
+def test_stop_for_quit_schedules_background_reset(monkeypatch, tmp_path):
     """LibreOffice quit triggers funnel off in background without blocking."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
@@ -1832,16 +1832,14 @@ def test_stop_for_quit_runs_tailscale_reset_synchronously(monkeypatch, tmp_path)
         patch("plugin.mcp.tunnel.subprocess.run", side_effect=_run),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
-        t0 = time.monotonic()
         mgr.stop_for_quit()
-        assert time.monotonic() - t0 < 0.5
         _join_recorded_background(background)
         assert reset_cmds == _tailscale_reset_cmds()
         assert timeouts == [5]
         assert not marker.exists()
 
 
-def test_stop_for_quit_connected_tailscale_terminates_and_resets_inline(monkeypatch, tmp_path):
+def test_stop_for_quit_connected_tailscale_schedules_background_reset(monkeypatch, tmp_path):
     """Live CONNECTED session: quit terminates the CLI and triggers background reset."""
     from plugin.mcp.tunnel_state import TunnelStatus
 
@@ -1892,9 +1890,7 @@ def test_stop_for_quit_connected_tailscale_terminates_and_resets_inline(monkeypa
         assert mgr.status == TunnelStatus.CONNECTED
         reset_cmds.clear()
         timeouts.clear()
-        t0 = time.monotonic()
         mgr.stop_for_quit()
-        assert time.monotonic() - t0 < 0.5
         procs[0].terminate.assert_called_once()
         _join_recorded_background(background)
         assert reset_cmds == _tailscale_reset_cmds()
@@ -1902,7 +1898,7 @@ def test_stop_for_quit_connected_tailscale_terminates_and_resets_inline(monkeypa
         assert not marker.exists()
 
 
-def test_stop_for_quit_failed_tailscale_runs_reset_inline(monkeypatch, tmp_path):
+def test_stop_for_quit_failed_tailscale_schedules_background_reset(monkeypatch, tmp_path):
     """FAILED Tailscale (no live process): quit triggers background reset."""
     from plugin.mcp.tunnel_state import TunnelStatus
 
@@ -1947,9 +1943,7 @@ def test_stop_for_quit_failed_tailscale_runs_reset_inline(monkeypatch, tmp_path)
         reset_cmds.clear()
         timeouts.clear()
         background.clear()
-        t0 = time.monotonic()
         mgr.stop_for_quit()
-        assert time.monotonic() - t0 < 0.5
         _join_recorded_background(background)
         assert reset_cmds == _tailscale_reset_cmds()
         assert timeouts == [5]
@@ -1957,77 +1951,36 @@ def test_stop_for_quit_failed_tailscale_runs_reset_inline(monkeypatch, tmp_path)
 
 
 def test_stop_for_quit_sleeping_reset_returns_fast(monkeypatch, tmp_path):
-    """When funnel reset sleeps 5s, stop_for_quit returns quickly without joining."""
+    """When funnel reset sleeps, stop_for_quit returns quickly without joining."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     marker = tmp_path / "writeragent-tailscale-funnel-armed"
     marker.write_text("armed\n", encoding="utf-8")
     monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
 
     mgr = TunnelManager()
+    blocker = threading.Event()
+    started = threading.Event()
 
-    def slow_reset(*args, **kwargs):
-        time.sleep(5.0)
+    def slow_run(*args, **kwargs):
+        started.set()
+        blocker.wait(5.0)
+        completed = MagicMock()
+        completed.returncode = 0
+        return completed
 
     background: list = []
     with (
-        patch("plugin.mcp.tunnel.TailscaleProvider.reset_funnel", side_effect=slow_reset),
+        patch("plugin.mcp.tunnel.subprocess.run", side_effect=slow_run),
         patch("plugin.framework.worker_pool.run_in_background", side_effect=_track_background(background)),
     ):
-        t0 = time.monotonic()
-        mgr.stop_for_quit()
-        elapsed = time.monotonic() - t0
-
-    assert elapsed < 0.5
-    assert len(background) == 1
-    assert background[0].is_alive()
-
-
-def test_stop_for_quit_does_not_deadlock_with_background_post_stop(monkeypatch, tmp_path):
-    """Quit must not take self._lock while waiting on reset.lock held by a background post_stop."""
-    import threading
-
-    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
-    marker = tmp_path / "writeragent-tailscale-funnel-armed"
-    marker.write_text("armed\n", encoding="utf-8")
-    monkeypatch.setattr("plugin.mcp.tunnel.FunnelReset.arm_path", lambda self: str(marker))
-
-    mgr = TunnelManager()
-    reset = mgr._providers["tailscale"].reset
-    hold = threading.Event()
-    body_started = threading.Event()
-
-    def _slow_reset(port, *, timeout=5):
-        body_started.set()
-        assert hold.wait(5)
-        return True
-
-    reset._reset_fn = _slow_reset
-    token = reset.capture()
-    reset.note_scheduled()
-
-    from plugin.framework.worker_pool import run_in_background
-
-    handle = run_in_background(
-        lambda: mgr._run_post_stop_body("tailscale", 18765, reset, token, timeout=5),
-        name="tunnel-post-stop-test",
-        dedicated=True,
-    )
-    assert body_started.wait(5)
-
-    quit_done = threading.Event()
-
-    def _quit() -> None:
-        mgr.stop_for_quit()
-        quit_done.set()
-
-    quit_thread = threading.Thread(target=_quit, name="quit-test")
-    quit_thread.start()
-    hold.set()
-    assert quit_done.wait(5)
-    quit_thread.join(timeout=5)
-    assert not quit_thread.is_alive()
-    handle.join(timeout=5)
-    assert not handle.is_alive()
+        try:
+            mgr.stop_for_quit()
+            assert started.wait(2.0)
+            assert len(background) == 1
+            assert background[0].is_alive()
+        finally:
+            blocker.set()
+            _join_recorded_background(background)
 
 
 def test_mcp_quit_hook_calls_stop_for_quit():

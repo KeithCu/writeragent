@@ -430,7 +430,8 @@ class HttpServer:
             # still blocked in select until their sockets are closed.
             if self._server:
                 self._server.sse_registry.stop_all()
-            # SSE workers are daemon; the join only logged survivors.
+            # Do not join SSE threads here: stop() can run on the UI thread, and the
+            # threads are daemon (http_server.py:268) with their sockets already closed by stop_all().
 
     @background
     def _run(self) -> None:

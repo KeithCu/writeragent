@@ -790,7 +790,7 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
             # VCL proofreading has no Stop, so the dialog budget is 2 s; Dummy-* stays 15 s.
             budget = _DIALOG_LINT_BUDGET_SEC if main.is_current() else _LINT_BUDGET_SEC
             # One clock for the waiter and the worker. A late worker must not start
-            # a fresh ``_LINT_BUDGET_SEC`` after the caller has already timed out.
+            # a fresh budget after the caller has already timed out.
             deadline = time.monotonic() + budget
 
             def _worker() -> None:

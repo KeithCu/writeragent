@@ -594,19 +594,10 @@ class TunnelManager:
         token: object,
         *,
         timeout: float,
-        lock_timeout: float | None = None,
     ) -> None:
         """Caller must NOT hold ``self._lock``; lock order is ``reset.lock`` → ``self._lock``."""
         lock = reset.lock
-        if lock_timeout is not None:
-            if not lock.acquire(timeout=lock_timeout):
-                log.info(
-                    "Skipping MCP tunnel post_stop for %s; reset lock held by background work",
-                    provider_name,
-                )
-                return
-        else:
-            lock.acquire()
+        lock.acquire()
         try:
             with self._lock:
                 stale = not reset.current(token)
@@ -977,9 +968,7 @@ class TunnelManager:
 
     def stop_for_quit(self) -> None:
         """Stop the tunnel on quit without joining post-stop reset."""
-        # The hook does not join; run_in_background(..., dedicated=True) inside
-        # _schedule_post_stop_unlocked runs funnel off (5 s); if soffice exits
-        # first the arm file stays and the next process retries.
+        # The reset is not joined, and the arm marker retries on the next launch.
         self.stop()
 
 

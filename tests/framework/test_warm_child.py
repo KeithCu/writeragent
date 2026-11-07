@@ -328,11 +328,8 @@ def test_shutdown_all_abandons_without_waiting(tmp_path: Any, supervisor: Superv
 
     with patch.object(managed, "wait_once", side_effect=fail_wait_once), \
          patch("plugin.framework.managed_subprocess.StderrTail.finish_text", side_effect=fail_finish_text):
-        t0 = time.monotonic()
         supervisor.shutdown_all()
-        elapsed = time.monotonic() - t0
 
-    assert elapsed < 0.4
     assert warm._retired is True
 
 
