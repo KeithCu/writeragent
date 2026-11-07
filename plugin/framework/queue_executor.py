@@ -325,12 +325,15 @@ class MainThread:
         """Enqueue posts that arrived before AsyncCallback existed.
 
         ``_order_lock`` covers the swap and the puts to preserve order against concurrent enqueues.
-        The poke happens after the lock is released.
+        The poke happens after the lock is released. The failure log runs after
+        ``_order_lock`` is released, with the counts from the restore.
 
         A partial failure puts the failed item and the tail back in front
         of posts appended after notify_all.
         """
         enqueued = 0
+        flush_exc: Exception | None = None
+        put_back = 0
         with self._order_lock:
             if not self._initialized or self._async_callback_service is None:
                 return
@@ -343,11 +346,27 @@ class MainThread:
                 for fn, args, kwargs, scope in pending:
                     self._enqueue_work(fn, args, kwargs, blocking=False, bound_scope=scope, poke=False)
                     enqueued += 1
-            except Exception:
+            except Exception as exc:
                 # Keep tail pending and continue caller work; later flush retries the tail.
+                # Bugfix: lock order cycle between _order_lock and logging handler lock.
+                # What was wrong: flush failure logged while still holding _order_lock.
+                # How it happened: a dev worker logging a UNO proxy acquires the logging
+                # handler lock, enters __str__ -> assert_main_thread -> main.post, which
+                # needs _order_lock. Meanwhile flush held _order_lock and logged, needing
+                # the logging handler lock.
+                # Why this change: snapshot the counts and exception, restore pending posts
+                # under _pending_lock, release _order_lock, then log outside it.
                 with self._pending_lock:
                     self._pending_posts = list(pending[enqueued:]) + self._pending_posts
-                log.exception("MainThread: flush failed after %d pending post(s); %d put back", enqueued, len(pending) - enqueued)
+                put_back = len(pending) - enqueued
+                flush_exc = exc
+        if flush_exc is not None:
+            log.error(
+                "MainThread: flush failed after %d pending post(s); %d put back",
+                enqueued,
+                put_back,
+                exc_info=flush_exc,
+            )
         if enqueued:
             self._poke_main_thread()
 

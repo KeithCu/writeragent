@@ -145,8 +145,9 @@ class KokoroProcessPool:
         return result
 
     def _on_cancel(self) -> None:
-        # Pool-wide hook: kills whatever job is live. Safe because utterance scopes are
-        # cancelled under _speech_lock before the next utterance can start.
+        # Pool-wide hook: kills whatever job is live. The utterance flag is set under
+        # _speech_lock before the next utterance is published, and this hook runs
+        # before _begin_utterance returns, so the next worker has not called execute.
         with self._state_lock:
             if not self._job_live:
                 return

@@ -102,11 +102,15 @@ class SendCancellation:
             if hook in self._hooks:
                 self._hooks.remove(hook)
 
-    def cancel(self) -> None:
+    def claim_cancel(self) -> Callable[[], None] | None:
+        """Latch the cancellation flag and return a closure to run registered hooks.
+
+        Returns None if cancellation was already claimed.
+        """
         # Set the flag under the lock so two callers cannot both run the hooks.
         with self._lock:
             if self._cancelled.is_set():
-                return
+                return None
             self._cancelled.set()
             seen: set[Callable[[], None]] = set()
             hooks: list[Callable[[], None]] = []
@@ -115,16 +119,25 @@ class SendCancellation:
                     seen.add(h)
                     hooks.append(h)
             executors = list(self._executors)
-        for hook in hooks:
-            try:
-                hook()
-            except Exception:
-                log.exception("SendCancellation: error in cancel hook")
-        # Unbound Stop only latches the flag. Falling back to main
-        # cancelled MCP, grammar, and peer items posted before the drain bound
-        # this scope. The sidebar drain checks is_cancelled() and returns.
-        for executor in executors:
-            executor.cancel_pending_work(self)
+
+        def _run_cancel() -> None:
+            for hook in hooks:
+                try:
+                    hook()
+                except Exception:
+                    log.exception("SendCancellation: error in cancel hook")
+            # Unbound Stop only latches the flag. Falling back to main
+            # cancelled MCP, grammar, and peer items posted before the drain bound
+            # this scope. The sidebar drain checks is_cancelled() and returns.
+            for executor in executors:
+                executor.cancel_pending_work(self)
+
+        return _run_cancel
+
+    def cancel(self) -> None:
+        run = self.claim_cancel()
+        if run is not None:
+            run()
 
 
 def get_current_send_cancellation() -> SendCancellation | None:
