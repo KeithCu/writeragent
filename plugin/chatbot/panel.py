@@ -288,6 +288,7 @@ class SendButtonListener(BaseActionListener):
     sidebar_state: SidebarCompositeState
     _record_gesture: RecordGesture
     _panel_teardown: bool
+    _wait_for_take: bool
     _mcp_event_bus: Any
     _turn: Any
     _last_mcp_turn: dict[str, Any]
@@ -384,6 +385,8 @@ class SendButtonListener(BaseActionListener):
                 on_auto_stop=lambda: self.queue_executor.post(self._voice._on_audio_auto_stop),
                 on_silence_progress=lambda ms: self.queue_executor.post(self._voice._on_audio_silence_progress, ms),
                 on_error=lambda msg: self.queue_executor.post(self._voice._on_audio_recorder_error, msg),
+                on_device_ready=lambda: self.queue_executor.post(self.audio_recorder.apply_device_ready),
+                on_capture_stopped=lambda path: self.queue_executor.post(self._voice.on_capture_stopped, path),
             )
         else:
             self.audio_recorder = None
@@ -393,6 +396,7 @@ class SendButtonListener(BaseActionListener):
         self.sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None)
         # Hands-free Record is a panel flag. The send FSM stays timer-free.
         self._record_gesture = RecordGesture()
+        self._wait_for_take = False
         # Set at the start of disposing so a drain still on the stack skips
         # status, TTS, and a sticky re-record after ctx is cleared.
         self._panel_teardown = False
@@ -885,11 +889,8 @@ class SendButtonListener(BaseActionListener):
                 try:
                     self.audio_recorder.start_recording()
                 except Exception as exc:
-                    # Bugfix: dispatch writes is_recording=True before this effect runs;
-                    # a non-RuntimeError used to escape _interpret_effect and skip the
-                    # ERROR_OCCURRED re-entry, leaving the FSM recording after
-                    # start_recording had failed. audio_recorder.start_recording
-                    # reports start failures as RuntimeError; anything else is still that same recovery.
+                    # Start failures now arrive via on_error (background job); synchronous
+                    # exceptions (e.g. stub initialize) still raise here and recover via ERROR_OCCURRED.
                     if not isinstance(exc, RuntimeError):
                         log.exception("start_recording failed")
                     self._start_local_error_turn("\n[Audio error: %s]\n" % str(exc))
@@ -900,7 +901,11 @@ class SendButtonListener(BaseActionListener):
                 if not self.audio_recorder:
                     return
                 try:
-                    self.audio_wav_path = self.audio_recorder.stop_recording()
+                    path = self.audio_recorder.stop_recording()
+                    if path:
+                        self.audio_wav_path = path
+                    elif getattr(self.audio_recorder, "stop_deferred", False) is True:
+                        self._wait_for_take = True
                 except Exception as e:
                     from plugin.framework.errors import WriterAgentException
 
@@ -912,6 +917,7 @@ class SendButtonListener(BaseActionListener):
             case CancelRecordingEffect():
                 # cleanup() stops capture and deletes the temp WAV; a stopped
                 # take's path (if any) goes too, so no later send attaches it.
+                self._wait_for_take = False
                 if self.audio_recorder:
                     try:
                         self.audio_recorder.cleanup()
@@ -942,6 +948,8 @@ class SendButtonListener(BaseActionListener):
                 # the button stays Stop. Bind inside _run_send_drain instead.
                 scope: Any = SendCancellation()
                 self._send_cancellation = scope
+                if self._wait_for_take:
+                    return
                 # Bug: drain used to run inside Send actionPerformed. On GTK,
                 # processEventsToIdle from that stack does not deliver a second
                 # dialog ActionEvent, so Stop looked enabled but never fired
@@ -1526,6 +1534,8 @@ class SendButtonListener(BaseActionListener):
                     on_auto_stop=None,
                     on_silence_progress=None,
                     on_error=None,
+                    on_device_ready=None,
+                    on_capture_stopped=None,
                 )
             except Exception:
                 log.debug("SendButtonListener.disposing: clear audio callbacks failed", exc_info=True)
