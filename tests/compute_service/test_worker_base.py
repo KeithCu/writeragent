@@ -2825,6 +2825,44 @@ def test_compute_worker_spawn_runs_on_supervisor_spawner_thread(
         worker.kill()
 
 
+def test_respawn_passes_spawn_budget_to_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.child_runtime import Deadline
+    from plugin.framework.process_worker import BaseProcessWorker
+    from plugin.framework.warm_child import supervisor
+
+    captured_timeouts: list[float | None] = []
+
+    def mock_spawn(managed: Any, timeout_sec: float | None = None) -> None:
+        captured_timeouts.append(timeout_sec)
+
+    def mock_handshake(
+        managed: Any, *args: Any, start: Any = None, **kwargs: Any
+    ) -> tuple[str, Any, Any]:
+        if start is not None:
+            start(managed)
+        return ("refused", None, None)
+
+    monkeypatch.setattr(supervisor, "spawn", mock_spawn)
+    monkeypatch.setattr(
+        "plugin.framework.process_worker.spawn_managed_child_with_handshake",
+        mock_handshake,
+    )
+
+    worker = BaseProcessWorker(1, "unused.py", start=False)
+
+    # 1. Respawn with deadline should pass remaining spawn budget
+    worker.respawn(deadline=Deadline(5.0))
+    assert len(captured_timeouts) == 1
+    t = captured_timeouts[0]
+    assert t is not None
+    assert 4.0 <= t <= 5.0
+
+    # 2. Respawn without deadline should pass None (falls back to SPAWN_READY_TIMEOUT_SEC in supervisor.spawn)
+    worker.respawn(deadline=None)
+    assert len(captured_timeouts) == 2
+    assert captured_timeouts[1] is None
+
+
 def test_formula_worker_script_handshake() -> None:
     """The production formula script completes the ready handshake and one cell."""
     import json

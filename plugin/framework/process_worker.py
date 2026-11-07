@@ -22,6 +22,7 @@ This module is the multi-slot compute worker slot (``BaseProcessWorker``) only.
 
 from __future__ import annotations
 
+import functools
 import logging
 import pickle
 import sys
@@ -239,9 +240,6 @@ class BaseProcessWorker:
             published = True
             return True
 
-        def _start(m: ManagedSubprocess) -> None:
-            supervisor.spawn(m, timeout_sec=budget)
-
         try:
             tag, extra, handshake_child = spawn_managed_child_with_handshake(
                 managed,
@@ -252,7 +250,7 @@ class BaseProcessWorker:
                 unpacker=self._unpacker,
                 # Not the caller thread: an HTTP worker exits at shutdown and
                 # PDEATHSIG would kill this child with it.
-                start=_start,
+                start=functools.partial(supervisor.spawn, timeout_sec=budget),
                 publish=_publish,
                 deadline=deadline,
                 cap_sec=cap_sec,

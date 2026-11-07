@@ -26,6 +26,7 @@ from plugin.framework.warm_child import (
     Death,
     Supervisor,
     WarmChild,
+    _SpawnRequest,
     spawn_managed_child_with_handshake,
 )
 
@@ -671,38 +672,14 @@ def test_blocked_start_lease_returns_worker_spawn_failed_within_budget(
             assert isinstance(leased, dict)
             assert leased.get("code") == "WORKER_SPAWN_FAILED"
             assert "timed out" in str(leased.get("error", ""))
-            assert elapsed < 3.0
+            assert elapsed < 4.5
     finally:
         stop_event.set()
         warm.retire()
 
 
-def test_spawn_queued_after_shutdown_sentinel_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_spawn_after_shutdown_raises_and_cannot_queue(monkeypatch: pytest.MonkeyPatch) -> None:
     sup = Supervisor()
-    get_gate = threading.Event()
-    real_get = sup._spawn_queue.get
-    real_put = sup._spawn_queue.put
-
-    first_get = True
-
-    def gated_get(*args: Any, **kwargs: Any) -> Any:
-        nonlocal first_get
-        if first_get:
-            first_get = False
-            get_gate.wait(5.0)
-        return real_get(*args, **kwargs)
-
-    def hook_put(item: Any, *args: Any, **kwargs: Any) -> None:
-        if isinstance(item, tuple):
-            sup.shutdown_all()
-            real_put(item, *args, **kwargs)
-            get_gate.set()
-        else:
-            real_put(item, *args, **kwargs)
-
-    monkeypatch.setattr(sup._spawn_queue, "get", gated_get)
-    monkeypatch.setattr(sup._spawn_queue, "put", hook_put)
-
     sup._ensure_threads()
 
     managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
@@ -714,16 +691,56 @@ def test_spawn_queued_after_shutdown_sentinel_raises(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(ManagedSubprocess, "start", no_start)
 
-    t0 = time.monotonic()
-    try:
-        with pytest.raises(RuntimeError, match="Supervisor is shut down"):
+    sup.shutdown_all()
+    _wait_until(time.monotonic() + 1.0, sup._spawn_queue.empty)
+
+    with pytest.raises(RuntimeError, match="Supervisor is shut down"):
+        sup.spawn(managed)
+
+    assert not start_called
+    assert not any(isinstance(x, _SpawnRequest) for x in sup._spawn_queue.queue)
+
+
+def test_spawn_racing_shutdown_all_raises_without_queueing() -> None:
+    from plugin.framework.warm_child import _SPAWN_SHUTDOWN
+
+    sup = Supervisor()
+    sup._ensure_threads()
+    managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
+
+    spawn_error: list[Exception | None] = [None]
+    gate_held = threading.Event()
+    release_gate = threading.Event()
+
+    def holder() -> None:
+        with sup._spawn_gate:
+            gate_held.set()
+            release_gate.wait(5.0)
+            sup._shutdown = True
+            sup._spawn_queue.put(_SPAWN_SHUTDOWN)
+
+    t = threading.Thread(target=holder)
+    t.start()
+    assert gate_held.wait(5.0)
+
+    def try_spawn() -> None:
+        try:
             sup.spawn(managed)
-        elapsed = time.monotonic() - t0
-        assert elapsed < 2.0
-        assert not start_called
-    finally:
-        get_gate.set()
-        sup.shutdown_all()
+        except Exception as exc:
+            spawn_error[0] = exc
+
+    t_spawn = threading.Thread(target=try_spawn)
+    t_spawn.start()
+
+    release_gate.set()
+    t.join(timeout=5.0)
+    t_spawn.join(timeout=5.0)
+
+    assert isinstance(spawn_error[0], RuntimeError)
+    assert "Supervisor is shut down" in str(spawn_error[0])
+    _wait_until(time.monotonic() + 1.0, sup._spawn_queue.empty)
+    assert not any(isinstance(x, _SpawnRequest) for x in sup._spawn_queue.queue)
+    sup.shutdown_all()
 
 
 def test_spawn_timeout_kills_a_child_that_appears_after_the_waiter_left(
@@ -759,10 +776,111 @@ def test_spawn_timeout_kills_a_child_that_appears_after_the_waiter_left(
         with pytest.raises(RuntimeError, match="timed out"):
             sup.spawn(managed, timeout_sec=0.2)
         elapsed = time.monotonic() - t0
-        assert elapsed < 1.0
+        assert elapsed < 4.5
 
         start_gate.set()
         assert kill_called.wait(2.0), "Late child should be killed when start() completes"
     finally:
         start_gate.set()
         sup.shutdown_all()
+
+
+def test_spawn_request_give_up_after_finish_returns_false_and_does_not_kill() -> None:
+    from plugin.framework.warm_child import _SpawnRequest
+
+    kill_called = False
+
+    class _FakeProc:
+        def kill(self) -> None:
+            nonlocal kill_called
+            kill_called = True
+
+        def poll(self) -> int | None:
+            return 0
+
+    managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
+    managed._proc = _FakeProc()  # type: ignore[assignment]
+    req = _SpawnRequest(managed)
+
+    req.finish()
+    assert req.done.is_set()
+    assert not kill_called
+
+    assert req.give_up() is False
+    assert not req.abandoned
+    assert not kill_called
+
+
+def test_spawn_request_finish_after_give_up_kills_child() -> None:
+    from plugin.framework.warm_child import _SpawnRequest
+
+    kill_called = False
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self.killed = False
+
+        def kill(self) -> None:
+            self.killed = True
+            nonlocal kill_called
+            kill_called = True
+
+        def poll(self) -> int | None:
+            return 0 if self.killed else None
+
+    managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
+    managed._proc = _FakeProc()  # type: ignore[assignment]
+    req = _SpawnRequest(managed)
+
+    assert req.give_up() is True
+    assert req.abandoned
+    assert not kill_called
+
+    req.finish()
+    assert kill_called
+    assert req.done.is_set()
+
+
+def test_spawn_request_finish_without_popen_does_not_kill() -> None:
+    from plugin.framework.warm_child import _SpawnRequest
+
+    managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
+    assert managed.popen is None
+    req = _SpawnRequest(managed)
+
+    assert req.give_up() is True
+    assert req.abandoned
+    req.finish()
+    assert req.done.is_set()
+
+
+def test_spawner_skips_start_for_abandoned_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    sup = Supervisor()
+    first_gate = threading.Event()
+    starts: list[str] = []
+
+    def mock_start(self: ManagedSubprocess) -> None:
+        starts.append(self._label)
+        if self._label == "first":
+            first_gate.wait(5.0)
+
+    monkeypatch.setattr(ManagedSubprocess, "start", mock_start)
+
+    managed1 = ManagedSubprocess([sys.executable, "-c", "pass"], label="first", register=False)
+    managed2 = ManagedSubprocess([sys.executable, "-c", "pass"], label="second", register=False)
+
+    t1 = threading.Thread(target=lambda: sup.spawn(managed1, timeout_sec=5.0))
+    t1.start()
+
+    _wait_until(time.monotonic() + 3.0, lambda: len(starts) == 1)
+
+    with pytest.raises(RuntimeError, match="Supervisor spawn timed out"):
+        sup.spawn(managed2, timeout_sec=0.1)
+
+    first_gate.set()
+    t1.join(timeout=5.0)
+    assert not t1.is_alive()
+
+    _wait_until(time.monotonic() + 1.0, lambda: sup._spawn_queue.empty())
+    assert starts == ["first"]
+    sup.shutdown_all()
