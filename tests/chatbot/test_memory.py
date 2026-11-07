@@ -227,7 +227,7 @@ def test_upsert_null_content_pops_key(tmp_path):
         assert json.loads(store.read()) == {"name": "Ada"}
 
 
-def test_write_fsyncs_before_replace(tmp_path):
+def test_write_replaces_without_fsync(tmp_path):
     order: list[str] = []
     real_fsync = os.fsync
     real_replace = os.replace
@@ -242,10 +242,11 @@ def test_write_fsyncs_before_replace(tmp_path):
 
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)), patch(
         "plugin.framework.config.os.fsync", side_effect=_fsync
-    ), patch("plugin.framework.config.os.replace", side_effect=_replace):
+    ) as mock_fsync, patch("plugin.framework.config.os.replace", side_effect=_replace):
         store = MemoryStore()
         store.write('{"name": "Ada"}')
-    assert order == ["fsync", "replace"]
+    mock_fsync.assert_not_called()
+    assert order == ["replace"]
     assert json.loads(store.read()) == {"name": "Ada"}
 
 
