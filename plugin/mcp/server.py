@@ -54,7 +54,6 @@ import json
 import logging
 import socket
 import threading
-import time
 import weakref
 from http.server import BaseHTTPRequestHandler
 from typing import TYPE_CHECKING, Any, Callable, ClassVar, cast
@@ -421,15 +420,8 @@ class HttpServer:
         if not self._running:
             return
         self._running = False
-        threads_to_join = []
         try:
             if self._server:
-                # The SSE state registry tracks active SSE keepalive threads so we can
-                # wait for them to exit after their sockets are closed. POST handler threads
-                # are daemon threads and are not joined (joining POST threads on the main thread
-                # while they await the main-thread queue causes deadlocks/freezes).
-                with self._server.sse_registry.lock:
-                    threads_to_join = list(self._server.sse_registry.threads)
                 self._server.shutdown()
                 self._server.server_close()
                 log.info("HTTP server stopped")
@@ -438,20 +430,8 @@ class HttpServer:
             # still blocked in select until their sockets are closed.
             if self._server:
                 self._server.sse_registry.stop_all()
-
-            # Join in-flight SSE keepalive threads within a single 2s deadline.
-            deadline = time.monotonic() + 2.0
-            still_alive: list[str] = []
-            for t in threads_to_join:
-                if t is threading.current_thread():
-                    continue
-                remaining = deadline - time.monotonic()
-                if remaining > 0:
-                    t.join(timeout=remaining)
-                if t.is_alive():
-                    still_alive.append(getattr(t, "name", "unknown"))
-            if still_alive:
-                log.warning("HTTP server request thread(s) still alive after stop: %s", ", ".join(still_alive))
+            # Do not join SSE threads here: stop() can run on the UI thread, and the
+            # threads are daemon (http_server.py:268) with their sockets already closed by stop_all().
 
     @background
     def _run(self) -> None:

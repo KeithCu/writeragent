@@ -572,11 +572,11 @@ class PersistentEditor:
 
     def wait_for_ready(self, ctx: Any, timeout_sec: float = 30.0) -> bool:
         """Wait for ``ready`` while pumping LibreOffice UI events."""
-        from plugin.framework.uno_context import process_events_to_idle
+        from plugin.framework.uno_context import wait_while_pumping
 
         deadline = time.monotonic() + timeout_sec
         proc = self._proc
-        while time.monotonic() < deadline:
+        while True:
             if self._ready_event.is_set():
                 return True
             proc = self._proc
@@ -586,8 +586,10 @@ class PersistentEditor:
             if exit_code is not None:
                 log.error("Editor child exited before ready (code=%s). stderr=%s", exit_code, self.read_stderr_tail())
                 return False
-            process_events_to_idle(ctx)
-            time.sleep(0.05)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            wait_while_pumping(self._ready_event, ctx, timeout=min(0.25, remaining))
         if not self._ready_event.is_set():
             log.error("Editor ready timeout (%ss). child_running=%s stderr=%s", timeout_sec, proc is not None, self.read_stderr_tail())
         return self._ready_event.is_set()
