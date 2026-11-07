@@ -749,6 +749,26 @@ def test_clear_or_second_send_does_not_apply_chunks_onto_the_first_turn():
     assert put_for_turn(turn2, (StreamQueueKind.CHUNK, " after-clear")) is False
 
 
+def test_turn_take_open_text_folds_stripper_tail():
+    from plugin.chatbot.tool_loop_actions import begin_send_turn
+
+    class Session:
+        def __init__(self):
+            self.messages = []
+
+    class Host:
+        def __init__(self):
+            self.session = Session()
+
+    host = Host()
+    turn = begin_send_turn(host)
+    shown = turn.stripper.feed("Hello <b")
+    assert shown == "Hello "
+    assert turn.fold_chunk(host, shown)
+    assert turn.take_open_text(host) == "Hello <b"
+    assert turn.stripper is None
+
+
 def test_abort_discards_a_late_write():
     """After abort, enqueue is a no-op and a write against a replaced list does not land."""
     import queue
