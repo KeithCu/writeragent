@@ -25,7 +25,6 @@ import threading
 import time
 from typing import IO, Any, Callable, cast
 
-from plugin.framework.child_runtime import bind_pdeathsig
 from plugin.framework.worker_pool import (
     StderrTail,
     start_stderr_drain,
@@ -394,6 +393,8 @@ class ManagedSubprocess:
             if self._new_session and sys.platform != "win32":
                 popen_kw["start_new_session"] = True
             if self._preexec_fn is not None and sys.platform == "linux":
+                from plugin.framework.child_runtime import bind_pdeathsig
+
                 bind_pdeathsig()
                 popen_kw["preexec_fn"] = self._preexec_fn
 

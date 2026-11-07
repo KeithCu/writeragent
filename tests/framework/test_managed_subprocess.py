@@ -1889,7 +1889,7 @@ def test_managed_subprocess_preexec_fn(monkeypatch: pytest.MonkeyPatch) -> None:
         pass
 
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
-    monkeypatch.setattr("plugin.framework.managed_subprocess.bind_pdeathsig", fake_bind)
+    monkeypatch.setattr("plugin.framework.child_runtime.bind_pdeathsig", fake_bind)
     monkeypatch.setattr(sys, "platform", "linux")
 
     proc = ManagedSubprocess(["dummy"], preexec_fn=fn, drain_stderr=False, register=False)
