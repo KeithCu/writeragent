@@ -9,6 +9,7 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
 import types
 from typing import Any
@@ -1861,15 +1862,13 @@ def test_managed_subprocess_run_kill_tree_timeout_reaps_grandchild(tmp_path):
                 pass
 
 
-def test_managed_subprocess_preexec_fn(monkeypatch: pytest.MonkeyPatch) -> None:
-    with pytest.raises(ValueError, match="raw_spawn does not support preexec_fn"):
-        ManagedSubprocess(["dummy"], raw_spawn=True, preexec_fn=lambda: None)
+def test_managed_subprocess_die_with_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.warm_child import supervisor
+
+    with pytest.raises(ValueError, match="raw_spawn does not support die_with_parent"):
+        ManagedSubprocess(["dummy"], raw_spawn=True, die_with_parent=True)
 
     recorded_kwargs: dict[str, Any] = {}
-    bound_called: list[bool] = []
-
-    def fake_bind() -> None:
-        bound_called.append(True)
 
     class FakePopen:
         def __init__(self, cmd: list[str], **kwargs: Any) -> None:
@@ -1885,24 +1884,41 @@ def test_managed_subprocess_preexec_fn(monkeypatch: pytest.MonkeyPatch) -> None:
         def wait(self, timeout: float | None = None) -> int:
             return 0
 
-    def fn() -> None:
-        pass
-
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
-    monkeypatch.setattr("plugin.framework.child_runtime.bind_pdeathsig", fake_bind)
     monkeypatch.setattr(sys, "platform", "linux")
 
-    proc = ManagedSubprocess(["dummy"], preexec_fn=fn, drain_stderr=False, register=False)
-    proc.start()
-    assert recorded_kwargs["preexec_fn"] is fn
-    assert bound_called == [True]
+    # Calling start() off the supervisor thread raises ValueError on Linux
+    monkeypatch.setattr(supervisor, "_spawner_ident", 99999999)
+    proc_off = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
+    with pytest.raises(ValueError, match="die_with_parent requires spawning on the supervisor thread"):
+        proc_off.start()
 
+    # Calling start() on the supervisor thread sets preexec_fn and calls Popen
+    monkeypatch.setattr(supervisor, "_spawner_ident", threading.get_ident())
+    proc_on = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
+    proc_on.start()
+    assert "preexec_fn" in recorded_kwargs
+
+    # Finding 1: when CDLL raises (musl/Alpine), start() still calls Popen safely
     recorded_kwargs.clear()
-    bound_called.clear()
+    import ctypes
+    import plugin.framework.child_runtime as cr
+
+    def _raise_cdll(*_args: object, **_kwargs: object) -> None:
+        raise OSError("libc.so.6 not found")
+
+    monkeypatch.setattr(cr, "_prctl", None)
+    monkeypatch.setattr(ctypes, "CDLL", _raise_cdll)
+    proc_cdll = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
+    proc_cdll.start()
+    assert "preexec_fn" in recorded_kwargs
+
+    # Non-Linux does not pass preexec_fn or require supervisor thread
+    recorded_kwargs.clear()
     monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     monkeypatch.setattr(sys, "platform", "win32")
-    proc2 = ManagedSubprocess(["dummy"], preexec_fn=fn, drain_stderr=False, register=False)
-    proc2.start()
+    monkeypatch.setattr(supervisor, "_spawner_ident", 99999999)
+    proc_win = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
+    proc_win.start()
     assert "preexec_fn" not in recorded_kwargs
-    assert bound_called == []
 

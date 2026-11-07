@@ -60,7 +60,10 @@ class ManagedSubprocess:
     stderr name unchanged); `text=True` is line-buffered text pipes.
     `drain_stderr`, `register`, and `log_start_failure` default to the worker spawn
     (stderr drain, `shutdown_all` registry, start failures logged and wrapped in `RuntimeError`).
-    Optional `preexec_fn` defaults to None and is set only for the Linux tunnel CLI.
+    When `die_with_parent=True` (Linux only, rejected with `raw_spawn=True`), the parent
+    resolves prctl before fork so the child avoids dlopen or imports, and `start()` enforces
+    that child creation runs on the supervisor spawner thread because Linux `PR_SET_PDEATHSIG`
+    follows the creating thread.
     """
 
     _cmd_line: list[str]
@@ -94,7 +97,7 @@ class ManagedSubprocess:
     _stderr_drain: StderrTail | None
     _reaper_passes: int
     _stdio_closed: bool
-    _preexec_fn: Callable[[], None] | None
+    _die_with_parent: bool
     _lock: threading.Lock
 
     def __init__(
@@ -124,10 +127,10 @@ class ManagedSubprocess:
         stdout: Any = None,
         encoding: str | None = None,
         errors: str | None = None,
-        preexec_fn: Callable[[], None] | None = None,
+        die_with_parent: bool = False,
     ) -> None:
-        if raw_spawn and preexec_fn is not None:
-            raise ValueError("raw_spawn does not support preexec_fn")
+        if raw_spawn and die_with_parent:
+            raise ValueError("raw_spawn does not support die_with_parent")
         if inherit_env and (env is not None or base_env is not None or scrub_env):
             raise ValueError("inherit_env cannot be combined with env, base_env, or scrub_env")
         if not drain_stderr and (stderr_tail_chars is not None or stderr_name is not None):
@@ -176,7 +179,7 @@ class ManagedSubprocess:
         self._raw_text = text
         self._raw_encoding = encoding
         self._raw_errors = errors
-        self._preexec_fn = preexec_fn
+        self._die_with_parent = die_with_parent
         self._reaper_passes = 0
         self._stdio_closed = False
         self._proc = None
@@ -392,11 +395,17 @@ class ManagedSubprocess:
             popen_kw = get_subprocess_creationflags()
             if self._new_session and sys.platform != "win32":
                 popen_kw["start_new_session"] = True
-            if self._preexec_fn is not None and sys.platform == "linux":
-                from plugin.framework.child_runtime import bind_pdeathsig
+            if self._die_with_parent and sys.platform == "linux":
+                from plugin.framework.child_runtime import bind_pdeathsig, pdeathsig_preexec
+                from plugin.framework.warm_child import supervisor
 
+                if threading.get_ident() != supervisor.spawner_ident:
+                    raise ValueError(
+                        "die_with_parent requires spawning on the supervisor thread "
+                        "because Linux PR_SET_PDEATHSIG follows the creating thread"
+                    )
                 bind_pdeathsig()
-                popen_kw["preexec_fn"] = self._preexec_fn
+                popen_kw["preexec_fn"] = pdeathsig_preexec
 
             cmd = (
                 self._command_wrapper(self._cmd_line, env=merged_env, cwd=self._cwd)

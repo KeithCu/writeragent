@@ -573,7 +573,6 @@ class AsyncProcess:
                 log.warning("Previous process still alive after terminate")
                 if old_managed is not None:
                     old_managed.kill_tree()
-        from plugin.framework.child_runtime import pdeathsig_preexec
         from plugin.framework.managed_subprocess import ManagedSubprocess
 
         # Die-with-parent forks on the supervisor thread because Linux PDEATHSIG
@@ -597,7 +596,7 @@ class AsyncProcess:
             label="asyncproc",
             inherit_env=self._env is None,
             base_env=self._env,
-            preexec_fn=pdeathsig_preexec if use_supervisor else None,
+            die_with_parent=self._die_with_parent,
         )
         try:
             if use_supervisor:

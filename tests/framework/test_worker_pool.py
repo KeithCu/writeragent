@@ -843,53 +843,59 @@ def test_async_process_spawn_uses_managed_subprocess(monkeypatch: pytest.MonkeyP
         AsyncProcess(["dummy"], creationflags=0)  # type: ignore[call-arg]
 
 
-def test_async_process_die_with_parent(monkeypatch: pytest.MonkeyPatch) -> None:
-    from plugin.framework.child_runtime import pdeathsig_preexec
+def test_async_process_die_with_parent() -> None:
+    """AsyncProcess(die_with_parent=True) forks on the supervisor thread and survives caller thread exit."""
+    if sys.platform != "linux":
+        pytest.skip("Linux-only PDEATHSIG test")
+
+    ap: AsyncProcess | None = None
+    helper_err: BaseException | None = None
+
+    def _start_from_thread() -> None:
+        nonlocal ap, helper_err
+        try:
+            ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(60)"], die_with_parent=True)
+            ap.start()
+        except BaseException as exc:
+            helper_err = exc
+
+    try:
+        t = threading.Thread(target=_start_from_thread)
+        t.start()
+        t.join()
+        if helper_err is not None:
+            raise helper_err
+        assert ap is not None
+        assert ap.is_running is True
+        # Kernel delivers SIGKILL when the creating thread terminates;
+        # verify the child remains alive after caller thread exit.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            assert ap.process is not None
+            assert ap.process.poll() is None
+            time.sleep(0.05)
+    finally:
+        if ap is not None and ap.is_running:
+            ap.terminate()
+
+
+def test_async_process_die_with_parent_off_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    direct_starts: list[Any] = []
+
     from plugin.framework.managed_subprocess import ManagedSubprocess
-    from plugin.framework.warm_child import supervisor
-
-    spawned_managed: list[ManagedSubprocess] = []
-    direct_starts: list[ManagedSubprocess] = []
-
-    def fake_spawn(managed: ManagedSubprocess, timeout_sec: float | None = None) -> None:
-        spawned_managed.append(managed)
-        managed._proc = MagicMock()
-        managed._proc.poll.return_value = 0
 
     def fake_start(self: ManagedSubprocess) -> None:
         direct_starts.append(self)
         self._proc = MagicMock()
         self._proc.poll.return_value = 0
 
-    monkeypatch.setattr(supervisor, "spawn", fake_spawn)
     monkeypatch.setattr(ManagedSubprocess, "start", fake_start)
-    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr("sys.platform", "win32")
 
-    # 1. die_with_parent=True on Linux spawns through supervisor with pdeathsig_preexec
     ap = AsyncProcess(["echo", "hi"], die_with_parent=True)
     ap.start()
-    assert len(spawned_managed) == 1
-    assert spawned_managed[0]._preexec_fn is pdeathsig_preexec
-    assert len(direct_starts) == 0
-
-    # 2. die_with_parent=False on Linux uses direct managed.start() without preexec
-    spawned_managed.clear()
-    direct_starts.clear()
-    ap2 = AsyncProcess(["echo", "hi"], die_with_parent=False)
-    ap2.start()
-    assert len(spawned_managed) == 0
     assert len(direct_starts) == 1
-    assert direct_starts[0]._preexec_fn is None
-
-    # 3. die_with_parent=True off Linux uses direct managed.start() without preexec
-    spawned_managed.clear()
-    direct_starts.clear()
-    monkeypatch.setattr("sys.platform", "win32")
-    ap3 = AsyncProcess(["echo", "hi"], die_with_parent=True)
-    ap3.start()
-    assert len(spawned_managed) == 0
-    assert len(direct_starts) == 1
-    assert direct_starts[0]._preexec_fn is None
+    assert direct_starts[0]._die_with_parent is True
 
 
 

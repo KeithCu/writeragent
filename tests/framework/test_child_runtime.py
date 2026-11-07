@@ -74,6 +74,9 @@ def test_bind_pdeathsig_and_pdeathsig_preexec(monkeypatch) -> None:
     monkeypatch.setattr(child_runtime.sys, "platform", "linux")
     monkeypatch.setattr(child_runtime, "_prctl", None)
     monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: _Libc())
+    monkeypatch.setattr(child_runtime.os, "getpid", lambda: 100)
+    monkeypatch.setattr(child_runtime.os, "getppid", lambda: 100)
+    monkeypatch.setattr(child_runtime.os, "kill", lambda pid, sig: None)
     child_runtime.bind_pdeathsig()
     assert calls == []
 
@@ -90,3 +93,42 @@ def test_bind_pdeathsig_and_pdeathsig_preexec(monkeypatch) -> None:
     calls.clear()
     child_runtime.pdeathsig_preexec()
     assert calls == []
+
+
+def test_bind_pdeathsig_oserror_falls_back(monkeypatch) -> None:
+    def _raise_cdll(*_args: object, **_kwargs: object) -> None:
+        raise OSError("cannot open shared object file: No such file or directory")
+
+    monkeypatch.setattr(child_runtime.sys, "platform", "linux")
+    monkeypatch.setattr(child_runtime, "_prctl", None)
+    monkeypatch.setattr(ctypes, "CDLL", _raise_cdll)
+    child_runtime.bind_pdeathsig()
+    assert child_runtime._prctl is None
+    # Preexec safely does nothing when prctl could not be bound
+    child_runtime.pdeathsig_preexec()
+    assert child_runtime.die_with_parent() is False
+
+
+def test_pdeathsig_preexec_parent_died_before_exec(monkeypatch) -> None:
+    calls: list[tuple] = []
+    killed: list[int] = []
+
+    class _Libc:
+        def prctl(self, *args: object) -> int:
+            calls.append(args)
+            return 0
+
+    monkeypatch.setattr(child_runtime.sys, "platform", "linux")
+    monkeypatch.setattr(child_runtime, "_prctl", None)
+    monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: _Libc())
+    # Parent binds and records its pid as 100
+    monkeypatch.setattr(child_runtime.os, "getpid", lambda: 100)
+    child_runtime.bind_pdeathsig()
+
+    # In child after fork, parent is dead so getppid() is init/subreaper (1)
+    monkeypatch.setattr(child_runtime.os, "getppid", lambda: 1)
+    monkeypatch.setattr(child_runtime.os, "kill", lambda pid, sig: killed.append(sig))
+    child_runtime.pdeathsig_preexec()
+    assert calls == [(1, 9, 0, 0, 0)]
+    assert killed == [9]
+
