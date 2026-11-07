@@ -42,11 +42,13 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
     A single global lock exists for single-slot local servers (like Ollama or llama.cpp)
     that can only process one request at a time process-wide.
 
-    `status_callback` must not block, marshal (`main.call`, `main.run`,
-    `main.post`), or acquire a lock. Waiting text runs after a failed acquire,
-    while this call does not hold the lock (another thread may). Resume text runs
-    after this call has acquired the lock and before `yield`; it means the request
-    is starting. The lock is not reentrant, so acquiring it from the callback
+    `status_callback` must not block, marshal (`main.call`/`main.run`/`main.post`),
+    or take a lock another thread can hold while waiting on this lane (this
+    lane's lock, or SolarMutex via marshalling). Short leaf locks such as a
+    queue's mutex are fine. Waiting text runs after a failed acquire, while this
+    call does not hold the lock (another thread may). Resume text runs after
+    this call has acquired the lock and before `yield`; it means the request is
+    starting. The lock is not reentrant, so acquiring it from the callback
     deadlocks. Callers only enqueue a status item or log.
     """
     if timeout is None:

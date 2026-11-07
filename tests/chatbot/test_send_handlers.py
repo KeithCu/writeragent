@@ -127,12 +127,8 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
 def test_agent_backend_lane_status_callback_queues_status() -> None:
     from contextlib import contextmanager
     from typing import Any
-    from unittest.mock import MagicMock, patch
 
-    import plugin.framework.llm_lanes
-    import plugin.framework.queue_executor
-    from plugin.framework.stream_batch import StreamQueueKind
-    from tests.chatbot.test_send_handlers import DummyChatbotPanel
+    from tests.framework.lane_probe import assert_lane_callback_safe
 
     panel = DummyChatbotPanel()
     panel._get_mcp_url = lambda: "http://localhost:18765/mcp"  # type: ignore
@@ -147,31 +143,13 @@ def test_agent_backend_lane_status_callback_queues_status() -> None:
             saved_callback.append(status_callback)
         yield
 
-    class _SpyLock:
-        def __init__(self) -> None:
-            self.acquire_count = 0
-
-        def acquire(self, *args: Any, **kwargs: Any) -> bool:
-            self.acquire_count += 1
-            return True
-
-        def release(self) -> None:
-            pass
-
-    spy_lock = _SpyLock()
     captured_drain_q: list[Any] = []
 
     def fake_drain(q: Any, run_agent: Any, *args: Any, **kwargs: Any) -> None:
         captured_drain_q.append(q)
         run_agent()
         assert len(saved_callback) == 1
-        with (
-            patch.object(plugin.framework.queue_executor.main, "call", side_effect=AssertionError("main.call called")),
-            patch.object(plugin.framework.queue_executor.main, "run", side_effect=AssertionError("main.run called")),
-            patch.object(plugin.framework.queue_executor.main, "post", side_effect=AssertionError("main.post called")),
-            patch.object(plugin.framework.llm_lanes, "_LLM_REQUEST_LOCK", spy_lock),
-        ):
-            saved_callback[0]("lane-probe")
+        assert_lane_callback_safe(saved_callback[0], "lane-probe")
 
     panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
     with (
@@ -184,13 +162,11 @@ def test_agent_backend_lane_status_callback_queues_status() -> None:
         panel._execute_agent_backend_effect("hello", MagicMock(), "writer")
 
     adapter.send.assert_called_once()
-    assert spy_lock.acquire_count == 0
     drain_q = captured_drain_q[0]
     drain_items: list[Any] = []
     while not drain_q.empty():
         drain_items.append(drain_q.get())
     assert (StreamQueueKind.STATUS, "lane-probe") in drain_items
-
 
 
 def test_agent_backend_prompt_includes_mcp_when_server_running():

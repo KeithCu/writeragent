@@ -568,12 +568,10 @@ def test_slash_compact_lane_status_callback_logs(caplog: pytest.LogCaptureFixtur
     from contextlib import contextmanager
     import logging
     from typing import Any
-    from unittest.mock import MagicMock, patch
 
-    import plugin.framework.llm_lanes
-    import plugin.framework.queue_executor
     from plugin.chatbot.slash_commands import run_slash_compact_sync
     from plugin.framework.send_cancellation import SendCancellation
+    from tests.framework.lane_probe import assert_lane_callback_safe
 
     cancel = SendCancellation()
     session = MagicMock()
@@ -602,30 +600,9 @@ def test_slash_compact_lane_status_callback_logs(caplog: pytest.LogCaptureFixtur
                     )
 
     assert len(saved_callback) == 1
-    cb = saved_callback[0]
-
-    class _SpyLock:
-        def __init__(self) -> None:
-            self.acquire_count = 0
-
-        def acquire(self, *args: Any, **kwargs: Any) -> bool:
-            self.acquire_count += 1
-            return True
-
-        def release(self) -> None:
-            pass
-
-    spy_lock = _SpyLock()
     with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_commands"):
-        with (
-            patch.object(plugin.framework.queue_executor.main, "call", side_effect=AssertionError("main.call called")),
-            patch.object(plugin.framework.queue_executor.main, "run", side_effect=AssertionError("main.run called")),
-            patch.object(plugin.framework.queue_executor.main, "post", side_effect=AssertionError("main.post called")),
-            patch.object(plugin.framework.llm_lanes, "_LLM_REQUEST_LOCK", spy_lock),
-        ):
-            cb("lane-probe")
+        assert_lane_callback_safe(saved_callback[0], "lane-probe")
 
-    assert spy_lock.acquire_count == 0
     assert any(record.getMessage() == "slash compact status: lane-probe" for record in caplog.records)
 
 
