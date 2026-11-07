@@ -15,13 +15,14 @@ from typing import Any
 from plugin.framework.config import get_config
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
-from plugin.framework.worker_pool import run_in_background
+from plugin.framework.worker_pool import start_stderr_drain
 from plugin.scripting.sandbox import resolve_venv_python
 
 log = logging.getLogger(__name__)
 
 _SVG_SNAPSHOT_SUFFIX = "_svg.pptx"
-_BUILD_TIMEOUT_SEC = 600
+# Leave 60s margin for document import before ExportPresentationProject's 600s tool timeout.
+_BUILD_TIMEOUT_SEC = 540
 _BUILD_POLL_SEC = 0.2
 
 
@@ -68,9 +69,9 @@ def build_project_pptx(
             inherit_env=True,
             new_session=True,
             register=True,
-            text=True,
             stdin=subprocess.DEVNULL,
             log_start_failure=False,
+            stderr_tail_chars=800,
             label="pptx-build",
         )
         managed.start()
@@ -79,36 +80,9 @@ def build_project_pptx(
         return None, f"PPTX build failed: {exc}"
 
     proc = managed.popen
-    if proc is None:
-        return None, "PPTX build failed: process failed to start"
+    assert proc is not None
 
-    stdout_chunks: list[str] = []
-    stdout_len = 0
-
-    def _drain_stdout() -> None:
-        nonlocal stdout_len
-        stream = managed.stdout
-        if stream is None:
-            return
-        try:
-            while True:
-                raw_chunk = stream.read(4096)
-                if not raw_chunk:
-                    break
-                chunk: str = (
-                    raw_chunk.decode("utf-8", errors="replace")
-                    if isinstance(raw_chunk, bytes)
-                    else str(raw_chunk)
-                )
-                if stdout_len < 800:
-                    needed = 800 - stdout_len
-                    part = chunk[:needed]
-                    stdout_chunks.append(part)
-                    stdout_len += len(part)
-        except Exception:
-            log.debug("pptx build stdout drain failed", exc_info=True)
-
-    stdout_reader = run_in_background(_drain_stdout, dedicated=True, name="pptx-build-stdout")
+    stdout_tail = start_stderr_drain(managed.stdout, max_tail_chars=800, name="pptx-build-stdout")
 
     # Bugfix: subprocess.run ignored Stop, was not registered, and was not a session leader,
     # so quit could not killpg it and it could write exports/*.pptx after soffice was gone.
@@ -118,46 +92,40 @@ def build_project_pptx(
     stopped = False
     timed_out = False
 
-    while proc.poll() is None:
-        if is_cancelled(cancel):
-            managed.kill_tree()
-            stopped = True
-            break
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            managed.kill_tree()
-            timed_out = True
-            break
-        try:
-            proc.wait(timeout=min(_BUILD_POLL_SEC, remaining))
-        except subprocess.TimeoutExpired:
-            pass
-
     try:
-        proc.wait(timeout=1.0)
-    except Exception:
-        log.debug("pptx build reap wait failed", exc_info=True)
-
-    stdout_reader.join(timeout=1.0)
-    if proc.stdout is not None:
-        try:
-            proc.stdout.close()
-        except Exception:
-            log.debug("pptx build stdout close failed", exc_info=True)
-
-    stderr_text = managed.join_stderr(timeout=1.0)
-    managed.unregister()
-    if managed.is_alive():
-        managed.abandon()
+        while proc.poll() is None:
+            if is_cancelled(cancel):
+                managed.kill_tree()
+                stopped = True
+                break
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                managed.kill_tree()
+                timed_out = True
+                break
+            try:
+                proc.wait(timeout=min(_BUILD_POLL_SEC, remaining))
+            except subprocess.TimeoutExpired:
+                pass
+    except BaseException:
+        managed.kill_tree()
+        raise
+    finally:
+        managed.wait_once()
+        stdout_text = stdout_tail.finish_text(1.0) if stdout_tail is not None else ""
+        stderr_text = managed.join_stderr(timeout=1.0)
+        managed.unregister()
+        if managed.is_alive():
+            managed.abandon()
 
     if stopped:
         return None, "PPTX build stopped."
     if timed_out:
         return None, f"PPTX build failed: timed out after {timeout_sec:g} seconds"
 
-    retcode = proc.returncode if proc.returncode is not None else proc.poll()
+    retcode = proc.returncode
     if retcode != 0:
-        detail = (stderr_text or "".join(stdout_chunks)).strip()[:800]
+        detail = (stderr_text or stdout_text).strip()
         return None, f"PPTX build failed (exit {retcode}): {detail or 'see venv logs'}"
 
     pptx = find_project_pptx(project_path)
