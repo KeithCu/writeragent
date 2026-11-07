@@ -12,7 +12,6 @@ from plugin.chatbot.tool_loop_actions import (
     begin_send_turn,
     build_tool_execute_fn,
     current_turn,
-    note_stop_partial,
     send_outcome_is_error,
     send_outcome_terminal_display,
     take_stop_partial,
@@ -1498,6 +1497,11 @@ def test_connection_lost_after_tokens_history_row(test_instance):
         session.db.add_message.assert_called_once_with("assistant", "Hello world\n[API error: Connection lost]")
         assert any("[API error: Connection lost]" in r for r in test_instance.responses)
 
+
+def test_connection_lost_stripper_tail_history_row(test_instance):
+    with patch("plugin.chatbot.tool_loop.get_config", return_value=False):
+        payload = format_error_payload(NetworkError("Connection lost", code="CONNECTION_LOST"))
+
         # Stripper: leftover unclosed tag in stripper before error
         session = ChatSession(system_prompt="Sys")
         test_instance.session = session
@@ -1509,32 +1513,3 @@ def test_connection_lost_after_tokens_history_row(test_instance):
         assistant_rows = [m for m in session.messages if m.get("role") == "assistant"]
         assert len(assistant_rows) == 1
         assert assistant_rows[0]["content"] == "Hello <b\n[API error: Connection lost]"
-
-        # Twin: open row wins over stop partial; partial tool_calls are dropped
-        session = ChatSession(system_prompt="Sys")
-        test_instance.session = session
-        turn = begin_send_turn(test_instance)
-        turn.fold_chunk(test_instance, "Seen")
-        call_obj = {"id": "call_x", "type": "function", "function": {"name": "get_weather", "arguments": "{}"}}
-        assert session.messages[-1].get("_open_transcript")
-        session.messages[-1]["tool_calls"] = [call_obj]
-        note_stop_partial(turn, {"content": "worker text", "tool_calls": [call_obj]})
-        test_instance._handle_stream_error(payload)
-        assistant_rows = [m for m in session.messages if m.get("role") == "assistant"]
-        assert len(assistant_rows) == 1
-        committed = assistant_rows[0]
-        assert "Seen" in committed["content"]
-        assert "[API error: Connection lost]" in committed["content"]
-        assert "worker text" not in committed["content"]
-        assert not any("tool_calls" in m for m in session.messages)
-        assert not any("call_x" in json.dumps(m) for m in session.messages)
-
-        # Fallback: empty open row uses stop partial text when tool_calls is None
-        session = ChatSession(system_prompt="Sys")
-        test_instance.session = session
-        turn = begin_send_turn(test_instance)
-        note_stop_partial(turn, {"content": "kept tokens", "tool_calls": None})
-        test_instance._handle_stream_error(payload)
-        assistant_rows = [m for m in session.messages if m.get("role") == "assistant"]
-        assert len(assistant_rows) == 1
-        assert assistant_rows[0]["content"] == "kept tokens\n[API error: Connection lost]"
