@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -32,6 +33,12 @@ CORPUS_DB_FILENAME = "corpus.db"
 LEGACY_INDEX_DB = "index.db"
 LEGACY_FTS_DB = "fts5.db"
 LEGACY_FTS_META = "fts_meta.json"
+
+# Serializes host deletes, so a worker's stale-schema delete cannot land on Rebuild's fresh build.
+# It does not cover a running child; Rebuild's RPC starts after its clear returns, so the
+# delete-versus-delete race needs only this host lock.
+# No host caller of either function is on the UI thread, so the lock cannot block SolarMutex.
+_folder_cache_lock = threading.RLock()
 
 
 def folder_corpus_key(directory_path: str) -> str:
@@ -291,6 +298,16 @@ class CorpusMeta:
     def schema_matches(self) -> bool:
         return self.is_valid and self.schema_version == SCHEMA_VERSION
 
+    @property
+    def has_foreign_schema(self) -> bool:
+        """True when meta has an explicit schema version differing from current.
+
+        Absent or corrupt meta (schema_version == "") is not foreign: folder_store must not
+        hide that store, because a zvec or lancedb collection with bad meta stays live and
+        a cold rebuild would delete it (#1153).
+        """
+        return bool(self.schema_version and self.schema_version != SCHEMA_VERSION)
+
     def model_matches_index(self, embedding_model: str) -> bool:
         return self.is_valid and self.embedding_model.strip() == embedding_model.strip()
 
@@ -432,7 +449,7 @@ def folder_store(
     resolved_mode = configured_folder_search_mode() if mode is None else mode
     meta = CorpusMeta.load(meta_path)
     empty = index_is_empty(meta_path, db_path, search_mode=resolved_mode, listing_root=listing_root, meta=meta)
-    if not empty and meta.schema_version and meta.schema_version != SCHEMA_VERSION:
+    if not empty and meta.has_foreign_schema:
         # This read must not delete; the corpus-index worker does.
         empty = True
     if empty:
@@ -456,22 +473,25 @@ def remove_stale_corpus_stores(listing_root: str) -> bool:
 
 def clear_folder_cache(listing_root: str) -> None:
     """Remove corpus.db and JSON state for a cold rebuild. Also clears zvec store for the folder."""
-    base = folder_cache_dir(listing_root, create_parent=False)
-    _remove_path(base / CORPUS_DB_FILENAME)
-    # An open WAL connection keeps sidecars after corpus.db is unlinked,
-    # and the next open of a new file at that path raises sqlite3 disk I/O error.
-    _remove_path(base / (CORPUS_DB_FILENAME + "-wal"))
-    _remove_path(base / (CORPUS_DB_FILENAME + "-shm"))
-    remove_stale_corpus_stores(listing_root)
-    for name in (CORPUS_META_FILENAME, LEGACY_FILE_INDEX_STATE_FILENAME):
-        _remove_path(base / name)
-    # Side-by-side zvec/lancedb store
-    _remove_path(base / "zvec")
-    _remove_path(base / "lancedb")
+    with _folder_cache_lock:
+        base = folder_cache_dir(listing_root, create_parent=False)
+        _remove_path(base / CORPUS_DB_FILENAME)
+        # An open WAL connection keeps sidecars after corpus.db is unlinked,
+        # and the next open of a new file at that path raises sqlite3 disk I/O error.
+        _remove_path(base / (CORPUS_DB_FILENAME + "-wal"))
+        _remove_path(base / (CORPUS_DB_FILENAME + "-shm"))
+        remove_stale_corpus_stores(listing_root)
+        _remove_path(base / LEGACY_FILE_INDEX_STATE_FILENAME)
+        # Side-by-side zvec/lancedb store
+        _remove_path(base / "zvec")
+        _remove_path(base / "lancedb")
 
-    from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
+        from plugin.embeddings.venv.embeddings_zvec import zvec_clear_cache
 
-    zvec_clear_cache(str(base / "zvec"))
+        zvec_clear_cache(str(base / "zvec"))
+
+        # Remove corpus_meta.json last so folder_store keeps hiding the store for the whole delete.
+        _remove_path(base / CORPUS_META_FILENAME)
 
 
 def maybe_upgrade_legacy_index(listing_root: str) -> None:
@@ -482,16 +502,17 @@ def maybe_upgrade_legacy_index(listing_root: str) -> None:
     fts_meta.json only.
     Any other object schema_version: clear_folder_cache (corpus.db, meta, zvec, lancedb).
     """
-    meta = corpus_meta_path(listing_root, create_parent=False)
-    data = _load_meta_object(meta)
-    if data is None:
-        # Missing, corrupt, or non-object JSON. Do not nuke the corpus, and
-        # do not call .get on a list.
-        return
-    if str(data.get("schema_version", "")) == SCHEMA_VERSION:
-        remove_stale_corpus_stores(listing_root)
-        return
-    clear_folder_cache(listing_root)
+    with _folder_cache_lock:
+        meta = corpus_meta_path(listing_root, create_parent=False)
+        data = _load_meta_object(meta)
+        if data is None:
+            # Missing, corrupt, or non-object JSON. Do not nuke the corpus, and
+            # do not call .get on a list.
+            return
+        if str(data.get("schema_version", "")) == SCHEMA_VERSION:
+            remove_stale_corpus_stores(listing_root)
+            return
+        clear_folder_cache(listing_root)
 
 
 _USE_DEFAULT = object()
