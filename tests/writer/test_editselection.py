@@ -590,6 +590,7 @@ def test_edit_selection_dialog_extras_win_over_config(mock_create_client, mock_s
 def test_extend_selection_stop_scope_finishes_and_appends():
     import threading
     import time
+    from types import SimpleNamespace
     from plugin.framework.send_cancellation import SendCancellation
 
     save({
@@ -602,8 +603,11 @@ def test_extend_selection_stop_scope_finishes_and_appends():
     chunk_queued = threading.Event()
 
     class FakeClient:
+        def __init__(self) -> None:
+            self.stopped = False
+
         def stop(self) -> None:
-            pass
+            self.stopped = True
 
         def stream_completion(self, prompt, system_prompt, max_tokens, **kwargs):
             append_cb = kwargs["append_callback"]
@@ -616,6 +620,8 @@ def test_extend_selection_stop_scope_finishes_and_appends():
                     raise TimeoutError("Cancel deadline exceeded")
                 time.sleep(0.01)
             return "stop"
+
+    fake_client = FakeClient()
 
     def side_canceller():
         if chunk_queued.wait(timeout=5.0):
@@ -652,16 +658,19 @@ def test_extend_selection_stop_scope_finishes_and_appends():
     session.finish.side_effect = _finish
     session.abort_and_restore.side_effect = _abort
 
-    with patch("plugin.writer.editselection.create_validated_client", return_value=FakeClient()), \
+    fake_host = SimpleNamespace(
+        _send_cancellation=scope,
+        sidebar_state=SimpleNamespace(send=SimpleNamespace(is_busy=True, is_recording=False)),
+    )
+
+    with patch("plugin.writer.editselection.create_validated_client", return_value=fake_client), \
          patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
          patch("plugin.writer.editselection.WriterStreamedAppendSession", return_value=session):
-        do_extend_selection(ctx, model, cancel=scope)
+        do_extend_selection(ctx, model, host=fake_host)
 
     canceller_thread.join(timeout=5.0)
 
+    assert fake_client.stopped is True
     assert call_order == ["append_chunk", "finish"]
     assert not session.abort_and_restore.called
-
-
-
 

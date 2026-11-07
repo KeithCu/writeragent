@@ -26,6 +26,9 @@ def test_frame_model_is_used(monkeypatch) -> None:
     frame = object()
     model = object()
     active = object()
+    fake_listener = object()
+    fake_panel = SimpleNamespace(send_listener=fake_listener)
+    fake_session = SimpleNamespace(frame=frame, panel=fake_panel)
     seen: dict[str, object] = {}
 
     def _from_frame(got):
@@ -35,12 +38,14 @@ def test_frame_model_is_used(monkeypatch) -> None:
     def _do(ctx, doc, is_edit, **kwargs):
         seen["doc"] = doc
         seen["is_edit"] = is_edit
+        seen["host"] = kwargs.get("host")
 
     monkeypatch.setattr("plugin.chatbot.selection.get_ctx", lambda: object())
+    monkeypatch.setattr("plugin.framework.frame_session.session_for_frame", lambda f: fake_session if f is frame else None)
     monkeypatch.setattr("plugin.chatbot.selection.get_document_from_frame", _from_frame)
     monkeypatch.setattr("plugin.chatbot.selection.do_selection_action_for_document", _do)
     action_extend_selection(_services(active), frame=frame)
-    assert seen == {"doc": model, "is_edit": False}
+    assert seen == {"doc": model, "is_edit": False, "host": fake_listener}
 
 
 def test_no_frame_uses_active_document(monkeypatch) -> None:
@@ -53,12 +58,13 @@ def test_no_frame_uses_active_document(monkeypatch) -> None:
     def _do(ctx, doc, is_edit, **kwargs):
         seen["doc"] = doc
         seen["is_edit"] = is_edit
+        seen["host"] = kwargs.get("host")
 
     monkeypatch.setattr("plugin.chatbot.selection.get_ctx", lambda: object())
     monkeypatch.setattr("plugin.chatbot.selection.get_document_from_frame", _from_frame)
     monkeypatch.setattr("plugin.chatbot.selection.do_selection_action_for_document", _do)
     action_edit_selection(_services(active))
-    assert seen == {"doc": active, "is_edit": True}
+    assert seen == {"doc": active, "is_edit": True, "host": None}
 
 
 def test_registered_handler_passes_frame(monkeypatch) -> None:
@@ -452,10 +458,10 @@ def test_bind_selection_cancel_model_disposing_cancels_scope() -> None:
         def __init__(self) -> None:
             self.listeners: list[Any] = []
 
-        def addEventListener(self, listener: Any) -> None:
+        def addDocumentEventListener(self, listener: Any) -> None:
             self.listeners.append(listener)
 
-        def removeEventListener(self, listener: Any) -> None:
+        def removeDocumentEventListener(self, listener: Any) -> None:
             self.listeners.remove(listener)
 
     model = FakeModel()
@@ -509,5 +515,82 @@ def test_stream_completion_tasks_stopped_fn_aborts_subsequent_tasks() -> None:
     assert len(finished_calls) == 1
 
 
+def test_stream_completion_tasks_stop_between_tasks() -> None:
+    from plugin.chatbot.selection import stream_completion_tasks, StreamCompletionTask
+    from plugin.framework.send_cancellation import SendCancellation
+    from plugin.framework.async_drain_guard import _notify_drain_idle
+
+    scope = SendCancellation()
+    tasks = [
+        StreamCompletionTask("p1", "s1", 10),
+        StreamCompletionTask("p2", "s2", 10),
+    ]
+
+    started_tasks: list[StreamCompletionTask] = []
+    finished_calls: list[bool] = []
+
+    def prepare_task(task: StreamCompletionTask) -> tuple[Any, Any]:
+        started_tasks.append(task)
+        return (lambda chunk, is_t=False: None), (lambda exc: None)
+
+    def fake_stream_completion(*args: Any, **kwargs: Any) -> None:
+        on_done = args[6]  # schedule_next_when_idle
+        on_done()
+        # Cancel scope right after task 1 signals done (before task 2 runs)
+        scope.cancel()
+        _notify_drain_idle()
+
+    with patch("plugin.chatbot.selection.stream_completion", side_effect=fake_stream_completion), \
+         patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()):
+        stream_completion_tasks(
+            MagicMock(),
+            MagicMock(),
+            tasks,
+            prepare_task,
+            on_finished=lambda: finished_calls.append(True),
+            cancel=scope,
+        )
+
+    assert len(started_tasks) == 1
+    assert len(finished_calls) == 1
 
 
+def test_end_selection_cancel_kicks_queued_peer_turn() -> None:
+    from plugin.chatbot.selection import bind_selection_cancel, end_selection_cancel
+    from plugin.chatbot.send_state import SendEventKind
+    from plugin.doc.peer_message import enqueue_peer_turn, PeerPendingTurn, reset_peer_queues
+
+    reset_peer_queues()
+
+    class FakeHostWithPeer:
+        def __init__(self) -> None:
+            self._send_cancellation = None
+            self._stop_requested_fallback = False
+            self.sidebar_state = SimpleNamespace(send=SimpleNamespace(is_busy=False, is_recording=False))
+            self.started: list[tuple[str, bool]] = []
+
+        def dispatch(self, event: Any) -> None:
+            if event.kind == SendEventKind.EXTRACTED_SEND:
+                self.sidebar_state.send.is_busy = True
+            elif event.kind == SendEventKind.SEND_COMPLETED:
+                self.sidebar_state.send.is_busy = False
+
+        def sync_has_text_from_query(self) -> None:
+            pass
+
+        def start_extracted_peer_send(self, query_text: str, *, already_appended: bool) -> bool:
+            self.started.append((query_text, already_appended))
+            return True
+
+    host = FakeHostWithPeer()
+    model = object()
+    arm = bind_selection_cancel(host, model)
+    assert arm.armed is True
+
+    turn = PeerPendingTurn("peer query", False)
+    enqueue_peer_turn(host, turn)
+    assert len(host.started) == 0
+
+    end_selection_cancel(arm)
+    assert len(host.started) == 1
+    assert host.started[0] == ("peer query", False)

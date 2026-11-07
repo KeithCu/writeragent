@@ -7,10 +7,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, Callable
-
-if TYPE_CHECKING:
-    from plugin.framework.send_cancellation import SendCancellation
+from typing import Any, Callable
 
 log = logging.getLogger(__name__)
 
@@ -175,7 +172,6 @@ def do_draw_extend_edit(
     preset_instruction: str | None = None,
     sidebar_notify: Callable[[str], None] | None = None,
     allow_whole_document: bool = False,
-    cancel: SendCancellation | None = None,
     host: Any | None = None,
 ) -> None:
     """Rewrite selected Draw/Impress text shapes in place via streaming completion.
@@ -323,7 +319,7 @@ def do_draw_extend_edit(
         finally:
             end_selection_cancel(arm)
 
-    arm = bind_selection_cancel(host, model, cancel)
+    arm = bind_selection_cancel(host, model)
     try:
         stream_completion_tasks(
             ctx,

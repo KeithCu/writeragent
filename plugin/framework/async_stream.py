@@ -1303,6 +1303,8 @@ def run_stream_completion_async(
     batched = BatchingStreamQueue(StreamQueue(), batch_interval=0.25)
 
     def worker(q: queue.Queue[Any]) -> None:
+        # Hook the client after the drain starts so a nested-owner refusal
+        # does not hook this client onto a live chat scope.
         if cancel is not None:
             cancel.register_client(client)
         kwargs: dict[str, Any] = {

@@ -19,10 +19,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
-
-if TYPE_CHECKING:
-    from plugin.framework.send_cancellation import SendCancellation
+from typing import Any, Callable
 
 from plugin.calc.calc_utils import FORMULA, TEXT
 from plugin.writer.edit_review import build_writer_rewrite_prompt, strip_echoed_edit_scaffolding
@@ -54,7 +51,6 @@ def do_calc_extend_edit(
     preset_instruction: str | None = None,
     sidebar_notify: Callable[[str], None] | None = None,
     allow_whole_document: bool = False,
-    cancel: SendCancellation | None = None,
     host: Any | None = None,
 ) -> None:
     sheet = model.CurrentController.ActiveSheet
@@ -222,7 +218,7 @@ def do_calc_extend_edit(
         finally:
             end_selection_cancel(arm)
 
-    arm = bind_selection_cancel(host, model, cancel)
+    arm = bind_selection_cancel(host, model)
     try:
         stream_completion_tasks(
             ctx,

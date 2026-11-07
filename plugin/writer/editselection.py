@@ -24,10 +24,7 @@ is the chat system prompt and is not read here.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable
-
-if TYPE_CHECKING:
-    from plugin.framework.send_cancellation import SendCancellation
+from typing import Any, Callable
 
 from plugin.framework.config import get_config, get_current_endpoint
 from plugin.framework.client.model_fetcher import get_text_model
@@ -92,7 +89,6 @@ def _stream_into_session(
     *,
     preset_instruction: str | None = None,
     sidebar_notify: Callable[[str], None] | None = None,
-    cancel: SendCancellation | None = None,
     host: Any | None = None,
 ) -> None:
     from plugin.doc.agent_undo import record_agent_turn_after
@@ -102,7 +98,9 @@ def _stream_into_session(
 
     # Chunks already in hand are document writes and land (session.append_chunk).
     # When Stopped, on_done runs finish() to preserve text already written,
-    # rather than abort_and_restore.
+    # rather than abort_and_restore. Note: on rewrite, stopping retains the
+    # rewritten head but the remainder of the selection is replaced by finish()
+    # (can be restored via undo or tracked changes).
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
         if not is_thinking:
             session.append_chunk(chunk_text)
@@ -137,7 +135,7 @@ def _stream_into_session(
             finally:
                 end_selection_cancel(arm)
 
-    arm = bind_selection_cancel(host, session.doc, cancel)
+    arm = bind_selection_cancel(host, session.doc)
     try:
         stream_completion(
             ctx,
@@ -161,7 +159,6 @@ def do_extend_selection(
     ctx: Any,
     model: Any,
     *,
-    cancel: SendCancellation | None = None,
     host: Any | None = None,
 ) -> None:
     title = _("WriterAgent: Extend Selection")
@@ -193,7 +190,6 @@ def do_extend_selection(
         system_prompt,
         max_tokens,
         session,
-        cancel=cancel,
         host=host,
     )
 
@@ -226,7 +222,6 @@ def do_edit_selection(
     preset_instruction: str | None = None,
     allow_whole_document: bool = False,
     sidebar_notify: Callable[[str], None] | None = None,
-    cancel: SendCancellation | None = None,
     host: Any | None = None,
 ) -> None:
     title = _("WriterAgent: Edit Selection")
@@ -292,6 +287,5 @@ def do_edit_selection(
         session,
         preset_instruction=preset_instruction,
         sidebar_notify=sidebar_notify,
-        cancel=cancel,
         host=host,
     )

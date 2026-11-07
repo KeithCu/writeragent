@@ -1159,6 +1159,18 @@ class SendButtonListener(BaseActionListener):
             drop_turn(self)
             kick_pending_peer_starts()
 
+    def close_selection_run(self) -> None:
+        """Close an armed selection run: clear cancellation, SEND_COMPLETED, and kick peer turns."""
+        self._send_cancellation = None
+        self._stop_requested_fallback = False
+        if not self._panel_teardown and self.sidebar_state.send.is_busy:
+            self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+            self.sync_has_text_from_query()
+            self._voice._flush_sticky_restart()
+        from plugin.doc.peer_message import kick_pending_peer_starts
+
+        kick_pending_peer_starts()
+
     def _set_query(self, text: str) -> None:
         if self.query_control and self.query_control.getModel():
             from plugin.chatbot.dialogs import set_control_text
