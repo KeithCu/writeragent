@@ -38,8 +38,8 @@ def test_endpoint_parts_bad_port_is_network_error():
 def test_endpoint_parts_malformed_bracket_url_is_network_error():
     """``_endpoint_parts`` must not leak ``ValueError``.
 
-    What was wrong: ``urlparse`` raises before ``_explicit_port`` for an
-    unmatched bracket, so ``LlmHttpTransport.current_host`` escaped.
+    ``urlparse`` can raise on unmatched brackets before ``_explicit_port`` runs.
+    Those URLs must surface as ``NetworkError``, not escape as raw ``ValueError``.
     """
     for url in ("http://[::1", "http://[::1]extra", "http://[]/v1"):
         transport = LlmHttpTransport(lambda url=url: url, lambda: 5)
@@ -52,8 +52,8 @@ def test_endpoint_parts_malformed_bracket_url_is_network_error():
 def test_exchange_malformed_bracket_redirect_is_network_error():
     """``Location: http://[::1`` is ``NetworkError``, not a raw ``ValueError``.
 
-    What was wrong: ``urljoin`` raises ``ValueError`` for that Location
-    before ``_explicit_port``, so it skipped ``exchange``'s NetworkError catch.
+    ``urljoin`` can raise on a malformed redirect Location before port validation.
+    Exchange must still map that to ``NetworkError``, not leak ``ValueError``.
     """
     transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
 

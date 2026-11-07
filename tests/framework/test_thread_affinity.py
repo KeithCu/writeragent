@@ -132,16 +132,11 @@ def test_guarded_getter_from_background_fails_with_marshal_fixture(uno_thread_sa
     from plugin.framework import doc_type
     from plugin.framework.errors import UnoObjectError
 
-    # What was wrong (GHA 34423268523, Windows xdist gw2): the worker did
-    # ``from plugin.framework import doc_type`` after ``run_in_background`` started.
-    # ``join(timeout=3)`` returned with ``err`` still None; captured log had
-    # only worker_pool "Starting task" — no completion, no violation. How:
-    # first import of ``plugin.doc`` (package ``__init__`` → CommonModule) ran
-    # on the dedicated worker while the Layer B pump was live, so the getter
-    # never reached ``assert_main_thread`` before the timeout. Why this: load
-    # the module on the test thread; the worker only calls the getter. Event +
-    # liveness / unexpected-exception notes so a future miss names the cause
-    # (alive thread vs wrong type vs GUARD_ON / designated-main).
+    # Import ``doc_type`` on the test thread before the background worker runs.
+    # A first import of ``plugin.doc`` on the worker can stall inside package
+    # init and never reach ``assert_main_thread`` before join times out.
+    # Events and liveness notes keep failures distinguishable (alive thread vs
+    # wrong exception type vs guard / designated-main settings).
     monkeypatch.setattr(tg, "GUARD_ON", True)
     done = threading.Event()
     err: BaseException | None = None

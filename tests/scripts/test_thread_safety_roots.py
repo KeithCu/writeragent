@@ -24,11 +24,9 @@ _SEMGREP_TEMPLATE = _REPO_ROOT / "tests" / "semgrep" / "uno_thread_safety.yml"
 
 
 def test_sync_host_entrypoints_have_definitions_in_plugin() -> None:
-    # Dead roots previously lingered when helper functions were inlined or
-    # renamed (e.g. _execute_prompt_addin_impl in #2572). Instead of pinning a
-    # duplicate constant set in the test, verify that every declared
-    # yellow-root entry point has a corresponding function or method definition
-    # in plugin/ (ignoring third-party/vendored contrib/lib code).
+    # Semgrep yellow roots must resolve to a definition under plugin/, not stale names
+    # after helpers are inlined or renamed. Verify each declared root against plugin/ sources
+    # instead of duplicating a frozen name list in this test.
     plugin_dir = _REPO_ROOT / "plugin"
     defined_names: set[str] = set()
     for py_file in plugin_dir.rglob("*.py"):

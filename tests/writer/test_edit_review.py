@@ -463,8 +463,8 @@ def test_wait_for_review_completes_on_reliable_empty():
 
 def test_wait_for_review_orphan_token_does_not_block_after_registered_change_resolves():
     # The registered change's token is gone. An unregistered wa-review tag from a failed
-    # tag or a failed missing-bookmark clear is still on a redline. That used to keep
-    # wait_for_review looping; the user has no review row for it.
+    # tag or a failed missing-bookmark clear is still on a redline. wait_for_review must
+    # not loop on that orphan; the user has no review row for it.
     from plugin.writer.edit_review import ChangeRecord, EditReviewSession
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
@@ -1016,8 +1016,8 @@ class _SkipRange:
 
 
 def test_string_skipping_redline_unreadable_type_returns_prefix():
-    # What was wrong: falling back to the whole string glued deleted text.
-    # Why this fixes it: return the skipped prefix accumulated before the error.
+    # On an unreadable portion mid-span, return the accepted prefix accumulated before the error,
+    # not the whole range string with deleted text glued in.
     from plugin.writer.edit_review import _string_skipping_redline
 
     span = _SkipRange([_SkipPara([

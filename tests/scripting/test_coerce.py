@@ -380,8 +380,7 @@ def test_numeric_columns_integer_labels_keeps_original_type():
     import pandas as pd
     from plugin.scripting.venv.coerce import resolve_columns
 
-    # What was wrong: auto numeric path stringified labels, so column 0 became "0"
-    # and df["0"] raised KeyError on integer-labelled frames.
+    # Auto numeric column resolution must preserve integer column labels, not stringify them to "0".
     df = pd.DataFrame([[1.0, 2.0], [3.0, 4.0]], columns=[0, 1])
     cols = resolve_columns(df, numeric=True)
     assert cols == [0, 1]

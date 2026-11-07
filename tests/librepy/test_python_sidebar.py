@@ -681,7 +681,7 @@ def test_refresh_keeps_selected_diagnostic():
     assert ctrl._suppress_diag_nav is False
     # entry_b was moved to index 2; selectItemPos was called with the restored index 2
     diag_ctrl.selectItemPos.assert_called_once_with(2, True)
-    # Detail text is the previously selected entry (entry_b), not _diags[0] (entry_new)
+    # After refresh, detail text must show entry_b (last selected), not entry_new at _diags[0].
     assert "err_b" in str(detail_ctrl.setText.call_args)
     assert "code_c" not in str(detail_ctrl.setText.call_args)
 

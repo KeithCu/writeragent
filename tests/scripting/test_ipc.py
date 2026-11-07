@@ -848,7 +848,7 @@ def test_exchange_tool_call_returns_result_when_id_matches(monkeypatch):
 
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="setitimer is POSIX")
 def test_exchange_tool_call_reads_reply_before_budget_timeout(monkeypatch):
-    """SIGALRM during the tool read used to desync the next cell. Consume the reply first."""
+    """On budget timeout during a tool read, consume the reply before raising so the next call stays in sync."""
     import signal
 
     from plugin.framework import ipc
@@ -906,7 +906,7 @@ def test_resume_script_alarm_rearms_only_when_time_remains(monkeypatch):
 
 @pytest.mark.skipif(not hasattr(signal, "setitimer"), reason="setitimer is POSIX")
 def test_resume_script_alarm_keeps_fractional_remainder(monkeypatch):
-    """alarm() used to round a leftover fraction up to the next whole second."""
+    """_resume_script_alarm must re-arm with the fractional remainder, not round up to a whole second."""
     import signal
 
     from plugin.framework.ipc import _resume_script_alarm
@@ -934,7 +934,7 @@ def test_json_line_burst_returns_each_line():
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX readline must not block after select")
 def test_json_line_partial_line_times_out_and_resumes():
-    """select-then-readline used to wait for a newline after the deadline."""
+    """After select times out on a partial line, readline must not block waiting for a newline."""
     read_fd, write_fd = os.pipe()
     os.write(write_fd, b'{"status": "partial"')
     try:
@@ -1066,8 +1066,8 @@ def test_drain_queued_pipe_bytes_returns_when_idle():
 def test_exchange_tool_call_drains_buffered_tail_after_id_mismatch(monkeypatch):
     """A foreign frame plus bytes already in the stdin buffer must not desync the next call.
 
-    What was wrong: read_pickle_frame fills BufferedReader ahead. Raising on
-    the id check left that tail for the next exchange_tool_call.
+    read_pickle_frame may prefetch the stdin buffer. On id mismatch, drain the
+    tail before raising so the next exchange_tool_call does not read a stale frame.
     """
     import threading
 
@@ -1221,9 +1221,8 @@ def test_joined_write_aborts_when_child_is_dead() -> None:
 def test_packed_frame_write_without_int_fileno_logs_and_writes(caplog: pytest.LogCaptureFixture) -> None:
     """A stream whose fileno is not an int is written with no deadline.
 
-    Popen pipes always have an int fileno. BytesIO takes this path, and it
-    used to do so silently. A real pipe that landed here would wedge the
-    caller that holds the worker lock.
+    Popen pipes always have an int fileno. Streams without one skip the write
+    deadline and must log at debug so a miswired pipe cannot wedge a worker-lock holder.
     """
     stream = io.BytesIO()
     frame = pack_pickle_frame({"status": "ok"})

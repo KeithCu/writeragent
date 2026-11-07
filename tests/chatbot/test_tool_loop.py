@@ -690,16 +690,10 @@ class DummyCalcSpecialTool(ToolCalcSpecialBase):
         return {"status": "ok", "message": "ok"}
 
 
-# Bugfix: DummyDrawSpecialTool previously inherited directly from ToolDrawSpecialBase
-# at module scope, which permanently leaked 'draw_test_domain' into
-# ToolDrawSpecialBase.__subclasses__() across the pytest session. This caused
-# test_tool_exposure_parity.py to fail when verifying that catalog domains map to
-# shipped concrete tools.
-#
-# To prevent test pollution, DummyDrawSpecialTool inherits from ToolBase (registered
-# virtually with ToolDrawSpecialBase), and the dummy_draw_tool fixture monkeypatches
-# ToolDrawSpecialBase.__subclasses__ only for tests exercising Draw delegation,
-# restoring the original subclasses on teardown.
+# Module-scope inheritance from ToolDrawSpecialBase leaks draw_test_domain into
+# __subclasses__() for the whole pytest session and breaks exposure-parity checks.
+# DummyDrawSpecialTool inherits ToolBase instead; the dummy_draw_tool fixture
+# patches __subclasses__ only for Draw delegation tests and restores on teardown.
 class DummyDrawSpecialTool(ToolBase):
     name = "dummy_draw_special_tool"
     description = "A dummy Draw specialized tool."

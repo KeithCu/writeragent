@@ -35,7 +35,7 @@ def test_selection_raises_when_both_selection_and_viewcursor_fail_not_gotoEnd():
     with pytest.raises(ValueError) as ei:
         resolve_target_cursor(ctx, "selection", None)
     assert "set_selection" in str(ei.value) or "search" in str(ei.value)
-    cursor.gotoEnd.assert_not_called()  # the bug was a silent gotoEnd(False)
+    cursor.gotoEnd.assert_not_called()  # both selection and view cursor failed: must not silently gotoEnd(False)
 
 
 def test_selection_falls_back_to_view_cursor_never_end():

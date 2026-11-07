@@ -179,8 +179,7 @@ def test_picker_order_starts_with_vision_math_units_analysis():
 
 
 def test_picker_supports_logs_when_the_check_raises(caplog):
-    # What was wrong: logger.debug calls are stripped in release builds.
-    # Why: skip when running against stripped release bundle.
+    # Release bundles strip logger.debug; skip this test when log sites are absent.
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.debug stripped in release bundle")
@@ -201,9 +200,8 @@ def test_picker_supports_logs_when_the_check_raises(caplog):
 
 
 def test_sql_is_result_handles_missing_duckdb_sql(caplog):
-    # What was wrong: LibrePy bundle excludes duckdb_sql.py, causing is_result check
-    # to raise ImportError and break Calc result insertions for non-sql scripts.
-    # Why this change: Catch ImportError, log at debug, and treat as not this domain (return False).
+    # When duckdb_sql is absent (LibrePy bundle), is_result must catch ImportError,
+    # log at debug, and return False so other domains still insert Calc results.
     import logging
     from plugin.scripting.domain_registry import WIRING_TABLE
 
@@ -237,9 +235,7 @@ def test_is_reserved_script_name():
 
 
 def test_rps_spec_insert_returns_int_only_when_int():
-    # What was wrong: bool is an instance of int in Python, so returning True could
-    # leak as cell count 1 or mask an integer return check.
-    # Why this change: Explicitly check isinstance(ret, int) and not isinstance(ret, bool).
+    # Insert helpers must accept only int returns, not bool, because bool is a subclass of int.
     from plugin.scripting.domain_registry import WIRING_TABLE
 
     wiring = next(w for w in WIRING_TABLE if w.id == "viz")

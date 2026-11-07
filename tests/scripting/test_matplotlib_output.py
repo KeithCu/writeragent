@@ -318,9 +318,9 @@ def test_serialize_result_small_numeric_dataframe_spills_body():
 def test_serialize_result_small_object_dataframe_is_host_pickleable():
     """Object/extension frames under BINARY_MIN_CELLS must not leak unpickleable cells.
 
-    What was wrong: the list path left numpy.bool_, np.int64, Decimal, and
-    Fraction in the nested list, and _reject_host_unpickleable raised. The
-    same frames at or above 100 cells already succeeded via split_grid flatten.
+    Small object DataFrames must not leave host-unpickleable cells in the nested
+    list path. Extension types belong in split_grid flatten like frames at
+    BINARY_MIN_CELLS and above.
     """
     from decimal import Decimal
     from fractions import Fraction

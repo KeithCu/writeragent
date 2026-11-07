@@ -40,22 +40,23 @@ def test_strip_html_tags_math_comparison():
 
 def test_strip_html_tags_unquoted_url_slash_still_drops_script_body():
     # A trailing slash inside an unquoted attribute is not an empty element.
-    # Treating it as ``<script/>`` used to keep alert(1).
+    # A trailing slash in an unquoted src must not be treated as ``<script/>``,
+    # or the script body survives stripping.
     assert strip_html_tags("<script src=https://cdn.example.com/>alert(1)</script>ok") == "ok"
     assert strip_html_tags("<script/>alert(1)") == "alert(1)"
     assert strip_html_tags("<script />alert(1)") == "alert(1)"
 
 
 def test_strip_html_tags_drops_script_and_style_bodies():
-    # Tag bytes used to be dropped but element text survived.
+    # Script and style element text must be removed with the tags, not left in output.
     assert strip_html_tags("<script>alert(1)</script><p>ok</p>") == "ok"
     assert strip_html_tags("<style>p > b { color: red }</style><p>ok</p>") == "ok"
     assert strip_html_tags("<SCRIPT>alert(1)</SCRIPT>ok") == "ok"
 
 
 def test_unclosed_script_does_not_swallow_the_rest():
-    # A reply that mentions <script> without a close tag used to drop
-    # everything after the tag, including text after the stream ended.
+    # An unclosed ``<script>`` token must not swallow the rest of the reply,
+    # including text that arrives after streaming ends.
     assert strip_html_tags("See <script> for details") == "See  for details"
     assert strip_html_tags("use a <script> tag.\n\nKeep this.") == "use a  tag.\n\nKeep this."
     tail = "y" * 40
@@ -66,7 +67,7 @@ def test_unclosed_script_does_not_swallow_the_rest():
 
 
 def test_strip_html_tags_quoted_gt_does_not_end_tag():
-    # The first '>' inside quotes used to end the tag and leak the tail.
+    # A ``>`` inside a quoted attribute must not end the tag and leak following text.
     assert strip_html_tags('<img alt="a>b" src="x">tail') == "tail"
     assert strip_html_tags("<img alt='a>b' src='x'>tail") == "tail"
 
@@ -152,8 +153,9 @@ def test_strip_html_tags_incomplete_non_tag():
 def test_streaming_html_stripper_feed_over_deal_max_chunk():
     """A single feed() larger than DEAL_MAX_HTML_CHUNK must not PreContract.
 
-    _append_response used to pass a whole assistant chunk to feed(); debug
-    @deal.pre required each slice ≤ 4096. This test would have caught that.
+    A single ``feed()`` larger than ``DEAL_MAX_HTML_CHUNK`` would violate the
+    debug ``@deal.pre`` on slice size if the sidebar passed whole assistant
+    chunks through unchanged.
     """
     body = "Hello <b>" + ("x" * (DEAL_MAX_HTML_CHUNK + 10)) + "</b> world"
     stripper = StreamingHTMLStripper()
@@ -165,9 +167,9 @@ def test_streaming_html_stripper_feed_over_deal_max_chunk():
 def test_generic_and_autolink_tokens_are_not_stripped():
     """A letter after ``<`` is not enough to delete the token.
 
-    What was wrong: ``<String>``, ``<https://…>``, and ``<user@host>`` matched
-    the same rule as ``<b>``. The live stripper and the committed plain
-    fallback both dropped them. Chunks must agree with the whole string.
+    Tokens like ``<String>``, ``<https://…>``, and ``<user@host>`` are prose,
+    not HTML tags. Stripping them like ``<b>`` drops real angle-bracket text;
+    streaming chunks must match the whole-string result.
     """
     samples = (
         "Use List<String> here",
@@ -190,11 +192,9 @@ def test_generic_and_autolink_tokens_are_not_stripped():
 def test_element_named_prose_tokens_are_not_stripped():
     """A known element name glued to a non-delimiter is prose.
 
-    What was wrong: the name run stopped at ``@`` or ``,``, then any name in
-    ``_HTML_ELEMENTS`` was deleted. ``<a@b.com>``, ``<b, c>``, and ``<em@x>``
-    disappeared. ``<user@example.com>`` already stayed, because ``user`` is
-    not an element name. Whole-string and 3-character streaming must agree.
-    Real tags in the same string are still removed.
+    Element-name detection must not stop at ``@`` or ``,`` and delete names from
+    ``_HTML_ELEMENTS`` inside prose like ``<a@b.com>``. Whole-string and
+    small streaming chunks must agree; real tags in the same string still drop.
     """
     samples = (
         "<a@b.com>",

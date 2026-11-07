@@ -447,7 +447,7 @@ def test_unmatched_orphan_does_not_record_user_authored_cell():
     """Orphan A2 whose pred is not desired must not be stolen onto user-authored A3.
 
     A2 is gone; A3 already has ``;A1`` because the user typed it (§9.5), not
-    because we attached A2. ``orphans[0]`` used to record A3 anyway.
+    because we attached A2. ``orphans[0]`` must not record A3 when the pred does not match.
     A matching pred (A2→A1) is the row-insert rehome case, not this one.
     """
     patches, records = _repair(
@@ -504,10 +504,9 @@ def test_row_insert_three_cell_chain_rehomes_all_keys():
 def test_undo_stale_map_keeps_live_successor_record():
     """Undo after delete-middle: stale ``{A3: A1}`` must not be stolen onto A2.
 
-    Live sheet is A1/A2/A3 (formulas already correct). Incoming pred A1 ≠
-    A3's desired A2 used to mark A3 homeless; rule 1 then moved that record
-    onto A2 (pred A1 == A2's desired). A3 left unrecorded with ``;A2`` so
-    successor-becomes-first remove-field was a noop.
+    Live sheet is A1/A2/A3 (formulas already correct). Incoming pred A1 ≠ A3's
+    desired A2 must not mark A3 homeless and steal its record onto A2 (pred A1
+    == A2's desired). A3 keeps predecessor A2 with ``;A2`` in the formula.
     """
     patches, records = _repair(
         [
@@ -1772,7 +1771,7 @@ def test_repair_one_sheet_reconciles_unapplied_patches_bug1(monkeypatch):
     assert "A2" not in records_for_sheet(wk, "Sheet1")
 
     # Scenario B: Remove patch fails (e.g. stale cell).
-    # Pre-seed record: A2 was previously chained to A1.
+    # Pre-seed record: A2 is chained to A1 in the attach map before the failed remove.
     replace_records_for_sheet(wk, "Sheet1", {"A2": GeometricRecord(predecessor="A1")})
     # Now sheet has only A2 (A1 deleted), planning a remove action.
     sheet.getCellByPosition(0, 0).setFormula("")  # clear A1

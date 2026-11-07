@@ -54,8 +54,8 @@ class TestInitLogging:
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
         logging_mod._shared()["debug_log_path"] = None
-        # What was wrong: these lived on the logging module. A second import
-        # did not see them. Tests must reset the sys copies or they leak.
+        # Debug state lives on ``sys``, not the logging module. A second import
+        # would miss stale copies unless each test clears these slots.
         logging_mod._debug_slot()["handler"] = None
         sys.__dict__.pop("_writeragent_excepthook", None)
         for h in list(log.handlers):

@@ -639,7 +639,7 @@ def test_stale_retry_timer_does_not_spawn_second_process(monkeypatch):
 
 
 def test_stale_exit_does_not_drop_replacement_process(monkeypatch):
-    """Provider/token restart: the old wait thread must not orphan the new process."""
+    """After provider/token restart, a stale exit waiter must not clear the replacement tailscale process."""
     monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
     from plugin.mcp.tunnel_state import TunnelStatus
 
@@ -697,12 +697,8 @@ def test_stale_exit_does_not_drop_replacement_process(monkeypatch):
 def _track_background(handles: list):
     """Record real post_stop threads so the test can join them.
 
-    What was wrong: tests that let run_in_background finish after the
-    subprocess.run patch came off exec'd `tailscale` and
-    _clear_tailscale_arm() deleted the next test's monkeypatched marker
-    (macOS CI 37719597720).
-    Why: join the handles before that patch exits, while subprocess.run
-    is still the mock.
+    Tests must join background handles before the subprocess.run mock exits.
+    Otherwise post_stop can run real tailscale and clear markers the next case needs.
     """
     from plugin.framework.worker_pool import run_in_background as real
 

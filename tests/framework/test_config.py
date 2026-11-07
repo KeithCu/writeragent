@@ -214,7 +214,7 @@ class TestConfigSyncFileIO:
         return data
 
     def test_get_config_huge_integer_does_not_crash(self):
-        """A ≥309-digit JSON int used to raise OverflowError inside float()."""
+        """Very large JSON integers must load without OverflowError in float() coercion."""
         huge = 10**400
         with open(self.config_path, "w", encoding="utf-8") as handle:
             json.dump({"chat_max_tokens": huge, "temperature": huge, "endpoint": "http://localhost:11434"}, handle)
@@ -746,7 +746,8 @@ class TestConfigSyncFileIO:
 
     def test_set_config_one_key_does_not_rewrite_other_keys(self):
         # A real change patches that key only. Defaults already stored, and
-        # every other key, stay. A full-blob to_dict() used to delete them.
+        # every other key must stay; rewriting the whole blob would drop keys
+        # not present in the patch.
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({
                 'endpoint': 'http://localhost:11434',
@@ -771,9 +772,9 @@ class TestConfigSyncFileIO:
     def test_save_api_key_patch_keeps_other_slots(self):
         """A one-slot save merges under the lock. It does not replace the map.
 
-        What was wrong: the caller copied the map, edited one URL, and the
-        batch wrote that copy back. A key stored for another endpoint in
-        between was dropped.
+        A copy-on-write race drops keys for endpoints updated on another thread
+        between read and save. Saves must merge under the lock, not replace the
+        whole ``api_keys_by_endpoint`` map.
         """
         reset_config_for_tests()
         set_api_key_for_endpoint("https://api.together.xyz", "sk-keep")
@@ -853,9 +854,9 @@ class TestConfigSyncFileIO:
     def test_set_config_omitted_default_does_not_write_or_emit(self):
         """A key left out of the file is already the schema default.
 
-        Settings OK calls save for every field. dict.get used to return
-        None for an omitted key, None != default, and each call validated,
-        rewrote the file, and emitted config:changed.
+        Settings OK calls save for every field. An omitted key must compare equal
+        to its schema default; treating it as ``None`` would rewrite the file and
+        emit ``config:changed`` on every OK with no real edit.
         """
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'text_model': 'custom-model'}, f)
@@ -888,8 +889,8 @@ class TestConfigSyncFileIO:
     def test_two_writers_keep_both_keys(self):
         """Two writers that each change a different key must not drop either key.
 
-        What was wrong: each writer loaded the whole JSON and wrote the blob
-        back. The second write replaced the file with its earlier copy.
+        Each writer must patch only its keys. Loading the full JSON and writing it
+        back lets the second writer's stale copy overwrite the first writer's key.
         """
         with open(self.config_path, 'w', encoding='utf-8') as f:
             json.dump({'custom_unrecognized_key': 'from-earlier-writer'}, f)

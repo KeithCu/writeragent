@@ -316,9 +316,8 @@ def test_tools_call_rejects_unadvertised_tiers():
 def test_tools_call_cannot_skip_disposed_document_check(bypass):
     """A client bypass_thread_guard value must still go through execute_safe.
 
-    What was wrong: the key bound to ToolRegistry.execute's keyword-only flag,
-    which calls tool.execute and skips the disposed-document check.
-    MCP must drop the key and must not pass the keyword at all.
+    bypass_thread_guard must not reach ToolRegistry.execute, which skips the
+    disposed-document check. MCP must strip the key and never forward the keyword.
     """
     tool = _SyncProbe()
     handler = _handler(_DisposedDoc(), tool)
@@ -371,9 +370,8 @@ def _extract_runner(fn):
 
 
 def test_long_running_bypass_still_marshals_to_the_main_thread():
-    """Sync tools/call must marshal execute_safe, not call tool.execute on the worker.
-
-    A client bypass value used to call tool.execute on that worker. MCP must not pass the keyword.
+    """Long-running tools/call must marshal execute_safe on the main thread, not tool.execute on the worker.
+    MCP must strip bypass_thread_guard so the worker never runs tool.execute directly.
     """
     tool = _SyncProbe()
     handler = _handler(_LiveDoc(), tool)

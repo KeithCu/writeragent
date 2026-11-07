@@ -694,9 +694,9 @@ def _attach_index_rows(ctx, idx, rows):
 def test_list_toc_entries_reads_rows_not_the_full_export():
     """A long linked TOC is listed from index paragraphs, not the XHTML export.
 
-    What was wrong: inspecting rows called get_document_content, which exports
-    the whole document through the XHTML Writer filter. A linked TOC is a bad
-    input for that filter. This listing must not call that export or update().
+    Row inspection must not call get_document_content (XHTML Writer filter export);
+    a linked TOC is a bad input for that filter. This listing must not export or
+    call update().
     """
     tool = IndexesListTocEntries()
     ctx, _doc, idx, _mgr = _one_toc_context()
@@ -1116,8 +1116,8 @@ class _OffsetText:
 def test_list_toc_entries_skips_a_paragraph_before_the_toc():
     """A paragraph above the TOC must not end the walk (discussion #2259).
 
-    What was wrong: the walk broke when compareRegionStarts(para, anchor end)
-    was positive, which in UNO means the paragraph starts before the end.
+    A positive compareRegionStarts(para, anchor end) only means the paragraph
+    starts before the anchor end; the walk must keep going.
     """
     rows = []
     for offset, (label, style) in enumerate((

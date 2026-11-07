@@ -1009,12 +1009,10 @@ def test_document_helpers_unohelper_import_error():
     from pathlib import Path
 
     repo_root = str(Path(__file__).resolve().parents[2])
-    # What was wrong: macOS fix_uno_import.py puts LibreOffice uno.py on the
-    # venv path without pyuno. text_helpers imports uno, uno.py imports pyuno,
-    # and the child died before the unohelper handler (GHA 37719597720).
-    # Windows was skipped because that .pth loads LO's native pyuno.
-    # Why: stub pyuno and uno first, same as the analyzer-import test, so
-    # this child never loads the office binary.
+    # macOS fix_uno_import.py can put LibreOffice uno.py on the venv path without pyuno;
+    # importing uno then pulls pyuno and the child dies before the unohelper handler.
+    # Stub pyuno and uno first (same pattern as the analyzer-import test) so this child
+    # never loads the office binary. Windows is skipped because that .pth loads LO's native pyuno.
     code = (
         "import sys, types\n"
         "if 'pyuno' not in sys.modules:\n"

@@ -150,15 +150,10 @@ def test_start_native_script_run_returns_before_venv_wait():
 def _deliver_posted_native_run():
     """Run the main-thread turn that delivers ``on_complete``.
 
-    What was wrong: these tests inline the native-run worker and then read
-    the listener immediately. ``seen`` stayed ``[]`` on CI.
-    How it happened: LibreOffice has already created AsyncCallback, so
-    ``post()`` enqueues (``marshal route=post_enqueue``) even on the logical
-    main thread. ``execute()`` still inlines, which is why prepare / venv /
-    finish ran and only the completion post was missing.
-    Why this works: mark AsyncCallback ready (the CI route, not the
-    no-service inline) and drain that queue from the poke. The product still
-    posts the outcome; the harness plays the UI turn that would run it.
+    These tests inline the native-run worker and then read the listener
+    immediately, but completion posts queue when AsyncCallback is ready.
+    Mark the callback service ready and drain the main-thread queue from poke
+    so the harness delivers the same UI turn LibreOffice would run in CI.
     """
     executor = qe.main
     saved_init = executor._initialized
@@ -985,9 +980,7 @@ def test_native_dialog_open_survives_warm_schedule_failure():
 
 
 def test_start_native_script_run_uses_dedicated_worker():
-    # What was wrong: Script execution ran on the shared background worker pool (dedicated=False).
-    # Long-running scripts blocked the pool from handling other tasks.
-    # Why this change: AGENTS.md requires long jobs to run with dedicated=True.
+    # Native script runs must use dedicated=True so long jobs do not occupy the shared pool.
     captured = {}
 
     def _capture_run(func, *args, **kwargs):

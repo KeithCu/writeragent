@@ -135,9 +135,9 @@ class TestInsertImageIntoHeaderFooter:
 
 class TestShouldLinkImagePath:
     def test_user_path_is_linked(self):
-        # What was wrong: in make release, tests run from a tempdir under /tmp ($RELEASE_TMP),
-        # so os.getcwd() was inside tempfile.gettempdir(), causing _should_link_image_path to return False.
-        # This change mocks gettempdir to a distinct path to ensure hermetic testing.
+        # make release runs tests from a tempdir under /tmp ($RELEASE_TMP), so getcwd() can sit
+        # inside gettempdir() and _should_link_image_path would return False. Mock gettempdir to
+        # a distinct path so user paths are still treated as linkable.
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             f.write(b"png")
             path = f.name

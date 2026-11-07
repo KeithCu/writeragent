@@ -94,7 +94,7 @@ def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
 
 
 def test_max_tool_rounds_schema_allows_200() -> None:
-    """Eval-2 headed trials may set 200; schema max used to clamp that to 150."""
+    """Eval headed trials may set chatbot.max_tool_rounds to 200; schema max must allow it."""
     from plugin.framework import config_schema as schema
 
     assert schema.MODULES, "empty MODULES; run make manifest"
@@ -217,11 +217,9 @@ def test_validate_constraints() -> None:
 def test_strict_coerce_uses_dataclass_bounds_without_rewriting_defaults() -> None:
     """Settings compare trusts strict coerce. Defaults must still compare equal.
 
-    What was wrong: temperature 5.0 and chat_max_tokens -1 came back unchanged
-    under strict=True, so a dialog that resubmitted a stored out-of-range
-    number looked like a no-op. The dataclass bounds have to reject those
-    values. The in-range defaults, including the temperature sentinel -1.0,
-    must stay themselves or an untouched Settings OK becomes a write.
+    Strict coerce must reject out-of-range values such as temperature 5.0 or
+    negative token limits. In-range defaults, including the temperature sentinel
+    -1.0, must round-trip unchanged or an untouched Settings OK looks like a write.
     """
     temperature = get_config_schema("temperature")
     tokens = get_config_schema("chat_max_tokens")

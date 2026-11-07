@@ -28,11 +28,9 @@ from plugin.app import get_tools
 def _call_on_main(fn, *args, **kwargs):
     """Run document and tool work on the UI thread.
 
-    What was wrong: the benchmark's model call and its ``registry.execute``
-    shared the dialog thread, so Run froze LibreOffice. The model call now
-    stays on the worker that ``run_suite`` started. Document reads and tool
-    execution would have moved with it and touched the open document off the
-    main thread. Those calls are posted back; the HTTP client is not.
+    The benchmark HTTP call runs on the suite worker so the eval dialog stays
+    responsive. Document reads and ``registry.execute`` must post back to the
+    main thread; UNO must not run from the worker. The HTTP client stays on the worker.
     """
     from plugin.framework.queue_executor import main
 

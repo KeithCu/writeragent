@@ -693,17 +693,11 @@ def test_stop_does_not_drop_violation_popup(monkeypatch):
     was_init = main._initialized
     was_async = main._async_callback_service
 
-    # What was wrong: pending_work_count() == 1 failed as assert 2 == 1
-    # (PR 1577 ubuntu run 38784025798, gw4). queue_depth was already 1 at
-    # post_enqueue, which is logged after _flush_pending_posts and before
-    # this popup is put.
-    # How it happened: a previous test on this xdist worker left a row in
-    # main._pending_posts. post() flushes that row, then enqueues
-    # _show_popup. --dist=loadgroup schedules unmarked tests as separate work
-    # units, so the row is present only on some reruns.
-    # Why this change: park the work queue and the pending list first, and
-    # seed a decoy row so forgetting the park fails in one process. The popup
-    # is still the unscoped post, so scope.cancel() does not drop it.
+    # A stale row in ``main._pending_posts`` from an earlier test makes
+    # ``pending_work_count()`` look like two posts when only the popup is new.
+    # Park the work queue and pending list first, and seed a decoy row so a
+    # missing park fails in one process. The popup stays an unscoped post, so
+    # ``scope.cancel()`` does not drop it.
     def decoy() -> None:
         decoy_ran.append(True)
 

@@ -17,10 +17,9 @@ _PARAGRAPH_BREAK = 0
 def test_find_paragraph_after_table_keeps_index(ctx, doc):
     """A table between paragraphs is not an XTextRange.
 
-    What was wrong: createEnumeration yields the table, and find_paragraph_for_range
-    called getStart on it. That raised AttributeError, so the paragraph after the
-    table could not be resolved. The enumeration index of that paragraph (tables
-    occupy a slot) must still come back.
+    Text enumeration yields tables as well as paragraphs. ``find_paragraph_for_range``
+    must skip non-range elements instead of calling ``getStart`` on a table.
+    The paragraph index after a table must still match enumeration (tables occupy a slot).
     """
     text = doc.getText()
     text.setString("")

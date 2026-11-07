@@ -607,7 +607,7 @@ class TestWorkerPoolErrorHandling():
 
 
 class TestReadStreamStripsNewlines:
-    """Regression test for Bug 1: rstrip("\\n\\r") used literal chars, not newlines."""
+    """``_read_stream`` must strip real newline bytes, not the two-char ``\\n\\r`` literal."""
 
     def _make_stream(self, lines):
         """Return a closeable text stream that yields the given strings."""
@@ -719,8 +719,8 @@ class TestReadStreamStripsNewlines:
 def test_stderr_drain_short_read_before_eof():
     """A buffered pipe must surface a short burst while the child is still alive.
 
-    BufferedReader.read(4096) waits for 4096 bytes or EOF, so this used to
-    stay empty for the whole sleep.
+    ``BufferedReader.read(4096)`` waits for 4096 bytes or EOF. Without a
+    short-read drain, stderr stays empty while the child is still alive.
     """
     script = (
         "import sys, time\n"
@@ -846,9 +846,9 @@ def test_async_process_spawn_uses_managed_subprocess(monkeypatch: pytest.MonkeyP
 def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyPatch) -> None:
     """The first wait thread must report the child it was started for.
 
-    _wait_for_exit used to read self.process at wait time. A second start()
-    replaced that child, so the first waiter blocked on the new process and
-    delivered its exit.
+    The waiter must capture ``self.process`` at start time. Reading it again at
+    wait time lets a second ``start()`` replace the child, so the first waiter
+    blocks on the new process and reports the wrong exit.
     """
     from collections.abc import Callable
 

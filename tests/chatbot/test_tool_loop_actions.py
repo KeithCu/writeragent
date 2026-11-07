@@ -623,9 +623,9 @@ def test_execute_fn_skips_draw_bridge_for_writer():
 def test_execute_fn_json_bypass_thread_guard_cannot_skip_marshal(bypass):
     """A tool-call dict cannot turn off the main-thread guard.
 
-    What was wrong: execute_fn spread the model/peer JSON into
-    ToolRegistry.execute. bypass_thread_guard is keyword-only, so a true
-    value skipped execute_safe and ran the body on this worker.
+    Tool-call JSON spread into ``execute`` must not supply ``bypass_thread_guard``.
+    That keyword is keyword-only; a truthy JSON value would skip ``execute_safe``
+    and run the tool body on the current worker.
     """
     import json
 

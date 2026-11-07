@@ -169,9 +169,9 @@ def test_shared_session_data_and_ranges_isolation():
 def test_rebind_result_to_same_singleton_survives_trailing_statement():
     """A trailing statement must not hide ``result = <singleton>``.
 
-    What was wrong: egress treated ``current is not prior_result`` as a rebind.
-    Small ints, None, True, and interned strings are singletons, and
-    ``result += [2]`` stores the same list. ``pass`` then returned None.
+    Egress must not treat ``current is not prior_result`` as a rebind when the
+    value is a singleton or the same list object. A trailing ``pass`` must not
+    clear ``result`` after ``result = <singleton>``.
     """
     sid = "calc:test-result-singleton"
     assert run_sandboxed_code("result = 5", None, session_id=sid)["result"] == 5

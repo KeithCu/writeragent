@@ -1505,7 +1505,7 @@ def test_parse_excel_xlsx_bare_anchor_first_wins(tmp_path: Path):
 
 
 def test_script_bank_name_collision_raises():
-    """Two source sheets that previously collided must receive distinct bank sheet names."""
+    """Two source sheets whose sanitized names would collide must receive distinct bank sheet names."""
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
     from plugin.calc.excel_py_convert.script_bank import code_sheet_name_for, collect_script_bank
 

@@ -1300,11 +1300,10 @@ class TestToolIsolation:
     def test_tool_timeout_does_not_cancel_the_send(self):
         """A tool timeout must return TOOL_TIMEOUT without cancelling the send.
 
-        What was wrong: the timeout path called send_cancellation.cancel()
-        and also returned the error dict. How: the drain stop checker is
-        that flag, so it discarded the dict and the turn waited for
-        TOOL_DONE. Why: the worker is already abandoned; the caller delivers
-        the timeout.
+        Calling ``send_cancellation.cancel()`` on timeout makes the drain stop
+        checker discard the error dict, so the turn waits for TOOL_DONE instead
+        of returning TOOL_TIMEOUT. The worker is already abandoned; the caller
+        must deliver the timeout without cancelling the send.
         """
         from plugin.framework.send_cancellation import SendCancellation
 
@@ -1342,10 +1341,9 @@ class TestToolIsolation:
         class Mutate(ToolBase):
             name = "mutate_then_unwind"
             description = "x"
-            # Bugfix: Generous tool timeout so slow/loaded CI runners do not spuriously
-            # time out before the worker thread starts and queues its result.
-            # 10s is well below release.wait(30s), so any regression where execute
-            # mistakenly waits on the worker thread to exit will still time out.
+            # A generous timeout avoids spurious TOOL_TIMEOUT on slow CI before
+            # the worker queues its result. 10s stays below release.wait(30s), so
+            # a regression that waits for thread exit still times out.
             timeout = 10.0
             parameters = {"type": "object", "properties": {}}
 
@@ -1803,8 +1801,9 @@ def test_execute_unguarded_skips_guard() -> None:
 def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
     """A **dict must not skip execute_safe, even when the value is truthy.
 
-    What was wrong: the keyword-only parameter bound JSON true before
-    without_unknown_kwargs ran, so the sync tool ran on the worker.
+    If ``bypass_thread_guard`` binds from JSON before ``without_unknown_kwargs``,
+    a truthy model value skips ``execute_safe`` and the sync tool runs on the
+    worker thread.
     """
     reg, ctx, calls, seen = _guard_probe_registry()
     marshalled: list[str] = []

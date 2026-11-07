@@ -294,9 +294,8 @@ def test_non_openai_providers_keep_max_tokens_for_reasoning_names():
 
 
 def test_persistent_connections(client):
-    # What was wrong: this still expected the Settings read timeout (60).
-    # Connect uses LLM_CONNECT_TIMEOUT_SEC so a dead host does not wait the
-    # full stream stall budget. The read timeout is applied after connect.
+    # Connect uses LLM_CONNECT_TIMEOUT_SEC so a dead host does not wait the full
+    # read timeout; the test must expect that connect budget, not Settings (60).
     from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
 
     with (
@@ -1632,7 +1631,7 @@ def test_anthropic_stream_tool_use_accumulates(client):
 
 
 def test_anthropic_message_stop_does_not_clobber_max_tokens(client):
-    """message_stop used to overwrite message_delta stop_reason with 'stop'."""
+    """message_stop must not overwrite message_delta stop_reason with 'stop'."""
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         shim = client._get_shim()
@@ -1817,7 +1816,7 @@ def test_make_chat_request_flattens_system_message(client):
 
 
 def test_chat_request_omits_top_p(client):
-    """top_p used to be forced to 0.9 and rejected by models that also take temperature."""
+    """chat requests must omit top_p so models that reject it with temperature still work."""
     messages = [{"role": "user", "content": "Hi"}]
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
@@ -2401,9 +2400,9 @@ def _abort_wait_on_stop(client):
 def test_buffered_sse_honors_stop_latch_without_stop_checker(client):
     """stop() during the first chunk must not deliver later buffered SSE lines.
 
-    The per-chunk check used to call only stop_checker. With no checker,
-    http.client lines already in the buffer still reached on_content after
-    stop() set the client latch.
+    Each buffered chunk must honor the client stop latch even when no
+    ``stop_checker`` is supplied. Otherwise lines already in the http.client
+    buffer still reach ``on_content`` after ``stop()``.
     """
     seen: list[str] = []
 
@@ -3095,8 +3094,8 @@ def test_stop_after_request_return_does_not_cancel_caller_scope():
 
     assert scope.is_cancelled() is False
     client.stop()
-    # What was wrong: late-cancel hook outlived the request, so worker cleanup stop() cancelled caller scope.
-    # Fix: unregister hook on return; stop() now latches only the client.
+    # The late-cancel hook must unregister when the request ends. If it outlives
+    # the call, worker cleanup stop() would cancel the caller's SendCancellation.
     assert scope.is_cancelled() is False
 
 
