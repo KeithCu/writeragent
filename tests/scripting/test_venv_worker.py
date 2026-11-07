@@ -74,7 +74,6 @@ def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
     poll_fn = getattr(proc, "poll", None)
     warm.is_alive = lambda: poll_fn() is None if callable(poll_fn) else True
     warm.io_owner = lambda: warm._fake_io_owner if warm._fake_io_owner is not None else io_owner_holder[0]
-    warm.io_locked = warm._io_lock.locked
     warm.diagnostic_tail = lambda: ""
     mgr._warm = warm
     mgr._primed = True
@@ -523,7 +522,8 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
             if t.name == 'ipc-stdin-write':
                 t.join(timeout=5)
                 assert not t.is_alive()
-        assert not warm.io_locked()
+        with warm.lease(Deadline(1), wait=0) as leased:
+            assert not isinstance(leased, dict)
     finally:
         warm.retire()
 
@@ -536,7 +536,9 @@ def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_REENTRY'
     assert 'called back' in result['message']
-    assert mgr._warm is not None and not mgr._warm.io_locked()
+    assert mgr._warm is not None
+    with mgr._warm.lease(Deadline(1), wait=0) as leased:
+        assert not isinstance(leased, dict)
 
 def test_large_stdin_write_completes_intact():
     mgr = PythonWorkerManager(sys.executable, {})
@@ -1718,7 +1720,6 @@ def test_execute_main_thread_waits_for_pipe_lock(monkeypatch: pytest.MonkeyPatch
         release.set()
 
     releaser = threading.Thread(target=_release_later)
-    releaser.start()
     try:
         def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
             del req, leased
@@ -1726,6 +1727,7 @@ def test_execute_main_thread_waits_for_pipe_lock(monkeypatch: pytest.MonkeyPatch
 
         with patch.object(mgr, '_execute_ipc_unlocked', side_effect=_fake_ipc):
             started = time.monotonic()
+            releaser.start()
             result = mgr.execute('result = 42', timeout_sec=2)
             elapsed = time.monotonic() - started
             assert elapsed >= 0.25
@@ -1747,6 +1749,12 @@ def test_execute_sync_host_dispatch_waits_for_pipe_lock() -> None:
 
     outcome: list[tuple[dict[str, Any], float]] = []
 
+    def _release_later() -> None:
+        time.sleep(0.3)
+        release.set()
+
+    releaser = threading.Thread(target=_release_later)
+
     def _worker() -> None:
         def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
             del req, leased
@@ -1754,17 +1762,12 @@ def test_execute_sync_host_dispatch_waits_for_pipe_lock() -> None:
 
         with sync_host_dispatch(), patch.object(mgr, '_execute_ipc_unlocked', side_effect=_fake_ipc):
             started = time.monotonic()
+            releaser.start()
             res = mgr.execute('result = 99', timeout_sec=2)
             elapsed = time.monotonic() - started
             outcome.append((res, elapsed))
 
-    def _release_later() -> None:
-        time.sleep(0.3)
-        release.set()
-
-    releaser = threading.Thread(target=_release_later)
     waiter = threading.Thread(target=_worker)
-    releaser.start()
     waiter.start()
     try:
         waiter.join(timeout=3)
@@ -1789,7 +1792,7 @@ def test_execute_main_thread_refuses_when_holder_in_tool_rpc(monkeypatch: pytest
     try:
         started = time.monotonic()
         result = mgr.execute('result = 1', timeout_sec=1)
-        assert time.monotonic() - started < 0.2
+        assert time.monotonic() - started < 1.0
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
@@ -2696,16 +2699,11 @@ def test_reentry_error_does_not_refuse_other_lock_holder(monkeypatch: pytest.Mon
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     mgr = PythonWorkerManager(sys.executable, {})
     warm = MagicMock()
-    lock = threading.Lock()
-    assert lock.acquire(blocking=False)
-    warm._io_lock = lock
     other_owner = threading.get_ident() + 1
     warm.io_owner.return_value = other_owner
-    warm.io_locked.return_value = True
     mgr._warm = warm
     err = mgr._reentry_error()
     assert err is None
-    lock.release()
 
 
 def test_lease_error_keeps_error_text() -> None:

@@ -66,8 +66,11 @@ _TIMEOUT_AFTER = " timed out after "
 
 # Every caller waits up to _IO_LOCK_ACQUIRE_TIMEOUT_SEC for the pipe, then gets
 # WORKER_REENTRY. Matches the scripting timeout ceiling so a second script can
-# still run after a long one. Refusal is only for the owner thread, or while the
-# holder serves a host callback. Killing a worker does not wait on the caller
+# still run after a long one. The UI thread waits too: bailing leaves a wrong
+# answer that does not heal (a stale #VALUE!, or a failed reset), the holder's
+# own budget bounds the delay, and the only danger is a cycle, which the two
+# refusals in _reentry_error cover. Refusal is only for the owner thread, or while
+# the holder serves a host callback. Killing a worker does not wait on the caller
 # either: the process tree is reaped in the background. The next spawn joins
 # that reap first. A waiter also leaves within _IO_LOCK_POLL_SEC if the holder
 # enters a tool RPC.
@@ -78,7 +81,7 @@ _WORKER_REENTRY_MESSAGE = (
     "This Python tool called back into the same worker and would deadlock the script pipe."
 )
 _WORKER_BUSY_MESSAGE = (
-    "Python worker is busy; waiting on its pipe would block this thread."
+    "Python worker is busy with another script; try again when it finishes."
 )
 
 
