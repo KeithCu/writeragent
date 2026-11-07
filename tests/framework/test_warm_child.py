@@ -586,7 +586,9 @@ def test_warm_ensure_live_interrupted_drops_child(
         "plugin.framework.warm_child.read_ready_frame_during_io",
         lambda *args, **kwargs: ("interrupted", None),
     )
-    monkeypatch.setattr(supervisor, "spawn", ManagedSubprocess.start)
+    monkeypatch.setattr(
+        supervisor, "spawn", lambda managed, timeout_sec=None: ManagedSubprocess.start(managed)
+    )
 
     try:
         err = warm._ensure_live(Deadline(15.0))
@@ -646,3 +648,121 @@ def test_supervisor_is_one_process_global() -> None:
     finally:
         sys.modules.pop(mod_name, None)
     assert mod.supervisor is supervisor
+
+
+def test_blocked_start_lease_returns_worker_spawn_failed_within_budget(
+    tmp_path: Any, supervisor: Supervisor, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _stdio_worker(tmp_path)
+    warm = WarmChild(_spec(tmp_path, script), supervisor=supervisor)
+    started = threading.Event()
+    stop_event = threading.Event()
+
+    def blocked_start(self: ManagedSubprocess) -> None:
+        started.set()
+        stop_event.wait(5.0)
+
+    monkeypatch.setattr(ManagedSubprocess, "start", blocked_start)
+
+    t0 = time.monotonic()
+    try:
+        with warm.lease(Deadline(1.0)) as leased:
+            elapsed = time.monotonic() - t0
+            assert isinstance(leased, dict)
+            assert leased.get("code") == "WORKER_SPAWN_FAILED"
+            assert "timed out" in str(leased.get("error", ""))
+            assert elapsed < 3.0
+    finally:
+        stop_event.set()
+        warm.retire()
+
+
+def test_spawn_queued_after_shutdown_sentinel_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    sup = Supervisor()
+    get_gate = threading.Event()
+    real_get = sup._spawn_queue.get
+    real_put = sup._spawn_queue.put
+
+    first_get = True
+
+    def gated_get(*args: Any, **kwargs: Any) -> Any:
+        nonlocal first_get
+        if first_get:
+            first_get = False
+            get_gate.wait(5.0)
+        return real_get(*args, **kwargs)
+
+    def hook_put(item: Any, *args: Any, **kwargs: Any) -> None:
+        if isinstance(item, tuple):
+            sup.shutdown_all()
+            real_put(item, *args, **kwargs)
+            get_gate.set()
+        else:
+            real_put(item, *args, **kwargs)
+
+    monkeypatch.setattr(sup._spawn_queue, "get", gated_get)
+    monkeypatch.setattr(sup._spawn_queue, "put", hook_put)
+
+    sup._ensure_threads()
+
+    managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
+    start_called = False
+
+    def no_start(self: ManagedSubprocess) -> None:
+        nonlocal start_called
+        start_called = True
+
+    monkeypatch.setattr(ManagedSubprocess, "start", no_start)
+
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(RuntimeError, match="Supervisor is shut down"):
+            sup.spawn(managed)
+        elapsed = time.monotonic() - t0
+        assert elapsed < 2.0
+        assert not start_called
+    finally:
+        get_gate.set()
+        sup.shutdown_all()
+
+
+def test_spawn_timeout_kills_a_child_that_appears_after_the_waiter_left(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sup = Supervisor()
+    start_gate = threading.Event()
+    kill_called = threading.Event()
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            self._killed = False
+            self.pid = 99999
+
+        def poll(self) -> int | None:
+            return 0 if self._killed else None
+
+        def kill(self) -> None:
+            self._killed = True
+            kill_called.set()
+
+    fake = _FakeProc()
+
+    def delayed_start(self: ManagedSubprocess) -> None:
+        start_gate.wait(5.0)
+        self._proc = fake  # type: ignore[assignment]
+
+    monkeypatch.setattr(ManagedSubprocess, "start", delayed_start)
+
+    managed = ManagedSubprocess([sys.executable, "-c", "pass"], register=False)
+    try:
+        t0 = time.monotonic()
+        with pytest.raises(RuntimeError, match="timed out"):
+            sup.spawn(managed, timeout_sec=0.2)
+        elapsed = time.monotonic() - t0
+        assert elapsed < 1.0
+
+        start_gate.set()
+        assert kill_called.wait(2.0), "Late child should be killed when start() completes"
+    finally:
+        start_gate.set()
+        sup.shutdown_all()

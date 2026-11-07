@@ -590,6 +590,9 @@ class WarmChild:
                 published = True
                 return True
 
+        def _start(m: ManagedSubprocess) -> None:
+            self._supervisor.spawn(m, timeout_sec=spawn_for)
+
         try:
             tag, extra, handshake_child = spawn_managed_child_with_handshake(
                 managed,
@@ -598,7 +601,7 @@ class WarmChild:
                 is_alive=self.is_alive,
                 max_payload_bytes=self.spec.max_payload_bytes,
                 unpacker=self.spec.unpacker,
-                start=self._supervisor.spawn,
+                start=_start,
                 publish=_publish,
                 deadline=deadline,
                 cap_sec=cap_sec,
@@ -723,13 +726,36 @@ class Supervisor:
             while True:
                 item = self._spawn_queue.get()
                 if item is _SPAWN_SHUTDOWN:
+                    # Bugfix: Previously, the spawner exited immediately on the
+                    # shutdown sentinel, leaving any spawns queued behind it
+                    # unprocessed and their waiters hung forever on done.wait().
+                    # Draining remaining items marks each failed so callers unblock.
+                    while True:
+                        try:
+                            queued = self._spawn_queue.get_nowait()
+                        except queue.Empty:
+                            break
+                        if queued is _SPAWN_SHUTDOWN:
+                            continue
+                        _q_managed, q_done, q_err_holder, _q_abandoned, _q_gate = queued
+                        q_err_holder[0] = RuntimeError("Supervisor is shut down")
+                        q_done.set()
                     return
-                managed, done, err_holder = item
+                managed, done, err_holder, abandoned, gate = item
                 try:
                     managed.start()
                 except BaseException as exc:
                     err_holder[0] = exc
                 finally:
+                    with gate:
+                        if abandoned[0] and not getattr(managed, "_cleaned", False):
+                            setattr(managed, "_cleaned", True)
+                            if managed.popen is not None:
+                                managed.kill_tree()
+                                try:
+                                    managed.abandon()
+                                except Exception:
+                                    log.exception("Error abandoning managed subprocess on spawn timeout")
                     done.set()
 
         run_in_background(_loop, name="wa-warm-child-spawn", dedicated=True)
@@ -768,15 +794,34 @@ class Supervisor:
             finally:
                 warm._io_lock.release()
 
-    def spawn(self, managed: ManagedSubprocess) -> None:
+    def spawn(self, managed: ManagedSubprocess, timeout_sec: float | None = None) -> None:
         # PDEATHSIG follows the creating thread (see child_runtime.die_with_parent).
+        # Bugfix: spawn() previously used unbounded done.wait(), which hung forever
+        # if Popen hung or if shutdown_all() enqueued the sentinel before this item.
+        # Check-then-put could race with shutdown_all(), and Popen had no timeout.
+        # We now bound the wait by timeout_sec (caller's spawn_budget or
+        # SPAWN_READY_TIMEOUT_SEC fallback) and clean up late-spawning processes.
         if self._shutdown:
             raise RuntimeError("Supervisor is shut down")
         self._ensure_threads()
         done = threading.Event()
         err_holder: list[BaseException | None] = [None]
-        self._spawn_queue.put((managed, done, err_holder))
-        done.wait()
+        abandoned: list[bool] = [False]
+        gate = threading.Lock()
+        self._spawn_queue.put((managed, done, err_holder, abandoned, gate))
+        wait_sec = SPAWN_READY_TIMEOUT_SEC if timeout_sec is None else timeout_sec
+        if not done.wait(wait_sec):
+            with gate:
+                abandoned[0] = True
+                if done.is_set() and not getattr(managed, "_cleaned", False):
+                    setattr(managed, "_cleaned", True)
+                    if managed.popen is not None:
+                        managed.kill_tree()
+                        try:
+                            managed.abandon()
+                        except Exception:
+                            log.exception("Error abandoning managed subprocess on spawn timeout")
+            raise RuntimeError("Supervisor spawn timed out")
         if err_holder[0] is not None:
             raise err_holder[0]
 

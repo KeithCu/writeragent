@@ -41,11 +41,11 @@ def _second_spawn_queued_event(monkeypatch: pytest.MonkeyPatch) -> threading.Eve
     attempts = {"n": 0}
     second_queued = threading.Event()
 
-    def patched_spawn(managed: object) -> None:
+    def patched_spawn(managed: Any, timeout_sec: float | None = None) -> None:
         attempts["n"] += 1
         if attempts["n"] == 2:
             second_queued.set()
-        real_spawn(managed)
+        real_spawn(managed, timeout_sec=timeout_sec)
 
     monkeypatch.setattr(sup, "spawn", patched_spawn)
     return second_queued
@@ -1449,8 +1449,9 @@ def test_stderr_drain_name_uses_worker_name() -> None:
 def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
     """Startup that overruns the deadline kills the child and does not read a frame.
 
-    Popen is not on the clock. A handshake after that would use the 0.01s
-    pipe-wait floor and then SIGKILL.
+    The test spends the request clock inside Popen via the monotonic patch,
+    while the spawn wait uses wall time. A handshake after that would use the
+    0.01s pipe-wait floor and then SIGKILL.
     """
     clock = {"t": 1000.0}
     monkeypatch.setattr("plugin.framework.child_runtime.time.monotonic", lambda: clock["t"])

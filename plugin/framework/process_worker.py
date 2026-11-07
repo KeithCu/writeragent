@@ -216,7 +216,8 @@ class BaseProcessWorker:
         if self._shutting_down or self.child is not None:
             return
         # Refuse spawn when the remaining budget is insufficient for the handshake.
-        if deadline is not None and spawn_budget(deadline) is None:
+        budget = spawn_budget(deadline) if deadline is not None else None
+        if deadline is not None and budget is None:
             return
         managed = ManagedSubprocess(
             [sys.executable, self.script_path],
@@ -238,6 +239,9 @@ class BaseProcessWorker:
             published = True
             return True
 
+        def _start(m: ManagedSubprocess) -> None:
+            supervisor.spawn(m, timeout_sec=budget)
+
         try:
             tag, extra, handshake_child = spawn_managed_child_with_handshake(
                 managed,
@@ -248,7 +252,7 @@ class BaseProcessWorker:
                 unpacker=self._unpacker,
                 # Not the caller thread: an HTTP worker exits at shutdown and
                 # PDEATHSIG would kill this child with it.
-                start=supervisor.spawn,
+                start=_start,
                 publish=_publish,
                 deadline=deadline,
                 cap_sec=cap_sec,
