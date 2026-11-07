@@ -286,10 +286,9 @@ class PanelVoiceController:
         """Handle completion of background stop reap and WAV commit."""
         if self._panel_gone():
             if path:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
+                from plugin.framework.errors import best_effort
+
+                best_effort(lambda: os.remove(path), "delete abandoned capture wav")
             return
         self._panel._wait_for_take = False
         self._panel.audio_wav_path = path
@@ -308,25 +307,7 @@ class PanelVoiceController:
 
             assign_send_outcome(self._panel, "stopped")
             try:
-                from plugin.audio.stt_service import uses_local_stt
-                from plugin.framework.client.model_fetcher import get_stt_model
-
-                local_stt = uses_local_stt()
-                stt_model = get_stt_model()
-                if (local_stt or stt_model) and self._panel.audio_wav_path:
-                    try:
-                        transcript = self._transcribe_audio(self._panel.audio_wav_path, stt_model)
-                        if transcript:
-                            typed_after = ""
-                            if self._panel.query_control and self._panel.query_control.getModel():
-                                from plugin.chatbot.dialogs import get_control_text
-
-                                typed_after = (get_control_text(self._panel.query_control) or "").strip()
-                            new_text = _join_voice_text(typed_after, transcript) if typed_after else transcript
-                            self._panel._restore_query_text(new_text)
-                            self._panel.sync_has_text_from_query()
-                    except Exception as exc:
-                        log.debug("Transcription failed on stop during reap: %s", exc)
+                self._reap_stopped_take_into_ask()
             finally:
                 clear_pending_audio_wav(self._panel)
                 self._panel._close_turn_ui(speak=False)
@@ -477,6 +458,44 @@ class PanelVoiceController:
             best_effort(lambda: os.remove(wav_path), "cleanup audio wav")
             self._panel.audio_wav_path = None
 
+    def _put_stopped_transcript_in_ask(self, transcript: str, query_text: str) -> None:
+        """Put a finished transcript in Ask when the send was stopped (not auto-send)."""
+        typed_after = ""
+        if self._panel.query_control and self._panel.query_control.getModel():
+            from plugin.chatbot.dialogs import get_control_text
+
+            typed_after = (get_control_text(self._panel.query_control) or "").strip()
+
+        new_text = _join_voice_text(query_text, transcript)
+        if typed_after and typed_after != query_text:
+            new_text = _join_voice_text(typed_after, transcript)
+
+        self._panel._restore_query_text(new_text)
+        self._panel.sync_has_text_from_query()
+
+    def _reap_stopped_take_into_ask(self) -> None:
+        """Transcribe the committed WAV into Ask when Stop finished during stop reap."""
+        from plugin.audio.stt_service import uses_local_stt
+        from plugin.framework.client.model_fetcher import get_stt_model
+
+        local_stt = uses_local_stt()
+        stt_model = get_stt_model()
+        if not (local_stt or stt_model) or not self._panel.audio_wav_path:
+            return
+
+        query_text = ""
+        if self._panel.query_control and self._panel.query_control.getModel():
+            from plugin.chatbot.dialogs import get_control_text
+
+            query_text = (get_control_text(self._panel.query_control) or "").strip()
+
+        try:
+            transcript = self._transcribe_audio(self._panel.audio_wav_path, stt_model)
+            if transcript:
+                self._put_stopped_transcript_in_ask(transcript, query_text)
+        except Exception as exc:
+            log.debug("Transcription failed on stop during reap: %s", exc)
+
     def resolve_voice_query(self, query_text: str) -> tuple[str, bool]:
         """Resolve query from audio_wav_path via STT fallback if needed.
 
@@ -525,12 +544,7 @@ class PanelVoiceController:
                     if send_outcome_is_stopped(self._panel):
                         # Do not auto-send late transcript into the new typed turn.
                         # Put it back in Ask so it is not silently lost.
-                        new_text = _join_voice_text(query_text, transcript)
-                        if typed_after and typed_after != query_text:
-                            new_text = _join_voice_text(typed_after, transcript)
-
-                        self._panel._restore_query_text(new_text)
-                        self._panel.sync_has_text_from_query()
+                        self._put_stopped_transcript_in_ask(transcript, query_text)
                         return query_text, True
 
                     user_changed_ask = bool(typed_after and typed_after != query_text)

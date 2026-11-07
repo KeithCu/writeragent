@@ -173,10 +173,6 @@ class AudioRecorder:
         if self.state.status == AudioStatus.INITIALIZING:
             self._apply_event(DeviceReadyEvent())
 
-    def commit_is_pending(self) -> bool:
-        """Return whether a recording stop commit is in progress."""
-        return bool(self._commit_pending)
-
     def _notify_auto_stop(self, path: str | None = None) -> None:
         # Bugfix: the host callback runs on every silent chunk once
         # should_stop is true, and each call posted STOP_REC_CLICKED while
@@ -270,6 +266,30 @@ class AudioRecorder:
         self._close_host_wav()
         self._silence_detector = None
 
+    def _notify_device_ready(self) -> None:
+        if self._on_device_ready is not None:
+            self._on_device_ready()
+        else:
+            self.apply_device_ready()
+
+    def _background_rec_stop(self, target: Any, *args: Any, **kwargs: Any) -> BackgroundHandle:
+        return run_in_background(
+            target,
+            *args,
+            name="audio-rec-stop",
+            dedicated=True,
+            daemon=True,
+            **kwargs,
+        )
+
+    def _if_start_epoch_current(self, epoch: int, assign: Callable[[], None]) -> bool:
+        """Run assign under the lifecycle lock when epoch still matches; else stale."""
+        with self._lifecycle_lock:
+            if self._epoch != epoch:
+                return False
+            assign()
+            return True
+
     def _finish_stop(
         self,
         proc: ManagedSubprocess,
@@ -303,10 +323,7 @@ class AudioRecorder:
                     path = wav_candidate
                 else:
                     if temp_path:
-                        try:
-                            os.remove(temp_path)
-                        except OSError:
-                            pass
+                        best_effort(lambda: os.remove(temp_path), "delete failed stop wav")
                     path = None
         finally:
             with self._lifecycle_lock:
@@ -314,10 +331,7 @@ class AudioRecorder:
                 discard = self._discard_take
             if discard:
                 if path:
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
+                    best_effort(lambda: os.remove(path), "discard captured wav")
             else:
                 callback = self._on_capture_stopped
                 if callback is not None:
@@ -346,10 +360,7 @@ class AudioRecorder:
             terminate_recording_process(target_proc)
 
         if temp_path:
-            try:
-                os.remove(temp_path)
-            except OSError:
-                pass
+            best_effort(lambda: os.remove(temp_path), "delete stale start wav")
 
         self._close_host_wav()
 
@@ -370,13 +381,7 @@ class AudioRecorder:
             try:
                 temp_path = self._take_new_temp_wav()
                 proc = spawn_recording_process(exe, temp_path, silence_config=silence_config)
-                with self._lifecycle_lock:
-                    if self._epoch != epoch:
-                        stale = True
-                    else:
-                        self._proc = proc
-                        stale = False
-                if stale:
+                if not self._if_start_epoch_current(epoch, lambda: setattr(self, "_proc", proc)):
                     self._handle_stale_start_exit(temp_path, proc)
                     return
 
@@ -385,20 +390,11 @@ class AudioRecorder:
                     silence_config.silence_stop_ms,
                 )
                 wait_for_recording_ready(proc)
-                with self._lifecycle_lock:
-                    if self._epoch != epoch:
-                        stale = True
-                    else:
-                        self._start_stdout_monitor()
-                        stale = False
-                if stale:
+                if not self._if_start_epoch_current(epoch, self._start_stdout_monitor):
                     self._handle_stale_start_exit(temp_path, proc)
                     return
 
-                if self._on_device_ready is not None:
-                    self._on_device_ready()
-                else:
-                    self.apply_device_ready()
+                self._notify_device_ready()
             except Exception as exc:
                 with self._lifecycle_lock:
                     stale = (self._epoch != epoch)
@@ -462,22 +458,13 @@ class AudioRecorder:
                 stream = sd.RawInputStream(
                     samplerate=self.fs, channels=self.channels, dtype="int16", callback=callback
                 )
-                with self._lifecycle_lock:
-                    if self._epoch != epoch:
-                        stale = True
-                    else:
-                        self.stream = stream
-                        stale = False
-                if stale:
+                if not self._if_start_epoch_current(epoch, lambda: setattr(self, "stream", stream)):
                     best_effort(stream.close, "close stream")
                     self._close_host_wav()
                     self._handle_stale_start_exit(temp_path)
                     return
 
-                if self._on_device_ready is not None:
-                    self._on_device_ready()
-                else:
-                    self.apply_device_ready()
+                self._notify_device_ready()
             except Exception as exc:
                 self._close_host_wav()
                 with self._lifecycle_lock:
@@ -549,13 +536,7 @@ class AudioRecorder:
                 if start_alive and handoff is None:
                     self._epoch += 1
                     if proc is not None:
-                        run_in_background(
-                            kill_process_tree,
-                            proc.popen,
-                            name="audio-rec-stop",
-                            dedicated=True,
-                            daemon=True,
-                        )
+                        self._background_rec_stop(kill_process_tree, proc.popen)
                     if not self._discard_take:
                         self._commit_pending = True
                         self.stop_deferred = True
@@ -572,28 +553,22 @@ class AudioRecorder:
                         self._commit_pending = True
                         self.stop_deferred = True
                     self.temp_filename = None
-                    self._stop_job = run_in_background(
+                    self._stop_job = self._background_rec_stop(
                         self._finish_stop,
                         proc,
                         handoff,
                         monitor,
                         auto_path,
                         temp_path,
-                        name="audio-rec-stop",
-                        dedicated=True,
-                        daemon=True,
                     )
                     return
                 else:
                     if proc is not None:
-                        self._stop_job = run_in_background(
+                        self._stop_job = self._background_rec_stop(
                             terminate_recording_process,
                             proc,
                             monitor=monitor,
                             handoff=handoff,
-                            name="audio-rec-stop",
-                            dedicated=True,
-                            daemon=True,
                         )
 
             if self.state.status == "error":

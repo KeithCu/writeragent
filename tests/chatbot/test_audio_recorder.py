@@ -58,6 +58,27 @@ def _settle(recorder: AudioRecorder, timeout: float = 5.0) -> None:
         stop_job.join(timeout=timeout)
 
 
+def _stale_start_stop_during_init(recorder: AudioRecorder) -> None:
+    recorder.start_recording()
+    assert recorder.state.status == "initializing"
+    returned = recorder.stop_recording()
+    assert returned is None
+    assert recorder.stop_deferred is True
+
+
+def _release_stale_start_gate_and_assert_none(
+    recorder: AudioRecorder,
+    *,
+    gate: threading.Event,
+    on_capture_stopped: MagicMock,
+    on_error: MagicMock,
+) -> None:
+    gate.set()
+    _settle(recorder)
+    on_capture_stopped.assert_called_once_with(None)
+    on_error.assert_not_called()
+
+
 @pytest.fixture
 def recording_mocks(tmp_path):
     wav_path = str(tmp_path / "test.wav")
@@ -1319,19 +1340,12 @@ def test_stale_start_exit_after_spawn_delivers_none_and_cleans_up():
     ):
         recorder = AudioRecorder()
         recorder.set_auto_stop_callbacks(on_capture_stopped=on_capture_stopped, on_error=on_error)
-        recorder.start_recording()
-        assert recorder.state.status == "initializing"
-        # Stop Rec clicked while spawn is blocked
-        returned = recorder.stop_recording()
-        assert returned is None
-        assert recorder.stop_deferred is True
+        _stale_start_stop_during_init(recorder)
         assert recorder.state.status == "idle"
 
-        spawn_gate.set()
-        _settle(recorder)
-
-        on_capture_stopped.assert_called_once_with(None)
-        on_error.assert_not_called()
+        _release_stale_start_gate_and_assert_none(
+            recorder, gate=spawn_gate, on_capture_stopped=on_capture_stopped, on_error=on_error
+        )
         term_proc.assert_called()
 
 
@@ -1355,17 +1369,11 @@ def test_stale_start_exit_after_ready_delivers_none_and_cleans_up():
     ):
         recorder = AudioRecorder()
         recorder.set_auto_stop_callbacks(on_capture_stopped=on_capture_stopped, on_error=on_error)
-        recorder.start_recording()
-        assert recorder.state.status == "initializing"
-        returned = recorder.stop_recording()
-        assert returned is None
-        assert recorder.stop_deferred is True
+        _stale_start_stop_during_init(recorder)
 
-        ready_gate.set()
-        _settle(recorder)
-
-        on_capture_stopped.assert_called_once_with(None)
-        on_error.assert_not_called()
+        _release_stale_start_gate_and_assert_none(
+            recorder, gate=ready_gate, on_capture_stopped=on_capture_stopped, on_error=on_error
+        )
         term_proc.assert_called()
 
 
@@ -1390,17 +1398,11 @@ def test_stale_start_exit_in_venv_exception_delivers_none_and_skips_error():
     ):
         recorder = AudioRecorder()
         recorder.set_auto_stop_callbacks(on_capture_stopped=on_capture_stopped, on_error=on_error)
-        recorder.start_recording()
-        assert recorder.state.status == "initializing"
-        returned = recorder.stop_recording()
-        assert returned is None
-        assert recorder.stop_deferred is True
+        _stale_start_stop_during_init(recorder)
 
-        fail_gate.set()
-        _settle(recorder)
-
-        on_capture_stopped.assert_called_once_with(None)
-        on_error.assert_not_called()
+        _release_stale_start_gate_and_assert_none(
+            recorder, gate=fail_gate, on_capture_stopped=on_capture_stopped, on_error=on_error
+        )
         term_proc.assert_called()
 
 
@@ -1424,17 +1426,11 @@ def test_stale_start_exit_host_stream_delivers_none():
     ):
         recorder = AudioRecorder()
         recorder.set_auto_stop_callbacks(on_capture_stopped=on_capture_stopped, on_error=on_error)
-        recorder.start_recording()
-        assert recorder.state.status == "initializing"
-        returned = recorder.stop_recording()
-        assert returned is None
-        assert recorder.stop_deferred is True
+        _stale_start_stop_during_init(recorder)
 
-        stream_gate.set()
-        _settle(recorder)
-
-        on_capture_stopped.assert_called_once_with(None)
-        on_error.assert_not_called()
+        _release_stale_start_gate_and_assert_none(
+            recorder, gate=stream_gate, on_capture_stopped=on_capture_stopped, on_error=on_error
+        )
         mock_stream.close.assert_called()
 
 
@@ -1457,17 +1453,11 @@ def test_stale_start_exit_host_exception_delivers_none_and_skips_error():
     ):
         recorder = AudioRecorder()
         recorder.set_auto_stop_callbacks(on_capture_stopped=on_capture_stopped, on_error=on_error)
-        recorder.start_recording()
-        assert recorder.state.status == "initializing"
-        returned = recorder.stop_recording()
-        assert returned is None
-        assert recorder.stop_deferred is True
+        _stale_start_stop_during_init(recorder)
 
-        fail_gate.set()
-        _settle(recorder)
-
-        on_capture_stopped.assert_called_once_with(None)
-        on_error.assert_not_called()
+        _release_stale_start_gate_and_assert_none(
+            recorder, gate=fail_gate, on_capture_stopped=on_capture_stopped, on_error=on_error
+        )
 
 
 def test_cancel_during_start_transitions_fsm_to_idle():
