@@ -48,3 +48,22 @@ def test_apply_native_enhance_forwards_to_adapter(tmp_path: Path) -> None:
         out = client.apply_native_enhance(doc, project)
     enhance.assert_called_once_with(doc, project)
     assert out == {"status": "ok"}
+
+
+def test_export_project_to_doc_forwards_cancel_and_returns_error_on_stop(tmp_path: Path) -> None:
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "svg_final").mkdir()
+    (project / "svg_final" / "slide_001.svg").write_text("<svg></svg>", encoding="utf-8")
+    cancel = MagicMock()
+    ctx = MagicMock()
+    with patch("plugin.ppt_master.client.data_root_status", return_value={"ok": True, "data_root": str(tmp_path)}), \
+         patch("plugin.ppt_master.client.ensure_project_pptx", return_value=(None, "PPTX build stopped.")) as mock_ensure, \
+         patch("plugin.ppt_master.client.main.call") as mock_main_call:
+        res = client.export_project_to_doc(MagicMock(), project, ctx=ctx, cancel=cancel)
+    mock_ensure.assert_called_once_with(ctx, project, tmp_path, cancel=cancel)
+    mock_main_call.assert_not_called()
+    assert res.get("status") == "error"
+    assert res.get("code") == "PPTX_BUILD_FAILED"
+    assert "PPTX build stopped." in res.get("message", "")
+
