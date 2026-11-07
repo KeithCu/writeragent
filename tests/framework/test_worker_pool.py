@@ -843,6 +843,56 @@ def test_async_process_spawn_uses_managed_subprocess(monkeypatch: pytest.MonkeyP
         AsyncProcess(["dummy"], creationflags=0)  # type: ignore[call-arg]
 
 
+def test_async_process_die_with_parent(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.child_runtime import pdeathsig_preexec
+    from plugin.framework.managed_subprocess import ManagedSubprocess
+    from plugin.framework.warm_child import supervisor
+
+    spawned_managed: list[ManagedSubprocess] = []
+    direct_starts: list[ManagedSubprocess] = []
+
+    def fake_spawn(managed: ManagedSubprocess, timeout_sec: float | None = None) -> None:
+        spawned_managed.append(managed)
+        managed._proc = MagicMock()
+        managed._proc.poll.return_value = 0
+
+    def fake_start(self: ManagedSubprocess) -> None:
+        direct_starts.append(self)
+        self._proc = MagicMock()
+        self._proc.poll.return_value = 0
+
+    monkeypatch.setattr(supervisor, "spawn", fake_spawn)
+    monkeypatch.setattr(ManagedSubprocess, "start", fake_start)
+    monkeypatch.setattr("sys.platform", "linux")
+
+    # 1. die_with_parent=True on Linux spawns through supervisor with pdeathsig_preexec
+    ap = AsyncProcess(["echo", "hi"], die_with_parent=True)
+    ap.start()
+    assert len(spawned_managed) == 1
+    assert spawned_managed[0]._preexec_fn is pdeathsig_preexec
+    assert len(direct_starts) == 0
+
+    # 2. die_with_parent=False on Linux uses direct managed.start() without preexec
+    spawned_managed.clear()
+    direct_starts.clear()
+    ap2 = AsyncProcess(["echo", "hi"], die_with_parent=False)
+    ap2.start()
+    assert len(spawned_managed) == 0
+    assert len(direct_starts) == 1
+    assert direct_starts[0]._preexec_fn is None
+
+    # 3. die_with_parent=True off Linux uses direct managed.start() without preexec
+    spawned_managed.clear()
+    direct_starts.clear()
+    monkeypatch.setattr("sys.platform", "win32")
+    ap3 = AsyncProcess(["echo", "hi"], die_with_parent=True)
+    ap3.start()
+    assert len(spawned_managed) == 0
+    assert len(direct_starts) == 1
+    assert direct_starts[0]._preexec_fn is None
+
+
+
 def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyPatch) -> None:
     """The first wait thread must report the child it was started for.
 

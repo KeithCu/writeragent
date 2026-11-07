@@ -31,6 +31,7 @@ import logging
 import os
 import queue
 import subprocess
+import sys
 import threading
 import uuid
 from collections import deque
@@ -510,6 +511,12 @@ class AsyncProcess:
 
     Spawning delegates to ``ManagedSubprocess.start``. Pipes stay binary; the
     constructor does not take ``text``, ``encoding``, or ``creationflags``.
+
+    When die_with_parent is True on Linux, child creation forks on the
+    supervisor thread with PR_SET_PDEATHSIG armed. PDEATHSIG follows the
+    creating thread rather than the process, and callers on short-lived
+    threads (such as reconnect timers or sync workers) would otherwise cause
+    the child to be killed as soon as the caller thread terminates.
     """
 
     args: list[str]
@@ -517,6 +524,7 @@ class AsyncProcess:
     stderr_cb: Optional[Callable[[str], None]]
     on_exit_cb: Optional[Callable[[int], None]]
     _env: Optional[dict[str, str]]
+    _die_with_parent: bool
 
     def __init__(
         self,
@@ -526,6 +534,7 @@ class AsyncProcess:
         on_exit_cb: Optional[Callable[[int], None]] = None,
         *,
         env: dict[str, str] | None = None,
+        die_with_parent: bool = False,
     ) -> None:
         self.args = args
         self.stdout_cb = stdout_cb
@@ -536,6 +545,7 @@ class AsyncProcess:
         # over the same pipe would desync the two buffers.
         self.process: Optional[subprocess.Popen[Any]] = None
         self._env = env
+        self._die_with_parent = die_with_parent
 
         self._managed: Any = None
         self._stdout_thread: BackgroundHandle | None = None
@@ -563,7 +573,13 @@ class AsyncProcess:
                 log.warning("Previous process still alive after terminate")
                 if old_managed is not None:
                     old_managed.kill_tree()
+        from plugin.framework.child_runtime import pdeathsig_preexec
         from plugin.framework.managed_subprocess import ManagedSubprocess
+
+        # Die-with-parent forks on the supervisor thread because Linux PDEATHSIG
+        # follows the thread that called clone/fork. Timer and sync caller threads
+        # exit soon after spawn.
+        use_supervisor = self._die_with_parent and sys.platform == "linux"
 
         # Drain stays false because these reader threads are the only stdout/stderr
         # readers; log_start_failure stays false so the tunnel still sees
@@ -581,9 +597,15 @@ class AsyncProcess:
             label="asyncproc",
             inherit_env=self._env is None,
             base_env=self._env,
+            preexec_fn=pdeathsig_preexec if use_supervisor else None,
         )
         try:
-            managed.start()
+            if use_supervisor:
+                from plugin.framework.warm_child import supervisor
+
+                supervisor.spawn(managed)
+            else:
+                managed.start()
         except Exception as e:
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
         proc = managed.popen

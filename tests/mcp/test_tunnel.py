@@ -1,4 +1,5 @@
 import dataclasses
+import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -299,6 +300,7 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
     mgr = TunnelManager()
     started_cmds = []
     started_envs = []
+    started_flags = []
     background: list = []
 
     def _fake_async_process(cmd, stdout_cb=None, stderr_cb=None, on_exit_cb=None, **kwargs):
@@ -306,6 +308,7 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
         proc.is_running = True
         started_cmds.append(list(cmd))
         started_envs.append(kwargs.get("env", {}))
+        started_flags.append(kwargs.get("die_with_parent"))
         proc.start = MagicMock()
         proc.terminate = MagicMock()
         return proc
@@ -334,6 +337,7 @@ def test_start_passes_provider_config_per_provider(monkeypatch):
         # Tailscale ignores Provider config.
         assert mgr.start(18765, "tailscale", provider_token="ignored") is True
         assert started_cmds[3] == ["tailscale", "funnel", "18765"]
+        assert started_flags == [True, True, True, True]
         mgr.stop()
         _join_recorded_background(background)
 
@@ -2027,3 +2031,72 @@ def test_sync_tunnel_string_port_is_coerced_to_int(monkeypatch):
     mod, tunnel = _sync_tunnel_module(monkeypatch, port="18765")
     mod._sync_tunnel()
     assert tunnel.start.call_args.args[0] == 18765
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(sys.platform != "linux", reason="PDEATHSIG is Linux-only")
+def test_tunnel_child_dies_with_parent(tmp_path) -> None:
+    import os
+    import pathlib
+    import signal
+    import subprocess
+
+    root = str(pathlib.Path(__file__).resolve().parents[2])
+    parent_script = tmp_path / "parent_tunnel.py"
+    pid_file = tmp_path / "child.pid"
+    parent_script.write_text(
+        "\n".join(
+            [
+                "import os, sys, time, threading",
+                "from unittest.mock import patch",
+                f"sys.path.insert(0, {root!r})",
+                "from plugin.framework.queue_executor import Policy, main",
+                "main.install(Policy.production)",
+                "from plugin.mcp.tunnel import CloudflareProvider, TunnelManager",
+                "",
+                "cmd = [sys.executable, '-c', 'import time; time.sleep(120)']",
+                "with patch('plugin.mcp.tunnel.binary_available', return_value=None), \\",
+                "     patch.object(CloudflareProvider, 'build_command', return_value=cmd):",
+                "    mgr = TunnelManager()",
+                "    t = threading.Thread(target=lambda: mgr.start(18765, 'cloudflare'))",
+                "    t.start()",
+                "    t.join()",
+                "    if mgr._process is None or mgr._process.process is None or mgr._process.process.poll() is not None:",
+                "        raise SystemExit(4)",
+                "    with open(sys.argv[1], 'w', encoding='utf-8') as f:",
+                "        f.write(str(mgr._process.process.pid))",
+                "    time.sleep(120)",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    parent = subprocess.Popen([sys.executable, str(parent_script), str(pid_file)])
+    child_pid: int | None = None
+    try:
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline:
+            if pid_file.is_file():
+                break
+            time.sleep(0.05)
+        assert pid_file.is_file(), "parent never recorded child pid"
+        child_pid = int(pid_file.read_text(encoding="utf-8").strip())
+        os.kill(parent.pid, signal.SIGKILL)
+        parent.wait(timeout=5)
+        gone_by = time.monotonic() + 5.0
+        while time.monotonic() < gone_by:
+            try:
+                os.kill(child_pid, 0)
+            except OSError:
+                return
+            time.sleep(0.05)
+        pytest.fail(f"tunnel child {child_pid} outlived SIGKILL parent")
+    finally:
+        if parent.poll() is None:
+            parent.kill()
+            parent.wait(timeout=5)
+        if child_pid is not None:
+            try:
+                os.kill(child_pid, signal.SIGKILL)
+            except OSError:
+                pass
+

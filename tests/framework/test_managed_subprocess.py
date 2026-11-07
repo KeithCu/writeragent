@@ -1859,3 +1859,50 @@ def test_managed_subprocess_run_kill_tree_timeout_reaps_grandchild(tmp_path):
                 os.kill(gpid, signal.SIGKILL)
             except OSError:
                 pass
+
+
+def test_managed_subprocess_preexec_fn(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValueError, match="raw_spawn does not support preexec_fn"):
+        ManagedSubprocess(["dummy"], raw_spawn=True, preexec_fn=lambda: None)
+
+    recorded_kwargs: dict[str, Any] = {}
+    bound_called: list[bool] = []
+
+    def fake_bind() -> None:
+        bound_called.append(True)
+
+    class FakePopen:
+        def __init__(self, cmd: list[str], **kwargs: Any) -> None:
+            recorded_kwargs.update(kwargs)
+            self.pid = 9999
+            self.stdin = None
+            self.stdout = None
+            self.stderr = None
+
+        def poll(self) -> int | None:
+            return 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    def fn() -> None:
+        pass
+
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.bind_pdeathsig", fake_bind)
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    proc = ManagedSubprocess(["dummy"], preexec_fn=fn, drain_stderr=False, register=False)
+    proc.start()
+    assert recorded_kwargs["preexec_fn"] is fn
+    assert bound_called == [True]
+
+    recorded_kwargs.clear()
+    bound_called.clear()
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(sys, "platform", "win32")
+    proc2 = ManagedSubprocess(["dummy"], preexec_fn=fn, drain_stderr=False, register=False)
+    proc2.start()
+    assert "preexec_fn" not in recorded_kwargs
+    assert bound_called == []
+

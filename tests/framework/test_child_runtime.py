@@ -19,6 +19,7 @@ def test_die_with_parent_linux_prctl_and_ppid_race(monkeypatch) -> None:
             return 0
 
     monkeypatch.setattr(child_runtime.sys, "platform", "linux")
+    monkeypatch.setattr(child_runtime, "_prctl", None)
     monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: _Libc())
     monkeypatch.setattr(child_runtime.os, "getppid", lambda: 50)
     child_runtime.die_with_parent()
@@ -60,3 +61,32 @@ def test_announce_ready_roundtrip() -> None:
     assert is_ready_payload(None) is False
     assert is_ready_payload([]) is False
     assert is_ready_payload({"status": "ok"}) is False
+
+
+def test_bind_pdeathsig_and_pdeathsig_preexec(monkeypatch) -> None:
+    calls: list[tuple] = []
+
+    class _Libc:
+        def prctl(self, *args: object) -> int:
+            calls.append(args)
+            return 0
+
+    monkeypatch.setattr(child_runtime.sys, "platform", "linux")
+    monkeypatch.setattr(child_runtime, "_prctl", None)
+    monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: _Libc())
+    child_runtime.bind_pdeathsig()
+    assert calls == []
+
+    # Second call reuses cached prctl without calling CDLL again
+    monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
+    child_runtime.bind_pdeathsig()
+
+    # Preexec arms prctl
+    child_runtime.pdeathsig_preexec()
+    assert calls == [(1, 9, 0, 0, 0)]
+
+    # Non-Linux preexec is a no-op
+    monkeypatch.setattr(child_runtime.sys, "platform", "win32")
+    calls.clear()
+    child_runtime.pdeathsig_preexec()
+    assert calls == []
