@@ -316,60 +316,66 @@ def clean_text_for_speech(text: str) -> str:
 
 
 def _cleanup_stopped(
+    run_cancel: Callable[[], None] | None,
     procs: list[subprocess.Popen[Any]],
     queue_ref: _ReadyQueue | None,
     temps: list[str],
 ) -> None:
     """Non-blocking signal/kill on caller thread; process reaping, spd-say stop,
     and temporary file unlinking run on the dedicated tts-cleanup background thread."""
-    if queue_ref is not None:
-        queue_ref.close()
-
-    # Non-blocking signal/kill on current thread
-    stop_spd = any(_proc_running(proc) and _is_spd_say(proc) for proc in procs)
-    for proc in procs:
-        _signal_stop_proc(proc)
-
-    def _bg_cleanup() -> None:
-        for proc in procs:
-            _reap_proc(proc)
-        if stop_spd:
-            try:
-                _run_quiet(["spd-say", "-S"], 2)
-            except Exception as exc:
-                log.debug("spd-say stop failed: %s", exc)
-        paths: list[str] = []
-        if queue_ref is not None:
-            paths.extend(queue_ref.drain())
-        paths.extend(temps)
-        for path in paths:
-            _unlink_quiet(path)
-
-    # This job blocks in _reap_proc (wait timeout 5s per process, plus
-    # spd-say -S timeout 2s) and the shared pool has two workers.
-    # Bugfix: stop_speech raised if starting tts-cleanup thread failed, leaving procs and temps.
-    # run_in_background was unwrapped; catch Exception and reap inline so cleanup always completes.
     try:
-        run_in_background(_bg_cleanup, dedicated=True, name="tts-cleanup")
-    except Exception:
-        log.exception("stop_speech: failed to start cleanup thread; reaping inline")
-        _bg_cleanup()
+        if run_cancel is not None:
+            run_cancel()
+    finally:
+        if queue_ref is not None:
+            queue_ref.close()
+
+        # Non-blocking signal/kill on current thread
+        stop_spd = any(_proc_running(proc) and _is_spd_say(proc) for proc in procs)
+        for proc in procs:
+            _signal_stop_proc(proc)
+
+        def _bg_cleanup() -> None:
+            for proc in procs:
+                _reap_proc(proc)
+            if stop_spd:
+                try:
+                    _run_quiet(["spd-say", "-S"], 2)
+                except Exception as exc:
+                    log.debug("spd-say stop failed: %s", exc)
+            paths: list[str] = []
+            if queue_ref is not None:
+                paths.extend(queue_ref.drain())
+            paths.extend(temps)
+            for path in paths:
+                _unlink_quiet(path)
+
+        # This job blocks in _reap_proc (wait timeout 5s per process, plus
+        # spd-say -S timeout 2s) and the shared pool has two workers.
+        # Bugfix: stop_speech raised if starting tts-cleanup thread failed, leaving procs and temps.
+        # run_in_background was unwrapped; catch Exception and reap inline so cleanup always completes.
+        try:
+            run_in_background(_bg_cleanup, dedicated=True, name="tts-cleanup")
+        except Exception:
+            log.exception("stop_speech: failed to start cleanup thread; reaping inline")
+            _bg_cleanup()
 
 
 def _swap_scope_locked(
     new: Utterance | None,
     active: bool,
-) -> tuple[list[subprocess.Popen[Any]], _ReadyQueue | None, list[str]]:
+) -> tuple[Callable[[], None] | None, list[subprocess.Popen[Any]], _ReadyQueue | None, list[str]]:
     """Swap the active utterance and drain per-utterance state under _speech_lock."""
     global _speech_active, _current
     old = _current
+    run_cancel: Callable[[], None] | None = None
     queue_ref: _ReadyQueue | None = None
     temps: list[str] = []
     if old is not None:
-        old.scope.cancel()
+        run_cancel = old.scope.claim_cancel()
         old.closed = True
-        # Do not call note_download_failed here: _speech_lock is already held
-        # and is not reentrant.
+        # Flag and hook snapshot only; hooks run after this lock drops
+        # because _speech_lock is not reentrant and note_download_failed takes it.
         queue_ref = old.ready
         old.ready = None
         temps = list(old.temps)
@@ -379,7 +385,7 @@ def _swap_scope_locked(
     _speech_active = active
     procs = list(_procs)
     _procs.clear()
-    return procs, queue_ref, temps
+    return run_cancel, procs, queue_ref, temps
 
 
 def stop_speech() -> None:
@@ -389,18 +395,18 @@ def stop_speech() -> None:
     spd-say -S, and temp unlinking to a background worker.
     """
     with _speech_lock:
-        procs, queue_ref, temps = _swap_scope_locked(None, False)
+        run_cancel, procs, queue_ref, temps = _swap_scope_locked(None, False)
 
-    _cleanup_stopped(procs, queue_ref, temps)
+    _cleanup_stopped(run_cancel, procs, queue_ref, temps)
 
 
 def _begin_utterance() -> Utterance:
     """Create the utterance, cancel the previous one, and publish the new one under a single lock hold."""
     utt = Utterance(SendCancellation())
     with _speech_lock:
-        procs, queue_ref, temps = _swap_scope_locked(utt, True)
+        run_cancel, procs, queue_ref, temps = _swap_scope_locked(utt, True)
 
-    _cleanup_stopped(procs, queue_ref, temps)
+    _cleanup_stopped(run_cancel, procs, queue_ref, temps)
     return utt
 
 

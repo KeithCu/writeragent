@@ -1709,28 +1709,49 @@ def test_notify_kokoro_g2p_fallback():
     assert "Misaki not found; Kokoro used English phonemes" in messages[0]
 
 
-def test_stop_speech_runs_scope_cancel_hook_under_speech_lock():
+def test_utterance_cancel_hooks_run_outside_speech_lock():
     import plugin.audio.tts_service as tts
 
-    hook_ran = []
-    lock_held = []
+    events: list[object] = []
 
     def hook():
-        hook_ran.append(True)
-        # Lock is held by stop_speech when invoking cancel on the scope;
-        # non-blocking acquire must fail.
-        lock_held.append(not tts._speech_lock.acquire(blocking=False))
-        if lock_held[-1] is False:
-            tts._speech_lock.release()
+        events.append(("hook", tts._speech_lock.locked()))
 
-    utt = tts._begin_utterance()
+    utt1 = tts._begin_utterance()
+    utt1.scope.register_on_cancel(hook)
 
-    scope = utt.scope
-    scope.register_on_cancel(hook)
-    tts.stop_speech()
-    assert scope.is_cancelled()
-    assert hook_ran == [True]
-    assert lock_held == [True]
+    try:
+        tts.stop_speech()
+        assert events == [("hook", False)]
+        assert utt1.scope.is_cancelled()
+        assert tts._current is None
+
+        events.clear()
+        utt2 = tts._begin_utterance()
+        utt2.scope.register_on_cancel(hook)
+
+        real_get_config = tts.config.get_config
+
+        def fake_get_config(key, *args, **kwargs):
+            if key == "audio.tts_enabled":
+                return True
+            return real_get_config(key, *args, **kwargs)
+
+        def fake_run_in_background(fn, *args, **kwargs):
+            events.append(kwargs.get("name"))
+            return None
+
+        with patch("plugin.audio.tts_service.config.get_config", side_effect=fake_get_config), \
+             patch("plugin.audio.tts_service.run_in_background", side_effect=fake_run_in_background):
+            tts.speak_text_async("Hello")
+
+        assert events == [("hook", False), "tts-cleanup", "tts-speak"]
+        assert utt2.scope.is_cancelled()
+        assert tts._current is not None
+        assert tts._current is not utt2
+        assert not tts._current.scope.is_cancelled()
+    finally:
+        tts.stop_speech()
 
 
 def test_stop_before_fetch_skips_playback_and_fallback():
