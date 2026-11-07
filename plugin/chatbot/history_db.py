@@ -112,8 +112,12 @@ def _ensure_keeper(db_path: str) -> None:
         if db_path not in _keepers:
             assert sqlite3 is not None
             conn = sqlite3.connect(db_path, check_same_thread=False)
-            with suppress(Exception):
-                conn.execute("SELECT 1")
+            try:
+                conn.execute("PRAGMA journal_mode=WAL")
+                conn.execute("PRAGMA synchronous=NORMAL")
+            except BaseException:
+                conn.close()
+                raise
             _keepers[db_path] = conn
 
 
@@ -143,10 +147,10 @@ class SQLite3History:
         try:
             conn.execute("PRAGMA journal_mode=WAL")
             conn.execute("PRAGMA synchronous=NORMAL")
+            _ensure_keeper(self.db_path)
         except BaseException:
             conn.close()
             raise
-        _ensure_keeper(self.db_path)
         return closing(conn)
 
     def _init_db(self) -> None:

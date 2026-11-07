@@ -13,10 +13,13 @@ from plugin.chatbot.history_db import JSONHistory
 
 @pytest.fixture(autouse=True)
 def _cleanup_history_keepers():
-    yield
     from plugin.chatbot.history_db import reset_history_keepers_for_tests
 
     reset_history_keepers_for_tests()
+    try:
+        yield
+    finally:
+        reset_history_keepers_for_tests()
 
 
 def test_json_history_roundtrip_and_no_temp_leftovers(tmp_path):
@@ -245,10 +248,10 @@ def test_sqlite_connect_sets_wal_and_synchronous_normal(tmp_path):
 
 
 def test_sqlite_wal_persists_across_commits(tmp_path):
-    from plugin.chatbot.history_db import SQLite3History
+    from plugin.chatbot import history_db
 
     db_path = str(tmp_path / "history.db")
-    history = SQLite3History("sid", db_path)
+    history = history_db.SQLite3History("sid", db_path)
     history.add_message("user", "hi")
 
     wal_path = db_path + "-wal"
@@ -257,6 +260,9 @@ def test_sqlite_wal_persists_across_commits(tmp_path):
     assert history.get_messages() == [{"role": "user", "content": "hi"}]
     assert os.path.exists(wal_path)
     assert os.path.getsize(wal_path) > 0
+
+    history_db.reset_history_keepers_for_tests(db_path)
+    assert not os.path.exists(wal_path)
 
 
 def test_sqlite_connect_closes_connection_on_pragma_failure(tmp_path, monkeypatch):
