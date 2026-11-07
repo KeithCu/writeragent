@@ -5,8 +5,9 @@
 """Tests for SearchDialog."""
 
 import json
-from unittest.mock import MagicMock, patch
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -371,4 +372,39 @@ class TestSearchDialog:
                                 dialog._refresh_cache_status(mock_dlg)
 
         assert status_lbl.getModel().Label == "Cache Status: Built (2d ago)"
+
+    def test_search_and_rebuild_use_dedicated_threads(self):
+        mock_ctx = MagicMock()
+        dialog = SearchDialog.__new__(SearchDialog)
+        dialog._ctx = mock_ctx
+
+        mock_dlg = MagicMock()
+        query_ctrl = MagicMock()
+        resp_ctrl = MagicMock()
+        results_ctrl = MagicMock()
+        btn_search = MagicMock()
+        btn_rebuild = MagicMock()
+        mock_dlg.getControl.side_effect = lambda name: {
+            "QueryEdit": query_ctrl,
+            "RespEdit": resp_ctrl,
+            "ResultsEdit": results_ctrl,
+            "BtnSearch": btn_search,
+            "BtnRebuild": btn_rebuild,
+        }.get(name)
+        query_ctrl.getModel().Text = "q"
+        resp_ctrl.getModel().Text = "7"
+
+        recorded_kwargs: list[dict[str, Any]] = []
+
+        def fake_run_in_background(fn, *args, **kwargs):
+            recorded_kwargs.append(kwargs)
+
+        with patch("plugin.embeddings.search_ui.run_in_background", side_effect=fake_run_in_background):
+            dialog._run_search(mock_dlg)
+            dialog._run_rebuild(mock_dlg)
+
+        search_call = next(c for c in recorded_kwargs if c.get("name") == "search-dialog-query")
+        rebuild_call = next(c for c in recorded_kwargs if c.get("name") == "search-dialog-rebuild")
+        assert search_call.get("dedicated") is True
+        assert rebuild_call.get("dedicated") is True
 

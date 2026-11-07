@@ -339,7 +339,7 @@ class SearchDialog:
                 log.exception("Background search failed")
                 self._update_results_ui(_("Error running search: ") + str(e), enable_search_btn=True)
 
-        run_in_background(_do_background_search, name="search-dialog-query")
+        run_in_background(_do_background_search, name="search-dialog-query", dedicated=True)
 
     def _run_rebuild(self, dlg: Any) -> None:
         ctx = self._ctx
@@ -437,7 +437,7 @@ class SearchDialog:
                 log.exception("Cache rebuild failed")
                 self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
 
-        run_in_background(_do_rebuild, name="search-dialog-rebuild")
+        run_in_background(_do_rebuild, name="search-dialog-rebuild", dedicated=True)
 
     def _update_results_ui(self, text: str, enable_search_btn: bool = False) -> None:
         from plugin.framework.queue_executor import main
