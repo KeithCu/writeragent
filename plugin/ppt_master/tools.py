@@ -52,7 +52,7 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         path = kwargs.get("project_path")
         if not path:
             return self._tool_error("project_path is required.", code="MISSING_PATH")
-        return export_project_to_doc(ctx.doc, path, ctx.ctx)
+        return export_project_to_doc(ctx.doc, path, ctx.ctx, cancel=ctx.send_cancellation)
 
 
 class ValidatePptMasterProject(ToolDrawPptMasterBase):
