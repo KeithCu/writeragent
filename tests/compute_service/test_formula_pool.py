@@ -1826,12 +1826,12 @@ class TestFormulaHttpEndpoint:
             same_lock_verified = False
 
             def caller1() -> None:
-                with pool._session_gate(sid):
+                with pool._session_gate(sid, 30.0):
                     gate1_entered.set()
                     gate1_proceed.wait(timeout=10.0)
 
             def caller2() -> None:
-                with pool._session_gate(sid):
+                with pool._session_gate(sid, 30.0):
                     gate2_entered.set()
 
             t1 = threading.Thread(target=caller1)
@@ -1863,6 +1863,57 @@ class TestFormulaHttpEndpoint:
             t2.join(timeout=10.0)
 
             assert not pool._session_locks
+        finally:
+            pool.shutdown()
+
+    def test_session_gate_timeout_returns_busy(self) -> None:
+        """Shared execute and reset time out waiting for the session gate and return WORKER_POOL_BUSY."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "gate-busy"
+            gate_held = threading.Event()
+            gate_proceed = threading.Event()
+
+            def holder() -> None:
+                with pool._session_gate(sid, 30.0):
+                    gate_held.set()
+                    gate_proceed.wait(timeout=10.0)
+
+            t = threading.Thread(target=holder)
+            t.start()
+            assert gate_held.wait(timeout=5.0)
+
+            with pool._cond:
+                entry = pool._session_locks.get(sid)
+                assert entry is not None
+
+            t0 = time.monotonic()
+            res_exec = pool.execute(code="result = 1", session_id=sid, timeout_sec=1, req_id="gate-busy")
+            exec_duration = time.monotonic() - t0
+            assert exec_duration < 8.0
+            assert res_exec.get("status") == "error"
+            assert res_exec.get("code") == "WORKER_POOL_BUSY"
+            assert res_exec.get("id") == "gate-busy"
+
+            t0 = time.monotonic()
+            res_reset = pool.reset_session(sid, timeout_sec=1)
+            reset_duration = time.monotonic() - t0
+            assert reset_duration < 8.0
+            assert res_reset.get("status") == "error"
+            assert res_reset.get("code") == "WORKER_POOL_BUSY"
+
+            # Before releasing the holder, pool._session_locks["gate-busy"].users == 1 and the same entry object is still mapped.
+            with pool._cond:
+                assert pool._session_locks.get(sid) is entry
+                assert pool._session_locks[sid].users == 1
+
+            gate_proceed.set()
+            t.join(timeout=5.0)
+
+            # After join, that id is absent from _session_locks and from _sessions.
+            with pool._cond:
+                assert sid not in pool._session_locks
+                assert sid not in pool._sessions
         finally:
             pool.shutdown()
 
