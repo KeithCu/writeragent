@@ -263,6 +263,45 @@ def test_editor_save_clears_session_dirty():
     assert state.dirty is False
 
 
+def test_send_save_releases_save_lock_before_terminate():
+    _reset_persistent_editor()
+    pe = launch_mod._PERSISTENT_EDITOR
+    acquired: list[bool] = []
+
+    def on_closed() -> None:
+        ok = pe._save_lock.acquire(timeout=0.5)
+        acquired.append(ok)
+        if ok:
+            pe._save_lock.release()
+
+    def on_save(*_args: object, **_kwargs: object) -> dict:
+        return {"type": "saved", "ok": True}
+
+    state = launch_mod.EditorSessionState(
+        session_id="s1",
+        mode="calc_cell",
+        target={"cell": "A1"},
+        on_save=on_save,
+        on_closed=on_closed,
+    )
+    state.dirty = True
+    pe.register_session(state)
+    pe.ctx = MagicMock()
+    pe.executor = MagicMock()
+    pe.executor.call.side_effect = lambda fn, *args, **kwargs: fn()
+
+    def fake_send(message: dict, *, session=None) -> None:
+        launch_mod.terminate_persistent_editor()
+
+    pe.send = fake_send  # type: ignore[method-assign]
+
+    try:
+        pe._dispatch_incoming({"type": "save", "code": "x = 1", "session_id": "s1"})
+        assert acquired == [True]
+    finally:
+        _reset_persistent_editor()
+
+
 def test_launch_monaco_editor_reuses_running_process():
     ctx = MagicMock()
     sent_messages: list[dict] = []

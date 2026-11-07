@@ -515,3 +515,40 @@ def test_is_cancelled_predicate():
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
 
+
+def test_claim_cancel_sets_flag_before_hooks():
+    scope = SendCancellation()
+    hook1_calls: list[int] = []
+    hook2_calls: list[int] = []
+
+    def hook1():
+        hook1_calls.append(1)
+
+    def hook2():
+        hook2_calls.append(1)
+
+    scope.register_on_cancel(hook1)
+    run_cancel = scope.claim_cancel()
+    assert run_cancel is not None
+    assert scope.is_cancelled() is True
+    assert hook1_calls == []
+
+    # The closure runs it once
+    run_cancel()
+    assert hook1_calls == [1]
+
+    # cancel() does not run it again
+    scope.cancel()
+    assert hook1_calls == [1]
+
+    # register_on_cancel of that same hook does not run it again
+    scope.register_on_cancel(hook1)
+    assert hook1_calls == [1]
+
+    # A different hook registered after claim runs once immediately and the closure does not run it a second time
+    scope.register_on_cancel(hook2)
+    assert hook2_calls == [1]
+    run_cancel()
+    assert hook2_calls == [1]
+
+
