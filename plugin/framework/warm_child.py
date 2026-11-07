@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import pickle
 import queue
@@ -15,7 +16,7 @@ import time
 from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import IO, Any, Literal, Protocol
+from typing import IO, Any, Literal, Protocol, final
 
 from plugin.framework.child_runtime import Deadline, error_dict, is_ready_payload
 from plugin.framework.ipc import (
@@ -598,7 +599,7 @@ class WarmChild:
                 is_alive=self.is_alive,
                 max_payload_bytes=self.spec.max_payload_bytes,
                 unpacker=self.spec.unpacker,
-                start=self._supervisor.spawn,
+                start=functools.partial(self._supervisor.spawn, timeout_sec=spawn_for),
                 publish=_publish,
                 deadline=deadline,
                 cap_sec=cap_sec,
@@ -664,6 +665,45 @@ class WarmChild:
         return None
 
 
+@final
+class _SpawnRequest:
+    """One queued spawn. Whoever takes the lock first decides; only the spawner kills."""
+
+    managed: ManagedSubprocess
+    done: threading.Event
+    error: BaseException | None
+    abandoned: bool
+    lock: threading.Lock
+
+    def __init__(self, managed: ManagedSubprocess) -> None:
+        self.managed = managed
+        self.done = threading.Event()
+        self.error = None
+        self.abandoned = False
+        self.lock = threading.Lock()
+
+    def give_up(self) -> bool:
+        """Called by waiter after a timeout. Returns True if abandoned, False if finished."""
+        with self.lock:
+            if self.done.is_set():
+                return False
+            self.abandoned = True
+            return True
+
+    def finish_spawn(self) -> None:
+        """Called by spawner in finally after start(). Only spawner kills."""
+        with self.lock:
+            if self.abandoned and self.managed.popen is not None:
+                self.managed.kill_tree()
+                try:
+                    self.managed.abandon()
+                except Exception:
+                    log.exception("Error abandoning managed subprocess on spawn timeout")
+            self.done.set()
+
+    finish = finish_spawn
+
+
 class Supervisor:
     """One spawner thread; warm-child registry, idle reaper, and shutdown.
 
@@ -677,6 +717,7 @@ class Supervisor:
         self._shutdown: bool = False
         self._threads_started: bool = False
         self._start_lock: threading.Lock = threading.Lock()
+        self._spawn_gate: threading.Lock = threading.Lock()
         self._spawn_queue: queue.Queue[Any] = queue.Queue()
         self._spawner_ident: int | None = None
         self._reaper_stop: threading.Event = threading.Event()
@@ -724,13 +765,17 @@ class Supervisor:
                 item = self._spawn_queue.get()
                 if item is _SPAWN_SHUTDOWN:
                     return
-                managed, done, err_holder = item
+                req: _SpawnRequest = item
+                with req.lock:
+                    if req.abandoned:
+                        req.done.set()
+                        continue
                 try:
-                    managed.start()
+                    req.managed.start()
                 except BaseException as exc:
-                    err_holder[0] = exc
+                    req.error = exc
                 finally:
-                    done.set()
+                    req.finish_spawn()
 
         run_in_background(_loop, name="wa-warm-child-spawn", dedicated=True)
 
@@ -768,23 +813,32 @@ class Supervisor:
             finally:
                 warm._io_lock.release()
 
-    def spawn(self, managed: ManagedSubprocess) -> None:
+    def spawn(self, managed: ManagedSubprocess, timeout_sec: float | None = None) -> None:
         # PDEATHSIG follows the creating thread (see child_runtime.die_with_parent).
-        if self._shutdown:
-            raise RuntimeError("Supervisor is shut down")
-        self._ensure_threads()
-        done = threading.Event()
-        err_holder: list[BaseException | None] = [None]
-        self._spawn_queue.put((managed, done, err_holder))
-        done.wait()
-        if err_holder[0] is not None:
-            raise err_holder[0]
+        # Bugfix: spawn() previously used unbounded done.wait(), which hung forever
+        # if Popen hung or if shutdown_all() raced with enqueue. We now serialize
+        # spawn admission and shutdown under _spawn_gate (so no spawn can be queued
+        # after shutdown), bound the wait by timeout_sec (caller's spawn_budget or
+        # SPAWN_READY_TIMEOUT_SEC fallback), and clean up late-spawning processes.
+        with self._spawn_gate:
+            if self._shutdown:
+                raise RuntimeError("Supervisor is shut down")
+            self._ensure_threads()
+            req = _SpawnRequest(managed)
+            self._spawn_queue.put(req)
+
+        wait_sec = SPAWN_READY_TIMEOUT_SEC if timeout_sec is None else timeout_sec
+        if not req.done.wait(wait_sec) and req.give_up():
+            raise RuntimeError("Supervisor spawn timed out")
+        if req.error is not None:
+            raise req.error
 
     def shutdown_all(self) -> None:
-        self._shutdown = True
-        if self._threads_started:
-            self._reaper_stop.set()
-            self._spawn_queue.put(_SPAWN_SHUTDOWN)
+        with self._spawn_gate:
+            self._shutdown = True
+            if self._threads_started:
+                self._reaper_stop.set()
+                self._spawn_queue.put(_SPAWN_SHUTDOWN)
             with self._registry_lock:
                 children = list(self._registry)
             for warm in children:

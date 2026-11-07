@@ -41,11 +41,11 @@ def _second_spawn_queued_event(monkeypatch: pytest.MonkeyPatch) -> threading.Eve
     attempts = {"n": 0}
     second_queued = threading.Event()
 
-    def patched_spawn(managed: object) -> None:
+    def patched_spawn(managed: Any, timeout_sec: float | None = None) -> None:
         attempts["n"] += 1
         if attempts["n"] == 2:
             second_queued.set()
-        real_spawn(managed)
+        real_spawn(managed, timeout_sec=timeout_sec)
 
     monkeypatch.setattr(sup, "spawn", patched_spawn)
     return second_queued
@@ -1449,8 +1449,9 @@ def test_stderr_drain_name_uses_worker_name() -> None:
 def test_popen_past_deadline_skips_handshake(monkeypatch: pytest.MonkeyPatch) -> None:
     """Startup that overruns the deadline kills the child and does not read a frame.
 
-    Popen is not on the clock. A handshake after that would use the 0.01s
-    pipe-wait floor and then SIGKILL.
+    The test spends the request clock inside Popen via the monotonic patch,
+    while the spawn wait uses wall time. A handshake after that would use the
+    0.01s pipe-wait floor and then SIGKILL.
     """
     clock = {"t": 1000.0}
     monkeypatch.setattr("plugin.framework.child_runtime.time.monotonic", lambda: clock["t"])
@@ -2822,6 +2823,44 @@ def test_compute_worker_spawn_runs_on_supervisor_spawner_thread(
         assert start_idents == [supervisor_obj.spawner_ident, supervisor_obj.spawner_ident]
     finally:
         worker.kill()
+
+
+def test_respawn_passes_spawn_budget_to_supervisor(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.child_runtime import Deadline
+    from plugin.framework.process_worker import BaseProcessWorker
+    from plugin.framework.warm_child import supervisor
+
+    captured_timeouts: list[float | None] = []
+
+    def mock_spawn(managed: Any, timeout_sec: float | None = None) -> None:
+        captured_timeouts.append(timeout_sec)
+
+    def mock_handshake(
+        managed: Any, *args: Any, start: Any = None, **kwargs: Any
+    ) -> tuple[str, Any, Any]:
+        if start is not None:
+            start(managed)
+        return ("refused", None, None)
+
+    monkeypatch.setattr(supervisor, "spawn", mock_spawn)
+    monkeypatch.setattr(
+        "plugin.framework.process_worker.spawn_managed_child_with_handshake",
+        mock_handshake,
+    )
+
+    worker = BaseProcessWorker(1, "unused.py", start=False)
+
+    # 1. Respawn with deadline should pass remaining spawn budget
+    worker.respawn(deadline=Deadline(5.0))
+    assert len(captured_timeouts) == 1
+    t = captured_timeouts[0]
+    assert t is not None
+    assert 4.0 <= t <= 5.0
+
+    # 2. Respawn without deadline should pass None (falls back to SPAWN_READY_TIMEOUT_SEC in supervisor.spawn)
+    worker.respawn(deadline=None)
+    assert len(captured_timeouts) == 2
+    assert captured_timeouts[1] is None
 
 
 def test_formula_worker_script_handshake() -> None:
