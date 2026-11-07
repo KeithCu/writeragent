@@ -282,6 +282,20 @@ class PanelVoiceController:
         log.info("Audio silence pause detected — treating as Stop Rec")
         self._panel.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
 
+    def on_capture_stopped(self, path: str | None) -> None:
+        """Handle completion of background stop reap and WAV commit."""
+        if self._panel_gone():
+            return
+        self._panel._wait_for_take = False
+        self._panel.audio_wav_path = path
+        if getattr(self._panel, "stop_requested", False):
+            assign_send_outcome(self._panel, "stopped")
+            self.resolve_voice_query("")
+        else:
+            from plugin.chatbot.send_state import StartSendEffect
+
+            self._panel._interpret_effect(StartSendEffect())
+
     def _on_audio_recorder_error(self, msg: str) -> None:
         """Child error after ready, on the UI thread.
 

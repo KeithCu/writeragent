@@ -164,8 +164,10 @@ class RecordingStopHandoff:
         raise RuntimeError("Recording subprocess did not return a WAV path.")
 
 
-def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float = _RECORDING_READY_TIMEOUT_SEC) -> None:
+def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float | None = None) -> None:
     """Block until the child emits ``{\"status\": \"ready\"}`` or fails."""
+    if timeout_sec is None:
+        timeout_sec = _RECORDING_READY_TIMEOUT_SEC
     proc = _recording_popen(managed)
     if proc.stdout is None:
         raise RuntimeError("Recording subprocess stdout is not available.")
@@ -242,33 +244,41 @@ def _reap_recording_process(
     _close_recording_pipe(proc.stderr, "stderr")
 
 
-def stop_recording_process(
+def signal_recording_stop(managed: ManagedSubprocess) -> None:
+    """Send {"command": "stop"} to the recording subprocess if still running.
+
+    Does not wait for the process to exit or reap it.
+    """
+    proc = _recording_popen(managed)
+    if proc.poll() is not None:
+        return
+    if proc.stdin is None:
+        raise RuntimeError("Recording subprocess stdin is not available.")
+    try:
+        write_json_line(proc.stdin, {"command": "stop"})
+    except OSError as exc:
+        raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
+
+
+def finish_recording_stop(
     managed: ManagedSubprocess,
     *,
     handoff: RecordingStopHandoff,
-    timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
+    timeout_sec: float | None = None,
     monitor: BackgroundHandle | None = None,
 ) -> str:
-    """Send the stop line and wait on the handoff for the WAV path.
+    """Wait on the handoff for the WAV path, then reap the recording process.
 
-    The monitor is the sole stdout reader; this function does not read stdout.
+    No second stop line is written.
     """
-    # stop_recording_process can return or raise without reaping the child
-    # (wait_for_path timeout, stdin None, or an already-exited timeout).
-    # try/finally _reap_recording_process reaps it and drops the stderr drain
-    # on every exit.
+    if timeout_sec is None:
+        timeout_sec = _RECORDING_STOP_TIMEOUT_SEC
     proc = _recording_popen(managed)
     try:
         exited = proc.poll() is not None
         try:
             if exited:
                 return handoff.wait_for_path(min(timeout_sec, 1.0))
-            if proc.stdin is None:
-                raise RuntimeError("Recording subprocess stdin is not available.")
-            try:
-                write_json_line(proc.stdin, {"command": "stop"})
-            except OSError as exc:
-                raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
             return handoff.wait_for_path(timeout_sec)
         except RuntimeError:
             known = handoff.snapshot_path()
@@ -285,6 +295,21 @@ def stop_recording_process(
         # path wait above is the long timeout. After it returns or raises, 2s
         # plus the existing kill escalation is enough.
         _reap_recording_process(managed, _RECORDING_REAP_TIMEOUT_SEC, monitor=monitor, handoff=handoff)
+
+
+def stop_recording_process(
+    managed: ManagedSubprocess,
+    *,
+    handoff: RecordingStopHandoff,
+    timeout_sec: float | None = None,
+    monitor: BackgroundHandle | None = None,
+) -> str:
+    """Send the stop line and wait on the handoff for the WAV path.
+
+    The monitor is the sole stdout reader; this function does not read stdout.
+    """
+    signal_recording_stop(managed)
+    return finish_recording_stop(managed, handoff=handoff, timeout_sec=timeout_sec, monitor=monitor)
 
 
 def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingStopHandoff, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None, on_error: Callable[[str], None] | None) -> None:

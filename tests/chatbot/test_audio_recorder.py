@@ -49,6 +49,15 @@ class _ClosingStringIO(io.StringIO):
         return super().getvalue()
 
 
+def _settle(recorder: AudioRecorder, timeout: float = 5.0) -> None:
+    start_job = getattr(recorder, "_start_job", None)
+    if start_job is not None:
+        start_job.join(timeout=timeout)
+    stop_job = getattr(recorder, "_stop_job", None)
+    if stop_job is not None:
+        stop_job.join(timeout=timeout)
+
+
 @pytest.fixture
 def recording_mocks(tmp_path):
     wav_path = str(tmp_path / "test.wav")
@@ -62,7 +71,7 @@ def recording_mocks(tmp_path):
         patch("plugin.chatbot.audio_recorder.make_temp_wav_path", return_value=wav_path),
         patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=child) as spawn,
         patch("plugin.chatbot.audio_recorder.wait_for_recording_ready") as wait_ready,
-        patch("plugin.chatbot.audio_recorder.stop_recording_process", return_value=wav_path) as stop_proc,
+        patch("plugin.chatbot.audio_recorder.finish_recording_stop", return_value=wav_path) as stop_proc,
     ):
         yield {
             "wav_path": wav_path,
@@ -77,13 +86,16 @@ def test_audio_recorder_spawns_venv_subprocess(recording_mocks):
     recorder = AudioRecorder()
     try:
         recorder.start_recording()
+        _settle(recorder)
         recording_mocks["spawn"].assert_called_once()
         recording_mocks["wait_ready"].assert_called_once()
         assert recorder.state.status == "recording"
         assert recorder.temp_filename == recording_mocks["wav_path"]
 
         returned = recorder.stop_recording()
-        assert returned == recording_mocks["wav_path"]
+        _settle(recorder)
+        assert returned is None
+        assert recorder._committed_path == recording_mocks["wav_path"]
         recording_mocks["stop_proc"].assert_called_once()
         assert recorder.state.status == "idle"
     finally:
@@ -97,12 +109,16 @@ def test_audio_recorder_multiple_sessions(recording_mocks):
     with patch("plugin.chatbot.audio_recorder.make_temp_wav_path", side_effect=paths):
         recorder = AudioRecorder()
         recorder.start_recording()
+        _settle(recorder)
         first = recorder.temp_filename
         recorder.stop_recording()
+        _settle(recorder)
 
         recorder.start_recording()
+        _settle(recorder)
         second = recorder.temp_filename
         recorder.stop_recording()
+        _settle(recorder)
 
         assert first == paths[0]
         assert second == paths[1]
@@ -290,6 +306,7 @@ def test_manual_stop_returns_path_while_silence_monitor_runs(tmp_path):
     ):
         recorder = AudioRecorder()
         recorder.start_recording()
+        _settle(recorder)
         assert recorder.state.status == "recording"
         assert recorder._stop_handoff is not None
         deadline = time.monotonic() + 2
@@ -298,10 +315,12 @@ def test_manual_stop_returns_path_while_silence_monitor_runs(tmp_path):
         assert recorder._stop_handoff.snapshot_path() == wav_path
         monitor = recorder._stdout_monitor
         returned = recorder.stop_recording()
+        assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
+        _settle(recorder)
         if monitor is not None:
             monitor.join(timeout=2)
-    assert returned == wav_path
-    assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
+    assert returned is None
+    assert recorder._committed_path == wav_path
 
 
 def _make_zero_frame_wav(pcm_bytes: bytes) -> bytes:
@@ -333,14 +352,17 @@ def test_stop_keeps_nonempty_wav_when_handshake_fails(tmp_path):
         patch("plugin.chatbot.audio_recorder.wait_for_recording_ready"),
         patch("plugin.chatbot.audio_recorder.monitor_recording_stdout", return_value=MagicMock()),
         patch(
-            "plugin.chatbot.audio_recorder.stop_recording_process",
+            "plugin.chatbot.audio_recorder.finish_recording_stop",
             side_effect=RuntimeError("timed out"),
         ),
     ):
         recorder = AudioRecorder()
         recorder.start_recording()
+        _settle(recorder)
         returned = recorder.stop_recording()
-    assert returned == str(wav_path)
+        _settle(recorder)
+    assert returned is None
+    assert recorder._committed_path == str(wav_path)
     assert wav_path.is_file()
     with wave.open(str(wav_path), "rb") as wf:
         assert wf.getnframes() == 16
@@ -360,14 +382,17 @@ def test_stop_deletes_empty_wav_when_handshake_fails(tmp_path):
         patch("plugin.chatbot.audio_recorder.wait_for_recording_ready"),
         patch("plugin.chatbot.audio_recorder.monitor_recording_stdout", return_value=MagicMock()),
         patch(
-            "plugin.chatbot.audio_recorder.stop_recording_process",
+            "plugin.chatbot.audio_recorder.finish_recording_stop",
             side_effect=RuntimeError("timed out"),
         ),
     ):
         recorder = AudioRecorder()
         recorder.start_recording()
+        _settle(recorder)
         returned = recorder.stop_recording()
+        _settle(recorder)
     assert returned is None
+    assert recorder._committed_path is None
     assert not wav_path.exists()
 
 
@@ -415,8 +440,9 @@ def test_audio_recorder_missing_venv():
         patch.dict("sys.modules", {"sounddevice": None}),
     ):
         recorder = AudioRecorder()
-        with pytest.raises(RuntimeError, match="Configure Settings|Please configure a Python venv"):
-            recorder.start_recording()
+        recorder.start_recording()
+        _settle(recorder)
+        assert recorder.state.status == "error"
 
 
 def test_venv_record_to_wav_writes_file(tmp_path):
@@ -875,6 +901,7 @@ def test_host_callback_writeframes_error_is_swallowed(tmp_path, monkeypatch):
     ):
         recorder = AudioRecorder()
         recorder.start_recording()
+        _settle(recorder)
     assert recorder.state.status == "recording"
     real_wav = recorder.wav_file
     boom = MagicMock()
@@ -905,8 +932,10 @@ def test_stub_control_file_ignored_without_testing_env(recording_mocks, monkeypa
     recorder = AudioRecorder()
     try:
         recorder.start_recording()
+        _settle(recorder)
         recording_mocks["spawn"].assert_called_once()
         recorder.stop_recording()
+        _settle(recorder)
     finally:
         clear_stub_recorder_control()
 
@@ -921,7 +950,9 @@ def test_unset_testing_env_never_touches_stub_control_file(recording_mocks, monk
         os.remove(path)
     recorder = AudioRecorder()
     recorder.start_recording()
+    _settle(recorder)
     recorder.stop_recording()
+    _settle(recorder)
     assert not os.path.exists(path)
 
 
@@ -959,11 +990,13 @@ def test_stop_forwards_stdout_monitor(recording_mocks):
     recorder = AudioRecorder()
     try:
         recorder.start_recording()
+        _settle(recorder)
         monitor = recorder._stdout_monitor
         handoff = recorder._stop_handoff
         assert monitor is not None
         assert handoff is not None
         recorder.stop_recording()
+        _settle(recorder)
         call_kwargs = recording_mocks["stop_proc"].call_args.kwargs
         assert call_kwargs["monitor"] is monitor
         assert call_kwargs["handoff"] is handoff
@@ -991,6 +1024,8 @@ def test_error_after_ready_reaps_with_the_stdout_monitor(tmp_path):
 
     with patch("plugin.chatbot.audio_recorder.terminate_recording_process") as term:
         recorder._notify_recording_error("child died")
+        if recorder._stop_job is not None:
+            recorder._stop_job.join(timeout=5)
 
     term.assert_called_once_with(proc, monitor=monitor, handoff=handoff)
     assert wav_path.is_file()
@@ -1104,6 +1139,7 @@ def test_host_callback_max_duration(monkeypatch):
             on_error=lambda msg: errors.append(msg),
         )
         recorder.start_recording()
+        _settle(recorder)
         assert captured_callback is not None
 
         # Clock under cap: does not stop
@@ -1120,4 +1156,143 @@ def test_host_callback_max_duration(monkeypatch):
         assert "recording too long" in errors[0]
 
         recorder.stop_recording()
+        _settle(recorder)
+
+
+def test_start_recording_returns_before_ready_timeout(monkeypatch):
+    import time
+    from plugin.framework.managed_subprocess import ManagedSubprocess
+
+    proc = MagicMock()
+    # child whose stdout never yields
+    r, w = os.pipe()
+    proc.stdout = os.fdopen(r, "r")
+    child = ManagedSubprocess.wrap_existing(proc, label="audio-recorder")
+
+    monkeypatch.setattr(
+        "plugin.scripting.audio_recorder_service._RECORDING_READY_TIMEOUT_SEC",
+        0.3,
+    )
+    with (
+        patch("plugin.chatbot.audio_recorder.resolve_recording_python", return_value=("/usr/bin/python", "")),
+        patch("plugin.chatbot.audio_recorder.spawn_recording_process", return_value=child),
+    ):
+        recorder = AudioRecorder()
+        start_time = time.monotonic()
+        recorder.start_recording()
+        elapsed = time.monotonic() - start_time
+        assert elapsed < 0.05
+        assert recorder.state.status == "initializing"
+        _settle(recorder)
+        assert recorder.state.status == "error"
+        assert "timed out" in (recorder.state.error_message or "")
+    os.close(w)
+
+
+def test_stop_recording_returns_before_reap(monkeypatch, tmp_path):
+    import json
+    import time
+    from plugin.chatbot.audio_recorder_state import AudioRecorderState
+    from plugin.framework.thread_guard import get_background_task_name
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
+    import plugin.scripting.audio_recorder_service as audio_recorder_service
+
+    wav_path = str(tmp_path / "test.wav")
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = _ClosingStringIO()
+    handoff = RecordingStopHandoff()
+
+    recorder = AudioRecorder()
+    recorder.state = AudioRecorderState(status=AudioStatus.RECORDING)
+    recorder.temp_filename = wav_path
+    recorder._proc = _recording_child(proc)
+    recorder._stop_handoff = handoff
+
+    monkeypatch.setattr(
+        "plugin.scripting.audio_recorder_service._RECORDING_STOP_TIMEOUT_SEC",
+        0.4,
+    )
+
+    reap_records = []
+    orig_reap = audio_recorder_service._reap_recording_process
+
+    def fake_reap(*args, **kwargs):
+        reap_records.append({
+            "thread": threading.current_thread(),
+            "task_name": get_background_task_name(),
+        })
+        return orig_reap(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "plugin.scripting.audio_recorder_service._reap_recording_process",
+        fake_reap,
+    )
+
+    start_time = time.monotonic()
+    returned = recorder.stop_recording()
+    elapsed = time.monotonic() - start_time
+
+    assert elapsed < 0.2
+    assert returned is None
+    assert json.loads(proc.stdin.getvalue()) == {"command": "stop"}
+    assert len(reap_records) == 0
+
+    _settle(recorder)
+    assert len(reap_records) == 1
+    assert reap_records[0]["thread"] is not threading.current_thread()
+    assert reap_records[0]["task_name"] == "audio-rec-stop"
+
+
+def test_cleanup_does_not_wait_for_reap(monkeypatch, tmp_path):
+    import time
+    from plugin.chatbot.audio_recorder_state import AudioRecorderState
+    from plugin.framework.thread_guard import get_background_task_name
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
+    import plugin.scripting.audio_recorder_service as audio_recorder_service
+
+    wav_path = str(tmp_path / "test.wav")
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = _ClosingStringIO()
+    handoff = RecordingStopHandoff()
+
+    recorder = AudioRecorder()
+    recorder.state = AudioRecorderState(status=AudioStatus.RECORDING)
+    recorder.temp_filename = wav_path
+    recorder._proc = _recording_child(proc)
+    recorder._stop_handoff = handoff
+
+    on_capture_stopped = MagicMock()
+    recorder.set_auto_stop_callbacks(on_capture_stopped=on_capture_stopped)
+
+    monkeypatch.setattr(
+        "plugin.scripting.audio_recorder_service._RECORDING_STOP_TIMEOUT_SEC",
+        0.4,
+    )
+
+    reap_records = []
+    orig_reap = audio_recorder_service._reap_recording_process
+
+    def fake_reap(*args, **kwargs):
+        reap_records.append({
+            "thread": threading.current_thread(),
+            "task_name": get_background_task_name(),
+        })
+        return orig_reap(*args, **kwargs)
+
+    monkeypatch.setattr(
+        "plugin.scripting.audio_recorder_service._reap_recording_process",
+        fake_reap,
+    )
+
+    start_time = time.monotonic()
+    recorder.cleanup()
+    elapsed = time.monotonic() - start_time
+
+    assert elapsed < 0.2
+    _settle(recorder)
+    assert len(reap_records) == 1
+    assert reap_records[0]["task_name"] == "audio-rec-stop"
+    on_capture_stopped.assert_not_called()
 

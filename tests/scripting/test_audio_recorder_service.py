@@ -12,8 +12,10 @@ import pytest
 
 from plugin.framework.managed_subprocess import ManagedSubprocess
 from plugin.scripting.audio_recorder_service import (
+    finish_recording_stop,
     is_audio_recording_configured,
     resolve_recording_python,
+    signal_recording_stop,
     stop_recording_process,
     wait_for_recording_ready,
 )
@@ -115,6 +117,38 @@ def test_stop_recording_process_uses_json_stop_command():
 
     assert stop_recording_process(_recording_child(proc), handoff=handoff) == "/tmp/x.wav"
     assert proc.stdin.getvalue() == json.dumps({"command": "stop"}) + "\n"
+
+
+def test_signal_recording_stop_writes_stop_command():
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = _ClosingStringIO()
+
+    signal_recording_stop(_recording_child(proc))
+    assert proc.stdin.getvalue() == json.dumps({"command": "stop"}) + "\n"
+
+
+def test_signal_recording_stop_noop_when_already_exited():
+    proc = MagicMock()
+    proc.poll.return_value = 0
+    proc.stdin = _ClosingStringIO()
+
+    signal_recording_stop(_recording_child(proc))
+    assert proc.stdin.getvalue() == ""
+
+
+def test_finish_recording_stop_returns_path_and_reaps():
+    from plugin.scripting.audio_recorder_service import RecordingStopHandoff
+
+    proc = MagicMock()
+    proc.poll.return_value = None
+    proc.stdin = _ClosingStringIO()
+    proc.wait.return_value = 0
+    handoff = RecordingStopHandoff()
+    handoff.note_ok("/tmp/y.wav")
+
+    assert finish_recording_stop(_recording_child(proc), handoff=handoff) == "/tmp/y.wav"
+    proc.wait.assert_called()
 
 
 def test_monitor_recording_stdout_skips_non_json_lines_before_ok():
