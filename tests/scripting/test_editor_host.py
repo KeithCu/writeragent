@@ -1712,6 +1712,79 @@ def test_terminate_during_send_does_not_raise_attributeerror():
     assert pe._proc is None
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Windows joins a blocking write thread; closing an in-process pipe while blocked in CRT write crashes",
+)
+def test_send_unread_pipe_times_out_and_terminates(monkeypatch):
+    monkeypatch.setattr(launch_mod, "VENV_IPC_WRITE_TIMEOUT_SEC", 0.2)
+    _reset_persistent_editor()
+    read_fd, write_fd = os.pipe()
+    try:
+        import fcntl
+
+        fcntl.fcntl(write_fd, fcntl.F_SETPIPE_SZ, 4096)
+    except (ImportError, AttributeError, OSError):
+        pass
+    writer = os.fdopen(write_fd, "wb", buffering=0)
+
+    try:
+        pe = launch_mod._PERSISTENT_EDITOR
+        closed_calls: list[str] = []
+        state = launch_mod.EditorSessionState(
+            session_id="s1",
+            mode="calc_cell",
+            target={"cell": "A1"},
+            on_closed=lambda: closed_calls.append("closed"),
+        )
+        pe.register_session(state)
+
+        proc = MagicMock()
+        proc.poll.return_value = None
+        proc.stdin = writer
+        proc.stdout = None
+        proc.stderr = None
+        pe._proc = proc
+
+        session = launch_mod.EditorSession(proc, on_save=MagicMock(), on_closed=MagicMock())
+        launch_mod.set_active_session(session)
+
+        captured_exc: list[Exception] = []
+
+        def _do_send():
+            try:
+                pe.send({"type": "load", "code": "x" * (200 * 1024)})
+            except Exception as exc:
+                captured_exc.append(exc)
+
+        t = threading.Thread(target=_do_send)
+        started = time.monotonic()
+        t.start()
+        t.join(2.0)
+        elapsed = time.monotonic() - started
+
+        assert not t.is_alive()
+        assert len(captured_exc) == 1
+        exc = captured_exc[0]
+        assert isinstance(exc, RuntimeError)
+        assert "Editor unresponsive" in str(exc)
+        assert elapsed < 2.0
+        assert pe._proc is None
+        assert pe.sessions == {}
+        assert len(closed_calls) == 1
+        assert launch_mod.get_active_session() is None
+    finally:
+        try:
+            writer.close()
+        except Exception:
+            pass
+        try:
+            os.close(read_fd)
+        except OSError:
+            pass
+        _reset_persistent_editor()
+
+
 def test_is_running_captures_proc_once():
     pe = PersistentEditor()
     proc = MagicMock()

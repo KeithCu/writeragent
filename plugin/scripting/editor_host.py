@@ -31,6 +31,7 @@ from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
 from plugin.framework.queue_executor import MainThread, main
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
+from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC
 from plugin.scripting.editor_errors import (
     exception_traceback,
     failure_detail,
@@ -43,10 +44,15 @@ from plugin.scripting.editor_ipc import (
     stamp_session,
     target_from_load,
     target_identity_key,
-    write_message,
 )
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
-from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame
+from plugin.framework.ipc import (
+    DEFAULT_MAX_PAYLOAD_BYTES,
+    IpcPayloadSizeError,
+    pack_pickle_frame,
+    read_pickle_frame,
+    write_packed_frame_with_timeout,
+)
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 from plugin.scripting.venv_worker import (
@@ -469,6 +475,7 @@ class PersistentEditor:
                 mode=state.mode or str(message.get("mode") or ""),
                 target=state.target,
             )
+        timed_out = False
         with self._stdin_lock:
             proc = self._proc
             if proc is None:
@@ -480,10 +487,35 @@ class PersistentEditor:
             if proc.stdin is None:
                 raise RuntimeError("Editor process stdin is closed")
             try:
-                write_message(proc.stdin, message)
+                frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+            except IpcPayloadSizeError as exc:
+                raise ValueError(str(exc)) from exc
+            try:
+                write_packed_frame_with_timeout(
+                    proc.stdin,
+                    frame,
+                    VENV_IPC_WRITE_TIMEOUT_SEC,
+                    is_alive=lambda: proc.poll() is None,
+                )
             except BrokenPipeError as e:
                 detail = self.read_stderr_tail()
                 raise RuntimeError(f"Editor process closed stdin. {detail}") from e
+            except subprocess.TimeoutExpired:
+                timed_out = True
+
+        if timed_out:
+            log.warning("editor_host: stdin write timed out after %ss; editor unresponsive", VENV_IPC_WRITE_TIMEOUT_SEC)
+            # What was wrong: _write_all has no deadline, so a child that stops reading blocks this
+            # thread (often the VCL thread) for good.
+            # How it happened: a frame larger than the pipe buffer, or any frame once the pipe is already full.
+            # Why this change fixes it: write_packed_frame_with_timeout bounds the write, then the child
+            # is killed because a partial frame must not be reused.
+            if self is _PERSISTENT_EDITOR:
+                terminate_persistent_editor()
+            else:
+                self.terminate()
+            detail = self.read_stderr_tail()
+            raise RuntimeError(f"Editor unresponsive. {detail}")
 
     def read_stderr_tail(self) -> str:
         """Return stderr already captured by the drain thread."""
