@@ -14,6 +14,7 @@ from typing import Any
 from plugin.chatbot.dialogs import load_writeragent_dialog_detail, msgbox
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.i18n import _
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_context import get_active_document
 from plugin.framework.uno_listeners import (
@@ -72,6 +73,7 @@ class SearchDialog:
 
     _ctx: Any
     _closed: bool
+    _run_cancel: SendCancellation
 
     def __init__(self, ctx: Any) -> None:
         self._ctx = ctx
@@ -79,6 +81,10 @@ class SearchDialog:
         self._closed = False
         self._top_listener: Any | None = None
         self._hb_start: dict[str, float] = {}
+        # One scope for this dialog so Cancel and window close stop every
+        # in-flight search and rebuild together; a later click reuses the
+        # same uncancelled scope.
+        self._run_cancel = SendCancellation()
         self._open()
 
     @classmethod
@@ -90,6 +96,7 @@ class SearchDialog:
         if self._closed:
             return
         self._closed = True
+        self._run_cancel.cancel()
         dlg = self._dlg
         self._dlg = None
         if dlg is None:
@@ -309,6 +316,7 @@ class SearchDialog:
                     model=model,
                     near_slop=10,
                     doc_url_filter=None,
+                    cancel=self._run_cancel,
                 )
                 hits = list(result.get("hits") or [])
                 main.call(ensure_index_wakeup, ctx, doc)
@@ -336,10 +344,12 @@ class SearchDialog:
                         self._refresh_cache_status(dlg)
                 main.call(_do_refresh)
             except Exception as e:
+                if self._run_cancel.is_cancelled():
+                    return
                 log.exception("Background search failed")
                 self._update_results_ui(_("Error running search: ") + str(e), enable_search_btn=True)
 
-        run_in_background(_do_background_search, name="search-dialog-query")
+        run_in_background(_do_background_search, name="search-dialog-query", dedicated=True)
 
     def _run_rebuild(self, dlg: Any) -> None:
         ctx = self._ctx
@@ -422,9 +432,12 @@ class SearchDialog:
                         mode="cold",
                         search_mode=configured_folder_search_mode(),
                         heartbeat_fn=heartbeat_fn,
+                        cancel=self._run_cancel,
                     )
                     self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)
                 except Exception as exc:
+                    if self._run_cancel.is_cancelled():
+                        return
                     log.exception("maintain_folder_index failed during rebuild")
                     self._update_rebuild_ui(_("Rebuild failed: ") + str(exc), enable_rebuild_btn=True)
 
@@ -434,10 +447,12 @@ class SearchDialog:
                         self._refresh_cache_status(d)
                 main.call(_do_refresh)
             except Exception as e:
+                if self._run_cancel.is_cancelled():
+                    return
                 log.exception("Cache rebuild failed")
                 self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
 
-        run_in_background(_do_rebuild, name="search-dialog-rebuild")
+        run_in_background(_do_rebuild, name="search-dialog-rebuild", dedicated=True)
 
     def _update_results_ui(self, text: str, enable_search_btn: bool = False) -> None:
         from plugin.framework.queue_executor import main

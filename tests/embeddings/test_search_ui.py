@@ -5,8 +5,9 @@
 """Tests for SearchDialog."""
 
 import json
-from unittest.mock import MagicMock, patch
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -371,4 +372,103 @@ class TestSearchDialog:
                                 dialog._refresh_cache_status(mock_dlg)
 
         assert status_lbl.getModel().Label == "Cache Status: Built (2d ago)"
+
+    def test_search_and_rebuild_use_dedicated_threads(self):
+        mock_ctx = MagicMock()
+        dialog = SearchDialog.__new__(SearchDialog)
+        dialog._ctx = mock_ctx
+
+        mock_dlg = MagicMock()
+        query_ctrl = MagicMock()
+        resp_ctrl = MagicMock()
+        results_ctrl = MagicMock()
+        btn_search = MagicMock()
+        btn_rebuild = MagicMock()
+        mock_dlg.getControl.side_effect = lambda name: {
+            "QueryEdit": query_ctrl,
+            "RespEdit": resp_ctrl,
+            "ResultsEdit": results_ctrl,
+            "BtnSearch": btn_search,
+            "BtnRebuild": btn_rebuild,
+        }.get(name)
+        query_ctrl.getModel().Text = "q"
+        resp_ctrl.getModel().Text = "7"
+
+        recorded_kwargs: list[dict[str, Any]] = []
+
+        def fake_run_in_background(fn, *args, **kwargs):
+            recorded_kwargs.append(kwargs)
+
+        with patch("plugin.embeddings.search_ui.run_in_background", side_effect=fake_run_in_background):
+            dialog._run_search(mock_dlg)
+            dialog._run_rebuild(mock_dlg)
+
+        search_call = next(c for c in recorded_kwargs if c.get("name") == "search-dialog-query")
+        rebuild_call = next(c for c in recorded_kwargs if c.get("name") == "search-dialog-rebuild")
+        assert search_call.get("dedicated") is True
+        assert rebuild_call.get("dedicated") is True
+
+    def test_close_cancels_rebuild_scope_within_one_poll(self):
+        import threading
+        import time
+        from plugin.framework.send_cancellation import SendCancellation
+
+        mock_ctx = MagicMock()
+        dialog = SearchDialog.__new__(SearchDialog)
+        dialog._ctx = mock_ctx
+        dialog._closed = False
+        dialog._hb_start = {}
+        dialog._run_cancel = SendCancellation()
+        scope = dialog._run_cancel
+
+        mock_dlg = MagicMock()
+        results_ctrl = MagicMock()
+        results_ctrl.getModel().Text = ""
+        btn_rebuild = MagicMock()
+        mock_dlg.getControl.side_effect = lambda name: {
+            "ResultsEdit": results_ctrl,
+            "BtnRebuild": btn_rebuild,
+        }.get(name)
+        dialog._dlg = mock_dlg
+
+        started = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        threads: list[threading.Thread] = []
+
+        def fake_maintain_folder_index(*args, **kwargs):
+            assert kwargs.get("cancel") is dialog._run_cancel
+            started.set()
+            while not scope.is_cancelled():
+                release.wait(0.05)
+            finished.set()
+            raise RuntimeError("Python worker stopped by user")
+
+        def fake_run_in_background(fn, *args, **kwargs):
+            assert kwargs.get("dedicated") is True
+            t = threading.Thread(target=fn, daemon=True)
+            threads.append(t)
+            t.start()
+
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs)):
+            with patch("plugin.embeddings.search_ui.get_active_document", return_value=MagicMock()):
+                with patch("plugin.embeddings.embeddings_cache.resolve_index_context", return_value=("key", Path("/db"), Path("/meta"), "/root")):
+                    with patch("plugin.embeddings.embeddings_cache.clear_folder_cache"):
+                        with patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model"):
+                            with patch("plugin.framework.constants.configured_folder_search_mode", return_value="sqlite"):
+                                with patch("plugin.embeddings.embeddings_service.maintain_folder_index", side_effect=fake_maintain_folder_index):
+                                    with patch("plugin.embeddings.search_ui.run_in_background", side_effect=fake_run_in_background):
+                                        dialog._run_rebuild(mock_dlg)
+                                        assert started.wait(2.0)
+                                        t0 = time.monotonic()
+                                        dialog.close()
+                                        assert finished.wait(0.05 + 0.25)
+                                        elapsed = time.monotonic() - t0
+                                        assert elapsed <= (0.05 + 0.25)
+                                        assert scope.is_cancelled()
+                                        for t in threads:
+                                            t.join(timeout=2.0)
+                                        assert results_ctrl.getModel().Text == "Rebuilding cache..."
+                                        assert "Rebuild failed" not in results_ctrl.getModel().Text
+                                        dialog.close()
 
