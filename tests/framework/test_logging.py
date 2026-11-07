@@ -1504,6 +1504,45 @@ def test_log_emit_does_not_stringify_pyuno() -> None:
     assert handler.messages == ["v=<pyuno>", "<pyuno>", "v={'d': '<pyuno>'}", "v=['<pyuno>']"]
 
 
+def test_log_does_not_deep_str_uno_struct() -> None:
+    calls: list[str] = []
+
+    class UnoStruct(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+
+        def __init__(self, message: str = "element exists") -> None:
+            super().__init__(message)
+            self.Message = message
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("deep str called")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("deep repr called")
+
+    obj = UnoStruct()
+    logger, handler = _isolated_logger("writeragent.test.uno-struct-emit")
+    try:
+        logger.warning("v=%s", obj)
+        logger.warning("%r", obj)
+        logger.warning("v=%s", [obj])
+        logger.warning("v=%s", {obj: 1})
+        try:
+            raise obj
+        except Exception:
+            logger.exception("failed")
+    finally:
+        logger.handlers.clear()
+
+    assert calls == []
+    assert len(handler.messages) == 5
+    for msg in handler.messages:
+        assert "element exists" in msg
+        assert "<UNO " in msg
+
+
 def test_exception_text_is_formatted_before_handler_emit() -> None:
     phase = {"emit": False}
     calls: list[bool] = []
