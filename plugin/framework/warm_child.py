@@ -379,9 +379,6 @@ class WarmChild:
             return None
         return child._io_owner
 
-    def io_locked(self) -> bool:
-        return self._io_lock.locked()
-
     def fail_lease(self, code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]:
         msg = fail_phase_message(phase, detail)
         child = self._child

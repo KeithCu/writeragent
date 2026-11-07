@@ -126,6 +126,8 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
 
     def _retry_reset(self, sid: str) -> None:
         """Retry resetting a worker session that returned WORKER_REENTRY."""
+        # Every caller now waits for the pipe lock; this retry runs only after
+        # a tool-RPC refusal or the 600 s backstop.
         # do_retry sleeps up to 5s, so run it on a dedicated background
         # worker. On the shared pool that sleep starves other tasks.
         res: Any = None
@@ -165,7 +167,8 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         # reset races a reopen of the same calc: URL and wipes the new kernel.
         # reset_python_session returns without spawning when no child is alive,
         # so this thread waits only for in-place IPC on a worker that already
-        # exists.
+        # exists, and for any request already holding the pipe (bounded by
+        # that request's budget).
         for sid in session_ids:
             if sid:
                 best_effort(lambda: self._reset_one(sid), "python_workbook_lifecycle: reset on unload")
