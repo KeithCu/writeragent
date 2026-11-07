@@ -1663,6 +1663,24 @@ def test_reset_python_session_does_not_spawn_when_worker_is_dead(monkeypatch: py
     assert res_live['status'] == 'ok'
     assert calls == ['reset_session']
 
+
+def test_reset_python_session_passes_lease_wait_sec(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def _execute(self: Any, code: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {'status': 'ok'}
+
+    monkeypatch.setattr(PythonWorkerManager, 'execute', _execute)
+    alive = PythonWorkerManager('/tmp/python-alive', {'PATH': '/usr/bin'})
+    _install_mock_proc(alive, _MockProc(None))
+    monkeypatch.setattr(venv_worker_module, '_get_worker_manager', lambda pool='default': (alive, None))
+    res = reset_python_session('calc:file:///live.ods', timeout_sec=3, lease_wait_sec=3)
+    assert res['status'] == 'ok'
+    assert len(calls) == 1
+    assert calls[0].get('timeout_sec') == 3
+    assert calls[0].get('lease_wait_sec') == 3
+
 def test_worker_read_rejects_oversize_length_prefix():
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None)))

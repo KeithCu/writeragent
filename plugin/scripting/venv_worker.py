@@ -442,9 +442,11 @@ class PythonWorkerManager:
         cancel: SendCancellation | None = None,
         *,
         spawn_deadline: Deadline | None = None,
+        lease_wait_sec: float | None = None,
     ) -> Generator[Lease | dict[str, Any], None, None]:
         """Hold the warm-child pipe lock, or yield an error dict."""
-        acquire_end = time.monotonic() + _IO_LOCK_ACQUIRE_TIMEOUT_SEC
+        lock_budget = lease_wait_sec if lease_wait_sec is not None else _IO_LOCK_ACQUIRE_TIMEOUT_SEC
+        acquire_end = time.monotonic() + lock_budget
         spawn_deadline = spawn_deadline or Deadline(float(WARM_WORKER_TIMEOUT_SEC))
         while True:
             refused: dict[str, Any] | None = None
@@ -509,11 +511,12 @@ class PythonWorkerManager:
         *,
         cancel: SendCancellation | None = None,
         timeout_sec: int | None = None,
+        lease_wait_sec: float | None = None,
     ) -> dict[str, Any]:
         """Run *body* while this manager holds the pipe, or return the session error."""
         spawn_deadline = Deadline(float(timeout_sec if timeout_sec is not None else WARM_WORKER_TIMEOUT_SEC))
         for attempt in range(2):
-            with self._io_session(cancel, spawn_deadline=spawn_deadline) as session:
+            with self._io_session(cancel, spawn_deadline=spawn_deadline, lease_wait_sec=lease_wait_sec) as session:
                 if isinstance(session, dict):
                     return session
                 outcome = body(session)
@@ -891,6 +894,7 @@ class PythonWorkerManager:
         script_session_id: str | None = None,
         cancel: SendCancellation | None = None,
         sandbox_policy: dict[str, Any] | None = None,
+        lease_wait_sec: float | None = None,
     ) -> dict[str, Any]:
         """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
 
@@ -929,6 +933,7 @@ class PythonWorkerManager:
             ),
             cancel=cancel,
             timeout_sec=timeout_sec,
+            lease_wait_sec=lease_wait_sec,
         )
 
     def execute_ppt_master_turn(
@@ -1327,7 +1332,12 @@ def run_code_in_user_venv(
     )
 
 
-def reset_python_session(session_id: str, *, timeout_sec: int | None = None) -> dict[str, Any]:
+def reset_python_session(
+    session_id: str,
+    *,
+    timeout_sec: int | None = None,
+    lease_wait_sec: float | None = None,
+) -> dict[str, Any]:
     """Drop the shared-kernel executor for *session_id* in the warm worker.
 
     A missing or exited child returns {"status": "ok"} and does not spawn.
@@ -1361,6 +1371,7 @@ def reset_python_session(session_id: str, *, timeout_sec: int | None = None) -> 
         timeout_sec=timeout_sec,
         session_id=session_id,
         action="reset_session",
+        lease_wait_sec=lease_wait_sec,
     )
 
 
