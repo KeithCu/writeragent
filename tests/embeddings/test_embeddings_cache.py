@@ -684,14 +684,18 @@ def test_folder_cache_lock_held_during_clear_and_upgrade(tmp_path):
 
     def probe_lock() -> bool:
         # Try to acquire lock from another thread; must fail if held.
-        acquired = []
-        t = threading.Thread(target=lambda: acquired.append(embeddings_cache._folder_cache_lock.acquire(blocking=False)))
+        acquired: list[bool] = []
+
+        def _try() -> None:
+            got = embeddings_cache._folder_cache_lock.acquire(blocking=False)
+            if got:
+                embeddings_cache._folder_cache_lock.release()
+            acquired.append(got)
+
+        t = threading.Thread(target=_try)
         t.start()
         t.join()
-        if acquired and acquired[0]:
-            embeddings_cache._folder_cache_lock.release()
-            return False
-        return True
+        return not acquired[0]
 
     real_remove = embeddings_cache._remove_path
 
@@ -709,13 +713,15 @@ def test_folder_cache_lock_held_during_clear_and_upgrade(tmp_path):
     # Re-create meta to test maybe_upgrade_legacy_index
     meta_path.write_text('{"schema_version": "0"}', encoding="utf-8")
 
-    def spy_remove_upgrade(path: Path) -> bool:
+    real_load = embeddings_cache._load_meta_object
+
+    def spy_load_upgrade(path: Path):
         nonlocal locked_during_upgrade
         if probe_lock():
             locked_during_upgrade = True
-        return real_remove(path)
+        return real_load(path)
 
-    with patch.object(embeddings_cache, "_remove_path", side_effect=spy_remove_upgrade):
+    with patch.object(embeddings_cache, "_load_meta_object", side_effect=spy_load_upgrade):
         embeddings_cache.maybe_upgrade_legacy_index(listing)
 
     assert locked_during_upgrade is True

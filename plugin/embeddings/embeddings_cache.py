@@ -34,8 +34,9 @@ LEGACY_INDEX_DB = "index.db"
 LEGACY_FTS_DB = "fts5.db"
 LEGACY_FTS_META = "fts_meta.json"
 
-# Synchronizes host clear and upgrade operations so background indexing and Rebuild do not race.
-# Rebuild's RPC starts only after its clear returns, so a host-only lock is enough.
+# Serializes host deletes, so a worker's stale-schema delete cannot land on Rebuild's fresh build.
+# It does not cover a running child; Rebuild's RPC starts after its clear returns, so the
+# delete-versus-delete race needs only this host lock.
 # No host caller of either function is on the UI thread, so the lock cannot block SolarMutex.
 _folder_cache_lock = threading.RLock()
 
@@ -301,8 +302,9 @@ class CorpusMeta:
     def has_foreign_schema(self) -> bool:
         """True when meta has an explicit schema version differing from current.
 
-        Absent or corrupt meta (schema_version == "") must stay non-empty so a cold
-        rebuild does not wipe an existing populated collection (#1153).
+        Absent or corrupt meta (schema_version == "") is not foreign: folder_store must not
+        hide that store, because a zvec or lancedb collection with bad meta stays live and
+        a cold rebuild would delete it (#1153).
         """
         return bool(self.schema_version and self.schema_version != SCHEMA_VERSION)
 
