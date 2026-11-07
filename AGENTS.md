@@ -2,48 +2,38 @@
 
 **Assume the reader knows nothing about this project.** This file lists **invariants** and **easy mistakes**. Everything else is in the linked modules and docs—open those when you change behavior. Entry points and topic hubs: [`docs/repo-map.md`](docs/repo-map.md).
 
-> [!IMPORTANT]
-> **Translations:** WriterAgent extracts and translates strings itself (`make extract-strings` and the translation workflow). Mark new user-facing strings with the existing gettext wrappers. Agents and subprocesses must not translate UI strings, fill `msgstr` values, or edit `.po`/`.pot` catalogs. Do not spend tokens on translations.
-> [!IMPORTANT]
-> **Docs:** After any nontrivial change, update documentation. Prefer the **topic doc** under `docs/`; touch **`AGENTS.md`** only when the change affects **many areas** or **global rules**.
-> [!IMPORTANT]
-> **Complexity:** This codebase is complicated for its size. When asked to do a new feature, always figure out the way using the least amount of code or extra complexity. Using existing functions, there are many functions which can just be used or refactored to make the change small for a new feature.
+**Translations:** WriterAgent extracts and translates strings itself (`make extract-strings` and the translation workflow). Mark new user-facing strings with the existing gettext wrappers. Agents and subprocesses **must not translate UI strings**, fill `msgstr` values, or edit `.po`/`.pot` catalogs. Do not spend tokens on translations.
 
-If you find ways to lower technical debt, while adding a feature, put that in your plan.
+**Docs:** After any nontrivial change, **update documentation**. Prefer the **topic doc** under `docs/`; touch `AGENTS.md` only when the change affects many areas or global rules.
 
-> [!IMPORTANT]
-> **Tests:** New features and bugfixes **must** include tests.
-> - **Unit:** `tests/`, **pytest** (`make pytest`) when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`). **Always add new test cases to the matching `test_` file to maintain consistent naming and visible coverage.**
-> - **UNO / LibreOffice:** collocated `*_uno.py` files via **`testing_runner.py`** (`make test-uno`, no pytest)—use **`@native_test`**, **`@setup`**, **`@teardown`**; test functions take **`ctx`**. **Follow the same module-matching rule (e.g. `foo.py` -> `test_foo_uno.py`).**
-> - **Execution Policy:** Do **not** run tests or **`make typecheck`** before starting work unless you need output from a test to understand a failure. Assume the tree and tests are already green. After edits, run tests for the files you changed plus **`make typecheck`**. Typecheck takes about **one minute** — wait for it; do not poll every few seconds. Run full **`make test`** ONLY IF making large refactors or cross-cutting changes.
+**Complexity:** This codebase is complicated for its size. When asked to do a new feature, always figure out the way **using the least amount of code** or extra complexity. Using existing functions, there are many functions which can just be used or refactored to make the change small for a new feature. If you find ways to lower technical debt, while adding a feature, put that in your plan.
 
-> [!TIP]
-> **When unsure of LibreOffice / UNO API behavior, inspect it directly!**
-> Do not guess, add layers of speculative fallback code, or flail. You have a full running LibreOffice instance and a fast native test runner:
-> ```bash
-> .venv/bin/python plugin/testing_runner.py tests/chatbot/test_hamburger_menu_uno.py
-> ```
-> See `tests/chatbot/test_hamburger_menu_uno.py` as an example: write a quick `@native_test` function (takes `ctx`), instantiate the UNO service, and inspect `dir(obj)` or test the exact call directly. In seconds you get the real runtime methods, argument counts, and types.
+## Tests
 
-> [!IMPORTANT]
-> **Comments:** Explain the code that is here **now**, for a reader who would otherwise be **lost**. They are the bridge from opaque to understandable and maintainable code. Assume the reader is not a coding expert and does not already know this project. Write clear comments with enough detail to follow—two or three short sentences is often right; do not use cryptic one-liners.
-> - Do **not** write “what went wrong” boilerplate or bug-history narration: no “this used to…”, “previously…”, “the bug was…”, “Bugfix:”, how the old code failed, or a postmortem of the fix.
-> - It **is** fine (and often useful) to say in present tense what would go wrong for the user or the program if this code were not here—that explains the current invariant, not the war story of the bug.
-> - Some files have almost no comments; adding footnotes where a reader would be lost is normal.
-> - **LibreOffice / UNO / Etc.:** quirks. When matching upstream behavior, cite **source** (file + line or function), not a vague “like Lightproof.”
+New features and bugfixes **must include tests**.
+- **Unit:** `tests/`, pytest (`make pytest`) when logic can be mocked. Test files should match the source module name (e.g. `foo.py` -> `test_foo.py`). **Always add new test cases to the matching `test_` file** to maintain consistent naming and visible coverage.
+- **UNO / LibreOffice:** collocated `*_uno.py` files via `testing_runner.py` (`make test-uno`, no pytest)—use `@native_test`, `@setup`, `@teardown`; test functions take `ctx`. Follow the same module-matching rule (e.g. `foo.py` -> `test_foo_uno.py`).
+- **Execution Policy:** **Do not run tests or `make typecheck` before starting work** unless you need output from a test to understand a failure. Assume the tree and tests are already green. After edits, run tests for the files you changed plus `make typecheck`. Typecheck takes about **one minute** — wait for it; do not poll every few seconds. Run full `make test` **only if making large refactors** or cross-cutting changes.
+
+When unsure of LibreOffice / UNO API behavior, **inspect it directly**! Do not guess, add layers of speculative fallback code, or flail. You have a full running LibreOffice instance and a fast native test runner:
+```bash
+.venv/bin/python plugin/testing_runner.py tests/chatbot/test_hamburger_menu_uno.py
+```
+See `tests/chatbot/test_hamburger_menu_uno.py` as an example: write a quick `@native_test` function (takes `ctx`), instantiate the UNO service, and inspect `dir(obj)` or test the exact call directly. In seconds you get the real runtime methods, argument counts, and types.
+
+## Comments
+
+Explain the code that is here **now**, for a reader who would otherwise be lost. They are the bridge from opaque to understandable and maintainable code. Assume the reader is not a coding expert and does not already know this project. Write clear comments with enough detail to follow—two or three short sentences is often right; do not use cryptic one-liners.
+- **Do not write “what went wrong” boilerplate** or bug-history narration: no “this used to…”, “previously…”, “the bug was…”, “Bugfix:”, how the old code failed, or a postmortem of the fix.
+- It is fine (and often useful) to say in present tense what would go wrong for the user or the program if this code were not here—that explains the current invariant, not the war story of the bug.
+- Some files have almost no comments; adding footnotes where a reader would be lost is normal.
+- **LibreOffice / UNO / Etc. quirks:** When matching upstream behavior, **cite source** (file + line or function), not a vague “like Lightproof.”
 
 ---
 
 ## Project overview
 
 **WriterAgent** is a LibreOffice extension (Python + UNO) for Writer, Calc, and Draw (Impress paths where registered).
-
-- **Chat:** Sidebar + menu chat (Writer/Calc deck; Draw per code paths)—multi-turn, tools, history (SQLite when available, else JSON under `writeragent_history.db.d/`).
-- **Extend / Edit selection:** Writer uses `get_string_without_tracked_deletions()` in `text_helpers` for prompts; session details in `plugin/writer/edit_review.py`, compound undo in `plugin/doc/compound_undo.py`.
-- **Settings:** `writeragent.json` under the LibreOffice user profile—see `config` module doc.
-- **Memory:** `upsert_memory` writes `USER.md`; `MEMORY_GUIDANCE` injects it each turn — [docs/archive/hermes-agent-patterns.md](docs/archive/hermes-agent-patterns.md).
-- **Calc:** `=PROMPT()` and `=PYTHON()` add-ins (see [`docs/repo-map.md`](docs/repo-map.md)).
-- **Eval / benchmarks:** `make run_eval` / `scripts/benchmark.py` → `scripts/prompt_optimization/` — [scripts/prompt_optimization/README.md](scripts/prompt_optimization/README.md), [docs/eval/eval-dev-plan.md](docs/eval/eval-dev-plan.md).
 
 **Python:** Dev/tooling **3.11–3.13** (`pyproject.toml`); dev `.venv` is pinned to **3.13** via `.python-version` (3.14 lacks wheels for some dev deps such as spaCy). **Extension runtime** is whatever LibreOffice bundles (often older). **Shipped code under `plugin/` must not rely on stdlib newer than that runtime.**
 
@@ -57,8 +47,8 @@ If you find ways to lower technical debt, while adding a feature, put that in yo
 |---------|-------------|
 | `make typecheck` | After edits (required with targeted tests). basedpyright, bandit, opengrep, pyspector, ty, thread-safety, and mypy in parallel. Details: [docs/framework/type-checking.md](docs/framework/type-checking.md) |
 | `make deploy` | WriterAgent OXT: build + install/cache sync; **restart LibreOffice** (or `make deploy writer/calc/draw/impress` to launch) |
-| `make deploy-core` | LibrePy OXT only (`build/LibrePy.oxt`); **removes WriterAgent**. Install one OXT at a time. |
-| `make pytest` | Unit pytest only: `-m "not slow and not integration" --ignore-glob='*_uno.py'` plus xdist (`-n auto --dist=loadgroup`; `PYTEST_WORKERS=0` for serial). No live soffice. |
+| `make deploy-core` | LibrePy OXT only (`build/LibrePy.oxt`); **removes WriterAgent**. |
+| `make pytest` | Unit pytest only: `-m "not slow and not integration" --ignore-glob='*_uno.py'` plus xdist (`-n auto --dist=loadgroup`; `PYTEST_WORKERS=0` for serial). No live soffice. Single file: `.venv/bin/python -m pytest tests/<area>/test_<module>.py -m "not slow and not integration" --timeout=300` |
 | `make test-uno` | UNO / LibreOffice tests only: runs `testing_runner.py` with serial live LibreOffice instance. |
 | `make test` | Large or cross-cutting changes only (includes typecheck, SAST, pytest, LO tests) |
 | `make build` | Produce `build/WriterAgent.oxt` only (no install) |
@@ -118,7 +108,7 @@ when you open that tree; other agents should open them explicitly.
 - **When editing `plugin/calc/`:** read [`plugin/calc/AGENTS.md`](plugin/calc/AGENTS.md)
 - **When editing `plugin/scripting/` or LibrePy:** read [`plugin/scripting/AGENTS.md`](plugin/scripting/AGENTS.md)
 
-**Config:** Call `init_config(ctx)` once at bootstrap. Later config I/O does not take `ctx` — see the `config` module doc. Background pool worker count is controlled via `WRITERAGENT_BG_POOL_WORKERS` (default `2`, valid values are integers `>= 1`).
+**Config:** Call `init_config(ctx)` once at bootstrap. Later config I/O does not take `ctx` — see the `config` module doc.
 
 **Logging / MCP:** Logs go to `writeragent_debug.log` next to `writeragent.json`. `enable_agent_log` is separate (structured `[Agent]` traces are written even when `log_level` is above DEBUG). In unexpected `except` blocks, use **`log.exception("Context")`**. MCP work drains on the main thread ([docs/mcp-protocol.md](docs/mcp-protocol.md)). Do not read API keys from the environment in production; do not use **`tempfile.mktemp()`**. For scratch debug files under `/tmp`, prefer `flush=True`.
 
@@ -130,41 +120,10 @@ Do not reuse the names **`logging`**, module **`log`**, or gettext **`_`** for u
 
 ### Do not redo (already shipped)
 
-- Do **not** invent `python_config.py` or rename `writeragent.json` for LibrePy.
-- Do **not** split `payload_codec.py` flatten/unpack without serialization A/B tests ([docs/scripting/numpy-serialization.md](docs/scripting/numpy-serialization.md)).
-- Envelope-detector `@deal` + Hypothesis oracles on `payload_codec` (`is_split_grid`, `is_multi_data`, image / dataframe / calc_range) are **shipped**. Source of truth: [docs/scripting/serialization-verification.md](docs/scripting/serialization-verification.md).
-- Scripting domain registries (Phases 1–6) are shipped — do not add a fourth ad-hoc registry ([docs/archive/scripting-domain-debt-dev-plan.md](docs/archive/scripting-domain-debt-dev-plan.md)).
-- `calc_functions_*.py` alphabet splits are intentional; do not merge them.
-- Do **not** drop `plugin/calc/analyzer.py` from the LibrePy bundle (reserved for later use).
-- Do **not** slim `trusted_action_registry.py` / `venv_diagnostics.py` for LibrePy while those modules still work.
-- Do **not** add defensive `stop_checker` checks inside document mutations (e.g. `apply_chunk`, `_insert_or_replace`, plot/table insertion) or abort speech-to-text on Stop.
+Do not redo items live in the area `AGENTS.md` files (see [`plugin/scripting/AGENTS.md`](plugin/scripting/AGENTS.md) and [`plugin/calc/AGENTS.md`](plugin/calc/AGENTS.md)).
 
 ---
 
 ## Where to look
 
-**Layout:** `plugin/` (framework, chatbot, writer, calc, draw, scripting, librepy, …), `extension/` (WriterAgent OXT), `extension-core/` (LibrePy OXT), `scripts/`, `Makefile`, `pyproject.toml`.
-
-Full entry-point table and topic-hub catalog: [`docs/repo-map.md`](docs/repo-map.md).
-
-Hubs (open the topic doc; do not grow this list here):
-
-| Need | Start |
-|------|--------|
-| Bootstrap / MCP | `plugin/main.py`, `plugin/app.py` |
-| LibrePy bootstrap | `plugin/main_core.py` |
-| Sidebar / send | `plugin/chatbot/panel.py` |
-| Tool loop / FSM | `plugin/chatbot/tool_loop.py` |
-| HTTP / LLM | `plugin/framework/client/llm_client.py` |
-| UNO thread guard | `plugin/framework/thread_guard.py` |
-| Light vs chat document helpers | `plugin/doc/text_helpers.py` / `document_helpers.py` |
-| Native UNO tests | `plugin/testing_runner.py` |
-
-Why this file is short: Hermes truncates each context file at 20,000
-characters (head+tail). Keep **invariants** here; keep **catalogs**
-in `docs/repo-map.md`.
-
-## References
-
-- Dialog DTD (LibreOffice tree): `xmlscript/dtd/dialog.dtd`
-- GUI DevGuide: https://wiki.documentfoundation.org/Documentation/DevGuide/Graphical_User_Interfaces
+Entry points and topic docs: [`docs/repo-map.md`](docs/repo-map.md). Hermes truncates each context file at 20,000 characters (head+tail); keep invariants here and catalogs in `docs/repo-map.md`.
