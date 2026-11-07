@@ -139,7 +139,7 @@ Why not repaint per batch: a wipe-and-refill about 3 times a second built 3 hidd
 
 **Stop line display:** `session_history_items` shows the stored `\n[Stopped by user]\n` assistant message as the last paragraph of the answer it stopped (its own row when Stop came before the first token). Display only: `session.messages` and the model context keep the separate message.
 
-**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. That cuts the plain tail at the end of the formatted prefix and appends this turn's rows formatted (a full repaint when the prefix is unknown). If it does not, an unclosed tag still held by the stream stripper is appended, which records it on the list and paints. Stop already painted the partial answer plus `[Stopped by user]` and skips this second paint.
+**Rerender path:** On stream end, `finalize_sidebar_assistant_response` calls `rerender_rich_text_session` when the turn was not stopped and was not an API error. That cuts the plain tail at the end of the formatted prefix and appends this turn's rows formatted (a full repaint when the prefix is unknown). If it does not, an unclosed tag still held by the stream stripper is appended, which records it on the list and paints. Both Stop (`close_stopped`) and a terminal API error (`_handle_stream_error`) finish the stripper before the commit, so the error row is the open-row text plus the banner and the leftover append finds an empty stripper. Stop already painted the partial answer plus `[Stopped by user]` and skips this second paint.
 
 ### RichTextControl vs HTML
 
