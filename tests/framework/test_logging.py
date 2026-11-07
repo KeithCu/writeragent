@@ -1543,6 +1543,75 @@ def test_log_does_not_deep_str_uno_struct() -> None:
         assert "<UNO " in msg
 
 
+def test_log_exception_chained_uno_struct_does_not_deep_str() -> None:
+    calls: list[str] = []
+
+    class UnoStruct(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+
+        def __init__(self, message: str = "root uno error") -> None:
+            super().__init__(message)
+            self.Message = message
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("deep str called")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("deep repr called")
+
+    logger, handler = _isolated_logger("writeragent.test.uno-chain-emit")
+    try:
+        try:
+            try:
+                raise UnoStruct()
+            except UnoStruct as uno_err:
+                raise ValueError("wrapper error") from uno_err
+        except ValueError:
+            logger.exception("failed")
+    finally:
+        logger.handlers.clear()
+
+    assert calls == []
+    assert len(handler.messages) == 1
+    msg = handler.messages[0]
+    assert "<UNO UnoStruct: root uno error>" in msg
+    assert "ValueError: wrapper error" in msg
+    assert "direct cause of the following exception" in msg
+
+
+@pytest.mark.parametrize("has_message,message_value", [(True, 123), (False, None)])
+def test_logged_uno_label_non_str_or_missing_message(has_message: bool, message_value: Any) -> None:
+    calls: list[str] = []
+
+    class UnoStruct:
+        __pyunostruct__ = "com.sun.star.beans.PropertyValue"
+
+        def __init__(self) -> None:
+            if has_message:
+                self.Message = message_value
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("deep str called")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("deep repr called")
+
+    obj = UnoStruct()
+    logger, handler = _isolated_logger("writeragent.test.uno-edge-emit")
+    try:
+        logger.warning("v=%s", obj)
+    finally:
+        logger.handlers.clear()
+
+    assert calls == []
+    assert len(handler.messages) == 1
+    assert handler.messages[0] == "v=<UNO UnoStruct: >"
+
+
 def test_exception_text_is_formatted_before_handler_emit() -> None:
     phase = {"emit": False}
     calls: list[bool] = []

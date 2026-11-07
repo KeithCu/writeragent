@@ -38,7 +38,8 @@ import traceback
 import threading
 import logging
 from copy import deepcopy
-from typing import Any, TypedDict, cast
+from types import TracebackType
+from typing import Any, TypedDict
 
 from plugin.framework.errors import ConfigError, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
@@ -851,16 +852,58 @@ def _coerce_factory_slot(slots: list[Any] | dict[str, Any], key: int | str) -> b
     return changed
 
 
-def _preformat_exc_text(exc_info: Any) -> str:
-    if (
-        isinstance(exc_info, tuple)
-        and len(exc_info) > 1
-        and getattr(type(exc_info[1]), "__pyunostruct__", None) is not None
-    ):
-        tb = exc_info[2] if len(exc_info) > 2 else None
-        header = "Traceback (most recent call last):\n" if tb is not None else ""
-        return header + "".join(traceback.format_tb(tb)) + (_logged_uno_label(exc_info[1]) or "")
-    return logging.Formatter().formatException(cast("Any", exc_info))
+_ExcInfo = tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None]
+
+
+def _preformat_exc_text(exc_info: _ExcInfo) -> str:
+    _, exc, tb = exc_info
+    if exc is None:
+        return logging.Formatter().formatException(exc_info)
+
+    current: BaseException | None = exc
+    chain: list[tuple[str | None, BaseException]] = []
+    seen: set[int] = set()
+    has_uno = False
+
+    while current is not None:
+        seen.add(id(current))
+        if getattr(type(current), "__pyunostruct__", None) is not None:
+            has_uno = True
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        suppress = getattr(current, "__suppress_context__", False)
+        if cause is not None and id(cause) not in seen:
+            chained_msg = "\n\nThe above exception was the direct cause of the following exception:\n\n"
+            chained_exc = cause
+        elif context is not None and not suppress and id(context) not in seen:
+            chained_msg = "\n\nDuring handling of the above exception, another exception occurred:\n\n"
+            chained_exc = context
+        else:
+            chained_msg = None
+            chained_exc = None
+        chain.append((chained_msg, current))
+        current = chained_exc
+
+    if not has_uno:
+        return logging.Formatter().formatException(exc_info)
+
+    parts: list[str] = []
+    for msg, link in reversed(chain):
+        if msg is not None:
+            parts.append(msg)
+        cur_tb = tb if link is exc else getattr(link, "__traceback__", None)
+        if cur_tb is not None:
+            tb_lines = "".join(traceback.format_tb(cur_tb))
+            if tb_lines:
+                parts.append("Traceback (most recent call last):\n")
+                parts.append(tb_lines)
+        label = _logged_uno_label(link)
+        if label is not None:
+            parts.append(label)
+        else:
+            link_msg = str(link)
+            parts.append(f"{type(link).__name__}: {link_msg}" if link_msg else type(link).__name__)
+    return "".join(parts)
 
 
 def _install_safe_log_record_factory() -> None:
