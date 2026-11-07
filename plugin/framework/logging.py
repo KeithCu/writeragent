@@ -770,15 +770,15 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
 
 
 def _logged_uno_label(value: Any) -> str | None:
-    # Bugfix: PyUNO struct and exception types are not named "pyuno" (their class
-    # names are dotted UNO names like com.sun.star.uno.RuntimeException with
-    # __pyunostruct__ set), so they were not replaced and stayed in the record.
-    # When formatted, their __str__ invokes _uno_struct__repr__ -> deep val2str,
-    # which walks every struct member (including interface Context) and calls
-    # getImplementationName/getTypes under SolarMutex, deadlocking background
-    # workers against the UI thread.
-    # Extracting only the Message field without calling str() or repr() prevents
-    # the deep walk and lock inversion while retaining error diagnosis.
+    # LibreOffice UNO structs and exceptions are not the type named "pyuno".
+    # Their class names look like com.sun.star.uno.RuntimeException, and they
+    # carry a __pyunostruct__ mark. Asking Python to print one walks every
+    # field (including interface objects such as Context) and calls methods
+    # that need LibreOffice's UI lock (SolarMutex). If a background worker
+    # does that while the UI thread is waiting, both sides can freeze.
+    # This helper copies only the Message text and never calls str() or
+    # repr() on the object, so the log still names the error without
+    # walking those fields or taking that lock.
     if type(value).__name__ == "pyuno":
         return "<pyuno>"
     if getattr(type(value), "__pyunostruct__", None) is not None:
