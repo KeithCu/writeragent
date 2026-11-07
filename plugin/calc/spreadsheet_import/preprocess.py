@@ -22,9 +22,8 @@ def _deal_lo_formula_ok_pytest(formula: object) -> bool:
 _deal_lo_formula_ok = _deal_lo_formula_ok_pytest
 
 
-# What was wrong: only "..." was tracked, so a ';' in a quoted sheet name
-# ('My;Sheet'.A1) or an array constant ({1;2|3;4}) was rewritten to ','.
-# Why this fixes it: single-quoted names and {...} are copied verbatim.
+# Track both "..." and '...' literals plus {...} depth so ';' inside quoted sheet names
+# or array constants is not rewritten to ','.
 def _scan_quotes(s: str) -> str:
     out: list[str] = []
     i = 0

@@ -72,9 +72,8 @@ def read_member(zf: zipfile.ZipFile, name: str, limit: int = MAX_MEMBER_BYTES) -
                     return None
                 buf.extend(piece)
     except (zipfile.BadZipFile, EOFError, zlib.error, RuntimeError, NotImplementedError):
-        # What was wrong: encrypted or unsupported-compression members raised RuntimeError/NotImplementedError.
-        # How it happened: zipfile.open reports encrypted members via RuntimeError and unsupported compression via NotImplementedError.
-        # Why this change: catch both so hostile archives return None instead of escaping read_member.
+        # zipfile.open raises RuntimeError/NotImplementedError for encrypted or unsupported members.
+        # Hostile archives return None from read_member instead of bubbling those errors.
         return None
     return bytes(buf)
 
@@ -102,9 +101,8 @@ def extract_member(
     while os.path.exists(out):
         out = os.path.join(dest_dir, "%s_%d%s" % (root, counter, ext))
         counter += 1
-    # What was wrong: duplicate basenames collided and preexisting files could be overwritten or deleted on failure.
-    # How it happened: filename was computed without checking if out already existed in dest_dir.
-    # Why this change: uniquify with a _N suffix before writing so out never collides, and cleanup only removes our own file.
+    # Destination filenames must be unique before write to avoid clobbering unrelated files.
+    # Cleanup removes only paths this extract created.
     try:
         with open(out, "wb") as dst:
             dst.write(data)

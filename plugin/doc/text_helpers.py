@@ -185,8 +185,7 @@ def _char_offset_of_position(model: Any, target_start: Any, doc_len: int) -> int
     """Cursor-step offset of a body text position from the document start, or -1 when the position is outside the body or cannot be measured."""
     if not _position_text_is_body(model, target_start, "Get position text"):
         # Selection is in a table cell, frame, or header. compareRegionStarts
-        # against the body raises, and the handler below used to return 0,
-        # which is the document start.
+        # Nested vs body compare failures return -1, not 0 (document start).
         return -1
     if doc_len <= 0:
         return 0
@@ -414,7 +413,7 @@ def _range_is_paragraph(text_range: Any) -> bool:
 
     ``createEnumeration()`` on a document or multi-para cursor yields paragraphs.
     On a paragraph ``XTextRange`` it yields text portions (bold runs, redlines).
-    Treating those portions as paragraphs used to inject a ``\\n`` between runs.
+    Redlines must not be split as paragraph boundaries—extra newlines would appear between runs.
     """
     if uno_read(lambda: text_range.supportsService(_PARAGRAPH_SERVICE) is True, False, object_type="TextRange"):
         return True
@@ -627,13 +626,7 @@ def build_heading_tree(model: Any, elements: list[Any] | None = None) -> Heading
                 stack[-1]["body_paragraphs"] += 1
         return root
     except UnoObjectError:
-        # What was wrong: any UNO failure, including a closed document, became an
-        # empty root, which callers read as "no headings".
-        # How: this handler swallowed UnoObjectError and returned a successful empty
-        # tree. DocumentDisposedError directly subclasses WriterAgentException (not
-        # UnoObjectError), so disposal propagates unhandled while UnoObjectError is
-        # logged and re-raised here.
-        # Why: a failed walk is not an empty outline.
+        # UnoObjectError must propagate—callers must not read a failed walk as an empty outline.
         log.exception("build_heading_tree error")
         raise
 
@@ -737,29 +730,15 @@ def clone_text_range(text_range: Any) -> Any:
 def with_view_cursor_left_body_locked(doc: Any, vc: Any, action_fn: Any) -> Any:
     """Leave nested XText, lock for the action, unlock before restore.
 
-    What was wrong: Hand-rolled cursor save/lock in get_page_for_paragraph and
-    get_page_count used doc.getText().createTextCursorByRange(vc.getStart())
-    which raised RuntimeException ("End of content node doesn't have the proper
-    start node") when vc sat inside a table cell or text frame, aborting page
-    resolution and falling back to page 1 (#1422). It also called gotoRange
-    before unlockControllers(), which fails for nested cell targets.
-    How it happened: structural.py previously implemented _with_left_body_locked
-    for page scans, but document_helpers.py retained an outdated duplicate.
-    Why this change: Centralizes the leave-body, lock, unlock, restore sequence
-    into one shared, LibrePy-safe helper for all view-cursor walking operations.
+    Leave nested XText, lock controllers, run the scan, unlock, then restore the view cursor.
+    Body getText() cannot clone a cursor inside a table cell or frame.
     """
     saved = None
     try:
         # Nested XText (table cell / frame): body getText() cannot clone this range.
         saved = clone_text_range(vc)
     except Exception as exc:
-        # What was wrong: a failed clone left saved as None, then the view cursor
-        # was moved to the body start and the restore was skipped, so the user
-        # was left at the document start.
-        # How: gotoRange(body start) ran whenever the move itself did not throw,
-        # independent of whether a restore position existed.
-        # Why: with no saved position, do not move the view cursor. The action
-        # still runs (page numbers); it must not be preceded by a jump to the start.
+        # Failed clone: run action without moving the view cursor—no saved position means no restore jump.
         reraise_if_disposed(exc, object_type="ViewCursor")
         log.debug(
             "with_view_cursor_left_body_locked: clone failed; not moving the view cursor",

@@ -823,13 +823,7 @@ class TunnelManager:
         effect = None
         with self._lock:
             # Timer.cancel() does not stop a callback that has already started.
-            # That callback used to block on this lock while start() ran
-            # binary_available() (up to ~10s), survive CancelRetryTimerEffect,
-            # then dispatch RETRY_TIMER_EXPIRED after StartProcessEffect and
-            # leave a second tunnel running. Ignore the callback unless this
-            # timer is still the one TunnelManager tracks. Also skip it while
-            # start() is outside the lock probing the provider binary — that
-            # start() owns the next process, or marks the tunnel FAILED.
+            # Ignore stale retry timer callbacks while start() holds the lock or replaced this timer.
             if timer is None or self._reconnect_timer is not timer:
                 log.info("Ignoring stale MCP tunnel retry timer")
                 return
@@ -912,10 +906,7 @@ class TunnelManager:
                 log.info("Ignoring stale MCP tunnel start (%s)", provider)
                 return False
             if probe_error:
-                # The probe used to return only a bool, so every failure
-                # (timeout, permission, exec error) was stored as "binary not
-                # found on PATH". start() now stores the probe string so MCP
-                # Server Status matches the failure.
+                # Store the probe error string so status UI distinguishes missing binary from other failures.
                 self._dispatch_unlocked(TunnelEvent(TunnelEventKind.STOP_REQUESTED))
                 self._state = dataclasses.replace(self._state, status=TunnelStatus.FAILED, last_error=probe_error, desired_running=False)
                 self._retire_snippet_provider(provider)

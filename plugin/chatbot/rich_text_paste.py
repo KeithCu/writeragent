@@ -800,7 +800,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             addr = normalize_cell_address(href) if href else None
                             if is_pending:
                                 # Pop the matched queue head even when href supplied the address.
-                                # An href used to leave the queue head, so the next same label reused it.
+                                # Pop the pending link queue when href supplies the address.
                                 pending_addr = pending_links[pending_link_idx][1]
                                 pending_link_idx += 1
                                 if not addr:
@@ -881,8 +881,7 @@ def _plain_fallback_text(text: str) -> str:
 
 def _row_separator_suffix(text: str | None) -> str:
     """Return the newline suffix needed to leave one blank line after *text*."""
-    # The separator used to append \n\n after a single trailing newline,
-    # so the gap became two blank lines.
+    # One blank line between rows: a single trailing newline needs only one more \\n.
     if not text or not text.strip():
         return ""
     if text.endswith("\n\n"):
@@ -1108,10 +1107,7 @@ def append_formatted_row(
         _finish_append_row()
         return True
 
-    # Remember the length before the separator. A failed copy used to leave
-    # that blank gap, and a missing Writer returned False so the message
-    # never appeared. Roll back, then plain-append only when there is no
-    # Writer: a False copy still lets the caller restore its own tail.
+    # Roll back separator on failed formatted copy; plain-append when Writer is unavailable.
     before = get_control_text_length(control)
     if before is None:
         log.warning("append_formatted_row: control length unavailable")

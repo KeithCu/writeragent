@@ -95,13 +95,8 @@ def _accept_message(line: str) -> dict[str, Any] | None:
     """Return a JSON-RPC object, or None for stray stdout.
 
     A line that is valid JSON but not an object (a number, boolean, string,
-    or array) used to reach ``msg.get`` and raise. The reader then stopped,
-    and the finally sweep failed the in-flight ``session/prompt`` while the
-    child was still alive. An ``id`` that is an array, object, or JSON
-    boolean is the same stray line: ``pending.get`` would raise ``TypeError``
-    on an unhashable key, or ``true`` would hash equal to request id ``1``.
-    ``json.loads`` is strict on purpose: ``safe_json_loads`` repairs a log
-    prefix into a value that is not the RPC object.
+    Non-object JSON lines are ignored so stray stdout does not stop the reader or hang prompts.
+    Invalid id types are treated the same way; strict json.loads avoids safe_json_loads mis-parsing logs.
     """
     payload = line.lstrip()
     msg: Any = None
@@ -232,9 +227,7 @@ class ACPConnection:
         """Deliver a JSON-RPC error whose id is null.
 
         A parse error cannot echo the request id, so the id is null. That
-        used to take the notification path (``callback("", {}, None)``) and
-        leave ``session/prompt`` waiting out its 600s timeout. ACP has one
-        request in flight. If several are waiting, each one gets this error.
+        Null-id JSON-RPC errors fail in-flight waiters instead of the notification path.
         """
         error = msg.get("error")
         if error is None:
@@ -274,14 +267,7 @@ class ACPConnection:
     def stop(self) -> None:
         """Terminate the subprocess and unblock in-flight ``send_request`` calls.
 
-        ``stop()`` used to close the child and leave every ``send_request``
-        waiting on its ``Event`` until the caller's timeout (the prompt uses
-        600s). The chat worker stayed parked after the UI had already shown
-        Stopped, and the reader stayed in ``readline`` until that timeout
-        too. Publish a cancellation error and set every pending event, then
-        terminate. A second ``stop()`` sees no process and only wakes
-        waiters. The reader loop uses the same sweep when it exits for any
-        other reason.
+        stop() wakes every pending send_request with a cancellation error before terminating the child.
         """
         self._wake_pending("ACP process stopped")
         with self._lock:
@@ -468,10 +454,7 @@ class ACPConnection:
             self._pending[req_id] = _Pending(event)
 
         log.debug(f"→ {method} (id={req_id})")
-        # The caller used to write stdin itself. A full pipe blocked this
-        # thread before the timeout started, and a second writer could run
-        # beside the queue. The writer thread performs the write. A closed
-        # pipe fails this waiter instead of raising ValueError here.
+        # Stdin writes go through the writer thread so a full pipe cannot block the caller.
         try:
             self._enqueue(_QueuedWrite(proc, line.encode("utf-8"), req_id))
         except Exception:
@@ -647,12 +630,7 @@ class ACPConnection:
                     break
         finally:
             # A child exit, stdout EOF, or an unexpected exception ends this
-            # loop. The sweep used to live only in stop(), so in-flight Events
-            # stayed unset, session/prompt sat on event.wait(600), and the
-            # sidebar stayed on Sending. Every reader exit wakes waiters the
-            # same way stop() does. A response stop() already stored is not
-            # replaced. Non-object JSON and objects with a non-JSON-RPC id
-            # are skipped above and do not take this path.
+            # Reader exit always _wake_pending like stop() so prompts do not wait on dead children.
             self._wake_pending("ACP process terminated")
             # Reader exit clears _running but leaves poll() None. Kill the child
             # tree so orphaned background processes do not linger.

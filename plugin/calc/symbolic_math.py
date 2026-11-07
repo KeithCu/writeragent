@@ -97,9 +97,7 @@ class SymbolicMathTool(ToolCalcPythonBase):
 
         try:
             main.call(insert_symbolic_result_into_doc, ctx.ctx, ctx.doc, result, display_block=display_block)
-            # What was wrong: out["math_inserted"] was unconditionally True, even
-            # on Calc where tabular_egress writes cells instead of inserting a Math object.
-            # Why this change fixes it: set math_inserted only when doc_type != "calc".
+            # Calc writes cells via tabular_egress; math_inserted is true only when a Math object is inserted.
             is_calc = ctx.doc_type == "calc"
             result["math_inserted"] = not is_calc
             result["message"] = "Symbolic result written to active sheet" if is_calc else "Math formula inserted in document"

@@ -514,19 +514,7 @@ class MCPProtocolHandler:
                 if not readable:
                     continue
                 try:
-                    # What was wrong: EOF was sock.recv(1, MSG_PEEK). After the TLS
-                    # handshake, ssl.SSLSocket.recv raises ValueError for any non-zero
-                    # flags. use_ssl wraps the accepted socket with
-                    # do_handshake_on_connect=False, but the request headers are read
-                    # before this loop, so the handshake is already done. ValueError is
-                    # not ConnectionResetError or OSError, so the outer except logged
-                    # "SSE keepalive loop exception" and closed the stream instead of
-                    # treating b"" as EOF. A readable TLS socket that still had bytes
-                    # was closed the same way; the plain-socket path drained them.
-                    # How: select already reported the socket readable. One recv is
-                    # both the EOF check and the drain. Nothing after this loop reads
-                    # those bytes.
-                    # Why: recv with no flags works on a plain socket and on SSLSocket.
+                    # SSE keepalive uses flagless recv so TLS sockets drain bytes and EOF (b"") cleanly.
                     data = sock.recv(4096)
                     if not data:
                         break
@@ -607,11 +595,7 @@ class MCPProtocolHandler:
         body = read_json_body(handler, reply=self._send_json)
         if body is None:
             return
-        # What was wrong: a JSON array or scalar is a successful read_json_body
-        # result (a list is a legal MCP batch on POST /mcp). body.get ran before
-        # the try, so the error left this function.
-        # How: GenericRequestHandler._dispatch turned that AttributeError into HTTP 500.
-        # Why: /debug actions are objects. 400 here. read_json_body must still return lists.
+        # /debug routes require a JSON object; arrays/scalars get 400 while POST /mcp keeps batch lists.
         if not isinstance(body, dict):
             self._send_json(handler, 400, {"error": "JSON body must be an object"})
             return
@@ -851,8 +835,7 @@ class MCPProtocolHandler:
             # Tool failures must be MCP tool results (isError), not JSON-RPC
             # INTERNAL_ERROR. Clients treat HTTP 500 as transient and retry
             # (Hermes retried apply_style ~150× in 0.5s). BusyError/TimeoutError
-            # stay 429/504 above. WriterAgentException used to re-raise into
-            # _process_jsonrpc as HTTP 500 — that is the retryable path.
+            # Map unexpected tool errors to MCP isError results, not HTTP 500 retries.
             log.exception("MCP tool %s raised unexpectedly", tool_name)
             code = getattr(e, "code", None) or "TOOL_EXECUTION_ERROR"
             if code == "INTERNAL_ERROR":
@@ -1065,13 +1048,7 @@ class MCPProtocolHandler:
         if doc is None and document_url:
             return {"status": "error", "code": "DOCUMENT_NOT_FOUND", "message": ("No open document matches document_url '%s'. Call list_open_documents and retry with one of the returned url or uid values." % document_url), "details": {"document_url": document_url}}
         if doc is None and getattr(tool, "requires_document", True):
-            # "No document open" used to be decided by the ACTIVE document alone, so a
-            # call landing while focus sat on the Start Center (or on another app)
-            # answered "LibreOffice isn't open" one second after list_open_documents
-            # had listed the very document the caller meant -- reported twice as an
-            # intermittent, unreproducible failure. Fall back to what is actually
-            # open: unambiguous when there is one document, and when there are several
-            # say so and name them instead of denying they exist.
+            # Without document_url, resolve among open documents instead of denying when focus is elsewhere.
             # Count DOCUMENTS, not types: with two Writer documents open and neither active,
             # a per-type view has one entry and would silently pick the first -- possibly the
             # wrong petition. Only a single open document is unambiguous.
@@ -1126,10 +1103,7 @@ class MCPProtocolHandler:
         """
         scope = prepared.context.send_cancellation
         if is_cancelled(scope):
-            # What was wrong: the fast path used to skip the Stop check, so a tool
-            # cancelled during prepare or the gate wait still ran.
-            # How: both paths call this method before execute.
-            # Why: the scope is cancelled by notifications/cancelled or the outer send.
+            # Fast and slow tool paths both honor send_cancellation before execute.
             return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user"}
         # Security: keyword-only bypass flag must never come from a client
         safe_args = {k: v for k, v in arguments.items() if k != "bypass_thread_guard"}

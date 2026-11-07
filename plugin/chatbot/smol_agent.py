@@ -130,17 +130,14 @@ class SmolToolAdapter(SmolTool):
         ctx = self._inner_tctx
 
         # Same schema filter, coercion, validate() and VALIDATION_ERROR payload as
-        # ToolRegistry.execute. forward used to skip them, so a bad enum value
-        # (e.g. position='start') ran the tool instead of returning the valid-value error.
+        # forward mirrors ToolRegistry.execute validation so bad enum values return VALIDATION_ERROR.
         prepared = prepare_tool_call(tool, ctx, self.name, kwargs)
         if prepared.error is not None:
             result = prepared.error
         elif getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
             # Refuse before dispatch with the same flag, detects_mutation(), and
-            # READ_ONLY_TARGET payload as ToolRegistry.execute. forward used to
-            # call ToolBase.execute and skip that check, so a mutating tool ran
-            # on a read_only_target context. The field is a bool, so only an
-            # explicit True counts.
+            # READ_ONLY_TARGET blocks mutating tools before dispatch, same as ToolRegistry.execute.
+            # Only explicit True on read_only_target triggers the refusal.
             result = make_tool_error(
                 "This document is open for read-only document_research access; writes are not allowed.",
                 code="READ_ONLY_TARGET",

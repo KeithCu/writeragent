@@ -74,9 +74,7 @@ class ChatSession:
                     if isinstance(first, dict) and first.get("role") == "system" and isinstance(first.get("content"), str):
                         first["content"] = strip_legacy_document_suffix(first["content"])
             except Exception:
-                # JSONDecodeError and sqlite json.loads used to land here with
-                # messages still []. The seed below then add_message'd a system
-                # row without deleting the old ones (or over a truncated file).
+                # Load failure with an open DB must not seed a lone system row over corrupt history.
                 log.exception("ChatSession history load failed")
                 if self.db is not None:
                     # Backend opened, then get_messages raised: must not insert
@@ -109,10 +107,7 @@ class ChatSession:
         self.base_system_prompt = base_prompt
         self.document_context = doc_text
 
-        # Bugfix: a loaded dict with no "role" raised KeyError on every send.
-        # SQLite3History.get_messages keeps every JSON object, and refresh_document_context
-        # calls set_system_context on every send. Anything that is not a system dict gets
-        # a system row inserted in front, leaving the existing first row in place.
+        # Rows without role=system get a system header inserted; malformed dicts must not raise KeyError.
         first = self.messages[0] if self.messages else None
         if not isinstance(first, dict) or first.get("role") != "system":
             self.messages.insert(0, {"role": "system", "content": base_prompt})
@@ -211,9 +206,7 @@ class ChatSession:
         if self.messages and self.messages[-1].get("_open_transcript"):
             self.messages.pop()
         self.messages.append(msg)
-        # Tool calls stay out of history. content=None used to be written
-        # anyway, and message_to_dict stored JSON null for a tool-only turn.
-        # Memory keeps "" above; disk skips empty assistant text.
+        # Tool-only turns keep content out of disk history; empty assistant text is not persisted.
         if self.db and content:
             self.db.add_message("assistant", content)
 

@@ -756,10 +756,7 @@ def safer_func(
     return _check_return
 
 
-# Control-flow signals (break/continue/return) and timeout previously subclassed
-# Exception, causing user `except Exception` blocks in the sandbox to swallow
-# returns, breaks, continues, and SIGALRM timeout errors.
-# Subclassing BaseException ensures these signals bypass `except Exception` clauses.
+# Control-flow signals and timeout subclass BaseException so user `except Exception` cannot swallow them.
 class InterpreterSignal(BaseException):
     """Base class for AST control flow signals (break, continue, return)."""
 
@@ -822,10 +819,7 @@ def timeout(timeout_seconds: Any):
                     if 0 < previous_alarm < timeout_seconds:
                         signal.alarm(previous_alarm)
                 except BaseException:
-                    # Bugfix: what was wrong: if alarm arming failed, old_handler was never
-                    # restored because the outer except only caught (ValueError, AttributeError).
-                    # How it happened: signal.alarm could raise or an outer alarm fired before try/finally.
-                    # Why this change fixes it: restores old_handler and cancels alarm on any failure.
+                    # Restore SIGALRM handler and cancel alarm on any arming failure, not only ValueError/AttributeError.
                     signal.signal(signal.SIGALRM, old_handler)
                     signal.alarm(0)
                     raise
@@ -842,9 +836,7 @@ def timeout(timeout_seconds: Any):
                 except FuturesTimeoutError:
                     timed_out = True
                     global _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
-                    # Bugfix: synchronous drain here delayed every @timeout caller (CI 41727567211)
-                    # and nested timeouts. Raise immediately; finalize_thread_pool_timeout()
-                    # decides abandonment in venv/sandbox paths (CI 41712352052).
+                    # Raise immediately on thread-pool timeout; finalize_thread_pool_timeout() drains later.
                     _pending_timeout_future = future
                     # Grace must exceed the typical overrun of a soft timeout (e.g.
                     # time.sleep slightly above the budget on Windows). A grace of
@@ -1706,15 +1698,7 @@ def evaluate_name(
     elif name.id in ERRORS:
         return ERRORS[name.id]
     hint = _close_match_hint(name.id, list(state.keys()), label="variables")
-    # What was wrong: a missing name raised InterpreterError, a ValueError.
-    # How: evaluate_try matches handlers with isinstance. The stateful benchmark
-    # does `except NameError` around `counter += 1`. InterpreterError is not a
-    # NameError, so the handler never ran, counter was never stored, and every
-    # later cell on that shared kernel failed the same way. Subscript
-    # KeyError/IndexError were unwrapped for this reason in 7560ccae9.
-    # Why: CPython raises NameError, so the handler runs and the assignment
-    # sticks. An uncaught NameError is still wrapped as InterpreterError by
-    # evaluate_python_code, so a bare missing name stays an executor error.
+    # Missing names raise NameError so user `except NameError` works; uncaught names still become InterpreterError upstream.
     raise NameError(f"name '{name.id}' is not defined{hint}")
 
 
@@ -2223,11 +2207,7 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
 
     if name in ("operator", "string"):
         # Tip: cache one wrapper per (module, policy) to avoid cross-session leaks and unbounded growth.
-        # Bugfix: what was wrong: _authorized_imports was stored on the shared wrapper instance and mutated
-        # on cache hits, causing attrgetter in earlier sessions to see later session imports.
-        # How it happened: _SAFE_MODULE_CACHE was keyed only by id(raw_module) and overwritten.
-        # Why this change fixes it: wrappers are keyed by (id(raw_module), tuple(authorized_imports))
-        # and bind imports locally in __init__.
+        # Cache safe module wrappers by (module id, authorized_imports tuple)—shared wrappers must not mutate policy.
         cache_key = (id(raw_module), tuple(authorized_imports or ()))
         wrapper = _SAFE_MODULE_CACHE.get(cache_key)
         if wrapper is None:
@@ -2251,7 +2231,7 @@ def evaluate_import(
     if isinstance(expression, ast.Import):
         for alias in expression.names:
             if not check_import_authorized(alias.name, authorized_imports):
-                # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
+                # Short import denial message—do not echo authorized_imports (leaks duckdb paths).
                 raise InterpreterError(f"Import of {alias.name} is not allowed.")
             raw_leaf = import_module(alias.name)
             if alias.asname:
@@ -2315,7 +2295,7 @@ def evaluate_import(
                     _check_dangerous_value(val, authorized_imports)
                     state[target_name] = val
         else:
-            # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
+            # Short import denial message—do not echo authorized_imports (leaks duckdb paths).
             raise InterpreterError(f"Import from {expression.module} is not allowed.")
         return None
 
@@ -2704,21 +2684,10 @@ def evaluate_python_code(
             except Exception as e:
                 from plugin.framework.errors import is_disposal
 
-                # lp() used to catch DisposedException, wrap it as CALC_READ_ERROR,
-                # and this handler then wrapped that as InterpreterError, so a closed
-                # document became PYTHON_EXECUTION_ERROR. Re-raising here lets
-                # execute_with_return see the disposal.
+                # Document disposal must propagate, not become PYTHON_EXECUTION_ERROR.
                 if is_disposal(e):
                     raise
-                # Bugfix: What was wrong: evaluate_name was changed to raise NameError so
-                # scripts could catch missing names via `except NameError`. However, uncaught
-                # NameErrors were formatted with `due to: NameError:`, which Calc add-in worker
-                # exception classification mapped to #NAME? (525) instead of the historical
-                # executor failure #VALUE! (519).
-                # How it happened: evaluate_python_code interpolated type(e).__name__.
-                # Why this change fixes it: formatting uncaught NameError with `due to: InterpreterError:`
-                # preserves the pre-NameError worker failure formatting and Calc #VALUE! (519) error
-                # while allowing `except NameError` inside user scripts.
+                # Uncaught NameError is labeled InterpreterError in the message so Calc maps #VALUE! not #NAME?.
                 exc_type_name = "InterpreterError" if isinstance(e, NameError) else type(e).__name__
                 raise InterpreterError(
                     f"Code execution failed at line '{ast.get_source_segment(code, node)}' due to: {exc_type_name}: {e}"

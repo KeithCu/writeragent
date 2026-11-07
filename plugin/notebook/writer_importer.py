@@ -335,9 +335,7 @@ def output_para_style(doc: Any) -> str | None:
     """Style name for cell stdout: Preformatted Text, or a created fallback.
 
     ``_is_next_cell_boundary`` treats non-empty Text Body as the next cell.
-    When Preformatted Text does not resolve, ``_apply_para_style`` used to
-    leave the new paragraph as Text Body, ``clear_cell_output`` stopped
-    there, and the next run stacked another copy of stdout.
+    When Preformatted Text is missing, force a distinct output style so clear_cell_output does not stop at Text Body and stack stdout.
     """
     resolved = resolve_para_style(doc, _STYLE_OUTPUT)
     if resolved:
@@ -1648,8 +1646,7 @@ def _import_cells(
                 if display:
                     _append_body_paragraph(doc, display, _STYLE_BODY, lead_break=lead)
         except Exception as exc:
-            # One cell used to abort the import and skip the registry save.
-            # A closed document still aborts: filter() returns False.
+            # Per-cell failures log and continue; disposal still aborts via filter().
             reraise_if_disposed(exc)
             log.exception("notebook import cell %d failed; importing the remaining cells", idx)
             _append_body_paragraph(

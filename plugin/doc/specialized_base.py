@@ -93,11 +93,7 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
 def _main_thread_or_warn(fn: Any, what: str) -> Any:
     """Marshal fn to the main thread. Re-raise real document disposal.
 
-    Bugfix: a closed document raises DisposedException while reading the shapes
-    canvas, Calc context, or open-document list. Those except blocks turned
-    disposal into a missing page or a partial prompt. Re-raise real disposal so
-    execute_safe reports DOCUMENT_DISPOSED. Any other failure keeps the empty
-    context.
+    Re-raise document disposal when building specialized context; other failures keep the empty fallback.
     """
     try:
         return main.call(fn)
@@ -146,10 +142,7 @@ class DelegateToSpecializedBase(ToolBase):
     def domains_for_services(self, uno_services: frozenset[str]) -> list[str]:
         """Sorted enum domains with a base class that runs on a document supporting *uno_services*.
 
-        Bugfix: a Draw (DrawingDocument only) document was offered Impress-only domains
-        (headers_footers, speaker_notes, slide_*) whose bases declare PresentationDocument,
-        and picking one returned "No specialized tools found". Keyed on probed services,
-        not the doc_type label: Impress's label is the family "draw" too (K082 regression).
+        Narrow domains by probed UNO services, not doc_type—Draw-only docs must not see Impress-only toolsets.
         """
         assert uno_services, "caller must skip narrowing when services are unknown"
         supported = {
@@ -171,9 +164,7 @@ class DelegateToSpecializedBase(ToolBase):
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
-        # Bugfix: a non-string domain (dict or list) is unhashable. requires_document_lock
-        # runs before schema validation, so `domain in _READ_ONLY_DOMAINS` raised TypeError.
-        # Non-strings keep the lock; execute() then returns the invalid-domain error.
+        # requires_document_lock runs before schema validation—non-string domain must not hit _READ_ONLY_DOMAINS membership.
         if isinstance(domain, str) and domain in self._READ_ONLY_DOMAINS:
             return False
         return super().requires_document_lock(arguments)
@@ -182,9 +173,7 @@ class DelegateToSpecializedBase(ToolBase):
         domain = kwargs.get("domain")
         task = kwargs.get("task")
 
-        # Bugfix: Non-string domain (e.g. unhashable dict or None) cannot match any registered
-        # domain and would fail inside ToolRegistry.get_tools frozenset lookups. Return the
-        # standard invalid-domain error directly.
+        # Non-string domain cannot enter ToolRegistry frozenset lookups—return invalid-domain error directly.
         no_tools = f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered."
         if not isinstance(domain, str):
             return self._tool_error(no_tools)
@@ -436,16 +425,7 @@ class DelegateToSpecializedBase(ToolBase):
             payload = annotate_outer_peer_wait(payload, peer_send_invoked=cap.peer_send_invoked)
 
         # Discussion #2029:
-        # What was wrong: non-dict final answers (free text from subagents) and runs
-        # where inner tools raised errors were reported as status: "ok", masking errors
-        # and making unfinished subagent runs appear successful to the caller.
-        # How it happened: execute wrapped any non-status return in a provisional ok payload
-        # without inspecting inner tool execution results or requiring specialized_workflow_finished.
-        # Why this change fixes it: inner tool errors are converted to status: "error" with code
-        # SPECIALIZED_TOOL_ERROR and their messages. Discussion #2268: a finish answer stays
-        # in answer only; message and error carry just the tool-error text. Runs without
-        # specialized_workflow_finished returning and without tool errors become status: "incomplete"
-        # with code SPECIALIZED_WORKFLOW_INCOMPLETE and the model text on message.
+        # Map inner tool errors to status error/incomplete; free-text answers without finish are not silent ok.
         is_finished = cap.workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
         if cap.inner_tool_errors:
             combined_message = "; ".join(

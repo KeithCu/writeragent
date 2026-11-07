@@ -115,8 +115,8 @@ def _optional_numpy() -> Any:
 
     ``child_pack_result``, ``_needs_elementwise_pack``,
     ``_container_has_packable_nested``, and ``_child_unpack_single_data``
-    used to import NumPy before looking at the value. A plain dict or list
-    then raised ``ImportError`` in a venv without NumPy (LibreOffice's Python
+    import NumPy only after the value needs ndarray checks. A plain dict or list
+    must not raise ``ImportError`` in a venv without NumPy (LibreOffice's Python
     ships without it, and some user venvs omit it). ``ModuleNotFoundError``
     is an ``ImportError``. Callers skip ndarray checks when this returns
     None. Numeric ``split_grid`` envelopes still import NumPy on their own.
@@ -203,7 +203,7 @@ def _verify_accelerator(fn2d: Any, fn1d: Any) -> bool:
 
         # An int subclass whose __name__ does not start with "int" or "uint"
         # must pack as column state 2 (kind "int") on Cython PyLong_Check,
-        # which is the subclass the pure path used to tag "float".
+        # which is the subclass the pure path must not tag "float".
         # The expected state is absolute (not a compare against the Python flattener).
         class _CanaryIntSub(int):
             pass
@@ -510,10 +510,7 @@ def find_image_payloads(
     # crosshair: off
     if _depth > _MAX_IMAGE_DEPTH:
         return []
-    # What was wrong: every cell of a plain-list grid went through the
-    # deal-wrapped is_image_payload, so a 200x200 list result spent most of
-    # its egress time in contract wrappers. How: compute returns lists, not a
-    # split_grid envelope. Why: the walk calls the undecorated check.
+    # Plain-list grids use the undecorated is_image_payload check so large list egress is not dominated by deal contract wrappers.
     if _is_image_payload_envelope(obj):
         return [obj]
     if isinstance(obj, (dict, list, tuple)):
@@ -544,9 +541,7 @@ def extract_image_payload(value: Any) -> dict[str, Any] | None:
     return images[0] if images else None
 
 
-# Bugfix: What was wrong: strip_image_payloads dropped image payloads completely, collapsed lists, and dropped dictionary keys.
-# How it happened: It filtered out None values resulting from image payloads, which altered list lengths and deleted dictionary keys or omitted the result key entirely.
-# Why this change fixes it: It replaces any image payload with "<image>" while preserving collection lengths, sequence ordering, and dictionary keys.
+# strip_image_payloads substitutes "<image>" placeholders without removing list slots or dict keys.
 def strip_image_payloads(obj: Any, *, _depth: int = 0) -> Any:
     """Return result with image payloads replaced by '<image>', preserving structure.
 
@@ -555,9 +550,7 @@ def strip_image_payloads(obj: Any, *, _depth: int = 0) -> Any:
     ``RecursionError``. Dict keys go through ``wire_str_key`` so ``{1: .., "1": ..}``
     raises instead of silently dropping a value.
     """
-    # Bugfix: What was wrong: cyclic/deep structures raised RecursionError and colliding dict keys were dropped.
-    # How it happened: strip_image_payloads lacked a depth cap and coerced dict keys with last-wins {str(k): ...}.
-    # Why this change fixes it: bounded at _MAX_IMAGE_DEPTH (12) and uses wire_str_key to reject collisions.
+    # Depth cap and wire_str_key prevent RecursionError on cyclic trees and silent loss of colliding dict keys.
     if is_image_payload(obj):
         return "<image>"
     if _depth > _MAX_IMAGE_DEPTH:
@@ -945,7 +938,7 @@ def is_numeric_grid(grid: list[Any] | list[list[Any]]) -> bool:
     if type(grid[0]) in (list, tuple):
         # ``for cell in row`` raises TypeError when a later row is an int.
         # Deal's pre rejects that grid; a release build strips deal, so the
-        # body used to TypeError. ``_split_grid_row_width`` raises ValueError
+        # body must not TypeError. ``_split_grid_row_width`` raises ValueError.
         # unless the row is a list or tuple, same as host pack.
         for row in grid:
             _split_grid_row_width(row)
@@ -1040,15 +1033,8 @@ def _flatten_update_column_state(column_states: list[int], c: int, val: Any) -> 
     if tv is float:
         column_states[c] = 3
         return
-    # What was wrong: `type(val) is int` missed every int subclass.
-    # Cython `_update_column_state` uses PyLong_Check, which is true for
-    # any int subclass, so enum.IntEnum and a class Widget(int) packed as
-    # column kind "int" when the accelerator loaded and "float" on the
-    # pure path (the name heuristic only catches names starting with
-    # "int" or "uint"). The wire kinds and the restored cell type then
-    # depended on whether the .so loaded. The canary never passed a
-    # subclass, so it stayed green. Why this works: isinstance(int) and
-    # not isinstance(bool) is that PyLong_Check test. bool is excluded
+    # isinstance(val, int) and not bool matches PyLong_Check so int subclasses pack as int on both Cython and pure paths.
+    # bool is excluded
     # because it subclasses int and the identity check above already
     # recorded state 1. dtype and the name heuristic below stay for
     # values that are not int subclasses (np.int64, a class merely named
@@ -1148,7 +1134,7 @@ def _store_numeric_cell(
     """Write one float64 cell. Return False when the cell was stored as text.
 
     Module-level so the slow path does not allocate this helper on every text
-    cell. ``_flatten_append_cell_slow`` used to nest it and rebuild it per call.
+    cell. Module-level helper avoids rebuilding nested closures on every slow flatten cell.
     """
     # crosshair: off  # Any cell; sibling of the already-off flatten loops.
     fval = _numeric_cell_to_float(cell)
@@ -1182,7 +1168,7 @@ def _flatten_append_cell_slow(
         if column_states[c] == 0:
             column_states[c] = 1
     elif type(val) is int:
-        # Huge ints are text. float(10**400) used to raise out of this branch.
+        # Huge ints are text. float(10**400) must not raise out of this branch.
         if _store_numeric_cell(val, idx, buf_append=buf_append, strings=strings, nan=nan) and column_states[c] < 2:
             column_states[c] = 2
     elif type(val) is float:
@@ -1262,9 +1248,7 @@ def _split_grid_row_width(row: Any) -> int:
 def _validate_rectangular_grid(grid_2d: list[list[Any]]) -> int:
     """Column count of a rectangular 2D grid.
 
-    Shape used to take ``len`` of the first row, then a second walk compared
-    every row to that width. One walk rejects a non-row and a jagged width
-    and returns the width. A release build has no deal pre on this path.
+    One pass validates rectangular width so jagged grids fail without a second walk. Release builds omit deal pre here.
     """
     # crosshair: off
     if not grid_2d:
@@ -1401,9 +1385,7 @@ def _flatten_grid_to_components(
     def _try_accel(fn: Any, call_args: tuple[Any, ...], expected: int, *, label: str) -> bool:
         """Bind accelerator output only when the buffer length matches the shape.
 
-        Both ranks used to duplicate this try/except. A length mismatch used to
-        be easy to update in one branch and not the other. A short native
-        buffer falls back to stdlib (buf_append still targets the original array).
+        Shared helper binds accelerator output only when buffer length matches shape; short native buffers fall back to stdlib.
         """
         nonlocal buf, strings, column_states, column_has_none, has_non_numeric
         try:
@@ -1448,7 +1430,7 @@ def _flatten_grid_to_components(
     for c in range(num_cols):
         state = column_states[c]
         # 0 (no numeric cell) and 3 are float. 1 is bool. 2 is int.
-        # Empty used to be tagged "int", which lied for text-only columns.
+        # Empty must not be tagged "int", which lied for text-only columns.
         kind = ("float", "bool", "int", "float")[state] if 0 <= state <= 3 else "int"
         if not strings and column_has_none[c]:
             kind = "float"
@@ -1538,7 +1520,7 @@ def host_pack_data(
             is_2d = type(grid[0]) in (list, tuple)
 
             # Row count is a cell lower bound only when the first row is non-empty.
-            # 100 empty rows used to pack a split_grid with shape [100, 0].
+            # 100 empty rows must not pack a split_grid with shape [100, 0].
             # Skip the max(len(r)) pass when that lower bound already qualifies.
             if is_2d and force == "auto" and nrows >= min_cells and len(grid[0]) > 0:
                 return host_pack_split_grid(grid)
@@ -1566,8 +1548,7 @@ def _split_grid_string_index(key: Any) -> int:
     ``int(float("inf"))`` raises OverflowError. The child unpack contract
     only declares ValueError, so under deal that became RaisesContractError.
     Production keys are ``int``. Legacy harnesses used digit strings. A bool
-    is an int subclass and used to become index 0 or 1; only a real ``int``,
-    or one optional minus plus ASCII digits, is accepted.
+    Bool keys are rejected; only int or optional ASCII digit strings are accepted as split_grid indices.
     """
     # crosshair: off  # malformed wire keys (Any key, not a closed int/str domain).
     if type(key) is int:
@@ -1582,15 +1563,7 @@ def _split_grid_string_index(key: Any) -> int:
 def _decode_split_grid_buffer(envelope: dict[str, Any], expected_cells: int) -> bytes:
     """Return the float64 payload bytes, or raise if they do not match *expected_cells*.
 
-    Host and child each used to pick ``buffer`` vs ``b64`` and check length.
-    Decode is cold next to materializing the grid.
-
-    The host used to slice whatever bytes arrived, so a short buffer became a
-    short grid while ``wire_cell_count`` still reported the declared shape.
-    The child numeric path rejected that, but the 1D mixed path reshaped only
-    for 2D and returned a shorter list (or kept extra floats). Both unpackers
-    call here before ``array.frombytes`` / ``np.frombuffer``, so a short,
-    long, or non-multiple-of-8 buffer raises instead of changing the grid.
+    Host and child share buffer/b64 decode with strict length checks so short or padded payloads raise instead of silently reshaping the grid.
     """
     # crosshair: off
     if "buffer" in envelope:
@@ -1643,7 +1616,7 @@ def _validate_split_grid_strings(envelope: dict[str, Any], expected_cells: int) 
             raise ValueError(
                 f"split_grid string value at {ik} must be str, got {type(v).__name__}"
             )
-        # 1 and "1" both int() to 1. Last-wins used to drop a cell. Egress
+        # 1 and "1" both int() to 1. Last-wins must not drop a cell. Egress.
         # wire_str_key refuses the same collision.
         if ik in strings:
             raise ValueError(
@@ -1658,8 +1631,7 @@ def _restore_cell(val: float, kind: str) -> Any:
     """One split_grid cell from its column kind.
 
     NaN stays NaN. Bool matches the uniform path: only exact 1.0 is True
-    (a raw 2.0 used to stay a float on the mixed branch). ``int(inf)`` raises
-    OverflowError, same as the uniform int path.
+    Mixed-branch bool restore treats only 1.0 as True; ``int(inf)`` raises like the uniform int path.
     """
     # crosshair: off  # mixed-cell restore; host_unpack_split_grid is already off.
     if math.isnan(val):
@@ -1828,7 +1800,7 @@ def child_unpack_split_grid(envelope: dict[str, Any]) -> Any:
 
         # Path for mixed-type grids with strings: Vectorized Object-Masking Strategy.
         #
-        # --- Why this Vectorized Object-Masking Strategy? ---
+        # --- Why this Vectorized Object-Masking Strategy? ---.
         # Homogeneous numeric arrays (float64) cannot natively store Python 'None' or
         # string types. Converting the array to an 'object' type array at C-speed
         # (arr.astype(object)) allows holding arbitrary Python types. We then use
@@ -1971,7 +1943,7 @@ def child_unpack_data(wire: Any, *, _depth: int = 0) -> Any:
             return _child_unpack_single_data(wire)
         if is_image_payload(wire):
             return wire
-        # Host walks plain dicts. This used to return them unchanged, so a
+        # Host walks plain dicts. This must not return them unchanged, so a.
         # split_grid nested under a dict reached user code still packed.
         # Lists stay as-is: the list arm is the grid materializer, and turning
         # a numeric list stored in a dict into an ndarray would change
@@ -2010,9 +1982,7 @@ def _reject_temporal_ndarray(arr: Any) -> None:
 
     ``astype(float64)`` turns a date into a Unix-epoch day count (20629.0),
     and ``.tolist()`` on datetime64[ns] yields integer nanoseconds.
-    ``child_pack_result`` used to send kind ``M``/``m`` down the numeric lane.
-    ``serialize_result`` converts those arrays before it calls here; a direct
-    caller gets ``ValueError`` instead of a silent wrong number.
+    Temporal ndarrays must not enter the float64 pack path; callers get ValueError instead of epoch nanoseconds on the wire.
     """
     # crosshair: off
     kind = getattr(getattr(arr, "dtype", None), "kind", None)
@@ -2063,7 +2033,7 @@ def child_pack_split_grid(arr: Any) -> dict[str, Any]:
         if not isinstance(arr, np.ndarray):
             arr = np.asarray(arr)
         _reject_temporal_ndarray(arr)
-        # Rank 3+ used to be written as shape=[d0,d1,d2]. The detector only
+        # Rank 3+ must not be written as shape=[d0,d1,d2]. The detector only.
         # accepts rank 1 or 2, so host_unpack treated the envelope as a plain
         # metadata dict (raw bytes included). A 0-d array did the same with
         # shape=[].

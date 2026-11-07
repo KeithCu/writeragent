@@ -328,7 +328,8 @@ class StatusBarGrammarStatus(GrammarStatus):
                 return
 
             # The grammar worker is blocked in harper-ls, so the queued setText paints only after main drains its queue and idles VCL.
-            # Use main.post, never main.call: a blocking main.call(timeout=2) used to raise TimeoutError and abort the lint. force=False lets a chat drain owner skip PE2I.
+            # VCL idle pumping uses main.post, not main.call, so a blocked grammar worker
+            # does not time out and abort the lint; force=False respects chat drain ownership.
             def _pump() -> None:
                 pump_main_thread_work_queue(max_items=8)
                 process_events_to_idle(get_ctx(), force=False)

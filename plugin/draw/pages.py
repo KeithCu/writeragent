@@ -123,13 +123,8 @@ class AddSlide(ToolBase):
                     **available_miss_details(str(layout_name), avail),
                 )
 
-        # Bugfix: create_slide(switch=True) moved the view onto the new page
-        # before master inheritance and layout. A failure then removed that page
-        # and left the controller on it. insert_slide_from_master already inserts
-        # with switch=False and switches only after MasterPage is assigned.
-        # Do not trust get_active_page_index after a requested switch — Impress
-        # DrawPage.getNumber() is missing/None, so the helper falls back to 0.
-        # The landed index is the slot the new page occupies.
+        # Master and layout run before switching the view; create_slide uses switch=False like
+        # insert_slide_from_master. Report the landed index, not get_active_page_index after switch.
         new_page, landed = bridge.create_slide(page_idx, switch=False)
 
         result: dict[str, Any] = {"status": "ok", "message": "Slide added"}
@@ -137,8 +132,7 @@ class AddSlide(ToolBase):
         try:
             # insertNewByIndex can attach factory Default even when the deck already
             # has a designed master (M1′). Copy the neighbor slide's MasterPage.
-            # Pass the landed index: page=0 used to claim insert_at=0 while the
-            # new page sat at 1, so the "neighbor" was the new page itself.
+            # inherit_master_from_neighbor needs the landed index, not the requested insert index.
             if layout_name is not None:
                 inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
                 if inherited:
@@ -146,8 +140,7 @@ class AddSlide(ToolBase):
                 result["placeholders_hint"] = "call list_placeholders on this page"
                 # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
                 # leaves that id with 0 shapes; assigning it keeps the page empty.
-                # Skipping used to be required because the PowerPoint blank id (11)
-                # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
+                # blank/none still call apply_slide_layout; only PowerPoint blank id 11 is avoided elsewhere.
                 result["layout"] = apply_slide_layout(new_page, layout_name)
         except Exception as exc:
             # Only disposal escapes; a live-document RuntimeException removes the new page and reports the error.
@@ -166,9 +159,8 @@ class AddSlide(ToolBase):
                 cleanup_failed=cleanup_failed,
             )
 
-        # What was wrong: failed set_current_page_index return was ignored, reporting landed as active_page_index.
-        # How it happened: bridge.set_current_page_index return value was not checked.
-        # Why this change: report real active page when switch fails and set view_switch_failed flag.
+        # When switch_view is true, check set_current_page_index and set view_switch_failed on failure.
+        # active_page_index reflects the controller, not the assumed landed slot.
         switched = bridge.set_current_page_index(landed) if switch_view else False
         if switch_view and not switched:
             result["view_switch_failed"] = True
@@ -432,10 +424,7 @@ class SetActivePage(ToolBase):
         idx = kwargs["page"]
         # Range check only before switching the controller view.
         bridge.resolve_page(idx)
-        # Bugfix: this reimplemented setCurrentPage and caught every exception,
-        # so a disposed controller became a normal tool error instead of
-        # DOCUMENT_DISPOSED. set_current_page_index already re-raises disposal
-        # and returns False for a missing controller or a non-disposal failure.
+        # Route through set_current_page_index so disposal propagates as DOCUMENT_DISPOSED.
         if not bridge.set_current_page_index(idx):
             return self._tool_error("Failed to set active page.")
         return {"status": "ok", "message": "Active page changed to %d" % idx, "active_page_index": idx}
@@ -455,8 +444,7 @@ class DuplicateSlide(_SlideMutationTool):
         switch_view = bool(activate if activate is not None else True)
         bridge.duplicate_slide(page_idx, switch=switch_view)
         # The copy is inserted immediately after the source. Do not re-read
-        # getNumber() — Impress leaves it missing and the helper used to
-        # report 0 after a successful switch.
+        # After duplicate with switch, the active index is page_idx + 1, not getNumber().
         active_idx = page_idx + 1 if switch_view else bridge.get_active_page_index()
         return {"status": "ok", "message": "Slide duplicated", "source_page": page_idx, "active_page_index": active_idx}
 
@@ -476,9 +464,7 @@ class MoveSlide(_SlideMutationTool):
         try:
             ok = bridge.move_slide(from_page, to_page)
         except PageExchangeRollbackError as exc:
-            # Bugfix: move_slide now raises when the temp page still holds shapes;
-            # execute_safe would prefix that with "Tool execution failed", and the old
-            # False path hid it as "Could not move slide". Return the rollback error directly.
+            # PageExchangeRollbackError carries the real failure; return it without execute_safe prefixing.
             return self._tool_error(str(exc))
         if not ok:
             return self._tool_error("Could not move slide from %s to %s." % (from_page, to_page))

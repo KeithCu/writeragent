@@ -529,7 +529,8 @@ def normalize_errors_for_text(full_text: str, items: Iterable[dict[str, Any]], c
         # 3. Check for span collisions.
         # A zero-width insert is a point, not a character range. Recording it
         # in ``used_spans`` would make a later positive span that covers that
-        # point look overlapping and drop a diagnostic that used to be kept.
+        # Zero-length spans are not added to used_spans so they do not block
+        # later positive diagnostics that share the same position.
         if length > 0:
             span = (pos, pos + length)
             if any(span_overlaps_range(span[0], span[1], s, e) for s, e in used_spans):

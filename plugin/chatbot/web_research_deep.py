@@ -160,9 +160,7 @@ def parse_research_results_response(response: str, num_learnings: int) -> dict[s
                     learnings.append(learning)
                     if citation:
                         citations.setdefault(learning, []).append(citation)
-        # A bare string used to be iterated here. ``"What about beta?"`` became
-        # one fake question per character (a dict became its keys). Sibling
-        # parsers already require a list before they walk the payload.
+        # follow_up_payload must be a list before iteration; bare strings and dict keys are invalid.
         questions = _clean_str_list(follow_up_payload)
         if learnings or questions:
             return {
@@ -818,10 +816,7 @@ def run_deep_research(
                 sources=sources,
             )
         except Exception as exc:
-            # A timeout here used to discard the whole run; return the raw notes.
-            # USER_STOPPED must not take that path. The notes are a plain string,
-            # and execute() cached every non-error string as a finished deep
-            # report, so the next identical query never retried synthesis.
+            # Synthesis timeouts still return raw notes (except USER_STOPPED) so the cache can retry.
             if _is_user_stopped(exc):
                 raise
             log.exception("deep_research: synthesis failed; returning collected evidence")

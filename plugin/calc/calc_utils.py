@@ -26,14 +26,8 @@ from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.bridge import CalcBridge
 from plugin.framework.errors import UnoObjectError, uno_read
 
-# What was wrong: CellContentType was imported from com.sun.star.table, which is not an attribute
-# in live PyUNO (enum types are packages/modules in LibreOffice's python bridge). The resulting
-# ImportError caused EMPTY, VALUE, TEXT, FORMULA to fall back to integers (0, 1, 2, 3), but
-# cell.getType() returns uno.Enum instances in live LibreOffice. Since uno.Enum != int,
-# cell_value_and_type() fell through to "unknown", breaking date/time/duration enrichment.
-# How it happened: Refactor in cf457aa16 (#1984) and 48565691d (#1992) altered the enum import.
-# Why this change: Directly import enum members from com.sun.star.table.CellContentType so
-# live PyUNO binds genuine uno.Enum objects while mock/fallback environments retain int fallbacks.
+# Import CellContentType members from com.sun.star.table.CellContentType, not com.sun.star.table:
+# live PyUNO exposes enums as submodules; int fallbacks must still compare equal to uno.Enum from getType().
 try:
     from com.sun.star.table.CellContentType import EMPTY, FORMULA, TEXT, VALUE
 except (ImportError, AttributeError):

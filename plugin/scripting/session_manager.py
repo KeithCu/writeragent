@@ -185,11 +185,7 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
         from plugin.doc.udprops import remove_document_property
 
         remove_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
-        # What was wrong: a swallowed remove leaves the unsaved: property,
-        # and every later key lookup fired three worker resets.
-        # How: remove_document_property uses except Exception: pass.
-        # Why: a second read that is still truthy means the id is not orphaned
-        # yet, so skip IPC until a later call actually removes it.
+        # If the session property is still present after a failed remove, skip worker reset until removal actually succeeds and avoid triple resets on every lookup.
         still_present = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
     except Exception:
         log.debug("session_manager: removing session property failed", exc_info=True)
@@ -326,9 +322,7 @@ def release_script_document(session_id: str | None) -> None:
 def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     """Open document whose workbook key matches *session_id*.
 
-    ``wa.doc`` used to call ``get_active_document``, so with two files open the
-    focused library was eval'd into whichever executor was running. The host
-    is single-flight and already has the in-flight session id.
+    ``wa.doc`` resolves the in-flight script session document, not whichever window is focused, so two open files cannot cross-wire library eval.
 
     ``ppt_master:{url}`` uses that same URL key. A long PPT-Master turn then
     exports into the sidebar frame's deck. ``ppt_master:active`` (no URL)
@@ -422,11 +416,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     from plugin.calc.python.function import clear_python_addin_cache
 
     clear_python_addin_cache()
-    # What was wrong: only the base res was tested, so a failed :init reset still
-    # reseeded and showed "Python session reset" / the isolated-mode text.
-    # How: the :init call's return value was discarded.
-    # Why: init state lives in the :init session, and a non-non reset means that
-    # state is still there, so the dialog must be the error and the reseed must not run.
+    # Treat either the main reset or :init reset failure as failure so a broken :init does not show success or reseed stale init state.
     failed = next((r for r in (res, res_init) if r.get("status") != "ok"), None)
     if failed is not None and _msgbox_reset_failure(ctx, failed, _("Could not reset Python session.")):
         return

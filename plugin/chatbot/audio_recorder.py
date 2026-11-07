@@ -99,8 +99,7 @@ def _wav_file_has_bytes(path: str | None) -> bool:
     """True when the capture child has already written a non-empty WAV.
 
     The child writes the file continuously. A stop handshake can still fail
-    after that (the silence monitor used to drop the ``ok`` line), and the
-    bytes on disk are the take the user just finished.
+    after handshake failure, and on-disk bytes still represent the user's take.
     """
     if not path:
         return False
@@ -174,11 +173,7 @@ class AudioRecorder:
             self._apply_event(DeviceReadyEvent())
 
     def _notify_auto_stop(self, path: str | None = None) -> None:
-        # Bugfix: the host callback runs on every silent chunk once
-        # should_stop is true, and each call posted STOP_REC_CLICKED while
-        # the UI thread was inside stop. The venv child sets auto_stopped and
-        # returns. This flag is the host latch. Do not call the callback or
-        # rewrite the path when it is already set.
+        # _auto_stop_notified latches one STOP_REC_CLICKED per auto-stop; silent chunks must not re-post.
         with self._auto_stop_lock:
             if self._auto_stop_notified:
                 return
@@ -194,10 +189,7 @@ class AudioRecorder:
     def _notify_recording_error(self, msg: str) -> None:
         """Stdout-monitor hook. Must not raise (ReportErrorEffect raises).
 
-        A child ``error`` after ready used to call ``_apply_event`` on the
-        monitor thread. That raised, and StopRecordingEffect then deleted a
-        non-empty WAV because status was already ``error``. The panel posts
-        ``on_error`` onto the UI thread, the same way silence auto-stop does.
+        Child errors after ready post on_error on the UI thread, not _apply_event from the monitor.
         """
         callback = self._on_recording_error
         if callback is not None:
@@ -234,16 +226,7 @@ class AudioRecorder:
         )
 
     def _take_new_temp_wav(self) -> str:
-        # Bugfix:
-        # - What was wrong: a child error after ready keeps a non-empty WAV
-        #   (_cleanup_failed_start used to unlink it). The next InitializeDeviceEffect
-        #   assigned a new mkstemp path over temp_filename, so the old file stayed
-        #   in the temp directory.
-        # - How: stop_recording is what clears the pointer after the caller takes
-        #   the path. The error effect does not. Sidebar cleanup deletes only the
-        #   path still stored.
-        # - Why this fixes it: the three new-take assignments delete the abandoned
-        #   file first. A path already returned to the sidebar is None here.
+        # New takes delete any abandoned temp_filename first so error paths do not leak WAV files.
         self._delete_wav()
         path = make_temp_wav_path()
         self.temp_filename = path
@@ -300,11 +283,8 @@ class AudioRecorder:
     ) -> None:
         """Wait for WAV path and reap child process off the UI thread.
 
-        Bugfix: the listener previously blocked in ready/reap under the VCL lock.
-        Handoff wait and process reap now run on this background job and deliver the
-        WAV path (or None) via on_capture_stopped.
-        A lost handshake or dead child must not delete an existing WAV with valid
-        audio data: the bytes on disk are the take.
+        Handoff wait and child reap run off the VCL thread; on_capture_stopped delivers the path.
+        Valid on-disk audio is kept when handshake or reap fails.
         """
         path: str | None = None
         try:
@@ -574,7 +554,7 @@ class AudioRecorder:
             if self.state.status == "error":
                 # Failed start still deletes an empty file. A child error
                 # after ready hits this same branch, and _cleanup_failed_start
-                # used to unlink the WAV the child had already written.
+                # Only delete empty WAV on error; non-empty files remain for transcription.
                 if not _wav_file_has_bytes(self.temp_filename):
                     self._teardown_capture()
                     self._delete_wav()

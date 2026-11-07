@@ -11,10 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-# What was wrong: web_search examples passed a bare string. DuckDuckGoSearchTool
-# takes query (and optional recency); a non-dict is only checked against the
-# first input, so the demo taught a shape the tool does not take. Both search
-# steps now pass {"query": "..."}. The delegate block copies the same two steps.
+# web_search examples must pass {"query": "..."}; DuckDuckGoSearchTool does not accept a bare string argument.
 WEB_RESEARCH_EXAMPLES_BLOCK = """Task: "Which city has the highest population , Guangzhou or Shanghai?"
 
 Action:

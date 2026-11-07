@@ -48,8 +48,7 @@ from plugin.scripting.venv_worker import run_code_in_user_venv
 log = logging.getLogger("writeragent.notebook")
 
 # Per-document re-entrancy guard. Shared ``notebook:…`` kernel must not run two
-# cells at once; a second ▶ used to interleave registry/output mutation when
-# execute_code pumped VCL. Same key as ``notebook_controls.doc_key``
+# cells at once—a second ▶ while execute_code pumps VCL interleaves registry/output. Same key as ``notebook_controls.doc_key``
 # (RuntimeUID, then URL, then id) so two PyUNO wrappers of one document cannot
 # both pass. Run All holds this key for the whole sequence so a ▶ mid-batch
 # is skipped.
@@ -329,9 +328,7 @@ def _is_foreign_control_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any)
 def _is_output_bookmark_home(cursor: Any, doc: Any, cell: NotebookCodeCell) -> bool:
     """True when *cursor* is in *this* cell's code-field row (or leftover Output).
 
-    Any ``In [n]:`` used to count as home. Consecutive code cells (medium In[2]
-    then In[3]) drift the bookmark onto the *next* gutter; clear then skipped
-    that label and ``setString`` ate In[3]'s ▶ and TextField.
+    Only the cell's own ``In [n]:`` gutter is home—counting any label drifts the bookmark onto the next cell.
     """
     content = _paragraph_string(cursor).strip()
     if content == "Output":
@@ -462,10 +459,7 @@ def _delete_paragraph_at(cursor: Any) -> bool:
 def _collapse_leading_empty_paragraphs(doc: Any, cell: NotebookCodeCell, notebook_in: str | None) -> None:
     """Remove blank paragraphs between the Output heading and the first stdout line.
 
-    ``_insert_stdout_paragraph`` used to always insert a PARAGRAPH_BREAK (and a
-    trailing split). When the bookmark paragraph was already empty, that left
-    2–3 blank lines under Output; re-runs accumulated more because
-    ``clear_cell_output`` bailed out on whitespace-only ``getString()``.
+    Skip extra PARAGRAPH_BREAK when the output paragraph is already empty—otherwise blanks accumulate on re-run.
     """
     for _unused in range(16):
         start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
@@ -627,7 +621,7 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     text = doc.getText()
     notebook_in = resolve_para_style(doc, STYLE_NOTEBOOK_IN)
     # Always start from *this* cell's field paragraph. A drifted bookmark on the
-    # next In [n]: used to skip that gutter and setString the next ▶+field.
+    # Start from this cell's field paragraph so a drifted bookmark does not rewrite the next ▶+field.
     start = _code_field_paragraph_end(doc, cell)
     if start is None:
         start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
@@ -647,9 +641,7 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
         return
     range_start = text.createTextCursorByRange(end)
     # skip_home + expanding through every empty para up to the next In/heading
-    # used to delete the spacer blank *before* that boundary; the next insert
-    # then mashed stdout onto the heading. Keep the last empty para that sits
-    # immediately before the next cell.
+    # Keep the empty paragraph before the next cell boundary—deleting it mashes stdout onto the heading.
     last_empty_before_boundary = None
     if _is_leftover_empty_paragraph(end) and not _paragraph_has_frame(end):
         last_empty_before_boundary = text.createTextCursorByRange(end)
@@ -788,11 +780,7 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
     """Cursor over leading Text portions of paragraph cursor *para*, stopping before in-flow shapes.
 
     *para* is a text cursor whose enumeration yields the paragraph; portions are
-    read from that paragraph object. Importer used to put AS_CHARACTER ▶ / code
-    ``TextField`` in the same paragraph as ``[In [n]]``. ``setString`` on
-    ``para.getStart()``–``getEnd()`` then deleted those ``ControlShape``s
-    (TextPortionType ``Frame``). ▶ now sits on the ``In [n]:`` gutter; rewrite
-    leading Text portions only, never the Frame.
+    read from that paragraph object. ▶ and code fields sit on the In [n]: gutter—rewrite Text portions only, not Frame controls.
     """
     # *para* is a text cursor. Its enumeration yields the paragraph;
     # portions are on that paragraph. Reading TextPortionType on the

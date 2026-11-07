@@ -528,8 +528,7 @@ def _criteria_pairs(args: tuple[Any, ...]) -> list[tuple[Any, Any]] | None:
 
 def averageifs(ar: Any, *args: Any) -> float | str:
     # Criteria ranges must match the average range in shape, not just in cell
-    # count. A 2x3 range and a 3x2 range both ravel to 6 and used to be
-    # averaged. Calc returns #VALUE!. No pairs used to average the whole range.
+    # count. A 2x3 range and a 3x2 range both ravel to 6 and must not be averaged. Calc returns #VALUE!. No pairs must not average the whole range.
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
@@ -728,7 +727,7 @@ def bitxor(n1: Any, n2: Any) -> float:
 
 
 def char(n: Any) -> str:
-    # Bad input used to return "" (and inf escaped as OverflowError). chr() also
+    # Bad input must not return "" (and inf escaped as OverflowError). chr() also.
     # accepts code points above 255; Excel/Calc CHAR returns #VALUE! for those.
     try:
         code = int(float(n))
@@ -883,7 +882,7 @@ def countif(r: Any, crit: Any) -> float:
 def countifs(*args: Any) -> float | str:
     # Every criteria range must be the same shape. A 2x3 and a 3x2 both have
     # 6 cells; comparing raveled lengths counted them. Calc returns #VALUE!.
-    # No pairs used to sum an empty mask and return 0.
+    # No pairs must not sum an empty mask and return 0.
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"

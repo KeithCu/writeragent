@@ -421,7 +421,7 @@ _KNOWN_CHARACTER_PROPERTIES = {
     "CharFontName": {"type": "string", "description": "Font family name (e.g., 'Arial')."},
     "CharStrikeout": {"type": "integer", "description": "Strikeout type (0=None, 1=Single, 2=Double)."},
     "CharCaseMap": {"type": "integer", "description": "Case mapping (0=None, 1=Uppercase, 2=Lowercase, 3=Title, 4=SmallCaps)."},
-    # com.sun.star.awt.FontSlant defines NONE=0, OBLIQUE=1, ITALIC=2. Schema previously inverted 1 and 2.
+    # CharPosture follows com.sun.star.awt.FontSlant (0=None, 1=Oblique, 2=Italic). The schema must match that mapping or italic/oblique requests set the wrong UNO constant.
     "CharPosture": {"type": "integer", "description": "Font slant (com.sun.star.awt.FontSlant: 0=None, 1=Oblique, 2=Italic)."},
     "CharShadowed": {"type": "boolean", "description": "Whether text is shadowed."},
     # "CharRelief": {"type": "integer", "description": "Relief style (0=None, 1=Embossed, 2=Engraved)."},
@@ -982,9 +982,9 @@ _installed_font_names_cache: set[str] | None = None
 def _installed_font_names(ctx: ToolContext) -> set[str] | None:
     """Casefolded names LibreOffice can use, or None if the list is unavailable.
 
-    A successful list is reused. style_update / style_create used to build a
-    VCL device and walk every font on each CharFontName write. None is not
-    cached: a headless toolkit can appear later.
+    A successful font-name list is cached and reused so CharFontName updates do not
+    rebuild a VCL device font walk every time. None is never cached so a headless
+    toolkit that appears later can still populate installed fonts.
     """
     global _installed_font_names_cache
     if _installed_font_names_cache is not None:
@@ -1307,9 +1307,9 @@ class ApplyStyle(FrameworkToolBase):
         # CharStyleName to an empty string.
         uno_value = "" if (family == "CharacterStyles" and style_name == "No Character Style") else style_name
 
-        # Validate the style EXISTS before touching the document: a near-miss name ('heading 1',
-        # 'Body Text') used to dead-end in a raw UNO IllegalArgumentException with no hint. Offer
-        # the case-insensitive match when there is one, plus a sample of valid names.
+        # Resolve the style name before any document write so near-miss names return a guided
+        # tool error with case-insensitive suggestions instead of an opaque UNO
+        # IllegalArgumentException.
         if uno_value:
             try:
                 fam = ctx.doc.getStyleFamilies().getByName(family)

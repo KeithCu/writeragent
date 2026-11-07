@@ -128,11 +128,9 @@ _DEFAULT_EMBED_HEIGHT = 2260
 class _EmbedSize100thMm(NamedTuple):
     """Embed frame size in 1/100 mm for TextEmbeddedObject.Width/Height.
 
-    We used to hold this as ``uno.createUnoStruct("com.sun.star.awt.Size", ...)``.
-    Some pytest/CI UNO stubs return an empty ``types.SimpleNamespace``-like object
-    from ``createUnoStruct``, which has no ``Width``/``Height``—then reading
-    ``size.Width`` before assigning to the embed raised AttributeError. Plain
-    ints are enough for the host frame and stay mock-friendly.
+    Width and height are plain ints for TextEmbeddedObject frame properties instead
+    of a UNO Size struct. Stubs that return empty createUnoStruct objects lack
+    Width/Height attributes; ints assign cleanly and keep unit tests mock-friendly.
     """
 
     width: int

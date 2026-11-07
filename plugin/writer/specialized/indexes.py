@@ -434,14 +434,9 @@ def _commit_toc_mutation(
                     idx.setPropertyValue("IsProtected", True)
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    # Bugfix: Returning inside a finally block swallowed any active
-                    # exception raised by mutate() (and triggers SyntaxWarning under
-                    # PEP 765 in Python 3.14+). This happened because early code
-                    # returned tool._tool_error directly inside the except block
-                    # within finally. We stash the protection restore error in
-                    # restore_err and return it after finally exits, allowing any
-                    # mutate() exception to propagate cleanly while preserving rollback
-                    # on protection restore failure.
+                    # Protection restore errors go in restore_err and are returned only
+                    # after finally exits, so mutate() exceptions propagate and Python
+                    # 3.14+ does not warn on return inside finally.
                     restore_err = tool._tool_error(
                         "Could not restore table-of-contents protection; the edit was rolled back."
                     )

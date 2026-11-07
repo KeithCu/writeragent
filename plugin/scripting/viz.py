@@ -58,8 +58,7 @@ def parse_viz_script_header(code: str) -> Any:
 
 def is_viz_result(value: Any) -> bool:
     """True when *value* matches the compact viz helper result contract."""
-    # A nested image inside some other helper used to claim the whole result
-    # as a plot, so later domains never ran.
+    # Require viz helper name or top-level image contract so a nested image dict inside another helper does not skip later domain handlers.
     if not isinstance(value, dict) or "status" not in value:
         return False
     helper = value.get("helper")
@@ -67,13 +66,7 @@ def is_viz_result(value: Any) -> bool:
 
 
 def _unlink_plot_temp(path: str) -> None:
-    # What was wrong: Writer and Draw plot insert wrote a temp file and returned,
-    # so each insert leaked one SVG/PNG.
-    # How: GraphicURL embeds before it returns, and a path under the temp directory
-    # is not linked (_should_link_image_path).
-    # Why this fixes it: this function owns the path it just wrote, so finally
-    # unlinks it even when insert raises. Calc unlinks in image_egress.
-    # PlotDataTool's returned image_path is a different call and stays.
+    # Unlinks the temp plot file after embed because Writer/Draw paths under the system temp dir are not linked elsewhere; without unlink, each insert leaks an SVG/PNG.
     try:
         os.unlink(path)
     except OSError:

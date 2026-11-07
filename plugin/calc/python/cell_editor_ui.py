@@ -256,9 +256,7 @@ def show_native_python_cell_editor(ctx: Any, *, doc: Any, cell: Any, initial_cod
     global _active
     if _active is not None and _active.is_open:
         if _active._dirty:
-            # Bugfix: Unsaved prompt previously named the selection (_cell), which was
-            # wrong when follow mode started editing the referenced code cell (_code_cell).
-            # Name the cell actually being edited matching _set_cell_addr.
+            # Unsaved prompt names _active._edited_cell() (follow mode may edit the code cell, not the selection).
             choice = editor.confirm_unsaved_cell_edit(ctx, editor.format_cell_a1(_active._edited_cell()))
             if choice == "cancel":
                 return True, None

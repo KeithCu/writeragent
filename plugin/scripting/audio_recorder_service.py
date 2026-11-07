@@ -106,10 +106,7 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
 class RecordingStopHandoff:
     """WAV path stashed by the sole stdout monitor for ``finish_recording_stop``.
 
-    Manual Stop Rec used to call ``read_json_line`` on the same pipe the silence
-    monitor was already reading. The monitor only handled ``silence_progress``,
-    ``auto_stopped``, and ``error``, so it dropped ``{"status":"ok","path":…}``.
-    Stop then timed out, and the panel deleted the temp WAV and sent nothing.
+    The stdout monitor owns the JSON lines so Manual Stop shares the ok/path handoff instead of racing a second reader on the pipe.
     """
 
     _lock: threading.Lock
@@ -236,9 +233,7 @@ def _reap_recording_process(
     drain = managed.stderr_tail
     if drain is not None:
         drain.join(timeout=1.0)
-    # Bugfix: the monitor closure holds proc, so the fds stayed open until
-    # GC; closing the read end also unblocks a monitor stuck in os.read after
-    # the child is gone.
+    # Close recording pipes when reaping so monitor threads are not stuck on os.read and fds are not held until GC.
     _close_recording_pipe(proc.stdin, "stdin")
     _close_recording_pipe(proc.stdout, "stdout")
     _close_recording_pipe(proc.stderr, "stderr")
@@ -317,9 +312,7 @@ def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingSto
     if status == "error":
         raw_msg = payload.get("message")
         message = raw_msg if isinstance(raw_msg, str) and raw_msg else "Audio recording failed."
-        # Bugfix: with no callback, note_error never ran, so wait_for_path sat
-        # for the full stop timeout. AudioRecorder always passes a callback;
-        # other callers do not.
+        # note_error always runs so wait_for_path does not block the full stop timeout when on_error is omitted.
         handoff.note_error(message)
         if on_error is not None:
             on_error(message)
@@ -338,9 +331,7 @@ def monitor_recording_stdout(managed: ManagedSubprocess, *, handoff: RecordingSt
         proc = cast("subprocess.Popen[str] | None", managed.popen)
         if proc is None or proc.stdout is None:
             return
-        # Poll-first used to exit when the child wrote ``ok`` and exited in the
-        # same moment, leaving that line unread. Read until EOF, and treat a
-        # read timeout as done only after the process has exited.
+        # Read until EOF so an ok line written as the child exits is not missed before the monitor stops.
         while True:
             if handoff.monitor_stop_requested():
                 break
@@ -351,12 +342,7 @@ def monitor_recording_stdout(managed: ManagedSubprocess, *, handoff: RecordingSt
                     break
                 continue
             except (ValueError, RuntimeError, OSError) as exc:
-                # Bugfix: reap closes stdout while this thread is between
-                # select calls. The next read raises ValueError ("I/O
-                # operation on closed file"), and an oversize line raises
-                # "JSON line exceeds …" or "JSON line truncated at EOF" on
-                # every retry, so those three end the loop. Any other
-                # ValueError is a bad line and is skipped.
+                # Closed-pipe and oversize-line ValueErrors end the monitor loop; other ValueErrors skip one bad JSON line.
                 if isinstance(exc, ValueError) and not str(exc).startswith((
                     "I/O operation on closed file",
                     "JSON line exceeds ",
@@ -455,10 +441,6 @@ def clear_pending_audio_wav(host: Any) -> None:
         try:
             os.remove(host.audio_wav_path)
         except OSError as exc:
-            # What was wrong: except Exception: pass hid a failed delete.
-            # How it happened: on Windows the recorder subprocess still
-            # holds the WAV, so os.remove raises PermissionError.
-            # Why this fixes it: OSError is logged and the path is still
-            # dropped. Any other exception propagates.
+            # Log OSError on WAV delete (common on Windows when the child still holds the file) but clear the pending path reference.
             log.debug("clear_pending_audio_wav: failed to remove %s: %s", host.audio_wav_path, exc)
         host.audio_wav_path = None

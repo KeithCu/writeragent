@@ -72,11 +72,8 @@ class GetSlideTransition(ToolDrawSlideTransitionsBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         page, page_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
-        # Bugfix: 130c136d6 dropped the per-property fallbacks while removing
-        # try/except. A missing Effect/Speed/Duration/TransitionDuration/Change
-        # used to return "none", "medium", 0, None, and Change 0 (advance
-        # "on_click"). Direct getPropertyValue now fails the tool. uno_read
-        # restores each fallback on its own and still raises on a disposed document.
+        # Missing Effect/Speed/Duration/TransitionDuration/Change properties get per-field
+        # defaults via uno_read ("none", "medium", 0, None, on_click). Disposal still propagates.
         effect = uno_read(lambda: _transition_enum_name(page.getPropertyValue("Effect")), "none")
         speed = uno_read(lambda: _transition_enum_name(page.getPropertyValue("Speed")), "medium")
         duration = uno_read(lambda: page.getPropertyValue("Duration"), 0)
@@ -143,7 +140,7 @@ class SetSlideTransition(ToolDrawSlideTransitionsBase):
         # Speed and TransitionDuration are one LibreOffice double.
         # unopage.cxx WID_PAGE_SPEED writes setTransitionDuration (slow 3s,
         # medium 2s, fast 1s) and the getter derives speed from that double.
-        # Setting both used to leave the duration and report the overwritten speed.
+        # LibreOffice maps Speed and TransitionDuration to one double; setting both overwrites speed.
         td = kwargs.get("transition_duration")
         speed = kwargs.get("speed")
         if td is not None:

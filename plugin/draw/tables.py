@@ -36,10 +36,7 @@ def _table_model(shape: Any) -> Any | None:
     try:
         return shape.getModel()
     except Exception as exc:
-        # Bugfix: a closed document raises DisposedException from getModel(),
-        # and this except turned that into a missing page / not-found result.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing missing-page path.
+        # getModel on a closed document raises disposal. Re-raise that; other errors return None.
         if is_disposal(exc):
             raise
         return None
@@ -225,9 +222,7 @@ def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
             try:
                 row.append(_cell_string(model.getCellByPosition(c, r)))
             except Exception as exc:
-                # getCellByPosition / _cell_string failures used to append "".
-                # That is the empty-cell value, so a bad read became a blank
-                # in an ok matrix. Disposal propagates; anything else is an error.
+                # Read failures must not masquerade as empty cells. Disposal propagates; other errors raise.
                 if is_disposal(exc):
                     raise
                 raise ValueError("Could not read Draw table cell at row %s col %s: %s" % (r, c, exc)) from exc
@@ -322,10 +317,8 @@ def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         if is_disposal(exc):
             raise
         if added:
-            # page.add already inserted the shape. Returning the size/fill
-            # error used to leave that half-built table on the page.
-            # Remove it, then report the original error. A closed document
-            # is re-raised and is not rewritten as a tool error.
+            # page.add leaves a half-built table on failure; remove the shape before returning the error.
+            # Disposal re-raises unchanged.
             try:
                 page.remove(shape)
             except Exception as remove_exc:

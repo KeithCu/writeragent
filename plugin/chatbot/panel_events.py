@@ -214,11 +214,7 @@ class PanelEventsController:
 
         from plugin.chatbot.tool_loop_actions import current_turn
 
-        # Bugfix: parallel tools/call requests rebuilt _last_mcp_turn while other
-        # threads called pop or disposing cleared on the UI thread, causing race conditions.
-        # EventBus runs mcp:request / mcp:result on HTTP workers, while disposing clears
-        # on the UI thread. Mutating under _mcp_turn_lock with a second teardown check
-        # prevents data races and stops late requests from storing turns after teardown.
+        # MCP events run on HTTP workers; _mcp_turn_lock guards _last_mcp_turn against UI teardown.
         rid = str(kwargs.get("req_id", ""))
         turn = current_turn(self._panel)
         with self._panel._mcp_turn_lock:

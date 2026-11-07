@@ -620,9 +620,9 @@ class DocumentPersistence:
     ) -> list[dict[str, Any]] | None:
         """Return errors for ``fp`` under ``locale``.
 
-        L1 keys are ``sent|locale|identity|fp``. L2 used to key on ``fp`` only,
-        so the same sentence under two CharLocales reused the other locale's
-        errors or a good (empty) row. Pass ``locale`` for a real lookup.
+        L1 keys are ``sent|locale|identity|fp`` so the same sentence under different
+        CharLocales does not share another locale's cached diagnostics. Pass
+        ``locale`` for a real lookup.
 
         A single legacy v2/v3 bucket is adopted to ``locale`` when
         ``adopt_legacy`` is true (proofreading). Probes pass false so a

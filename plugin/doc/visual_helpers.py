@@ -51,12 +51,7 @@ _ANCHOR_TYPE_INDEX = {
 def anchor_type_index(raw: Any) -> int | None:
     """Map TextContentAnchorType to the 0-4 index the set-properties tools write.
 
-    What was wrong: image_get_info and frame_get_info always returned anchor_type None.
-    How it happened: getPropertyValue("AnchorType") is a pyuno enum. .value is the
-    name ("AT_PARAGRAPH"), so int(name) raises ValueError, and int(enum) raises
-    TypeError. Both were swallowed. html_import.py already reads that .value name.
-    Why this change: the name is the stable token. The integers are the IDL order
-    those tools pass to setPropertyValue.
+    AnchorType is a pyuno enum: use .value name or the IDL index map—int(enum) fails silently otherwise.
     """
     if type(raw) is int and raw in _ANCHOR_TYPE_INDEX.values():
         return raw
@@ -90,9 +85,7 @@ UNITS_PER_INCH = 2540
 PX_PER_INCH = 96
 
 
-# Bugfix: int(mm) * 100 truncated fractional millimetres to whole millimetres
-# (e.g. 12.7 mm became 12 mm / 1200 units). Rounding float(mm) * 100 preserves
-# fractional millimetre inputs to the nearest 1/100 mm LibreOffice unit.
+# round(float(mm) * 100) preserves fractional millimetres in 1/100 mm units—int(mm) truncates.
 def mm_to_unit(mm: int | float) -> int:
     """Nearest LibreOffice 1/100 mm. Python round (half to even)."""
     return int(round(float(mm) * 100))
@@ -350,7 +343,7 @@ def is_graphic_object(obj: Any) -> bool:
     if obj is None:
         return False
 
-    # Service probe first: Draw/Impress shapes used to pay a failing Graphic read here.
+    # Service probe first—Graphic property reads fail on non-graphic shapes.
     try:
         if obj.supportsService(WRITER_GRAPHIC_SERVICE) or obj.supportsService(_TEXT_GRAPHIC_SERVICE) or obj.supportsService(DRAW_GRAPHIC_SERVICE):
             return True
@@ -505,8 +498,7 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
             return _graphics_in_text_range(doc, selection)
         return []
     except Exception as ex:
-        # Disposal used to become [] here, so vision/image tools reported NO_IMAGE_SELECTED for a
-        # closed document. Ordinary UNO failures still return [].
+        # Re-raise disposal; other errors return [] so live documents can report no selection.
         reraise_if_disposed(ex)
         log.debug("graphic_objects_in_selection failed: %s", ex)
         return []
@@ -558,9 +550,7 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
     return _writer_draw_page() if page is FAILED else page
 
 
-# Bugfix: Calc ignored page_index entirely and always returned the active sheet's
-# draw page, because getDrawPages() is Draw/Impress-specific and Calc sheets each
-# have their own draw page accessed via sheet.getDrawPage().
+# Calc: page_index selects sheet.getDrawPage(); getDrawPages() is Draw/Impress-only.
 def draw_page_for_insert(model: Any, inside: str, page_index: int | None = None) -> Any:
     if page_index is not None and inside in ("draw", "impress", "calc"):
         calc = inside == "calc"
@@ -734,15 +724,11 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
                 if shape is graphic or shape == graphic:
                     page.remove(graphic)
                     return True
-                # Identity is the shape the caller resolved. A same name on
-                # a different shape used to delete the first hit, so two
-                # shapes named alike could drop the wrong one. Remember name
-                # hits and delete only when the name is unique.
+                # Identity match first; else collect same-name hits and delete only when unique on the page.
                 if target_name and uno_read(lambda: hasattr(shape, "getName") and str(shape.getName() or "") == target_name, False):
                     name_hits.append((page, shape))
     except Exception as ex:
-        # Disposal used to become False, and image_delete reported
-        # IMAGE_NOT_FOUND for a closed document.
+        # Re-raise disposal; other errors return False (IMAGE_NOT_FOUND on live docs).
         if is_disposal(ex):
             raise
         log.debug("remove_graphic_from_draw_pages failed: %s", ex)

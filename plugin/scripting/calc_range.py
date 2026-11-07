@@ -263,13 +263,8 @@ class CalcRange:
             dt = np.float64 if dtype is None else dtype
             return np.array([], dtype=dt, **kwargs).reshape(0, 0)
 
-        # What was wrong: every explicit dtype was built from a grid that had
-        # already replaced None with math.nan. dtype=object stored nan, and
-        # dtype=bool stored True because nan is truthy.
-        # How it happened: _cell ran before the dtype branch. np.array on the
-        # raw cells keeps None for object, maps None to False for bool, and
-        # maps None to nan for float.
-        # Why this fixes it: a named dtype is passed the raw cells. Only the
+        # Named dtypes are built from raw cells (None intact) so bool columns do not treat NaN as True and object columns keep None.
+        # Only the
         # default all-numeric path maps blanks to NaN.
         if dtype is not None:
             return np.array(self._values, dtype=dtype, **kwargs)
@@ -488,11 +483,7 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     else:
         unpacked = inner
 
-    # What was wrong: any object with to_numpy() was converted, and a raised
-    # to_numpy was swallowed so the object became a 1×1 cell.
-    # How it happened: duck-typing plus ``except Exception: pass``.
-    # Why this fixes it: only a pandas DataFrame or Series is a grid here.
-    # A failure from that to_numpy propagates. Anything else stays one cell.
+    # Only pandas DataFrame/Series expand to grids; other objects stay single cells and to_numpy failures propagate.
     if _is_pandas_frame_or_series(unpacked):
         unpacked = unpacked.to_numpy()
 

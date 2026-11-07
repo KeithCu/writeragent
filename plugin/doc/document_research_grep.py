@@ -139,11 +139,8 @@ def _grep_text_in_writer(
         else:
             para_texts.append("")
 
-    # Bugfix: Stop was ignored for the whole Writer extract and for the
-    # paragraph scan. cancel was on the signature but never polled,
-    # and search_paragraph_texts never received it, so a large document
-    # finished getString and the match walk before grep_nearby_files could
-    # return USER_STOPPED. The outer file loop still decides USER_STOPPED:
+    # Poll cancel during Writer extract and paragraph scan so Stop returns USER_STOPPED promptly.
+    # The outer file loop still decides USER_STOPPED:
     # the check after each file's search covers the last file, so Stop during
     # that search is not status: ok.
     matches, truncated = search_paragraph_texts(
@@ -159,11 +156,7 @@ def _grep_text_in_writer(
         match["text"] = _snippet(match["text"])
         for context_entry in match["context"]:
             context_entry["text"] = _snippet(context_entry["text"])
-    # Bugfix: match_count was the uncapped total from search_paragraph_texts
-    # while matches was sliced to max_results, and partial was forced false.
-    # Calc and Draw already set match_count to the returned length. Writer
-    # now does too. partial is true when another hit exists past the returned matches,
-    # or when Stop cut extraction or the scan.
+    # match_count matches len(matches); partial is true when more hits exist or Stop truncated the scan.
     partial = truncated or is_cancelled(cancel)
     return matches, partial
 
@@ -397,10 +390,7 @@ def grep_nearby_files(
     try:
         compile_search_pattern(pattern, regex=regex, case_sensitive=case_sensitive)
     except ValueError as exc:
-        # Bugfix: an invalid regex was raised inside each opened file, so
-        # grep_nearby_files opened every candidate, searched nothing, and
-        # appended the same error once per file. The pattern does not
-        # depend on the document. Fail once, before listing or opening.
+        # Invalid regex fails once before opening files—the pattern does not depend on each document.
         return {"status": "error", "message": str(exc)}
 
     subset_norm = str(file_subset).strip() if file_subset else None

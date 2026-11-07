@@ -62,9 +62,9 @@ def _selection_target(
     #
     # The message box is the user-visible path. The streamed session raises the same
     # way before ``setString``, so skipping this wrapper still cannot wipe the redlines.
-    # A deletion-only selection reads as empty after skipping deletes; that used to
-    # return from Extend Selection with no message and, on Edit Selection, still
-    # reached ``setString``. Check before that empty return and before the prompt.
+    # refuse_tracked_insert_or_delete runs before the empty-selection return so
+    # deletion-only ranges that read as empty still block Extend/Edit with the
+    # tracked-changes message instead of reaching setString silently.
     try:
         refuse_tracked_insert_or_delete(text_range)
     except TrackedChangesInSelection:

@@ -453,9 +453,9 @@ def _download_for_tool(
         return tool._tool_error("Could not download image: %s" % exc, code="DOWNLOAD_FAILED", url=url)
 
 
-# Bugfix: Setting only width_mm or only height_mm left the unpassed dimension
-# at its old absolute size, distorting the aspect ratio. When only one dimension
-# is specified, we scale the other side proportionally to preserve the aspect ratio.
+# When only width_mm or height_mm is given, the other dimension scales proportionally
+# from the current graphic size so aspect ratio is preserved instead of pinning one
+# side at an absolute size.
 def _replacement_size_units(
     current_width: int,
     current_height: int,
@@ -753,10 +753,8 @@ class ImageGetInfo(ToolWriterImageBase):
         except Exception as exc:
             reraise_if_disposed(exc)
 
-        # What was wrong: image_get_info never reported an image hyperlink, so a
-        # footer button whose ODT link lives on the enclosing draw:a looked unlinked.
-        # LibreOffice maps that href onto HyperLinkURL (BaseFrameProperties).
-        # Shapes without the property (some Calc/Draw pictures) stay "".
+        # HyperLinkURL on the graphic reports footer/button links LibreOffice stores on
+        # the frame; omitting it makes linked images look unlinked in tool output.
         raw_link = visual_helpers.safe_get_property(graphic, "HyperLinkURL", "")
         hyperlink_url = raw_link if isinstance(raw_link, str) else ""
 

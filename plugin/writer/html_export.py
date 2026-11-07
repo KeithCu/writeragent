@@ -197,9 +197,9 @@ def _visible_portions(para: Any, limit: int = _COPY_PORTION_LIMIT, truncated_out
     drifted offset. ``get_string_without_tracked_deletions`` continues past a
     bad portion instead — that is the only intentional divergence.
 
-    Hitting *limit* used to stop silently, so a range read could omit later
-    runs' Char* with no signal. When the shared walk stops because of the cap,
-    log and append ``walk_cap_warning`` to *truncated_out*.
+    When the portion walk hits *limit*, log and append ``walk_cap_warning`` to
+    *truncated_out* so truncated range reads are visible instead of omitting later
+    Char* runs without a signal.
     """
     hit: list[int] = []
     yield from _shared_visible_portions(
@@ -289,9 +289,8 @@ def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
 def _selection_cursor(model: Any) -> Any | None:
     """The current selection as a cursor in its own text, or None.
 
-    Scope ``selection`` used to turn this into character offsets and walk the
-    body from the start. Those offsets and the paragraph walk disagree across
-    an index section, so a TOC selection could export a later body paragraph.
+    Selection scope builds a cursor in the selection's own XText instead of body
+    character offsets, so index/TOC selections do not export a later body paragraph.
     """
     from plugin.doc.text_helpers import _get_writer_selection_positions
 
@@ -351,9 +350,8 @@ def _range_to_content_via_temp_doc(
         # and this function reads the whole body back (see new_blank_writer).
         temp_doc = new_blank_writer(ctx, target="_default")
         if not temp_doc:
-            # Bugfix: returning "" made scope=range/selection report ok with
-            # empty content when the scratch Writer could not be created
-            # (relato #63).
+            # Missing scratch Writer raises ToolExecutionError instead of returning
+            # empty content with status ok.
             raise ToolExecutionError(
                 "Could not read that part of the document (no scratch document)."
             )
@@ -757,9 +755,8 @@ def xtext_to_content(
 
     temp_doc = new_blank_writer(ctx)
     if not temp_doc:
-        # Bugfix: returning "" made page_get_header_footer_text report
-        # status ok with empty content (relato #63), including when
-        # document_to_content had already raised ToolExecutionError.
+        # Missing scratch Writer raises ToolExecutionError instead of reporting
+        # ok with empty header/footer text.
         raise ToolExecutionError(
             "Could not read the document: no scratch document."
         )

@@ -38,11 +38,8 @@ def apply_output_to_sheet(target_sheet: Any, output: OutputSheetModel) -> None:
             continue
         col, row = parse_address(address)
         cell = target_sheet.getCellByPosition(col, row)
-        # Bugfix: every value was str()'d and then float()'d, so text
-        # "00123" became setValue(123.0). The string grid also treated
-        # text that starts with "=" or "{" as a formula. bool is an int,
-        # and str(True) is the text "True"; CellManipulator._classify_write_cell
-        # already stores bools as 1.0/0.0 so PY formulas see numbers.
+        # Do not str()/float() preserved values: leading zeros and formula-looking text stay as written.
+        # Bools route through _classify_write_cell as 1.0/0.0, not the string "True".
         if oc.formula:
             cell.setFormula(oc.formula)
         elif isinstance(value, bool):

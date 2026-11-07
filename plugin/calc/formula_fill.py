@@ -4,8 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Fill-down / fill-across for a single Calc formula into a 1-D or 2-D range.
 
-``write_formula_range`` used to pin the same formula text on every cell
-(``[formula] * n``). Ordinary formulas now shift relative A1 refs per cell
+``write_formula_range`` shifts relative A1 refs per cell instead of repeating one string
+(``[formula] * n``). Ordinary formulas
 (``$`` stays absolute). ``=PY`` / PYTHON / PYTHONFUNCTION formulas use a
 direction-aware span policy: only refs whose span does not cross the fill
 axis are adjusted; other refs outside the quoted Python string stay

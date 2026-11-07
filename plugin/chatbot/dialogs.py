@@ -146,8 +146,7 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         message = (description or _("Proceed with this action?")) + ("\n\n" + _("Tool: %s") % tool_name if tool_name else "")
         log.debug("show_approval_dialog: tool_name=%s parent_frame=%s", tool_name, parent_frame is not None)
         # 4 = QUERYBOX, 3 = BUTTONS_YES_NO. Result 2 = Yes (Approve), 3 = No (Reject), 1 = OK
-        # msgbox() disposes in a finally. This box used to return after execute()
-        # and leak the toolkit window. A dispose failure must not flip Yes/No.
+        # Dispose the approval box after execute(); dispose failure must not change Yes/No.
         result = _execute_message_box(ctx, window, 4, 3, title, message)
         return result in (1, 2)
     except Exception:

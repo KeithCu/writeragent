@@ -55,11 +55,7 @@ install_lazy_exports(globals(), "duckdb_sql", _SQL_VENV_EXPORTS)
 # --- Templates for Run Python Script (Calc) ---
 
 def _sql_row_cap_note() -> str:
-    # What was wrong: a module-level import of MAX_TABLE_ROWS loaded
-    # venv/duckdb_sql.py (and coerce, calc_range, payload_codec) on every
-    # import of this host facade, including is_sql_result and header parsing.
-    # How: 2c1a312ce interpolated the constant into an import-time f-string.
-    # Why: only SQL script templates need the number. Load it when a template is built.
+    # MAX_TABLE_ROWS loads lazily via venv_attr so importing this host facade does not pull the full venv SQL stack for simple result checks.
     rows = venv_attr("duckdb_sql", "MAX_TABLE_ROWS")
     return (
         f"Results cap at {rows} rows (MAX_TABLE_ROWS). truncated/warning/flags mean "

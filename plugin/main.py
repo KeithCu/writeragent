@@ -172,11 +172,7 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
         module_phase_failed = True
         log.exception("bootstrap failed while loading modules")
         bootstrap.set_bootstrap_error(exc)
-        # What was wrong: bootstrap flag remained INITIALIZED even if module loading failed,
-        # wedging startup so later calls returned immediately.
-        # How it happened: INITIALIZED was set early to block re-entry during imports.
-        # Why this change: reset only when app._modules is still empty so a retry does not
-        # build a second registry.
+        # Module load failure marks uninitialized when _modules is empty so bootstrap can retry.
         if not app._modules:
             bootstrap.mark_uninitialized()
             return
@@ -414,9 +410,7 @@ class MainBootstrapJob(BaseMainBootstrapJob):
 
             doc_type = get_document_type(model)
             if doc_type in (DocumentType.WRITER, DocumentType.CALC) and Event in ("ExtendSelection", "EditSelection"):
-                # What was wrong: accelerator actions bypassed _dispatch_command and never bootstrapped.
-                # How it happened: accelerators invoke trigger with ExtendSelection directly.
-                # Why this change: bootstrap eagerly before calling selection action.
+                # Accelerators call bootstrap before ExtendSelection/EditSelection handlers run.
                 bootstrap()
                 from plugin.chatbot.selection import do_selection_action_for_document
 

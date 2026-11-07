@@ -831,12 +831,8 @@ def _coerce_factory_slot(slots: list[Any] | dict[str, Any], key: int | str) -> b
 def _install_safe_log_record_factory() -> None:
     """Install a log-record factory that never calls into a PyUNO proxy.
 
-    A single PyUNO argument used to raise TypeError on Python 3.12+ while the
-    record was formatted. ``str(proxy)`` is also a UNO call (deep ``val2str``),
-    so formatting it under ``Handler.lock`` deadlocks against the UI thread's
-    SolarMutex. The factory replaces proxies, including ones nested in lists,
-    tuples, and dicts, and formats ``exc_text`` here, outside that lock.
-    ``Formatter.format`` skips ``formatException`` when ``exc_text`` is already set.
+    PyUNO proxies in log args deadlock under Handler.lock on Python 3.12+.
+    The factory stringifies proxies and exc_text outside that lock before format.
     """
 
     def _install() -> bool:

@@ -494,18 +494,9 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
         elif not snapshot.links and snapshot.preserve_url:
             put_back = snapshot.preserve_url
         if put_back and new_plain:
-            # What was wrong: replacing only the page digits turned them navy
-            # and underlined (discussion #1429). How it happened: those digits
-            # are not in the outline URL, so _paint skips the write when the
-            # URL is still there. setString of the digits still splits the
-            # run. One split leaves the title black and the digits navy; the
-            # next setString can also unlink the last digit and paint the
-            # title. CharColor on the digit subrange alone repaints the whole
-            # link, and CharColor after a subrange HyperLinkURL assignment
-            # does not stick. Why this fixes it: the match look was captured
-            # before the replace. When that one link is the whole paragraph,
-            # assign its URL and then the look on that same whole-paragraph
-            # cursor — the order that returns one black run.
+            # When one outline link spans the whole paragraph, reassign HyperLinkURL
+            # and the pre-replace CharColor on a whole-paragraph cursor so page-digit
+            # edits do not split the run into navy underlined digits.
             restored = False
             if snapshot.look and snapshot.links and snapshot.single_paragraph:
                 para = _paragraph_text(text, anchor)

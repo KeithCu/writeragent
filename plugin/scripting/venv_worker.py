@@ -195,9 +195,7 @@ def _maybe_dispatch_intermediate_response(
     ):
         return True
     # Only the ppt-master worker may emit llm_request. Every other caller
-    # (including "script" and =PY()) used to fall through into that dispatcher,
-    # which runs llm_request with the host's API credentials. tool_call above
-    # stays open to every caller.
+    # llm_request is limited to the ppt_master worker so script and =PY() callers cannot reach host LLM credentials.
     if caller != "ppt_master_venv":
         return False
     try:
@@ -534,8 +532,7 @@ class PythonWorkerManager:
         prefix = f"{pool}:"
         stale: list[PythonWorkerManager] = []
         with _registry_lock:
-            # The registry key is pool:exe. A new Settings path used to leave
-            # the previous child running until LibreOffice exited.
+            # Replacing pool:exe evicts other exe keys under the same pool so a Settings path change does not leave orphan worker children.
             for other_key in list(_instances):
                 if other_key.startswith(prefix) and other_key != key:
                     old = _instances.pop(other_key, None)
@@ -711,9 +708,7 @@ class PythonWorkerManager:
                     continue
 
                 # A tool_call (or ppt llm_request / worker_event) can mutate the
-                # document and then raise. The flag used to flip only after
-                # dispatch returned, so a RuntimeError with no exec_started left
-                # may_have_run false and the attempt loop sent the request again.
+                # Set may_have_run before dispatch so a tool that mutates then raises is not replayed when exec_started never arrives.
                 if response.get("type") in ("tool_call", "llm_request", "worker_event"):
                     state.dispatched_intermediate = True
                 self._serving_tool_call = True
@@ -836,8 +831,7 @@ class PythonWorkerManager:
             response = outcome.response
             # Empty-id error before exec: the harness rejected the pickle and is
             # back at read(). Return its message and keep the worker. Treating this
-            # as an id mismatch used to kill a healthy child. After exec_started or
-            # a tool frame, any other id mismatch still kills.
+            # Pre-exec empty-id errors keep the worker alive; after exec_started or a tool frame, id mismatch still triggers restart.
             if (
                 response.get("id") == ""
                 and response.get("status") == "error"
@@ -850,7 +844,7 @@ class PythonWorkerManager:
             req_id = wire.get("id")
             if response.get("id") != req_id:
                 # exchange_tool_call already checks ids. A mismatched terminal
-                # frame used to be accepted, so one cell could receive another's result.
+                # Terminal frames must match the request id so one cell cannot consume another cell's result.
                 log.warning(
                     "Python worker response id %r does not match request %r",
                     response.get("id"),
@@ -862,13 +856,7 @@ class PythonWorkerManager:
                 )
             try:
                 # host_unpack_data runs after the script has finished. A bad
-                # envelope used to hit the outer handler and replay the
-                # request, so a tool call that already mutated the document
-                # ran twice. The catch is the unpack contract, not only
-                # ValueError: int(inf) on an int column is OverflowError,
-                # and a bad shape can be TypeError, AttributeError, or
-                # KeyError. Those miss the outer replay tuple and used to
-                # escape as an uncaught exception.
+                # host_unpack failures return without replay so a tool that already mutated the document cannot run twice; broad exception types cover bad shapes and non-finite ints.
                 return self._normalize_response(response)
             except _HOST_UNPACK_ERRORS as e:
                 log.warning("Python worker result rejected (not replaying): %s", e)
@@ -1101,11 +1089,7 @@ class PythonWorkerManager:
     ) -> dict[str, Any] | None | FailedAfterStart:
         from plugin.framework.ipc import FRAME_HEARTBEAT, FRAME_RESULT
 
-        # Each heartbeat used to set the deadline to now+grace with no end.
-        # Trusted actions do not use the sandbox alarm, so a loop that kept
-        # emitting heartbeats held the warm-child pipe lock until something else killed the child.
-        # Heartbeats may move the short deadline forward, but never past an
-        # absolute ceiling from the start of this call. They do not reset it.
+        # Heartbeats extend the wait only up to an absolute ceiling so endless heartbeat loops cannot hold the warm-child pipe lock forever.
         # _read_until_terminal starts a new ceiling after a non-heartbeat
         # frame. Trusted actions emit heartbeats until one result, so for
         # them this call is the whole job.
@@ -1158,7 +1142,7 @@ class PythonWorkerManager:
                 return data
             # Unknown frames must not extend the deadline (protocol drift should
             # time out, not look like a stall). Log the first unknown type once —
-            # per-frame warnings used to inflate wait time and flake short-timeout tests.
+            # Log unknown frame types once so tight timeout tests are not slowed by repeated warnings.
             if not logged_unknown:
                 log.warning("venv worker ignoring unknown frame type: %r", frame_type)
                 logged_unknown = True
@@ -1350,16 +1334,7 @@ def reset_python_session(
         assert err is not None
         return err
 
-    # What was wrong: OnUnload calls reset_python_session on the UNO thread,
-    # which holds the SolarMutex. With no live child, execute() warmed a new
-    # worker via _io_session (supervisor spawn + handshake) and blocked there.
-    # How it happened: every Calc open registers this listener
-    # (auto_open._geometric_open_job), and reset always called execute().
-    # The spawn path can GC a leftover Calc cell-range proxy; that destructor
-    # blocks on the SolarMutex the waiting main thread still holds.
-    # Why this change: the sandbox session lives only in the child. A dead
-    # child has nothing to drop, so return ok and do not call execute().
-    # A live child still resets in place.
+    # When no worker child is alive, return ok without execute() so Calc OnUnload does not spawn on the UNO thread and deadlock on SolarMutex during document teardown.
     if not manager._is_worker_alive():
         return {"status": "ok"}
 

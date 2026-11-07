@@ -47,14 +47,12 @@ def _require_finite(num: float, message: str) -> float:
 
 
 def _format_qty(qty: Any, spec: str = "") -> str:
-    """Compact unit text. ``format_quantity`` used to spell the long name (``meter``).
+    """Compact unit text (``m``, ``km/h``). A format spec applies to the magnitude only.
 
-    Parse and the payload helper already use Pint's compact form (``m``, ``km / h``).
-    A format spec applies to the magnitude only.
+    Dimensionless quantities use an empty unit suffix, so appending ``" {unit}"``
+    always would leave a trailing space in Writer. A bad format spec must raise
+    ``_FormatSpecError``, not a generic parse error.
     """
-    # Compact dimensionless units are "", so the old f"{mag} {unit}" wrote a
-    # trailing space into formatted and into Writer; a bad spec raised
-    # ValueError and _guarded called that a parse error.
     unit = f"{qty.units:~}"
     if spec:
         try:
@@ -102,11 +100,7 @@ def _aliases_agree(left: Any, right: Any) -> bool:
 
 
 def _resolve_unit_alias(primary: Any, alias: Any) -> tuple[Any, bool]:
-    # What was wrong: convert_quantity kept from_unit over from, and
-    # _dispatch_convert kept from over from_unit (same for to / to_unit).
-    # How: each call site passed the keys to _first_nonblank in its own order.
-    # Why this fixes it: both sites share this helper, and two non-blank aliases
-    # that disagree are INVALID_SPEC instead of a silent pick.
+    # Primary and alias unit keys must agree when both are set; shared resolution keeps convert_quantity and _dispatch_convert consistent.
     primary_blank = is_blank_param(primary)
     alias_blank = is_blank_param(alias)
     if primary_blank and alias_blank:
@@ -149,8 +143,7 @@ def _required_unit_text(unit_text: Any) -> str:
 def _unit_quantity(ureg: Any, magnitude: float, unit_text: Any) -> Any:
     """Build a quantity from a number and a unit. Do not string-format the number.
 
-    ``UndefinedUnitError`` subclasses ``AttributeError``, so the RPC
-    ``except ValueError`` used to report an unknown unit as ``UNITS_ERROR``.
+    ``UndefinedUnitError`` subclasses ``AttributeError``; this helper wraps unit construction as ``ValueError`` so RPC maps unknown units to ``UNITS_ERROR``.
     """
     text = _required_unit_text(unit_text)
     try:
@@ -454,13 +447,7 @@ def _dispatch_convert(params: dict[str, Any]) -> dict[str, Any]:
 @helper("units", "parse_quantity")
 def _dispatch_parse(params: dict[str, Any]) -> dict[str, Any]:
     name = "parse_quantity"
-    # What was wrong: parse_quantity("") and parse_quantity(quantity=None)
-    # returned MISSING_PARAM, while run_units with quantity "" or None returned
-    # PARSE_ERROR / empty quantity.
-    # How: _dispatch_parse had no blank check, so _parse_quantity_value raised
-    # and _guarded labeled it a parse error.
-    # Why this fixes it: omitted quantity uses the same MISSING_PARAM check as
-    # the direct function. Whitespace-only text is still parsed.
+    # Blank quantity returns MISSING_PARAM here to match the direct parse_quantity API; whitespace-only strings still go through parse.
     if is_blank_param(params.get("quantity")):
         return error_result("MISSING_PARAM", "quantity is required", helper=name)
     raw_qty = params.get("quantity")

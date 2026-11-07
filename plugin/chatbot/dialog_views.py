@@ -254,11 +254,7 @@ class SettingsDialog:
                     break
                 try:
                     apply_settings_result(self._ctx, result, field_specs)
-                    # What was wrong: saving settings did not re-apply the log level,
-                    # relying instead on per-request init_logging in llm_client.
-                    # When those per-request calls were removed, log level changes in Settings
-                    # were not reflected until restart or opening Settings again.
-                    # Why this change: re-apply the configured log level immediately on save.
+                    # init_logging runs on save so log level changes apply without restart.
                     init_logging(self._ctx)
                     return result
                 except ConfigValidationError as ve:
@@ -434,9 +430,7 @@ class SettingsDialog:
         result: dict[str, Any] = {}
         for field in field_specs:
             name = field["name"]
-            # getControl raises for an unknown id. None used to be the only
-            # skip, so one missing name aborted OK the same way it aborted
-            # open. get_optional skips the name; a disposed dialog still raises.
+            # Missing controls skip via get_optional; one unknown id must not abort the whole extract.
             ctrl = get_optional(self._dlg, name)
             if ctrl is None:
                 continue
@@ -452,7 +446,7 @@ class SettingsDialog:
         return result
 
     def _cleanup(self) -> None:
-        # A disposed control used to escape this finally and replace the error show() was handling.
+        # suppress_disposed in finally so teardown errors do not mask the original show() failure.
         if self._endpoint_listener:
             with suppress_disposed("close endpoint listener", logger=log, suppress_all=False):
                 self._endpoint_listener.close()
@@ -1195,11 +1189,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             else None
         )
         provider = _provider_for_catalog(resolved)
-        # These GETs used to run in _apply_dropdowns on the UI thread after the
-        # text list returned. OpenRouter image is GET /v1/images/models; speech
-        # and transcription are separate modality queries; Together voices are
-        # GET /v1/voices. That blocked Settings, including OK. The worker fills
-        # the process caches; apply_ui only reads them.
+        # Image/speech/voice catalog GETs run on the worker; apply_ui reads warmed caches only.
         if provider in {"openrouter", "together"}:
             fetch_available_image_models(resolved, api_key_override=key_ov)
             if provider == "openrouter":
@@ -1281,9 +1271,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if url: self._ctrl.setText(url)
         
         gen = self._cancel_pending()
-        # Snapshot on the UI thread. The worker used to read _debounce_gen
-        # when it started, so a newer click was invisible, and it omitted the
-        # Together TTS model id that force_catalog_refresh already captures.
+        # Capture debounce gen and endpoint on the UI thread before the worker starts.
         resolved = endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self._sync_api_key(force=True)
@@ -1292,8 +1280,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 self._apply_warm_catalog(resolved, key)
                 return
             # LRU plus defaults now. The catalog GET is the worker below.
-            # Non-OpenRouter providers used to fetch inside _apply_dropdowns
-            # and froze the dialog on a dead host.
+            # skip_fetch on select; network catalog work stays on the background worker.
             self._apply_dropdowns(resolved, models=None, skip_fetch=True)
             self._start_bg_fetch(gen, resolved, "settings-select")
 

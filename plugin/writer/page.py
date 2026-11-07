@@ -506,14 +506,9 @@ def _copy_page_regions(
         if dest_text is None:
             raise RuntimeError("Page style clone: no %s text on the new style." % region)
         if _region_holds_content(doc, src_text, strict=False, include_images=False):
-            # Bugfix: this used to export the region through xtext_to_content
-            # (controller.select + clipboard + hidden Writer + in-process
-            # libxslt / flat ODF) and import it with replace_xtext_with_html.
-            # That export is what corrupted soffice (malloc unsorted-list /
-            # SIGSEGV 139 / SalAbort), observed on the next getByName as
-            # "Binary URP bridge disposed" (GHA 38526445257, 38584920511,
-            # 38584636315). Same-document portion copy does not select, does
-            # not use the clipboard, and does not run libxslt.
+            # Region text is copied in-document via _copy_flow_into_xtext instead of
+            # select/clipboard/XHTML export, which can corrupt soffice when headers
+            # hold titled draw frames processed through libxslt.
             from .range_copy import _copy_flow_into_xtext
 
             fields_copied = _copy_flow_into_xtext(doc, src_text, dest_text)
@@ -1016,9 +1011,8 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
         except Exception as e:
             if is_disposal(e):
                 raise
-            # What was wrong: a failed HTML import left a previously disabled region half-enabled.
-            # How it happened: is_on was set True before replace_xtext_with_html was called.
-            # Why this change fixes it: roll back is_on to False if it wasn't on before, or restore auto_height.
+            # Failed HTML import rolls is_on and auto_height back to their pre-call values
+            # so the page style is not left half-enabled after an error.
             if not was_on:
                 best_effort(
                     lambda: style.setPropertyValue(is_on_prop, False),
@@ -1470,8 +1464,8 @@ class PageSetColumns(ToolWriterPageBase):
 
         # Divide spacing between adjacent columns
         # Column 1 right margin gets half spacing, Column 2 left margin gets half, etc.
-        # What was wrong: when spacing was 0, the inner margins were skipped leaving old spacing intact.
-        # Why this change fixes it: always update inner margins for column_count > 1, setting them to 0 if spacing is 0.
+        # Multi-column layouts always rewrite inner margins to half spacing or zero so
+        # spacing=0 clears stale gaps instead of leaving the previous column separation.
         if column_count > 1:
             half_spacing = spacing_hmm // 2
             for i in range(column_count - 1):
@@ -1604,9 +1598,7 @@ class PageInsertBreak(ToolWriterPageBase):
 
         if before_text or after_text:
             anchor = str(before_text or after_text)
-            # What was wrong: numeric strings, floats, and empty string were rejected.
-            # How it happened: parse_non_negative_int without coerce=True rejected non-ints.
-            # Why this change: restore int() coercion via coerce=True.
+            # coerce=True normalizes string and float occurrence values from the model.
             occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
             if occ_err:
                 return self._tool_error(occ_err)
@@ -1649,8 +1641,8 @@ class PageInsertBreak(ToolWriterPageBase):
             cursor = text.createTextCursorByRange(view_cursor.getStart())
             success_text = "Page break inserted."
 
-        # What was wrong: setting BreakType inside a table cell corrupted table layout or had no effect.
-        # Why this change fixes it: refuse to set BreakType if the cursor is inside a text table.
+        # BreakType inside a table cell is ignored or harms layout, so the tool refuses
+        # and leaves the document unchanged.
         if _in_text_table(cursor):
             return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
         _apply_page_break(cursor, page_style, restart)

@@ -834,11 +834,7 @@ class Supervisor:
 
     def spawn(self, managed: ManagedSubprocess, timeout_sec: float | None = None) -> None:
         # PDEATHSIG follows the creating thread (see child_runtime.die_with_parent).
-        # Bugfix: spawn() previously used unbounded done.wait(), which hung forever
-        # if Popen hung or if shutdown_all() raced with enqueue. We now serialize
-        # spawn admission and shutdown under _spawn_gate (so no spawn can be queued
-        # after shutdown), bound the wait by timeout_sec (caller's spawn_budget or
-        # SPAWN_READY_TIMEOUT_SEC fallback), and clean up late-spawning processes.
+        # spawn waits under _spawn_gate with a bounded timeout and cleans up late spawns after shutdown.
         with self._spawn_gate:
             if self._shutdown:
                 raise RuntimeError("Supervisor is shut down")
@@ -867,12 +863,7 @@ class Supervisor:
                     log.exception("Error abandoning warm child %s for quit", warm.spec.name)
         from plugin.framework.managed_subprocess import shutdown_all as ms_shutdown_all
 
-        # What was wrong: early return when the spawner never started skipped the managed sweep.
-        # How it happened: managed_subprocess.shutdown_all lived only inside the threads guard.
-        # Why this change: the terminate listener no longer calls managed_subprocess.shutdown_all;
-        # registered peers (STT, ACP, CDP, tunnel AsyncProcess) must still die when no WarmChild
-        # was ever built. _register starts threads before a child exists, so this unguarded call
-        # is only for those peers when shutdown_all runs on an idle supervisor.
+        # Always call managed_subprocess.shutdown_all so STT/ACP/CDP peers die even without WarmChild threads.
         ms_shutdown_all()
 
 

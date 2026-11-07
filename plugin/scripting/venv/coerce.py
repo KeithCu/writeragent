@@ -34,9 +34,7 @@ _LO_ERROR_TOKENS = frozenset(
     }
 )
 
-# The sign used to sit in the ignored prefix, so "-1,234.50" and "$-123" became
-# positive floats. Capture one sign before or after the currency symbol. Two
-# signs ("+-5") is not a single number.
+# Capture one leading/trailing sign before the currency symbol so negatives like "-1,234.50" and "$-123" parse correctly; two signs mean not a number.
 _SIGN = r"([+-])?"
 _NUMBER = r"([\d,]+(?:\.\d+)?)"
 _CURRENCY_CHARS = r"[$€£¥₹]"
@@ -56,10 +54,7 @@ class CoerceResult:
 def dedupe_column_names(names: list[str]) -> list[str]:
     """Unique labels, one per input, on the default ``CalcRange.to_pandas`` path.
 
-    The counter used to be stored only under the raw base. ``['a', 'a', 'a_1']``
-    therefore emitted ``a_1`` twice (the generated suffix and the later header),
-    and the uniqueness postcondition raised ``deal.PostContractError``. A suffix
-    is skipped when that label was already emitted.
+    Suffix counters skip labels already emitted so ``['a', 'a', 'a_1']`` does not duplicate ``a_1`` and trip the deal uniqueness postcondition.
     """
     seen: set[str] = set()
     out: list[str] = []
@@ -106,8 +101,7 @@ def is_missing_value(value: Any) -> bool:
     return False
 
 
-# ISBLANK used to call is_missing_value, so ISBLANK("#VALUE!") was True.
-# Blank is only None or a stripped empty string; error tokens and NaN are not blank.
+# is_blank_value is only None or ""; error tokens and NaN are not blank (unlike is_missing_value).
 # NA() is float nan. None and "" are not NA.
 def is_blank_value(value: Any) -> bool:
     """True for None or a stripped empty string. Errors and NaN are not blank."""
@@ -193,7 +187,7 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
                             keys.append(key)
             return [[key for key in keys]] + [[row.get(key) if isinstance(row, dict) else None for key in keys] for row in data]
         return ensure_rectangular_2d(data)
-    # A raw ndarray used to be stored as the single cell of a 1x1 frame.
+    # 0-D and 1-D/2-D ndarrays expand to grids; higher rank stays a single wrapped cell.
     try:
         import numpy as np
 
@@ -309,9 +303,7 @@ def _coerce_column_types(
     for col in target_date_cols:
         series = out[col]
         # A numeric dtype, including nullable Float64, must go through
-        # parse_date_column: format="mixed" on that dtype used to store
-        # 45292 as nanoseconds since 1970, and integer years 2019/2020 used to
-        # become 1905-07-11 / 1905-07-12 because this loop always used unit="D".
+        # parse_date_column handles numeric and mixed string dates so serials and year integers are not misread as Excel day units only.
         out[col] = parse_date_column(series, date_origin=date_origin)
 
     # 2. General string inference if requested
@@ -348,11 +340,7 @@ def _column_labels(df: Any) -> list[str]:
 
 
 def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> dict[str, Any]:
-    # What was wrong: resolve_df on a DataFrame with duplicate labels raised
-    # AttributeError: 'DataFrame' object has no attribute 'dtype'.
-    # How: df[col] is a DataFrame when that label appears twice.
-    # Why this fixes it: df.dtypes has one dtype per column position, so duplicate
-    # labels are classified instead of looked up by name.
+    # Classify columns with df.dtypes by position so duplicate header labels do not make df[col] a sub-frame without .dtype.
     import pandas as pd
 
     numeric_cols: list[str] = []
@@ -447,16 +435,7 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
     not_num = ~is_num_cell
     if not_num.any():
         str_slice = series[not_num]
-        # What was wrong: without format="mixed", pandas locks onto the first cell,
-        # so "2024-01-03" plus "01/01/2024" plus "2024-01-02 15:30:00" parsed as one
-        # timestamp and three NaTs (verified on this series through resolve_df, which leaves
-        # the column as object because "notes" blocks promotion). _order_by_date then sorted
-        # those rows last and portfolio_tearsheet dropped them.
-        # How it happened: pd.to_datetime guesses a single format across the series by default.
-        # Why this change fixes it: format="mixed" parses each cell individually, matching
-        # _coerce_column_types. Mixed offsets return object and .dt raises; when the result
-        # is not datetime64, the fallback calls pd.to_datetime without format to keep one
-        # offset and NaT for the rest without raising AttributeError.
+        # format="mixed" parses heterogeneous date strings per cell; fallback handles mixed time zones without dropping rows in tearsheet paths.
         # Mixed offsets make pandas 2 emit a FutureWarning; the fallback result is intended
         # (one offset, NaT for the rest), so silence just that warning. pandas 3 raises
         # ValueError ("Mixed timezones detected") instead; take the same fallback.
@@ -609,11 +588,7 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
     try:
         import numpy as np
 
-        # What was wrong: coerce_bool(np.bool_(True)) raised ValueError.
-        # How: np.bool_ is not a subclass of bool or of np.integer. islogical
-        # already treats it as logical.
-        # Why this fixes it: a NumPy bool is returned with bool(value) before
-        # the 0/1 integer checks.
+        # np.bool_ is converted with bool() before integer 0/1 checks because it is not a Python bool subclass.
         if isinstance(value, np.bool_):
             return bool(value)
     except ImportError:

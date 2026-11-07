@@ -104,7 +104,7 @@ def apply_structured_insert_html(result: dict[str, Any], params: dict[str, Any])
         return result
     updated = dict(result)
     # Calc structured insert falls back to HTML when the cell grid is empty.
-    # Overwriting html used to make that fallback the bbox fragment, not Docling.
+    # Preserve original Docling HTML in html_docling before replacing html with structured export.
     updated.setdefault("html_docling", result.get("html"))
     updated["html"] = html
     return updated

@@ -116,9 +116,7 @@ def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any,
                     client = LlmClient(config, ctx, register_with_send=False)
                 else:
                     client.config = config
-                    # Bugfix: A reused client may have been stopped by sidebar Stop (if previously registered
-                    # with send scope) or external cancellation; clear the stop latch so subsequent
-                    # cell calculations do not falsely report 'model returned no text'.
+                    # Clear stop latch on a reused client so =PROMPT() recalc is not treated as user-cancelled.
                     client.clear_stop()
 
                 # =PY() does not use run_blocking_in_thread: processEventsToIdle on the

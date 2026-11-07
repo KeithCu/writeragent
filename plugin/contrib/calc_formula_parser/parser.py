@@ -145,7 +145,7 @@ class FormulaParser:
 
         for token in tokens:
             if token.ttype == "unknown":
-                # Bugfix: unknown tokens previously vanished silently in shunting_yard with no error.
+                # Unknown tokens must raise—silent drop corrupts the AST.
                 raise ValueError(f"Unknown or invalid token in formula: {token.tvalue!r}")
             elif token.ttype == "operand":
                 output.append(self.create_node(token))
@@ -168,17 +168,10 @@ class FormulaParser:
                     arg_count[-1] += 1
                 were_values.append(False)
             elif token.ttype.endswith("-prefix"):
-                # Bugfix: prefix operators (e.g. u-) have no left operand and must never pop
-                # pending operators off the stack (e.g. in '(A1,-B1)' union ',' was popped prematurely).
-                # What was wrong: u- went through the same pop loop as infix operators.
-                # How: infix pop logic compared precedence without distinguishing prefix operators.
-                # Why: prefix operators wait for their operand and do not consume operators to their left.
+                # Prefix operators push without popping infix operators to their left (e.g. union ',' in '(A1,-B1)').
                 stack.append(token)
             elif token.ttype.endswith("-postfix"):
-                # Bugfix: postfix % binds with Excel operator precedence (precedence 6).
-                # What was wrong: % was previously rewritten as * 0.01 with precedence 4.
-                # How: tokenizer emitted multiplication instead of postfix operator.
-                # Why: postfix % binds tighter than ^ (5) and * / (4). We pop tighter operators, then push %.
+                # Postfix % uses Excel precedence 6 (tighter than ^ and * /)—not a * 0.01 rewrite.
                 o1 = OPERATORS[token.tvalue]
                 while stack and stack[-1].ttype.startswith("operator"):
                     o2 = OPERATORS["u-"] if (stack[-1].ttype.endswith("-prefix") and stack[-1].tvalue == "-") else OPERATORS[stack[-1].tvalue]
@@ -245,7 +238,7 @@ class FormulaParser:
                     node.right = stack.pop()
                     node.left = stack.pop()
                 elif node.ttype == "operator-postfix":
-                    # Bugfix: postfix operators take the preceding operand on stack as left child.
+                    # Postfix % consumes one operand from the stack as its left child.
                     if not stack:
                         raise SyntaxError(f"Postfix operator {node.tvalue} missing operand")
                     node.left = stack.pop()

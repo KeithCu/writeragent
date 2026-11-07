@@ -110,12 +110,7 @@ def _format_list_to_table(data: list[Any], *, headers: list[Any] | None = None) 
 
     # Handle list of dicts (e.g. pandas records) -- legacy path
     # Dict headers must come from the first-seen union of every dict row.
-    # What was wrong: a non-string key was stored as str(k) and read back with
-    # row.get on that string, so {1: "a"} rendered a header 1 and a blank cell.
-    # How it happened: setdefault(str(k), None) dropped the original key, and
-    # test_format_list_of_dicts only used string keys.
-    # Why this change fixes it: the header string maps to the first-seen original
-    # key, and a row that only has a different object with the same str() is scanned.
+    # Header strings map back to the original dict key objects so numeric keys like {1: "a"} still render cells correctly.
     if any(isinstance(row, dict) for row in data):
         seen_keys: dict[str, Any] = {}
         for row in data:
@@ -504,8 +499,7 @@ def _finish_script_execution(prepared: dict[str, Any], response: dict[str, Any])
                 return {"ok": False, "message": _("Unsupported document type for result insertion. (took {time})").format(time=formatted_time)}
         except Exception as e:
             reraise_if_disposed(e)
-            # Logging (type/str/repr + traceback) lives in rps_insert_failed_outcome —
-            # previously this catch painted the RPS dialog with no debug-log line.
+            # rps_insert_failed_outcome logs failure detail for the debug log as well as the dialog message.
             return rps_insert_failed_outcome(e, t0=t0)
 
     if stdout:
@@ -608,20 +602,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
     show_binding = ScriptFacts.from_source(initial_code).needs_data_binding(doc=doc)
 
     def on_save(code: str, _save_as_plain: bool, data_binding: str | None = None, action: str = "run") -> dict[str, Any] | DeferredEditorResult:
-        # What was wrong: reopening Tools → Run Python Script while a Run was
-        # in flight started a second run, and both could insert.
-        # How it happened: run_busy lived in the _run_python_monaco closure.
-        # _register_load_session replaces existing.on_save for the same target
-        # (a clean buffer proceeds; Don't save proceeds; Save queues
-        # request_save, and the synchronous save path then activates the new
-        # callback). PythonWorkerManager._io_session releases the warm-child pipe lock before
-        # execute returns, so _finish_rps_execution runs after the lock is
-        # free. A second background run can enter the venv during that insert,
-        # or wait up to _IO_LOCK_ACQUIRE_TIMEOUT_SEC (600s) if the first venv
-        # call is still inside the lock.
-        # Why this change fixes it: the in-flight set is keyed by document
-        # RuntimeUID and is shared by every on_save for that document,
-        # including a closure installed by a later menu open.
+        # Per-document _monaco_run_in_flight blocks overlapping Run actions so two menu opens cannot insert concurrently.
         run_key = _monaco_run_document_key(doc)
         if action != "save" and run_key in _monaco_run_in_flight:
             return {"type": "error", "message": _("A script is already running.")}
@@ -630,9 +611,7 @@ def _run_python_monaco(ctx: Any, doc: Any, *, initial_code: str, selected_script
         last_name = str(get_config(name_config_key) or "").strip()
         if not last_name:
             if action == "save":
-                # What was wrong: Saving with an empty script selection returned success and cleared dirty state without saving.
-                # How it happened: Blank or whitespace last_name skipped save_selected_script and fell through to the saved frame.
-                # Why this change fixes it: Return an error frame on Save when no script is selected, preserving the dirty buffer.
+                # Save with no selected script returns an error so dirty buffer is not cleared without writing a file.
                 return {"type": "error", "message": _("No script is selected. Use New or Save As to keep this code.")}
         else:
             err = save_selected_script(
@@ -740,8 +719,6 @@ def run_python_dialog(uno_ctx: Any = None) -> None:
         if not user_alerted:
             _report_run_python_open_failed(uno_ctx, _("Could not open the built-in script dialog."), detail=native_detail)
     except Exception as exc:
-        # What was wrong: Unexpected dialog open failures on the native-only path were silently swallowed without user feedback.
-        # How it happened: The outer except block guarded the error dialog with if monaco_expected, skipping it when Monaco was disabled.
-        # Why this change fixes it: Always call _report_run_python_open_failed so early setup errors are shown regardless of Monaco availability.
+        # Always report open failures so users see an error when Monaco is off and the native dialog path breaks.
         log.exception("run_python_dialog failed")
         _report_run_python_open_failed(uno_ctx, _("An unexpected error occurred while opening Run Python Script."), exc=exc)

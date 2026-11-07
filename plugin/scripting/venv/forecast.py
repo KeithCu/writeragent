@@ -99,7 +99,7 @@ def _prepare_time_series(
         return None, None, _error_result("INSUFFICIENT_DATA", "No valid date/value rows after coercion", helper=helper)
 
     # STL and Holt-Winters require a unique index. Two sheet rows on the same
-    # day used to be left as-is and then either error or distort the season.
+    # day must not be left as-is and then either error or distort the season.
     n_before = len(work)
     work = work.groupby(date_col, as_index=False, sort=True)[value_col].mean()
     collapsed = n_before - len(work)
@@ -431,7 +431,7 @@ def _forecast_holt_winters(series: Any, *, periods: int, seasonal_periods: int, 
     from statsmodels.tsa.holtwinters import ExponentialSmoothing
 
     # Positional endog: a gapped DatetimeIndex has no frequency, statsmodels
-    # raises No supported index is available, and auto used to substitute a flat
+    # raises No supported index is available, and auto must not substitute a flat.
     # moving average. Dates come from _future_index.
     endog = pd.Series(series.to_numpy(), index=pd.RangeIndex(len(series)))
     model = ExponentialSmoothing(
@@ -484,7 +484,7 @@ def _forecast_arima(series: Any, *, periods: int, future_dates: Any, freq_label:
     from statsmodels.tsa.arima.model import ARIMA
 
     # Positional endog: a gapped DatetimeIndex has no frequency, statsmodels
-    # raises No supported index is available, and auto used to substitute a flat
+    # raises No supported index is available, and auto must not substitute a flat.
     # moving average. Dates come from _future_index.
     endog = pd.Series(series.to_numpy(), index=pd.RangeIndex(len(series)))
     model = ARIMA(endog, order=(1, 1, 1))
@@ -536,7 +536,7 @@ def forecast_time_series(
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
 
-    # periods=0 used to become 1 via max(1, ...) and return one row with no flag.
+    # periods=0 must not become 1 via max(1, ...) and return one row with no flag.
     # seasonal_periods <= 1 is already INVALID_PARAM. Reject the same class here,
     # before preparing the series, so it wins over a bad model name.
     if periods_val < 1:
@@ -815,7 +815,7 @@ def anomaly_detection_time_series(
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
 
-    # threshold <= 0 used to satisfy abs(score) > threshold for every row.
+    # threshold <= 0 must not satisfy abs(score) > threshold for every row.
     if threshold_val <= 0:
         return _error_result("INVALID_PARAM", "threshold must be a number greater than 0", helper=helper)
 

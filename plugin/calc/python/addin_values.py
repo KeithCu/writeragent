@@ -168,12 +168,7 @@ def py_addin_cell_value(val: Any) -> float | str | tuple[Any, ...]:
     keeps dicts and token strings as text.
     """
     if isinstance(val, dict) and _is_helper_error_dict(val):
-        # Bugfix: What was wrong: a =PY() cell showed a helper error dict as text, so ISERROR was false.
-        # How it happened: coerce.error_result returns {"status": "error", "code", "message"} instead of raising.
-        # The worker reports status ok, and to_calc_compatible stringifies every dict. An exception from the
-        # same helper already becomes a payload NaN in _addin_result_for_worker_status.
-        # Why this change fixes it: this closed shape becomes calc_formula_error_double before that stringify,
-        # and the message is logged with the same "=PY() worker failure" line as the exception path.
+        # Helper error dicts must become calc_formula_error_double, not cell text, so ISERROR sees a real formula error.
         log.error("=PY() worker failure: %s", _helper_error_log_message(val))
         return calc_formula_error_double(_calc_code_for_helper_error(val["code"]))
     return cast("float | str | tuple[Any, ...]", _map_addin_error_tokens(to_calc_compatible(val)))
@@ -182,16 +177,8 @@ def py_addin_cell_value(val: Any) -> float | str | tuple[Any, ...]:
 def _flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
     """Compare flat worker result tuples across matrix session recalculations.
 
-    Bugfix:
-    - What was wrong: state.flat != tuple(flat) used standard inequality (!=).
-      In Python, float('nan') != float('nan') is always True, so any list containing
-      an error double reset next_index on every array formula cell, causing every cell
-      to display the first element instead of advancing through the list.
-    - How it happened: Calc error tokens (e.g. #VALUE!) are mapped into quiet-NaN
-      doubles with error payload bits in flat.
-    - Why this change fixes it: Comparing IEEE 754 bit representations of non-finite
-      floats (NaN and inf) allows identical error doubles to compare equal, keeping
-      the matrix session active and next_index advancing.
+    Identical Calc error doubles (quiet NaNs) must compare equal: Python ``!=`` on NaN
+    always fails, which would reset matrix next_index every recalc.
     """
     if len(left) != len(right):
         return False
@@ -207,17 +194,7 @@ def _flat_result_equal(left: tuple[Any, ...], right: tuple[Any, ...]) -> bool:
 def _addin_result_for_worker_status(res: dict[str, Any]) -> float | str:
     """Return add-in cell result for non-ok worker status (payload NaN error or text message).
 
-    Bugfix:
-    - What was wrong: The formula cell displayed the plain English string
-      "Error: Code execution failed at line ..." from _format_python_addin_worker_error.
-      Because this was returned as a string, LibreOffice Calc treated it as text rather than
-      a formula error, so Calc functions like ISERROR returned FALSE.
-    - How it happened: The worker caught Python exceptions and packed them into a formatted
-      message string which was returned directly as cell text.
-    - Why this change fixes it: Returning a quiet-NaN double carrying the LibreOffice
-      FormulaError code causes ScInterpreter::PushDouble -> TreatDoubleError to store a
-      real FormulaError in the cell. The descriptive error message remains accessible in
-      the log and in LibrePy workbook diagnostics.
+    Worker failures return a quiet-NaN with FormulaError payload, not English text, so ISERROR and TreatDoubleError behave correctly.
     """
     message = str(res.get("message") or res.get("error") or "")
     if _worker_failure_stays_text(res):
@@ -260,17 +237,11 @@ def to_calc_compatible(val: Any) -> float | str | tuple[Any, ...]:
     tname = type(val).__name__
     if tname in ("NaTType", "NAType"):
         return ""
-    # Bugfix (#413): When Python bool (True/False) was returned directly, PyUNO wrapped it in
-    # uno::Any with TypeClass_BOOLEAN. LibreOffice Calc's C++ Add-In caller (ScUnoAddInCall)
-    # only unpacks double and string types, silently defaulting unhandled types (including BOOLEAN)
-    # to 0.0. Mapping bool to 1.0 / 0.0 allows Calc formulas (e.g. IF, logical operators) to evaluate
-    # truthiness correctly and matches _coerce_spill_value.
+    # ScUnoAddInCall unpacks only double and string; map bool to 1.0/0.0 so logical formulas work.
     if isinstance(val, bool):
         return 1.0 if val else 0.0
 
-    # Bugfix: What was wrong: Large integers (> float64 max) raised OverflowError when converting to float.
-    # How it happened: float(val) was called directly on integer values without handling OverflowError.
-    # Why this change fixes it: OverflowError falls back to returning the decimal string str(val).
+    # Integers beyond float64 range return str(val) instead of raising OverflowError.
     if isinstance(val, int):
         try:
             return float(val)

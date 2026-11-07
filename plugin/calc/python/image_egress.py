@@ -48,10 +48,8 @@ def _plot_slot_name(image_index: int) -> str:
 def _plot_slot_index(name: str) -> int | None:
     """Slot index: 0 for WriterAgentPlot, N-1 for WriterAgentPlot_N (N>=2).
 
-    Bugfix: int() on the raw suffix treated WriterAgentPlot_1_0, WriterAgentPlot_+2,
-    and WriterAgentPlot_02 as slots (int("1_0") == 10). Only a full match of the
-    bare name, or _N with N>=2 and no sign, underscore, or leading zero, is a slot.
-    Names _plot_slot_name writes are unchanged.
+    Only WriterAgentPlot or WriterAgentPlot_N (N≥2, no sign/underscore/leading zero) are slots;
+    loose int() parsing mis-reads names like WriterAgentPlot_1_0.
     """
     match = re.fullmatch(
         rf"{re.escape(_PLOT_SHAPE_NAME_PREFIX)}(?:_([2-9]|[1-9][0-9]+))?",
@@ -199,13 +197,8 @@ def _set_image_cell_annotation(doc: Any, code: str | None, error_message: str) -
             ann.setString(text)
             return
         if note:
-            # Bugfix: a failed off-main plot overwrote any comment on the =PY() cell,
-            # and a later success deleted it. Non-empty getString() took setString.
-            # insertNew goes through ScAnnotationsObj::insertNew (docuno.cxx) to
-            # ScDocFunc::ReplaceNote, which replaces the cell's only note.
-            # setString runs only when the note already starts with the WriterAgent
-            # image prefix. Any other non-empty text stays. insertNew runs only
-            # for an empty note.
+            # User notes stay: setString only for WriterAgent image: prefix; insertNew only when empty
+            # (ReplaceNote would overwrite the cell's sole annotation).
             log.debug("_set_image_cell_annotation: user annotation left in place")
             return
         sheet.getAnnotations().insertNew(cell.getCellAddress(), text)
@@ -239,8 +232,7 @@ def _clear_image_cell_annotation(doc: Any, code: str | None) -> None:
 class ImageEgressError(Exception):
     """Raised when a Calc plot was not placed on the sheet.
 
-    Callers used to treat a silent return as success ("plot inserted" /
-    "Image inserted") when the document, sheet, or draw page was missing.
+    Raised when document, sheet, or draw page is missing so callers cannot report a successful insert.
     """
 
 
@@ -274,8 +266,7 @@ def _supports_service(obj: Any, name: str) -> bool:
 def _shape_anchor_matches_cell(shape: Any, target_cell: Any) -> bool:
     """True when the shape is already anchored to the same grid cell (not UNO identity).
 
-    A page-anchored shape's Anchor is the sheet, whose range address starts at
-    0,0, so it used to "match" A1. It matches no cell.
+    A page-anchored shape's Anchor is the sheet (range 0,0); that must not count as matching a cell.
     """
     anchor = shape.getPropertyValue("Anchor")
     if _supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
@@ -482,9 +473,7 @@ def _insert_image_result_on_sheet_impl(
                     shape.setPropertyValue("ResizeWithCell", False)
                     shape.setSize(aspect_size)
             except Exception:
-                # Bugfix: What was wrong: Anchor failure on a newly created shape left a floating orphan shape on the draw page and reported success.
-                # How it happened: The anchor block caught all exceptions and logged a warning without raising or rolling back the added shape.
-                # Why this change fixes it: For shapes created in this call, we remove the shape from the draw page and raise ImageEgressError; reused shapes keep their existing position and only log a warning.
+                # New shapes must be removed and raise on anchor failure; reused shapes only log.
                 if created_shape:
                     best_effort(lambda: draw_page.remove(shape), "insert_image_result_on_sheet: failed to remove failed shape")
                     raise ImageEgressError("could not anchor plot to the formula cell")

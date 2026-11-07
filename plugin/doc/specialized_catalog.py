@@ -145,10 +145,7 @@ def get_specialized_delegation_tool_hint(agent_label: str, *, ctx: Any = None) -
     return template.format(domains=domains_str)
 
 
-# Bugfix: the inner loop returned status ok for inner tool errors and for
-# max-step prose, because _compact_result never inspected either. Record
-# inner error payloads and treat a run that did not call the finish tool as
-# incomplete (same contract as DelegateToSpecializedBase).
+# normalize_inner_result records tool errors and incomplete runs—same contract as DelegateToSpecializedBase.
 def normalize_inner_result(final_ans: Any, domains: list[str], tool_errors: list[dict[str, Any]]) -> dict[str, Any]:
     if isinstance(final_ans, dict) and final_ans.get("status") == "error":
         return final_ans

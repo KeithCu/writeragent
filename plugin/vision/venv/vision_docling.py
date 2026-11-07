@@ -312,8 +312,7 @@ def _convert_image_bytes(image: Any, params: dict[str, Any]) -> Any:
     stream = base_models.DocumentStream(name=stream_name, stream=buf)
     converter = _get_docling_converter(norm)
     result = converter.convert(stream)
-    # Bugfix: #2688 returned result.document directly, so a conversion with no
-    # document surfaced as None (or AttributeError) instead of a clear error.
+    # Missing document after convert must raise a clear error, not None/AttributeError.
     document = getattr(result, "document", None)
     if document is None:
         raise RuntimeError("Docling conversion returned no document")

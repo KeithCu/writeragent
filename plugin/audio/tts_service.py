@@ -352,8 +352,7 @@ def _cleanup_stopped(
 
         # This job blocks in _reap_proc (wait timeout 5s per process, plus
         # spd-say -S timeout 2s) and the shared pool has two workers.
-        # Bugfix: stop_speech raised if starting tts-cleanup thread failed, leaving procs and temps.
-        # run_in_background was unwrapped; catch Exception and reap inline so cleanup always completes.
+        # If starting the cleanup thread fails, reap inline so speech processes and temp files are not left behind.
         try:
             run_in_background(_bg_cleanup, dedicated=True, name="tts-cleanup")
         except Exception:
@@ -567,10 +566,7 @@ def _get_player_candidates(file_path: str) -> list[tuple[str, list[str], dict[st
 def _play_audio_file(file_path: str, cancel: SendCancellation) -> bool:
     """Play an audio file. True only when a player exits 0.
 
-    Callers fall back to OS speech when this is False and the utterance
-    was not cancelled. Returning None on every path used to look like
-    success, so a missing player (Windows SoundPlayer cannot play mp3)
-    never reached that fallback.
+    Callers fall back to OS speech when this returns False and the utterance was not cancelled. False distinguishes missing players (e.g. Windows cannot play mp3) from success.
     """
     candidates = _get_player_candidates(file_path)
     if not candidates:
@@ -704,8 +700,7 @@ def _speak_system(text: str, speed: float = 1.0, *, cancel: SendCancellation) ->
                         return
                     finally:
                         _clear_speech_proc(chunk_proc)
-                    # Bugfix: spd-say failure ignored its exit code and kept speaking remaining chunks.
-                    # chunk_proc.wait() was uninspected; now check ret != 0, warn if unblocked, and abort.
+                    # Non-zero spd-say exit stops further chunks so the user does not hear speech after a failed synthesis call.
                     if ret != 0:
                         if not is_cancelled(cancel):
                             log.warning("spd-say exited with code %s; not speaking the remaining text", ret)
@@ -945,9 +940,7 @@ def _kokoro_warm_to_file(
             cancel=cancel,
         )
     except Exception:
-        # The pool returns error dicts for spawn and IPC failures. respawn()
-        # and an unexpected raise used to skip the CLI and one-shot fallbacks,
-        # and this temp stayed tracked until the next stop.
+        # On warm-worker failure, release the temp file and fall through to one-shot synthesis so stop does not leak tracked paths.
         log.exception("Kokoro warm worker raised; falling back to one-shot synthesis")
         _release_temp(tmp_wav)
         return None, True
@@ -1033,9 +1026,7 @@ def _kokoro_audio_file(
 ) -> str | None:
     """Write one Kokoro wav. Warm worker first, then kokoro_worker.py --once."""
     py_exe = resolve_kokoro_python()
-    # Bugfix: Model files were downloaded even without a configured venv because
-    # resolution ran before checking py_exe. Returning None early skips download
-    # and lets sentence mode / caller fall back to OS speech.
+    # Return before model download when no Kokoro python is configured so sentence mode can fall back to OS speech without pulling large files.
     if not py_exe:
         return None
     model_path, voices_path = resolve_kokoro_model_files(

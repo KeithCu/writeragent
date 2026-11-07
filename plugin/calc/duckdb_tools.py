@@ -170,8 +170,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
                 if ext in EXCEL_EXTENSIONS + (".ods",):
                     # Office files that exist must preload or fail loud. A silent
-                    # (None, None) skip used to append the basename to direct_files
-                    # so SQL ran without the table and looked like a missing FROM.
+                    # (None, None) skip must not treat the basename as a flat file without a loaded table.
                     office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
                     preloaded[table_name] = {"grid": office_grid, "headers": headers}
                     continue
@@ -409,7 +408,7 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
         url = uno.systemPathToFileUrl(str(tmp.resolve()))
         props = (create_property_value("FilterName", "calc8"), create_property_value("Overwrite", True))
         model.storeToURL(url, props)
-        # Bugfix: a storeToURL that wrote nothing used to be published as a hit.
+        # Empty storeToURL output must fail—do not publish a zero-byte cache file.
         if not tmp.is_file() or tmp.stat().st_size == 0:
             raise OSError(f"storeToURL wrote no data to {tmp}")
         os.replace(str(tmp), str(dest))
@@ -451,8 +450,7 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, ent
     try:
         _export_model_to_cached_ods(model, entry.ods)
         if cache_entry(full_path) != entry:
-            # Bugfix: the source changed while it was imported; this ODS holds
-            # the old content, so a sidecar would make the next lookup stale.
+            # Source changed during import—drop partial ODS so the sidecar cannot serve stale grids.
             log.debug("ODS cache write skipped: source changed during import: %s", full_path)
             try:
                 entry.ods.unlink(missing_ok=True)

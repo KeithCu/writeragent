@@ -49,9 +49,7 @@ _TTS_OPTIONAL_KEYS = ("kokoro_onnx", "soundfile", "piper")
 _AUDIO_OPTIONAL_KEYS = _TTS_OPTIONAL_KEYS + ("faster_whisper",)
 # Kokoro multilingual extras match plugin/audio/kokoro_g2p.py KOKORO_PIP_INSTALL.
 # Fallback handles standalone LibrePy builds where plugin.audio is excluded.
-# What was wrong: top-level import of plugin.audio.kokoro_g2p broke LibrePy import isolation
-# when vision_availability imported venv_diagnostics in test_librepy_entry_imports_avoid_writeragent_only_modules.
-# Why this change fixes it: resolve TTS_INSTALL_CMD lazily in _get_tts_install_cmd().
+# TTS install text is resolved lazily so LibrePy can import venv_diagnostics without pulling plugin.audio at module load.
 _DEFAULT_TTS_INSTALL_CMD = (
     "uv pip install kokoro-onnx soundfile piper-tts 'misaki[ja,zh]' phonemizer-fork espeakng-loader"
 )
@@ -70,11 +68,7 @@ _WHISPER_INSTALL_CMD = 'uv pip install faster-whisper "av<14"'
 
 
 def _audio_linux_portaudio_hint() -> str:
-    # What was wrong: every Linux user was told `sudo pacman -S portaudio`.
-    # How: d22842c51 hard-coded the maintainer's package manager.
-    # Why: Test runs on more than Arch, including Flatpak, and a wrong
-    # copy-paste command is worse than a generic sentence. Call-time _()
-    # because module-level _() runs at import, often before init_i18n(ctx).
+    # Generic PortAudio hint because package names differ by distro; gettext runs at call time when init_i18n is ready.
     return _(
         "On Linux also install the system PortAudio package from your distribution "
         "(sounddevice needs it; the package name differs)."
@@ -86,11 +80,7 @@ _NON_PIP_PROBE_KEYS = frozenset({"input_device"})
 # Probe import/key name → PyPI package name for the global install footer.
 _PROBE_KEY_TO_PIP: dict[str, str] = {
     "sklearn": "scikit-learn",
-    # What was wrong: a missing editor stack put `webview` on the uv/pip footer.
-    # How: _probe_key_to_pip falls back to the import key, and this map had no
-    # webview entry. The module is webview; the PyPI name is pywebview
-    # (editor_host.probe_webview_import, `uv pip install pywebview rocher`).
-    # Why: the footer is copy-paste. `pip install webview` does not install it.
+    # PyPI package is pywebview, not webview, so the install footer copy-pastes a name pip can resolve.
     "webview": "pywebview",
     "data_profiling": "fg-data-profiling",
     "pandas_montecarlo": "pandas-montecarlo",
@@ -247,21 +237,7 @@ _VECTOR_SEARCH_PROBE_SCRIPT = _import_probe_script(
 def _parse_probe_stdout(stdout: str) -> dict[str, Any] | None:
     """Return the last ``WA_PROBE_JSON `` object on stdout, or None.
 
-    What was wrong: json.loads of the whole stdout failed when paddle, onnx,
-    or docling printed a banner before the probe dict, and the group was
-    reported as a failed probe.
-    How: probe scripts print one prefixed line. Other lines are ignored.
-    The last prefixed dict wins, so a later atexit line that is not the
-    marker does not hide the payload.
-    Why: a bare JSON line from the library is not a probe result. No marker
-    means failure, including empty stdout. Do not fall back to {}.
-
-    What was wrong: startswith(prefix) dropped the payload when the
-    banner and the probe print were the same line.
-    How: paddle/onnx/docling can write stdout without a newline, then
-    the probe print continues that line.
-    Why: find(prefix) and json.loads of the remainder still ignores
-    unrelated lines, and a non-dict or invalid slice does not win.
+    Scan stdout for the last ``WA_PROBE_JSON`` line (find, not startswith) so library banners on the same line or earlier lines do not hide the probe dict or break json.loads on the whole buffer.
     """
     found: dict[str, Any] | None = None
     prefix = _PROBE_JSON_PREFIX
@@ -481,13 +457,7 @@ def vision_ocr_stack_ready(probe: dict[str, Any]) -> bool:
     """True when an OCR backend and css-inline are present (Settings Test / diagnostics).
 
     css-inline is not part of this check; vision_ocr_stack_ready adds it.
-    What was wrong: docling alone returned True, so docling + css-inline
-    without rapidocr was "OCR: ready (Docling)" and rapidocr was omitted
-    from Missing and from Optional.
-    How: the default ocr_backend is rapidocr
-    (plugin/vision/vision_common.py DEFAULT_OCR_BACKEND). _resolve_ocr_options
-    raises OcrBackendError when that backend cannot be built.
-    Why: the Docling pair now requires rapidocr. PaddleOCR+Paddle is unchanged.
+    Docling OCR readiness requires rapidocr as well as docling and css-inline so settings do not report OCR ready when the default rapidocr backend is missing.
     """
     ocr_backend = _docling_ocr_ready(probe) or (
         probe.get("paddleocr") == "present" and probe.get("paddle") == "present"
