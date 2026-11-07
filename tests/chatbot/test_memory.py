@@ -229,19 +229,14 @@ def test_upsert_null_content_pops_key(tmp_path):
 
 def test_write_replaces_without_fsync(tmp_path):
     order: list[str] = []
-    real_fsync = os.fsync
     real_replace = os.replace
-
-    def _fsync(fd: int) -> None:
-        order.append("fsync")
-        real_fsync(fd)
 
     def _replace(src: str, dst: str) -> None:
         order.append("replace")
         real_replace(src, dst)
 
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)), patch(
-        "plugin.framework.config.os.fsync", side_effect=_fsync
+        "plugin.framework.config.os.fsync"
     ) as mock_fsync, patch("plugin.framework.config.os.replace", side_effect=_replace):
         store = MemoryStore()
         store.write('{"name": "Ada"}')
