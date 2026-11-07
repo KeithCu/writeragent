@@ -1,6 +1,6 @@
 # WriterAgent Roadmap
 
-**Last Updated**: 2026-11-05
+**Last Updated**: 2026-11-07
 **Status**: Active Development
 
 Backlog of *still-open* work. Day-to-day orientation: [`AGENTS.md`](../AGENTS.md).
@@ -76,6 +76,8 @@ Shipped and removed from this table: Stop/cancel, missing-API-key 401, drain-han
 
 Visible so they are not re-invented as high-priority programs:
 
+- Hang diagnostics: a watchdog that dumps every thread stack to `writeragent_debug.log` when the UI thread stalls
+- Surviving a hard kill: config, the history DB, `corpus_meta`, and grammar persistence stay valid after a crash (mainly atomic writes)
 - Agent personality system; voice interface; real-time collaborative editing
 - Usage analytics dashboard; in-app rating / feedback product
 - UI theme editor; document template marketplace; offline mode
