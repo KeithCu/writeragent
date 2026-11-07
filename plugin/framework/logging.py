@@ -26,6 +26,7 @@ the activity lock, and the watchdog hung_shown / stacks_dumped flags live in
 ``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
 line does not fsync. Actual line writes go through Python’s ``logging`` handler lock;
 you do not need another mutex around ``log.info``.
+``init_lock`` covers ``debug_log_path``, ``enable_agent_log``, and debug-handler install only. ``init_config``, ``get_config``, excepthook, and ``audit_plugin_roots`` stay outside it.
 """
 
 from __future__ import annotations
@@ -381,35 +382,62 @@ def _ensure_debug_file_handler(logger: logging.Logger) -> None:
 
 def init_logging(ctx: Any | None = None) -> None:
     """Set global debug log path (LO user config dir) and enable_agent_log from ctx. Idempotent."""
+    # What was wrong: init_lock was held across init_config(ctx) and get_config calls.
+    # How it happened: init_config calls main.set_context(ctx), which can take
+    # queue_executor._init_lock, createInstanceWithContext when posts are waiting,
+    # and _order_lock, and query PathSettings while the config path is unset;
+    # meanwhile, UI dispatch waits on init_lock under SolarMutex, creating a deadlock.
+    # Why this change fixes it: read config and check paths outside init_lock;
+    # lock only the shared state updates and debug handler install; run excepthooks
+    # and audit after releasing init_lock.
+    config_exc: Exception | None = None
+    prefetched_path: str | None = None
+    prefetched_enable_agent_log: Any = None
+    has_real_dir = False
+    try:
+        if ctx is not None:
+            try:
+                config.init_config(ctx)
+            except ConfigError:
+                pass
+        udir = config.user_config_dir()
+        # Eval uses MagicMock ctx; skip file logging unless the dir is real.
+        if udir and os.path.isdir(udir):
+            prefetched_path = os.path.join(udir, DEBUG_LOG_FILENAME)
+            prefetched_enable_agent_log = config.get_config("enable_agent_log")
+            has_real_dir = True
+    except (OSError, ImportError, ValueError, ConfigError) as exc:
+        config_exc = exc
+
+    level_str = "WARN"
+    level_os_error: OSError | None = None
+    try:
+        level_str = config.get_config("core.log_level") or "WARN"
+    except OSError as exc:
+        level_os_error = exc
+
     shared = _shared()
     with shared["init_lock"]:
         current_path = shared["debug_log_path"]
         had_path = bool(isinstance(current_path, str) and current_path)
         first_init = current_path is None
-        try:
-            if ctx is not None:
-                try:
-                    config.init_config(ctx)
-                except ConfigError:
-                    pass
-            udir = config.user_config_dir()
-            # Eval uses MagicMock ctx; skip file logging unless the dir is real.
-            if udir and os.path.isdir(udir):
-                shared["debug_log_path"] = os.path.join(udir, DEBUG_LOG_FILENAME)
-                shared["enable_agent_log"] = config.get_config("enable_agent_log")
-            else:
-                if not had_path:
-                    shared["debug_log_path"] = None
-        except (OSError, ImportError, ValueError, ConfigError) as exc:
+
+        if config_exc is not None:
             if first_init:
-                print(f"WriterAgent: init_logging config unavailable: {exc}", file=sys.stderr)
+                print(f"WriterAgent: init_logging config unavailable: {config_exc}", file=sys.stderr)
             if not had_path:
                 shared["debug_log_path"] = None
                 shared["enable_agent_log"] = False
+        elif has_real_dir:
+            shared["debug_log_path"] = prefetched_path
+            shared["enable_agent_log"] = prefetched_enable_agent_log
+        else:
+            if not had_path:
+                shared["debug_log_path"] = None
 
-        level_str = "WARN"
         try:
-            level_str = config.get_config("core.log_level") or "WARN"
+            if level_os_error is not None:
+                raise level_os_error
             numeric_level = resolve_log_level(level_str)
 
             logger = log
@@ -449,14 +477,14 @@ def init_logging(ctx: Any | None = None) -> None:
             if first_init:
                 print(f"WriterAgent: init_logging file handler failed: {exc}", file=sys.stderr)
 
-        if first_init:
-            _install_global_exception_hooks()
-            try:
-                from plugin import audit_plugin_roots
+    if first_init:
+        _install_global_exception_hooks()
+        try:
+            from plugin import audit_plugin_roots
 
-                audit_plugin_roots()
-            except Exception:
-                log.exception("plugin path audit failed")
+            audit_plugin_roots()
+        except Exception:
+            log.exception("plugin path audit failed")
 
 
 def _install_global_exception_hooks() -> None:
