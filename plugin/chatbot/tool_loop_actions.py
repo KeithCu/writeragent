@@ -393,6 +393,17 @@ class TurnController:
         leftover = best_effort(stripper.finalize, "stripper finalize on stop failed", default="")
         return leftover if isinstance(leftover, str) else ""
 
+    def take_open_text(self, host: Any) -> str:
+        """Finish the stripper, fold any leftover tail into the open row, and return the open text.
+
+        The open row is not sent to the model and is replaced when the committed assistant
+        message is added, so any terminal path that closes a turn must read the open text first.
+        """
+        tail = self.take_stripper_tail()
+        if tail:
+            self.fold_chunk(host, tail)
+        return self.open_text()
+
     def close_stopped(self, host: Any, partial: str | None = None) -> None:
         """Finalise this turn after Stop.
 
@@ -415,10 +426,7 @@ class TurnController:
         if self._stop_committed:
             return
         self._stop_committed = True
-        tail = self.take_stripper_tail()
-        if tail:
-            self.fold_chunk(host, tail)
-        emitted = self.open_text()
+        emitted = self.take_open_text(host)
         fallback = partial.strip() if isinstance(partial, str) else ""
         chosen = emitted or (fallback if fallback != "No response." else "")
         if chosen:
@@ -490,11 +498,10 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     ``tool_loop_state``) so this path does not paste the previous HTML assistant
     over ``[Response truncated]`` / ``[No text from model]``.
     """
-    # Append a leftover unclosed tag when the rerender did not replace
-    # the control. The Error path clears the stripper without finalize(),
-    # and the default sidebar has the rich widget, so Stop and error would
-    # drop that tail. A successful rerender already replaced it from the
-    # session.
+    # Append a leftover unclosed tag on success when rerender did not replace
+    # the control (a successful rerender already replaced it from the session).
+    # Stop and terminal error paths finish the stripper earlier in take_open_text,
+    # folding the tail into the committed assistant message.
     replaced = False
     if not send_outcome_is_error(listener) and allow_rerender:
         rerender = getattr(listener, "rerender_rich_text_session", None)

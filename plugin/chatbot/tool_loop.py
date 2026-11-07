@@ -1004,11 +1004,19 @@ class ToolCallingMixin:
             banner = "\n%s\n" % display
         else:
             banner = "\n[API error: %s]\n" % err_msg
+        turn = current_turn(self._panel)
+        partial = turn.take_open_text(self._panel) if turn is not None and turn.can_write(self._panel) else ""
         self._panel._append_response(banner)
-        # The user row is already stored. Leaving the banner widget-only made
-        # a retry append a second user row with a hole where the assistant was.
-        # Overflow respawn and audio fallback return before this write.
-        persist_assistant_on_turn(self._panel, content=banner.strip())
+        banner_text = banner.strip()
+        # The user row is already stored; without an assistant row a retry
+        # leaves a user row with no reply. Overflow respawn and the audio STT
+        # fallback return before this write. The committed row combines any
+        # open-row text with this banner because messages_for_llm drops
+        # _open_transcript and add_assistant_message replaces that row. The
+        # banner stays on that row so the next request does not treat the
+        # partial as a finished answer.
+        stored = "%s\n%s" % (partial, banner_text) if partial else banner_text
+        persist_assistant_on_turn(self._panel, content=stored)
         assign_send_outcome(self._panel, "error")
         self._panel._set_status("Error")
         clear_pending_audio_wav(self._panel)

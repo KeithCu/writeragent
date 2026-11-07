@@ -5,14 +5,18 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind
+from plugin.chatbot.chat_session import ChatSession
+from plugin.chatbot.compaction import messages_for_llm
 from plugin.chatbot.tool_loop_actions import (
     assign_send_outcome,
+    begin_send_turn,
     build_tool_execute_fn,
     current_turn,
     send_outcome_is_error,
     send_outcome_terminal_display,
     take_stop_partial,
 )
+from plugin.framework.errors import NetworkError, format_error_payload
 from plugin.chatbot.tool_loop import StreamErrorOutcome, ToolCallingMixin, stream_error_keeps_drain
 from plugin.chatbot.tool_loop_state import ToolLoopState
 from plugin.chatbot.send_state import SendButtonState, SendMode
@@ -1466,3 +1470,46 @@ def test_on_stream_error_keeps_drain_bool_contract(test_instance):
         assert test_instance._on_stream_error_keeps_drain({"message": "x"}) is True
     with patch.object(test_instance, "_handle_stream_error", return_value=StreamErrorOutcome.END):
         assert test_instance._on_stream_error_keeps_drain({"message": "x"}) is False
+
+
+def test_connection_lost_after_tokens_history_row(test_instance):
+    with patch("plugin.chatbot.tool_loop.get_config", return_value=False):
+        payload = format_error_payload(NetworkError("Connection lost", code="CONNECTION_LOST"))
+
+        # Tokens: fold_chunk "Hello " then "world"
+        session = ChatSession(system_prompt="Sys")
+        test_instance.session = session
+        turn = begin_send_turn(test_instance)
+        assert turn.fold_chunk(test_instance, "Hello ")
+        assert turn.fold_chunk(test_instance, "world")
+        session.db = MagicMock()
+
+        test_instance._handle_stream_error(payload)
+
+        assistant_rows = [m for m in session.messages if m.get("role") == "assistant"]
+        assert len(assistant_rows) == 1
+        committed = assistant_rows[0]
+        assert committed["content"] == "Hello world\n[API error: Connection lost]"
+        assert "_open_transcript" not in committed
+        assert "tool_calls" not in committed
+        assert any(m.get("content") == "Hello world\n[API error: Connection lost]" for m in messages_for_llm(session))
+        assert not any(m.get("content") == "Hello world" for m in session.messages)
+        session.db.add_message.assert_called_once_with("assistant", "Hello world\n[API error: Connection lost]")
+        assert any("[API error: Connection lost]" in r for r in test_instance.responses)
+
+
+def test_connection_lost_stripper_tail_history_row(test_instance):
+    with patch("plugin.chatbot.tool_loop.get_config", return_value=False):
+        payload = format_error_payload(NetworkError("Connection lost", code="CONNECTION_LOST"))
+
+        # Stripper: leftover unclosed tag in stripper before error
+        session = ChatSession(system_prompt="Sys")
+        test_instance.session = session
+        turn = begin_send_turn(test_instance)
+        shown = turn.stripper.feed("Hello <b")
+        assert shown == "Hello "
+        turn.fold_chunk(test_instance, shown)
+        test_instance._handle_stream_error(payload)
+        assistant_rows = [m for m in session.messages if m.get("role") == "assistant"]
+        assert len(assistant_rows) == 1
+        assert assistant_rows[0]["content"] == "Hello <b\n[API error: Connection lost]"
