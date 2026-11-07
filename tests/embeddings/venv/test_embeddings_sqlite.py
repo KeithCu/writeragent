@@ -392,3 +392,12 @@ def test_windows_unc_and_remote_drive():
     assert embeddings_sqlite._windows_drive_is_local("Z:", 4) is False
     assert embeddings_sqlite._windows_drive_is_local("C:", 3) is True
     assert embeddings_sqlite._windows_drive_is_local("C:", None) is True
+
+
+def test_path_is_local_disk_real_path_on_linux(tmp_path):
+    """Local scratch directory on Linux resolves to local disk via mountinfo inspection."""
+    import sys
+
+    if sys.platform != "linux":
+        pytest.skip("mountinfo inspection is Linux-specific")
+    assert embeddings_sqlite.path_is_local_disk(tmp_path) is True

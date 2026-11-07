@@ -23,7 +23,7 @@ def strip_legacy_document_suffix(content: str) -> str:
 
 
 def history_open_failed_text() -> str:
-    """Return _("Chat history could not be opened. This conversation will not be saved.")."""
+    """Return the user-facing history warning translated at call time for sidebar display and test assertions."""
     from plugin.framework.i18n import _
 
     return _("Chat history could not be opened. This conversation will not be saved.")
@@ -84,9 +84,10 @@ class ChatSession:
                     if isinstance(first, dict) and first.get("role") == "system" and isinstance(first.get("content"), str):
                         first["content"] = strip_legacy_document_suffix(first["content"])
             except Exception:
-                # Load failure with an open DB must not seed a lone system row over corrupt history.
                 log.exception("ChatSession history load failed")
                 if self.db is None:
+                    # The backend never opened: the session runs in memory and the
+                    # sidebar shows history_notice so the user knows nothing is saved.
                     self.history_notice = history_open_failed_text()
                 else:
                     # Backend opened, then get_messages raised: must not insert

@@ -481,7 +481,7 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
     items: list[tuple[str, str]] = []
     if greeting:
         items.append(("assistant", greeting))
-    notice = getattr(session, "history_notice", "")
+    notice = session.history_notice
     if isinstance(notice, str) and notice:
         items.append(("assistant", notice))
     for msg in session.messages:

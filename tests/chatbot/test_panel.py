@@ -1800,7 +1800,7 @@ class TestClearButtonAndPeerDrain:
 
                     send_listener._get_document_model.assert_called_once()
                     mock_get_greeting.assert_called_once_with(mock_doc)
-                    send_listener.rich_text_widget.clear_and_greeting.assert_called_once_with("Doc Greeting")
+                    send_listener.rich_text_widget.paint_session.assert_called_once_with(session, "Doc Greeting")
 
     def test_clear_greeting_disposed_document_uses_writer_fallback(self) -> None:
         session = MagicMock()
@@ -1828,9 +1828,54 @@ class TestClearButtonAndPeerDrain:
 
             send_listener._get_document_model.assert_called_once()
             assert mock_get_greeting.call_args_list == [((mock_doc,),), ((None,),)]
-            send_listener.rich_text_widget.clear_and_greeting.assert_called_once_with("WRITER_FALLBACK")
-            args, _ = send_listener.rich_text_widget.clear_and_greeting.call_args
-            assert "help you outline ideas" not in args[0]
+            send_listener.rich_text_widget.paint_session.assert_called_once_with(session, "WRITER_FALLBACK")
+            args, _ = send_listener.rich_text_widget.paint_session.call_args
+            assert "help you outline ideas" not in args[1]
+
+    def test_clear_preserves_history_notice_in_painted_items(self) -> None:
+        """Clear on a session with a history warning repaints the notice through paint_session."""
+        from plugin.chatbot.chat_session import ChatSession
+        from plugin.chatbot.panel import ClearButtonListener
+        from plugin.framework.errors import WriterAgentException
+
+        with patch("plugin.chatbot.chat_session.get_chat_history", side_effect=WriterAgentException("db down")):
+            session = ChatSession(session_id="failed-db")
+
+        send_listener = MagicMock()
+        send_listener._get_document_model.return_value = None
+        send_listener.sidebar_state.send.is_busy = False
+        send_listener._approval_event = None
+
+        listener = ClearButtonListener(session, MagicMock(), MagicMock(), "Welcome", send_listener)
+        with (
+            patch("plugin.audio.tts_service.stop_speech"),
+            patch("plugin.chatbot.tool_loop_actions.abort_turn"),
+        ):
+            listener.on_action_performed(MagicMock())
+
+        send_listener.rich_text_widget.paint_session.assert_called_once_with(session, "Welcome")
+
+    def test_clear_with_plain_control_includes_history_notice(self) -> None:
+        """Clear on a plain transcript control renders both the greeting and history notice."""
+        from plugin.chatbot.chat_session import ChatSession
+        from plugin.chatbot.panel import ClearButtonListener
+        from plugin.framework.errors import WriterAgentException
+
+        with patch("plugin.chatbot.chat_session.get_chat_history", side_effect=WriterAgentException("db down")):
+            session = ChatSession(session_id="failed-db")
+
+        response_control = MagicMock()
+        listener = ClearButtonListener(session, response_control, MagicMock(), "Welcome", send_listener=None)
+        with (
+            patch("plugin.audio.tts_service.stop_speech"),
+            patch("plugin.chatbot.dialogs.set_control_text") as mock_set_text,
+        ):
+            listener.on_action_performed(MagicMock())
+
+        mock_set_text.assert_called_once()
+        text = mock_set_text.call_args[0][1]
+        assert "Welcome" in text
+        assert session.history_notice in text
 
     def test_extracted_peer_drain_finally_runs(self) -> None:
         listener = _make_send_listener()
@@ -2708,7 +2753,7 @@ def test_append_output_persists_slash_local_on_session():
     from plugin.chatbot.rich_text_paste import SLASH_LOCAL
     from unittest.mock import MagicMock, patch
 
-    session = SimpleNamespace(messages=[])
+    session = SimpleNamespace(messages=[], history_notice="")
     with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
         listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")
     listener.session = session
@@ -2725,7 +2770,7 @@ def test_append_output_during_tool_loop_streams_slash_local_row():
     from plugin.chatbot.rich_text_paste import SLASH_LOCAL
     from unittest.mock import MagicMock, patch
 
-    session = SimpleNamespace(messages=[])
+    session = SimpleNamespace(messages=[], history_notice="")
     turn = SimpleNamespace(session=session)
     with patch("plugin.scripting.audio_recorder_service.is_audio_recording_supported", return_value=False), patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), patch("plugin.chatbot.chat_session.ChatSession"):
         listener = SendButtonListener(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), "test")

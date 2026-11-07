@@ -16,7 +16,7 @@ import sqlite3
 import sys
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, final
 
 log = logging.getLogger(__name__)
 
@@ -273,7 +273,7 @@ def path_is_local_disk(path: str | Path) -> bool:
     """Check whether a folder resides on a local disk rather than a network mount."""
     if sys.platform == "win32":
         drive, _rest = os.path.splitdrive(str(path))
-        if drive.startswith(("\\\\", "//")):
+        if not _windows_drive_is_local(drive):
             return False
         if not drive:
             return True
@@ -291,14 +291,39 @@ def path_is_local_disk(path: str | Path) -> bool:
             import ctypes
             import ctypes.util
 
+            @final
+            class _Statfs64(ctypes.Structure):
+                _fields_ = [
+                    ("f_bsize", ctypes.c_uint32),
+                    ("f_iosize", ctypes.c_int32),
+                    ("f_blocks", ctypes.c_uint64),
+                    ("f_bfree", ctypes.c_uint64),
+                    ("f_bavail", ctypes.c_uint64),
+                    ("f_files", ctypes.c_uint64),
+                    ("f_ffree", ctypes.c_uint64),
+                    ("f_fsid", ctypes.c_int32 * 2),
+                    ("f_owner", ctypes.c_uint32),
+                    ("f_type", ctypes.c_uint32),
+                    ("f_flags", ctypes.c_uint32),
+                    ("f_fssubtype", ctypes.c_uint32),
+                    ("f_fstypename", ctypes.c_char * 16),
+                    ("f_mntonname", ctypes.c_char * 1024),
+                    ("f_mntfromname", ctypes.c_char * 1024),
+                    ("f_flags_ext", ctypes.c_uint32),
+                    ("f_reserved", ctypes.c_uint32 * 7),
+                ]
+
             libc_name = ctypes.util.find_library("c") or "libc.dylib"
             libc = ctypes.CDLL(libc_name)
-            buf = ctypes.create_string_buffer(4096)
+            statfs_fn = getattr(libc, "statfs$INODE64", getattr(libc, "statfs", None))
+            if statfs_fn is None:
+                return True
+            buf = _Statfs64()
             path_bytes = os.fsencode(str(path))
-            ret = libc.statfs(path_bytes, buf)
+            ret = statfs_fn(path_bytes, ctypes.byref(buf))
             if ret != 0:
                 return True
-            raw_fstype = buf.raw[72:88].split(b"\x00", 1)[0]
+            raw_fstype = bytes(buf.f_fstypename).split(b"\x00", 1)[0]
             fstype = raw_fstype.decode("ascii")
             if not fstype:
                 return True
