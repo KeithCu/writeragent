@@ -26,7 +26,6 @@ Topic docs: [docs/calc/prompt-function.md](../../docs/calc/prompt-function.md),
 - LibrePy uses `addin_librepy.py` instead of `addin.py`.
 - Collabora Online `=PY()` files store `…PYTHONCOMPUTEFUNCTIONS.GETPY`; on open LibrePy rewrites that prefix ([`python/collabora_formula.py`](python/collabora_formula.py)). Do not register Collabora’s UNO service from the OXT.
 - Nested specialized sets use `specialized` / `specialized_control` and are omitted from default main-chat lists. Callers use `delegate_to_specialized_calc_toolset`.
-- `plugin/scripting/venv/calc_functions_*.py` alphabet splits are intentional; do not merge them.
 - `float(...)` inside `=PYTHON("...")` formula strings → Calc lexer `#NAME?`. Use code-in-cell or bare `np.sum` (see enabling-numpy doc).
 - In tests, resolve tools with `plugin.app.get_tools().get("tool_name")`.
 - Sheet names starting with `_` (xlsx→ods `__Anonymous_Sheet_DB__*`, etc.) stay in the workbook. Omit them from agent-facing lists (`sheet_list`, `get_sheet_summary`, chat context, `named_range_list(scope="all")`, unqualified named-range fallback). Do **not** delete them at trial/document open (parked).
