@@ -564,6 +564,48 @@ def test_slash_compact_sync_passes_cancel():
     assert compact_mod.call_args.kwargs.get("cancel") is cancel
 
 
+def test_slash_compact_lane_status_callback_logs(caplog: pytest.LogCaptureFixture) -> None:
+    from contextlib import contextmanager
+    import logging
+    from typing import Any
+
+    from plugin.chatbot.slash_commands import run_slash_compact_sync
+    from plugin.framework.send_cancellation import SendCancellation
+    from tests.framework.lane_probe import assert_lane_callback_safe
+
+    cancel = SendCancellation()
+    session = MagicMock()
+    session.messages = [{"role": "user", "content": "hi"}]
+    client = MagicMock()
+
+    saved_callback: list[Any] = []
+
+    @contextmanager
+    def fake_lane(**kwargs: Any) -> Any:
+        if "status_callback" in kwargs and kwargs["status_callback"] is not None:
+            saved_callback.append(kwargs["status_callback"])
+        yield
+
+    with patch("plugin.framework.config.get_config", return_value=True):
+        with patch("plugin.chatbot.compaction.compact_session") as compact_mod:
+            compact_mod.return_value = MagicMock(compacted=True, reason="ok")
+            with patch("plugin.framework.client.model_fetcher.resolve_context_window", return_value=4096):
+                with patch("plugin.framework.llm_lanes.llm_request_lane", fake_lane):
+                    run_slash_compact_sync(
+                        focus="",
+                        session=session,
+                        cancel=cancel,
+                        client=client,
+                        tools=[],
+                    )
+
+    assert len(saved_callback) == 1
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_commands"):
+        assert_lane_callback_safe(saved_callback[0], "lane-probe")
+
+    assert any(record.getMessage() == "slash compact status: lane-probe" for record in caplog.records)
+
+
 def test_run_slash_compact_resolves_document_on_main_thread_only():
     """Regression: /compact must not call UNO from run_blocking_in_thread's worker."""
     from plugin.framework.send_cancellation import SendCancellation

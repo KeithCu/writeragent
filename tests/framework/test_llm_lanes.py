@@ -367,3 +367,88 @@ def test_llm_request_lane_stop_is_polled_during_acquire() -> None:
             lock_held = False
         if worker_thread is not None:
             worker_thread.join(timeout=2.0)
+
+
+def test_llm_request_lane_status_callback_holder_then_own_hold() -> None:
+    from plugin.framework.llm_lanes import llm_request_lane, _LLM_REQUEST_LOCK
+    from plugin.framework.i18n import _
+
+    if _LLM_REQUEST_LOCK.locked():
+        try:
+            _LLM_REQUEST_LOCK.release()
+        except RuntimeError:
+            pass
+
+    holder_owns = threading.Event()
+    release_holder = threading.Event()
+    holder_dropping = threading.Event()
+
+    def holder_target() -> None:
+        _LLM_REQUEST_LOCK.acquire()
+        try:
+            holder_owns.set()
+            release_holder.wait(timeout=5.0)
+            holder_dropping.set()
+        finally:
+            _LLM_REQUEST_LOCK.release()
+
+    holder_thread = threading.Thread(target=holder_target, daemon=True)
+    holder_thread.start()
+    try:
+        assert holder_owns.wait(timeout=2.0)
+
+        records: list[tuple[str, bool, bool, bool]] = []
+        body_started = False
+
+        def cb(msg: str) -> None:
+            records.append((msg, _LLM_REQUEST_LOCK.locked(), body_started, holder_dropping.is_set()))
+            if msg == _("Waiting for another document's reply..."):
+                assert _LLM_REQUEST_LOCK.locked()
+                assert not holder_dropping.is_set()
+                assert not body_started
+                release_holder.set()
+
+        with llm_request_lane(timeout=2.0, status_callback=cb, resume_status="Thinking..."):
+            body_started = True
+            assert _LLM_REQUEST_LOCK.locked()
+
+        assert not _LLM_REQUEST_LOCK.locked()
+
+        assert len(records) == 2
+        assert records[0] == (_("Waiting for another document's reply..."), True, False, False)
+        assert records[1] == ("Thinking...", True, False, True)
+    finally:
+        release_holder.set()
+        holder_thread.join(timeout=2.0)
+        assert not holder_thread.is_alive()
+        if _LLM_REQUEST_LOCK.locked():
+            try:
+                _LLM_REQUEST_LOCK.release()
+            except RuntimeError:
+                pass
+
+
+def test_assert_lane_callback_safe_detects_violations() -> None:
+    from tests.framework.lane_probe import assert_lane_callback_safe
+    from plugin.framework.llm_lanes import llm_request_lane
+    from plugin.framework.queue_executor import main
+
+    # 1. Safe callback passes
+    assert_lane_callback_safe(lambda text: None, "ok")
+
+    # 2. Re-entry through llm_request_lane raises AssertionError
+    def reentering_cb(text: str) -> None:
+        with llm_request_lane(timeout=0.1):
+            pass
+
+    with pytest.raises(AssertionError, match="_LLM_REQUEST_LOCK acquired"):
+        assert_lane_callback_safe(reentering_cb, "bad")
+
+    # 3. Marshalling via main.call raises AssertionError
+    def marshalling_cb(text: str) -> None:
+        main.call(lambda: None)
+
+    with pytest.raises(AssertionError, match="must not marshal via main.call"):
+        assert_lane_callback_safe(marshalling_cb, "bad")
+
+
