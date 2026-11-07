@@ -83,7 +83,21 @@ _WORKER_BUSY_MESSAGE = (
     "Python worker is busy; waiting on its pipe would block this thread."
 )
 
-_ui_blocked_lease = threading.local()  # attribute "active", only written when ui_blocked=True
+# _ui_blocked_lease is distinct from sync_host_dispatch: sync_host_dispatch
+# forbids main.call (queue_executor.py raises to prevent deadlocks), but
+# notebook tool RPC needs main.call while the UI thread pumps the queue.
+_ui_blocked_lease = threading.local()
+
+
+@contextlib.contextmanager
+def _ui_blocked_scope() -> Generator[None, None, None]:
+    """Scope _ui_blocked_lease.active = True on the calling thread."""
+    prev = getattr(_ui_blocked_lease, "active", False)
+    _ui_blocked_lease.active = True
+    try:
+        yield
+    finally:
+        _ui_blocked_lease.active = prev
 
 
 def _pipe_wait_blocks_ui() -> bool:
@@ -1311,6 +1325,13 @@ def run_code_in_user_venv(
     *script_session_id* is host-only. Tool RPC resolves the document from it
     ahead of *session_id*. Chat passes a ``doc:`` pin so ``wa.*`` uses
     ``ctx.doc`` without putting that id on the child namespace.
+
+    *ui_blocked* marks this execution as holding up the UI thread (e.g. a
+    notebook cell run under ``run_blocking_in_thread(pump_idle=False)``).
+    When True, the warm-child lease uses ``wait=0`` so a busy worker returns
+    ``WORKER_REENTRY`` immediately instead of waiting up to 600s. The flag must
+    be set on the worker thread because ``threading.local`` does not cross
+    thread boundaries.
     """
     if not action and not (code or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No code provided.")
@@ -1335,54 +1356,24 @@ def run_code_in_user_venv(
             "extra_modules": extra_modules,
         }
 
-    if ui_blocked:
-        has_prev = hasattr(_ui_blocked_lease, "active")
-        prev = getattr(_ui_blocked_lease, "active", False)
-        _ui_blocked_lease.active = True
-        try:
-            return manager.execute(
-                code,
-                data=data,
-                bindings=bindings,
-                timeout_sec=timeout_sec,
-                session_id=session_id,
-                init_script=init_script,
-                init_session_id=init_session_id,
-                init_script_hash=init_script_hash,
-                allow_heartbeat=allow_heartbeat,
-                on_heartbeat=on_heartbeat,
-                action=action,
-                python_tool_domain=python_tool_domain,
-                script_session_id=script_session_id,
-                cancel=cancel,
-                sandbox_policy=sandbox_policy,
-            )
-        finally:
-            if has_prev:
-                _ui_blocked_lease.active = prev
-            else:
-                try:
-                    del _ui_blocked_lease.active
-                except AttributeError:
-                    pass
-
-    return manager.execute(
-        code,
-        data=data,
-        bindings=bindings,
-        timeout_sec=timeout_sec,
-        session_id=session_id,
-        init_script=init_script,
-        init_session_id=init_session_id,
-        init_script_hash=init_script_hash,
-        allow_heartbeat=allow_heartbeat,
-        on_heartbeat=on_heartbeat,
-        action=action,
-        python_tool_domain=python_tool_domain,
-        script_session_id=script_session_id,
-        cancel=cancel,
-        sandbox_policy=sandbox_policy,
-    )
+    with _ui_blocked_scope() if ui_blocked else contextlib.nullcontext():
+        return manager.execute(
+            code,
+            data=data,
+            bindings=bindings,
+            timeout_sec=timeout_sec,
+            session_id=session_id,
+            init_script=init_script,
+            init_session_id=init_session_id,
+            init_script_hash=init_script_hash,
+            allow_heartbeat=allow_heartbeat,
+            on_heartbeat=on_heartbeat,
+            action=action,
+            python_tool_domain=python_tool_domain,
+            script_session_id=script_session_id,
+            cancel=cancel,
+            sandbox_policy=sandbox_policy,
+        )
 
 
 def reset_python_session(session_id: str, *, timeout_sec: int | None = None) -> dict[str, Any]:

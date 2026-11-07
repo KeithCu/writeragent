@@ -1,5 +1,6 @@
 """Tests for venv_worker (paths, warm worker, run_code) via PythonWorkerManager + worker_harness."""
 from __future__ import annotations
+import contextlib
 import io
 import logging
 import os
@@ -20,7 +21,7 @@ from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, Ipc
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.session_key import SessionKey
-from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RetryWithNewLease, Terminal, _IO_LOCK_POLL_SEC, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
+from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RetryWithNewLease, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
@@ -1777,6 +1778,18 @@ def test_run_code_in_user_venv_ui_blocked_returns_busy_within_one_poll(monkeypat
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     monkeypatch.setattr("plugin.scripting.venv_worker._get_worker_manager", lambda **kw: (mgr, None))
     thread, release = _hold_pipe_in_thread(mgr)
+    warm = mgr._warm
+    assert warm is not None
+    orig_lease = warm.lease
+    lease_waits: list[float] = []
+
+    @contextlib.contextmanager
+    def spy_lease(*args: Any, **kwargs: Any) -> Generator[Any, None, None]:
+        lease_waits.append(kwargs.get("wait", -1.0))
+        with orig_lease(*args, **kwargs) as leased:
+            yield leased
+
+    monkeypatch.setattr(warm, "lease", spy_lease)
     try:
         result_holder: list[dict[str, Any]] = []
         elapsed_holder: list[float] = []
@@ -1793,12 +1806,67 @@ def test_run_code_in_user_venv_ui_blocked_returns_busy_within_one_poll(monkeypat
         worker.join(timeout=5)
         assert len(result_holder) == 1
         res = result_holder[0]
-        assert elapsed_holder[0] < _IO_LOCK_POLL_SEC
+        assert elapsed_holder[0] < 1.0
+        assert lease_waits == [0.0]
         assert res["code"] == "WORKER_REENTRY"
         assert "busy" in res["message"]
     finally:
         release.set()
         thread.join(timeout=2)
+
+
+def test_ui_blocked_scope_restores_state_even_on_raise(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.scripting.venv_worker import _pipe_wait_blocks_ui, _ui_blocked_scope
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    assert _pipe_wait_blocks_ui() is False
+    with _ui_blocked_scope():
+        assert _pipe_wait_blocks_ui() is True
+    assert _pipe_wait_blocks_ui() is False
+
+    with pytest.raises(RuntimeError, match="simulated failure"):
+        with _ui_blocked_scope():
+            assert _pipe_wait_blocks_ui() is True
+            raise RuntimeError("simulated failure")
+    assert _pipe_wait_blocks_ui() is False
+
+
+def test_execute_free_pipe_with_ui_blocked_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    monkeypatch.setattr("plugin.scripting.venv_worker.get_config", lambda *a, **k: "")
+    monkeypatch.setattr("plugin.scripting.venv_worker.configured_python_exec_timeout", lambda: 10)
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO())
+    _install_mock_proc(mgr, proc)
+    monkeypatch.setattr("plugin.scripting.venv_worker._get_worker_manager", lambda **kw: (mgr, None))
+
+    def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+        del req, leased
+        return {"status": "ok", "result": 42}
+
+    with patch.object(mgr, "_execute_ipc_unlocked", side_effect=_fake_ipc):
+        res = run_code_in_user_venv("result = 42", ui_blocked=True)
+    assert res["status"] == "ok"
+    assert res["result"] == 42
+
+
+def test_execute_free_pipe_with_sync_host_dispatch_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.thread_guard import sync_host_dispatch
+
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO())
+    _install_mock_proc(mgr, proc)
+
+    def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+        del req, leased
+        return {"status": "ok", "result": 99}
+
+    with patch.object(mgr, "_execute_ipc_unlocked", side_effect=_fake_ipc):
+        with sync_host_dispatch():
+            res = mgr.execute("result = 99", timeout_sec=10)
+    assert res["status"] == "ok"
+    assert res["result"] == 99
 
 
 def test_execute_sync_host_dispatch_returns_busy_within_1s(monkeypatch: pytest.MonkeyPatch) -> None:

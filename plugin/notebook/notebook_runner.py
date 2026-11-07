@@ -913,6 +913,9 @@ def _execute_and_apply(ctx: Any, doc: Any, state: NotebookDocState, cell: Notebo
     if result.get("status") == "stopped" or result.get("code") == "CANCELLED":
         # In [n] / outputs only for cells that actually finished.
         return RunResult("stopped", None, "Stopped.", cells_run=0)
+    if result.get("code") == "WORKER_REENTRY":
+        msg = _("Python is busy with another script. Run the cell again when it finishes.")
+        return RunResult("fatal", None, msg, cells_run=0)
 
     cell.last_run_status = "ok" if result.get("status") == "ok" else "error"
 
@@ -1108,8 +1111,9 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                     raise
                 if one.status == "stopped":
                     return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
-                executed += 1
-                last_count = one.execution_count
+                if one.cells_run:
+                    executed += one.cells_run
+                    last_count = one.execution_count
                 if one.status == "fatal":
                     return RunResult("error", one.execution_count, one.message, cells_run=executed)
                 if _is_stop_requested(busy_key):
