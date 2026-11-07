@@ -23,7 +23,7 @@ def test_export_execute_applies_env_once_and_calls_export_project_to_doc() -> No
     ), patch("plugin.ppt_master.tools.export_project_to_doc", return_value={"status": "ok"}) as export_doc:
         out = ExportPresentationProject().execute(ctx, project_path="/proj")
     apply_env.assert_called_once_with(ctx.ctx)
-    export_doc.assert_called_once_with(ctx.doc, "/proj", ctx.ctx)
+    export_doc.assert_called_once_with(ctx.doc, "/proj", ctx.ctx, cancel=ctx.send_cancellation)
     assert out == {"status": "ok"}
 
 

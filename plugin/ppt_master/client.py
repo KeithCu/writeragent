@@ -7,7 +7,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.framework.errors import ToolExecutionError, format_error_payload
@@ -19,7 +22,13 @@ from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
 
 
-def export_project_to_doc(doc: Any, project_path: str | Path, ctx: Any | None = None) -> dict[str, Any]:
+def export_project_to_doc(
+    doc: Any,
+    project_path: str | Path,
+    ctx: Any | None = None,
+    *,
+    cancel: SendCancellation | None = None,
+) -> dict[str, Any]:
     """Export a ppt-master project into *doc* via PPTX → LO ODP import.
 
     ``ExportPresentationProject.execute`` sets the ppt-master data root once before calling this;
@@ -44,7 +53,7 @@ def export_project_to_doc(doc: Any, project_path: str | Path, ctx: Any | None = 
         )
     data_root = Path(status["data_root"])
 
-    pptx_path, build_err = ensure_project_pptx(ctx, project_path, data_root)
+    pptx_path, build_err = ensure_project_pptx(ctx, project_path, data_root, cancel=cancel)
     if pptx_path is None:
         return format_error_payload(
             ToolExecutionError(
