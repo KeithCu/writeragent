@@ -1480,6 +1480,17 @@ def test_bad_save_rolls_back_cache_and_keeps_disk(tmp_path):
         assert get_config("text_model") == "good-model"
 
 
+def test_save_does_not_fsync(tmp_path):
+    reset_config_for_tests()
+    cfg_file = tmp_path / "writeragent.json"
+    with patch("plugin.framework.config.get_config_file_path", return_value=str(cfg_file)), patch(
+        "plugin.framework.config.os.fsync"
+    ) as mock_fsync:
+        save({"text_model": "m"})
+        mock_fsync.assert_not_called()
+        assert "m" in cfg_file.read_text(encoding="utf-8")
+
+
 def test_unknown_key_raises():
     reset_config_for_tests()
     with pytest.raises(ConfigError) as exc_info:

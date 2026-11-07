@@ -13,7 +13,12 @@ import logging
 import threading
 from typing import Any
 
-from plugin.embeddings.embeddings_cache import parse_search_mode, resolve_index_context
+from plugin.embeddings.embeddings_cache import (
+    folder_corpus_key,
+    maybe_upgrade_legacy_index,
+    parse_search_mode,
+    resolve_folder_for_active_doc,
+)
 from plugin.embeddings.embedding_client import get_embedding_model
 from plugin.embeddings.embeddings_service import maintain_folder_index as maintain_folder_index_rpc
 from plugin.framework.constants import configured_folder_search_mode, folder_search_enabled
@@ -48,6 +53,7 @@ def _resolve_search_mode() -> str:
 
 def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
     try:
+        maybe_upgrade_legacy_index(listing_root)
         model = get_embedding_model()
         maintain_folder_index_rpc(
             ctx,
@@ -68,13 +74,10 @@ def enqueue_folder_index(ctx: Any, model: Any) -> None:
         return
     from plugin.framework.queue_executor import main
 
-    def _resolve() -> tuple[str, Any, Any, str] | tuple[None, None, None, str]:
-        return resolve_index_context(ctx, model)
-
-    resolved = main.call(_resolve)
-    folder_key, _db, _meta, listing_root = resolved[0], resolved[1], resolved[2], resolved[3]
-    if folder_key is None or listing_root is None:
+    listing_root = main.call(lambda: resolve_folder_for_active_doc(ctx, model))
+    if not listing_root:
         return
+    folder_key = folder_corpus_key(listing_root)
     if not _try_enqueue(folder_key):
         return
 
