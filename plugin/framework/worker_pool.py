@@ -719,14 +719,7 @@ class AsyncProcess:
         # EOF, on_exit_cb never runs, and this thread leaks. _reap uses the
         # same 1s bound.
         self._join_handles((stdout_thread, stderr_thread), timeout=1.0)
-        args = self.args
-        if isinstance(args, str):
-            preview = args
-        elif args:
-            preview = args[0]
-        else:
-            preview = ""
-        log.debug("Process %s exited with rc=%s", preview, rc)
+        log.debug("Process %s exited with rc=%s", self.args[0] if self.args else "", rc)
         if generation != self._child_generation:
             log.debug("Suppressing on_exit_cb for superseded child rc=%s", rc)
             return
