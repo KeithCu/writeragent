@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from typing import Callable
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -513,6 +514,66 @@ def test_onload_rewrites_collabora_py_via_call():
         assert marshal.call_args_list[0][0][1:] == (ctx, doc)
         assert marshal.call_args_list[1][0][0] is maybe_rewrite_collabora_py_formulas
         assert marshal.call_args_list[1][0][1:] == (doc,)
+        warn.assert_not_called()
+
+
+def _run_in_dummy_thread(fn: Callable[[], None], timeout: float = 5.0) -> None:
+    import _thread
+    import threading
+
+    done = threading.Event()
+    exc: list[BaseException] = []
+
+    def target() -> None:
+        try:
+            fn()
+        except BaseException as err:
+            exc.append(err)
+        finally:
+            done.set()
+
+    _thread.start_new_thread(target, ())
+    if not done.wait(timeout):
+        raise TimeoutError(f"Dummy thread failed to finish within {timeout} s")
+    if exc:
+        raise exc[0]
+
+
+def test_onload_collabora_rewrite_inlines_on_untagged_dummy():
+    """OnLoadFinished inlines Collabora rewrite on an untagged Dummy thread (dev UNTAGGED_DUMMY_IS_CURRENT)."""
+    import plugin.calc.excel_py_convert.auto_open as mod
+
+    ctx = MagicMock()
+    smgr = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = broadcaster
+    mod._doc_listener = None
+    install_excel_py_auto_convert(ctx)
+    listener = broadcaster.addDocumentEventListener.call_args[0][0]
+    doc = CalcDocStub()
+
+    class _LoadEvent:
+        EventName = "OnLoadFinished"
+        Source = doc
+
+    event = _LoadEvent()
+    with (
+        patch.object(mod, "maybe_convert_excel_py_document") as convert,
+        patch.object(mod, "_geometric_open_job"),
+        patch(
+            "plugin.calc.python.collabora_formula.maybe_rewrite_collabora_py_formulas"
+        ) as rewrite,
+        patch("plugin.framework.queue_executor.main.call", side_effect=TimeoutError("main.call should not be reached")) as marshal,
+        patch.object(mod.log, "warning") as warn,
+    ):
+        def _fire() -> None:
+            listener.on_document_event(event)
+
+        _run_in_dummy_thread(_fire)
+        convert.assert_called_once()
+        rewrite.assert_called_once_with(doc)
+        marshal.assert_not_called()
         warn.assert_not_called()
 
 

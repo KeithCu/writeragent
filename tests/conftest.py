@@ -343,6 +343,18 @@ def _reset_python_addin_cache():
 
 
 @pytest.fixture(autouse=True)
+def _cleanup_history_keepers():
+    """Ensure SQLite history WAL keeper connections do not leak across tests."""
+    from plugin.chatbot.history_db import reset_history_keepers_for_tests
+
+    reset_history_keepers_for_tests()
+    try:
+        yield
+    finally:
+        reset_history_keepers_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _ensure_writeragent_logger_propagates():
     """Ensure writeragent log records propagate to root logger for caplog fixtures."""
     import logging

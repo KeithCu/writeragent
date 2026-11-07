@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import closing
 
 import pytest
 
@@ -194,15 +195,23 @@ def test_sqlite_closes_connection_and_saves_null_text(tmp_path, monkeypatch):
         return conn
 
     monkeypatch.setattr(history_db.sqlite3, "connect", _wrap)
-    history = history_db.SQLite3History("sid", str(tmp_path / "history.db"))
+    db_path = str(tmp_path / "history.db")
+    history = history_db.SQLite3History("sid", db_path)
     history.add_message("user", [{"type": "text", "text": None}])
     assert history.get_messages()[0]["content"] == ""
     history.replace_messages([])
-    # init, add, get, replace — each connect must be closed, not left to GC.
-    assert len(opened) == 4
-    for conn in opened:
+    # init, add, get, replace (per-call) + 1 process-lifetime keeper connection.
+    assert len(opened) == 5
+    keeper = opened[1]
+    per_call = [opened[0], opened[2], opened[3], opened[4]]
+    for conn in per_call:
         with pytest.raises(sqlite3.ProgrammingError):
             conn.execute("SELECT 1")
+    # Keeper remains open until explicitly reset.
+    keeper.execute("SELECT 1")
+    history_db.reset_history_keepers_for_tests()
+    with pytest.raises(sqlite3.ProgrammingError):
+        keeper.execute("SELECT 1")
 
 
 def test_sqlite_connect_sets_wal_and_synchronous_normal(tmp_path):
@@ -220,11 +229,63 @@ def test_sqlite_connect_sets_wal_and_synchronous_normal(tmp_path):
         synchronous = conn.execute("PRAGMA synchronous").fetchone()[0]
         assert synchronous == 1
 
-    with sqlite3.connect(db_path) as raw_conn:
+    with closing(sqlite3.connect(db_path)) as raw_conn:
         raw_synchronous = raw_conn.execute("PRAGMA synchronous").fetchone()[0]
         assert raw_synchronous == 2
 
     assert history.get_messages() == [{"role": "user", "content": "hi"}]
+
+
+def test_sqlite_wal_persists_across_commits(tmp_path):
+    from plugin.chatbot import history_db
+
+    db_path = str(tmp_path / "history.db")
+    history = history_db.SQLite3History("sid", db_path)
+    history.add_message("user", "hi")
+
+    wal_path = db_path + "-wal"
+    assert os.path.exists(wal_path)
+    assert os.path.getsize(wal_path) > 0
+    assert history.get_messages() == [{"role": "user", "content": "hi"}]
+    assert os.path.exists(wal_path)
+    assert os.path.getsize(wal_path) > 0
+
+    history_db.reset_history_keepers_for_tests()
+    assert not os.path.exists(wal_path)
+
+
+def test_sqlite_connect_closes_connection_on_pragma_failure(tmp_path, monkeypatch):
+    import sqlite3
+
+    from plugin.chatbot import history_db
+
+    db_path = str(tmp_path / "history.db")
+    history = history_db.SQLite3History("sid", db_path)
+
+    real_connect = sqlite3.connect
+    captured_conn: sqlite3.Connection | None = None
+
+    class FailingConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if "PRAGMA synchronous" in sql:
+                raise sqlite3.OperationalError("forced pragma failure")
+            return super().execute(sql, *args, **kwargs)
+
+    def _failing_connect(*args, **kwargs):
+        nonlocal captured_conn
+        kwargs["factory"] = FailingConnection
+        conn = real_connect(*args, **kwargs)
+        captured_conn = conn
+        return conn
+
+    monkeypatch.setattr(history_db.sqlite3, "connect", _failing_connect)
+
+    with pytest.raises(sqlite3.OperationalError, match="forced pragma failure"):
+        history.add_message("user", "x")
+
+    assert captured_conn is not None
+    with pytest.raises(sqlite3.ProgrammingError):
+        captured_conn.execute("SELECT 1")
 
 
 def test_sqlite_skips_undecodable_row(tmp_path):

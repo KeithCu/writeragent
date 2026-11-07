@@ -74,7 +74,6 @@ def _install_mock_proc(mgr: PythonWorkerManager, proc: Any) -> None:
     poll_fn = getattr(proc, "poll", None)
     warm.is_alive = lambda: poll_fn() is None if callable(poll_fn) else True
     warm.io_owner = lambda: warm._fake_io_owner if warm._fake_io_owner is not None else io_owner_holder[0]
-    warm.io_locked = warm._io_lock.locked
     warm.diagnostic_tail = lambda: ""
     mgr._warm = warm
     mgr._primed = True
@@ -523,7 +522,8 @@ def test_blocked_stdin_write_times_out_and_releases_lock(tmp_path, monkeypatch):
             if t.name == 'ipc-stdin-write':
                 t.join(timeout=5)
                 assert not t.is_alive()
-        assert not warm.io_locked()
+        with warm.lease(Deadline(1), wait=0) as leased:
+            assert not isinstance(leased, dict)
     finally:
         warm.retire()
 
@@ -536,7 +536,9 @@ def test_execute_refuses_reentry_while_this_thread_owns_the_pipe():
     assert result['status'] == 'error'
     assert result['code'] == 'WORKER_REENTRY'
     assert 'called back' in result['message']
-    assert mgr._warm is not None and not mgr._warm.io_locked()
+    assert mgr._warm is not None
+    with mgr._warm.lease(Deadline(1), wait=0) as leased:
+        assert not isinstance(leased, dict)
 
 def test_large_stdin_write_completes_intact():
     mgr = PythonWorkerManager(sys.executable, {})
@@ -1705,12 +1707,88 @@ def test_python_worker_manager_sets_is_worker_env():
     mgr = PythonWorkerManager(sys.executable, {'PATH': '/usr/bin'})
     assert mgr.env.get('WRITERAGENT_IS_WORKER') == '1'
 
-def test_execute_ui_thread_returns_busy_when_pipe_lock_held(monkeypatch):
-    """The UI thread must not block on the warm-child pipe lock."""
+def test_execute_main_thread_waits_for_pipe_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The designated main thread waits for the pipe lock instead of bailing with WORKER_REENTRY."""
+    monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: True)
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO())
+    _install_mock_proc(mgr, proc)
+    thread, release = _hold_pipe_in_thread(mgr)
+
+    def _release_later() -> None:
+        time.sleep(0.3)
+        release.set()
+
+    releaser = threading.Thread(target=_release_later)
+    try:
+        def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+            del req, leased
+            return {'status': 'ok', 'result': 42}
+
+        with patch.object(mgr, '_execute_ipc_unlocked', side_effect=_fake_ipc):
+            started = time.monotonic()
+            releaser.start()
+            result = mgr.execute('result = 42', timeout_sec=2)
+            elapsed = time.monotonic() - started
+            assert elapsed >= 0.25
+            assert result['status'] == 'ok'
+            assert result.get('result') == 42
+    finally:
+        release.set()
+        releaser.join(timeout=2)
+        thread.join(timeout=2)
+
+def test_execute_sync_host_dispatch_waits_for_pipe_lock() -> None:
+    """An off-main thread under sync_host_dispatch waits for the pipe lock."""
+    from plugin.framework.thread_guard import sync_host_dispatch
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    proc = MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO())
+    _install_mock_proc(mgr, proc)
+    thread, release = _hold_pipe_in_thread(mgr)
+
+    outcome: list[tuple[dict[str, Any], float]] = []
+
+    def _release_later() -> None:
+        time.sleep(0.3)
+        release.set()
+
+    releaser = threading.Thread(target=_release_later)
+
+    def _worker() -> None:
+        def _fake_ipc(req: _ExecRequest, *, leased: Any) -> dict[str, Any]:
+            del req, leased
+            return {'status': 'ok', 'result': 99}
+
+        with sync_host_dispatch(), patch.object(mgr, '_execute_ipc_unlocked', side_effect=_fake_ipc):
+            started = time.monotonic()
+            releaser.start()
+            res = mgr.execute('result = 99', timeout_sec=2)
+            elapsed = time.monotonic() - started
+            outcome.append((res, elapsed))
+
+    waiter = threading.Thread(target=_worker)
+    waiter.start()
+    try:
+        waiter.join(timeout=3)
+        assert not waiter.is_alive()
+        assert outcome
+        res, elapsed = outcome[0]
+        assert elapsed >= 0.25
+        assert res['status'] == 'ok'
+        assert res.get('result') == 99
+    finally:
+        release.set()
+        releaser.join(timeout=2)
+        thread.join(timeout=2)
+
+def test_execute_main_thread_refuses_when_holder_in_tool_rpc(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Main thread refuses with busy within one poll slice when holder is in a tool RPC."""
     monkeypatch.setattr('plugin.framework.queue_executor.main.is_current', lambda: True)
     mgr = PythonWorkerManager(sys.executable, {})
     _install_mock_proc(mgr, MagicMock(poll=MagicMock(return_value=None), stdin=io.BytesIO(), stdout=io.BytesIO()))
     thread, release = _hold_pipe_in_thread(mgr)
+    mgr._serving_tool_call = True
     try:
         started = time.monotonic()
         result = mgr.execute('result = 1', timeout_sec=1)
@@ -1718,6 +1796,7 @@ def test_execute_ui_thread_returns_busy_when_pipe_lock_held(monkeypatch):
         assert result['code'] == 'WORKER_REENTRY'
         assert 'busy' in result['message']
     finally:
+        mgr._serving_tool_call = False
         release.set()
         thread.join(timeout=2)
 
@@ -2615,23 +2694,16 @@ class _MockProc:
     def poll(self) -> int | None:
         return self.returncode
 
-def test_ui_reentry_while_spawn_thread_owns_io(monkeypatch: pytest.MonkeyPatch) -> None:
-    """UI busy check during spawn must not treat the spawner thread as the UI thread."""
+def test_reentry_error_does_not_refuse_other_lock_holder(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The main thread is not refused when another thread holds the lock; it waits instead."""
     monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
     mgr = PythonWorkerManager(sys.executable, {})
     warm = MagicMock()
-    lock = threading.Lock()
-    assert lock.acquire(blocking=False)
-    warm._io_lock = lock
-    spawn_owner = threading.get_ident() + 1
-    warm.io_owner.return_value = spawn_owner
-    warm.io_locked.return_value = True
+    other_owner = threading.get_ident() + 1
+    warm.io_owner.return_value = other_owner
     mgr._warm = warm
     err = mgr._reentry_error()
-    assert err is not None
-    assert err["code"] == "WORKER_REENTRY"
-    assert "busy" in err["message"]
-    lock.release()
+    assert err is None
 
 
 def test_lease_error_keeps_error_text() -> None:

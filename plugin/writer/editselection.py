@@ -22,6 +22,8 @@ Extend sends the selection text with ``extend_selection_system_prompt``. Edit se
 is the chat system prompt and is not read here.
 """
 
+from __future__ import annotations
+
 from typing import Any, Callable
 
 from plugin.framework.config import get_config, get_current_endpoint
@@ -87,13 +89,18 @@ def _stream_into_session(
     *,
     preset_instruction: str | None = None,
     sidebar_notify: Callable[[str], None] | None = None,
+    host: Any | None = None,
 ) -> None:
     from plugin.doc.agent_undo import record_agent_turn_after
+    from plugin.chatbot.selection import bind_selection_cancel, end_selection_cancel
 
     completion_meta: dict[str, Any] = {}
 
-    # Extend/Edit has no Stop control; a chunk already in hand is a document write
-    # and lands (session.append_chunk).
+    # Chunks already in hand are document writes and land (session.append_chunk).
+    # When Stopped, on_done runs finish() to preserve text already written,
+    # rather than abort_and_restore. Note: on rewrite, stopping retains the
+    # rewritten head but the remainder of the selection is replaced by finish()
+    # (can be restored via undo or tracked changes).
     def apply_chunk(chunk_text: str, is_thinking: bool = False) -> None:
         if not is_thinking:
             session.append_chunk(chunk_text)
@@ -113,29 +120,47 @@ def _stream_into_session(
                     _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
                 )
         finally:
-            record_agent_turn_after(session.doc)
+            try:
+                record_agent_turn_after(session.doc)
+            finally:
+                end_selection_cancel(arm)
 
     def on_error(e: BaseException) -> None:
         try:
             session.abort_and_restore()
             msgbox(ctx, title, format_error_message(e))
         finally:
-            record_agent_turn_after(session.doc)
+            try:
+                record_agent_turn_after(session.doc)
+            finally:
+                end_selection_cancel(arm)
 
-    stream_completion(
-        ctx,
-        client,
-        prompt,
-        system_prompt,
-        max_tokens,
-        apply_chunk,
-        on_done,
-        on_error,
-        completion_out=completion_meta,
-    )
+    arm = bind_selection_cancel(host, session.doc)
+    try:
+        stream_completion(
+            ctx,
+            client,
+            prompt,
+            system_prompt,
+            max_tokens,
+            apply_chunk,
+            on_done,
+            on_error,
+            cancel=arm.scope,
+            on_stopped_fn=on_done,
+            completion_out=completion_meta,
+        )
+    except BaseException:
+        end_selection_cancel(arm)
+        raise
 
 
-def do_extend_selection(ctx: Any, model: Any) -> None:
+def do_extend_selection(
+    ctx: Any,
+    model: Any,
+    *,
+    host: Any | None = None,
+) -> None:
     title = _("WriterAgent: Extend Selection")
     target = _selection_target(ctx, model, title)
     if target is None:
@@ -157,7 +182,16 @@ def do_extend_selection(ctx: Any, model: Any) -> None:
         model, text_range, original_text,
         track_reviewable=review_recording_enabled(),
     )
-    _stream_into_session(ctx, title, client, original_text, system_prompt, max_tokens, session)
+    _stream_into_session(
+        ctx,
+        title,
+        client,
+        original_text,
+        system_prompt,
+        max_tokens,
+        session,
+        host=host,
+    )
 
 
 def _whole_body_target(ctx: Any, model: Any, title: str) -> tuple[Any, str] | None:
@@ -188,6 +222,7 @@ def do_edit_selection(
     preset_instruction: str | None = None,
     allow_whole_document: bool = False,
     sidebar_notify: Callable[[str], None] | None = None,
+    host: Any | None = None,
 ) -> None:
     title = _("WriterAgent: Edit Selection")
     extra_instructions = ""
@@ -252,4 +287,5 @@ def do_edit_selection(
         session,
         preset_instruction=preset_instruction,
         sidebar_notify=sidebar_notify,
+        host=host,
     )

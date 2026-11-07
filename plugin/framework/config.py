@@ -272,9 +272,9 @@ def atomic_write_text(path: str, text: str, *, prefix: str = ".tmp-") -> None:
 
 
 def _write_config_file(config_file_path: str, data: dict[str, Any]) -> None:
-    """Write config via temp file + ``os.replace`` so a crash cannot truncate the live file.
+    """Write config via temp file + ``os.replace`` so a process crash cannot truncate the live file.
 
-    This write does not ``fsync``; a power loss can lose it.
+    This write does not ``fsync``; a power loss can lose this write or the whole file.
     """
     # Non-serializable values raise ConfigError with CONFIG_SAVE_ERROR.
     try:

@@ -86,7 +86,7 @@ def test_extend_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create
     mock_create_client.return_value = mock_client
 
     ctx = MagicMock()
-    # Extend/Edit have no Stop control; this stands in for a user clicking Stop.
+    # apply_chunk still does not consult a checker; this stands in for a user clicking Stop.
     ctx.stop_checker = MagicMock(return_value=True)
 
     model = MagicMock()
@@ -116,7 +116,7 @@ def test_edit_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_c
     mock_create_client.return_value = mock_client
 
     ctx = MagicMock()
-    # Extend/Edit have no Stop control; this stands in for a user clicking Stop.
+    # apply_chunk still does not consult a checker; this stands in for a user clicking Stop.
     ctx.stop_checker = MagicMock(return_value=True)
 
     model = MagicMock()
@@ -587,4 +587,90 @@ def test_edit_selection_dialog_extras_win_over_config(mock_create_client, mock_s
     assert mock_stream.call_args.args[3] == "dialog extra"
 
 
+def test_extend_selection_stop_scope_finishes_and_appends():
+    import threading
+    import time
+    from types import SimpleNamespace
+    from plugin.framework.send_cancellation import SendCancellation
+
+    save({
+        "extend_selection_max_tokens": 100,
+        "doc.agent_edit_review_mode": "none",
+        "additional_instructions": "",
+    })
+
+    scope = SendCancellation()
+    chunk_queued = threading.Event()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+        def stream_completion(self, prompt, system_prompt, max_tokens, **kwargs):
+            append_cb = kwargs["append_callback"]
+            append_cb("CHUNK")
+            chunk_queued.set()
+            deadline = time.monotonic() + 5.0
+            cancel = kwargs.get("cancel")
+            while cancel is not None and not cancel.is_cancelled():
+                if time.monotonic() > deadline:
+                    raise TimeoutError("Cancel deadline exceeded")
+                time.sleep(0.01)
+            return "stop"
+
+    fake_client = FakeClient()
+
+    def side_canceller():
+        if chunk_queued.wait(timeout=5.0):
+            scope.cancel()
+
+    canceller_thread = threading.Thread(target=side_canceller)
+    canceller_thread.start()
+
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "orig"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    call_order: list[str] = []
+    session = MagicMock()
+    session.doc = model
+    session.generated_text = "CHUNK"
+
+    def _append(text: str) -> None:
+        call_order.append("append_chunk")
+
+    def _finish() -> str:
+        call_order.append("finish")
+        return ""
+
+    def _abort() -> None:
+        call_order.append("abort_and_restore")
+
+    session.append_chunk.side_effect = _append
+    session.finish.side_effect = _finish
+    session.abort_and_restore.side_effect = _abort
+
+    fake_host = SimpleNamespace(
+        _send_cancellation=scope,
+        sidebar_state=SimpleNamespace(send=SimpleNamespace(is_busy=True, is_recording=False)),
+    )
+
+    with patch("plugin.writer.editselection.create_validated_client", return_value=fake_client), \
+         patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection.WriterStreamedAppendSession", return_value=session):
+        do_extend_selection(ctx, model, host=fake_host)
+
+    canceller_thread.join(timeout=5.0)
+
+    assert fake_client.stopped is True
+    assert call_order == ["append_chunk", "finish"]
+    assert not session.abort_and_restore.called
 

@@ -37,6 +37,7 @@ __all__ = [
     "PARENT_TO_CHILD_TYPES",
     "message_type",
     "normalize_target",
+    "pack_message",
     "read_message",
     "session_id_of",
     "stamp_session",
@@ -97,15 +98,20 @@ def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
     return decoded
 
 
-def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
-    """Write one dict to *stream* as pickle protocol 5 with a 4-byte big-endian length prefix."""
-    # crosshair: off
+def pack_message(message: dict[str, Any]) -> bytes:
+    """Pack one dict as pickle protocol 5 with a 4-byte big-endian length prefix."""
     try:
-        frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+        return pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     except IpcPayloadSizeError as exc:
         # pack_pickle_frame's message includes the byte count. A fixed
         # sentence here dropped that count from str(exc) at the host dialog.
         raise ValueError(str(exc)) from exc
+
+
+def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
+    """Write one dict to *stream* as pickle protocol 5 with a 4-byte big-endian length prefix."""
+    # crosshair: off
+    frame = pack_message(message)
     _write_all(stream, frame)
 
 

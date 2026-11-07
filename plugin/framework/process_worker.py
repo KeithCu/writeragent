@@ -22,6 +22,7 @@ This module is the multi-slot compute worker slot (``BaseProcessWorker``) only.
 
 from __future__ import annotations
 
+import functools
 import logging
 import pickle
 import sys
@@ -216,7 +217,8 @@ class BaseProcessWorker:
         if self._shutting_down or self.child is not None:
             return
         # Refuse spawn when the remaining budget is insufficient for the handshake.
-        if deadline is not None and spawn_budget(deadline) is None:
+        budget = spawn_budget(deadline) if deadline is not None else None
+        if deadline is not None and budget is None:
             return
         managed = ManagedSubprocess(
             [sys.executable, self.script_path],
@@ -248,7 +250,7 @@ class BaseProcessWorker:
                 unpacker=self._unpacker,
                 # Not the caller thread: an HTTP worker exits at shutdown and
                 # PDEATHSIG would kill this child with it.
-                start=supervisor.spawn,
+                start=functools.partial(supervisor.spawn, timeout_sec=budget),
                 publish=_publish,
                 deadline=deadline,
                 cap_sec=cap_sec,

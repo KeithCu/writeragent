@@ -411,6 +411,7 @@ _.reset_extension_update_check_schedule_for_tests  # function: plugin/chatbot/ex
 _.reset_frame_sessions  # function: plugin/framework/frame_session.py:119
 _.reset_geometric_runtime_for_tests  # function: plugin/calc/python/geometric_recalc.py:79
 _.reset_grammar_llm_client_cache  # function: plugin/writer/locale/grammar_worker.py:47
+_.reset_history_keepers_for_tests  # function: plugin/chatbot/history_db.py:93
 _.reset_host_pacing_for_tests  # function: plugin/framework/client/request_controls.py:236
 _.reset_i18n  # function: plugin/framework/i18n.py:52
 _.reset_live_panels  # function: plugin/doc/live_panels.py:61

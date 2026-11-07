@@ -575,6 +575,7 @@ def test_calc_preset_length_empty_notifies_sidebar():
         on_finished,
         *,
         completion_out=None,
+        **_unused,
     ):
         assert completion_out is not None
         completion_out["finish_reason"] = "length"
@@ -631,6 +632,7 @@ def test_calc_preset_stop_empty_notifies_sidebar():
         on_finished,
         *,
         completion_out=None,
+        **_unused,
     ):
         assert completion_out is not None
         completion_out["finish_reason"] = "stop"

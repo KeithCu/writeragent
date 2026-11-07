@@ -1488,7 +1488,9 @@ def test_save_does_not_fsync(tmp_path):
     ) as mock_fsync:
         save({"text_model": "m"})
         mock_fsync.assert_not_called()
-        assert "m" in cfg_file.read_text(encoding="utf-8")
+        parsed = parse_config_json_text(cfg_file.read_text(encoding="utf-8"))
+        assert parsed is not None
+        assert parsed.get("text_model") == "m"
 
 
 def test_unknown_key_raises():

@@ -41,6 +41,7 @@ log = logging.getLogger("compute_service.formula")
 # codes would hide a reset kernel from the next sticky call.
 _UNRUN_RESULT_CODES = frozenset({ec.QUEUE_TIMEOUT, ec.PAYLOAD_TOO_LARGE, ec.WORKER_SPAWN_FAILED, ec.WORKER_PIPE_BROKEN})
 SESSION_RESET_TIMEOUT_SEC = 5.0
+_SESSION_GATE_BUSY = "Sticky session is busy and request timed out waiting for the session gate."
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 _WORKER_SCRIPT = os.path.join(_SCRIPT_DIR, "formula_worker.py")
@@ -115,12 +116,14 @@ class FormulaProcessPool(BaseProcessPool):
         self._recycling.clear()
 
     @contextmanager
-    def _session_gate(self, session_id: str) -> Generator[None, None, None]:
+    def _session_gate(self, session_id: str, timeout_sec: float) -> Generator[bool, None, None]:
         """Serialize placement for *session_id* from lookup through worker release.
 
         Each ``_SessionGate`` counts its holders and waiters under ``self._cond``;
         the lock itself is taken outside ``self._cond``, and the entry is removed
-        when ``users`` reaches 0.
+        when ``users`` reaches 0. Yields True only while this caller holds entry.lock.
+        Yields False when acquire times out. users is still incremented before the
+        wait and decremented in finally, so the holder's entry stays until the holder leaves.
         """
         with self._cond:
             entry = self._session_locks.get(session_id)
@@ -130,10 +133,20 @@ class FormulaProcessPool(BaseProcessPool):
             entry.users += 1
             lock = entry.lock
 
+        # What was wrong: an unbounded Lock.acquire() waited out the holder's whole
+        # cell while the waiter already held a listener thread and an admission permit.
+        # How it happened: the gate wraps the whole cell (up to max_timeout_sec +
+        # IPC grace), so concurrent requests for a busy sticky session tied up
+        # server resources.
+        # Why this change fixes it: acquire uses this request's clock (timeout_sec);
+        # lock is released only when acquired is true, and finally still drops this
+        # waiter from users so the holder's entry stays until the holder leaves.
+        acquired = lock.acquire(timeout=max(float(timeout_sec), 0.0))
         try:
-            with lock:
-                yield
+            yield acquired
         finally:
+            if acquired:
+                lock.release()
             with self._cond:
                 entry.users -= 1
                 if entry.users <= 0 and self._session_locks.get(session_id) is entry:
@@ -270,14 +283,17 @@ class FormulaProcessPool(BaseProcessPool):
         A failed reset is logged and the map stays, because that process may
         still hold the namespace. Default timeout_sec=SESSION_RESET_TIMEOUT_SEC
         gives an in-progress calculation time to complete before failing the
-        control-plane reset request.
+        control-plane reset request. The gate wait uses timeout_sec, then the lease
+        uses timeout_sec again.
         """
         try:
             validate_session_id(session_id)
         except ExecuteRequestError as exc:
             return error_dict(ec.INVALID_REQUEST, str(exc))
 
-        with self._session_gate(session_id):
+        with self._session_gate(session_id, timeout_sec) as entered:
+            if not entered:
+                return error_dict(ec.WORKER_POOL_BUSY, _SESSION_GATE_BUSY)
             with self._cond:
                 s = self._sessions.get(session_id)
                 if s is None:
@@ -489,8 +505,14 @@ class FormulaProcessPool(BaseProcessPool):
         except ExecuteRequestError as exc:
             return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
 
-        gate = self._session_gate(session_id) if mode == "shared" and session_id else nullcontext()
-        with gate:
+        gate = (
+            self._session_gate(session_id, max(clock.left(), 0.0))
+            if mode == "shared" and session_id
+            else nullcontext(True)  # None would look like a gate miss
+        )
+        with gate as entered:
+            if not entered:
+                return error_dict(ec.WORKER_POOL_BUSY, _SESSION_GATE_BUSY, req_id=req_id)
             leased: BaseProcessWorker | None = None
             admission: _SharedAdmission | None = None
             if mode == "shared" and session_id:

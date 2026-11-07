@@ -16,7 +16,9 @@ from plugin.chatbot.selection import (
     ApplyChunkFn,
     ErrorFn,
     StreamCompletionTask,
+    bind_selection_cancel,
     create_validated_client,
+    end_selection_cancel,
     prompt_for_edit_instructions,
     stream_completion_tasks,
 )
@@ -170,6 +172,7 @@ def do_draw_extend_edit(
     preset_instruction: str | None = None,
     sidebar_notify: Callable[[str], None] | None = None,
     allow_whole_document: bool = False,
+    host: Any | None = None,
 ) -> None:
     """Rewrite selected Draw/Impress text shapes in place via streaming completion.
 
@@ -297,22 +300,26 @@ def do_draw_extend_edit(
         return
 
     def on_finished() -> None:
-        undo.close()
-        record_agent_turn_after(model)
-        if (
-            is_edit
-            and preset_instruction is not None
-            and sidebar_notify is not None
-            and not produced_text[0]
-        ):
-            finish = completion_meta.get("finish_reason")
-            if finish == "length":
-                sidebar_notify(
-                    _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
-                )
-            elif finish == "stop":
-                sidebar_notify(_("The model returned no text. Try again."))
+        try:
+            undo.close()
+            record_agent_turn_after(model)
+            if (
+                is_edit
+                and preset_instruction is not None
+                and sidebar_notify is not None
+                and not produced_text[0]
+            ):
+                finish = completion_meta.get("finish_reason")
+                if finish == "length":
+                    sidebar_notify(
+                        _("The rewrite ran out of tokens before producing text. Try again or shorten the selection.")
+                    )
+                elif finish == "stop":
+                    sidebar_notify(_("The model returned no text. Try again."))
+        finally:
+            end_selection_cancel(arm)
 
+    arm = bind_selection_cancel(host, model)
     try:
         stream_completion_tasks(
             ctx,
@@ -320,9 +327,13 @@ def do_draw_extend_edit(
             tasks,
             prepare_task,
             on_finished,
+            cancel=arm.scope,
             completion_out=completion_meta,
         )
     except BaseException:
-        undo.close()
-        record_agent_turn_after(model)
+        try:
+            undo.close()
+            record_agent_turn_after(model)
+        finally:
+            end_selection_cancel(arm)
         raise
