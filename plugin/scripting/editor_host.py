@@ -764,7 +764,16 @@ class PersistentEditor:
                     return
                 if payload.get("type") == "saved" or payload.get("ok"):
                     captured.dirty = False
-                self.send(payload, session=captured)
+            # Bugfix:
+            # - What was wrong: non-reentrant _save_lock was held across self.send().
+            # - How it happened: send write timeout calls terminate_persistent_editor(),
+            #   which runs each session's on_closed callback and then calls proc.wait(2)
+            #   under terminate() on that same thread; meanwhile the pipe reader thread
+            #   blocks in _on_save waiting for _save_lock.
+            # - Why this change fixes it: the token check and dirty clear remain under
+            #   _save_lock, while send() and any resulting terminate_persistent_editor()
+            #   run after releasing _save_lock.
+            self.send(payload, session=captured)
 
         def _handle_save() -> None:
             with self._save_lock:
