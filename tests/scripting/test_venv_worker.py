@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.scripting.config_limits import WARM_WORKER_TIMEOUT_SEC
-from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame, unpack_pickle_frame
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, FRAME_RESULT, IpcFrameError, IpcPartialFrameTimeout, pack_pickle_frame, read_pickle_frame, unpack_pickle_frame
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.session_key import SessionKey
@@ -2129,6 +2129,51 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
         result = mgr._read_response_with_heartbeats(stdout=io.BytesIO(), timeout_sec=10.0, grace_sec=5, on_heartbeat=on_heartbeat)
     assert result == {'frame_type': FRAME_RESULT, 'status': 'ok'}
     assert heartbeat_calls == [{'phase': 'test'}]
+    assert mgr._serving_tool_call is False
+
+def test_heartbeat_callback_sets_serving_tool_call():
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._warm is None
+    assert mgr._serving_tool_call is False
+
+    call_count = 0
+
+    def mock_parse_frame(frame_bytes):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {'frame_type': FRAME_HEARTBEAT, 'payload': {'phase': 'test'}}
+        return {'frame_type': FRAME_RESULT, 'status': 'ok'}
+
+    reentry_info: dict[str, str | None] = {}
+    ev = threading.Event()
+
+    def on_heartbeat(payload):
+        assert mgr._serving_tool_call is True
+
+        def _second_thread():
+            err = mgr._reentry_error()
+            if err is not None:
+                reentry_info['code'] = err.get('code')
+                reentry_info['message'] = err.get('message')
+            ev.set()
+
+        t = threading.Thread(target=_second_thread)
+        t.start()
+        assert ev.wait(2)
+        t.join()
+
+    with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch(
+        'plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=mock_parse_frame
+    ):
+        result = mgr._read_response_with_heartbeats(
+            stdout=io.BytesIO(), timeout_sec=10.0, grace_sec=5, on_heartbeat=on_heartbeat
+        )
+
+    assert result == {'frame_type': FRAME_RESULT, 'status': 'ok'}
+    assert mgr._serving_tool_call is False
+    assert reentry_info.get('code') == 'WORKER_REENTRY'
+    assert 'busy' in (reentry_info.get('message') or '')
 
 def test_execute_ipc_attempts_cancel_aborts() -> None:
 

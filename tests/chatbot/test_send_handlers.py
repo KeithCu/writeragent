@@ -124,6 +124,51 @@ def test_agent_backend_prompt_omits_mcp_when_server_stopped():
     assert "mcp.mcp_enabled" not in status_texts[0]
 
 
+def test_agent_backend_lane_status_callback_queues_status() -> None:
+    from contextlib import contextmanager
+    from typing import Any
+
+    from tests.framework.lane_probe import assert_lane_callback_safe
+
+    panel = DummyChatbotPanel()
+    panel._get_mcp_url = lambda: "http://localhost:18765/mcp"  # type: ignore
+    adapter = MagicMock()
+    adapter.is_available.return_value = True
+
+    saved_callback: list[Any] = []
+
+    @contextmanager
+    def fake_lane(*, status_callback: Any = None, **kwargs: Any) -> Any:
+        if status_callback is not None:
+            saved_callback.append(status_callback)
+        yield
+
+    captured_drain_q: list[Any] = []
+
+    def fake_drain(q: Any, run_agent: Any, *args: Any, **kwargs: Any) -> None:
+        captured_drain_q.append(q)
+        run_agent()
+        assert len(saved_callback) == 1
+        assert_lane_callback_safe(saved_callback[0], "lane-probe")
+
+    panel._run_unified_worker_drain_loop = fake_drain  # type: ignore
+    with (
+        patch("plugin.chatbot.send_handlers.turn_session_or_stop", return_value=MagicMock()),
+        patch("plugin.chatbot.send_handlers.get_backend", return_value=adapter),
+        patch("plugin.mcp.is_mcp_server_running", return_value=False),
+        patch("plugin.chatbot.send_handlers.get_config", return_value="builtin"),
+        patch("plugin.chatbot.send_handlers.llm_request_lane", fake_lane),
+    ):
+        panel._execute_agent_backend_effect("hello", MagicMock(), "writer")
+
+    adapter.send.assert_called_once()
+    drain_q = captured_drain_q[0]
+    drain_items: list[Any] = []
+    while not drain_q.empty():
+        drain_items.append(drain_q.get())
+    assert (StreamQueueKind.STATUS, "lane-probe") in drain_items
+
+
 def test_agent_backend_prompt_includes_mcp_when_server_running():
     panel = DummyChatbotPanel()
     panel._get_mcp_url = lambda: "http://localhost:18765/mcp"  # type: ignore
