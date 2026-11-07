@@ -512,7 +512,7 @@ class AsyncProcess:
     constructor does not take ``text``, ``encoding``, or ``creationflags``.
     """
 
-    args: str | list[str]
+    args: list[str]
     stdout_cb: Optional[Callable[[str], None]]
     stderr_cb: Optional[Callable[[str], None]]
     on_exit_cb: Optional[Callable[[int], None]]
@@ -520,7 +520,7 @@ class AsyncProcess:
 
     def __init__(
         self,
-        args: str | list[str],
+        args: list[str],
         stdout_cb: Optional[Callable[[str], None]] = None,
         stderr_cb: Optional[Callable[[str], None]] = None,
         on_exit_cb: Optional[Callable[[int], None]] = None,
@@ -532,8 +532,8 @@ class AsyncProcess:
         self.stderr_cb = stderr_cb
         self.on_exit_cb = on_exit_cb
         self._child_generation: int = 0
-        # Pipes stay binary. Spawning delegates to ManagedSubprocess.start;
-        # constructor does not take text, encoding, or creationflags.
+        # Binary pipes: _read_stream decodes UTF-8 itself, and a TextIOWrapper
+        # over the same pipe would desync the two buffers.
         self.process: Optional[subprocess.Popen[Any]] = None
         self._env = env
 
@@ -571,27 +571,25 @@ class AsyncProcess:
         # probe uses the same PATH and a flatpak-spawn child would sit outside
         # kill_tree; DEVNULL because the worker path cannot inherit and it keeps
         # proc.stdin is None; base_env so the caller's dict is not merged again;
-        # scrub stays off so the three token names survive.
-        cmd_line = [self.args] if isinstance(self.args, str) else list(self.args)
-        kwargs: dict[str, Any] = {
-            "drain_stderr": False,
-            "log_start_failure": False,
-            "stdin": subprocess.DEVNULL,
-            "label": "asyncproc",
-        }
-        if self._env is None:
-            kwargs["inherit_env"] = True
-        else:
-            kwargs["base_env"] = self._env
-        managed = ManagedSubprocess(cmd_line, **kwargs)
+        # scrub stays off so the three token names (TUNNEL_TOKEN, BORE_SECRET,
+        # NGROK_AUTHTOKEN) survive.
+        managed = ManagedSubprocess(
+            self.args,
+            drain_stderr=False,
+            log_start_failure=False,
+            stdin=subprocess.DEVNULL,
+            label="asyncproc",
+            inherit_env=self._env is None,
+            base_env=self._env,
+        )
         try:
             managed.start()
         except Exception as e:
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
         proc = managed.popen
         assert proc is not None
-        self.process = proc
         self._managed = managed
+        self.process = proc
         stdout_thread: BackgroundHandle | None = None
         stderr_thread: BackgroundHandle | None = None
         wait_thread: BackgroundHandle | None = None

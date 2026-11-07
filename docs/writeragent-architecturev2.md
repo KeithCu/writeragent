@@ -65,7 +65,7 @@ To run AI generation, network I/O, and sub-agents asynchronously without violati
 
 - **Daemon pool** — a fixed pool of 2 daemon threads (`wa-bg-0…1`, `BACKGROUND_POOL_MAX_WORKERS`) over an unbounded `queue.SimpleQueue`. Bounded in *worker count*, not queue length; pooled threads are daemon so they never block `soffice` exit (CPython `ThreadPoolExecutor` workers are non-daemon since 3.9).
 - **Dedicated threads** — `dedicated=True` (or `daemon=False`) spawns a single `threading.Thread` for servers, pipe drains, infinite loops, and any job another thread will `join()`. The rule: never `join()` a pooled job from another pooled job.
-- **`AsyncProcess` & pipe safety** — wraps `subprocess.Popen` with dedicated stdout/stderr drain threads; `terminate()` degrades to `kill()` on timeout. Every long-lived child with `stderr=PIPE` needs a continuous drain (`start_stderr_drain`/`AsyncProcess`) or stderr redirected, or the ~64 KiB kernel pipe buffer fills and deadlocks the parent. `StderrTail` keeps a bounded tail; `optimize_popen_pipes` expands Linux pipe size via `F_SETPIPE_SZ`.
+- **`AsyncProcess` & pipe safety** — starts its child through `ManagedSubprocess` and reads it with dedicated stdout/stderr threads; `terminate()` degrades to `kill()` on timeout. Every long-lived child with `stderr=PIPE` needs a continuous drain (`start_stderr_drain`/`AsyncProcess`) or stderr redirected, or the ~64 KiB kernel pipe buffer fills and deadlocks the parent. `StderrTail` keeps a bounded tail; `optimize_popen_pipes` expands Linux pipe size via `F_SETPIPE_SZ`.
 
 ##### Main-Thread Marshalling & Async Streaming: The Drain Loop
 Marshalling results and UI updates back to the RED main thread relies on two coordinated mechanisms:
