@@ -1170,6 +1170,56 @@ def test_harper_lock_wait_times_out_without_holding_lock() -> None:
     harper_module.runtime.lock.release()
 
 
+def test_main_thread_state_lock_does_not_wait_out_a_held_runtime_lock() -> None:
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    with harper_module.runtime.lock:
+        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
+        harper_module.runtime.state = HarperRuntimeState.READY
+
+    held = threading.Event()
+    release = threading.Event()
+
+    def _hold_lock() -> None:
+        harper_module.runtime.lock.acquire()
+        try:
+            held.set()
+            release.wait()
+        finally:
+            harper_module.runtime.lock.release()
+
+    holder = threading.Thread(target=_hold_lock, name="test-state-lock-holder")
+    holder.start()
+    assert held.wait(timeout=1.0) is True
+
+    mock_bg = MagicMock()
+
+    def fake_run_in_background(target: Any, *args: Any, **kwargs: Any) -> Any:
+        if kwargs.get("name") == "harper-lint-wait":
+            target(*args)
+            return MagicMock()
+        return mock_bg(target, *args, **kwargs)
+
+    try:
+        with (
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
+            patch.object(harper_module.runtime, "lint_now", side_effect=RuntimeError("simulated lint error")),
+            patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
+        ):
+            res = harper_try_lint("Hi.", "/tmp", ctx=object())
+            assert res is None
+            mock_bg.assert_not_called()
+            assert harper_module.runtime.state is HarperRuntimeState.READY
+            assert harper_module.runtime.is_ready() is False
+            assert not release.is_set()
+            assert holder.is_alive()
+    finally:
+        release.set()
+        holder.join(timeout=2.0)
+
+    assert harper_module.runtime.is_ready() is True
+
+
 def test_ensure_ready_empty_listeners_recovers_on_first_attach() -> None:
     """READY + PROOFREAD_AGAIN with no listeners must still re-walk once a listener hooks."""
     from plugin.writer.locale.ai_grammar_proofreader import WriterAgentAiGrammarProofreader

@@ -41,6 +41,7 @@ _JSONRPC = "2.0"
 _LINT_BUDGET_SEC = 15.0
 _DIALOG_LINT_BUDGET_SEC: float = 2.0
 _INIT_BUDGET_SEC = 5.0
+_UI_STATE_LOCK_WAIT_SEC: float = 0.05
 # Cancel is polled on this cadence so linguistic wait timeouts release
 # runtime.lock instead of blocking the next Harper caller for 15 seconds.
 _HARPER_CANCEL_POLL_SEC = 0.25
@@ -135,14 +136,36 @@ class HarperRuntime:
         for client in clients:
             client.close()
 
+    def _acquire_state_lock(self) -> bool:
+        # The lint worker holds this lock across client.lint (and _initialize / close).
+        # On the UI thread an untimed wait sits under SolarMutex after wait_while_pumping
+        # has returned, so the spelling dialog would freeze until the walk released.
+        # A timed acquire on the main thread keeps the dialog responsive; a missed
+        # acquire writes nothing and the holder keeps the state it already set.
+        from plugin.framework.queue_executor import main
+
+        if main.is_current():
+            return self.lock.acquire(timeout=_UI_STATE_LOCK_WAIT_SEC)
+        self.lock.acquire()
+        return True
+
     def is_ready(self) -> bool:
         """True when harper-ls is in-process and the runtime state is READY."""
-        with self.lock:
+        if not self._acquire_state_lock():
+            return False
+        try:
             return self.state is HarperRuntimeState.READY and any(c.is_alive() for c in self.clients.values())
+        finally:
+            self.lock.release()
 
     def mark_idle(self) -> None:
-        with self.lock:
+        if not self._acquire_state_lock():
+            log.debug("[harper] State lock busy; skipped setting IDLE on main thread")
+            return
+        try:
             self.state = HarperRuntimeState.IDLE
+        finally:
+            self.lock.release()
 
     def install_client(
         self,
@@ -220,7 +243,12 @@ class HarperRuntime:
                 self.failed_at = time.monotonic()
 
     def ensure_async(self, user_config_dir: str, bcp47: str = "en-US") -> bool:
-        with self.lock:
+        from plugin.framework.worker_pool import run_in_background
+
+        if not self._acquire_state_lock():
+            log.debug("[harper] State lock busy; skipped ensure_async on main thread")
+            return False
+        try:
             if self.state is HarperRuntimeState.RESOLVING:
                 return False
             if self.state is HarperRuntimeState.READY and any(c.is_alive() for c in self.clients.values()):
@@ -229,23 +257,23 @@ class HarperRuntime:
                 if time.monotonic() - self.failed_at < _HARPER_FAIL_COOLDOWN_SEC:
                     return False
             self.state = HarperRuntimeState.RESOLVING
-        from plugin.framework.worker_pool import run_in_background
-
-        try:
-            run_in_background(
-                self.ensure_body,
-                user_config_dir,
-                bcp47,
-                name="harper-ensure-ready",
-                dedicated=True,
-            )
-        except Exception:
-            log.exception("[harper] Could not submit ensure job")
-            with self.lock:
+            try:
+                run_in_background(
+                    self.ensure_body,
+                    user_config_dir,
+                    bcp47,
+                    name="harper-ensure-ready",
+                    dedicated=True,
+                )
+            except Exception as exc:
+                log.exception("[harper] Could not submit ensure job: %s", exc)
+                # The rollback is this same hold; a second timed acquire that fails would leave RESOLVING with no job, and a lint holder does not clear that bit.
                 if self.state is HarperRuntimeState.RESOLVING:
                     self.state = HarperRuntimeState.IDLE
-            return False
-        return True
+                return False
+            return True
+        finally:
+            self.lock.release()
 
     def _lint_with_client(
         self,
