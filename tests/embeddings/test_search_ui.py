@@ -111,6 +111,83 @@ class TestSearchDialog:
                 pytest.fail(f"Heartbeat callback raised exception: {e}")
         assert mock_maintain.call_args.kwargs["search_mode"] == "llama_index"
 
+    @patch("plugin.embeddings.embedding_client.get_embedding_model", return_value="fake-model")
+    @patch("plugin.embeddings.search_ui.run_in_background", side_effect=lambda fn, *args, **kwargs: fn(*args))
+    @patch("plugin.framework.uno_context.get_desktop")
+    @patch("plugin.embeddings.search_ui.get_active_document")
+    @patch("plugin.embeddings.embeddings_cache.resolve_index_context")
+    @patch("plugin.embeddings.embeddings_cache.clear_folder_cache")
+    @patch("plugin.embeddings.embeddings_service.maintain_folder_index")
+    @patch("plugin.framework.constants.configured_folder_search_mode", return_value="llama_index")
+    def test_rebuild_heartbeat_posts_instead_of_call(
+        self,
+        mock_search_mode,
+        mock_maintain,
+        mock_clear,
+        mock_resolve,
+        mock_doc,
+        mock_get_desktop,
+        _mock_bg,
+        mock_get_model,
+    ):
+        in_heartbeat = False
+        heartbeat_call_count = 0
+
+        def _mock_call(fn, *args, **kwargs):
+            if in_heartbeat:
+                nonlocal heartbeat_call_count
+                heartbeat_call_count += 1
+                raise RuntimeError("main.call called during heartbeat callback")
+            return fn(*args, **kwargs)
+
+        recorded_posts = []
+
+        def _mock_post(fn, *args, **kwargs):
+            recorded_posts.append(kwargs.get("bound_scope"))
+
+        def _mock_maintain(*args, **kwargs):
+            nonlocal in_heartbeat
+            hb = kwargs.get("heartbeat_fn")
+            assert hb is not None
+            in_heartbeat = True
+            try:
+                hb({"file": "a.txt", "phase": "extract", "paragraphs": 1, "chunks": 2})
+                hb({"file": "a.txt", "phase": "embed", "paragraphs": 1, "chunks": 2})
+                hb({"file": "b.txt", "phase": "extract", "paragraphs": 3, "chunks": 4})
+                hb({"file": "b.txt", "phase": "index", "paragraphs": 3, "chunks": 4})
+            finally:
+                in_heartbeat = False
+
+        mock_maintain.side_effect = _mock_maintain
+
+        mock_ctx = MagicMock()
+        mock_smgr = mock_ctx.getServiceManager.return_value
+        mock_dlg_model = MagicMock()
+        mock_dlg = MagicMock()
+        mock_smgr.createInstanceWithContext.side_effect = lambda svc, ctx: {
+            "com.sun.star.awt.UnoControlDialogModel": mock_dlg_model,
+            "com.sun.star.awt.UnoControlDialog": mock_dlg,
+            "com.sun.star.awt.Toolkit": MagicMock(),
+        }.get(svc, MagicMock())
+
+        mock_frame = MagicMock()
+        mock_get_desktop.return_value.getCurrentFrame.return_value = mock_frame
+
+        dialog = SearchDialog(mock_ctx)
+        mock_resolve.return_value = ("folder_key", "db_path", "meta_path", "/path/to/listing")
+        mock_doc.return_value = MagicMock()
+
+        with patch("plugin.framework.queue_executor.main.call", side_effect=_mock_call), patch(
+            "plugin.framework.queue_executor.main.post", side_effect=_mock_post
+        ):
+            dialog._run_rebuild(mock_dlg)
+
+        assert mock_clear.called
+        assert mock_maintain.called
+        assert len(recorded_posts) == 2
+        assert recorded_posts == [None, None]
+        assert heartbeat_call_count == 0
+
     def test_query_edit_enter_triggers_search(self):
         mock_ctx = MagicMock()
         dialog = SearchDialog.__new__(SearchDialog)

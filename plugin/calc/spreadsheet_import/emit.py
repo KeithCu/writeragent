@@ -141,11 +141,9 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             else:
                 _pass_through(addr, record, translation.reason or "UNSUPPORTED_FUNCTION")
         except Exception:
-            # Bugfix: one pathological formula aborted the whole sheet. parse/_emit
-            # recurse the AST, so a formula deeper than Python's recursion limit
-            # raises RecursionError out of translate_formula (it catches only
-            # ValueError/TypeError/IndexError/TranslationError). Keep the original
-            # formula and report this cell instead.
+            # parse/_emit recurse the AST; RecursionError escapes translate_formula
+            # (it catches only ValueError/TypeError/IndexError/TranslationError).
+            # Per-cell failure must not abort the whole sheet—keep the formula and report this cell.
             log.exception("build_converted_output_model: cell %s failed", addr)
             _pass_through(addr, record, "EMIT_ERROR")
 

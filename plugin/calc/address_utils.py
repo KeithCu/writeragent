@@ -130,9 +130,7 @@ def split_sheet_prefix(ref: str) -> tuple[str | None, str]:
         name = quoted.replace("''", "'")
     else:
         name = match.group("bare") or ""
-        # Bugfix: absolute sheet references like $Sheet1.$A$1 failed parsing.
-        # Calc writes an absolute sheet as $Sheet1.$A$1; the $ is a marker,
-        # not part of the name. A quoted name that really starts with $ is left alone.
+        # Calc prefixes absolute sheets with $ before the name ($Sheet1.$A$1); strip that marker, not a literal $ in the name.
         if name.startswith("$"):
             name = name[1:]
     return name.strip(), match.group("rest").strip()

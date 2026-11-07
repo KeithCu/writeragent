@@ -147,7 +147,7 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     except Exception:
         log.debug("collabora PY rewrite: isModified failed", exc_info=True)
     changed = 0
-    # A scan failure used to be logged and swallowed here. auto_open already logs it.
+    # Scan failures propagate; auto_open already logs them.
     doc.lockControllers()
     try:
         # Reuses the shared hidden/locked undo context; do not create a new undo-context module.

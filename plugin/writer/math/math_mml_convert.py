@@ -160,13 +160,9 @@ def insert_writer_math_formula(model: Any, cursor: Any, starmath: str, *, displa
     # The break below copies this value into the new paragraph; restore it after
     # the second break so the text after the formula keeps its own alignment.
     para_adjust = cursor.getPropertyValue("ParaAdjust") if display_block else None
-    # insertControlCharacter already leaves the cursor after the
-    # paragraph break. A following goRight(1) is a no-op at the end of
-    # the text (the only place display math used to land, while inserts
-    # jumped to the body end); mid-paragraph it skips a character:
-    # "AAA|BBB" becomes "AAA" / "B[F]" / "BB", with the next segment
-    # before the formula (checked live). Without the extra step:
-    # "AAA" / "[F]" / "BBB".
+    # insertControlCharacter already advances past the display-block paragraph break;
+    # an extra goRight(1) mid-paragraph consumes the next character and splits the
+    # following run ("AAA|BBB" → "AAA" / "B[F]" / "BB" instead of "AAA" / "[F]" / "BBB").
     if display_block:
         text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
         cursor.setPropertyValue("ParaAdjust", _PARA_CENTER)

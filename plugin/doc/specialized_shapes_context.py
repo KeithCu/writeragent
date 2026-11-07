@@ -24,10 +24,7 @@ def _writer_page_style_name_at_cursor(doc: Any) -> str | None:
         vc = ctrl.getViewCursor()
         if vc is None:
             return None
-        # Bugfix: doc.getText() returns only the body text; when the view cursor is
-        # in a header, footer, frame, or table cell, createTextCursorByRange raises
-        # and drops the canvas hint. Using vc.getText() resolves the cursor within
-        # its containing text object without moving the view cursor.
+        # vc.getText() is the cursor's XText (header, frame, cell)—doc.getText() is body-only.
         cur = vc.getText().createTextCursorByRange(vc.getStart())
         cur.gotoStartOfParagraph(False)
         psi = cur.getPropertySetInfo()

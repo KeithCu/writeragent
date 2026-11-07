@@ -624,8 +624,7 @@ def is_status_helper_result(
 ) -> bool:
     """True when *value* is a helper status dict for *names* or an exact error code.
 
-    Substring matches (``"FORECAST" in code``) and ``fetch_*`` prefixes used to
-    accept helpers that were not in the domain's name set.
+    Helper names must match the domain set exactly; substring or fetch_* prefix matches are not accepted.
     """
     if not isinstance(value, dict) or "status" not in value:
         return False
@@ -673,12 +672,7 @@ def run_trusted_calc_data_helper(
         from plugin.framework.doc_type import is_calc, is_writer
         from plugin.framework.errors import reraise_if_disposed
 
-        # What was wrong: require_calc_or_writer checked is_calc(doc) and is_writer(doc)
-        # on the calling worker thread before hopping to the main thread.
-        # How it happened: both helpers call get_document_type which calls supportsService,
-        # marked @main_thread_only, violating thread guard off the main thread.
-        # Why this change: move the doc type validation inside _read_sheet so it executes
-        # after the main-thread hop.
+        # Doc-type check lives inside _read_sheet after the main-thread hop because get_document_type must not run on worker threads.
         if require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
             raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code=error_code)
 
@@ -689,12 +683,7 @@ def run_trusted_calc_data_helper(
 
             context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
         except Exception as e:
-            # What was wrong: DisposedException was logged and ignored, then client_run
-            # ran against a dead document.
-            # How it happened: the sheet name is best-effort context, so the probe
-            # catches Exception.
-            # Why this change: reraise_if_disposed propagates real disposal and still
-            # swallows a missing sheet. A bare RuntimeException is not disposal.
+            # reraise_if_disposed propagates closed documents while a missing sheet name remains a benign probe failure.
             reraise_if_disposed(e)
             log.debug("Failed to resolve active sheet name: %s", e)
         if task_hint:
@@ -703,17 +692,10 @@ def run_trusted_calc_data_helper(
             context["range_a1"] = dr
         return py_data, err, context
 
-    # forecast_data / optimize_data used to wrap this whole helper in
-    # blocking main-thread marshal, so the venv IPC ran on the UI thread and froze
-    # Calc. Hop only the UNO read to the main thread; client_run stays on the caller.
+    # Only the sheet read hops to the main thread; venv client_run stays on the worker so Calc does not freeze during IPC.
     from plugin.framework.queue_executor import main
 
-    # What was wrong: untagged PyUNO Dummy-N threads ran the sheet read inline
-    # because the main-thread predicate returned True.
-    # How it happened: analysis_runner was unified with run_trusted_calc_data_helper,
-    # which bypassed the marshal queue when on the main thread.
-    # Why this change: force_queue forces the sheet read through main.call,
-    # enqueuing work on Dummy-N threads while still running inline on the true main thread.
+    # force_queue marshals sheet reads through main.call on PyUNO Dummy-N threads that falsely report as main.
     if not force_queue and main.is_current():
         py_data, err, context = _read_sheet()
     else:

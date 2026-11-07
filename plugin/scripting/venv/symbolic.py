@@ -188,8 +188,7 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
     The wrapper passes the module in, so helpers do not look it up again and
     do not assert on it. Those asserts disappeared under ``python -O``.
     Parse failures raise ``_SymbolicError`` directly. A ``ValueError`` from
-    ``simplify``, ``integrate``, or ``solve`` used to be labeled PARSE_ERROR
-    because this wrapper caught every ValueError from the whole body.
+    Math ``ValueError`` from simplify/integrate/solve is distinct from parse failures so users see the right error code.
     """
     public_sig = _public_signature(func)
 
@@ -263,7 +262,7 @@ def integrate(
         result = sp.integrate(expr, sym)
 
     # integrate returns Integral(...) when it has no closed form and the
-    # helper used to report that object as success.
+    # helper must not report that object as success.
     if result.has(sp.Integral):
         raise _SymbolicError("NO_CLOSED_FORM", f"No closed form: {result}")
 

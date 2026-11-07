@@ -331,12 +331,7 @@ class PanelVoiceController:
         if recorder is not None:
             recorder.apply_stdout_error(msg)
 
-        # Bugfix: Any child error dispatched ERROR_OCCURRED. Because the monitor
-        # posts onto the UI queue, STOP_REC_CLICKED had already set is_busy=True
-        # and is_recording=False before that post ran (including during a text
-        # send), clearing is_busy while the send drain was still running. Only
-        # an open take may take the send-button error transition; a failed send
-        # still dispatches ERROR_OCCURRED from the drain while is_busy.
+        # Recorder errors dispatch only while is_recording; do not clear is_busy during a text send drain.
         if not self._panel.sidebar_state.send.is_recording:
             log.warning("audio recorder error while not recording: %s", msg)
             return
@@ -414,10 +409,7 @@ class PanelVoiceController:
             self._panel._append_response("\n[" + transcribing + "]\n")
 
             def on_status(message: str) -> None:
-                # What was wrong: local Whisper model download status messages were lost.
-                # How it happened: on_status callback was dropped during cleanup.
-                # Why this change: post status updates to the UI thread so weight
-                # download progress is visible in the sidebar.
+                # Whisper download status must post to the UI thread via main.post.
                 main.post(self._panel._set_status, message)
 
             def _on_spawn(managed: Any) -> None:

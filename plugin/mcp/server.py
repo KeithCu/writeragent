@@ -121,13 +121,7 @@ def read_json_body(handler: Any, reply: Callable[..., Any] = write_http_json) ->
 
     raw_te = handler.headers.get("Transfer-Encoding", "")
     if isinstance(raw_te, str) and "chunked" in raw_te.lower():
-        # What was wrong: a missing or zero Content-Length returned {}
-        # without reading rfile. Transfer-Encoding: chunked was then
-        # handled as an empty object (MCP reported Invalid JSON-RPC) and
-        # the chunk bytes stayed on the socket.
-        # How: the length check ran first and treated 0 as empty. A
-        # Content-Length next to chunked would also have been trusted.
-        # Why: refuse with 400 before any read, matching compute_service
+        # Chunked bodies must not be treated as empty {}; refuse invalid length/TE with 400 before read.
         # _reject_chunked. close_connection stops keep-alive from parsing
         # the leftover bytes as the next request. No chunk parser.
         handler.close_connection = True
@@ -285,16 +279,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     def handle_one_request(self) -> None:
         """A client that goes away while the response is written is a closed request.
 
-        What was wrong: the 404 ``write_http_json`` in ``_dispatch`` is outside the
-        ``try`` that swallows ``OSError`` on the 500 write. ``do_GET`` returns
-        into ``BaseHTTPRequestHandler.handle_one_request``, which only catches
-        ``TimeoutError`` and then flushes ``wfile`` again. ``BrokenPipeError``
-        and ``ConnectionResetError`` from the 404 write, from the 403 writes in
-        ``reject_forbidden_host`` / ``reject_forbidden_origin``, or from that
-        second flush reach ``handle_error`` and print a traceback.
-        How: this override is the one frame above ``do_*`` and that flush.
-        Why: those disconnects are ``ConnectionError``. Any other exception
-        still propagates.
+        Client disconnect during response write is a normal ConnectionError here, not handle_error noise.
+        This override sits above do_* where 404/403 writes are not wrapped like the 500 path.
         """
         try:
             super().handle_one_request()
@@ -380,8 +366,7 @@ class HttpServer:
             return
 
         # Certs are loaded before bind. A missing file or use_ssl without
-        # certs used to bind the port and then close it. The caller logs the
-        # failure once (_start_server); logging here too wrote two tracebacks.
+        # Load TLS certs before bind so a cert failure does not bind-then-close the port.
         ssl_ctx = None
         if self.use_ssl:
             # TLS server mode requires explicit certificates.
@@ -394,9 +379,7 @@ class HttpServer:
             ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             ssl_ctx.load_cert_chain(certfile=self.ssl_cert, keyfile=self.ssl_key)
 
-        # Single bind — no retry/sleep. A busy port used to block bootstrap and the Start MCP
-        # menu for ~4s (5×1s). Stdio clients that start before LO are handled by mcp_bridge.py;
-        # callers stash OSError and show _PORT_IN_USE_GUIDANCE in the UI.
+        # Single bind attempt; port-in-use surfaces immediately for UI guidance, no retry sleep.
         self._server = _ThreadedHTTPServer(
             (self.host, self.port),
             GenericRequestHandler,

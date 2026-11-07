@@ -181,7 +181,7 @@ def datedif(start_date: Any, end_date: Any, unit: str = "D") -> float:
         return float("nan")
     # ScGetDateDif (interpr2.cxx) returns the day count when the dates are
     # equal, before it checks the unit. Any other unknown unit is
-    # PushIllegalArgument. The fall-through used to return the day count
+    # PushIllegalArgument. The fall-through must not return the day count.
     # for "X" as well.
     return 0.0 if sd == ed else float("nan")
 
@@ -230,7 +230,7 @@ def _eval_d_criteria(db: Any, field: Any, criteria: Any) -> list[Any] | None:
     # lcl_createExcelQuery (doubleref.cxx) requires every criteria header
     # to name a database column. A miss makes createQueryParam return
     # nullptr, and DBIterator sets IllegalParameter. Skipping the column
-    # used to match every row.
+    # must not match every row.
     crit_cols: list[int] = []
     for h in crit_arr[0]:
         col = header_index.get(header_label(h).upper())
@@ -276,7 +276,7 @@ def _dagg(
     # Strings are not numbers. ScDBQueryParamBase starts with
     # mbSkipString true (queryparam.cxx). DSUM uses that iterator.
     # DCOUNTA and DGET do not come through here, so text still counts
-    # there. float("5") used to add the text. A bool stays: Calc stores
+    # there. float("5") must not add the text. A bool stays: Calc stores.
     # TRUE as a numeric cell, so float(True) is 1. NaN is missing
     # (is_missing_value) and must not poison the aggregate.
     vals: list[float] = []
@@ -475,7 +475,7 @@ def _dollar_frac(amount: Any, fraction: Any, *, to_decimal: bool) -> float:
             return float("nan")
         f = int(frac)
     # int(inf) and float(10**400) raise OverflowError, not ValueError.
-    # math.floor(inf) used to sit outside this try, so dollarde(1.02, inf)
+    # math.floor(inf) must not sit outside this try, so dollarde(1.02, inf).
     # crashed. Overflow returns NaN (#NUM!).
     except OverflowError:
         return float("nan")

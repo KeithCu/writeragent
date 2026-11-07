@@ -163,13 +163,7 @@ class TextAnalyticsDialog:
             # get_checkbox_state uses getState() then model.State, which is what the other dialogs use.
             return "whole" if get_checkbox_state(chk) == 1 else "selection"
         except Exception:
-            # Bugfix: a failed scope read analyzed the whole document
-            # What was wrong: Readability, Entities, Key Phrases, Topics, and Sentiment
-            # still ran on the whole document when the scope checkbox could not be read.
-            # How it happened: the except logged at debug and returned "whole", and
-            # _compute treated that as an explicit Whole Document choice.
-            # Why this change: write the error into ResultsEdit, the same place as the
-            # other analysis messages, and do not start a run.
+            # Scope read failure shows an error and aborts the run instead of defaulting to whole-document analysis.
             log.exception("text analytics: scope checkbox failed")
             self._report_scope_read_failure()
             return None
@@ -215,11 +209,7 @@ class TextAnalyticsDialog:
         if res_ctrl is None:
             return
 
-        # Bugfix: stale insert bug
-        # What was wrong: _last_result persisted across failed or invalid runs, allowing an old report
-        # to be inserted after a failed analysis attempt.
-        # How it happened: _last_result was only overwritten on success and never reset at compute start.
-        # Why this change: clear _last_result before validation and background execution.
+        # Clear _last_result at compute start so Insert cannot apply a report from a prior successful run after a failed attempt.
         self._clear_result()
 
         ctx = self._ctx
@@ -256,11 +246,7 @@ class TextAnalyticsDialog:
 
         self._set_busy(True)
 
-        # Bugfix: worker blocking UI thread
-        # What was wrong: worker RPC executed synchronously on the main VCL thread, freezing the UI.
-        # How it happened: run_text_analytics was called directly inside _compute without thread dispatch.
-        # Why this change: run the RPC in a dedicated background thread, keeping the UI responsive,
-        # and post results back to the main thread via main.post.
+        # run_text_analytics runs on a background thread; results return via main.post so the dialog stays responsive.
         def _worker() -> None:
             res: dict[str, Any] | None = None
             err: Exception | None = None
@@ -276,7 +262,7 @@ class TextAnalyticsDialog:
                 err = e
 
             apply = partial(self._apply_compute_result, helper, res, err)
-            # a raised main.post used to return after a log, so _busy stayed true and the compute buttons stayed disabled until the dialog was closed. post raises TimeoutError when AsyncCallback is missing and the pending list is full; a flush of older pending posts logs and leaves that tail queued, and it does not raise, so this closure is still enqueued when AsyncCallback exists. main.call is the retry that still runs _apply_compute_result on a live main thread. The flag clear is only for when that marshal also refuses, and it does not touch UNO.
+            # main.call retries delivery when main.post fails so _busy clears and controls re-enable instead of staying frozen until the dialog closes.
             try:
                 main.post(apply)
                 return
@@ -514,11 +500,7 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
                 lines.append(f"\nMeta: {meta}")
             return "\n".join(lines)
 
-        # Bugfix: topics error formatting
-        # What was wrong: topics MISSING_PACKAGE in venv returned a raw dict because of early status != "ok" return,
-        # hiding the install hint and suggested install command.
-        # How it happened: venv status was "error" for missing packages, which bypassed helper formatting.
-        # Why this change: inspect payload error and hint fields even when status is not ok.
+        # Format MISSING_PACKAGE from payload fields even when status is error so install hints appear in the results pane.
         err = data.get("error") or data.get("note")
         if err and "MISSING_PACKAGE" in str(err):
             return "\n\n".join(["Topics: MISSING_PACKAGE", *_install_suffix_parts(data)])
@@ -529,13 +511,7 @@ def format_text_analytics_result_for_display(helper: str, result: dict[str, Any]
         return "No topics found."
 
     if helper == "sentiment":
-        # Bugfix: sentiment error formatting
-        # What was wrong: sentiment MISSING_PACKAGE and load failures returned a raw dict because of
-        # early status != "ok" return, or displayed neutral (score: 0.0) if payload had default scores.
-        # How it happened: status: "error" was not handled by sentiment formatter, and payload error
-        # wasn't checked before score.
-        # Why this change: inspect payload error first; format install hints, install commands, and details;
-        # fall back to generic line when outer status is error without payload error.
+        # Check payload error before scores so missing packages and load failures show install guidance instead of neutral 0.0.
         err = data.get("error")
         if result.get("status") != "ok" or err is not None:
             if err is None:

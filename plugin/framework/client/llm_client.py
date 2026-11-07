@@ -235,11 +235,7 @@ class LlmClient:
     def _request_scope(self, cancel: SendCancellation | None) -> SendCancellation:
         """Link caller's cancellation scope with this client's owned scope.
 
-        What was wrong: Stop could fire after _activate returned a caller scope
-        but before _inflight was assigned. stop() cancelled _owned only, leaving
-        the active scope uncancelled so reconnect was attempted.
-        Fix: register a late-cancellation hook directly on _owned so stop() cancels
-        both the client and caller scope in a single pass without needing _inflight.
+        stop() cancels both owned and caller scopes via a hook on _owned, even before _inflight is set.
         """
         owned = self._owned
         if cancel is None or cancel is owned:

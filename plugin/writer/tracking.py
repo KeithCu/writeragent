@@ -67,9 +67,8 @@ def _identity_keys(objs: list[Any]) -> list[tuple[Any, ...]] | None:
 
 
 def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -> str | None:
-    # What was wrong: compareRegionStarts threw IllegalArgumentException when checking a redline in another XText (table cell, footnote, header).
-    # How it happened: compareRegionStarts requires both ranges to belong to the same XText.
-    # Why this change fixes it: skip overlap comparison if uno_same(target_text, other_text) is False.
+    # compareRegionStarts requires both ranges in the same XText; redlines in another text
+    # (table, footnote, header) are skipped instead of aborting the overlap check.
     try:
         target_text = start.getText()
         if target_text is None:
@@ -111,9 +110,8 @@ def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -
 
 
 def _resolve_outcome(index: int, before_keys: list[tuple[Any, ...]], after_keys: list[tuple[Any, ...]]) -> str | None:
-    # What was wrong: checked getCount() or agent counts rather than specific redline identity keys, which could miss wrong resolves or silent failure.
-    # How it happened: getCount() reduction alone did not verify that the target redline was the one resolved.
-    # Why this change fixes it: compare before and after identity key Counters, requiring target key count to drop by 1 and other keys not to drop.
+    # Resolve success compares redline identity-key counts before and after, not getCount()
+    # alone, so silent or wrong-target resolves are reported instead of assumed success.
     before_counts = Counter(before_keys)
     after_counts = Counter(after_keys)
     if before_counts == after_counts:
@@ -273,9 +271,8 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         try:
-            # What was wrong: failed RecordChanges read was reported as recording: False.
-            # How it happened: recording initialized to False and exception swallowed with bare pass.
-            # Why this change fixes it: log exception and report recording: None when unreadable.
+            # Unreadable RecordChanges is logged and returned as recording: None so callers
+            # cannot treat a read failure as tracking disabled.
             recording = doc.getPropertyValue("RecordChanges")
         except Exception:
             log.exception("tracking_list: could not read RecordChanges")
@@ -283,9 +280,8 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         agent_mode = _agent_review_mode()
 
         if not hasattr(doc, "getRedlines"):
-            # What was wrong: documents without getRedlines returned count: 0 and changes: [], looking like empty document.
-            # How it happened: returned standard empty list response when API was missing.
-            # Why this change fixes it: omit count and changes, set track_changes_list_unsupported: True.
+            # Without getRedlines, omit an empty change list and set track_changes_list_unsupported
+            # so non-Writer documents are not mistaken for a clean tracked-changes doc.
             result: dict[str, Any] = {
                 "status": "ok",
                 "recording": recording,
@@ -344,13 +340,11 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         show_b: bool = kwargs["show"]
         assert isinstance(show_b, bool)
-        # What was wrong: checked controller.getViewSettings to decide Writer vs Calc, but Calc controllers might also implement getViewSettings.
-        # How it happened: relied on view service distinction rather than document capability.
-        # Why this change fixes it: branch on hasattr(ctx.doc, 'getRedlines') to distinguish Writer from Calc.
+        # Writer vs Calc is decided by getRedlines on the document, not view settings, because
+        # Calc controllers may still expose getViewSettings.
         if hasattr(ctx.doc, "getRedlines"):
-            # What was wrong: set view ShowChangesInMargin instead of document RedlineDisplayType.
-            # How it happened: ShowChangesInMargin is view's margin preference, not markup visibility toggle.
-            # Why this change fixes it: write IDL RedlineDisplayType (LO 26.8.1.1 probe):
+            # Markup visibility is set on document RedlineDisplayType, not ShowChangesInMargin
+            # (margin layout only). IDL RedlineDisplayType (LO 26.8.1.1 probe):
             # 2 is INSERTED_AND_REMOVED (IsShowChanges), 1 is INSERTED (IsHideChanges).
             # 0 stores as 1 on LO 26.8, 3 is show-original (REMOVED).
             # Boolean ShowChanges False is a no-op while type is 2.
@@ -454,9 +448,8 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 return err
             return {"status": "ok", "message": msg}
 
-        # What was wrong: bulk accept/reject relied on executeDispatch return value, which returns None on success in Writer.
-        # How it happened: executeDispatch returns None ('no result') even when dispatch succeeds.
-        # Why this change fixes it: judge bulk resolve success by getCount() before and after dispatch on documents with getRedlines.
+        # Bulk resolve success is judged by redline getCount() before and after dispatch
+        # because executeDispatch returns None on success in Writer.
         after = int(ctx.doc.getRedlines().getCount())
         if before == 0 or after == 0:
             return {"status": "ok", "message": msg}

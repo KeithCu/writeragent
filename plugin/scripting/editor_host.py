@@ -172,11 +172,7 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         _PROBE_FAILURE_CACHE.pop(exe, None)
 
     def _remember_failure(result: tuple[bool, str]) -> tuple[bool, str]:
-        # Only successes used to be cached. monaco_editor_available calls this
-        # on the UI thread, and subprocess.run waits up to 30s. A slow or hung
-        # venv blocked every editor open for that full timeout. Cache the
-        # failure until the TTL, then probe again, so installing pywebview
-        # still becomes visible without freezing the dialog forever.
+        # Failed probes are cached for a TTL because monaco_editor_available runs on the UI thread and each subprocess probe can block up to 30s. Without caching failures, every editor open would hit that full wait on a broken venv.
         _PROBE_FAILURE_CACHE[exe] = (time.monotonic() + _PROBE_FAILURE_TTL_SEC, result)
         return result
 
@@ -256,9 +252,7 @@ def error_frame(message: str, exc: BaseException | None = None) -> dict[str, Any
 class DeferredEditorResult:
     """A save whose Monaco frame is delivered later, on the main thread.
 
-    Monaco Run used to call the venv wait inside the UI-thread save handler.
-    ``start(deliver)`` schedules that work. ``deliver`` is called once with the
-    same dict a synchronous ``on_save`` would have returned.
+    ``start(deliver)`` runs the venv wait off the UI-thread save path so the dialog stays responsive. ``deliver`` is called once with the same dict a synchronous ``on_save`` would have returned.
     """
 
     _start: _EditorStart
@@ -424,27 +418,14 @@ class PersistentEditor:
         ManagedSubprocess.close() (SIGTERM, 3s, reaper) and kill_tree() (no wait, no pipe close) are a different shutdown.
         ``kill_process_tree`` runs even when ``poll()`` is already set. ``wait`` / ``proc.kill`` run only if the leader was alive before the tree kill.
         """
-        # Bugfix: send read self._proc three times under _stdin_lock while terminate
-        # nulled it and closed the pipes without the lock, so a concurrent config-thread
-        # terminate_persistent_editor, reader finally, or UI send raised AttributeError
-        # on None.poll or wrote a closed stdin. One local proc inside the lock, and
-        # terminate publishing None before it closes, makes send either finish the write
-        # on the pipes it captured or see None and raise RuntimeError. The lock is not
-        # held across kill/wait because the reader timeout path is inside send.
+        # terminate() clears self._proc under _stdin_lock before closing pipes so concurrent send/reader paths capture a stable proc reference or see None safely. Without that ordering, one thread can call poll() on None or write to a closed stdin.
         with self._stdin_lock:
             proc = self._proc
             self._proc = None
         if proc is None:
             return
         try:
-            # What was wrong: the group kill was skipped once the leader had
-            # exited. How it happened: terminate() gated kill_process_tree on
-            # poll() is None, so a crashed editor_main left Qt/WebEngine
-            # grandchildren in the session (start_new_session). Why this
-            # change fixes it: always signal the group. kill_process_tree
-            # already killpg's a reaped session leader. Sample liveness first
-            # so wait/kill still reap a leader this call killed, and an
-            # already-reaped leader is not waited.
+            # kill_process_tree runs even when the leader already exited so Qt/WebEngine children from start_new_session do not survive a crash. Liveness is sampled first so we still wait/kill a leader this call terminated.
             leader_alive = proc.poll() is None
             kill_process_tree(proc)
             if leader_alive:
@@ -501,11 +482,7 @@ class PersistentEditor:
 
         if timed_out:
             log.warning("editor_host: stdin write timed out after %ss; editor unresponsive", VENV_IPC_WRITE_TIMEOUT_SEC)
-            # What was wrong: _write_all has no deadline, so a child that stops reading blocks this
-            # thread (often the VCL thread) for good.
-            # How it happened: a frame larger than the pipe buffer, or any frame once the pipe is already full.
-            # Why this change fixes it: write_packed_frame_with_timeout bounds the write, then the child
-            # is killed because a partial frame must not be reused.
+            # write_packed_frame_with_timeout caps stdin writes so a child that stops reading cannot block the UI thread indefinitely; a timed-out write tears down the editor because partial frames must not be reused.
             terminate_persistent_editor()
             detail = self.read_stderr_tail()
             raise RuntimeError(f"Editor unresponsive. {detail}")
@@ -611,13 +588,7 @@ class PersistentEditor:
                 self._handle_disconnect()
             else:
                 log.info("editor_host: old reader loop ignored disconnect (superseded by new process)")
-            # terminate() used to run only when the reader raised. A clean EOF
-            # (child closed stdout) while poll() was still None dropped the
-            # session via _handle_disconnect but left the process on self._proc.
-            # is_running stayed True, so the next launch reused a child with no
-            # reader. Any exit of this loop that still owns a live process kills
-            # it. A child that already exited, or a reader superseded by a new
-            # spawn, is left alone.
+            # If this loop still owns a live process after EOF or disconnect, terminate() clears it so is_running does not keep a leader with no reader. Superseded or already-exited children are left alone.
             if still_ours and proc.poll() is None:
                 self.terminate()
 
@@ -657,7 +628,7 @@ class PersistentEditor:
                 log.warning("editor_host: ignored incoming message from old process")
 
     def _marshal_timeout(self) -> float:
-        """UI wait for a save/close. The script budget can be 600s; 60s used to overlap it."""
+        """UI wait for a save/close. Matches configured_python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
         from plugin.scripting.config_limits import configured_python_exec_timeout
 
         return float(configured_python_exec_timeout()) + 5.0
@@ -764,15 +735,7 @@ class PersistentEditor:
                     return
                 if payload.get("type") == "saved" or payload.get("ok"):
                     captured.dirty = False
-            # Bugfix:
-            # - What was wrong: non-reentrant _save_lock was held across self.send().
-            # - How it happened: send write timeout calls terminate_persistent_editor(),
-            #   which runs each session's on_closed callback and then calls proc.wait(2)
-            #   under terminate() on that same thread; meanwhile the pipe reader thread
-            #   blocks in _on_save waiting for _save_lock.
-            # - Why this change fixes it: the token check and dirty clear remain under
-            #   _save_lock, while send() and any resulting terminate_persistent_editor()
-            #   run after releasing _save_lock.
+            # self.send() runs outside _save_lock so a write timeout can terminate the child without deadlocking the pipe reader, which also needs _save_lock in _on_save.
             self.send(payload, session=captured)
 
         def _handle_save() -> None:
@@ -941,14 +904,7 @@ class EditorSession:
             # replaces on_save when the same target is reused. A wrapper whose callback
             # is no longer the state's must not end_session it.
             if live is not None and live.on_save is self._on_save:
-                # Every session switch used to call _finish, which called
-                # end_session(call_closed=False). When _register_load_session ran
-                # later, the old session was already gone, so on_closed never
-                # fired for clean buffers during a target switch. When switching
-                # to another session (clearing=False), _finish does not end the
-                # session; _register_load_session ends the previous one with
-                # call_closed=True. _finish ends the session (call_closed=True)
-                # only when clearing=True (session is None) or the subprocess died.
+                # On a target switch (clearing=False), _finish does not end the session; _register_load_session ends the prior one with call_closed=True so on_closed still runs. Session end here happens only when clearing or the subprocess died.
                 if clearing or not _PERSISTENT_EDITOR.is_running:
                     _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=True)
 
@@ -1186,15 +1142,7 @@ def _register_load_session(
     if blocked is None and existing is None and focused is not None and _dirty_blocks_replace(focused):
         blocked = focused
     if blocked is not None:
-        # Switching modes used to end the focused session and let the load
-        # overwrite the buffer. The only confirm covered calc_cell, and only
-        # when opening another cell, so Run Script, init, and LaTeX edits were
-        # dropped (and Run Script dropped a dirty cell). set_active_session →
-        # _finish used call_closed=False, so neither on_save nor on_closed ran
-        # before the new code replaced the editor. launch_monaco_editor asks
-        # first. Save queues request_save and does not reach here until that
-        # save clears dirty. Discard sets replace_confirmed. Anything else
-        # keeps the buffer.
+        # Dirty buffers must not be replaced silently when switching mode or target; launch_monaco_editor must confirm or save first. Without this check, Run Script, init, and LaTeX edits could be overwritten without on_save or on_closed.
         raise DirtyBufferError(
             f"Refusing to replace dirty Monaco session {blocked.session_id} ({blocked.mode})"
         )

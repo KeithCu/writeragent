@@ -71,10 +71,9 @@ def _in_save_hook(doc_key: str) -> Generator[None, None, None]:
 class _BookmarkSaveListener(BaseDocumentEventListener):
     """Strip ``_mcp_`` heading bookmarks just before the file is written.
 
-    Nelson ``4c92ea12`` / #2644: insert used to dirty the document, leave
-    undo steps, and persist agent locators into ``.odt`` / ``.docx``. Strip
-    on ``OnSave*`` (not only ``OnSaveDone``) so the written file is clean;
-    restore the same names after ``*Done``.
+    OnSave* strips ``_mcp_`` heading locators before write so they are not
+    persisted in ``.odt``/``.docx`` or left on the undo stack; the same names
+    are restored after ``*Done``.
     """
 
     _svc: BookmarkService
@@ -222,7 +221,7 @@ class BookmarkService(ServiceBase):
         """Ensure every heading has an _mcp_ bookmark. Returns map.
 
         Also removes ``_mcp_`` bookmarks that are no longer on a heading.
-        Demoting a heading used to leave the point mark in the document forever.
+        Demoted headings drop orphan ``_mcp_`` marks so locators do not linger on body text.
         """
         key = self._doc_key(doc)
         in_hook = key in _ACTIVE_SAVE_HOOK_KEYS

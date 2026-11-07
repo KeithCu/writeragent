@@ -998,8 +998,7 @@ class ApplyDesign(ToolBase):
         design_key = kwargs["design"].strip()
         if not design_key:
             return self._tool_error("design is required.")
-        # One walk, no ZIP look. resolve_design used to open every .otp,
-        # and a miss enumerated the tree again.
+        # One enumeration walk, no per-design ZIP open. A miss must not rescan the tree.
         listed = enumerate_impress_designs(ctx.ctx, include_look=False)
         entry = _match_listed_design(listed, design_key)
         if entry is None:

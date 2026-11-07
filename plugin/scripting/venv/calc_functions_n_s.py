@@ -228,7 +228,7 @@ def _npf_call(kind: str, a: Any, b: Any, c: Any, d: Any, type_val: Any) -> float
 def nper(rate: Any, pmt_val: Any, pv_val: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
     # numpy-financial returns ±inf when the payment does not amortize
     # (pmt == 0, or the log argument is non-positive). log(1+rate) at
-    # rate == -1 used to raise ValueError. Both are Excel #NUM!.
+    # rate == -1 must not raise ValueError. Both are Excel #NUM!.
     return _npf_call("nper", rate, pmt_val, pv_val, fv_val, type_val)
 
 
@@ -289,7 +289,7 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
     if dec != ".":
         s = s.replace(dec, ".", 1)
     # Spaces, tabs, and line breaks are removed, then each trailing '%'
-    # divides by 100. float("5%") and float("1 000") used to be NaN.
+    # divides by 100. float("5%") and float("1 000") must not be NaN.
     s = "".join(ch for ch in s if ch not in " \t\r\n")
     percent = 0
     while s.endswith("%"):
@@ -303,7 +303,7 @@ def numbervalue(text: Any, dec_sep: Any = ".", grp_sep: Any = ",") -> float:
 
 def odd(n: Any) -> float:
     # ScOdd (interpr2.cxx) ceils away from zero, then steps off an even
-    # integer. int(trunc(1.5)) is already odd, so odd(1.5) used to return 1.
+    # integer. int(trunc(1.5)) is already odd, so odd(1.5) must not return 1.
     v = float(n)
     if not math.isfinite(v):
         return float("nan")
@@ -400,7 +400,7 @@ def oddfyield(settlement: Any, maturity: Any, issue: Any, first_coupon: Any, rat
         return float("nan")
     c = 100 * r
     # (red + price) / 2 is the denominator. Opposite signs of equal magnitude
-    # used to raise ZeroDivisionError. Excel ODDFYIELD is #NUM!.
+    # must not raise ZeroDivisionError. Excel ODDFYIELD is #NUM!.
     if red + price == 0:
         return float("nan")
     return (c + (red - price) / years) / ((red + price) / 2)
@@ -503,7 +503,7 @@ def permut(n: Any, k: Any) -> float:
 
 
 def pmt(rate: Any, nper: Any, pv: Any, fv_val: Any = 0, type_val: Any = 0) -> float:
-    # nper == 0 used to raise ZeroDivisionError. numpy-financial returns
+    # nper == 0 must not raise ZeroDivisionError. numpy-financial returns.
     # ±inf; Calc/Excel are #DIV/0!, returned here as NaN.
     return _npf_call("pmt", rate, nper, pv, fv_val, type_val)
 
@@ -544,7 +544,7 @@ def pv(rate: Any, nper: Any, pmt_val: Any, fv_val: Any = 0, type_val: Any = 0) -
 
 
 def quartile(r: Any, q: Any) -> float | str:
-    # Non-numeric quart used to raise ValueError from float(). Out-of-range
+    # Non-numeric quart must not raise ValueError from float(). Out-of-range.
     # quart fell through to `qi * 25` and np.percentile raised ValueError
     # (percentile outside 0..100). Excel QUARTILE returns #NUM! for both.
     try:
@@ -656,7 +656,7 @@ def regex(text: Any, expr: Any, replacement: Any | None = None, flags: Any = "")
 
 
 def rept(text: Any, n: Any) -> str | float:
-    # A text count used to return "". GetStringPositionArgument does not.
+    # A text count must not return "". GetStringPositionArgument does not.
     count = int(float(n))
     # `"text" * -1` is "" in Python and does not raise. Excel REPT truncates
     # first, then returns #VALUE! when the count is still negative.
@@ -775,8 +775,7 @@ def sort(range_arr: Any, sort_index: int | float = 1, sort_order: int | float = 
     # IndexError. Excel SORT of a non-range is #VALUE!, returned here as NaN.
     if arr.ndim == 0:
         return float("nan")
-    # int(float()) on text or a blank sort_index/order used to raise ValueError.
-    # max(1, ...) used to clamp a non-positive index onto the first row/column.
+    # int(float()) on text or a blank sort_index/order must not raise ValueError. max(1, ...) must not clamp a non-positive index onto the first row/column.
     # ScSort (interpr1.cxx) accepts only sort_order 1 and -1. >= 0 treated 0
     # and 2 as ascending (PushIllegalParameter).
     try:
@@ -837,7 +836,7 @@ def sortby(range_arr: Any, by_array: Any, sort_order: int | float = 1, *extra: A
     # Excel SORTBY of a non-range is #VALUE!, returned here as NaN.
     if arr.ndim == 0:
         return float("nan")
-    # *extra used to be ignored, so by_array2/sort_order2 never affected the order.
+    # *extra must not be ignored, so by_array2/sort_order2 never affected the order.
     specs: list[tuple[Any, int]] = []
     tokens = [by_array, sort_order, *extra]
     idx = 0
@@ -1034,7 +1033,7 @@ def sumif(r: Any, crit: Any, sr: Any | None = None) -> float:
 
 def sumifs(sr: Any, *args: Any) -> float:
     # Criteria ranges must match the sum range in shape. A shorter range, or a
-    # 2x3 next to a 3x2, used to truncate or line up after ravel. That is NaN
+    # 2x3 next to a 3x2, must not truncate or line up after ravel. That is NaN.
     # here, same as an odd argument count. No pairs still sums nothing.
     if len(args) % 2 != 0:
         return float("nan")
@@ -1055,7 +1054,7 @@ def sumproduct(*args: Any) -> float:
         return 0.0
     arrays = [np.asarray(a, dtype=object) for a in args]
     # Excel SUMPRODUCT returns #VALUE! when the arrays are not the same shape.
-    # Ravelling and stopping at min_len used to drop the tail and return a partial sum.
+    # Ravelling and stopping at min_len must not drop the tail and return a partial sum.
     shape = arrays[0].shape
     if any(a.shape != shape for a in arrays):
         return float("nan")

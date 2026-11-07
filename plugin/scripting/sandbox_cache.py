@@ -92,8 +92,7 @@ def validate_sandbox_ast(
         if isinstance(node, ast.Import):
             for alias in node.names:
                 # writeragent.X is checked as plugin.X. A blanket writeragent.*
-                # on the list used to pass here, then AliasImporter loaded
-                # framework.config and LlmClient.
+                # Reject unauthorized writeragent.* aliases before AliasImporter can pull host-only modules.
                 if not import_authorized(alias.name, authorized_imports, blocked_imports=effective_blocked):
                     # Keep the message short. Never leak the blocklist or extras.
                     return f"Import of {alias.name} is not allowed."
@@ -181,15 +180,7 @@ def _build_entry(
         try:
             module = ast.parse(code)
         except ValueError as exc:
-            # What was wrong: ast.parse raises ValueError for a null byte on
-            # CPython before 3.12 (gh-96670). LibreOffice 24.8 ships Python 3.9
-            # and is the extension minimum; execute_with_return runs there.
-            # How it happened: only SyntaxError and RecursionError were caught.
-            # Release OXTs strip @deal, so the NUL deal pre does not run, and
-            # the ValueError left get_hot_entry. execute_with_return logged
-            # log.exception; _run_on_executor attached a traceback.
-            # Why this fixes it: null bytes are bad user source. Cache a parse
-            # error so evaluate_python_code raises InterpreterError.
+            # ValueError from ast.parse on NUL bytes (pre-3.12) is cached as a parse error so LibreOffice 3.9 runtimes behave like newer CPython.
             return HotEntry(
                 module=None,
                 error=f"Code parsing failed due to: {type(exc).__name__}: {exc}",

@@ -15,7 +15,7 @@ from plugin.framework.grammar_rule_ids import (
 )
 
 # Global cache of initialized LanguageTool clients to avoid JVM startup/restart overhead.
-# Check-then-set must be locked: two threads both missing the key used to each
+# Check-then-set must be locked: two threads both missing the key must not each.
 # construct LanguageTool(), and the loser leaked an orphaned JVM.
 _LT_CACHE: Dict[str, Any] = {}
 _LT_CACHE_LOCK = threading.Lock()
@@ -62,7 +62,7 @@ def _cached_languagetool(bcp47_clean: str) -> Any:
 def run_languagetool_check(text: str, bcp47: str) -> dict[str, Any]:
     """Execute grammar check on text using language_tool_python in the venv."""
     # The action is public: "en", "en-us", and "en_US" are one LanguageTool
-    # language and used to start three JVMs.
+    # language and must not start three JVMs.
     bcp47_clean = normalize_detected_bcp47(bcp47) or bcp47.replace("_", "-")
     tool = _cached_languagetool(bcp47_clean)
 
@@ -84,7 +84,7 @@ def run_languagetool_check(text: str, bcp47: str) -> dict[str, Any]:
             for m in matches
         ]
     except Exception as e:
-        # A cached client whose JVM exited used to be reused for every later
+        # A cached client whose JVM exited must not be reused for every later.
         # sentence; forget it so the next check starts a fresh one.
         # Identity check: another thread may already have stored a replacement.
         with _LT_CACHE_LOCK:

@@ -346,9 +346,8 @@ class TurnController:
     def put(self, item: Any) -> bool:
         """Enqueue only while this turn is alive.
 
-        After abort the item is dropped. It is not parked on a queue for a
-        later drain. This used to write the raw queue, so a control item
-        could pass text still in the batcher, and callers had to flush by hand.
+        After abort the item is dropped, not parked for a later drain. Aborted turns must
+        not leave control items that bypass the live batcher.
         """
         if not self.alive:
             return False
@@ -979,9 +978,8 @@ class ToolLoopEffectInterpreter:
     def _refresh_document_context(self) -> bool:
         """Refresh the document snapshot. Return True when the drain should stop.
 
-        A missing or disposed document used to be logged at debug and the
-        tool loop kept going with the previous snapshot. That is the same
-        failure _do_send already ends on.
+        A missing or disposed document stops the drain, matching _do_send. Do not keep
+        streaming with a stale snapshot.
         """
         host = self.host
         turn = running_turn(host)
@@ -1114,11 +1112,8 @@ class ToolLoopEffectInterpreter:
         # panel field when the tool later runs.
         bound_scope = spawn_scope(host)
 
-        # Bugfix: getText ran for every tool whenever the sidebar combobox
-        # existed, and main.call re-raises, so a disposed or
-        # unwired control left _spawn_tool_worker and the drain treated it as
-        # a stream error. Only image_generate uses the override; a widget
-        # failure leaves that call's arguments unchanged.
+        # image_generate alone reads the image model combobox; getText failures must not
+        # abort unrelated tool workers or become stream errors.
         if effect.func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
             image_model_override = best_effort(
                 lambda: main.call(lambda: host.image_model_selector.getText()),

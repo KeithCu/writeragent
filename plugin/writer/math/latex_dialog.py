@@ -28,12 +28,8 @@ from plugin.writer.math.math_mml_convert import (
     insert_writer_math_formula,
     replace_writer_math_formula,
 )
-# What was wrong: Importing individual helper functions from math_mml_export into latex_dialog
-#   bound them locally at module load time. UNO and unit tests patch plugin.writer.math.math_mml_export.*,
-#   which failed to affect latex_dialog's calls to the unpatched local references.
-# How it happened: cf457aa16 (#1984) replaced module imports with direct function imports.
-# Why this change: Keep math_mml_export imported as a module and access helpers as module attributes
-#   (math_mml_export.selected_math_embeds, etc.) so test patches and dynamic overrides take effect.
+# math_mml_export is imported as a module so tests and runtime patch helper attributes
+# on that namespace; direct function imports would bind unpatched references at load time.
 from plugin.writer.math import math_mml_export
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
 

@@ -121,10 +121,7 @@ def _remove_path(path: Path) -> bool:
         return False
     try:
         if path.is_dir():
-            # Bugfix: rmtree(ignore_errors=True) hid a failed directory delete
-            # and returned True. remove_stale_corpus_stores then logged
-            # "Removed stale embeddings stores" while the directory remained.
-            # Success means the path is gone.
+            # Directory removal must verify the path is gone; ignore_errors hides stale stores.
             shutil.rmtree(path)
         else:
             path.unlink()

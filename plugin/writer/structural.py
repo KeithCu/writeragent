@@ -126,10 +126,8 @@ class GetPageObjects(ToolBase):
                 except (ValueError, ToolExecutionError) as e:
                     return self._tool_error(str(e))
             if para_idx is not None:
-                # What was wrong: get_page_for_paragraph swallowed exceptions and returned
-                # fallback 1, so failures were reported as status: ok, page: 1 (#1422).
-                # Why: page resolution failures must be surfaced as tool errors so callers
-                # and automated controllers do not act on false success.
+                # Page lookup failures surface as tool errors instead of defaulting to
+                # page 1, so callers and automation do not act on a false ok response.
                 try:
                     page = doc_svc.get_page_for_paragraph(doc, para_idx)
                 except (ValueError, ToolExecutionError) as e:

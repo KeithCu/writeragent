@@ -471,11 +471,7 @@ def policy_allowlist(policy: SandboxPolicy) -> list[str]:
     if policy.files:
         result.extend(FILE_BLOCKED_MODULES)
     if policy.os:
-        # Bugfix: multiprocessing and pty remained blocked even when "Allow OS access"
-        # was on because policy_allowlist only added subprocess. Extending with
-        # multiprocessing, _multiprocessing, and pty allows process spawning and
-        # pseudo-terminal operations under the process flag while keeping them blocked
-        # when policy.os is False.
+        # When Allow OS access is on, policy_allowlist includes multiprocessing and pty alongside subprocess; they stay blocked when policy.os is False.
         result.extend(_PROCESS_MODULES)
     result.extend(policy.extra)
     return list(dict.fromkeys(result))
@@ -498,9 +494,7 @@ def policy_relaxed_roots(policy: SandboxPolicy) -> frozenset[str]:
     if policy.files or policy.os:
         roots.update({"shutil", "pathlib", "io"})
     if policy.os:
-        # Bugfix: multiprocessing and pty callables were blocked by the callable gate
-        # under policy.os because their module roots were missing from relaxed_roots.
-        # Adding them allows multiprocessing.Process, Pool, and pty operations to execute.
+        # relaxed_roots includes process modules when policy.os is set so the callable gate allows Process/Pool/pty, not only subprocess.
         roots.update({"os", "posix", "nt", *_PROCESS_MODULES})
     for name in policy.extra:
         root = name.split(".", 1)[0]
@@ -587,13 +581,7 @@ def wrap_command_for_sandbox(
 def _path_from_file_url(raw: str) -> str | None:
     """Convert a ``file://`` / ``file:/`` URL to a filesystem path (stdlib only)."""
     # crosshair: off
-    # Bugfix: The old startswith("file:/") was case-sensitive while
-    # _normalize_venv_path_input accepted file: in any case, so FILE:///tmp/x
-    # was used as a literal path; and file://localhost/C:/x became
-    # \\localhostC:\x because the drive-letter branch dropped the slash
-    # before the host was glued on. Normalizing the scheme case-insensitively,
-    # treating localhost as empty host (RFC 8089), and formatting UNC paths as
-    # \\host\tail fixes both issues.
+    # file: URLs are normalized case-insensitively with RFC 8089 localhost handling and correct UNC formatting so paths like FILE:///tmp/x and file://localhost/C:/x resolve safely.
     from urllib.parse import unquote, urlparse
 
     text = raw.strip()

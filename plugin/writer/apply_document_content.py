@@ -620,8 +620,8 @@ class ApplyDocumentContent(ToolBase):
                     "message": search_mod.shape_only_search_message("old_content", shape_name, review=True),
                     "replaced_count": 0,
                 }
-            # A False from replace_text_in_shape used to leave a partial setString in
-            # the document because the context was closed and never undone.
+            # commit_or_rollback wraps shape replacement so a failed replace_text_in_shape
+            # rolls back instead of leaving a partial setString in the document.
             def mutate() -> dict[str, Any] | None:
                 edited = replace_text_in_shape(shape, search_string, new_text)
                 if not edited:
@@ -1355,11 +1355,9 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         occurrence = params.occurrence
         position = params.position
-        # INSERT next to the match instead of replacing it: the single most common petition
-        # edit ("add a paragraph after clause X") previously forced resending the clause
-        # itself in content — which in record/wait rendered as a tracked delete+reinsert of
-        # text nobody touched. Collapse a cursor at the match edge and run the normal
-        # HTML-import insert there; only the genuinely new text enters the review record.
+        # INSERT beside the match collapses a cursor at the match edge and runs HTML import
+        # there so review mode records only new text, not a tracked delete+reinsert of the
+        # unchanged clause.
         #
         # Two guarded gaps (clear error beats an opaque failure; the atomic wrapper would
         # roll back either way): math segments are not wired into the next-to-match insert

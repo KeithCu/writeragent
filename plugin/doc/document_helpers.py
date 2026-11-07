@@ -132,7 +132,7 @@ def _writer_excerpt_overlaps_selection(
         return False
     if not _text_helpers._position_text_is_body(model, sel_start_pos, "Get selection text"):
         # Different XText (table, frame, header). compareRegionStarts
-        # against the body raises and used to fail the whole chat context.
+        # Nested text vs body compareRegionStarts raises; treat as non-overlapping instead of failing chat context.
         return False
     text = uno_call(model.getText, "Get document text")
     exc_start = uno_call(exc_cursor.getStart, "Excerpt getStart")
@@ -614,12 +614,8 @@ class DocumentService(ServiceBase):
         and wrong for anything that needs to know how many documents are open (use
         open_documents for that).
 
-        tools/list used to be filtered by the *active* document alone, so with a
-        spreadsheet in front the Writer tools vanished from the catalog even
-        though a Writer document was open beside it -- the single most reported
-        WriterAgent failure ("no editing tools in this session"). The tools all
-        accept ``document_url``, so what is open, not what has focus, is the
-        honest basis for the catalog.
+        Catalog tools by open documents, not the active window—Calc focus must not hide Writer tools.
+        Every tool accepts ``document_url``, so the open set is the honest catalog basis.
         """
         found: dict[str, Any] = {}
         for doc in self.open_documents():

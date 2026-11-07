@@ -106,9 +106,7 @@ def _coerce_array_flag(array: Any) -> bool | None:
 
 
 def _requests_array_formula(formula_or_values: Any, array: Any) -> TypeGuard[str]:
-    # Bugfix: string array flags like "false" were passed uncoerced to returns_array(forced=...),
-    # which evaluated bool("false") as True and wrongly forced array formulas.
-    # Coerce to bool | None here so "false" becomes False and "true" becomes True.
+    # Coerce array flag strings to bool | None—bool("false") is True and would force array mode.
     forced_array = _coerce_array_flag(array)
     if forced_array is True and isinstance(formula_or_values, str) and not formula_or_values.startswith("="):
         raise CalcError("array=true needs a formula starting with '='.")
@@ -141,10 +139,7 @@ def _uno_range_address(cell_or_range: Any) -> Any:
 
 def _quiet_probe_cleanup(action: Callable[[], None], what: str) -> None:
     """Best-effort probe teardown that still surfaces a disposed document."""
-    # Bugfix: probe cleanup in prepare_array_formula_if_needed swallowed DisposedException.
-    # This happened because bare except blocks masked document disposal during array probes.
-    # Routing cleanup through _quiet_probe_cleanup re-raises disposed exceptions while
-    # suppressing other errors.
+    # Re-raise disposal during array-formula probe cleanup; suppress other probe teardown errors.
     try:
         action()
     except Exception as e:
@@ -483,10 +478,7 @@ class CellManipulator:
         cell_range = self.bridge.resolve_range_or_address(range_str)
         addr = _uno_range_address(cell_range)
         width = int(addr.EndColumn) - int(addr.StartColumn) + 1
-        # Bugfix: sort_column was not checked against range width, and ascending/has_header
-        # accepted non-bools. This happened because arguments were passed directly to UNO's
-        # sort descriptor without bounds checking. Verifying sort_column fits within the
-        # range width and validating boolean types prevents crashes or sorting wrong columns.
+        # Validate sort_column against range width and require real bools for ascending/has_header.
         if type(sort_column) is not int or sort_column < 0 or sort_column >= width:
             raise CalcError(f"sort_column must be an integer from 0 to {width - 1} for this range ({width} columns).")
         if type(ascending) is not bool or type(has_header) is not bool:
@@ -557,9 +549,7 @@ class CellManipulator:
         if literal_text:
             return _CellWrite(value if isinstance(value, str) else str(value), "", "forced_text", None, None)
 
-        # Bugfix: bool is a subclass of int, and str(True) is the text "True".
-        # JSON arrays round-trip true/false to real bools. Classifying bool as
-        # numeric 1.0 or 0.0 stores real boolean numbers in Calc cells.
+        # bool is a subclass of int; store 1.0/0.0, not the text "True"/"False".
         if isinstance(value, bool):
             return _CellWrite(1.0 if value else 0.0, "", "number", None, None)
 
@@ -954,7 +944,7 @@ class CellManipulator:
                     formula_or_values = parsed
 
             # LibreOffice does not spill. setFormula on =SORT(FILTER(...))
-            # used to return ok and show one value (nelson-mcp afc8cbd8 / #2631).
+            # Top-level dynamic arrays need setArrayFormula, not a single setFormula cell.
             # Detect top-level array functions and enter setArrayFormula
             # instead of fill-down. =SUM(FILTER()) stays scalar.
             if not literal_text and not data_text and _requests_array_formula(formula_or_values, array):
@@ -1100,10 +1090,8 @@ class CellManipulator:
 
         The probe sits two columns to the right of the used area and the
         write target, clamped to XFD (column 16383). When the used area
-        already reaches XFD, that clamp used to land inside the used
-        rectangle and ``setArrayFormula`` / ``clearContents`` overwrote
-        rows 0–1 of the user's last column. Place the probe on the two
-        rows under the used area instead.
+        already reaches XFD, place the probe two rows below the used
+        rectangle so the probe does not overwrite the user's last column.
         """
         col = min(max(used.EndColumn, avoid_col) + 2, MAX_COL)
         row = 0

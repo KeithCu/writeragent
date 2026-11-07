@@ -133,14 +133,7 @@ class FormulaProcessPool(BaseProcessPool):
             entry.users += 1
             lock = entry.lock
 
-        # What was wrong: an unbounded Lock.acquire() waited out the holder's whole
-        # cell while the waiter already held a listener thread and an admission permit.
-        # How it happened: the gate wraps the whole cell (up to max_timeout_sec +
-        # IPC grace), so concurrent requests for a busy sticky session tied up
-        # server resources.
-        # Why this change fixes it: acquire uses this request's clock (timeout_sec);
-        # lock is released only when acquired is true, and finally still drops this
-        # waiter from users so the holder's entry stays until the holder leaves.
+        # Session gate acquire honors this request's timeout_sec instead of blocking for the holder's full cell budget, so busy sessions do not pin listener threads and permits indefinitely.
         acquired = lock.acquire(timeout=max(float(timeout_sec), 0.0))
         try:
             yield acquired

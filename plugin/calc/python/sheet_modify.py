@@ -143,9 +143,7 @@ def migrate_sheet_rename(
         return
 
     state = WorkbookState.lookup(doc)
-    # Bugfix: What was wrong: migrate_sheet_rename migrated keys across unrelated workbooks when doc_key or identity was empty.
-    # How it happened: The filter expression used (not doc_key or k[0] in ...) and (not identity or ...), treating an empty identity as a wildcard matching all keys.
-    # Why this change fixes it: We collect non-empty IDs; if no valid IDs exist for the document, we log a warning and skip that map without rekeying other workbooks' entries.
+    # Skip migration when workbook identity is empty—otherwise empty filters rekey unrelated workbooks.
     if state is None or not state.key:
         log.warning("migrate_sheet_rename: no workbook identity found; skipping in-memory migration")
         return

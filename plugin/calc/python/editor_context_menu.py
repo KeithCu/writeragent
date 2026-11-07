@@ -85,12 +85,8 @@ def _get_interceptor() -> Any:
     class _CalcCellContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # type: ignore[misc, valid-type]
         def notifyContextMenuExecute(self, aEvent: Any) -> Any:  # noqa: N802 — UNO API
             try:
-                # Bugfix: SourceWindow is a com.sun.star.awt.XWindow (ContextMenuExecuteEvent.idl),
-                # not a frame. Calling getController() on it always failed with AttributeError,
-                # the exception handler returned false, and "Edit Python in Cell..." never appeared.
-                # Calc document type was already validated during controller registration in
-                # _register_controller. The Cut check below (sc/uiconfig/scalc/popupmenu/cell.xml)
-                # plus a cell-only command (see _CELL_MENU_ONLY_COMMANDS) rejects row/column-header and object menus.
+                # Context menu SourceWindow is XWindow, not a frame—no getController(). Cut check plus
+                # _CELL_MENU_ONLY_COMMANDS limits the item to cell menus (see scalc popupmenu/cell.xml).
                 container = aEvent.ActionTriggerContainer
                 if not _looks_like_cell_context_menu(container):
                     return IGNORED
@@ -128,11 +124,7 @@ def _register_controller(controller: Any) -> None:
         if interception is None:
             return
         with _lock:
-            # Bugfix: PyUNO returns a fresh Python proxy object per call, so id() dedup
-            # failed and registered multiple interceptors on the same controller.
-            # OInterfaceContainerHelper::addInterface appends without deduping,
-            # adding duplicate separators and menu items (see plugin/writer/change_context_menu.py).
-            # We use uno_same to compare UNO identity and prune disposed controllers.
+            # Dedup controllers with uno_same, not id(); PyUNO hands out fresh proxies per call.
             _registered_controllers[:] = [
                 ctrl for ctrl in _registered_controllers
                 if controller_alive(ctrl)

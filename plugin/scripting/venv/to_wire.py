@@ -76,14 +76,7 @@ _TD64_US_PER_COUNT: dict[str, fractions.Fraction] = {
 def _timedelta64_to_stdlib(value: Any) -> datetime.timedelta | None:
     """Convert numpy.timedelta64 to datetime.timedelta or None.
 
-    What was wrong: without pandas, and for units pandas rejects, .item() is a
-    raw int and _coerce_host_pickle_scalar returned that int, so
-    timedelta64[ns] of 90 became 90 instead of fractional days.
-    How: the kind == "m" branch called pandas.Timedelta and on failure
-    trusted .item().
-    Why this fixes it: units that already yield a datetime.timedelta keep it;
-    every other unit uses the microsecond Fraction table and never returns the
-    count.
+    Converts numpy timedelta64 to datetime.timedelta via the microsecond table when pandas is absent or rejects the unit, so wire values are durations rather than raw integer counts.
     """
     item_fn = getattr(value, "item", None)
     item = item_fn() if callable(item_fn) else None

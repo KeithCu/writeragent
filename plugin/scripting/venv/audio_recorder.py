@@ -79,13 +79,7 @@ def record_to_wav(
                 wav_file.close()
         raise RuntimeError(f"Failed to create audio WAV file at {output_path}: {exc}") from exc
 
-    # Bugfix:
-    # What was wrong: wait_for_recording_ready rejects a first line that is not ready or error.
-    # How it happened: Pa_StartStream can invoke this callback before start() returns, and
-    # should_emit_silence_progress is true once silence_ms clears both 100 and max(100, silence_stop_ms // 4)
-    # — that step is 100 whenever silence_stop_ms is 1..400.
-    # Why this change: PCM and VAD still run, but should_emit_silence_progress / on_ipc_emit
-    # wait until on_stream_started has returned so the first line is ready.
+    # Silence/progress IPC waits until on_stream_started returns so the host never sees a pre-ready line and rejects the recording.
     progress_after_ready = on_stream_started is None
 
     stream = None
@@ -159,8 +153,7 @@ def record_to_wav(
         with contextlib.suppress(OSError, ValueError):
             wav_file.close()
 
-    # An exception inside callback used to leave the callback, sounddevice
-    # aborted the stream, and stop_event.wait blocked until the 4 hour cap.
+    # Re-raise latched callback errors after cleanup so the host stops waiting instead of blocking until the recording duration cap.
     if latched is not None:
         rank, latched_exc = latched
         if rank == 3:

@@ -149,10 +149,8 @@ def remember_tested_tunnel_url(provider: str, url: str) -> None:
 def clear_tested_provider_tunnel_url(provider: str) -> None:
     """Drop one provider's cached public URL.
 
-    The snippet used to keep copying that URL after the tunnel stopped,
-    failed, or lost its public address. The next sync then uses the local
-    URL or the provider template. ``remember_tested_tunnel_url`` stores a
-    URL again. An empty provider does nothing and does not refresh.
+    Clears stale public URLs after tunnel stop or failure so sync falls back to local/template.
+    remember_tested_tunnel_url stores again when the tunnel is healthy.
     """
     with _active_settings_dialog_lock:
         p = provider.strip().lower()

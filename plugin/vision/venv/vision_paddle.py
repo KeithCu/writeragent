@@ -184,8 +184,7 @@ def _parse_ocr_v2_lines(raw_lines: list[Any]) -> tuple[list[dict[str, Any]], lis
         box_raw, text_info = line[0], line[1]
         if isinstance(text_info, (list, tuple)) and text_info:
             text = str(text_info[0] or "").strip()
-            # What was wrong: non-numeric 2.x score (None, "N/A") raised TypeError/ValueError and aborted extract_text.
-            # Why this change: guard conversion like _parse_ocr_v3 does, falling back to 0.0.
+            # Non-numeric 2.x confidence falls back to 0.0 instead of aborting extract_text.
             try:
                 confidence = float(text_info[1]) if len(text_info) > 1 else 0.0
             except (TypeError, ValueError):
@@ -211,8 +210,7 @@ def _parse_ocr_v2_lines(raw_lines: list[Any]) -> tuple[list[dict[str, Any]], lis
 def _parse_ocr_lines(raw: Any) -> tuple[list[dict[str, Any]], list[str]]:
     """2.x ``[[box, (text, score)], ...]`` pages and 3.x Result pages.
 
-    3.x returns a Result, not a line list. Dropping non-lists used to make
-    ``extract_text`` report "No text detected." with an empty ``full_text``.
+    Paddle 3.x pages are Result objects—_iter_pages must accept non-list payloads or text is empty.
     """
     regions: list[dict[str, Any]] = []
     texts: list[str] = []
@@ -457,9 +455,7 @@ def _text_from_structure_res(res: Any) -> str:
                 return val.strip()
         html = res.get("html")
         if isinstance(html, str) and html.strip():
-            # Table HTML is not prose; the grid is rendered separately. ``html``
-            # used to sit in the key loop above, so this never ran and the raw
-            # ``<table>`` became block text that was escaped into a second ``<p>``.
+            # Table HTML is handled separately—skip table markup here so it is not escaped into a second <p>.
             if "<table" in html.lower():
                 return ""
             return html.strip()

@@ -465,13 +465,7 @@ PICKER_WIRING: tuple[PickerWiring, ...] = (
         origin="quant",
         display_prefix="[Quant] ",
         title=N_("Quant Helpers"),
-        # What was wrong: supports_quant_manual is Calc-or-Writer, but quant is
-        # post_venv_calc_only and the only inserter is insert_quant_result_into_calc.
-        # On Writer, try_rps_post_venv returned None and format_result_for_writer
-        # stringified the nested table dict.
-        # How: the picker copied the symbolic/viz supports alias when the registry
-        # was introduced. Egress was never a Writer inserter.
-        # Why: "plugin.framework.doc_type:is_calc" matches analysis, sql, optimize, and forecast.
+        # quant manual egress is Calc-only (insert_quant_result_into_calc); Writer must not claim supports_quant_manual or users get stringified table dicts.
         supports_ref="plugin.framework.doc_type:is_calc",
         templates_ref="plugin.scripting.quant:get_quant_script_templates",
     ),

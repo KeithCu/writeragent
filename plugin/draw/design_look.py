@@ -4,9 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Short appearance tags for Impress ``.otp`` designs (no UNO, no vision).
 
-``list_designs`` used to return only ``{id, name, path, url}``. Mercury-class
-models then pick Metropolis by name without knowing it is dark/tech. This
-module reads the template ZIP at list time:
+``list_designs`` includes appearance tags so models do not pick designs by name alone.
+This module reads the template ZIP at list time:
 
 1. Prefer ``Thumbnails/thumbnail.png`` (every shipped LO template has one).
 2. Mood from average luminance; accent hue names skip near-black/white noise.

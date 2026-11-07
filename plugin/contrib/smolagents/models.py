@@ -331,13 +331,7 @@ def get_tool_json_schema(tool: Tool) -> dict:
         "properties": properties,
         "required": required,
     }
-    # What was wrong: smolagents delegate schemas retained nullable: true and un-normalized
-    # schemas, causing strict providers like Groq to fail with validation errors (e.g.,
-    # 'source_image expected string, but got null').
-    # How it happened: delegate path bypassed _normalize_schema_for_strict_providers
-    # which main chat and MCP use to add 'null' to optional scalar type unions.
-    # Why this change fixes it: normalizing the schema adds null to optional scalar types
-    # and strips empty required lists so strict providers accept null values for optional args.
+    # Delegate schemas need _normalize_schema_for_strict_providers like main chat—optional nulls for strict providers.
     from plugin.framework.tool_schema import _normalize_schema_for_strict_providers
 
     parameters = _normalize_schema_for_strict_providers(parameters)

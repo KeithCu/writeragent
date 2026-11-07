@@ -91,7 +91,7 @@ def _format_flags(flag_mask: int) -> list[str]:
 
 # Messages from ScNamedRangesObj::addNewByName (sc/source/ui/unoobj/nameuno.cxx).
 # addNewByName calls ScRangeData::IsNameValid (sc/source/core/tool/rangenam.cxx).
-# XNamedRange.setName does not, so a rename used to install A1, Sales.2026, 1abc, or names with spaces.
+# setName does not validate like addNewByName; reject invalid names before rename.
 _NAME_BAD_STRING = "Invalid name. It must start with a letter (excluding c, C, r, or R followed by a number) or underscore. Only letters, numbers, and underscores are permitted."
 _NAME_CELL_REF = "Invalid name. Reference to a cell, or a range of cells not allowed."
 

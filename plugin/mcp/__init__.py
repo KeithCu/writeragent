@@ -262,8 +262,8 @@ class McpModule(ModuleBase):
                     services.events.emit("menu:update")
                     self.server = srv
                 except Exception as e:
-                    # Stash for Toggle/Status/Settings UI — previously only log.exception left a trail
-                    # and the dialog said "check the debug log" with no host/port or bind reason (#379).
+                    # Stash for Toggle/Status/Settings UI so failed binds show host/port
+                    # and the error in the dialog instead of only a debug-log pointer.
                     log.exception("Failed to start HTTP server")
                     self._last_start_failure = (host, port, e)
                     try:

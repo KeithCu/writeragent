@@ -27,9 +27,7 @@ from plugin.scripting.session_manager import existing_calc_session_id, python_se
 
 log = logging.getLogger(__name__)
 
-# What was wrong: _FILTER_LABELS called _() at module import time before locale was initialized.
-# How it happened: module-level tuple evaluation called gettext at import.
-# Why this change: translate lazily via _filter_choices() and match translated label, then English msgid.
+# Filter labels translate lazily in _filter_choices(); gettext must not run at import.
 _FILTER_MSGIDS: tuple[tuple[str, DiagnosticFilter], ...] = (("All", "all"), ("Errors", "errors"), ("Output", "output"))
 
 
@@ -67,9 +65,7 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
     content_bottom = max(rect[1] + rect[3] for rect in snapshot.values())
     flex_sum = sum(snapshot[name][3] for name in flex_names)
     leftover = height - _BOTTOM_MARGIN - (content_bottom - flex_sum)
-    # What was wrong: short sidebar panels overflowed the bottom margin because clamping to min flex height exceeded leftover space.
-    # How it happened: each flex control clamped independently to min_flex_height without checking the total deck budget.
-    # Why this change: scale against leftover budget and shrink from the bottom controls backward so controls fit within height.
+    # Flex heights scale to the leftover deck budget so short panels do not overflow the bottom margin.
     budget = max(0, leftover)
     new_heights: dict[str, int]
     if flex_sum <= 0:
@@ -312,9 +308,7 @@ class PythonSidebarController:
                 lambda c: c.addActivationEventListener(self._activation_listener),
                 "sidebar activation listener add failed",
             )
-        # What was wrong: an exception during initial refresh aborted __init__, leaking activation listeners and breaking panel disposal.
-        # How it happened: self.refresh() ran unprotected before controller assignment in PythonPanelElement.
-        # Why this change: catch and log exceptions from initial refresh so construction completes and listeners can be cleaned up.
+        # Initial refresh failures log but do not abort __init__ or leak activation listeners.
         try:
             self.refresh()
         except Exception:
@@ -411,9 +405,7 @@ class PythonSidebarController:
             log.debug("wire header toolbar failed", exc_info=True)
 
     def _schedule_refresh(self, entry: DiagnosticEntry | None = None, *, full: bool = False) -> None:
-        # What was wrong: inline refresh during diagnostic events scanned the sheet on every =PY() recalc.
-        # How it happened: record() invokes listeners synchronously, triggering full sheet cell scans inline.
-        # Why this change: coalesce refreshes and post to main thread, skipping if already disposed or pending.
+        # Coalesce diagnostic refreshes onto the main thread; synchronous =PY() recalc must not full-scan inline.
         if self._disposed:
             return
         if entry is not None and entry.workbook_key:
@@ -441,9 +433,7 @@ class PythonSidebarController:
         except Exception:
             log.exception("python sidebar scheduled refresh failed")
 
-    # What was wrong: _calc_document fell back to desktop active Calc document, binding wrong documents or Writer frames to Calc.
-    # How it happened: get_calc_document_from_ctx was called when frame resolve failed or when resolving outside the frame.
-    # Why this change: resolve only via frame.getController().getModel(), returning None if not Calc or resolve fails.
+    # Calc model comes only from this sidebar frame's controller; no desktop active-document fallback.
     def _calc_document(self) -> Any | None:
         """Return the Calc model for this sidebar frame, or None for Writer frames and failed resolves."""
         frame = self.frame

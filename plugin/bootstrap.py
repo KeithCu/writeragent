@@ -85,14 +85,7 @@ def bootstrap_extension(
     if _bootstrap_state is BootstrapState.BOOTSTRAPPING:
         return
 
-    # What was wrong: _init_lock wrapped only the _initialized recheck, then
-    # released before any init work.
-    # How it happened: _bootstrapping was added around the old with-block and
-    # the body was dedented out of the lock (bd07cb792).
-    # Why this change: bootstrap() already raises BOOTSTRAP_OFF_THREAD on any
-    # other thread, and a nested call on this thread returns at BOOTSTRAPPING.
-    # The lock excluded nobody. It is also not reentrant, so putting the body
-    # back under it would deadlock if a nested call ever reached it.
+    # BOOTSTRAPPING guards re-entry on this thread; _init_lock does not wrap the full init body.
     _bootstrap_state = BootstrapState.BOOTSTRAPPING
     try:
         from plugin.framework.queue_executor import install_from_environ, main

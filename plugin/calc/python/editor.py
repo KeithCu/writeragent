@@ -53,11 +53,8 @@ log = logging.getLogger(__name__)
 def _cell_formula_strings(cell: Any) -> list[str]:
     """Collect formula strings LibreOffice may expose for the cell.
 
-    Bugfix: Text cells containing PY(...) were incorrectly treated as PY formulas
-    because ScCellObj::getFormula (cellsuno.cxx lcl_GetInputString) returns the
-    literal input text for non-formula cells, which normalize_formula_string then
-    prepended '=' to. We now check getType() to return [] for non-formula cells, and
-    for untyped proxies/mocks, drop strings whose lstrip() does not start with '=' or '{'.
+    Non-formula cells can still return PY-looking getFormula() text; require FORMULA getType()
+    (or int stub 3). For untyped mocks, ignore strings that do not start with '=' or '{'.
     """
     content: bool | None = None
     if hasattr(cell, "getType"):
@@ -225,15 +222,12 @@ def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str
         data_args = parse_data_binding_text(data_binding_text)
         old_args = _existing_data_args(parsed_parts)
         # Leave the formula cell alone when only the code changed. Native follow
-        # save always sends Data: '' — rewriting =PY($A$1) used to emit =PY($A$1))
-        # (Err:508) and is unnecessary when the ranges did not change.
+        # Empty Data on save must not rewrite =PY($A$1) (Err:508) when ranges are unchanged.
         if data_args != old_args:
             # Keep the original ref token ($A$1). format_py_data_range strips $
             # which would make an absolute code ref relative after save.
             # build_data_suffix already includes the closing ')'.
-            # Bugfix: hardcoding PY rewrote =PYTHON( / =py( / add-in prefixes
-            # on a data change; render already keeps parts.prefix;
-            # this branch did not.
+            # Keep parsed_parts.prefix (=PYTHON(, add-in names, etc.) instead of hardcoding =PY(.
             prefix = parsed_parts.prefix if parsed_parts is not None and parsed_parts.prefix else f"={CALC_PYTHON_FN}("
             formula_cell.setFormula(f"{prefix}{code_ref.strip()}{build_data_suffix(data_args)}")
     return {"type": "saved", "ok": True, "save_as_plain": False, "status_ok_text": _("Saved code in {0}.").format(code_ref)}
@@ -247,9 +241,7 @@ def editor_load_save_as_plain(*, parsed_parts: PyFormula | None, initial_code: s
 
 
 def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
-    # Bugfix: Follow saves rewrite both code and formula cells (plus geometric
-    # recalc) without grouping, so undo only reverted the last write. Wrapping
-    # in WriterCompoundUndo groups all writes into a single undo step.
+    # Follow saves touch code and formula cells plus geometric recalc; compound undo groups one undo step.
     from plugin.doc.compound_undo import WriterCompoundUndo
 
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
@@ -263,9 +255,7 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new
         else:
             result = _apply_formula_save(cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
         if result.get("type") == "saved":
-            # Bugfix: Plain text saves previously skipped after_py_cell_save, leaving
-            # stale geometric registry records for downgraded =PY() cells. Reconciling
-            # here prunes them.
+            # Plain-text downgrades must run after_py_cell_save to prune stale geometric registry rows.
             from plugin.calc.python.geometric_recalc import after_py_cell_save
 
             after_py_cell_save(doc, cell)

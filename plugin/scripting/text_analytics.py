@@ -65,10 +65,7 @@ def resolve_text_analytics_document_inputs(
 def _get_writer_selection_text(doc: Any) -> str:
     """Extract text from the first selection range only (no tracked deletions).
 
-    What was wrong: selection scope could fall back to whole document text.
-    How it happened: previous implementation fell back to doc.getText() if selection was missing/empty.
-    Why this change: selection scope must strictly read the first selection range only and return ""
-    if nothing is selected or extraction fails, never falling back to doc.getText().
+    Selection scope reads only the first range and returns "" on failure; it does not fall back to full document text.
     """
     try:
         if not is_writer(doc):
@@ -95,11 +92,7 @@ def _get_writer_text(doc: Any) -> str:
         text = doc.getText()
         return get_string_without_tracked_deletions(text) or ""
     except Exception as exc:
-        # What was wrong: DisposedException was swallowed, and the secondary getString() fallback
-        # reintroduced tracked deletions and duplicated log warnings.
-        # How it happened: nested try/except caught Exception and tried doc.getText().getString().
-        # Why this change: reraise_if_disposed propagates DocumentDisposedError, and omitting getString()
-        # prevents deleted text leakage and duplicate logs.
+        # reraise_if_disposed stops on closed documents; getString() is omitted so tracked deletions do not leak into analysis text.
         reraise_if_disposed(exc)
         log.debug("text analytics: writer text extraction failed", exc_info=True)
         return ""
@@ -132,14 +125,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
         current_parts: list[str] = []
         heading_levels = {n.get("para_index"): n.get("text", "") for n in iter_heading_nodes(tree) if n.get("text")}
 
-        # What was wrong: the heading paragraph was both current_title and the first body
-        # line, so topics and sentiment counted the heading twice; the fallback also called
-        # _get_writer_text twice.
-        # How it happened: heading paragraphs were appended to current_parts, and the fallback
-        # condition used _get_writer_text(doc) twice in a list comprehension.
-        # Why this change: flush previous section, set current_title without appending the
-        # heading paragraph to body parts, emit title-only when non-empty and not preamble,
-        # and evaluate _get_writer_text once on fallback.
+        # Heading paragraphs become section titles only, not body lines, so topic/sentiment models do not double-count headings.
         def _flush() -> None:
             body = "\n".join(current_parts).strip()
             if body:
@@ -160,9 +146,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
                     elif ptext.strip():
                         current_parts.append(ptext)
             except Exception as exc:
-                # What was wrong: disposed document during paragraph iteration was ignored.
-                # How it happened: inner except Exception only logged debug without checking disposal.
-                # Why this change: reraise_if_disposed propagates DocumentDisposedError immediately.
+                # Propagate disposal during the paragraph walk instead of skipping silently.
                 reraise_if_disposed(exc)
                 log.debug("text analytics: skipped paragraph %s", para_index, exc_info=True)
             para_index += 1
@@ -175,9 +159,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
             return sections
         return _fallback()
     except Exception as exc:
-        # What was wrong: outer section extraction caught DisposedException and fell back to _get_writer_text.
-        # How it happened: generic except Exception caught DisposedException.
-        # Why this change: reraise_if_disposed propagates DocumentDisposedError before fallback.
+        # reraise_if_disposed runs before flat-text fallback so a closed document does not masquerade as empty sections.
         reraise_if_disposed(exc)
         log.debug("text analytics: section extraction failed", exc_info=True)
         # Safe fallback to flat text

@@ -909,13 +909,12 @@ def _preformat_exc_text(exc_info: _ExcInfo) -> str:
 def _install_safe_log_record_factory() -> None:
     """Install a log-record factory that never calls into a PyUNO proxy or UNO struct/exception.
 
-    A single PyUNO argument used to raise TypeError on Python 3.12+ while the
-    record was formatted. ``str(proxy)`` is also a UNO call (deep ``val2str``),
-    so formatting it under ``Handler.lock`` deadlocks against the UI thread's
-    SolarMutex. The factory replaces proxies and UNO structs/exceptions,
-    including ones nested in lists, tuples, and dicts, and formats ``exc_text``
-    here, outside that lock. ``Formatter.format`` skips ``formatException`` when
-    ``exc_text`` is already set.
+    PyUNO proxies in log args deadlock under Handler.lock on Python 3.12+.
+    ``str(proxy)`` is also a UNO call (deep ``val2str``), so formatting it
+    under that lock deadlocks against the UI thread's SolarMutex. The factory
+    replaces proxies and UNO structs/exceptions, including ones nested in
+    lists, tuples, and dicts, and formats ``exc_text`` here, outside that lock.
+    ``Formatter.format`` skips ``formatException`` when ``exc_text`` is already set.
     """
 
     def _install() -> bool:

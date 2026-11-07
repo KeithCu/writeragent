@@ -29,9 +29,7 @@ def compile_search_pattern(
     """
     flags = 0 if case_sensitive else re_mod.IGNORECASE
     try:
-        # Literal mode previously used str.lower() and sliced original text by lowercased
-        # offsets, which drifted on characters like 'İ'. Compiling both literal (via re.escape)
-        # and regex patterns into a single matcher keeps offsets matched directly to original text.
+        # Case-insensitive literals use re.IGNORECASE on escaped patterns so offsets stay on original text.
         return re_mod.compile(pattern if regex else re_mod.escape(pattern), flags)
     except re_mod.error as e:
         raise ValueError(f"Invalid regex: {e}") from e

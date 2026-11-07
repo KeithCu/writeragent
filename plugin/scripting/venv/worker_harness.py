@@ -43,13 +43,7 @@ from plugin.framework.ipc import (
 )
 from plugin.framework.child_runtime import die_with_parent
 
-# What was wrong: venv_sandbox was imported at module scope, and
-# claim_ipc_channel ran later in main(). The claim flushes sys.stdout onto
-# fd 1 before dup2, so an import-time print landed on the protocol pipe.
-# How it happened: b476c6899 claimed inside main() and left the sandbox
-# import above that call. Smolagents already shipped one such banner.
-# Why this change: the process entry claims before later imports. A library
-# import (tests) must not dup fd 1.
+# claim_ipc_channel runs before other scripting imports when this file is the main entry so stdout is not dup'd onto the IPC pipe before the claim. Library imports (tests) skip this block.
 if __name__ == "__main__":
     claim_ipc_channel()
 
@@ -117,13 +111,7 @@ def _handle_trusted_action(
     if emit_result_frame:
         assert stdout is not None
         req_id = str(request.get("id", ""))
-        # What was wrong: {"id": req_id, **resp} let a top-level id inside resp
-        # replace the request id. The host treats that as a mismatched terminal
-        # frame and kills the worker.
-        # How it happened: the heartbeat payload was built with id first. The
-        # non-heartbeat path already assigns response["id"] after the dict exists.
-        # Why this change: id is written after the spread, matching that path.
-        # resp today is only status, result, message, and traceback.
+        # Request id is assigned after merging resp so a key inside resp cannot override it and make the host kill the worker on a mismatch.
         # Packing fails before any byte hits stdout, so the pipe is still in
         # sync. An oversized result is a small error frame. Letting
         # IpcFrameError escape after EXEC_STARTED ends the worker with no

@@ -337,10 +337,7 @@ def _require_str_list(value: Any, label: str) -> list[str]:
 
 def _packet_parts(data: dict[str, Any]) -> tuple[dict[str, Any], Any, dict[str, Any]]:
     """Return ``(spec, data_range, context)`` from a trusted-action packet."""
-    # What was wrong: non-dict params became {}, so a malformed packet ran
-    # the helper with defaults and reported a misleading helper-level error.
-    # How it happened: the boundary coerced any non-dict value instead of rejecting it.
-    # Why this change: fail at the boundary like _require_str does for bad fields.
+    # Reject non-dict params at the packet boundary so malformed tool calls fail fast instead of running helpers with empty defaults.
     params = data.get("params")
     if params is not None and not isinstance(params, dict):
         raise ValueError("params must be a dict")

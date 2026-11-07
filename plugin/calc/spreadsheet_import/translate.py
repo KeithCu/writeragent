@@ -33,11 +33,8 @@ class _CodegenState:
     def __init__(self, cell_addr: str | None = None) -> None:
         self.cell_addr: str | None = cell_addr
         # Map canonical_key -> index in data array.
-        # Bugfix: in PR #3064 canonical() stopped uppercasing sheet names, so
-        # add_range() created duplicate entries for Sheet2.A1 vs SHEET2.A1.
-        # LibreOffice sheet names are case-insensitive. We dedupe using
-        # canonical_key() (casefolded sheet name) while preserving the first-seen
-        # canonical() address in _range_names for emitted formula data_ranges.
+        # LibreOffice sheet names are case-insensitive: dedupe data_ranges with
+        # canonical_key() while keeping the first-seen canonical() address for emission.
         self._ranges: dict[str, int] = {}
         self._range_names: list[str] = []
 
@@ -301,8 +298,7 @@ _P1_FUNCTION_EMITTERS: dict[str, Callable[[list[str]], str]] = {
     "TRUE": lambda _a: "True",
     "FALSE": lambda _a: "False",
     "PI": lambda _a: "math.pi",
-    # Omitted IF else-branch is FALSE in Excel and Calc. A 3-arg minimum
-    # used to report a legal IF(cond; val) as a parse failure.
+    # Omitted IF else-branch is FALSE in Excel and Calc; arity must allow two-arg IF(cond; val).
     "IF": _arity("IF", 2, 3, lambda a: f"({a[1]} if {a[0]} else False)" if len(a) == 2 else f"({a[1]} if {a[0]} else {a[2]})"),
     "IFS": _arity("IFS", 2, None, _emit_ifs),
     "SWITCH": _arity("SWITCH", 2, None, _emit_switch),

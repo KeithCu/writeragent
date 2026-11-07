@@ -122,9 +122,7 @@ class QueryTextListener(BaseTextListener):
         # ``is True`` so a MagicMock host (tests) is not treated as dead.
         if getattr(self.send_listener, "_panel_teardown", False) is True:
             return
-        # Bugfix: a text event with no source, or whose getModel() returned None,
-        # raised AttributeError on model.Text inside the per-keystroke callback;
-        # returning skips TEXT_UPDATED only for that event.
+        # Missing source or model skips TEXT_UPDATED for that keystroke instead of raising.
         source = getattr(rEvent, "Source", None)
         model: Any = getattr(source, "Model", None) if source is not None else None
         if not model and source is not None:
@@ -468,9 +466,7 @@ class SendButtonListener(BaseActionListener):
     def set_session(self, session: Any) -> None:
         """Swap the visible session after the in-flight turn has been aborted.
 
-        A mode change used to replace ``host.session`` while the turn was
-        still alive, and the next bind wrote the reply onto the transcript
-        just shown. Abort first. The turn keeps the session it started with.
+        Mode changes call abort_turn before swapping session so in-flight replies land on the old transcript.
         """
         from plugin.chatbot.tool_loop_actions import abort_turn
 
@@ -599,8 +595,9 @@ class SendButtonListener(BaseActionListener):
         """Show native grammar proofreader progress in the sidebar status field."""
         if self._panel_teardown or self.ctx is None:
             return
-        # grammar:status is process-global. A Writer proofreader pass used to
-        # paint "Grammar: …" on every open sidebar, including Calc and Draw.
+        # grammar:status is process-global. Without this doc-type gate a Writer
+        # proofreader pass would paint "Grammar: …" on every open sidebar,
+        # including Calc and Draw.
         if self.cached_doc_type != "writer":
             return
         text = format_grammar_status(data)
@@ -782,9 +779,7 @@ class SendButtonListener(BaseActionListener):
         if model and cached_doc_type in _COMPATIBLE_DOC_TYPES:
             return model
 
-        # Bugfix: previously logged ERROR on every miss, including harmless probes
-        # (e.g. Clear greeting or calc cell-link probes). Only _do_send and
-        # _do_send_extracted_peer pass log_failure=True, matching the sidebar error display.
+        # Document miss logging is gated by log_failure so harmless probes stay quiet.
         if log_failure:
             if model is None:
                 probe = "None"
@@ -831,8 +826,7 @@ class SendButtonListener(BaseActionListener):
 
         # Nested dispatch during an effect (e.g. Record start failure) must run
         # after remaining effects. RECORD_CLICKED emits UpdateUIEffect after
-        # StartCaptureEffect; a nested ERROR_OCCURRED used to restore Stop Rec
-        # on a listener that was no longer recording.
+        # Re-entrant dispatch queues nested events until the current effect batch finishes.
         is_reenter = self._dispatch_reenter is not None
         if not is_reenter:
             self._dispatch_reenter = []
@@ -950,11 +944,7 @@ class SendButtonListener(BaseActionListener):
                 self._send_cancellation = scope
                 if self._wait_for_take:
                     return
-                # Bug: drain used to run inside Send actionPerformed. On GTK,
-                # processEventsToIdle from that stack does not deliver a second
-                # dialog ActionEvent, so Stop looked enabled but never fired
-                # (streaming completed without interruption). Post to the next
-                # VCL tick so the listener returns first.
+                # Post _run_send_drain to the next VCL tick so GTK can deliver Stop while streaming.
                 self.queue_executor.post(self._run_send_drain)
 
             case StopSendEffect():
@@ -1423,11 +1413,7 @@ class SendButtonListener(BaseActionListener):
             )
 
         except Exception:
-            # Bugfix: this except used to put the Ask text back after
-            # add_user_message had already stored it, so the next Send appended
-            # the same user row again. The user row is inside
-            # _do_send_chat_with_tools / the mode handlers, which is why the check
-            # is the turn's tail, not a flag set in this function.
+            # Restore Ask text only when the turn did not already store the user row.
             from plugin.chatbot.tool_loop_actions import current_turn
 
             turn = current_turn(self)
@@ -1596,11 +1582,8 @@ def notify_stop_mouse_entered(send_listener: Any = None) -> None:
 def notify_stop_mouse_pressed(send_listener: Any) -> None:
     """Stop mousePressed: drop query restore and cancel if a send is in flight.
 
-    Bug: stream SelectAll called ``query.setFocus()`` every chunk. That aborts
-    the Stop ``ActionEvent`` on GTK (no ``STOP_CLICKED`` in the log,
-    generation ran to word199). mousePressed is earlier; latching cancel here is
-    belt-and-suspenders if ActionEvent still never fires. Change/Reject during
-    web-search approval stays on ActionEvent — do not treat those as Stop.
+    Stream append must not refocus the Ask box (GTK drops Stop ActionEvent). Latch cancel on
+    mousePressed. Web-search approval Change/Reject stays on ActionEvent only.
     """
     session = getattr(send_listener, "frame_session", None)
     if session is not None:
@@ -1764,15 +1747,7 @@ class ClearButtonListener(BaseActionListener):
             try:
                 greeting = get_greeting_for_document(model)
             except DocumentDisposedError:
-                # What was wrong: any exception became a hard-coded English
-                # sentence that matches none of the prompts.py greetings and
-                # skips _(), so JA/ES Clear showed English.
-                # How it happened: Clear runs while the sidebar is still up
-                # after the document closes. supportsService on that model
-                # raises DocumentDisposedError (doc_type.get_document_type →
-                # errors.uno_read re-raises it).
-                # Why this fixes it: None skips supportsService and returns
-                # the same translated Writer greeting as an unknown doc.
+                # Disposed document on Clear: get_greeting_for_document(None) keeps localized Writer greeting.
                 greeting = get_greeting_for_document(None)
 
         if self.send_listener and self.send_listener.rich_text_widget:

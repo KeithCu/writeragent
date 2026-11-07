@@ -75,9 +75,7 @@ ERROR_TYPES = {
     32767: {"code": "#N/A", "name": "#N/A", "description": "The value is not available. A lookup or reference did not find a match."},
 }
 
-# Bugfix: one case-insensitive display-token list. It includes #ERROR! and the
-# Err:NNN forms. "Err:502".upper() is "ERR:502", so the canonical spelling is
-# the dict value, not the key.
+# One case-insensitive map: keys are uppercased tokens; values keep canonical spelling (#ERROR!, Err:502, …).
 _ERROR_PATTERN_BY_UPPER = {token.upper(): token for token in (
     "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
     "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",

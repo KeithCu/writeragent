@@ -64,9 +64,7 @@ class MenuStatusPublisher:
     def add(self, control: Any, url: Any) -> None:
         """Register a status listener, deduplicating existing entries for the same control and URL."""
         with self._lock:
-            # What was wrong: re-registering a status listener for the same control and URL added duplicates.
-            # How it happened: addStatusListener unconditionally appended without deduplication.
-            # Why this change: drop existing entries matching uno_same and Complete URL before appending.
+            # Deduplicate status listeners by control and Complete URL before append.
             self._drop_status_listeners([(control, url)])
             self.listeners.append((control, url))
         # Send current state immediately
@@ -88,9 +86,7 @@ class MenuStatusPublisher:
 
     def _drop_status_listeners(self, pairs: list[tuple[Any, Any]]) -> None:
         # Caller holds self._lock.
-        # What was wrong: 'is' never matched PyUNO listener proxies.
-        # How it happened: each UNO upcall is a new proxy for the same object.
-        # Why this change: uno_same plus Complete is the match used for documents.
+        # Match listeners with uno_same and Complete URL, not identity (is).
         self.listeners[:] = [
             (lstnr, u)
             for lstnr, u in self.listeners
@@ -141,9 +137,7 @@ class MenuStatusPublisher:
             snapshot = list(self.listeners)
         failed = []
         for listener, url in snapshot:
-            # What was wrong: menu text retrieval and statusChanged were grouped in a single try block, so text errors treated the listener as dead.
-            # How it happened: get_menu_text exception caused the listener to be appended to failed and pruned from listeners.
-            # Why this change: isolate command/text lookup; log and skip on text failure without marking listener failed or pruning it.
+            # Lookup and statusChanged are separate; text lookup failure must not prune the listener.
             looked_up = self._lookup_menu_text(url, "publish")
             if looked_up is None:
                 continue
@@ -159,23 +153,12 @@ class MenuStatusPublisher:
                     e,
                 )
         if failed:
-            # What was wrong: this prune called uno_same on the pool worker.
-            # uno_same is @main_thread_only, so a dev build raised before the
-            # list was filtered and the icon refresh below never ran.
-            # How it happened: publish is @background and is only
-            # started with run_in_background. The unit test calls it on the
-            # main thread, where the guard does not fire.
-            # Why this change: post the comparison to the main thread. A direct
-            # call that is already on the main thread still prunes before return.
-            # post, not call: a blocking marshal during startup deadlocks
-            # AsyncCallback lazy-init, same as MenuIcons.apply.
+            # Prune failed listeners on the main thread; uno_same is main-thread-only.
             if main.is_current():
                 self._prune_failed_status_listeners(failed)
             else:
                 try:
-                    # What was wrong: prune post defaulted to the current send scope and was cancelled if user clicked Stop.
-                    # How it happened: main.post omitted bound_scope, inheriting the worker thread's copied contextvar.
-                    # Why this change: pass bound_scope=None because listener cleanup is UI maintenance, not send work.
+                    # Listener prune uses bound_scope=None so Stop does not cancel UI maintenance.
                     main.post(self._prune_failed_status_listeners, list(failed), bound_scope=None)
                 except Exception:
                     # UNO boundary: publish post to main thread
@@ -280,10 +263,7 @@ class MenuIcons:
             icon_px = resolve_menu_icon_pixel_size(ctx)
             image_type = image_type_for_pixel_size(icon_px)
 
-            # Each dispatch used to re-query every PNG and rewrite four image
-            # managers; the stamp skips that when the command-to-prefix map and the
-            # pixel size are unchanged, and it stays unset when a load or replace
-            # failed so the next click retries.
+            # Icon apply stamp skips PNG reload when command map and pixel size are unchanged.
             if self._icon_apply_signature(icon_cmds, icon_px) == self._icon_apply_stamp:
                 return
 
@@ -367,7 +347,5 @@ class MenuIcons:
         """
         from plugin.framework.queue_executor import main
 
-        # What was wrong: icon updates inherited the worker thread's send scope and were cancelled when Stop was clicked.
-        # How it happened: main.post omitted bound_scope, binding to the active send task contextvar.
-        # Why this change: pass bound_scope=None because menu icon application is UI maintenance, not send work.
+        # Menu icon refresh posts with bound_scope=None so Stop does not cancel it.
         main.post(self.apply, bound_scope=None)

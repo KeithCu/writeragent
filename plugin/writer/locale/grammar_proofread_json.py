@@ -37,8 +37,8 @@ def _parse_errors(raw: list[Any]) -> list[dict[str, Any]]:
             continue
         wrong = mapped.get("wrong")
         correct = mapped.get("correct")
-        # ``str(None)`` used to become reason "None" (rule id ``wa_g_None``) and a
-        # ``(grammar) None`` tooltip; a non-string ``wrong`` could even match text.
+        # Skip entries whose wrong/correct fields are not strings so None does not
+        # become a ``wa_g_None`` rule or spurious text match.
         if not isinstance(wrong, str) or not isinstance(correct, str):
             continue
         typ = mapped.get("type")

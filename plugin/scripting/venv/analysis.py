@@ -85,8 +85,8 @@ def _table(name: str, columns: list[Any], rows: list[list[Any]]) -> dict[str, An
 
 
 def _coerce_columns(value: Any, name: str, helper: str) -> list[str] | None | dict[str, Any]:
-    # A string column list was previously iterated as characters (e.g.
-    # metrics="Sales" -> S, a, l, e, s; agg="mean" -> tuple of letters).
+    # Column names must be a real string list: a bare string would be iterated
+    # character-by-character (metrics="Sales" -> S,a,l,e,s; agg="mean" -> letters).
     # None is already None from coerce_str_list
     try:
         return coerce_str_list(value, name=name)
@@ -145,8 +145,8 @@ def format_percent(values: Any, *, decimals: int = 1) -> Any:
 
 
 def _formatted_cells(formatted: Any) -> list[str]:
-    # The spec path previously iterated a scalar string (counting characters)
-    # and wrapped each grid row as a single cell, which egress stored as a tuple.
+    # Flatten nested grid rows into one string list. A scalar string must not be
+    # iterated by character, or egress would store one tuple per letter.
     if isinstance(formatted, (list, tuple)):
         cells: list[str] = []
         for item in formatted:
@@ -421,10 +421,8 @@ def detect_outliers(
         mask = col_mask.any(axis=1)
         per_column = {str(col): int(cast("Any", col_mask[col].sum())) for col in numeric_cols}
     elif method_name == "isolation_forest":
-        # Missing scikit-learn previously raised an unhandled ImportError when
-        # isolation_forest was requested, failing the run_analysis contract.
-        # Catching ImportError and returning MISSING_PACKAGE with package name
-        # "scikit-learn" matches the shared helper contract.
+        # Without this guard a missing scikit-learn install raises ImportError and
+        # breaks the run_analysis helper contract; return MISSING_PACKAGE instead.
         try:
             from sklearn.ensemble import IsolationForest
         except ImportError:
@@ -1245,9 +1243,9 @@ def monte_carlo(
 
     import pandas as pd
 
-    # The rename dict previously collapsed two "index" keys, and the summary
-    # stats were taken over the whole cumulative grid of an order shuffle whose
-    # terminal value does not vary.
+    # Build one summary row per simulation column. Two "index" keys in a rename
+    # dict would collapse; stats must target each path's terminal value, not the
+    # full cumulative grid (order shuffles do not change the final total).
     rows_data = []
     for col in cumsum.columns:
         path = cumsum[col]

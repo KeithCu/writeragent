@@ -150,8 +150,7 @@ def _import_slides_from_source(
         return format_error_payload(ToolExecutionError("PPTX contains no slides."))
 
     indices = slide_indices if slide_indices is not None else list(range(source_count))
-    # Reject a bad index before any slide is replaced. Doing it inside the
-    # loop used to commit earlier slides and then fail.
+    # Validate every index before replacing slides so a bad index does not commit partial imports.
     for src_index in indices:
         if src_index < 0 or src_index >= source_count:
             return format_error_payload(ToolExecutionError(f"PPTX slide index out of range: {src_index}"))

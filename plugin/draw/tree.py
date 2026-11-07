@@ -148,10 +148,8 @@ def _safe_attr(obj: Any, name: str, default: str = "") -> str:
         val = getattr(obj, name, default)
         return default if val is None else str(val)
     except Exception as exc:
-        # Bugfix: a closed document raises DisposedException from a shape attribute,
-        # and this except turned that into a missing page / not-found result.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing missing-page path.
+        # Closed documents raise DisposedException from shape attributes. Re-raise disposal
+        # for DOCUMENT_DISPOSED; other failures keep the missing-page default.
         if is_disposal(exc):
             raise
         return default
@@ -160,9 +158,8 @@ def _safe_attr(obj: Any, name: str, default: str = "") -> str:
 def _shape_text(shape: Any) -> str:
     if not hasattr(shape, "getString"):
         return ""
-    # Bugfix: a closed document raises from getString; the old bare except
-    # turned that into "" and the page looked empty. uno_read re-raises real
-    # disposal (DOCUMENT_DISPOSED) and keeps a missing text property as "".
+    # getString on a closed document raises disposal. uno_read re-raises that and treats
+    # a missing text property as empty string.
     return uno_read(lambda: shape.getString() or "", "")
 
 

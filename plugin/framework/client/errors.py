@@ -194,10 +194,7 @@ _OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requ
 
 # Explicit HTTP status indicator (e.g. "HTTP 429", "status 503", "HTTP status 429", "error code 503").
 # Bare 429 or 503 (such as "limit is 503 tokens" or "4290 tokens") must never match.
-# Bugfix: previously _OVERLOAD_STATUS_RE matched any bare \b(?:429|503)\b, which caused non-overload
-# errors like "limit is 503 tokens" to be wrongly identified as overload and retried until timeout.
-# We fix this by checking structured error codes (including OpenRouter error.code) and explicit
-# HTTP status indicators first, while the text fallback matches only phrases.
+# Overload detection requires structured HTTP status or phrase markers, not bare 429/503 substrings.
 _HTTP_STATUS_OVERLOAD_RE = re.compile(
     r"\b(?:https?|status(?:\s+code)?|http\s+error|error\s+code)\s*(?:is\s*|:\s*)?(?:429|503)\b",
     re.IGNORECASE,

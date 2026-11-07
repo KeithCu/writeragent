@@ -162,7 +162,8 @@ def insert_html_fragment_at_cursor(
         try:
             cursor.insertDocumentFromURL(file_url, filter_props)
         except Exception as e:
-            # Mid-script apply_document_content / insert_content paths used to bubble with no log.
+            # Log insertDocumentFromURL failures with filter and URL so mid-script
+            # apply paths surface the underlying UNO error.
             log.error(
                 "insertDocumentFromURL failed: type=%s str=%r repr=%r filter=%r url=%r",
                 type(e).__name__,

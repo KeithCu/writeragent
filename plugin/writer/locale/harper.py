@@ -42,8 +42,8 @@ _LINT_BUDGET_SEC = 15.0
 _DIALOG_LINT_BUDGET_SEC: float = 2.0
 _INIT_BUDGET_SEC = 5.0
 _UI_STATE_LOCK_WAIT_SEC: float = 0.05
-# Caller cancel is observed on this cadence. One ``Queue.get(15s)`` used to
-# keep ``runtime.lock`` after the linguistic wait had already given up.
+# Cancel is polled on this cadence so linguistic wait timeouts release
+# runtime.lock instead of blocking the next Harper caller for 15 seconds.
 _HARPER_CANCEL_POLL_SEC = 0.25
 _HARPER_CANCEL_JOIN_SEC = 1.0
 # close() unblocks read(); the reader should exit well inside this.
@@ -137,12 +137,11 @@ class HarperRuntime:
             client.close()
 
     def _acquire_state_lock(self) -> bool:
-        # Bugfix: The lint worker holds the lock across client.lint (and _initialize / close).
-        # Previously, is_ready, mark_idle, and ensure_async waited without a timeout; on the VCL
-        # thread that wait sits under SolarMutex after wait_while_pumping has returned, so the
-        # spelling dialog froze until the walk released. Bounding the main-thread acquire keeps
-        # the dialog responsive; a missed acquire writes nothing and the holder keeps the state it
-        # already set.
+        # The lint worker holds this lock across client.lint (and _initialize / close).
+        # On the UI thread an untimed wait sits under SolarMutex after wait_while_pumping
+        # has returned, so the spelling dialog would freeze until the walk released.
+        # A timed acquire on the main thread keeps the dialog responsive; a missed
+        # acquire writes nothing and the holder keeps the state it already set.
         from plugin.framework.queue_executor import main
 
         if main.is_current():
@@ -415,10 +414,9 @@ class HarperLSClient:
     def _join_stdout_thread(self, thread: threading.Thread | None) -> None:
         """Wait out the previous reader before publishing a new queue.
 
-        ``_read_loop`` used to ``put(None)`` on ``self.stdout_queue`` in
-        ``finally``. ``_initialize`` replaced that queue first, so the old
-        daemon's sentinel landed on the new queue and the next ``lint``
-        treated EOF as an empty diagnostic list.
+        ``_read_loop`` does not put a sentinel on ``stdout_queue`` in ``finally``
+        because ``_initialize`` may replace the queue while the prior daemon exits;
+        a stray None would make the next lint treat EOF as an empty diagnostic list.
         """
         if thread is None or not thread.is_alive():
             return
@@ -582,8 +580,8 @@ class HarperLSClient:
         not.
         """
         while _deadline_remaining(deadline) > 0:
-            # Death with nothing queued will not produce a publish. Waiting
-            # out the lint budget used to fall through to ``return []``.
+            # If harper-ls dies with an empty queue before publishDiagnostics,
+            # raise instead of returning an empty list that looks like a clean lint.
             if not self.is_alive() and self.stdout_queue.empty():
                 raise RuntimeError("harper-ls process died before publishDiagnostics")
             msg = self._read_and_handle(deadline)
@@ -842,9 +840,8 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
 
             wait_while_pumping(done, ctx, timeout=_deadline_remaining(deadline))
             if not done.is_set():
-                # The worker's ``Queue.get`` used to run until its own ~15s deadline
-                # and a second join waited that long again, so ``runtime.lock`` starved
-                # every other Harper caller. Cancel unblocks the poll in ``_read``.
+                # Cancel unblocks the worker's queue poll so join finishes within
+                # _HARPER_CANCEL_JOIN_SEC instead of holding runtime.lock for ~30s.
                 cancel_event.set()
                 handle.join(timeout=_HARPER_CANCEL_JOIN_SEC)
                 if not done.is_set():

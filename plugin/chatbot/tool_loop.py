@@ -261,11 +261,8 @@ def try_native_audio_stt_fallback(host: Any, error: Any) -> StreamErrorOutcome:
                 # Stop during fallback STT. None ends the drain. Do not show
                 # "No speech detected" or spawn another chat worker.
                 return StreamErrorOutcome.END
-            # What was wrong: STT fallback wrote to host.session instead of the turn's session.
-            # How it happened: _transcribe_audio pumps UI idle, letting the user switch modes
-            # or sessions mid-transcription while the turn is aborted.
-            # Why this fixes it: Bind turn.session and verify the turn is still alive and has
-            # identical message list identity before modifying session state or deleting the WAV.
+            # STT fallback runs across UI idle; only mutate turn.session when the turn is still
+            # alive and the message list identity matches.
             if (
                 turn.session is None
                 or not turn.alive
@@ -952,9 +949,8 @@ class ToolCallingMixin:
                 from plugin.framework.client.model_fetcher import set_native_vision_support
                 set_native_vision_support(turn_model, turn_endpoint, supported=False)
 
-            # What was wrong: Stripping unsupported image modified host.session instead of the turn's session.
-            # How it happened: Mode switch or session rebind points host.session to a new chat transcript.
-            # Why this fixes it: Use session_for_turn so modifications only apply to the active turn's session.
+            # Vision strip targets session_for_turn, not host.session, so mode switches do not
+            # mutate the wrong transcript.
             turn_session = session_for_turn(self._panel)
             image_msg = _last_user_message_with_image(turn_session)
             if image_msg is not None:
@@ -1076,8 +1072,7 @@ class ToolCallingMixin:
             # Read config once for web research thinking display
             show_search_thinking = as_bool(get_config("chatbot.show_search_thinking"))
 
-            # Bugfix: toolkit None used to abort a chat that the event-driven drain does
-            # not pump; the first LLM worker used to start before the drain was armed.
+            # toolkit may be None in tests; the drain still arms before the first LLM worker runs.
             toolkit = get_toolkit(self._panel.ctx)
 
             # Check once whether execute_tool_fn accepts status_callback
@@ -1088,8 +1083,7 @@ class ToolCallingMixin:
 
             self._refresh_active_tools_for_session()
 
-            # Stop used to clear this batcher in finally without a last
-            # flush, dropping up to one batch interval of text.
+            # run_stream_drain_loop must flush the batcher on Stop so one interval of text is not lost.
             run_stream_drain_loop(
                 turn.queue,
                 toolkit,

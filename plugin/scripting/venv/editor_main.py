@@ -369,11 +369,7 @@ class MonacoEditorApi:
             return self._completion_gen
 
     def _run_completion(self, code: str, line: int, column: int, gen: int) -> dict[str, Any] | None:
-        # Bugfix: A hung ThreadPoolExecutor worker never became free, every later
-        # completion blocked the API thread for 5 seconds, and concurrent.futures'
-        # non-daemon atexit join kept the process alive so the host treated it as
-        # healthy. Spawning a raw daemon thread allows abandoning a stuck worker
-        # without blocking process exit or queueing behind a deadlocked thread.
+        # Jedi completions run on a daemon thread so a hung worker does not block later requests or keep the editor process alive at exit.
         if self._jedi is None and jedi is None:
             return {"items": []}
 
@@ -414,12 +410,7 @@ class MonacoEditorApi:
             log.warning("Jedi completions timed out or failed")
             return {"items": []}
 
-        # Bugfix: When completions finish within the timeout, the worker thread
-        # signalled `done` from its `finally:` block, but `done.wait()` unblocked
-        # the caller while the worker was still unwinding. A subsequent completion
-        # request arriving immediately after observed `_jedi_thread.is_alive()` as
-        # True and was rejected as in-flight. Joining the finished worker ensures
-        # its thread lifecycle has completed before returning.
+        # worker.join() after done.wait() so the next completion does not see a still-alive _jedi_thread during unwind.
         worker.join()
 
         return box.get("result", {"items": []})
@@ -533,8 +524,7 @@ def _bind_window_events(window: Any) -> None:
 def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | None:
     """Map a request path to a file, or None.
 
-    ``/vs//etc/passwd`` used to make path[4:] absolute, and os.path.join then
-    dropped the rocher root. ``/vs/../../`` escaped after normpath.
+    Reject ``..`` and absolute segments under ``/vs/`` so static assets cannot escape the rocher root.
     """
     if url_path in ("/", "/index.html"):
         return os.path.join(assets, "index.html")

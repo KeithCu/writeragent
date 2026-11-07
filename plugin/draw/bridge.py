@@ -58,10 +58,8 @@ def _draw_page_container(doc: Any) -> Any | None:
     if hasattr(doc, "getDrawPages"):
         return uno_read(lambda: doc.getDrawPages(), None)
     if hasattr(doc, "getDrawPage"):
-        # Bugfix: a closed document raises DisposedException from getDrawPage(),
-        # and the old except turned that into a missing page / not-found result.
-        # Real disposal leaves as DocumentDisposedError (execute_safe reports
-        # DOCUMENT_DISPOSED); any other failure stays on the missing-page path.
+        # getDrawPage on a closed document raises disposal. Propagate DOCUMENT_DISPOSED;
+        # other failures become a missing page (None).
         page = uno_read(lambda: doc.getDrawPage(), None)
         if page is not None:
             return _SingleDrawPageContainer(page)
@@ -97,10 +95,8 @@ class DrawBridge:
                     if hasattr(sheet, "DrawPage"):
                         return sheet.DrawPage
             except Exception as exc:
-                # Bugfix: a closed spreadsheet raises DisposedException from the active sheet draw page,
-                # and this except turned that into a missing page / not-found result.
-                # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-                # Any other failure stays on the existing missing-page path.
+                # A closed Calc doc raises disposal from the active sheet draw page. Re-raise
+                # disposal; swallow other errors and continue the missing-page path.
                 if is_disposal(exc):
                     raise
         controller = self.doc.getCurrentController()
@@ -125,9 +121,8 @@ class DrawBridge:
         """Resolve a draw page by index for tool ``execute()``.
 
         One bridge per call: explicit index, else ``active_page_index``, else
-        ``get_active_page_index()``. Connect, group, and delete used to ignore
-        ``ctx.active_page_index``. ``ToolExecutionError`` is what ``execute_safe``
-        returns without a ``Tool execution failed:`` prefix.
+        ``get_active_page_index()``. Tools must honor ``ctx.active_page_index``.
+        ``ToolExecutionError`` is what ``execute_safe`` returns without a ``Tool execution failed:`` prefix.
 
         Disposal and any in-range ``getByIndex`` error propagate unchanged.
         """
@@ -191,10 +186,8 @@ class DrawBridge:
         source = pages.getByIndex(index)
         # DrawingDocument / PresentationDocument implement XDrawPageDuplicator.
         new_page = self.doc.duplicate(source)
-        # Bugfix: duplicate() returning None was handed back as the new page, and
-        # switch=True still called set_current_page_index(index + 1). DuplicateSlide
-        # then reported success. move_slide already treats a None clone as failure.
-        # Raise before any view change.
+        # duplicate() must not return None as success or switch the view. Raise before
+        # any set_current_page_index, matching move_slide's None-clone handling.
         if new_page is None:
             raise RuntimeError("duplicate_slide: document duplicate() returned no page")
         if switch:
@@ -213,7 +206,7 @@ class DrawBridge:
         count = int(pages.getCount())
         if after_index is None:
             after_index = self.get_active_page_index()
-        # A bad after_index used to append (requested = count). Let int() raise.
+        # after_index must be a real int; invalid values raise via int(), not silent append.
         requested = int(after_index) + 1
         master = self._resolve_master(master_index=master_index, master_name=master_name)
         if master is None and (master_index is not None or master_name is not None):
@@ -224,10 +217,8 @@ class DrawBridge:
             try:
                 new_page.MasterPage = master
             except Exception as exc:
-                # Bugfix: a failed assignment was logged at debug and the new page was returned,
-                # while AddSlide removes the page when post-insert work fails. The caller then
-                # treated the insert as applied. Re-raise disposal without remove; otherwise
-                # remove the incomplete page and raise RuntimeError with the failure cause.
+                # Failed MasterPage assignment leaves a stray slide. Re-raise disposal; otherwise
+                # remove the new page and raise so callers do not treat the insert as success.
                 if is_disposal(exc):
                     raise
                 log.debug("insert_slide_from_master MasterPage: %s", exc)
@@ -393,12 +384,8 @@ class DrawBridge:
         try:
             self._bubble_page(pages, from_index, to_index)
         except Exception as exc:
-            # Bugfix: PageExchangeRollbackError means shapes may sit on the
-            # temp page which _exchange_page_contents deliberately did not remove,
-            # and returning False made MoveSlide say the move merely failed.
-            # Re-raising PageExchangeRollbackError and disposal lets callers report
-            # rollback failure or abort on a dead document, while returning False
-            # is kept for clean rollback.
+            # PageExchangeRollbackError or disposal means shapes may remain on the temp page.
+            # Re-raise those; return False only when rollback completed cleanly.
             if is_disposal(exc) or isinstance(exc, PageExchangeRollbackError):
                 raise
             log.debug("move_slide reorder failed: %s", exc)
@@ -421,21 +408,16 @@ class DrawBridge:
                 swapped.append(index)
                 index = neighbor
         except Exception as exc:
-            # Bugfix: another exchange after PageExchangeRollbackError moves
-            # shapes again on a deck whose rollback already failed, and a disposal
-            # during undo was logged and dropped while the original error was re-raised.
-            # Re-raise PageExchangeRollbackError and disposal immediately before or during undo.
+            # After PageExchangeRollbackError or disposal during reorder, do not continue swapping.
+            # Re-raise immediately before attempting undo exchanges.
             if isinstance(exc, PageExchangeRollbackError) or is_disposal(exc):
                 raise
             for prev in reversed(swapped):
                 try:
                     self._exchange_page_contents(pages.getByIndex(prev), pages.getByIndex(prev + step))
                 except Exception as undo_exc:
-                    # Bugfix: an ordinary failure from a reverse exchange was logged and the
-                    # loop continued, then the original error was re-raised. move_slide
-                    # treats that as a clean rollback and returns False, while that swap is
-                    # still applied. Stop. Disposal and PageExchangeRollbackError stay those
-                    # exceptions (the temporary page may still hold shapes).
+                    # A failed undo exchange must not fall through as a clean rollback. Stop and
+                    # raise PageExchangeRollbackError unless the failure is disposal or that type.
                     if isinstance(undo_exc, PageExchangeRollbackError) or is_disposal(undo_exc):
                         raise
                     raise PageExchangeRollbackError(
@@ -470,13 +452,8 @@ class DrawBridge:
             done.append((first_shapes, temp, second))
             self._swap_page_meta(first, second)
         except Exception as exc:
-            # Bugfix: rollback used to return False for a disposal, and this except
-            # then raised PageExchangeRollbackError from the original error, so
-            # execute_safe saw a RuntimeError and not DOCUMENT_DISPOSED. Attempt
-            # rollback; if rollback raises disposal or the original error was disposal,
-            # re-raise disposal. Otherwise wrap failed rollback in PageExchangeRollbackError.
-            # rollback_failed stays set when rollback does not return True, including when
-            # rollback raises, so finally does not delete the temp page that still holds shapes.
+            # Disposal during exchange or rollback must surface as DOCUMENT_DISPOSED, not
+            # PageExchangeRollbackError. rollback_failed keeps the temp page when shapes remain.
             try:
                 rolled_back = self._rollback_exchange(done)
             except Exception as rollback_exc:
@@ -512,10 +489,8 @@ class DrawBridge:
                 self._move_shapes(shapes, dest, src)
             return True
         except Exception as exc:
-            # Bugfix: this except returned False for every failure, including
-            # DisposedException, which caused the caller to wrap a closed document
-            # as PageExchangeRollbackError instead of propagating disposal.
-            # Re-raising disposal allows DOCUMENT_DISPOSED to be recognized.
+            # Rollback failures include disposal. Re-raise disposal instead of returning False
+            # so callers see DOCUMENT_DISPOSED rather than PageExchangeRollbackError.
             if is_disposal(exc):
                 raise
             log.exception("move_slide restore exchanged pages failed")
@@ -708,12 +683,8 @@ class DrawBridge:
                 return
 
     def _swap_notes(self, first: Any, second: Any) -> None:
-        # Bugfix: None means this page has no notes shape (find_notes_shape / getNotesPage),
-        # which notes.py already treats as a real state. Returning when only one side was
-        # None left that text on the page object after shapes moved to the neighbor. Notes
-        # are not shapes, so shape rollback never moved them. Raising before any write lets
-        # _swap_page_meta undo name and props and lets _exchange_page_contents restore shapes.
-        # Empty text is not content to lose, so empty against None returns safely.
+        # None notes shape is valid; asymmetric None with non-empty notes must raise before
+        # writes because notes are not moved with shapes. Empty versus None is a no-op.
         text_first = notes_text(first)
         text_second = notes_text(second)
         if text_first == text_second:
@@ -808,9 +779,7 @@ class DrawBridge:
                 controller.setCurrentPage(page)
                 return True
             except Exception as exc:
-                # Bugfix: setCurrentPage disposal was logged and turned into False,
-                # so duplicate_slide and insert continued as if only the view switch had failed.
-                # Re-raising disposal propagates document disposal to callers.
+                # setCurrentPage disposal must propagate, not return False as a view-switch miss.
                 if is_disposal(exc):
                     raise
                 log.debug("set_current_page_index failed: %s", exc)
@@ -840,10 +809,8 @@ class DrawBridge:
                     if uno_same(pages.getByIndex(i), page):
                         return i
         except Exception as exc:
-            # Bugfix: a closed document raises DisposedException from get_active_page(),
-            # and this except turned that into a missing page / not-found result.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing missing-page path.
+            # get_active_page on a closed document raises disposal. Re-raise that; other
+            # failures log and fall through to the default index.
             if is_disposal(exc):
                 raise
             log.debug("get_active_page_index failed", exc_info=True)
@@ -996,12 +963,8 @@ def get_draw_context_for_chat(model: Any, max_context: int = 8000, ctx: Any | No
             for address, s in shapes:
                 ctx_str += _shape_summary_line(address, s) + "\n"
 
-        # Bugfix: the parameter was accepted and document_helpers passed
-        # max_chars / max_context, but the body returned the whole active-page
-        # summary, so a shape-heavy slide or long speaker notes exceeded
-        # CHAT_DOCUMENT_CONTEXT_MAX_CHARS on every prompt. The prefix matches
-        # Writer's full-text cap. truncate_chat_context forces negative limit to 0
-        # so the slice cannot keep the tail.
+        # Active-page context must respect max_context like Writer text. truncate_chat_context
+        # caps the full summary including shapes and speaker notes.
         return truncate_chat_context(ctx_str, max_context)
     except DocumentDisposedError:
         raise

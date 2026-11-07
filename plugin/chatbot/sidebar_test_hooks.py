@@ -320,11 +320,8 @@ def _write_stub_injected_wav(recorder: Any, inject: str | None) -> None:
 
 
 def try_stub_initialize(recorder: Any) -> bool:
-    # Bugfix: the control file lives at a predictable path under /tmp.
-    # Another local user can create it before this one does.
-    # {"skip": true, "wav": "..."} turned the microphone off and
-    # copied that file into the take that is sent to the model. Only
-    # a test soffice sets WRITERAGENT_TESTING.
+    # Stub recorder control under /tmp is honored only when WRITERAGENT_TESTING is set,
+    # so untrusted skip/wav injection cannot affect production.
     ctrl = read_stub_recorder_control()
     if not ctrl.get("skip"):
         # This take spawns a real child, so try_stub_stop must reap it.
@@ -975,13 +972,8 @@ def _apply_fake_tts(mode: str) -> None:
             setattr(fake_end_utterance, "_writeragent_fake_tts", True)
 
             def fake_stop_speech(*args: Any, **kwargs: Any) -> None:
-                # What was wrong: on_complete was skipped after a fake hold/stop even though the child was reaped.
-                # How it happened: stop_speech cancels Utterance.scope and SIGKILLs before it returns.
-                # The tts-speak thread wakes from communicate/wait, _end_utterance sees the cancelled scope,
-                # returns False, and never calls on_complete. The restore below that call ran too late. A slow
-                # tts-cleanup thread start (CI xdist) makes the window likely. The 2s wait cannot help.
-                # Why this fixes it: the scope restore is published before this lock is released, and
-                # fake_end_utterance takes the same lock, so the worker observes the restored scope.
+                # Restore Utterance.scope under _FAKE_TTS_LOCK before stop returns so fake_end_utterance
+                # still calls on_complete after SIGKILL/cancel.
                 with _FAKE_TTS_LOCK:
                     try:
                         cur_utt = getattr(tts_service, "_current", None)
@@ -1126,9 +1118,8 @@ def handle_debug_sidebar_command(command: str) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
     ``DispatchHandler`` runs on the URP thread. ``WRITERAGENT_TESTING=1`` makes
-    ``MainThread.post`` inline, so Stop Rec used to start ``_do_send`` off
-    the VCL thread and freeze on ``Getting document...``. Marshal FSM work onto
-    the listener's executor (VCL) before StartSendEffect posts the drain.
+    With WRITERAGENT_TESTING, MainThread.post is inline; marshal FSM work onto the VCL
+    executor before StartSendEffect so Stop Rec does not run _do_send off-thread.
     ``OPEN_CALC`` uses the same post-to-VCL rule: factory ``scalc`` over URP
     after a Writer deck never returns.
     """
@@ -1584,8 +1575,7 @@ def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
     only the no-frame, one-deck debug fallback. A frame miss (including
     ``uno_same`` raising off the URP thread) that falls through to
     ``panels[0]`` is the leftover-Calc pad from Packet K: both the match
-    branch and the single-panel branch used to return the first panel
-    even when the caller had already named a frame.
+    A named frame miss must return None, not panels[0], when multiple decks exist.
     """
     _require_debug()
     panels = iter_live_chat_panels()
@@ -1922,7 +1912,7 @@ def send_listener(frame: Any = None, *, uid: str = "") -> Any:
         return sl
     # A named frame or uid already picked a deck. Do not substitute another
     # window's listener when that deck missed (uno_same off the URP thread
-    # used to fall through to panels[0] / the last adopted listener).
+    # must not fall through to panels[0] or another deck's listener).
     if frame is not None or panel is not None or uid or len(panels) > 1:
         return None
     with_popup = [
@@ -2106,7 +2096,7 @@ def send_listener_for_uid(uid: str) -> Any:
 
     Packet K inflate must not use soffice ``getCurrentComponent()`` when the
     URP client already named the Writer RuntimeUID. Leftover Calc after
-    Packet P / E12 stays current in soffice and used to eat INFLATE_HISTORY.
+    Resolve by uid so leftover Calc as getCurrentComponent does not bind inflate to the wrong deck.
     """
     _require_debug()
     token = str(uid or "").strip()

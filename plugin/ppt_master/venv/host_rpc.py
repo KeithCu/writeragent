@@ -133,9 +133,7 @@ def dispatch_worker_response(
         try:
             frame = pack_pickle_frame(llm_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except IpcFrameError as exc:
-            # An oversized LLM reply used to be written with no cap. The child
-            # read stops at DEFAULT_MAX_PAYLOAD_BYTES and leaves the rest on
-            # the pipe, so the next frame is garbage. Send a small error frame.
+            # Oversized LLM replies must pack under DEFAULT_MAX_PAYLOAD_BYTES or the next frame read is corrupt.
             frame = pack_pickle_frame(
                 {"status": "error", "id": call_id, "message": str(exc), "error": str(exc)},
                 max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
