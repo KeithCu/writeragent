@@ -282,6 +282,60 @@ class PanelVoiceController:
         log.info("Audio silence pause detected — treating as Stop Rec")
         self._panel.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
 
+    def on_capture_stopped(self, path: str | None) -> None:
+        """Handle completion of background stop reap and WAV commit."""
+        if self._panel_gone():
+            if path:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            return
+        self._panel._wait_for_take = False
+        self._panel.audio_wav_path = path
+
+        if path is None:
+            # Init-time Stop Rec (or failed capture) with no audio: end turn quietly.
+            from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
+
+            clear_pending_audio_wav(self._panel)
+            assign_send_outcome(self._panel, "stopped")
+            self._panel._close_turn_ui(speak=False)
+            return
+
+        if getattr(self._panel, "stop_requested", False):
+            from plugin.scripting.audio_recorder_service import clear_pending_audio_wav
+
+            assign_send_outcome(self._panel, "stopped")
+            try:
+                from plugin.audio.stt_service import uses_local_stt
+                from plugin.framework.client.model_fetcher import get_stt_model
+
+                local_stt = uses_local_stt()
+                stt_model = get_stt_model()
+                if (local_stt or stt_model) and self._panel.audio_wav_path:
+                    try:
+                        transcript = self._transcribe_audio(self._panel.audio_wav_path, stt_model)
+                        if transcript:
+                            typed_after = ""
+                            if self._panel.query_control and self._panel.query_control.getModel():
+                                from plugin.chatbot.dialogs import get_control_text
+
+                                typed_after = (get_control_text(self._panel.query_control) or "").strip()
+                            new_text = _join_voice_text(typed_after, transcript) if typed_after else transcript
+                            self._panel._restore_query_text(new_text)
+                            self._panel.sync_has_text_from_query()
+                    except Exception as exc:
+                        log.debug("Transcription failed on stop during reap: %s", exc)
+            finally:
+                clear_pending_audio_wav(self._panel)
+                self._panel._close_turn_ui(speak=False)
+            return
+
+        from plugin.chatbot.send_state import StartSendEffect
+
+        self._panel._interpret_effect(StartSendEffect())
+
     def _on_audio_recorder_error(self, msg: str) -> None:
         """Child error after ready, on the UI thread.
 

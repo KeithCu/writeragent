@@ -440,6 +440,8 @@ class TestSendDispose:
             on_auto_stop=None,
             on_silence_progress=None,
             on_error=None,
+            on_device_ready=None,
+            on_capture_stopped=None,
         )
 
     def test_mcp_result_after_teardown_does_not_append(self) -> None:
@@ -1576,6 +1578,31 @@ class TestHandsFreeRecord:
         assert listener.audio_wav_path is None
         assert not take.exists()
         assert listener.sidebar_state.send.is_busy is False
+
+    def test_stop_recording_pending_commit_defers_send_drain(self) -> None:
+        listener, _send_model = _hands_free_listener()
+        posted: list[Any] = []
+        listener.queue_executor.post = lambda fn, *args, **kwargs: posted.append(fn)
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())  # Record click
+
+        listener.audio_recorder.stop_recording.return_value = None
+        listener.audio_recorder.stop_deferred = True
+
+        notify_record_mouse_pressed(listener)
+        notify_record_mouse_released(listener)
+        listener.on_action_performed(MagicMock())  # Stop Rec
+
+        assert listener._wait_for_take is True
+        assert listener.audio_wav_path is None
+        assert len(posted) == 0
+
+        listener._voice.on_capture_stopped("/tmp/x.wav")
+        assert listener._wait_for_take is False
+        assert listener.audio_wav_path == "/tmp/x.wav"
+        assert len(posted) == 1
+        assert posted[0] == listener._run_send_drain
 
 class TestStopPreservesAudioWavPath:
     def test_stop_preserves_audio_wav_path_for_transcription(self) -> None:
@@ -2722,3 +2749,40 @@ def test_append_output_falls_back_to_response_control_without_session():
     with patch("plugin.chatbot.dialogs.get_control_text", return_value=""), patch("plugin.chatbot.dialogs.set_control_text") as set_text, patch.object(listener, "_scroll_response_to_bottom"):
         listener.append_output("\n/help line\n")
     set_text.assert_called_once_with(response, "\n/help line\n")
+
+
+def test_on_capture_stopped_when_stop_requested_clears_busy_in_real_fsm(tmp_path):
+    """Stop during reap ends the send cleanly and clears is_busy on the real send FSM (finding 1)."""
+    import os
+
+    listener = _make_send_listener()
+    wav_path = str(tmp_path / "test.wav")
+    with open(wav_path, "wb") as f:
+        f.write(b"fake-wav")
+
+    # Start recording
+    listener.dispatch(SendEvent(SendEventKind.RECORD_CLICKED))
+    assert listener.sidebar_state.send.is_recording is True
+
+    # User clicks Stop Rec: triggers stop, sets _wait_for_take
+    listener.audio_recorder = MagicMock()
+    listener.audio_recorder.stop_recording.return_value = None
+    listener.audio_recorder.stop_deferred = True
+
+    listener.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
+    assert listener._wait_for_take is True
+    assert listener.sidebar_state.send.is_busy is True
+
+    # While child is exiting, user clicks Stop: latches stop_requested
+    listener.dispatch(SendEvent(SendEventKind.STOP_CLICKED))
+    assert listener.stop_requested is True
+    assert listener.sidebar_state.send.is_busy is True
+
+    # Now background stop job completes and delivers the WAV path
+    listener._voice.on_capture_stopped(wav_path)
+
+    # Must clear _wait_for_take and clear is_busy on the real FSM
+    assert listener._wait_for_take is False
+    assert listener.sidebar_state.send.is_busy is False
+    assert not os.path.exists(wav_path)
+
