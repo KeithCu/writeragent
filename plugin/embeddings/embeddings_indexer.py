@@ -53,6 +53,7 @@ def _resolve_search_mode() -> str:
 
 def _index_worker(ctx: Any, folder_key: str, listing_root: str) -> None:
     try:
+        # The host delete must finish before the child writes to the same tree.
         maybe_upgrade_legacy_index(listing_root)
         model = get_embedding_model()
         maintain_folder_index_rpc(
