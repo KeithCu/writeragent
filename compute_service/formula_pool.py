@@ -29,7 +29,7 @@ from typing import Any, Generator
 
 from compute_service import error_codes as ec
 from compute_service.config import ComputeSettings
-from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, canonical_execute_mode, validate_session_id
+from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES, ExecuteRequestError, derive_execute_mode, validate_session_id
 from compute_service.worker_base import BaseProcessPool, BaseProcessWorker, PoolSingleton, bind_pool_singleton, resolve_override
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.child_runtime import error_dict
@@ -470,16 +470,10 @@ class FormulaProcessPool(BaseProcessPool):
         if self._is_shutdown or not self.workers:
             return error_dict(ec.SERVICE_SHUTDOWN, "Formula compute pool is shutting down.", req_id=req_id)
 
-        # One schema. A mode the HTTP layer missed must not be
-        # rewritten and run: that returned 200 for a kernel that kept no state.
         try:
-            mode = canonical_execute_mode(mode)
-            # HTTP rejects shared with no session id. Reject it here too, or
-            # the pool leases a worker and the child treats a missing id as isolated.
-            if mode == "shared" and (not isinstance(session_id, str) or not session_id.strip()):
-                raise ExecuteRequestError("mode='shared' requires a non-empty session_id.")
             if session_id:
-                validate_session_id(session_id)
+                session_id = validate_session_id(session_id)
+            mode = derive_execute_mode(session_id)
         except ExecuteRequestError as exc:
             return error_dict(ec.INVALID_REQUEST, str(exc), req_id=req_id)
 

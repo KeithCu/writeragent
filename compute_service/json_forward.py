@@ -41,9 +41,6 @@ _VISION_PART_NAMES = frozenset({"meta", "image"})
 _VISION_FORBIDDEN_META_KEYS = ("image", "image_b64")
 _ALLOWED_CTE = frozenset({"7bit", "8bit", "binary"})
 
-VALID_EXECUTE_MODES = frozenset({"isolated", "shared"})
-
-
 class ExecuteRequestError(ValueError):
     """Raised when an execute request or response does not match the one schema."""
 
@@ -81,18 +78,15 @@ def _reject_nonfinite_number(value: Any) -> None:
             _reject_nonfinite_number(v)
 
 
-def canonical_execute_mode(mode: Any) -> str:
-    """Missing mode is isolated. Every other value must be a real mode.
+def derive_execute_mode(session_id: str | None) -> str:
+    """Sticky shared when a non-empty *session_id* is present; else one-shot isolated.
 
-    Only ``None`` and ``""`` are omitted. ``false`` and ``0`` are not
-    missing, or the HTTP handler would run an isolated cell. Peel,
-    multipart, and the pool call this before the worker runs.
+    HTTP supplies *session_id* only via ``?session_id=``. Leftover ``mode`` in JSON
+    or multipart ``meta`` is ignored for routing; clients may still send it.
     """
-    if mode is None or mode == "":
-        return "isolated"
-    if isinstance(mode, str) and mode in VALID_EXECUTE_MODES:
-        return mode
-    raise ExecuteRequestError("mode must be 'isolated' or 'shared'.")
+    if isinstance(session_id, str) and session_id.strip():
+        return "shared"
+    return "isolated"
 
 
 def validate_session_id(session_id: Any) -> str:

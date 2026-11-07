@@ -34,7 +34,7 @@ from compute_service.json_forward import (
     ExecuteRequestParts,
     VisionRequestParts,
     _reject_nonfinite_number,
-    canonical_execute_mode,
+    derive_execute_mode,
     is_multipart_content_type,
     parse_execute_request,
     parse_multipart_vision,
@@ -789,23 +789,14 @@ def _handle_execute(environ: dict[str, Any], start_response: Any, settings: Comp
 
         # Parsed here, inside the 400 mapping, so a bad session_id is a client error.
         session_id = _parse_session_id(environ)
-
-        mode = canonical_execute_mode(parts.mode)
-        if mode == "shared" and not session_id:
-            raise ExecuteRequestError("mode='shared' requires a 'session_id' URL query parameter (?session_id=...).")
-        # session_id is only valid for shared mode. An isolated request
-        # with ?session_id= would skip the concurrency semaphore.
-        if mode != "shared" and session_id:
-            raise ExecuteRequestError("session_id URL query parameter is only permitted with mode='shared'.")
+        mode = derive_execute_mode(session_id)
 
         init_script = _validate_source_text(parts.init_script, limit=settings.max_code_chars, label="init_script", required=False, max_bytes=settings.max_body_bytes)
     except ExecuteRequestError as exc:
         code = exc.code if exc.code is not None else ec.BAD_REQUEST_BODY
         return _error(start_response, code, str(exc), req_id=req_id)
 
-    sid = session_id if mode == "shared" else None
-
-    result_payload = run_execute(code=code, data_json=parts.data_json, session_id=sid, mode=mode, init_script=init_script, req_id=req_id, decode_result=False, deadline=admission.deadline)
+    result_payload = run_execute(code=code, data_json=parts.data_json, session_id=session_id, mode=mode, init_script=init_script, req_id=req_id, decode_result=False, deadline=admission.deadline)
     return _send_execution_result(start_response, result_payload, req_id)
 
 
