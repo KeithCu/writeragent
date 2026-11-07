@@ -342,18 +342,12 @@ def forget_document_wiring(doc: Any) -> None:
         _listener_refs[:] = [lis for lis in _listener_refs if lis not in drop_set]
 
 
-def _container_wired(refs: list[Any], key: str, container: Any | None = None) -> list[Any]:
+def _container_matches(refs: list[Any], key: str, container: Any | None = None) -> list[Any]:
     """Return matching container listeners from ``refs``.
 
     Does not acquire ``_lock`` and does not read ``_listener_refs``.
     ``container is None`` skips ``uno_same``.
     """
-    if container is None:
-        return [
-            lis
-            for lis in refs
-            if isinstance(lis, NotebookFormContainerListener) and lis._doc_key_val == key
-        ]
     from plugin.framework.uno_context import uno_same
 
     return [
@@ -361,7 +355,7 @@ def _container_wired(refs: list[Any], key: str, container: Any | None = None) ->
         for lis in refs
         if isinstance(lis, NotebookFormContainerListener)
         and lis._doc_key_val == key
-        and uno_same(lis._container, container)
+        and (container is None or uno_same(lis._container, container))
     ]
 
 
@@ -386,11 +380,12 @@ def _claim_container(
     while True:
         with _lock:
             refs = list(_listener_refs)
-        matches = _container_wired(refs, key, container)
+        matches = _container_matches(refs, key, container)
         with _lock:
             if any(lis in _listener_refs for lis in matches):
                 return True
             if any(lis not in refs for lis in _listener_refs):
+                # another wire_all appended during the compare; rescan so only one pair survives (lost-race rule below)
                 continue
             if listener is not None and container_lis is not None:
                 _listener_refs.append(listener)
