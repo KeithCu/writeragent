@@ -1643,6 +1643,60 @@ def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
     harper_module.runtime.lock.release()
 
 
+def test_harper_try_lint_main_thread_budget_cancels() -> None:
+    recorded_deadline: list[float] = []
+    cancel_seen = threading.Event()
+
+    def fake_lint_now(
+        text: str,
+        bcp47: str = "en-US",
+        *,
+        deadline: float | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        del text, bcp47
+        if deadline is not None:
+            recorded_deadline.append(deadline)
+        limit = time.monotonic() + 5.0
+        while cancel_event is None or not cancel_event.is_set():
+            if time.monotonic() > limit:
+                raise AssertionError("cancel_event was not set")
+            time.sleep(0.02)
+        cancel_seen.set()
+        raise TimeoutError("Harper LSP operation cancelled")
+
+    t0 = time.monotonic()
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
+         patch.object(harper_module.runtime, "lint_now", side_effect=fake_lint_now), \
+         patch("plugin.writer.locale.harper.harper_ensure_ready_async"):
+        res = harper_try_lint("Hi.", "/tmp", ctx=object())
+    elapsed = time.monotonic() - t0
+
+    assert elapsed < 2.5
+    assert cancel_seen.is_set()
+    assert len(recorded_deadline) == 1
+    assert 1.5 < recorded_deadline[0] - t0 < 2.5
+    assert res is None
+
+
+def test_harper_try_lint_off_main_keeps_lint_budget() -> None:
+    recorded_timeout: list[float] = []
+
+    def fake_wait(done: threading.Event, ctx: object, *, timeout: float) -> bool:
+        del done, ctx
+        recorded_timeout.append(timeout)
+        return False
+
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
+         patch("plugin.framework.uno_context.wait_while_pumping", side_effect=fake_wait), \
+         patch("plugin.writer.locale.harper.harper_ensure_ready_async"):
+        res = harper_try_lint("Hi.", "/tmp", ctx=object())
+
+    assert len(recorded_timeout) == 1
+    assert recorded_timeout[0] > 14
+    assert res is None
+
+
 def test_lsp_range_to_offset_unicode_line_separator() -> None:
     text = "x\na\u2028b teh"
     assert lsp_range_to_offset(text, 1, 4) == 6

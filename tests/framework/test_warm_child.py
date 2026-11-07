@@ -288,6 +288,54 @@ def test_shutdown_all_kills_children_and_refuses_lease(tmp_path: Any, supervisor
         pass
 
 
+def test_shutdown_all_abandons_without_waiting(tmp_path: Any, supervisor: Supervisor) -> None:
+    from unittest.mock import MagicMock, patch
+
+    class SlowPopen:
+        def __init__(self) -> None:
+            self.pid = 99999
+            self.stdout = MagicMock()
+            self.stdin = MagicMock()
+            self.stderr = MagicMock()
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: float | None = None) -> int:
+            time.sleep(1.0)
+            return 0
+
+        def send_signal(self, sig: int) -> None:
+            pass
+
+        def kill(self) -> None:
+            pass
+
+        def terminate(self) -> None:
+            pass
+
+    proc = SlowPopen()
+    managed = ManagedSubprocess.wrap_existing(proc, label="slow-child")
+    warm = WarmChild(_spec(tmp_path, "pass"), supervisor=supervisor)
+    child = Child(managed, worker_name="test", worker_id=0)
+    warm._child = child
+
+    def fail_wait_once(*args: Any, **kwargs: Any) -> bool:
+        raise AssertionError("wait_once must not be called during abandon_for_quit")
+
+    def fail_finish_text(*args: Any, **kwargs: Any) -> str:
+        raise AssertionError("finish_text must not be called during abandon_for_quit")
+
+    with patch.object(managed, "wait_once", side_effect=fail_wait_once), \
+         patch("plugin.framework.managed_subprocess.StderrTail.finish_text", side_effect=fail_finish_text):
+        t0 = time.monotonic()
+        supervisor.shutdown_all()
+        elapsed = time.monotonic() - t0
+
+    assert elapsed < 0.4
+    assert warm._retired is True
+
+
 def test_shutdown_all_sweeps_managed_registry_when_spawner_never_started(monkeypatch) -> None:
     ms_calls = 0
 

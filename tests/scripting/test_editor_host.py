@@ -1823,6 +1823,41 @@ def test_is_running_captures_proc_once():
         assert pe.wait_for_ready(MagicMock(), timeout_sec=0.1) is False
 
 
+def test_wait_for_ready_never_ready_live_child_returns_false() -> None:
+    pe = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    t0 = time.monotonic()
+    assert pe.wait_for_ready(MagicMock(), timeout_sec=0.2) is False
+    assert time.monotonic() - t0 >= 0.15
+
+
+def test_wait_for_ready_event_set_returns_true_immediately() -> None:
+    pe = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    pe._ready_event.set()
+    t0 = time.monotonic()
+    assert pe.wait_for_ready(MagicMock(), timeout_sec=5.0) is True
+    assert time.monotonic() - t0 < 1.0
+
+
+def test_wait_for_ready_under_drain_owner_returns_false_near_deadline() -> None:
+    from plugin.framework.async_drain_guard import drain_owner_scope
+
+    pe = PersistentEditor()
+    proc = MagicMock()
+    proc.poll.return_value = None
+    pe._proc = proc
+    t0 = time.monotonic()
+    with drain_owner_scope("test"):
+        assert pe.wait_for_ready(MagicMock(), timeout_sec=0.3) is False
+    elapsed = time.monotonic() - t0
+    assert 0.25 <= elapsed < 1.0
+
+
 def test_start_drops_stderr_from_previous_generation():
     editor = PersistentEditor()
     editor._append_stderr_line("stale")

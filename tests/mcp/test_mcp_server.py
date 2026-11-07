@@ -742,37 +742,39 @@ def test_try_reserve_sse_after_stop_returns_none():
     assert reg.reserve() is None
 
 
-def test_http_server_stop_joins_threads_within_deadline():
+def test_http_server_stop_does_not_join_sse_thread():
     import threading
     import time
     from types import SimpleNamespace
 
-    from plugin.mcp.server import HttpServer, SseRegistry
+    from plugin.mcp.server import HttpServer
 
     srv = HttpServer(MagicMock(), port=0, host="127.0.0.1", use_ssl=False)
     srv._running = True
-    server_ns = SimpleNamespace(shutdown=MagicMock(), server_close=MagicMock(), sse_registry=SseRegistry())
+    mock_sse_registry = MagicMock()
+    server_ns = SimpleNamespace(
+        shutdown=MagicMock(),
+        server_close=MagicMock(),
+        sse_registry=mock_sse_registry,
+    )
     srv._server = server_ns
 
     blocker = threading.Event()
-    t1 = threading.Thread(target=blocker.wait, daemon=True)
-    t2 = threading.Thread(target=blocker.wait, daemon=True)
-    t1.start()
-    t2.start()
-
-    with server_ns.sse_registry.lock:
-        server_ns.sse_registry.threads.add(t1)
-        server_ns.sse_registry.threads.add(t2)
+    t = threading.Thread(target=lambda: blocker.wait(3.0), daemon=True)
+    t.start()
 
     start = time.monotonic()
     try:
         srv.stop()
     finally:
         blocker.set()
-        t1.join(timeout=0.5)
-        t2.join(timeout=0.5)
+        t.join(timeout=0.5)
     elapsed = time.monotonic() - start
-    assert elapsed < 2.5
+
+    assert elapsed < 1.0
+    server_ns.shutdown.assert_called_once()
+    server_ns.server_close.assert_called_once()
+    mock_sse_registry.stop_all.assert_called_once()
 
 
 def test_dispatch_resets_response_started_for_subsequent_requests():

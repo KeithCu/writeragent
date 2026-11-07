@@ -389,6 +389,22 @@ class WarmChild:
                 msg = f"{msg}\n{tail}"
         return error_dict(code, msg)
 
+    def abandon_for_quit(self) -> None:
+        with self._lifecycle_lock:
+            self._retired = True
+            self._killed_by_us = True
+            child = self._child
+            self._child = None
+            if child is None:
+                self._cancel_pending = True
+        if child is not None:
+            with child._once:
+                child._signaled = True
+                child._settled = True
+                child.managed.kill_tree()
+                child.managed.abandon()
+        self._supervisor._unregister(self)
+
     def retire(self) -> None:
         with self._lifecycle_lock:
             self._retired = True
@@ -840,9 +856,9 @@ class Supervisor:
                 children = list(self._registry)
             for warm in children:
                 try:
-                    warm.retire()
+                    warm.abandon_for_quit()
                 except Exception:
-                    log.exception("Error retiring warm child %s", warm.spec.name)
+                    log.exception("Error abandoning warm child %s for quit", warm.spec.name)
         from plugin.framework.managed_subprocess import shutdown_all as ms_shutdown_all
 
         # What was wrong: early return when the spawner never started skipped the managed sweep.

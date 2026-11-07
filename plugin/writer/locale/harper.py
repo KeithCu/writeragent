@@ -39,6 +39,7 @@ log = logging.getLogger("writeragent.grammar")
 _JSONRPC = "2.0"
 
 _LINT_BUDGET_SEC = 15.0
+_DIALOG_LINT_BUDGET_SEC: float = 2.0
 _INIT_BUDGET_SEC = 5.0
 # Caller cancel is observed on this cadence. One ``Queue.get(15s)`` used to
 # keep ``runtime.lock`` after the linguistic wait had already given up.
@@ -784,9 +785,13 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
             box: dict[str, Any] = {}
             done = threading.Event()
             cancel_event = threading.Event()
+            from plugin.framework.queue_executor import main
+
+            # VCL proofreading has no Stop, so the dialog budget is 2 s; Dummy-* stays 15 s.
+            budget = _DIALOG_LINT_BUDGET_SEC if main.is_current() else _LINT_BUDGET_SEC
             # One clock for the waiter and the worker. A late worker must not start
             # a fresh ``_LINT_BUDGET_SEC`` after the caller has already timed out.
-            deadline = time.monotonic() + _LINT_BUDGET_SEC
+            deadline = time.monotonic() + budget
 
             def _worker() -> None:
                 try:

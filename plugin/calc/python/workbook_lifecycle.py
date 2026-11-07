@@ -56,6 +56,9 @@ def rekey_listener(old: str, new: str) -> None:
             _LISTENERS[new] = listener
 
 
+_UNLOAD_RESET_TIMEOUT_SEC: int = 3
+
+
 def _is_reentry(res: Any) -> bool:
     return isinstance(res, dict) and res.get("status") == "error" and res.get("code") == "WORKER_REENTRY"
 
@@ -148,10 +151,26 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             log.warning("python_workbook_lifecycle: session %s still WORKER_REENTRY after retry timeout", sid)
 
     def _reset_one(self, sid: str) -> None:
-        res = reset_python_session(sid)
-        if _is_reentry(res):
-            from plugin.framework.worker_pool import run_in_background
+        from plugin.framework.worker_pool import run_in_background
 
+        res: Any = None
+
+        def _call() -> None:
+            nonlocal res
+            try:
+                res = reset_python_session(sid, timeout_sec=_UNLOAD_RESET_TIMEOUT_SEC)
+            except Exception:
+                log.debug("python_workbook_lifecycle: reset on unload raised for %s", sid, exc_info=True)
+
+        handle = run_in_background(_call, name="reset_python_session_unload", dedicated=True)
+        handle.join(_UNLOAD_RESET_TIMEOUT_SEC)
+
+        is_retry = (
+            isinstance(res, dict)
+            and res.get("status") == "error"
+            and res.get("code") in ("WORKER_REENTRY", "VENV_TIMEOUT")
+        )
+        if handle.is_alive() or is_retry:
             # A sleeping background job uses dedicated=True (AGENTS.md).
             # The retry aborts if a new listener appears for the same session (reopen).
             run_in_background(
@@ -163,12 +182,8 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
 
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
-        # OnUnload must finish a live reset before it returns. A background
-        # reset races a reopen of the same calc: URL and wipes the new kernel.
-        # reset_python_session returns without spawning when no child is alive,
-        # so this thread waits only for in-place IPC on a worker that already
-        # exists, and for any request already holding the pipe (bounded by
-        # that request's budget).
+        # The UI waits at most 3 s per id; the retry job finishes a timed-out
+        # reset and still drops the id if a new listener appeared.
         for sid in session_ids:
             if sid:
                 best_effort(lambda: self._reset_one(sid), "python_workbook_lifecycle: reset on unload")
