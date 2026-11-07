@@ -375,6 +375,9 @@ class SearchDialog:
                     self._update_rebuild_ui(_("No active folder resolved."), enable_rebuild_btn=True)
                     return
 
+                if self._run_cancel.is_cancelled():
+                    return
+
                 # Clear local cache files to force a full cold index rebuild
                 clear_folder_cache(listing_root)
 
@@ -447,8 +450,6 @@ class SearchDialog:
                         self._refresh_cache_status(d)
                 main.call(_do_refresh)
             except Exception as e:
-                if self._run_cancel.is_cancelled():
-                    return
                 log.exception("Cache rebuild failed")
                 self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
 
