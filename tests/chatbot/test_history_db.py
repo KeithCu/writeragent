@@ -205,6 +205,28 @@ def test_sqlite_closes_connection_and_saves_null_text(tmp_path, monkeypatch):
             conn.execute("SELECT 1")
 
 
+def test_sqlite_connect_sets_wal_and_synchronous_normal(tmp_path):
+    import sqlite3
+
+    from plugin.chatbot.history_db import SQLite3History
+
+    db_path = str(tmp_path / "history.db")
+    history = SQLite3History("sid", db_path)
+    history.add_message("user", "hi")
+
+    with history._connect() as conn:
+        journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        assert journal_mode.lower() == "wal"
+        synchronous = conn.execute("PRAGMA synchronous").fetchone()[0]
+        assert synchronous == 1
+
+    with sqlite3.connect(db_path) as raw_conn:
+        raw_synchronous = raw_conn.execute("PRAGMA synchronous").fetchone()[0]
+        assert raw_synchronous == 2
+
+    assert history.get_messages() == [{"role": "user", "content": "hi"}]
+
+
 def test_sqlite_skips_undecodable_row(tmp_path):
     from plugin.chatbot.history_db import SQLite3History
     import sqlite3

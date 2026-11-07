@@ -96,11 +96,21 @@ class SQLite3History:
 
     def _connect(self) -> closing[Any]:
         assert sqlite3 is not None
+        # Default FULL fsyncs every UI/drain commit; WAL persists, synchronous does
+        # not, so both pragmas run on every connect; WAL+NORMAL is process-crash
+        # consistent and a power loss can drop the last commit.
         # sqlite3.Connection's context manager commits or rolls back and does
         # not close. Each history call left a connection until GC. closing()
         # calls close() on the way out, including when execute raises. Every
         # connect in this file uses the same wrap.
-        return closing(sqlite3.connect(self.db_path))
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
+        except BaseException:
+            conn.close()
+            raise
+        return closing(conn)
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -276,7 +286,7 @@ class JSONHistory:
 
     def replace_messages(self, messages: list[dict[str, Any]]) -> None:
         """Replace this session file in one ``os.replace``."""
-        atomic_write_text(self.file_path, json.dumps(messages, indent=2), prefix=".history-", fsync=False)
+        atomic_write_text(self.file_path, json.dumps(messages, indent=2), prefix=".history-")
 
 
 # ---------------------------------------------------------------------------
