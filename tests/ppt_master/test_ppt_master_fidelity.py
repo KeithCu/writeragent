@@ -6,9 +6,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from PIL import Image
+import pytest
 
 from plugin.ppt_master.fidelity import (
     ProjectFidelityReport,
@@ -374,3 +377,31 @@ def test_evaluate_slide_fidelity_marshals_pptx_import_once(monkeypatch, tmp_path
 
     assert main_calls == 1
     import_fn.assert_called_once()
+
+
+@pytest.mark.parametrize("exc_type", ["timeout", "fnf"])
+def test_read_pdf_info_timeout_returns_size_only(tmp_path: Path, exc_type: str) -> None:
+    from plugin.ppt_master import fidelity
+    from plugin.ppt_master.fidelity import PdfInfo, read_pdf_info
+
+    pdf_file = tmp_path / "sample.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4 sample content 12345")
+    recorded_calls: list[tuple[Any, Any]] = []
+
+    def fake_run(args: Any, **kwargs: Any) -> Any:
+        recorded_calls.append((args, kwargs))
+        if exc_type == "timeout":
+            raise subprocess.TimeoutExpired(cmd=args, timeout=kwargs["timeout"])
+        raise FileNotFoundError("pdfinfo not found")
+
+    with patch.object(fidelity.subprocess, "run", side_effect=fake_run):
+        info = read_pdf_info(pdf_file)
+
+    assert info == PdfInfo(file_bytes=pdf_file.stat().st_size)
+    assert info.pages == 0
+    assert info.page_size_pts == ""
+    assert len(recorded_calls) == 1
+    args, kwargs = recorded_calls[0]
+    assert args == ["pdfinfo", str(pdf_file)]
+    assert kwargs.get("timeout") == 60
+    assert kwargs.get("check") is False

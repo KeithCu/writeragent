@@ -242,7 +242,11 @@ def read_pdf_info(pdf_path: Path) -> PdfInfo:
         return PdfInfo(file_bytes=0)
     info = PdfInfo(file_bytes=pdf_path.stat().st_size)
     # Argv list (no shell); path is a local fidelity helper input.
-    proc = subprocess.run(["pdfinfo", str(pdf_path)], capture_output=True, text=True, check=False)
+    # An unbounded pdfinfo hung this dev helper; a timeout or a missing binary leaves the size already captured, same as a nonzero exit.
+    try:
+        proc = subprocess.run(["pdfinfo", str(pdf_path)], capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return info
     if proc.returncode != 0:
         return info
     for line in proc.stdout.splitlines():

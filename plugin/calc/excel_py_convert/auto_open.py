@@ -285,14 +285,21 @@ def install_excel_py_auto_convert(ctx: Any) -> None:
                     try:
                         from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
 
-                        # First arg is the callable; passing ctx here made
-                        # main.call treat the UNO context as fn
-                        # (TypeError: 'pyuno' object is not callable on every
-                        # Calc OnLoadFinished, rewrite never ran).
-                        main.call(maybe_rewrite_collabora_py_formulas, doc)
+                        # What was wrong: Collabora PY rewrite never ran on open because
+                        # URP OnLoadFinished runs on an untagged Dummy thread that already
+                        # holds SolarMutex; main.call does not inline that thread, waits
+                        # 30s for an AsyncCallback the blocked main thread cannot run, and
+                        # the except below swallows TimeoutError.
+                        # How it happened: main.call only inlines _is_marshal_thread() (the
+                        # Python main thread), unlike main.run which checks is_current().
+                        # Why this change fixes it: main.run inlines when is_current() is true,
+                        # same as the geometric open above.
+                        # First arg is the callable; passing ctx here made main treat the
+                        # UNO context as fn (TypeError: 'pyuno' object is not callable).
+                        main.run(maybe_rewrite_collabora_py_formulas, doc)
                     except Exception:
                         # FIXME: this swallows marshal/rewrite failures (e.g. TypeError
-                        # from a mis-wired main.call) so UNO tests still
+                        # from a mis-wired main.run) so UNO tests still
                         # pass; only the log shows it. Narrow or re-raise after the
                         # listener is proven not to abort OnLoadFinished.
                         log.warning("collabora PY rewrite on open failed", exc_info=True)
