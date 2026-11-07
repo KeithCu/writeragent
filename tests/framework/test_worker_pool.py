@@ -63,10 +63,8 @@ def test_run_in_background_exception_in_error_callback():
 def test_async_process_init():
     ap = AsyncProcess(["ls", "-l"], stdout_cb=lambda x: None)
     assert ap.args == ["ls", "-l"]
-    assert ap._popen_kwargs["stdout"] == subprocess.PIPE
-    assert ap._popen_kwargs["stderr"] == subprocess.PIPE
-    assert ap._popen_kwargs["text"] is False
-    assert ap._popen_kwargs["bufsize"] == 0
+    assert ap.process is None
+    assert ap._env is None
     assert ap.is_running is False
 
 def test_async_process_start_success():
@@ -154,6 +152,7 @@ def test_async_process_start_error():
     with pytest.raises(ToolExecutionError) as exc:
         ap.start()
     assert "Failed to start process" in str(exc.value)
+    assert isinstance(exc.value.__cause__, FileNotFoundError)
 
 def test_async_process_start_reader_spawn_failure_kills_child(monkeypatch: pytest.MonkeyPatch):
     captured: list[subprocess.Popen[Any]] = []
@@ -164,7 +163,7 @@ def test_async_process_start_reader_spawn_failure_kills_child(monkeypatch: pytes
         captured.append(proc)
         return proc
 
-    monkeypatch.setattr(subprocess, "Popen", capturing_popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", capturing_popen)
 
     on_exit_called = False
 
@@ -207,7 +206,7 @@ def test_async_process_start_wait_spawn_failure_kills_child_and_clears_handles(m
         captured.append(proc)
         return proc
 
-    monkeypatch.setattr(subprocess, "Popen", capturing_popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", capturing_popen)
 
     on_exit_called = False
 
@@ -790,19 +789,59 @@ def test_async_process_replaces_undecodable_stderr():
     assert any("\ufffd" in line for line in stderr_lines)
 
 
-def test_async_process_does_not_mutate_caller_kwargs():
-    kwargs: dict[str, object] = {"close_fds": True}
-    AsyncProcess(["dummy"], **kwargs)
-    assert kwargs == {"close_fds": True}
+def test_async_process_spawn_uses_managed_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[tuple[Any, dict[str, Any]]] = []
 
+    def fake_popen(cmd: Any, **kwargs: Any) -> MagicMock:
+        captured.append((cmd, kwargs))
+        m = MagicMock()
+        m.stdout = None
+        m.stderr = None
+        m.stdin = None
+        m.pid = 99999
+        m.poll.return_value = None
+        m.wait.return_value = 0
+        return m
 
-def test_async_process_forces_binary_pipes():
-    """text=True used to keep encoding while the reader still decoded UTF-8 bytes."""
-    ap = AsyncProcess(["dummy"], text=True, encoding="latin-1", errors="strict", universal_newlines=True)
-    assert ap._popen_kwargs["text"] is False
-    assert "encoding" not in ap._popen_kwargs
-    assert "errors" not in ap._popen_kwargs
-    assert "universal_newlines" not in ap._popen_kwargs
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", fake_popen)
+
+    def fail_drain(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("start_stderr_drain should not be called")
+
+    monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", fail_drain)
+    monkeypatch.setattr("plugin.scripting.sandbox.detect_sandbox", lambda: "flatpak")
+    monkeypatch.setenv("WA_SENTINEL_AFTER", "leak")
+
+    caller_env = {"WA_MARK": "yes", "TUNNEL_TOKEN": "sekrit"}
+    ap = AsyncProcess(["cloudflared", "tunnel"], env=caller_env)
+    ap.start()
+
+    assert len(captured) == 1
+    cmd, kwargs = captured[0]
+    assert cmd == ["cloudflared", "tunnel"]
+    assert kwargs["stdin"] == subprocess.DEVNULL
+    assert kwargs["stdout"] == subprocess.PIPE
+    assert kwargs["stderr"] == subprocess.PIPE
+    assert kwargs["bufsize"] == 0
+    assert "text" not in kwargs
+    assert kwargs["env"] == {"WA_MARK": "yes", "TUNNEL_TOKEN": "sekrit"}
+    assert kwargs["env"] is not caller_env
+    assert "WA_SENTINEL_AFTER" not in kwargs["env"]
+    assert caller_env == {"WA_MARK": "yes", "TUNNEL_TOKEN": "sekrit"}
+    if sys.platform != "win32":
+        assert kwargs.get("start_new_session") is True
+    else:
+        from plugin.framework.subprocess_env import get_subprocess_creationflags
+
+        assert kwargs.get("creationflags") == get_subprocess_creationflags()["creationflags"]
+
+    ap2 = AsyncProcess(["cloudflared", "tunnel"], env=None)
+    ap2.start()
+    assert len(captured) == 2
+    assert captured[1][1]["env"] is None
+
+    with pytest.raises(TypeError):
+        AsyncProcess(["dummy"], creationflags=0)  # type: ignore[call-arg]
 
 
 def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -883,11 +922,6 @@ def test_superseded_child_does_not_notify_and_latest_does() -> None:
     proc.wait.return_value = 5
     ap._wait_for_exit(proc, None, None, 1)
     assert exits == [5]
-
-
-def test_async_process_keeps_caller_creationflags() -> None:
-    ap = AsyncProcess(["dummy"], creationflags=0)
-    assert ap._popen_kwargs["creationflags"] == 0
 
 
 def test_is_current_thread_is_false_for_pooled_handle() -> None:
