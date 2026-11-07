@@ -58,7 +58,7 @@ log = logging.getLogger("writeragent.notebook")
 # _lock serializes _listener_refs / _warned_no_container mutations (Dummy-2
 # XFilter and Dummy-3 OnViewCreated can overlap) and the one-shot global
 # _doc_listener install. Do not hold it across UNO (getFormController,
-# addActionListener).
+# addActionListener, uno_same).
 _listener_refs: list[Any] = []
 _warned_no_container: set[str] = set()
 
@@ -342,16 +342,56 @@ def forget_document_wiring(doc: Any) -> None:
         _listener_refs[:] = [lis for lis in _listener_refs if lis not in drop_set]
 
 
-def _container_wired(key: str, container: Any | None = None) -> bool:
-    """Caller holds ``_lock``. ``container is None`` skips ``uno_same``."""
+def _container_matches(refs: list[Any], key: str, container: Any | None = None) -> list[Any]:
+    """Return matching container listeners from ``refs``.
+
+    Does not acquire ``_lock`` and does not read ``_listener_refs``.
+    ``container is None`` skips ``uno_same``.
+    """
     from plugin.framework.uno_context import uno_same
 
-    return any(
-        isinstance(lis, NotebookFormContainerListener)
+    return [
+        lis
+        for lis in refs
+        if isinstance(lis, NotebookFormContainerListener)
         and lis._doc_key_val == key
         and (container is None or uno_same(lis._container, container))
-        for lis in _listener_refs
-    )
+    ]
+
+
+def _claim_container(
+    key: str,
+    container: Any | None = None,
+    listener: Any | None = None,
+    container_lis: Any | None = None,
+) -> bool:
+    """True if a snapshot match is still in ``_listener_refs``.
+
+    Bugfix: Previously, container comparisons ran under ``_lock``.
+    ``uno_same`` falls back to ``==`` and ``uno.isSame`` UNO calls, while
+    ``on_disposing`` and document-event handlers take ``_lock`` when already
+    holding SolarMutex, creating a lock-order inversion risk.
+    To fix this, we snapshot ``_listener_refs`` under ``_lock``, compare
+    containers outside ``_lock`` with ``uno_same``, and recheck listener
+    identity under ``_lock``. If another caller appended to ``_listener_refs``
+    during comparison, we retry; otherwise, if ``listener`` and ``container_lis``
+    are provided and no live match was found, we append both before returning False.
+    """
+    while True:
+        with _lock:
+            refs = list(_listener_refs)
+        matches = _container_matches(refs, key, container)
+        with _lock:
+            if any(lis in _listener_refs for lis in matches):
+                return True
+            if any(lis not in refs for lis in _listener_refs):
+                # another wire_all appended during the compare; rescan so only one pair survives (lost-race rule below)
+                continue
+            if listener is not None and container_lis is not None:
+                _listener_refs.append(listener)
+                _listener_refs.append(container_lis)
+                _warned_no_container.discard(key)
+            return False
 
 
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> int:
@@ -361,9 +401,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
     """
     key = doc_key(doc)
     if not new_view:
-        with _lock:
-            already_wired = _container_wired(key)
-        if already_wired:
+        if _claim_container(key):
             ensure_form_design_mode_off(doc)
             return 1
 
@@ -384,10 +422,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
             log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
         return 0
 
-    with _lock:
-        already_wired = _container_wired(key, container)
-
-    if already_wired:
+    if _claim_container(key, container):
         log.debug("notebook controls: form listener already attached doc=%s", key)
         return 1
 
@@ -410,13 +445,7 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
         _detach_wiring(container, listener, container_lis)
         return 0
 
-    with _lock:
-        already_wired = _container_wired(key, container)
-        if not already_wired:
-            _listener_refs.append(listener)
-            _listener_refs.append(container_lis)
-            _warned_no_container.discard(key)
-    if already_wired:
+    if _claim_container(key, container, listener, container_lis):
         # File Open (Dummy-2) and view creation can both get past the first
         # check. The other call kept its listener; take ours back off so one
         # ▶ click does not run the cell twice.
