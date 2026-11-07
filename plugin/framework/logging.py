@@ -38,6 +38,7 @@ import traceback
 import threading
 import logging
 from copy import deepcopy
+from types import TracebackType
 from typing import Any, TypedDict
 
 from plugin.framework.errors import ConfigError, format_error_payload
@@ -768,27 +769,50 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
     process_global("watchdog", _start)
 
 
+def _logged_uno_label(value: Any) -> str | None:
+    # LibreOffice UNO structs and exceptions are not the type named "pyuno".
+    # Their class names look like com.sun.star.uno.RuntimeException, and they
+    # carry a __pyunostruct__ mark. Asking Python to print one walks every
+    # field (including interface objects such as Context) and calls methods
+    # that need LibreOffice's UI lock (SolarMutex). If a background worker
+    # does that while the UI thread is waiting, both sides can freeze.
+    # This helper copies only the Message text and never calls str() or
+    # repr() on the object, so the log still names the error without
+    # walking those fields or taking that lock.
+    if type(value).__name__ == "pyuno":
+        return "<pyuno>"
+    if getattr(type(value), "__pyunostruct__", None) is not None:
+        message = getattr(value, "Message", "")
+        if not isinstance(message, str):
+            message = ""
+        return f"<UNO {type(value).__name__}: {message}>"
+    return None
+
+
 def _coerce_logged_value(value: Any) -> tuple[Any, bool]:
     """Return a logging-safe copy and whether it differs from ``value``.
 
     ``PyUNO_str`` runs in deep mode and calls ``getImplementationName``,
     ``getSupportedServiceNames``, and ``getTypes``. Those take SolarMutex.
     ``Handler.handle`` holds the handler lock across ``LogRecord.getMessage``,
-    which evaluates ``str(msg) % args``. A proxy left in the record deadlocks
-    the UI thread, which already holds SolarMutex, on that handler lock.
-    Replace the proxy with a string and do not call into it. Lists, tuples,
-    and dicts are walked because ``%s`` on a container stringifies their items.
+    which evaluates ``str(msg) % args``. A proxy or UNO struct left in the
+    record deadlocks the UI thread, which already holds SolarMutex, on that
+    handler lock. Replace the proxy or struct with a safe string label and do
+    not call into it. Lists, tuples, and dicts are walked because ``%s`` on a
+    container stringifies their items.
     """
-    if type(value).__name__ == "pyuno":
-        return "<pyuno>", True
+    label = _logged_uno_label(value)
+    if label is not None:
+        return label, True
     if isinstance(value, dict):
         changed = False
         rebuilt: dict[Any, Any] = {}
         for key, item in value.items():
             new_key = key
             key_changed = False
-            if type(key).__name__ == "pyuno":
-                new_key = "<pyuno>"
+            key_label = _logged_uno_label(key)
+            if key_label is not None:
+                new_key = key_label
                 key_changed = True
             new_item, item_changed = _coerce_logged_value(item)
             changed = changed or key_changed or item_changed
@@ -828,15 +852,70 @@ def _coerce_factory_slot(slots: list[Any] | dict[str, Any], key: int | str) -> b
     return changed
 
 
+_ExcInfo = tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None]
+
+
+def _preformat_exc_text(exc_info: _ExcInfo) -> str:
+    _, exc, tb = exc_info
+    if exc is None:
+        return logging.Formatter().formatException(exc_info)
+
+    current: BaseException | None = exc
+    chain: list[tuple[str | None, BaseException]] = []
+    seen: set[int] = set()
+    has_uno = False
+
+    while current is not None:
+        seen.add(id(current))
+        if getattr(type(current), "__pyunostruct__", None) is not None:
+            has_uno = True
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        suppress = getattr(current, "__suppress_context__", False)
+        if cause is not None and id(cause) not in seen:
+            chained_msg = "\n\nThe above exception was the direct cause of the following exception:\n\n"
+            chained_exc = cause
+        elif context is not None and not suppress and id(context) not in seen:
+            chained_msg = "\n\nDuring handling of the above exception, another exception occurred:\n\n"
+            chained_exc = context
+        else:
+            chained_msg = None
+            chained_exc = None
+        chain.append((chained_msg, current))
+        current = chained_exc
+
+    if not has_uno:
+        return logging.Formatter().formatException(exc_info)
+
+    parts: list[str] = []
+    for msg, link in reversed(chain):
+        if msg is not None:
+            parts.append(msg)
+        cur_tb = tb if link is exc else getattr(link, "__traceback__", None)
+        if cur_tb is not None:
+            tb_lines = "".join(traceback.format_tb(cur_tb))
+            if tb_lines:
+                parts.append("Traceback (most recent call last):\n")
+                parts.append(tb_lines)
+        label = _logged_uno_label(link)
+        if label is not None:
+            parts.append(label)
+        else:
+            link_msg = str(link)
+            parts.append(f"{type(link).__name__}: {link_msg}" if link_msg else type(link).__name__)
+    return "".join(parts)
+
+
 def _install_safe_log_record_factory() -> None:
-    """Install a log-record factory that never calls into a PyUNO proxy.
+    """Install a log-record factory that never calls into a PyUNO proxy or UNO struct/exception.
 
     A single PyUNO argument used to raise TypeError on Python 3.12+ while the
     record was formatted. ``str(proxy)`` is also a UNO call (deep ``val2str``),
     so formatting it under ``Handler.lock`` deadlocks against the UI thread's
-    SolarMutex. The factory replaces proxies, including ones nested in lists,
-    tuples, and dicts, and formats ``exc_text`` here, outside that lock.
-    ``Formatter.format`` skips ``formatException`` when ``exc_text`` is already set.
+    SolarMutex. The factory replaces proxies and UNO structs/exceptions,
+    including ones nested in lists, tuples, and dicts, and formats ``exc_text``
+    here, outside that lock. ``Formatter.format`` skips ``formatException`` when
+    ``exc_text`` is already set.
     """
 
     def _install() -> bool:
@@ -861,7 +940,7 @@ def _install_safe_log_record_factory() -> None:
                     kwargs = kwargs_copy
             record = _original_factory(*args, **kwargs)
             if record.exc_info and not record.exc_text:
-                record.exc_text = logging.Formatter().formatException(record.exc_info)
+                record.exc_text = _preformat_exc_text(record.exc_info)
             return record
 
         logging.setLogRecordFactory(safe_logRecordFactory)

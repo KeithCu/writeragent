@@ -15,7 +15,7 @@ See [`threading.md`](threading.md) and [`streaming-and-threading.md`](streaming-
 
 ### Logging PyUNO values
 
-The UI thread often calls `log.*` from a VCL callback that already holds SolarMutex. `Handler.handle` holds the handler lock across `LogRecord.getMessage`, which runs `str(msg) % args`. `PyUNO_str` is a UNO call (`getImplementationName`, supported services, types) and deadlocks if the main thread already owns SolarMutex. `plugin/framework/logging.py` installs a log-record factory that replaces PyUNO proxies with the string `"<pyuno>"` before handlers run—including values nested in lists, tuples, or dicts—and preformats `exc_text` in that factory so exception formatting does not run under the handler lock.
+The UI thread often calls `log.*` from a VCL callback that already holds SolarMutex. `Handler.handle` holds the handler lock across `LogRecord.getMessage`, which runs `str(msg) % args`. `PyUNO_str` is a UNO call (`getImplementationName`, supported services, types) and deadlocks if the main thread already owns SolarMutex. `plugin/framework/logging.py` installs a log-record factory that replaces PyUNO proxies with the string `"<pyuno>"` before handlers run—including values nested in lists, tuples, or dicts—and preformats `exc_text` in that factory so exception formatting does not run under the handler lock. `__pyunostruct__` values become `<UNO TypeName: Message>`; their `exc_text` is `format_tb` plus that label.
 
 ### Why Concurrency Bugs Are "Whack-a-Mole"
 Historically, threading bugs in this codebase were uncovered only after mysterious production hangs:
