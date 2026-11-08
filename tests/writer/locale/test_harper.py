@@ -1752,7 +1752,7 @@ def test_harper_client_lint_timeout_error_does_not_close_client() -> None:
 
 
 def test_harper_client_lint_timeout_resets_uri_and_drains_queue() -> None:
-    """TimeoutError in lint drains pending messages and resets document URI."""
+    """TimeoutError in lint drains pending messages and resets document URI without calling _write."""
     client = _bare_harper_client()
     orig_uri = client.uri
     client._doc_opened = True
@@ -1761,13 +1761,35 @@ def test_harper_client_lint_timeout_resets_uri_and_drains_queue() -> None:
     with patch.object(client, "is_alive", return_value=True), \
          patch.object(client, "_sync_document"), \
          patch.object(client, "_collect_diagnostics", side_effect=TimeoutError("dialog budget expired")), \
-         patch.object(client, "_write"):
+         patch.object(client, "_write") as mock_write:
         with pytest.raises(TimeoutError):
             client.lint("Hello world")
 
     assert client.uri != orig_uri
     assert not client._doc_opened
     assert client.stdout_queue.empty()
+    mock_write.assert_not_called()
+
+
+def test_harper_client_lint_timeout_with_blocking_write_succeeds_cleanup() -> None:
+    """A blocking _write does not hang timeout cleanup because _reset_document_uri does not write."""
+    client = _bare_harper_client()
+    orig_uri = client.uri
+    client._doc_opened = True
+
+    def blocking_write(_payload: str) -> None:
+        raise AssertionError("_write must not be called during timeout cleanup")
+
+    client._write = blocking_write
+
+    with patch.object(client, "is_alive", return_value=True), \
+         patch.object(client, "_sync_document"), \
+         patch.object(client, "_collect_diagnostics", side_effect=TimeoutError("dialog budget expired")):
+        with pytest.raises(TimeoutError):
+            client.lint("Hello world")
+
+    assert client.uri != orig_uri
+    assert not client._doc_opened
 
 
 @patch("plugin.framework.worker_pool.run_in_background")
@@ -1801,19 +1823,19 @@ def test_harper_try_lint_off_main_timeout_marks_idle_and_ensures(mock_bg: MagicM
 
 def test_harper_try_lint_off_main_ctx_timeout_closes_cached_client() -> None:
     """Off-main TimeoutError with ctx closes the client and evicts it from runtime.clients."""
-    mock_client = MagicMock()
-    mock_client.is_alive.return_value = True
+    client = _bare_harper_client()
     with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
+        harper_module.runtime.clients["/bin/harper-ls"] = client
         harper_module.runtime.state = HarperRuntimeState.READY
 
     with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
          patch.object(harper_module.runtime, "lint_now", side_effect=TimeoutError("worker timeout")), \
+         patch.object(client, "close") as mock_close, \
          patch("plugin.writer.locale.harper.harper_ensure_ready_async") as mock_ensure:
         res = harper_try_lint("He go to the store.", "/tmp", ctx=object())
 
     assert res is None
-    mock_client.close.assert_called_once()
+    mock_close.assert_called_once()
     assert "/bin/harper-ls" not in harper_module.runtime.clients
     assert harper_module.runtime.state is HarperRuntimeState.IDLE
     mock_ensure.assert_called_once()
@@ -1821,21 +1843,21 @@ def test_harper_try_lint_off_main_ctx_timeout_closes_cached_client() -> None:
 
 def test_harper_try_lint_ctx_none_main_thread_timeout_keeps_client(caplog: pytest.LogCaptureFixture) -> None:
     """Main-thread timeout with ctx=None returns None and keeps cached client alive."""
-    mock_client = MagicMock()
-    mock_client.is_alive.return_value = True
+    client = _bare_harper_client()
     with harper_module.runtime.lock:
-        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
+        harper_module.runtime.clients["/bin/harper-ls"] = client
         harper_module.runtime.state = HarperRuntimeState.READY
 
     caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
     with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
          patch.object(harper_module.runtime, "lint_now", side_effect=TimeoutError("dialog budget expired")), \
+         patch.object(client, "close") as mock_close, \
          patch("plugin.writer.locale.harper.harper_ensure_ready_async") as mock_ensure:
         res = harper_try_lint("He go to the store.", "/tmp", ctx=None)
 
     assert res is None
-    mock_client.close.assert_not_called()
-    assert harper_module.runtime.clients["/bin/harper-ls"] is mock_client
+    mock_close.assert_not_called()
+    assert harper_module.runtime.clients["/bin/harper-ls"] is client
     assert harper_module.runtime.state is HarperRuntimeState.READY
     mock_ensure.assert_not_called()
     assert any("reason='dialog_budget'" in r.message for r in caplog.records)
@@ -1863,6 +1885,42 @@ def test_harper_client_lint_after_drain_with_eof_sentinel_reinitializes() -> Non
 
     mock_init.assert_called_once()
     assert res == []
+
+
+def test_harper_runtime_shutdown_always_closes_clients() -> None:
+    """shutdown unconditionally closes cached clients even when called on main thread."""
+    runtime = harper_module.runtime
+    mock_client = MagicMock()
+    with runtime.lock:
+        runtime.clients["/bin/harper-ls"] = mock_client
+        runtime.state = HarperRuntimeState.READY
+
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True):
+        runtime.shutdown()
+
+    mock_client.close.assert_called_once()
+    assert not runtime.clients
+    assert runtime.state is HarperRuntimeState.IDLE
+
+
+def test_harper_try_lint_off_main_python_error_does_not_close_client() -> None:
+    """Non-timeout/OSError exception off-main marks idle and ensures without closing the client."""
+    client = _bare_harper_client()
+    with harper_module.runtime.lock:
+        harper_module.runtime.clients["/bin/harper-ls"] = client
+        harper_module.runtime.state = HarperRuntimeState.READY
+
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
+         patch.object(harper_module.runtime, "lint_now", side_effect=ValueError("unexpected parse bug")), \
+         patch.object(client, "close") as mock_close, \
+         patch("plugin.writer.locale.harper.harper_ensure_ready_async") as mock_ensure:
+        res = harper_try_lint("He go to the store.", "/tmp")
+
+    assert res is None
+    mock_close.assert_not_called()
+    assert harper_module.runtime.clients.get("/bin/harper-ls") is client
+    assert harper_module.runtime.state is HarperRuntimeState.IDLE
+    mock_ensure.assert_called_once()
 
 
 def test_harper_try_lint_off_main_keeps_lint_budget() -> None:

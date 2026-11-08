@@ -126,7 +126,18 @@ class HarperRuntime:
         self.failed_at = 0.0
         self.linting_client = None
 
-    def _close_all_clients(self) -> None:
+    def shutdown(self) -> None:
+        """Close every cached harper-ls client. Safe from tests and extension teardown."""
+        with self.lock:
+            clients = list(self.clients.values())
+            self.clients.clear()
+            self.state = HarperRuntimeState.IDLE
+            self.failed_at = 0.0
+        for client in clients:
+            client.close()
+
+    def close_clients(self) -> None:
+        """Close and discard all cached clients so ensure spawns a fresh process."""
         if not self._acquire_state_lock():
             log.debug("[harper] State lock busy; skipped closing clients on main thread")
             return
@@ -137,17 +148,6 @@ class HarperRuntime:
             self.lock.release()
         for client in clients:
             client.close()
-
-    def shutdown(self) -> None:
-        """Close every cached harper-ls client. Safe from tests and extension teardown."""
-        self._close_all_clients()
-        with self.lock:
-            self.state = HarperRuntimeState.IDLE
-            self.failed_at = 0.0
-
-    def close_clients(self) -> None:
-        """Close and discard all cached clients so ensure spawns a fresh process."""
-        self._close_all_clients()
 
     def _acquire_state_lock(self) -> bool:
         # The lint worker holds this lock across client.lint (and _initialize / close).
@@ -632,21 +632,23 @@ class HarperLSClient:
         return suggestions
 
     def _drain_stdout_queue(self) -> None:
-        while not self.stdout_queue.empty():
-            try:
+        # Rotating the document URI is the primary protection against stale
+        # diagnostic bleed; late responses may still arrive on stdout after this
+        # drain. This drain is best-effort cleanup of already-enqueued frames.
+        try:
+            while True:
                 self.stdout_queue.get_nowait()
-            except queue.Empty:
-                break
+        except queue.Empty:
+            pass
 
     def _reset_document_uri(self) -> None:
-        if self._doc_opened:
-            try:
-                self._write(_lsp_notification("textDocument/didClose", {"textDocument": {"uri": self.uri}}))
-            except (RuntimeError, OSError):
-                log.debug("[harper] didClose notification failed during doc reset", exc_info=True)
-            self.uri = f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
-            self._doc_opened = False
-            self._doc_version = 0
+        # Rotating the document URI prevents late diagnostic responses for the
+        # timed-out sentence from matching future lints. Do not send didClose:
+        # if the server's stdin pipe is full, a blocking _write under runtime.lock
+        # would wedge the caller (and the main thread in dialog lint).
+        self.uri = f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
+        self._doc_opened = False
+        self._doc_version = 0
 
     def lint(
         self,
@@ -905,9 +907,10 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
             grammar_obs("harper_try_lint_none", reason="dialog_budget", ensure_submitted=False)
             return None
 
-        # Off-main timeout or worker exception: close the stuck client so background
-        # ensure starts a fresh server rather than reusing a wedged process.
-        runtime.close_clients()
+        if isinstance(exc, (TimeoutError, OSError)):
+            # Off-main timeout or broken pipe: close the stuck client so background
+            # ensure starts a fresh server rather than reusing a wedged process.
+            runtime.close_clients()
 
         # restart=False: do not Popen on the linguistic thread. The
         # walk returns empty; background ensure restarts harper-ls.

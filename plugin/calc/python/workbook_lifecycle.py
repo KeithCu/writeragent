@@ -131,9 +131,6 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 for listener in _LISTENERS.values()
             )
 
-    def _abandon_if(self, sid: str) -> bool:
-        return self._session_has_new_listener(sid)
-
     def _retry_reset(self, sid: str) -> None:
         """Retry resetting a worker session that timed out or returned WORKER_REENTRY."""
         # Every caller waits for the pipe lock; this retry runs only after
@@ -149,10 +146,12 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
                 return
             try:
+                # _session_has_new_listener acquires _LOCK on the lock-wait thread.
+                # This is safe because _release_calc_state drops _LOCK before reset begins.
                 res = reset_python_session(
                     sid,
                     lease_wait_sec=_UNLOAD_RESET_TIMEOUT_SEC,
-                    abandon_if=lambda: self._abandon_if(sid),
+                    abandon_if=lambda: self._session_has_new_listener(sid),
                 )
             except Exception:
                 log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
@@ -163,11 +162,13 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             log.warning("python_workbook_lifecycle: session %s still busy or timed out after retry timeout", sid)
 
     def _reset_one(self, sid: str) -> None:
+        # _session_has_new_listener acquires _LOCK on the lock-wait thread.
+        # This is safe because _release_calc_state drops _LOCK before reset begins.
         res = reset_python_session(
             sid,
             timeout_sec=_UNLOAD_RESET_TIMEOUT_SEC,
             lease_wait_sec=_UNLOAD_RESET_TIMEOUT_SEC,
-            abandon_if=lambda: self._abandon_if(sid),
+            abandon_if=lambda: self._session_has_new_listener(sid),
         )
         if _should_retry(res):
             from plugin.framework.worker_pool import run_in_background

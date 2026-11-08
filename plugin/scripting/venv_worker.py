@@ -479,7 +479,7 @@ class PythonWorkerManager:
         while True:
             refused: dict[str, Any] | None = None
 
-            # Identity compare distinguishes our refusal from a WarmChild error dict with the same code.
+            # Identity compare distinguishes caller abandonment or local lease refusal from a WarmChild error dict with the same code.
             def _take_refusal() -> dict[str, Any] | None:
                 nonlocal refused
                 if abandon_if is not None and abandon_if():
