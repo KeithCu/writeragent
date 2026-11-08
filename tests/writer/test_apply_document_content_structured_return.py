@@ -124,53 +124,124 @@ def test_search_all_matches_no_match_errors(monkeypatch):
 # --- data-lo-para is a read report, not an instruction --------------------------------------
 
 
-def test_read_only_attribute_sent_back_is_flagged():
-    """The write path drops data-lo-para. Say so: a silent no-op is the failure this tool's
-    callers already get bitten by."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
+def test_execute_search_plain_content_has_empty_warnings(monkeypatch):
+    """Clean document writes return a status ok dict with an empty warnings list."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="foo", content="BAR")
+    assert res["status"] == "ok"
+    assert res["warnings"] == []
 
-    res = _note_read_only_attrs(
-        {"status": "ok", "message": "Replaced entire document."},
-        ['<p data-lo-para="margin-left:3.25cm">A quoted clause.</p>'])
 
-    assert res["ignored_attributes"] == ["data-lo-para"]
+def test_execute_search_dropped_attributes_generates_warnings(monkeypatch):
+    """Attributes dropped during write emit structured warnings with suggested tool calls.
+
+    The umbrella data-lo-para warning and specific paragraph property warnings are all emitted
+    with suggested_call targeting apply_style, and the legacy note message is appended.
+    """
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    content = '<p data-lo-para="text-align:center; color:#ff0000; margin-left:1cm; text-indent:2cm">x</p>'
+    res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="foo", content=content)
+    assert res["status"] == "ok"
+    assert "ignored_attributes" not in res
     assert "apply_style" in res["message"]
 
+    expected_codes = {
+        "data_lo_para_ignored",
+        "paragraph_alignment_ignored",
+        "paragraph_color_ignored",
+        "paragraph_margin_ignored",
+        "paragraph_indent_ignored",
+    }
+    actual_codes = {w["code"] for w in res["warnings"]}
+    assert actual_codes == expected_codes
 
-@pytest.mark.parametrize(
-    "value",
-    [
-        pytest.param("<p>A quoted clause.</p>", id="test_content_without_the_attribute_is_untouched"),
-        # Substring 'data-lo-para' in body text is not the attribute; do not flag ignored_attributes.
-        pytest.param("<p>The words data-lo-para describe a read-only report.</p>", id="test_body_text_mentioning_data_lo_para_is_not_a_false_positive"),
-    ],
-)
-def test_content_without_the_attribute_is_untouched(value):
-    from plugin.writer.apply_document_content import _note_read_only_attrs
-
-    original = {"status": "ok", "message": "Replaced entire document."}
-    res = _note_read_only_attrs(original, [value])
-
-    assert res == original
-    assert "ignored_attributes" not in res
+    for w in res["warnings"]:
+        assert "attribute" in w
+        assert "message" in w
+        assert w.get("suggested_call", {}).get("tool") == "apply_style"
 
 
-def test_failed_write_is_not_annotated():
-    """Nothing was written, so there is nothing to say about what was ignored."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
+def test_attach_write_warnings_body_text_mentioning_data_lo_para():
+    """Body text that mentions data-lo-para is content, not an attribute, so no warning is emitted."""
+    from plugin.writer.html_import_styles import attach_write_warnings
 
-    original = {"status": "error", "message": "old_content not found."}
+    res = {"status": "ok", "message": "done"}
+    out = attach_write_warnings(res, "<p>The words data-lo-para are in text.</p>", styles_applied=True)
+    assert out["warnings"] == []
 
-    assert _note_read_only_attrs(original, ['<p data-lo-para="margin-left:3cm">x</p>']) == original
+
+def test_attach_write_warnings_html_comment_is_ignored():
+    """An HTML comment containing markup does not trigger dropped attribute warnings."""
+    from plugin.writer.html_import_styles import attach_write_warnings
+
+    res = {"status": "ok"}
+    out = attach_write_warnings(res, '<!-- <p data-lo-para="text-align:center">ignored</p> -->', styles_applied=False)
+    assert out["warnings"] == []
 
 
-def test_plain_string_content_is_accepted():
-    """content is normally a list, but the checker must not choke on a bare string."""
-    from plugin.writer.apply_document_content import _note_read_only_attrs
+def test_attach_write_warnings_error_result_untouched():
+    """Failed operations return the error dictionary untouched without adding a warnings key."""
+    from plugin.writer.html_import_styles import attach_write_warnings
 
-    res = _note_read_only_attrs({"status": "ok"}, '<p data-lo-para="text-align:center">x</p>')
+    original = {"status": "error", "message": "match not found"}
+    out = attach_write_warnings(original, '<p data-lo-para="margin:1cm">x</p>', styles_applied=False)
+    assert out == original
+    assert "warnings" not in out
 
-    assert res["ignored_attributes"] == ["data-lo-para"]
+
+def test_attach_write_warnings_applied_styles_and_inline_style():
+    """When styles_applied is True, standard block styles and inline char overrides produce no warnings."""
+    from plugin.writer.html_import_styles import attach_write_warnings
+
+    res = {"status": "ok"}
+    content = '<p data-lo-style="Caption">text <span style="color:#ff0000">red</span></p>'
+    out = attach_write_warnings(res, content, styles_applied=True)
+    assert out["warnings"] == []
+
+
+def test_attach_write_warnings_table_cell_style_ignored():
+    """Styles inside tables cannot be applied by block style passes, producing table_cell_style_ignored."""
+    from plugin.writer.html_import_styles import attach_write_warnings
+
+    res = {"status": "ok"}
+    content = '<table><tr><td><p data-lo-style="Heading1">c</p></td></tr></table>'
+    out = attach_write_warnings(res, content, styles_applied=True)
+    assert len(out["warnings"]) == 1
+    assert out["warnings"][0]["code"] == "table_cell_style_ignored"
+
+
+def test_attach_write_warnings_styles_not_applied_flags_data_lo_style():
+    """When styles_applied is False, data-lo-style is not applied and reports data_lo_style_ignored."""
+    from plugin.writer.html_import_styles import attach_write_warnings
+
+    res = {"status": "ok"}
+    content = '<p data-lo-style="Heading1">heading</p>'
+    out = attach_write_warnings(res, content, styles_applied=False)
+    assert len(out["warnings"]) == 1
+    assert out["warnings"][0]["code"] == "data_lo_style_ignored"
+
+
+def test_attach_write_warnings_non_block_tag_style_ignored():
+    """Inline tags like span cannot receive paragraph styles, emitting data_lo_style_ignored."""
+    from plugin.writer.html_import_styles import attach_write_warnings
+
+    res = {"status": "ok"}
+    content = '<span data-lo-style="Emphasis">text</span>'
+    out = attach_write_warnings(res, content, styles_applied=True)
+    assert len(out["warnings"]) == 1
+    assert out["warnings"][0]["code"] == "data_lo_style_ignored"
+
+
+def test_attach_write_warnings_self_closing_tag_reported_once():
+    """Self-closing tags are parsed exactly once rather than duplicating warnings across start and end."""
+    from plugin.writer.html_import_styles import attach_write_warnings
+
+    res = {"status": "ok"}
+    content = '<p data-lo-para="text-indent:1cm"/>'
+    out = attach_write_warnings(res, content, styles_applied=False)
+    indent_warnings = [w for w in out["warnings"] if w["code"] == "paragraph_indent_ignored"]
+    assert len(indent_warnings) == 1
+
 
 def test_search_occurrence_selects_requested_match(monkeypatch):
     first = MockRange()

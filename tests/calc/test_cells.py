@@ -2181,7 +2181,21 @@ def test_insert_cell_html_execution_and_validation():
     with patch("plugin.calc.rich_html.insert_cell_html_rich") as mock_rich:
         res = InsertCellHtml().execute(ctx, cell="A1", html="<b>bold</b>")
         assert res["status"] == "ok"
+        assert res["warnings"] == []
         mock_rich.assert_called_once_with(ctx.doc, ctx.ctx, "A1", "<b>bold</b>")
+
+        res_align = InsertCellHtml().execute(
+            ctx, cell="A1", html='<p data-lo-para="text-align:center">center</p>'
+        )
+        assert res_align["status"] == "ok"
+        align_warnings = [
+            w for w in res_align["warnings"] if w["code"] == "paragraph_alignment_ignored"
+        ]
+        assert len(align_warnings) == 1
+        assert align_warnings[0]["suggested_call"] == {
+            "tool": "set_style",
+            "arguments": {"range": ["A1"], "h_align": "center"},
+        }
 
     # Empty cell address after strip
     res_empty = InsertCellHtml().execute(ctx, cell="   ", html="<b>bold</b>")

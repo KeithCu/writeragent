@@ -788,7 +788,16 @@ class InsertCellHtml(ToolBase):
             return self._tool_error(f"Invalid cell address: {e}")
 
         insert_cell_html_rich(ctx.doc, ctx.ctx, addr, html)
-        return {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
+        result = {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
+        from plugin.writer.html_import_styles import attach_write_warnings
+
+        return attach_write_warnings(
+            result,
+            html,
+            styles_applied=False,
+            suggest="set_style",
+            suggest_arguments={"range": [addr]},
+        )
 
 
 class SetCellStyle(ToolBase):

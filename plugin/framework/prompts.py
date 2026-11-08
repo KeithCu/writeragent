@@ -430,7 +430,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
   data-lo-style is honored on target='full_document', 'beginning', and 'end' (insert prep keeps neighbor text/styles untouched). On 'selection'/'search' it is still ignored (would restyle adjacent text; use apply_style or a full_document rewrite).
-  v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
+  v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write. Successful writes include `warnings` (`code`, `message`, `suggested_call` when a next tool is obvious); `data-lo-para`, table-cell `data-lo-style`, and `data-lo-style` on selection/search show up there.
 - Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. READ-ONLY — send it back and the result says it was ignored; it is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.

@@ -1007,7 +1007,14 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             if auto_height is not None:
                 result["auto_height"] = bool(auto_height)
             flag_style_unreviewed(result)
-            return result
+            from .html_import_styles import attach_write_warnings
+
+            return attach_write_warnings(
+                result,
+                content,
+                styles_applied=False,
+                suggest="none",
+            )
         except Exception as e:
             if is_disposal(e):
                 raise

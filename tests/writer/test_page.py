@@ -447,6 +447,31 @@ def test_set_header_footer_imports_table_html_without_force():
     text_obj.setString.assert_not_called()
 
 
+def test_set_header_footer_text_warnings():
+    """Header and footer HTML writes attach warnings without suggested calls."""
+    text_obj = MagicMock()
+    doc, _style = _page_style_doc(text_obj)
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+
+    with patch("plugin.writer.html_import.replace_xtext_with_html"):
+        res_plain = PageSetHeaderFooterText().execute(
+            ctx, style="Standard", region="header", content="<p>Header text</p>"
+        )
+        assert res_plain["status"] == "ok"
+        assert res_plain["warnings"] == []
+
+        res_styled = PageSetHeaderFooterText().execute(
+            ctx, style="Standard", region="header", content='<p data-lo-style="Heading1">Header text</p>'
+        )
+        assert res_styled["status"] == "ok"
+        style_warnings = [
+            w for w in res_styled["warnings"] if w["code"] == "data_lo_style_ignored"
+        ]
+        assert len(style_warnings) == 1
+        assert "suggested_call" not in style_warnings[0]
+
+
+
 def test_set_header_footer_enables_a_region_that_is_off():
     from unittest.mock import patch
 

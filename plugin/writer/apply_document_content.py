@@ -302,31 +302,6 @@ def _find_ranges(
 # ------------------------------------------------------------------
 
 
-# get_document_content reports a paragraph's hand-set formatting as data-lo-para. It is a read
-# report, not an instruction: the import path cannot restore Para* when applying a named style,
-# so the attribute is dropped. Say so instead of accepting it and doing nothing — a silent no-op
-# is exactly the failure this tool's callers get bitten by.
-_READ_ONLY_ATTR = "data-lo-para"
-# Attribute assignment on a start tag — not body text that happens to mention the name.
-_READ_ONLY_ATTR_RE = re.compile(r"""<[A-Za-z][^>]*\bdata-lo-para\s*=""", re.IGNORECASE)
-
-
-def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
-    """Flag a successful write whose content carried the read-only ``data-lo-para``."""
-    if not isinstance(result, dict) or result.get("status") != "ok":
-        return result
-    items = content if isinstance(content, (list, tuple)) else [content]
-    if not any(isinstance(item, str) and _READ_ONLY_ATTR_RE.search(item) for item in items):
-        return result
-    result = dict(result)
-    result["ignored_attributes"] = [_READ_ONLY_ATTR]
-    result["message"] = (result.get("message") or "") + (
-        " Note: %s in the content was ignored — it is a read-only report of a paragraph's hand-set"
-        " formatting. To change an indent or a font, apply a named style (apply_style;"
-        " default clear_direct lets the style's font and size show)." % _READ_ONLY_ATTR)
-    return result
-
-
 def _run_on_main_thread(fn: Any) -> Any:
     if main.is_current():
         return fn()
@@ -896,9 +871,21 @@ class ApplyDocumentContent(ToolBase):
             log.exception("apply_document_content: review session cleanup failed")
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Thin wrapper so every return path gets the read-only-attribute note, including the
-        # review-wait branch that does not go through annotate_review_status.
-        return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
+        # Thin wrapper so every return path attaches dropped-attribute warnings to a
+        # successful write, including the review-wait branch that does not go through
+        # annotate_review_status.
+        from .html_import_styles import attach_write_warnings
+
+        styles_applied = self._effective_target(kwargs.get("target"), kwargs.get("old_content")) in (
+            "full_document",
+            "beginning",
+            "end",
+        )
+        return attach_write_warnings(
+            self._execute(ctx, **kwargs),
+            kwargs.get("content"),
+            styles_applied=styles_applied,
+        )
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = main.is_current()
