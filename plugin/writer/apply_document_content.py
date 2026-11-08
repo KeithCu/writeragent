@@ -290,23 +290,18 @@ def build_search_replace_response(
     replaced_count: int,
     *,
     use_preserve: bool = False,
+    message: str | None = None,
 ) -> dict[str, Any]:
     """Standardized search-replace response dictionary."""
-    if replaced_count == 1:
+    if message is not None:
+        msg = message
+    elif replaced_count == 1:
         msg = "Replaced 1 occurrence (by old_content)."
     else:
         msg = f"Replaced {replaced_count} occurrence(s)."
     if use_preserve:
         msg += " (formatting preserved)"
     return {"status": "ok", "message": msg, "replaced_count": replaced_count}
-
-
-def build_anchor_replace_response(*, use_preserve: bool = False) -> dict[str, Any]:
-    """Standardized anchor range replace response dictionary."""
-    msg = "Replaced the range from start_anchor through end_anchor."
-    if use_preserve:
-        msg += " (formatting preserved)"
-    return {"status": "ok", "message": msg, "replaced_count": 1}
 
 
 def _find_ranges(
@@ -368,6 +363,13 @@ def _search_options(
 
 
 @dataclass(frozen=True)
+class AnchorSpec:
+    start: str
+    end: str
+    case_sensitive_order: tuple[bool, ...] | None = None
+
+
+@dataclass(frozen=True)
 class EditParams:
     content: str
     plain: str
@@ -385,9 +387,7 @@ class EditParams:
     case_sensitive: bool = False
     separator: int = 0
     override: str | None = None
-    anchor_start: str = ""
-    anchor_end: str = ""
-    anchor_case_order: tuple[bool, ...] | None = None
+    anchor: AnchorSpec | None = None
 
 
 class ApplyDocumentContent(ToolBase):
@@ -1027,11 +1027,27 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
+    def _reject_unsupported_with_anchors(self, kwargs: Any) -> dict[str, Any] | None:
+        """Reject parameters that are incompatible with start_anchor/end_anchor range replacement."""
+        if kwargs.get("regex"):
+            return self._tool_error("regex does not apply to start_anchor and end_anchor.")
+        if kwargs.get("all_matches"):
+            return self._tool_error("all_matches cannot be combined with start_anchor and end_anchor.")
+        if kwargs.get("dry_run"):
+            return self._tool_error("dry_run does not apply to start_anchor and end_anchor.")
+        if kwargs.get("position") in ("before", "after"):
+            return self._tool_error("position='before'/'after' does not apply to an anchor range.")
+        return None
+
     def _parse_anchor_params(
         self, kwargs: Any, start_anchor: Any, end_anchor: Any
-    ) -> tuple[str, str, tuple[bool, ...] | None] | dict[str, Any]:
-        """Validate and normalize start_anchor and end_anchor; returns (start, end, case_order) or error dict."""
+    ) -> AnchorSpec | dict[str, Any]:
+        """Validate and normalize start_anchor and end_anchor; returns AnchorSpec or error dict."""
         from . import html_import as format_support
+
+        unsupported = self._reject_unsupported_with_anchors(kwargs)
+        if unsupported is not None:
+            return unsupported
 
         if start_anchor is None or end_anchor is None:
             return self._tool_error("start_anchor and end_anchor are both required.")
@@ -1043,14 +1059,10 @@ class ApplyDocumentContent(ToolBase):
         norm_end = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(end_anchor))
         if not norm_end:
             return self._tool_error("end_anchor is empty after normalization.")
-        if kwargs.get("regex"):
-            return self._tool_error("regex does not apply to start_anchor and end_anchor.")
-        if kwargs.get("all_matches"):
-            return self._tool_error("all_matches cannot be combined with start_anchor and end_anchor.")
         anchor_case_order = None
         if "case_sensitive" in kwargs and kwargs.get("case_sensitive") is not None:
             anchor_case_order = (bool(kwargs["case_sensitive"]),)
-        return norm_start, norm_end, anchor_case_order
+        return AnchorSpec(start=norm_start, end=norm_end, case_sensitive_order=anchor_case_order)
 
     def _parse_old_content(
         self, old_content: Any
@@ -1091,14 +1103,12 @@ class ApplyDocumentContent(ToolBase):
         if target == "search" and old_content is None and not has_anchors:
             return self._tool_error("target='search' requires old_content or start_anchor and end_anchor.")
 
-        norm_start = ""
-        norm_end = ""
-        anchor_case_order = None
+        anchor: AnchorSpec | None = None
         if has_anchors:
             anchor_res = self._parse_anchor_params(kwargs, start_anchor, end_anchor)
             if isinstance(anchor_res, dict):
                 return anchor_res
-            norm_start, norm_end, anchor_case_order = anchor_res
+            anchor = anchor_res
 
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
@@ -1109,8 +1119,6 @@ class ApplyDocumentContent(ToolBase):
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
             return self._tool_error(pos_err)
-        if has_anchors and position in ("before", "after"):
-            return self._tool_error("position='before'/'after' does not apply to an anchor range.")
         if position != "replace" and target != "search":
             return self._tool_error(
                 "position='before'/'after' requires target='search' "
@@ -1162,13 +1170,6 @@ class ApplyDocumentContent(ToolBase):
         # review_recording_enabled tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
 
-        plain = ""
-        if target != "search":
-            plain = content if use_preserve else self._replacement_plain(content)
-
-        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
-        all_matches = False if has_anchors else kwargs.get("all_matches", False)
-
         old_stripped = ""
         search_string = ""
         pattern = ""
@@ -1178,30 +1179,32 @@ class ApplyDocumentContent(ToolBase):
         separator = 0
         override: str | None = None
 
-        if target == "search":
-            if has_anchors:
-                plain = content if use_preserve else self._replacement_plain(content)
-            else:
-                old_res = self._parse_old_content(old_content)
-                if isinstance(old_res, dict):
-                    return old_res
-                old_stripped, search_string = old_res
-                plain = content if use_preserve else self._replacement_plain(content)
-                # The search drops the spaces at old_content's edges. The replacement
-                # must drop the same edges, or old_content=" paragrafo" with content=""
-                # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
-                # double space (same for " paragrafo inteiro" -> " inteiro"). A
-                # deletion takes the space on one side along with the word.
-                # Invariant: branch on use_preserve, not on the decoded content (an entity may decode to markup).
-                if (position == "replace" and not kwargs.get("regex")
-                        and use_preserve
-                        and not format_support.content_has_markup(str(old_content))):
-                    content, separator = _match_stripped_edges(str(old_content), content)
-                    plain = content
+        if target == "search" and not has_anchors:
+            old_res = self._parse_old_content(old_content)
+            if isinstance(old_res, dict):
+                return old_res
+            old_stripped, search_string = old_res
 
-                regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
-                if rex_err:
-                    return self._invalid_regex(rex_err)
+        plain = content if use_preserve else self._replacement_plain(content)
+        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
+        all_matches = bool(kwargs.get("all_matches", False))
+
+        if target == "search" and not has_anchors:
+            # The search drops the spaces at old_content's edges. The replacement
+            # must drop the same edges, or old_content=" paragrafo" with content=""
+            # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
+            # double space (same for " paragrafo inteiro" -> " inteiro"). A
+            # deletion takes the space on one side along with the word.
+            # Invariant: branch on use_preserve, not on the decoded content (an entity may decode to markup).
+            if (position == "replace" and not kwargs.get("regex")
+                    and use_preserve
+                    and not format_support.content_has_markup(str(old_content))):
+                content, separator = _match_stripped_edges(str(old_content), content)
+                plain = content
+
+            regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
+            if rex_err:
+                return self._invalid_regex(rex_err)
 
             override, override_error = self._parse_hyperlink_url(kwargs)
             if override_error:
@@ -1227,9 +1230,7 @@ class ApplyDocumentContent(ToolBase):
             case_sensitive=cs,
             separator=separator,
             override=override,
-            anchor_start=norm_start,
-            anchor_end=norm_end,
-            anchor_case_order=anchor_case_order,
+            anchor=anchor,
         )
 
     def _dispatch_edit(
@@ -1430,15 +1431,15 @@ class ApplyDocumentContent(ToolBase):
         self._attach_hyperlink_reports(resp, link_reports)
         return attach_edited_context(resp, anchor)
 
-    def _anchor_miss(self, doc: Any, params: EditParams, miss_kind: str) -> dict[str, Any]:
+    def _anchor_miss(self, doc: Any, anchor: AnchorSpec, miss_kind: str) -> dict[str, Any]:
         # Anchors spanning text across document structure cannot be applied as shape-text
         # replacements, so matches found in drawing shapes are only reported to the user
         # without mutating shape text. Review-mode wording is omitted because shapes are
         # never edited on the anchor path.
         if miss_kind in ("start", "end"):
-            anchor_text = params.anchor_start if miss_kind == "start" else params.anchor_end
+            anchor_text = anchor.start if miss_kind == "start" else anchor.end
             subject = "start_anchor" if miss_kind == "start" else "end_anchor"
-            cs = params.anchor_case_order == (True,)
+            cs = anchor.case_sensitive_order == (True,)
             shape = search_mod.drawing_shape_object_containing(
                 doc, anchor_text, use_regex=False, case_sensitive=cs
             )
@@ -1460,21 +1461,21 @@ class ApplyDocumentContent(ToolBase):
     def _edit_search(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        if params.anchor_start:
+        if params.anchor is not None:
             doc = ctx.doc
             try:
                 found, miss_kind = search_mod.find_anchor_span(
                     doc,
-                    params.anchor_start,
-                    params.anchor_end,
+                    params.anchor.start,
+                    params.anchor.end,
                     occurrence=0 if params.occurrence is None else params.occurrence,
-                    case_sensitive_order=params.anchor_case_order,
+                    case_sensitive_order=params.anchor.case_sensitive_order,
                 )
             except IndexError as e:
                 return self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
             if found is None:
                 assert miss_kind is not None
-                return self._anchor_miss(doc, params, miss_kind)
+                return self._anchor_miss(doc, params.anchor, miss_kind)
             if _range_contains_table(found):
                 return self._tool_error(
                     "The range from start_anchor through end_anchor contains a table; delete the table first with table_delete.",
@@ -1641,8 +1642,12 @@ class ApplyDocumentContent(ToolBase):
             plain=params.plain)
         if link_err:
             return link_err
-        if params.anchor_start:
-            resp = build_anchor_replace_response(use_preserve=params.use_preserve)
+        if params.anchor is not None:
+            resp = build_search_replace_response(
+                1,
+                use_preserve=params.use_preserve,
+                message="Replaced the range from start_anchor through end_anchor.",
+            )
         else:
             resp = build_search_replace_response(1, use_preserve=params.use_preserve)
         if params.occurrence is not None:

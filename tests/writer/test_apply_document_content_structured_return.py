@@ -18,7 +18,6 @@ import plugin.writer.html_import as format_mod
 import plugin.writer.search as search_mod
 from plugin.writer.apply_document_content import (
     ApplyDocumentContent,
-    build_anchor_replace_response,
     build_search_replace_response,
 )
 
@@ -468,13 +467,15 @@ def test_build_search_replace_response():
     assert "formatting preserved" in multi_preserve["message"]
 
 
-def test_build_anchor_replace_response():
-    resp = build_anchor_replace_response()
+def test_build_search_replace_response_custom_message():
+    resp = build_search_replace_response(1, message="Replaced the range from start_anchor through end_anchor.")
     assert resp["status"] == "ok"
     assert resp["replaced_count"] == 1
     assert resp["message"] == "Replaced the range from start_anchor through end_anchor."
 
-    resp_preserve = build_anchor_replace_response(use_preserve=True)
+    resp_preserve = build_search_replace_response(
+        1, use_preserve=True, message="Replaced the range from start_anchor through end_anchor."
+    )
     assert resp_preserve["status"] == "ok"
     assert resp_preserve["replaced_count"] == 1
     assert resp_preserve["message"] == "Replaced the range from start_anchor through end_anchor. (formatting preserved)"
