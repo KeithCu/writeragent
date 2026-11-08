@@ -135,8 +135,9 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         """Retry resetting a worker session that timed out or returned WORKER_REENTRY."""
         # Every caller waits for the pipe lock; this retry runs only after
         # a lease timeout, refusal, or IPC timeout.
-        # do_retry sleeps up to 5s, so run it on a dedicated background
-        # worker. On the shared pool that sleep starves other tasks.
+        # The retry loop runs up to 10 attempts, 0.5 s apart, each attempt giving
+        # up the pipe wait after 3 s. Run it on a dedicated background worker
+        # because sleeping on the shared pool would starve other tasks.
         res: Any = None
         for _attempt in range(10):
             time.sleep(0.5)
@@ -145,7 +146,11 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
                 return
             try:
-                res = reset_python_session(sid, lease_wait_sec=_UNLOAD_RESET_TIMEOUT_SEC)
+                res = reset_python_session(
+                    sid,
+                    lease_wait_sec=_UNLOAD_RESET_TIMEOUT_SEC,
+                    abandon_if=lambda: self._session_has_new_listener(sid),
+                )
             except Exception:
                 log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
                 break
@@ -159,6 +164,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             sid,
             timeout_sec=_UNLOAD_RESET_TIMEOUT_SEC,
             lease_wait_sec=_UNLOAD_RESET_TIMEOUT_SEC,
+            abandon_if=lambda: self._session_has_new_listener(sid),
         )
         if _should_retry(res):
             from plugin.framework.worker_pool import run_in_background
@@ -170,7 +176,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 name="reset_python_session_retry",
                 dedicated=True,
             )
-        elif isinstance(res, dict) and res.get("status") != "ok":
+        elif isinstance(res, dict) and res.get("status") != "ok" and res.get("code") != "RESET_ABANDONED":
             log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
 
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:

@@ -649,6 +649,10 @@ class HarperLSClient:
                 self._sync_document(text, version)
                 diagnostics = self._collect_diagnostics(version, deadline)
                 return [{"diagnostic": diag, "suggestions": self._suggestions_for_diagnostic(diag, deadline)} for diag in diagnostics]
+            except TimeoutError:
+                # A deadline expiration or cancellation leaves the server process healthy.
+                # Re-raise so the caller can handle the timeout without tearing down harper-ls.
+                raise
             except Exception:
                 log.exception("[harper] Exception during linting, closing client")
                 self.close()
@@ -854,6 +858,19 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
             none_reason = box.get("none_reason")
     except HarperLockTimeoutError:
         grammar_obs("harper_try_lint_none", reason="lock_timeout", ensure_submitted=False)
+        return None
+    except TimeoutError:
+        from plugin.framework.queue_executor import main
+
+        if main.is_current():
+            # Main-thread proofreading bounds dialog responsiveness to a short budget.
+            # When this budget expires, return an empty walk without cycling the client.
+            log.debug("[harper] main-thread dialog lint timed out; returning empty walk")
+            grammar_obs("harper_try_lint_none", reason="dialog_budget", ensure_submitted=False)
+            return None
+        log.exception("[harper] lint failed on ready client; empty aErrors this walk")
+        runtime.mark_idle()
+        harper_ensure_ready_async(user_config_dir, bcp47)
         return None
     except Exception:
         # restart=False: do not Popen on the linguistic thread. The

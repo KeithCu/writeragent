@@ -459,6 +459,7 @@ class PythonWorkerManager:
         *,
         spawn_deadline: Deadline | None = None,
         lease_wait_sec: float | None = None,
+        abandon_if: Callable[[], bool] | None = None,
     ) -> Generator[Lease | dict[str, Any], None, None]:
         """Hold the warm-child pipe lock, or yield an error dict."""
         lock_budget = lease_wait_sec if lease_wait_sec is not None else _IO_LOCK_ACQUIRE_TIMEOUT_SEC
@@ -470,6 +471,9 @@ class PythonWorkerManager:
             # Identity compare distinguishes our refusal from a WarmChild error dict with the same code.
             def _take_refusal() -> dict[str, Any] | None:
                 nonlocal refused
+                if abandon_if is not None and abandon_if():
+                    refused = _worker_error("RESET_ABANDONED", "Workbook reopened; reset not sent.")
+                    return refused
                 refused = self._refuse_lease()
                 return refused
 
@@ -497,6 +501,9 @@ class PythonWorkerManager:
                     try:
                         if is_cancelled(cancel):
                             yield _worker_error("CANCELLED", "Python worker stopped by user")
+                            return
+                        if abandon_if is not None and abandon_if():
+                            yield _worker_error("RESET_ABANDONED", "Workbook reopened; reset not sent.")
                             return
                         warm_err = self._ensure_warmed_unlocked(leased)
                         if warm_err is not None:
@@ -528,11 +535,17 @@ class PythonWorkerManager:
         cancel: SendCancellation | None = None,
         timeout_sec: int | None = None,
         lease_wait_sec: float | None = None,
+        abandon_if: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Run *body* while this manager holds the pipe, or return the session error."""
         spawn_deadline = Deadline(float(timeout_sec if timeout_sec is not None else WARM_WORKER_TIMEOUT_SEC))
         for attempt in range(2):
-            with self._io_session(cancel, spawn_deadline=spawn_deadline, lease_wait_sec=lease_wait_sec) as session:
+            with self._io_session(
+                cancel,
+                spawn_deadline=spawn_deadline,
+                lease_wait_sec=lease_wait_sec,
+                abandon_if=abandon_if,
+            ) as session:
                 if isinstance(session, dict):
                     return session
                 outcome = body(session)
@@ -899,6 +912,7 @@ class PythonWorkerManager:
         cancel: SendCancellation | None = None,
         sandbox_policy: dict[str, Any] | None = None,
         lease_wait_sec: float | None = None,
+        abandon_if: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         """Run *code* in the warm worker, or handle *action* (e.g. reset_session).
 
@@ -938,6 +952,7 @@ class PythonWorkerManager:
             cancel=cancel,
             timeout_sec=timeout_sec,
             lease_wait_sec=lease_wait_sec,
+            abandon_if=abandon_if,
         )
 
     def execute_ppt_master_turn(
@@ -1338,6 +1353,7 @@ def reset_python_session(
     *,
     timeout_sec: int | None = None,
     lease_wait_sec: float | None = None,
+    abandon_if: Callable[[], bool] | None = None,
 ) -> dict[str, Any]:
     """Drop the shared-kernel executor for *session_id* in the warm worker.
 
@@ -1358,12 +1374,18 @@ def reset_python_session(
     configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
+    kwargs: dict[str, Any] = {
+        "timeout_sec": timeout_sec,
+        "session_id": session_id,
+        "action": "reset_session",
+        "lease_wait_sec": lease_wait_sec,
+    }
+    if abandon_if is not None:
+        kwargs["abandon_if"] = abandon_if
+
     return manager.execute(
         None,
-        timeout_sec=timeout_sec,
-        session_id=session_id,
-        action="reset_session",
-        lease_wait_sec=lease_wait_sec,
+        **kwargs,
     )
 
 

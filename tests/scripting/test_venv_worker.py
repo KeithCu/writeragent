@@ -1680,6 +1680,105 @@ def test_reset_python_session_passes_lease_wait_sec(monkeypatch: pytest.MonkeyPa
     assert len(calls) == 1
     assert calls[0].get('timeout_sec') == 3
     assert calls[0].get('lease_wait_sec') == 3
+    assert 'abandon_if' not in calls[0]
+
+
+def test_reset_python_session_passes_abandon_if(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def _execute(self: Any, code: str, **kwargs: Any) -> dict[str, Any]:
+        calls.append(kwargs)
+        return {'status': 'ok'}
+
+    monkeypatch.setattr(PythonWorkerManager, 'execute', _execute)
+    alive = PythonWorkerManager('/tmp/python-alive', {'PATH': '/usr/bin'})
+    _install_mock_proc(alive, _MockProc(None))
+    monkeypatch.setattr(venv_worker_module, '_get_worker_manager', lambda pool='default': (alive, None))
+    def check_fn() -> bool:
+        return True
+
+    res = reset_python_session('calc:file:///live.ods', timeout_sec=3, lease_wait_sec=3, abandon_if=check_fn)
+    assert res['status'] == 'ok'
+    assert len(calls) == 1
+    assert calls[0].get('abandon_if') is check_fn
+
+
+def test_io_session_abandon_if_after_lease_acquired_yields_reset_abandoned():
+    """When abandon_if returns True after acquiring the lease, yield RESET_ABANDONED without warming."""
+    import contextlib
+    from plugin.framework.warm_child import Lease
+
+    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
+    warm = MagicMock()
+    warm._io_lock = threading.Lock()
+    mgr._warm = warm
+
+    @contextlib.contextmanager
+    def fake_lease(*args: object, **kwargs: object):
+        del args, kwargs
+        proc = MagicMock()
+        proc.stdin = io.BytesIO()
+        proc.stdout = io.BytesIO()
+        yield Lease(stdin=proc.stdin, stdout=proc.stdout, pid=1, generation=1, warm=warm)
+
+    warm.lease = fake_lease
+    with patch.object(mgr, '_ensure_warmed_unlocked') as mock_ensure:
+        with mgr._io_session(abandon_if=lambda: True) as session:
+            assert isinstance(session, dict)
+            assert session.get('status') == 'error'
+            assert session.get('code') == 'RESET_ABANDONED'
+        mock_ensure.assert_not_called()
+
+
+def test_execute_abandon_if_during_pipe_wait_returns_reset_abandoned():
+    """While waiting for the pipe lock, abandon_if flipping True aborts wait and returns RESET_ABANDONED."""
+    from plugin.framework.warm_child import ChildSpec, WarmChild
+
+    mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
+    spec = ChildSpec(
+        name='test-pipe-wait-abandon',
+        argv=[sys.executable, '-c', 'import time; time.sleep(60)'],
+        env={'PATH': os.environ.get('PATH', '')},
+        command_wrapper=lambda cmd: cmd,
+        ready_timeout_sec=30.0,
+    )
+    warm = WarmChild(spec)
+    mgr._warm = warm
+
+    lock_held = threading.Event()
+    release_lock = threading.Event()
+
+    def lock_holder() -> None:
+        with warm._io_lock:
+            lock_held.set()
+            release_lock.wait()
+
+    holder_thread = threading.Thread(target=lock_holder)
+    holder_thread.start()
+
+    poll_count = 0
+
+    def check_abandon() -> bool:
+        nonlocal poll_count
+        poll_count += 1
+        return poll_count >= 2
+
+    try:
+        assert lock_held.wait(timeout=5.0)
+        with patch.object(mgr, '_execute_ipc_unlocked') as mock_ipc:
+            res = mgr.execute(
+                action='reset_session',
+                session_id='calc:test',
+                abandon_if=check_abandon,
+                lease_wait_sec=5.0,
+            )
+            assert res.get('status') == 'error'
+            assert res.get('code') == 'RESET_ABANDONED'
+            mock_ipc.assert_not_called()
+    finally:
+        release_lock.set()
+        holder_thread.join(timeout=5.0)
+        warm.retire()
 
 def test_worker_read_rejects_oversize_length_prefix():
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})

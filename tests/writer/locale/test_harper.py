@@ -1693,7 +1693,7 @@ def test_off_caller_timeout_cancels_worker_and_releases_lock() -> None:
     harper_module.runtime.lock.release()
 
 
-def test_harper_try_lint_main_thread_budget_cancels() -> None:
+def test_harper_try_lint_main_thread_budget_cancels(caplog: pytest.LogCaptureFixture) -> None:
     recorded_deadline: list[float] = []
     cancel_seen = threading.Event()
 
@@ -1715,10 +1715,14 @@ def test_harper_try_lint_main_thread_budget_cancels() -> None:
         cancel_seen.set()
         raise TimeoutError("Harper LSP operation cancelled")
 
+    with harper_module.runtime.lock:
+        harper_module.runtime.state = HarperRuntimeState.READY
+
+    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
     t0 = time.monotonic()
     with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
          patch.object(harper_module.runtime, "lint_now", side_effect=fake_lint_now), \
-         patch("plugin.writer.locale.harper.harper_ensure_ready_async"):
+         patch("plugin.writer.locale.harper.harper_ensure_ready_async") as mock_ensure:
         res = harper_try_lint("Hi.", "/tmp", ctx=object())
     elapsed = time.monotonic() - t0
 
@@ -1727,6 +1731,43 @@ def test_harper_try_lint_main_thread_budget_cancels() -> None:
     assert len(recorded_deadline) == 1
     assert 1.5 < recorded_deadline[0] - t0 < 2.5
     assert res is None
+    mock_ensure.assert_not_called()
+    assert harper_module.runtime.state is HarperRuntimeState.READY
+    assert any(
+        r.levelno == logging.DEBUG and "reason='dialog_budget'" in r.message
+        for r in caplog.records
+    )
+
+
+def test_harper_client_lint_timeout_error_does_not_close_client() -> None:
+    """TimeoutError in lint propagates without closing the harper-ls client."""
+    client = _bare_harper_client()
+    with patch.object(client, "is_alive", return_value=True), \
+         patch.object(client, "_sync_document"), \
+         patch.object(client, "_collect_diagnostics", side_effect=TimeoutError("collect timeout")), \
+         patch.object(client, "close") as mock_close:
+        with pytest.raises(TimeoutError, match="collect timeout"):
+            client.lint("Hello world")
+        mock_close.assert_not_called()
+
+
+@patch("plugin.framework.worker_pool.run_in_background")
+def test_harper_try_lint_off_main_timeout_marks_idle_and_ensures(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+    """Off-main TimeoutError logs the error, marks the client IDLE, and kicks ensure."""
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    mock_client.lint.side_effect = TimeoutError("off main timeout")
+    with harper_module.runtime.lock:
+        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
+        harper_module.runtime.state = HarperRuntimeState.READY
+
+    caplog.set_level(logging.ERROR, logger="writeragent.grammar")
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
+         patch.object(harper_module.runtime, "mark_idle", wraps=harper_module.runtime.mark_idle) as mock_idle:
+        assert harper_try_lint("He go to the store.", "/tmp") is None
+    assert any("lint failed on ready client" in r.message for r in caplog.records)
+    mock_idle.assert_called_once()
+    assert mock_bg.call_count == 1
 
 
 def test_harper_try_lint_off_main_keeps_lint_budget() -> None:
