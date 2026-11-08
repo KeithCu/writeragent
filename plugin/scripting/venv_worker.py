@@ -439,10 +439,12 @@ class PythonWorkerManager:
     def serving_callback(self) -> Generator[None, None, None]:
         """Set _serving_tool_call for one host callback and clear it on the way out.
 
-        _refuse_lease reads the flag without the pipe lock. This is the only
-        writer of True. A raise still clears the flag; this method does not
-        swallow it. One enter at a time: the holder refuses reentry before
-        another dispatch, and a nested enter would clear the flag early.
+        _refuse_lease reads the flag without the pipe lock. A waiter that sees
+        it refuses with busy, because the callback may need the waiting thread
+        (see _reentry_error). This is the only writer of True. A raise still
+        clears the flag; this method does not swallow it. One enter at a time:
+        the holder refuses reentry before another dispatch, and a nested enter
+        would clear the flag early.
         """
         self._serving_tool_call = True
         try:
