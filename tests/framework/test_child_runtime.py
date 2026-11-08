@@ -77,19 +77,22 @@ def test_bind_pdeathsig_and_pdeathsig_preexec(monkeypatch) -> None:
     monkeypatch.setattr(child_runtime.os, "getpid", lambda: 100)
     monkeypatch.setattr(child_runtime.os, "getppid", lambda: 100)
     monkeypatch.setattr(child_runtime.os, "kill", lambda pid, sig: None)
-    child_runtime.bind_pdeathsig()
+    assert child_runtime.bind_pdeathsig() is True
     assert calls == []
 
     # Second call reuses cached prctl without calling CDLL again
-    monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError))
-    child_runtime.bind_pdeathsig()
+    def _fail_cdll(*args: object, **kwargs: object) -> None:
+        raise AssertionError("CDLL called twice")
+
+    monkeypatch.setattr(ctypes, "CDLL", _fail_cdll)
+    assert child_runtime.bind_pdeathsig() is True
 
     # Preexec arms prctl
     child_runtime.pdeathsig_preexec()
     assert calls == [(1, 9, 0, 0, 0)]
 
-    # Non-Linux preexec is a no-op
-    monkeypatch.setattr(child_runtime.sys, "platform", "win32")
+    # When prctl was not bound, preexec does nothing (musl hosts, non-Linux).
+    monkeypatch.setattr(child_runtime, "_prctl", None)
     calls.clear()
     child_runtime.pdeathsig_preexec()
     assert calls == []
@@ -102,7 +105,7 @@ def test_bind_pdeathsig_oserror_falls_back(monkeypatch) -> None:
     monkeypatch.setattr(child_runtime.sys, "platform", "linux")
     monkeypatch.setattr(child_runtime, "_prctl", None)
     monkeypatch.setattr(ctypes, "CDLL", _raise_cdll)
-    child_runtime.bind_pdeathsig()
+    assert child_runtime.bind_pdeathsig() is False
     assert child_runtime._prctl is None
     # Preexec safely does nothing when prctl could not be bound
     child_runtime.pdeathsig_preexec()
@@ -130,5 +133,23 @@ def test_pdeathsig_preexec_parent_died_before_exec(monkeypatch) -> None:
     monkeypatch.setattr(child_runtime.os, "kill", lambda pid, sig: killed.append(sig))
     child_runtime.pdeathsig_preexec()
     assert calls == [(1, 9, 0, 0, 0)]
+    assert killed == [9]
+
+
+def test_die_with_parent_ppid_captured_before_dlopen(monkeypatch) -> None:
+    """Parent pid for the race check is taken before libc is loaded."""
+    killed: list[int] = []
+    ppids = [50, 1]
+
+    class _Libc:
+        def prctl(self, *args: object) -> int:
+            return 0
+
+    monkeypatch.setattr(child_runtime.sys, "platform", "linux")
+    monkeypatch.setattr(child_runtime, "_prctl", None)
+    monkeypatch.setattr(child_runtime.os, "getppid", lambda: ppids.pop(0))
+    monkeypatch.setattr(child_runtime.os, "kill", lambda pid, sig: killed.append(sig))
+    monkeypatch.setattr(ctypes, "CDLL", lambda *args, **kwargs: _Libc())
+    child_runtime.die_with_parent()
     assert killed == [9]
 

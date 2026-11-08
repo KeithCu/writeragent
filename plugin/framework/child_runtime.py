@@ -27,28 +27,30 @@ PR_SET_PDEATHSIG = 1
 SIGKILL = 9
 
 
-def bind_pdeathsig() -> None:
+def bind_pdeathsig() -> bool:
     """Resolve libc prctl once in the parent process before fork.
 
     Child preexec functions must not import modules or call dlopen, which
     can deadlock on internal locks held by other threads during fork.
     Captures the parent process pid so preexec can detect parent death
-    occurring between fork and exec. No-op on non-Linux platforms.
+    occurring between fork and exec. Returns whether prctl was bound.
     """
     global _prctl, _bound_parent_pid
     if sys.platform != "linux":
-        return
+        return False
     _bound_parent_pid = os.getpid()
     if _prctl is not None:
-        return
+        return True
     try:
         import ctypes
 
         libc = ctypes.CDLL("libc.so.6", use_errno=True)
         _prctl = libc.prctl
+        return True
     except (OSError, AttributeError) as exc:
         log.debug("Failed to resolve libc prctl: %s", exc)
         _prctl = None
+        return False
 
 
 def _arm_pdeathsig(expected_ppid: int | None = None) -> bool:
@@ -137,8 +139,9 @@ def die_with_parent() -> bool:
     if sys.platform != "linux":
         return False
     try:
+        ppid = os.getppid()
         bind_pdeathsig()
-        return _arm_pdeathsig()
+        return _arm_pdeathsig(expected_ppid=ppid)
     except Exception as exc:
         log.debug("Failed to configure PR_SET_PDEATHSIG: %s", exc)
         return False
@@ -152,5 +155,4 @@ def pdeathsig_preexec() -> None:
     processes arming this hook must be spawned on a long-lived thread such as
     Supervisor.spawn rather than short-lived timer or sync worker threads.
     """
-    if sys.platform == "linux":
-        _arm_pdeathsig(expected_ppid=_bound_parent_pid)
+    _arm_pdeathsig(expected_ppid=_bound_parent_pid)

@@ -363,6 +363,14 @@ class ManagedSubprocess:
         (_proc is not None); a start() that fails before _proc
         is set leaves the instance reusable (worker and raw).
         """
+        if self._die_with_parent and sys.platform == "linux":
+            from plugin.framework.warm_child import supervisor
+
+            # Linux PR_SET_PDEATHSIG follows the thread that calls fork, not the process.
+            if threading.get_ident() != supervisor.spawner_ident:
+                supervisor.spawn(self)
+                return
+
         with self._lock:
             # Single-use once a child is published. A failure before _proc is set
             # leaves the instance reusable.
@@ -397,15 +405,9 @@ class ManagedSubprocess:
                 popen_kw["start_new_session"] = True
             if self._die_with_parent and sys.platform == "linux":
                 from plugin.framework.child_runtime import bind_pdeathsig, pdeathsig_preexec
-                from plugin.framework.warm_child import supervisor
 
-                if threading.get_ident() != supervisor.spawner_ident:
-                    raise ValueError(
-                        "die_with_parent requires spawning on the supervisor thread "
-                        "because Linux PR_SET_PDEATHSIG follows the creating thread"
-                    )
-                bind_pdeathsig()
-                popen_kw["preexec_fn"] = pdeathsig_preexec
+                if bind_pdeathsig():
+                    popen_kw["preexec_fn"] = pdeathsig_preexec
 
             cmd = (
                 self._command_wrapper(self._cmd_line, env=merged_env, cwd=self._cwd)

@@ -31,7 +31,6 @@ import logging
 import os
 import queue
 import subprocess
-import sys
 import threading
 import uuid
 from collections import deque
@@ -511,12 +510,6 @@ class AsyncProcess:
 
     Spawning delegates to ``ManagedSubprocess.start``. Pipes stay binary; the
     constructor does not take ``text``, ``encoding``, or ``creationflags``.
-
-    When die_with_parent is True on Linux, child creation forks on the
-    supervisor thread with PR_SET_PDEATHSIG armed. PDEATHSIG follows the
-    creating thread rather than the process, and callers on short-lived
-    threads (such as reconnect timers or sync workers) would otherwise cause
-    the child to be killed as soon as the caller thread terminates.
     """
 
     args: list[str]
@@ -575,11 +568,6 @@ class AsyncProcess:
                     old_managed.kill_tree()
         from plugin.framework.managed_subprocess import ManagedSubprocess
 
-        # Die-with-parent forks on the supervisor thread because Linux PDEATHSIG
-        # follows the thread that called clone/fork. Timer and sync caller threads
-        # exit soon after spawn.
-        use_supervisor = self._die_with_parent and sys.platform == "linux"
-
         # Drain stays false because these reader threads are the only stdout/stderr
         # readers; log_start_failure stays false so the tunnel still sees
         # FileNotFoundError as __cause__; no command_wrapper because the version
@@ -599,12 +587,7 @@ class AsyncProcess:
             die_with_parent=self._die_with_parent,
         )
         try:
-            if use_supervisor:
-                from plugin.framework.warm_child import supervisor
-
-                supervisor.spawn(managed)
-            else:
-                managed.start()
+            managed.start()
         except Exception as e:
             raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
         proc = managed.popen

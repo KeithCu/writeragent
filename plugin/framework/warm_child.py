@@ -779,6 +779,9 @@ class Supervisor:
 
     def _start_spawner(self) -> None:
         def _loop() -> None:
+            # This thread must not exit except at quit. Children spawned here with
+            # die_with_parent are SIGKILLed by the kernel when it does (PR_SET_PDEATHSIG
+            # follows the creating thread).
             self._spawner_ident = threading.get_ident()
             while True:
                 item = self._spawn_queue.get()

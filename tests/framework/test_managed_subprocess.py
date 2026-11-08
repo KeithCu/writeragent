@@ -9,7 +9,6 @@ import os
 import signal
 import subprocess
 import sys
-import threading
 import time
 import types
 from typing import Any
@@ -1887,37 +1886,50 @@ def test_managed_subprocess_die_with_parent(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(subprocess, "Popen", FakePopen)
     monkeypatch.setattr(sys, "platform", "linux")
 
-    # Calling start() off the supervisor thread raises ValueError on Linux
-    monkeypatch.setattr(supervisor, "_spawner_ident", 99999999)
-    proc_off = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
-    with pytest.raises(ValueError, match="die_with_parent requires spawning on the supervisor thread"):
-        proc_off.start()
+    # start() from a non-spawner thread routes through supervisor.spawn on Linux
+    spawn_calls: list[ManagedSubprocess] = []
+    orig_spawn = supervisor.spawn
 
-    # Calling start() on the supervisor thread sets preexec_fn and calls Popen
-    monkeypatch.setattr(supervisor, "_spawner_ident", threading.get_ident())
-    proc_on = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
-    proc_on.start()
+    def tracked_spawn(managed: ManagedSubprocess, timeout_sec: float | None = None) -> None:
+        spawn_calls.append(managed)
+        return orig_spawn(managed, timeout_sec)
+
+    monkeypatch.setattr(supervisor, "spawn", tracked_spawn)
+    proc_routed = ManagedSubprocess(
+        [sys.executable, "-c", "pass"],
+        die_with_parent=True,
+        drain_stderr=False,
+        register=False,
+    )
+    proc_routed.start()
+    assert len(spawn_calls) == 1
+    assert proc_routed.is_alive() is False
     assert "preexec_fn" in recorded_kwargs
 
-    # Finding 1: when CDLL raises (musl/Alpine), start() still calls Popen safely
+    # When libc cannot be loaded, start() still spawns the child without preexec_fn
     recorded_kwargs.clear()
+    spawn_calls.clear()
     import ctypes
     import plugin.framework.child_runtime as cr
 
-    def _raise_cdll(*_args: object, **_kwargs: object) -> None:
+    def _raise_cdll(*unused_args: object, **unused_kwargs: object) -> None:
         raise OSError("libc.so.6 not found")
 
     monkeypatch.setattr(cr, "_prctl", None)
     monkeypatch.setattr(ctypes, "CDLL", _raise_cdll)
     proc_cdll = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
     proc_cdll.start()
-    assert "preexec_fn" in recorded_kwargs
+    assert "preexec_fn" not in recorded_kwargs
 
-    # Non-Linux does not pass preexec_fn or require supervisor thread
+    # Non-Linux spawns directly without supervisor.spawn or preexec_fn
     recorded_kwargs.clear()
+
+    def forbid_spawn(*args: object, **kwargs: object) -> None:
+        raise AssertionError("supervisor.spawn must not run off Linux")
+
+    monkeypatch.setattr(supervisor, "spawn", forbid_spawn)
     monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
     monkeypatch.setattr(sys, "platform", "win32")
-    monkeypatch.setattr(supervisor, "_spawner_ident", 99999999)
     proc_win = ManagedSubprocess(["dummy"], die_with_parent=True, drain_stderr=False, register=False)
     proc_win.start()
     assert "preexec_fn" not in recorded_kwargs
