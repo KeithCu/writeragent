@@ -301,6 +301,14 @@ def build_search_replace_response(
     return {"status": "ok", "message": msg, "replaced_count": replaced_count}
 
 
+def build_anchor_replace_response(*, use_preserve: bool = False) -> dict[str, Any]:
+    """Standardized anchor range replace response dictionary."""
+    msg = "Replaced the range from start_anchor through end_anchor."
+    if use_preserve:
+        msg += " (formatting preserved)"
+    return {"status": "ok", "message": msg, "replaced_count": 1}
+
+
 def _find_ranges(
     doc: Any, pattern: str, regex: bool, cs: bool, use_opts: bool, *, all_matches: bool
 ) -> Any:
@@ -1132,6 +1140,7 @@ class ApplyDocumentContent(ToolBase):
             plain = content if use_preserve else self._replacement_plain(content)
 
         all_matches = False if has_anchors else kwargs.get("all_matches", False)
+        old_stripped = ""
         search_string = ""
         pattern = ""
         regex = False
@@ -1141,14 +1150,6 @@ class ApplyDocumentContent(ToolBase):
         override: str | None = None
 
         if target == "search":
-            plain = content if use_preserve else self._replacement_plain(content)
-            override, override_error = self._parse_hyperlink_url(kwargs)
-            if override_error:
-                return self._tool_error(override_error, code="INVALID_PARAM")
-            override_err = self._override_not_replace(override, position)
-            if override_err:
-                return self._tool_error(override_err, code="INVALID_PARAM")
-
             if not has_anchors:
                 old_stripped = str(old_content).strip()
                 search_string = format_support.plain_text_if_markup(old_stripped)
@@ -1158,6 +1159,9 @@ class ApplyDocumentContent(ToolBase):
                     # Parameter error (like old_content=None), not a search no-op: the search never ran,
                     # so there's no replaced_count to report — use the standard tool error shape.
                     return self._tool_error("old_content is empty after normalization.")
+
+            plain = content if use_preserve else self._replacement_plain(content)
+            if not has_anchors:
                 # The search drops the spaces at old_content's edges. The replacement
                 # must drop the same edges, or old_content=" paragrafo" with content=""
                 # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
@@ -1170,6 +1174,14 @@ class ApplyDocumentContent(ToolBase):
                     content, separator = _match_stripped_edges(str(old_content), content)
                     plain = content
 
+            override, override_error = self._parse_hyperlink_url(kwargs)
+            if override_error:
+                return self._tool_error(override_error, code="INVALID_PARAM")
+            override_err = self._override_not_replace(override, position)
+            if override_err:
+                return self._tool_error(override_err, code="INVALID_PARAM")
+
+            if not has_anchors:
                 regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
                 if rex_err:
                     return self._invalid_regex(rex_err)
@@ -1396,6 +1408,10 @@ class ApplyDocumentContent(ToolBase):
         return attach_edited_context(resp, anchor)
 
     def _anchor_miss(self, doc: Any, params: EditParams, miss_kind: str) -> dict[str, Any]:
+        # Anchors spanning text across document structure cannot be applied as shape-text
+        # replacements, so matches found in drawing shapes are only reported to the user
+        # without mutating shape text. Review-mode wording is omitted because shapes are
+        # never edited on the anchor path.
         if miss_kind in ("start", "end"):
             anchor_text = params.anchor_start if miss_kind == "start" else params.anchor_end
             subject = "start_anchor" if miss_kind == "start" else "end_anchor"
@@ -1434,7 +1450,8 @@ class ApplyDocumentContent(ToolBase):
             except IndexError as e:
                 return self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
             if found is None:
-                return self._anchor_miss(doc, params, miss_kind or "start")
+                assert miss_kind is not None
+                return self._anchor_miss(doc, params, miss_kind)
             if _range_contains_table(found):
                 return self._tool_error(
                     "The range from start_anchor through end_anchor contains a table; delete the table first with table_delete.",
@@ -1602,10 +1619,7 @@ class ApplyDocumentContent(ToolBase):
         if link_err:
             return link_err
         if params.anchor_span:
-            msg = "Replaced the range from start_anchor through end_anchor."
-            if params.use_preserve:
-                msg += " (formatting preserved)"
-            resp = {"status": "ok", "message": msg, "replaced_count": 1}
+            resp = build_anchor_replace_response(use_preserve=params.use_preserve)
         else:
             resp = build_search_replace_response(1, use_preserve=params.use_preserve)
         if params.occurrence is not None:

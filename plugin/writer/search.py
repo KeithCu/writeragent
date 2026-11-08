@@ -571,7 +571,8 @@ def _same_text_starts_at_or_after(candidate: Any, boundary_end: Any) -> bool | N
 
     compareRegionStarts returns 1 when the first range starts before the second, 0 when they
     start at the same point, and -1 when after. A return value not equal to 1 therefore means
-    candidate starts at or after boundary_end.
+    candidate starts at or after boundary_end. When comparison fails, False is returned so the
+    candidate is skipped rather than misreporting a different text container.
     """
     cand_text = candidate.getText()
     bound_text = boundary_end.getText()
@@ -582,7 +583,7 @@ def _same_text_starts_at_or_after(candidate: Any, boundary_end: Any) -> bool | N
         FAILED,
     )
     if cmp_val is FAILED or cmp_val is None:
-        return None
+        return False
     return cmp_val != 1
 
 

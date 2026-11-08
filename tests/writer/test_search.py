@@ -901,6 +901,25 @@ def test_pick_end_after_start_empty_iterator():
     assert err == "end"
 
 
+def test_pick_end_after_start_compare_error_treated_as_end():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+
+    cand = MagicMock()
+    cand.getText.return_value = shared_text
+    shared_text.compareRegionStarts.side_effect = RuntimeError("compare failed")
+
+    cursor, err = pick_end_after_start(start_range, [cand])
+    assert cursor is None
+    assert err == "end"
+
+
 def test_iter_descriptor_hits_with_after():
     from plugin.writer.search import _iter_descriptor_hits
 
