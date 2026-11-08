@@ -426,8 +426,8 @@ class ApplyDocumentContent(ToolBase):
       target='search' with start_anchor and end_anchor instead of old_content.
       The range runs from the start of start_anchor through the end of the first
       end_anchor beginning at or after that start match in the same text.
-      occurrence selects the start match; regex, all_matches, position, and
-      dry_run do not apply to anchor spans.
+      occurrence selects the start match; regex, all_matches, position,
+      dry_run, and hyperlink_url do not apply to anchor spans.
     """
 
     name: str | None = "apply_document_content"
@@ -1037,6 +1037,8 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error("dry_run does not apply to start_anchor and end_anchor.")
         if kwargs.get("position") in ("before", "after"):
             return self._tool_error("position='before'/'after' does not apply to an anchor range.")
+        if kwargs.get("hyperlink_url") is not None:
+            return self._tool_error("hyperlink_url does not apply to start_anchor and end_anchor.")
         return None
 
     def _parse_anchor_params(

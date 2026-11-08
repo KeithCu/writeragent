@@ -554,6 +554,12 @@ def test_anchor_rejects_regex_and_all_matches_and_position_and_dry_run():
     assert res_dry["status"] == "error"
     assert res_dry["message"] == "dry_run does not apply to start_anchor and end_anchor."
 
+    res_url = tool.execute(
+        _ctx(), start_anchor="foo", end_anchor="bar", content="new", hyperlink_url="http://example.com"
+    )
+    assert res_url["status"] == "error"
+    assert res_url["message"] == "hyperlink_url does not apply to start_anchor and end_anchor."
+
 
 def test_anchor_omitted_target_and_success_messages(monkeypatch):
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (MockRange(), None))
