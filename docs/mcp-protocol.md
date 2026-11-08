@@ -717,7 +717,7 @@ The mutating edit tools return **structured, machine-readable fields** alongside
 - `occurrence` — optional 0-based selector for one replaceable Writer text match when `target="search"`; it cannot be combined with `all_matches=true`. Successful edits (replace and `position=before/after`) echo `occurrence`. Out of range uses `code: OCCURRENCE_OUT_OF_RANGE` and `use 0..N-1`. Empty replaceable ranges fall through to the existing miss / drawing-shape path (same as omitting `occurrence`).
 - `position=before/after` — `inserted: true` and no `replaced_count`. Inline content lands at the exact match edge; block content (`<p>`, headings, lists, tables) lands before/after the paragraph that holds the match, and `snapped_to_paragraph: true` says the insert moved off the match edge to get there.
 - If a replacement raises mid-`all_matches`, the existing abort behavior stands (no partial-replace handling — the call surfaces the error).
-- `dry_run=true` — does not edit. Returns `replaceable` (body/table/frame matches, each with `occurrence`) and `not_replaceable` (drawing shape and comment matches, without `occurrence`), plus `count` and `replaceable_count`. When `occurrence` is out of range, `details` carries both `replaceable` and `not_replaceable` lists.
+- `dry_run=true` — does not edit; returns `replaceable` and `not_replaceable` lists (see §4).
 
 **`apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).
 
@@ -971,9 +971,9 @@ no shapes/comments). Invalid regex with zero hits returns `code: INVALID_REGEX`.
 
 `apply_document_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment
 previews in `not_replaceable` (see `edit_reach_note` in the result). Replaceable body/table/frame rows include
-`occurrence` (0-based, the index to pass back); shape/comment rows do not. `replaceable_count` is the edit-path
-index space. An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with `replaceable` and
-`not_replaceable` in `details` so the caller can recover. Regex on the edit path uses the same INVALID_REGEX check.
+`occurrence` (0-based, the index to pass back); `not_replaceable` rows have no `occurrence`. `replaceable_count`
+is the edit-path index space. An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with `replaceable`
+and `not_replaceable` in `details` so the caller can recover. Regex on the edit path uses the same INVALID_REGEX check.
 
 #### 4b. (historical) Collabora `context_paragraphs` comparison
 

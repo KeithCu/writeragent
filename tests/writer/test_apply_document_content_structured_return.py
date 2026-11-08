@@ -406,7 +406,7 @@ def test_search_occurrence_empty_ranges_falls_through_to_not_found(monkeypatch):
     assert res["replaced_count"] == 0, res
 
 
-def test_search_occurrence_dry_run_oor_includes_matches(monkeypatch):
+def test_search_occurrence_dry_run_oor_includes_replaceable(monkeypatch):
     first = MockRange()
     second = MockRange()
 
@@ -527,6 +527,50 @@ def test_dry_run_splits_replaceable_and_not_replaceable(monkeypatch):
         {"location": "shape 'Box'", "text": "shape text"},
         {"location": "comment by 'Ana'", "text": "comment text"},
     ], res_oor
+
+
+def test_dry_run_shared_preview_cap(monkeypatch):
+    body_ranges = [MockRange(f"body {i}") for i in range(19)]
+    monkeypatch.setattr(
+        search_mod,
+        "find_all_ranges",
+        lambda doc, s: body_ranges,
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "describe_match_location",
+        lambda found, doc, label_cache=None: "body",
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "sweep_draw_shape_preview_matches",
+        lambda *args, **kwargs: [
+            {"location": "shape 'Box1'", "text": "shape 1"},
+            {"location": "shape 'Box2'", "text": "shape 2"},
+        ],
+    )
+    monkeypatch.setattr(
+        search_mod,
+        "sweep_comment_preview_matches",
+        lambda *args, **kwargs: [
+            {"location": "comment by 'Ana'", "text": "comment 1"},
+        ],
+    )
+
+    res = ApplyDocumentContent().execute(
+        _ctx(),
+        target="search",
+        old_content="foo",
+        content="BAR",
+        dry_run=True,
+    )
+
+    assert res["status"] == "ok", res
+    assert res["count"] == 22, res
+    assert res["replaceable_count"] == 19, res
+    assert len(res["replaceable"]) == 19, res
+    assert len(res["not_replaceable"]) == 1, res
+    assert res["not_replaceable"][0]["location"] == "shape 'Box1'", res
 
 
 def test_build_search_replace_response():

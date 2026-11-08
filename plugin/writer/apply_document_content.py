@@ -427,7 +427,7 @@ class ApplyDocumentContent(ToolBase):
             "target": enum_param(INSERT_TARGETS, "Where to apply the content."),
             "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
             "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'."},
-            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into dry_run replaceable rows. not_replaceable rows have no occurrence. Omit for first match. Rejected with all_matches=true.")},
+            "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index over body, table, and frame matches (dry_run replaceable rows show the first ones; replaceable_count is the full range). not_replaceable rows have no occurrence. Omit for first match. Rejected with all_matches=true.")},
             "position": enum_param(
                 ["replace", "before", "after"],
                 (

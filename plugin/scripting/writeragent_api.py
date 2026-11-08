@@ -2560,7 +2560,7 @@ class _WriterProxy:
             target (optional): Where to apply the content. One of: beginning, end, selection, full_document, search.
             old_content (optional): Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.
             all_matches (optional): Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'.
-            occurrence (optional): For target='search': 0-based index into dry_run replaceable rows. not_replaceable rows have no occurrence. Omit for first match. Rejected with all_matches=true.
+            occurrence (optional): For target='search': 0-based index over body, table, and frame matches (dry_run replaceable rows show the first ones; replaceable_count is the full range). not_replaceable rows have no occurrence. Omit for first match. Rejected with all_matches=true.
             position (optional): For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
             dry_run (optional): For target='search': do NOT edit. Return replaceable and not_replaceable.
             regex (optional): For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining).
