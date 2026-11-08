@@ -17,7 +17,9 @@ from plugin.calc.python.image_egress import (
     _PLOT_SHAPE_NAME_PREFIX,
     ImageEgressError,
     _aspect_ratio_changed,
+    _format_plot_tag,
     _intrinsic_aspect,
+    _parse_plot_tag,
     _plot_byte_tag,
     _plot_slot_index,
     _plot_slot_name,
@@ -1285,7 +1287,7 @@ def test_existing_slot_matching_byte_tag_skips_graphic_and_layout():
     cell = CalcCellStub(col=3, row=6)
     slot0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
     payload = _make_png_payload(100, 50)
-    tag = _plot_byte_tag(payload["data"])
+    tag = _plot_byte_tag(payload["data"], col=3, row=6)
     slot0.setPropertyValue("Description", tag)
     slot0.setPosition(Point(500, 600))
     slot0.setSize(Size(8000, 4000))
@@ -1526,8 +1528,8 @@ def test_new_shape_hides_when_formula_row_or_col_hidden():
     assert shape_vis.getPropertyValue("Visible") is True
 
 
-def test_reused_shape_updates_visibility_when_unhidden():
-    """An existing shape's Visible property is re-evaluated and unhidden when row/col is visible."""
+def test_reused_shape_preserves_visibility_across_recalc():
+    """An existing shape preserves its Visible property across recalculations."""
     cell = CalcCellStub(col=0, row=0)
     shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
     shape.setPropertyValue("Visible", False)
@@ -1549,8 +1551,8 @@ def test_reused_shape_updates_visibility_when_unhidden():
     ):
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0)
 
-    # Collabora parity: Visible is updated to True when recalculating on a visible row/col
-    assert shape.getPropertyValue("Visible") is True
+    # Revert target: Visible must not be overwritten on existing shapes during recalc
+    assert shape.getPropertyValue("Visible") is False
 
 
 def test_new_shape_graphic_url_failure_without_target_cell_removes_shape():
@@ -1710,5 +1712,57 @@ def test_reused_shape_unchanged_bytes_updates_owner_tag():
 
     # Revert target: _record_plot_tag called on reuse with matching bytes
     assert shape.getPropertyValue("Description") == _plot_byte_tag(payload["data"], col=1, row=2)
+
+
+def test_parse_and_format_plot_tag():
+    """Verify wa-plot tag formatting and parsing only accepts wa-plot:<col>,<row>[:<sha>]."""
+    assert _format_plot_tag(0, 0) == "wa-plot:0,0"
+    assert _format_plot_tag(2, 5, "sha123") == "wa-plot:2,5:sha123"
+
+    assert _parse_plot_tag("wa-plot:0,0") == ((0, 0), None)
+    assert _parse_plot_tag("wa-plot:2,5:sha123") == ((2, 5), "sha123")
+
+    # Revert target: rejection of bare sha or comma-less coordinates in _parse_plot_tag
+    assert _parse_plot_tag("wa-plot:sha123") is None
+    assert _parse_plot_tag("wa-plot") is None
+    assert _parse_plot_tag("wa-plot:") is None
+    assert _parse_plot_tag("wa-plot:invalid,coord:sha") is None
+    assert _parse_plot_tag("not-a-plot-tag") is None
+
+
+def test_new_shape_anchor_failure_chains_graphic_exception():
+    """When graphic load fails and subsequent anchoring fails, graphic_exc is chained on ImageEgressError."""
+    cell = CalcCellStub(col=0, row=0)
+    page = _DrawPage([])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
+
+    graphic_error = RuntimeError("graphic load boom")
+
+    def _set_prop(name: str, val: Any) -> None:
+        if name == "GraphicURL":
+            raise graphic_error
+
+    shape.setPropertyValue = MagicMock(side_effect=_set_prop)
+    doc.createInstance.return_value = shape
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 0)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/test.png"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/test.png"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", side_effect=RuntimeError("geom boom")),
+    ):
+        with pytest.raises(ImageEgressError, match="could not anchor plot to the formula cell") as exc_info:
+            insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0)
+
+    # Revert target: raise ImageEgressError from graphic_exc in _place_new_plot
+    assert exc_info.value.__cause__ is graphic_error
+
 
 

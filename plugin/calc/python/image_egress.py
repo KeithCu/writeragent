@@ -139,21 +139,16 @@ def _aspect_ratio_changed(old_w: int, old_h: int, new_w: int, new_h: int) -> boo
     return abs(old_ratio - new_ratio) > 0.01 * max(old_ratio, new_ratio)
 
 
-def _format_plot_tag(col: int | None = None, row: int | None = None, sha: str | None = None) -> str:
+def _format_plot_tag(col: int, row: int, sha: str | None = None) -> str:
     """Format the owner cell coordinates and SHA-256 digest tag for Description."""
-    if col is not None and row is not None:
-        prefix = f"wa-plot:{col},{row}"
-    else:
-        prefix = "wa-plot"
-    return f"{prefix}:{sha}" if sha else prefix
+    return f"wa-plot:{col},{row}:{sha}" if sha else f"wa-plot:{col},{row}"
 
 
-def _parse_plot_tag(desc: str) -> tuple[tuple[int, int] | None, str | None] | None:
+def _parse_plot_tag(desc: str) -> tuple[tuple[int, int], str | None] | None:
     """Parse a wa-plot Description tag into ((col, row), sha_hex).
 
-    Returns None if desc is not a valid wa-plot tag.
-    Coordinates or sha may be None if omitted from the tag.
-    A single comma-less field (wa-plot:<sha>) is accepted for legacy compatibility.
+    Returns None if desc is not a valid wa-plot tag in the format
+    wa-plot:<col>,<row>[:<sha>].
     """
     if not isinstance(desc, str) or not desc.startswith("wa-plot:"):
         return None
@@ -165,20 +160,18 @@ def _parse_plot_tag(desc: str) -> tuple[tuple[int, int] | None, str | None] | No
         coords_part = rest
         sha = None
 
-    coords: tuple[int, int] | None = None
-    if "," in coords_part:
-        try:
-            c_str, r_str = coords_part.split(",", 1)
-            coords = (int(c_str), int(r_str))
-        except ValueError:
-            coords = None
-    elif not sha and coords_part:
-        sha = coords_part
+    if "," not in coords_part:
+        return None
+    try:
+        c_str, r_str = coords_part.split(",", 1)
+        coords = (int(c_str), int(r_str))
+    except ValueError:
+        return None
 
     return coords, sha
 
 
-def _plot_byte_tag(data: bytes | None, col: int | None = None, row: int | None = None) -> str:
+def _plot_byte_tag(data: bytes | None, col: int, row: int) -> str:
     """Return cache tag string stored in shape Description."""
     sha = hashlib.sha256(data).hexdigest() if data is not None else None
     return _format_plot_tag(col, row, sha)
@@ -200,17 +193,20 @@ def _bytes_match(shape: Any, data: bytes) -> bool:
 def _record_plot_tag(shape: Any, target_cell: Any = None, data: bytes | None = None) -> None:
     """Write plot owner cell address and SHA-256 byte tag to shape Description when allowed.
 
-    Preserves custom user alt text: writes only when Description is empty
-    or already starts with the wa-plot: prefix.
+    Accessibility Description text is the only per-shape string storage LibreOffice's UNO
+    API exposes for GraphicObjectShape. Custom user alt text is preserved by writing only
+    when Description is empty or already starts with the wa-plot: prefix.
     """
+    if target_cell is None:
+        return
+    addr_key = _cell_address_key(target_cell)
+    if addr_key is None:
+        return
+    col, row = addr_key[1], addr_key[2]
+
     try:
         desc = shape.getPropertyValue("Description")
         if not isinstance(desc, str) or not desc or desc.startswith("wa-plot:"):
-            col, row = None, None
-            if target_cell is not None:
-                addr_key = _cell_address_key(target_cell)
-                if addr_key is not None:
-                    col, row = addr_key[1], addr_key[2]
             shape.setPropertyValue("Description", _plot_byte_tag(data, col, row))
     except (AttributeError, TypeError):
         log.debug("could not record plot tag", exc_info=True)
@@ -263,6 +259,12 @@ def _slot_cursor(
     For each slot index < image_index, if the slot shape is resolved, advances the
     cursor to that shape's live outer edge and aligns to its top Y. If any intermediate
     slot is missing, stops advancing and places at the last known edge.
+
+    Sign convention matches Collabora pythonplots.cxx:418-419, 454, 467. In RTL sheets
+    (TableLayout == 1), Calc core mirrors visual cell bounds (sc/source/core/data/documen3.cxx:2092
+    ScDocument::GetMMRect via MirrorRectRTL when IsNegativePage). UNO Position.X is the left
+    visual edge and Position.X + Width is the right visual edge in positive coordinates;
+    placement starts at the right visual edge and chains leftwards.
     """
     cursor_x = int(cell_pos.X) + int(cell_size.Width) if rtl else int(cell_pos.X)
     cursor_y = int(cell_pos.Y)
@@ -330,11 +332,7 @@ def _anchored_plot_slots(draw_page: Any, target_cell: Any) -> list[tuple[Any, in
         return []
 
 
-def _drop_extra_plot_slots(
-    draw_page: Any,
-    slots: list[tuple[Any, int]],
-    image_count: int,
-) -> None:
+def _drop_extra_plot_slots(draw_page: Any, slots: list[tuple[Any, int]], image_count: int) -> None:
     """Remove existing plot shapes on target_cell with slot index >= image_count."""
     for s, slot_idx in slots:
         if slot_idx >= image_count:
@@ -623,6 +621,9 @@ def _place_new_plot(
                 lambda: draw_page.remove(shape),
                 "insert_image_result_on_sheet: failed to remove failed shape",
             )
+            if graphic_exc is not None:
+                log.debug("anchor failed after graphic load failure", exc_info=graphic_exc)
+                raise ImageEgressError("could not anchor plot to the formula cell") from graphic_exc
             raise ImageEgressError("could not anchor plot to the formula cell") from exc
 
     if graphic_exc is not None:
@@ -637,7 +638,6 @@ def _place_new_plot(
 
 
 def _refresh_existing_plot(
-    sheet: Any,
     shape: Any,
     target_cell: Any,
     file_url: str,
@@ -645,12 +645,8 @@ def _refresh_existing_plot(
     aspect: tuple[int, int] | None,
     rtl: bool,
 ) -> None:
-    """Update visibility, graphic, and geometry on an existing plot shape."""
+    """Update graphic and geometry on an existing plot shape."""
     from com.sun.star.awt import Point
-
-    if target_cell is not None:
-        # Collabora pythonplots.cxx:214-216, 223-225: re-evaluate visibility against formula cell axis.
-        shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
 
     # LibreOffice's UNO API does not expose the raw graphic link or byte identity of
     # an embedded GraphicObjectShape. We store the SHA-256 digest tag in Description
@@ -686,6 +682,9 @@ def _refresh_existing_plot(
                 old_y = int(old_pos.Y)
 
                 if aspect is not None and _aspect_ratio_changed(old_w, old_h, aspect[0], aspect[1]):
+                    # Preserves long side and corner position on recalculation when aspect changes.
+                    # Chaining flush against neighboring slots is guaranteed when created; resizing
+                    # an earlier slot here on recalculation may cause slight overlap if slot k+1 stays put.
                     new_size = _aspect_size(aspect, long_side=max(old_w, old_h))
                     shape.setSize(new_size)
                     if rtl:
@@ -777,7 +776,7 @@ def _insert_image_result_on_sheet_impl(
             )
         else:
             _refresh_existing_plot(
-                sheet, shape, target_cell, file_url, data_bytes, aspect, rtl
+                shape, target_cell, file_url, data_bytes, aspect, rtl
             )
 
         # Only a caller that passes image_count owns the slot family. =PY() and
