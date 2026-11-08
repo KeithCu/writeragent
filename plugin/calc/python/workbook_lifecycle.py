@@ -131,6 +131,9 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 for listener in _LISTENERS.values()
             )
 
+    def _abandon_if(self, sid: str) -> bool:
+        return self._session_has_new_listener(sid)
+
     def _retry_reset(self, sid: str) -> None:
         """Retry resetting a worker session that timed out or returned WORKER_REENTRY."""
         # Every caller waits for the pipe lock; this retry runs only after
@@ -149,7 +152,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 res = reset_python_session(
                     sid,
                     lease_wait_sec=_UNLOAD_RESET_TIMEOUT_SEC,
-                    abandon_if=lambda: self._session_has_new_listener(sid),
+                    abandon_if=lambda: self._abandon_if(sid),
                 )
             except Exception:
                 log.debug("python_workbook_lifecycle: retry reset raised", exc_info=True)
@@ -164,7 +167,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
             sid,
             timeout_sec=_UNLOAD_RESET_TIMEOUT_SEC,
             lease_wait_sec=_UNLOAD_RESET_TIMEOUT_SEC,
-            abandon_if=lambda: self._session_has_new_listener(sid),
+            abandon_if=lambda: self._abandon_if(sid),
         )
         if _should_retry(res):
             from plugin.framework.worker_pool import run_in_background

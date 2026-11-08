@@ -87,10 +87,6 @@ _WORKER_BUSY_MESSAGE = (
 RESET_ABANDONED = "RESET_ABANDONED"
 
 
-def _abandoned_error() -> dict[str, Any]:
-    return _worker_error(RESET_ABANDONED, "Caller abandoned the request before it was sent.")
-
-
 def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
     """Host-constructed error dict. Child payloads still go through ``_normalize_response``."""
     return {
@@ -99,6 +95,11 @@ def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = N
         "message": message,
         "details": details or {},
     }
+
+
+def _abandoned_error() -> dict[str, Any]:
+    """Host error dict returned when an in-flight request was abandoned before IPC."""
+    return _worker_error(RESET_ABANDONED, "Caller abandoned the request before it was sent.")
 
 
 def parse_worker_stdout_frame(payload: bytes) -> dict[str, Any]:
@@ -467,7 +468,11 @@ class PythonWorkerManager:
         lease_wait_sec: float | None = None,
         abandon_if: Callable[[], bool] | None = None,
     ) -> Generator[Lease | dict[str, Any], None, None]:
-        """Hold the warm-child pipe lock, or yield an error dict."""
+        """Hold the warm-child pipe lock, or yield an error dict.
+
+        *abandon_if* is called on the lock-wait thread, must be cheap, and
+        any exception it raises propagates.
+        """
         lock_budget = lease_wait_sec if lease_wait_sec is not None else _IO_LOCK_ACQUIRE_TIMEOUT_SEC
         acquire_end = time.monotonic() + lock_budget
         spawn_deadline = spawn_deadline or Deadline(float(WARM_WORKER_TIMEOUT_SEC))
@@ -930,6 +935,9 @@ class PythonWorkerManager:
 
         Cold start: spawn + auto-imports run first under :data:`WARM_WORKER_TIMEOUT_SEC`
         and are not charged against *timeout_sec*.
+
+        *abandon_if* is called on the lock-wait thread, must be cheap, and
+        any exception it raises propagates.
         """
         if timeout_sec is None:
             timeout_sec = python_exec_timeout_default()
@@ -1364,6 +1372,9 @@ def reset_python_session(
     """Drop the shared-kernel executor for *session_id* in the warm worker.
 
     A missing or exited child returns {"status": "ok"} and does not spawn.
+
+    *abandon_if* is called on the lock-wait thread, must be cheap, and
+    any exception it raises propagates.
     """
     if not (session_id or "").strip():
         return _worker_error("WORKER_IPC_ERROR", "No session_id provided.")

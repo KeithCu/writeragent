@@ -126,20 +126,9 @@ class HarperRuntime:
         self.failed_at = 0.0
         self.linting_client = None
 
-    def shutdown(self) -> None:
-        """Close every cached harper-ls client. Safe from tests and extension teardown."""
-        with self.lock:
-            clients = list(self.clients.values())
-            self.clients.clear()
-            self.state = HarperRuntimeState.IDLE
-            self.failed_at = 0.0
-        for client in clients:
-            client.close()
-
-    def close_clients(self) -> None:
-        """Close and discard all cached clients so ensure spawns a fresh process."""
+    def _close_all_clients(self) -> None:
         if not self._acquire_state_lock():
-            log.debug("[harper] State lock busy; skipped close_clients on main thread")
+            log.debug("[harper] State lock busy; skipped closing clients on main thread")
             return
         try:
             clients = list(self.clients.values())
@@ -148,6 +137,17 @@ class HarperRuntime:
             self.lock.release()
         for client in clients:
             client.close()
+
+    def shutdown(self) -> None:
+        """Close every cached harper-ls client. Safe from tests and extension teardown."""
+        self._close_all_clients()
+        with self.lock:
+            self.state = HarperRuntimeState.IDLE
+            self.failed_at = 0.0
+
+    def close_clients(self) -> None:
+        """Close and discard all cached clients so ensure spawns a fresh process."""
+        self._close_all_clients()
 
     def _acquire_state_lock(self) -> bool:
         # The lint worker holds this lock across client.lint (and _initialize / close).
@@ -590,10 +590,7 @@ class HarperLSClient:
         path caches the sentence with no errors so Writer does not walk
         it again. A real publish with ``diagnostics: []`` is still a
         clean sentence. The sentinel, a dead process, and a timeout are
-        not. Because harper-ls publishes diagnostics without version,
-        HarperLSClient drains the queue and resets the document URI
-        after a timeout so stale diagnostic responses cannot bleed
-        into a later lint.
+        not.
         """
         while _deadline_remaining(deadline) > 0:
             # If harper-ls dies with an empty queue before publishDiagnostics,
@@ -685,8 +682,9 @@ class HarperLSClient:
             except TimeoutError:
                 # A main-thread dialog budget expiration or cancellation leaves the
                 # server process healthy. Re-raise so the caller can decide whether
-                # to keep or close the client. Drain pending messages and reset the document
-                # URI so late diagnostics for this sentence cannot bleed into the next lint.
+                # to keep or close the client. Because harper-ls publishes diagnostics
+                # without version, a timed-out lint drains pending messages and rotates
+                # the document URI so stale diagnostic responses cannot bleed into a later lint.
                 self._drain_stdout_queue()
                 self._reset_document_uri()
                 raise
@@ -901,7 +899,8 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
 
         if isinstance(exc, TimeoutError) and main.is_current():
             # Main-thread proofreading bounds dialog responsiveness to a short budget.
-            # When this budget expires, return an empty walk without cycling the client.
+            # When this budget expires, return an empty walk without cycling the client
+            # (unless abort_lint already closed it).
             log.debug("[harper] main-thread dialog lint timed out; returning empty walk")
             grammar_obs("harper_try_lint_none", reason="dialog_budget", ensure_submitted=False)
             return None

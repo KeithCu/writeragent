@@ -1799,6 +1799,72 @@ def test_harper_try_lint_off_main_timeout_marks_idle_and_ensures(mock_bg: MagicM
         assert harper_module.runtime.clients["/bin/harper-ls"] is fresh_client
 
 
+def test_harper_try_lint_off_main_ctx_timeout_closes_cached_client() -> None:
+    """Off-main TimeoutError with ctx closes the client and evicts it from runtime.clients."""
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    with harper_module.runtime.lock:
+        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
+        harper_module.runtime.state = HarperRuntimeState.READY
+
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
+         patch.object(harper_module.runtime, "lint_now", side_effect=TimeoutError("worker timeout")), \
+         patch("plugin.writer.locale.harper.harper_ensure_ready_async") as mock_ensure:
+        res = harper_try_lint("He go to the store.", "/tmp", ctx=object())
+
+    assert res is None
+    mock_client.close.assert_called_once()
+    assert "/bin/harper-ls" not in harper_module.runtime.clients
+    assert harper_module.runtime.state is HarperRuntimeState.IDLE
+    mock_ensure.assert_called_once()
+
+
+def test_harper_try_lint_ctx_none_main_thread_timeout_keeps_client(caplog: pytest.LogCaptureFixture) -> None:
+    """Main-thread timeout with ctx=None returns None and keeps cached client alive."""
+    mock_client = MagicMock()
+    mock_client.is_alive.return_value = True
+    with harper_module.runtime.lock:
+        harper_module.runtime.clients["/bin/harper-ls"] = mock_client
+        harper_module.runtime.state = HarperRuntimeState.READY
+
+    caplog.set_level(logging.DEBUG, logger="writeragent.grammar")
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
+         patch.object(harper_module.runtime, "lint_now", side_effect=TimeoutError("dialog budget expired")), \
+         patch("plugin.writer.locale.harper.harper_ensure_ready_async") as mock_ensure:
+        res = harper_try_lint("He go to the store.", "/tmp", ctx=None)
+
+    assert res is None
+    mock_client.close.assert_not_called()
+    assert harper_module.runtime.clients["/bin/harper-ls"] is mock_client
+    assert harper_module.runtime.state is HarperRuntimeState.READY
+    mock_ensure.assert_not_called()
+    assert any("reason='dialog_budget'" in r.message for r in caplog.records)
+
+
+def test_harper_client_lint_after_drain_with_eof_sentinel_reinitializes() -> None:
+    """Draining stdout queue containing None EOF sentinel allows next lint to detect dead proc and re-init."""
+    client = _bare_harper_client()
+    client.stdout_queue.put(None)
+    assert not client.stdout_queue.empty()
+
+    client._drain_stdout_queue()
+    assert client.stdout_queue.empty()
+
+    # Process has died (poll() returns exit code 1)
+    client.proc.poll.return_value = 1
+    assert not client.is_alive()
+
+    with patch.object(client, "_initialize") as mock_init, \
+         patch.object(client, "_apply_bcp47"), \
+         patch.object(client, "_sync_document"), \
+         patch.object(client, "_collect_diagnostics", return_value=[]), \
+         patch.object(client, "_suggestions_for_diagnostic"):
+        res = client.lint("Hello world")
+
+    mock_init.assert_called_once()
+    assert res == []
+
+
 def test_harper_try_lint_off_main_keeps_lint_budget() -> None:
     recorded_timeout: list[float] = []
 
