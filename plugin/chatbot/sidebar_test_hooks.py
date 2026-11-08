@@ -361,7 +361,7 @@ def try_stub_initialize(recorder: Any) -> bool:
         return True
 
     # Packet G: pretend the capture child said {"status":"ready"} without a mic.
-    recorder._take_new_temp_wav()
+    recorder._take_new_temp_wav(recorder._epoch)
     recorder._proc = None
     from plugin.chatbot.audio_recorder_state import DeviceReadyEvent
 
