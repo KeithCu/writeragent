@@ -14,9 +14,8 @@ import os
 import re
 import sqlite3
 import sys
-from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, cast, final
+from typing import Any, cast
 
 log = logging.getLogger(__name__)
 
@@ -176,168 +175,73 @@ CREATE VIRTUAL TABLE IF NOT EXISTS {tbl_name} USING vec0(
 """
 
 
-_REMOTE_FSTYPES: frozenset[str] = frozenset(
-    {
-        "9p",
-        "afpfs",
-        "afs",
-        "ceph",
-        "cifs",
-        "davfs",
-        "fuse.davfs",
-        "fuse.gvfsd-fuse",
-        "fuse.rclone",
-        "fuse.sshfs",
-        "glusterfs",
-        "lustre",
-        "ncpfs",
-        "nfs",
-        "nfs4",
-        "smb",
-        "smb3",
-        "smbfs",
-        "webdav",
-    }
-)
+def _opts_tokens(opts: str) -> set[str]:
+    return {part.strip().casefold() for part in opts.split(",") if part.strip()}
 
 
-def fstype_is_local(fstype: str | None) -> bool:
-    """Return True unless the filesystem type matches a known network mount.
-
-    Empty or None filesystem types default to local to avoid unnecessary
-    fallbacks when inspection fails.
-    """
-    if not fstype:
-        return True
-    return fstype.strip().casefold() not in _REMOTE_FSTYPES
+def _path_for_mount_match(path: str | Path) -> str:
+    """Normalize *path* for prefix comparison against psutil mount points."""
+    text = str(path)
+    if sys.platform == "win32":
+        return os.path.normpath(text)
+    return os.path.realpath(text)
 
 
-def _unescape_mountpoint(val: str) -> str:
-    """Decode octal escape sequences used by /proc/self/mountinfo for whitespace and backslashes."""
-    return (
-        val.replace(r"\040", " ")
-        .replace(r"\011", "\t")
-        .replace(r"\012", "\n")
-        .replace(r"\134", "\\")
-    )
-
-
-def _fstype_from_mountinfo(lines: Iterable[str], path: str | Path) -> str | None:
-    """Find the filesystem type for a path from mountinfo lines by longest prefix match.
-
-    Each mount entry contains the mount point at index 4 and the filesystem type
-    immediately after the separator dash. Returns None when no mountpoint matches.
-    """
-    target = os.path.realpath(str(path))
-    best_match: tuple[int, str] | None = None
-    for line in lines:
-        parts = line.strip().split()
-        if len(parts) < 5 or "-" not in parts:
-            continue
-        dash_idx = parts.index("-")
-        if dash_idx + 1 >= len(parts):
-            continue
-        fstype = parts[dash_idx + 1]
-        mp = _unescape_mountpoint(parts[4])
+def _longest_mount_partition(path: str | Path, partitions: list[Any]) -> Any | None:
+    """Pick the disk_partitions row whose mountpoint is the longest prefix of *path*."""
+    target = _path_for_mount_match(path)
+    best_len = -1
+    best_part: Any | None = None
+    for part in partitions:
+        mp = str(part.mountpoint)
         if target == mp:
             mp_len = len(mp)
         elif mp == "/" and target.startswith("/"):
             mp_len = 1
-        elif target.startswith(mp.rstrip("/") + "/"):
-            mp_len = len(mp.rstrip("/"))
+        elif target.startswith(mp.rstrip("/") + "/") or target.startswith(mp.rstrip("\\") + "\\"):
+            mp_len = len(mp.rstrip("/\\"))
         else:
             continue
+        if mp_len > best_len:
+            best_len = mp_len
+            best_part = part
+    return best_part
 
-        if best_match is None or mp_len > best_match[0]:
-            best_match = (mp_len, fstype)
 
-    return best_match[1] if best_match else None
+def _partition_is_local(path: str | Path, part: Any) -> bool:
+    """Classify a psutil disk_partitions row as local or remote."""
+    fstype = str(part.fstype or "").strip()
+    opts = str(part.opts or "")
+    if sys.platform == "win32":
+        # Mapped shares and local NTFS both report NTFS; psutil tags DRIVE_REMOTE in opts.
+        return "remote" not in _opts_tokens(opts)
+    if sys.platform == "darwin":
+        # psutil copies MNT_LOCAL into a ``local`` mount option token.
+        return "local" in _opts_tokens(opts)
+    from plugin.contrib.fstype_network import fstype_is_network
 
-
-def _windows_drive_is_local(drive: str, kind: int | None = None) -> bool:
-    """Classify a Windows drive prefix or GetDriveTypeW return code as local or remote.
-
-    UNC network paths and DRIVE_REMOTE (4) return False. Other drive types,
-    including DRIVE_FIXED (3) and unknown drives without a kind, return True.
-    """
-    if drive.startswith(("\\\\", "//")):
-        return False
-    if not drive:
+    if not fstype:
         return True
-    if kind == 4:
-        return False
-    return True
+    return not fstype_is_network(fstype)
 
 
 def path_is_local_disk(path: str | Path) -> bool:
     """Check whether a folder resides on a local disk rather than a network mount."""
-    if sys.platform == "win32":
-        drive, _rest = os.path.splitdrive(str(path))
-        if not _windows_drive_is_local(drive):
-            return False
-        if not drive:
-            return True
-        try:
-            import ctypes
-
-            root = drive if drive.endswith("\\") else drive + "\\"
-            kind = int(ctypes.windll.kernel32.GetDriveTypeW(root))  # type: ignore[attr-defined]
-            return _windows_drive_is_local(drive, kind)
-        except (AttributeError, OSError):
-            return True
-
-    if sys.platform == "darwin":
-        try:
-            import ctypes
-            import ctypes.util
-
-            @final
-            class _Statfs64(ctypes.Structure):
-                _fields_ = [
-                    ("f_bsize", ctypes.c_uint32),
-                    ("f_iosize", ctypes.c_int32),
-                    ("f_blocks", ctypes.c_uint64),
-                    ("f_bfree", ctypes.c_uint64),
-                    ("f_bavail", ctypes.c_uint64),
-                    ("f_files", ctypes.c_uint64),
-                    ("f_ffree", ctypes.c_uint64),
-                    ("f_fsid", ctypes.c_int32 * 2),
-                    ("f_owner", ctypes.c_uint32),
-                    ("f_type", ctypes.c_uint32),
-                    ("f_flags", ctypes.c_uint32),
-                    ("f_fssubtype", ctypes.c_uint32),
-                    ("f_fstypename", ctypes.c_char * 16),
-                    ("f_mntonname", ctypes.c_char * 1024),
-                    ("f_mntfromname", ctypes.c_char * 1024),
-                    ("f_flags_ext", ctypes.c_uint32),
-                    ("f_reserved", ctypes.c_uint32 * 7),
-                ]
-
-            libc_name = ctypes.util.find_library("c") or "libc.dylib"
-            libc = ctypes.CDLL(libc_name)
-            statfs_fn = getattr(libc, "statfs$INODE64", getattr(libc, "statfs", None))
-            if statfs_fn is None:
-                return True
-            buf = _Statfs64()
-            path_bytes = os.fsencode(str(path))
-            ret = statfs_fn(path_bytes, ctypes.byref(buf))
-            if ret != 0:
-                return True
-            raw_fstype = bytes(buf.f_fstypename).split(b"\x00", 1)[0]
-            fstype = raw_fstype.decode("ascii")
-            if not fstype:
-                return True
-            return fstype_is_local(fstype)
-        except (AttributeError, OSError, UnicodeDecodeError):
-            return True
-
+    path_text = str(path)
+    if path_text.startswith(("\\\\", "//")):
+        return False
     try:
-        with open("/proc/self/mountinfo", "r", encoding="utf-8") as f:
-            lines = f.readlines()
-        fstype = _fstype_from_mountinfo(lines, path)
-        return fstype_is_local(fstype)
-    except OSError:
+        import psutil
+    except ImportError:
         return True
+    try:
+        partitions = psutil.disk_partitions(all=True)
+    except Exception:
+        return True
+    part = _longest_mount_partition(path, partitions)
+    if part is None:
+        return True
+    return _partition_is_local(path, part)
 
 
 def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:

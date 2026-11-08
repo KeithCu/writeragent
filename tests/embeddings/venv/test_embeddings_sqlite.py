@@ -363,35 +363,57 @@ def test_connect_corpus_journal_wal_on_local_delete_on_remote(tmp_path, monkeypa
         conn2.close()
 
 
-def test_mountinfo_longest_remote_prefix():
-    lines = [
-        "42 1 259:2 / / rw,relatime shared:1 - ext4 /dev/nvme0n1p2 rw",
-        "43 42 0:28 / /tmp rw,nosuid,nodev shared:3 - tmpfs tmpfs rw",
-        "50 42 0:50 / /mnt/share rw shared:4 - nfs server:/share rw",
-    ]
-    assert embeddings_sqlite._fstype_from_mountinfo(lines, "/mnt/share/sub/file.txt") == "nfs"
-    assert embeddings_sqlite._fstype_from_mountinfo(lines, "/tmp/scratch") == "tmpfs"
-    assert embeddings_sqlite._fstype_from_mountinfo(lines, "/home/user") == "ext4"
-
-    synthetic_no_root = [
-        "50 42 0:50 / /mnt/share rw shared:4 - nfs server:/share rw",
-    ]
-    assert embeddings_sqlite._fstype_from_mountinfo(synthetic_no_root, "/var/log") is None
+def _fake_partition(device: str, mountpoint: str, fstype: str, opts: str):
+    return type("Part", (), {"device": device, "mountpoint": mountpoint, "fstype": fstype, "opts": opts})()
 
 
-def test_fstype_is_local():
+def _mock_disk_partitions(monkeypatch, parts):
+    import sys
+    from types import ModuleType
+
+    mod = ModuleType("psutil")
+    mod.disk_partitions = lambda all=True: list(parts)  # noqa: ARG005
+    monkeypatch.setitem(sys.modules, "psutil", mod)
+
+
+def test_fstype_is_network():
+    from plugin.contrib.fstype_network import fstype_is_network
+
     for remote in ("nfs", "cifs", "fuse.sshfs", "9p"):
-        assert embeddings_sqlite.fstype_is_local(remote) is False
-    for local in (None, "", "ext4", "tmpfs", "fuse"):
-        assert embeddings_sqlite.fstype_is_local(local) is True
+        assert fstype_is_network(remote) is True
+    for local in (None, "", "ext4", "tmpfs", "fuse", "fuse.ntfs-3g"):
+        assert fstype_is_network(local) is False
 
 
-def test_windows_unc_and_remote_drive():
-    assert embeddings_sqlite._windows_drive_is_local(r"\\server\share") is False
-    assert embeddings_sqlite._windows_drive_is_local("//server/share") is False
-    assert embeddings_sqlite._windows_drive_is_local("Z:", 4) is False
-    assert embeddings_sqlite._windows_drive_is_local("C:", 3) is True
-    assert embeddings_sqlite._windows_drive_is_local("C:", None) is True
+def test_longest_mount_partition_remote_prefix(monkeypatch):
+    parts = [
+        _fake_partition("", "/", "ext4", "rw"),
+        _fake_partition("", "/tmp", "tmpfs", "rw"),
+        _fake_partition("", "/mnt/share", "nfs", "rw"),
+    ]
+    _mock_disk_partitions(monkeypatch, parts)
+    assert embeddings_sqlite.path_is_local_disk("/mnt/share/sub/file.txt") is False
+    assert embeddings_sqlite.path_is_local_disk("/tmp/scratch") is True
+    assert embeddings_sqlite.path_is_local_disk("/home/user") is True
+
+    _mock_disk_partitions(monkeypatch, [_fake_partition("", "/mnt/share", "nfs", "rw")])
+    assert embeddings_sqlite.path_is_local_disk("/var/log") is True
+
+
+def test_windows_unc_and_remote_opts(monkeypatch):
+    assert embeddings_sqlite.path_is_local_disk(r"\\server\share\file") is False
+    assert embeddings_sqlite.path_is_local_disk("//server/share/file") is False
+    monkeypatch.setattr(embeddings_sqlite.sys, "platform", "win32")
+    _mock_disk_partitions(
+        monkeypatch,
+        [_fake_partition("", "Z:\\", "NTFS", "rw,remote")],
+    )
+    assert embeddings_sqlite.path_is_local_disk("Z:\\data") is False
+    _mock_disk_partitions(
+        monkeypatch,
+        [_fake_partition("", "C:\\", "NTFS", "rw,fixed")],
+    )
+    assert embeddings_sqlite.path_is_local_disk("C:\\data") is True
 
 
 def test_path_is_local_disk_real_path_on_linux(tmp_path):

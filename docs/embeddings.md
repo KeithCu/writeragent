@@ -576,6 +576,7 @@ Per-folder semantic search runs in the user venv via trusted RPC modules. Settin
 | [icu4py](https://pypi.org/project/icu4py/) | (same line) | Sentence boundaries for prose chunking (`SentenceBreaker`; bundled ICU wheels) |
 | [langdetect](https://pypi.org/project/langdetect/) | (same line) | Plain-text locale detection; grammar Local language detection (via embeddings worker RPC) |
 | [envwrap](https://pypi.org/project/envwrap/) | (same line) | Transitive dependency for `sentence-transformers` / Hugging Face stack on some Python versions |
+| [psutil](https://pypi.org/project/psutil/) | (same line) | Corpus `corpus.db` journal mode: classify local vs network mount (`embeddings_sqlite.path_is_local_disk`) |
 
 Canonical install constant: `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py).
 
@@ -584,7 +585,7 @@ Settings → **Python Test** and [`venv_diagnostics.py`](../plugin/scripting/ven
 **Minimum install:**
 
 ```bash
-uv pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap icu4py langdetect odfpy pandas openpyxl xlrd python-docx
+uv pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap psutil icu4py langdetect odfpy pandas openpyxl xlrd python-docx
 ```
 
 See [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py) for the canonical one-liner. [Installing sqlite-vec](#installing-sqlite-vec) if `sqlite_vec.load()` fails.
