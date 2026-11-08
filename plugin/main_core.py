@@ -64,8 +64,17 @@ def _register_librepy_handlers() -> None:
 
 def _librepy_bootstrap_finish(ctx: Any) -> None:
     import plugin.bootstrap as bootstrap
+    from plugin.framework.queue_executor import Policy, main
 
     _register_librepy_handlers()
+    if main.policy is not Policy.eval_harness:
+        # Pre-arm webview probe for Monaco only outside headless eval harness.
+        try:
+            from plugin.scripting.editor_host import arm_webview_probe_at_startup
+
+            arm_webview_probe_at_startup(ctx)
+        except Exception:
+            log.exception("bootstrap: failed to arm webview probe at startup")
     bootstrap.mark_initialized()
     bootstrap.clear_bootstrap_error()
 
