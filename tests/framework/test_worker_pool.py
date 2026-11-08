@@ -843,6 +843,114 @@ def test_async_process_spawn_uses_managed_subprocess(monkeypatch: pytest.MonkeyP
         AsyncProcess(["dummy"], creationflags=0)  # type: ignore[call-arg]
 
 
+def test_async_process_die_with_parent() -> None:
+    """AsyncProcess(die_with_parent=True) forks on the supervisor thread and survives caller thread exit."""
+    if sys.platform != "linux":
+        pytest.skip("Linux-only PDEATHSIG test")
+
+    ap: AsyncProcess | None = None
+    helper_err: BaseException | None = None
+
+    def _start_from_thread() -> None:
+        nonlocal ap, helper_err
+        try:
+            ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(60)"], die_with_parent=True)
+            ap.start()
+        except BaseException as exc:
+            helper_err = exc
+
+    try:
+        t = threading.Thread(target=_start_from_thread)
+        t.start()
+        t.join()
+        if helper_err is not None:
+            raise helper_err
+        assert ap is not None
+        assert ap.is_running is True
+        # Kernel delivers SIGKILL when the creating thread terminates;
+        # verify the child remains alive after caller thread exit.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            assert ap.process is not None
+            assert ap.process.poll() is None
+            time.sleep(0.05)
+    finally:
+        if ap is not None and ap.is_running:
+            ap.terminate()
+
+
+def test_async_process_die_with_parent_off_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.warm_child import supervisor
+
+    def forbid_spawn(*args: object, **kwargs: object) -> None:
+        raise AssertionError("supervisor.spawn must not run off Linux")
+
+    class FakePopen:
+        def __init__(self, cmd: list[str], **kwargs: object) -> None:
+            self.pid = 4242
+            self.stdin = None
+            self.stdout = None
+            self.stderr = None
+
+        def poll(self) -> int:
+            return 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(supervisor, "spawn", forbid_spawn)
+    monkeypatch.setattr("sys.platform", "win32")
+
+    ap = AsyncProcess(["echo", "hi"], die_with_parent=True)
+    ap.start()
+    assert ap.process is not None
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PDEATHSIG is Linux-only")
+def test_async_process_pr_get_pdeathsig_armed() -> None:
+    """die_with_parent arms PR_SET_PDEATHSIG (PR_GET_PDEATHSIG reads 9)."""
+    script = (
+        "import ctypes\n"
+        "v = ctypes.c_int()\n"
+        "ctypes.CDLL('libc.so.6').prctl(2, ctypes.byref(v), 0, 0, 0)\n"
+        "print(v.value, flush=True)\n"
+    )
+    lines: list[str] = []
+    ap: AsyncProcess | None = None
+    helper_err: BaseException | None = None
+
+    def _start_from_thread() -> None:
+        nonlocal ap, helper_err
+        try:
+            ap = AsyncProcess(
+                [sys.executable, "-c", script],
+                die_with_parent=True,
+                stdout_cb=lambda line: lines.append(line),
+            )
+            ap.start()
+        except BaseException as exc:
+            helper_err = exc
+
+    try:
+        t = threading.Thread(target=_start_from_thread)
+        t.start()
+        t.join()
+        if helper_err is not None:
+            raise helper_err
+        assert ap is not None
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not lines:
+            time.sleep(0.05)
+        assert lines, "child produced no stdout"
+        assert lines[-1].strip() == "9"
+    finally:
+        if ap is not None and ap.is_running:
+            ap.terminate()
+
+
+
 def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyPatch) -> None:
     """The first wait thread must report the child it was started for.
 
