@@ -308,6 +308,11 @@ def _para_pairs(doc):
     return out
 
 
+def _accept_all(doc, ctx):
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+
 @native_test
 @with_native_doc("writer")
 def test_write_blank_beginning_applies_heading1_uno(ctx, doc):
@@ -498,3 +503,92 @@ def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
     pairs = _para_pairs(doc)
     assert all(s != "Heading 2" for s, _ in pairs), pairs
     assert any("tail" in t for _, t in pairs), pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
+    """Whole-paragraph search replace while RecordChanges is True skips style and warns.
+
+    Applying paragraph styles on a paragraph containing tracked deletions can turn
+    the deletion into a format change or corrupt redlines. While recording, style
+    must be skipped, a warning emitted, and accepting changes leaves only the new text.
+    """
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx), target="search", old_content="Replace me",
+            content='<p data-lo-style="Heading2">New heading</p>')
+        assert res.get("status") == "ok", res
+        assert "warning" in res
+        assert "tracked changes are recording" in res["warning"]
+        assert "tracked changes are recording" in res["message"]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    _accept_all(doc, ctx)
+
+    pairs = _para_pairs(doc)
+    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
+    new_head = next(((s, t) for s, t in pairs if "New heading" in t), None)
+    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+    assert before is not None and before[0] == "Standard", pairs
+    assert new_head is not None and new_head[0] == "Standard", pairs
+    assert after is not None and after[0] == "Standard", pairs
+    assert "Replace me" not in text.getString(), text.getString()
+    assert "New heading" in text.getString(), text.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
+    """all_matches with one whole-paragraph and one partial match applies style only to whole."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Target", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Target tail", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="search", old_content="Target", all_matches=True,
+        content='<p data-lo-style="Heading2">Replacement</p>')
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 2, res
+    assert "warning" in res
+    assert "1 of 2 matches" in res["warning"]
+    assert "1 of 2 matches" in res["message"]
+
+    pairs = _para_pairs(doc)
+    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
+    whole_match = next(((s, t) for s, t in pairs if t.strip() == "Replacement"), None)
+    partial_match = next(((s, t) for s, t in pairs if "tail" in t), None)
+    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+
+    assert before is not None and before[0] == "Standard", pairs
+    assert whole_match is not None and whole_match[0] == "Heading 2", pairs
+    assert partial_match is not None and partial_match[0] == "Standard", pairs
+    assert partial_match is not None and "Replacement" in partial_match[1], pairs
+    assert after is not None and after[0] == "Standard", pairs

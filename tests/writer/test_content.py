@@ -603,7 +603,7 @@ def test_all_matches_hoists_plain_text_conversion():
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(format_support, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
-         patch.object(format_support, "replace_single_range_with_content"):
+         patch.object(format_support, "replace_single_range_with_content", return_value=None):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -651,6 +651,36 @@ def test_search_replace_attaches_style_note_warning():
         )
     assert res_no_warn["status"] == "ok"
     assert "warning" not in res_no_warn
+
+
+def test_all_matches_reports_skip_count_in_warning():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_import import _LO_STYLE_PARTIAL_MATCH_NOTE
+
+    ctx = _edit_ctx()
+    r1, r2 = MagicMock(), MagicMock()
+    r1.getString.return_value = "old"
+    r2.getString.return_value = "old"
+
+    # First match styled (None), second match partial (_LO_STYLE_PARTIAL_MATCH_NOTE)
+    side_effects = [None, _LO_STYLE_PARTIAL_MATCH_NOTE]
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "plain_text_if_markup", return_value="new"), \
+         patch.object(format_support, "replace_single_range_with_content", side_effect=side_effects):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old", all_matches=True
+        )
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 2
+    assert "warning" in res
+    assert "data-lo-style was not applied to 1 of 2 matches because they do not cover whole paragraphs" in res["warning"]
+    assert "data-lo-style was not applied to 1 of 2 matches because they do not cover whole paragraphs" in res["message"]
 
 
 def test_edge_spaces_with_use_preserve():

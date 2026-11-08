@@ -429,7 +429,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
   Copy tokens exactly. Prefer named styles; unknown token → Standard.
   inline style="" is a character override on top of the named style.
-  data-lo-style is honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search' when the replaced range covers whole paragraphs. A partial match leaves it unapplied and the result names apply_style(target="search", old_content=...); recording skips selection/search the same way.
+  data-lo-style is honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search' when the replaced range covers whole paragraphs. A partial match leaves it unapplied and the result names apply_style(target="search", old_content=...); while Track Changes is recording, selection/search skip it the same way.
   v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.
 - Heading / TOC jumps: use <a href="#HeadingText|outline">…</a> (URL must end with |outline). A bare "#HeadingText" fragment is not a Writer outline link.
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.

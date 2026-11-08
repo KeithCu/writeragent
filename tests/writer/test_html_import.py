@@ -1331,6 +1331,22 @@ def test_collect_range_portions_magic_mock_returns_immediately():
     assert portions == []
 
 
+def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
+    """Mock an XTextRange whose start and end cursors report paragraph boundary status."""
+    start_cur = MagicMock()
+    start_cur.isStartOfParagraph.return_value = is_start
+    end_cur = MagicMock()
+    end_cur.isEndOfParagraph.return_value = is_end
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = lambda pos: start_cur if pos == "start" else end_cur
+    rng = MagicMock()
+    rng.getText.return_value = text
+    rng.getStart.return_value = "start"
+    rng.getEnd.return_value = "end"
+    rng.insertDocumentFromURL = MagicMock()
+    return rng
+
+
 def test_lo_style_for_replaced_range_predicates():
     from plugin.writer.html_import import (
         _lo_style_for_replaced_range,
@@ -1340,37 +1356,24 @@ def test_lo_style_for_replaced_range_predicates():
     model = MagicMock()
     content = '<p data-lo-style="Heading2">content</p>'
 
-    def make_range(is_start: bool, is_end: bool) -> MagicMock:
-        start_cur = MagicMock()
-        start_cur.isStartOfParagraph.return_value = is_start
-        end_cur = MagicMock()
-        end_cur.isEndOfParagraph.return_value = is_end
-        text = MagicMock()
-        text.createTextCursorByRange.side_effect = lambda pos: start_cur if pos == "start" else end_cur
-        rng = MagicMock()
-        rng.getText.return_value = text
-        rng.getStart.return_value = "start"
-        rng.getEnd.return_value = "end"
-        return rng
-
     with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
         # Both edges true -> apply True, note None
-        apply, note = _lo_style_for_replaced_range(model, content, make_range(True, True))
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
         assert apply is True
         assert note is None
 
         # Start only -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_range(True, False))
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, False))
         assert apply is False
         assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
 
         # End only -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_range(False, True))
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
         assert apply is False
         assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
 
         # Neither -> apply False, note partial
-        apply, note = _lo_style_for_replaced_range(model, content, make_range(False, False))
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, False))
         assert apply is False
         assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
 
@@ -1385,27 +1388,14 @@ def test_lo_style_for_replaced_range_recording():
     model = MagicMock()
     content = '<p data-lo-style="Heading2">content</p>'
 
-    def make_range(is_start: bool, is_end: bool) -> MagicMock:
-        start_cur = MagicMock()
-        start_cur.isStartOfParagraph.return_value = is_start
-        end_cur = MagicMock()
-        end_cur.isEndOfParagraph.return_value = is_end
-        text = MagicMock()
-        text.createTextCursorByRange.side_effect = lambda pos: start_cur if pos == "start" else end_cur
-        rng = MagicMock()
-        rng.getText.return_value = text
-        rng.getStart.return_value = "start"
-        rng.getEnd.return_value = "end"
-        return rng
-
     with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
         # Edges true, recording true -> apply False, recording sentence
-        apply, note = _lo_style_for_replaced_range(model, content, make_range(True, True))
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
         assert apply is False
         assert note == _LO_STYLE_RECORDING_NOTE
 
         # Geometry checked first: partial match while recording returns partial note
-        apply, note = _lo_style_for_replaced_range(model, content, make_range(False, True))
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
         assert apply is False
         assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
 

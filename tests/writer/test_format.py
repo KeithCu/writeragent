@@ -353,18 +353,9 @@ def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
     from unittest.mock import MagicMock, patch
 
     from plugin.writer.html_import import insert_content_at_position
+    from tests.writer.test_html_import import make_paragraph_edge_range
 
-    rng = MagicMock()
-    start_cur = MagicMock()
-    start_cur.isStartOfParagraph.return_value = True
-    end_cur = MagicMock()
-    end_cur.isEndOfParagraph.return_value = True
-    text = MagicMock()
-    text.createTextCursorByRange.side_effect = lambda pos: start_cur if pos == "start" else end_cur
-    rng.getText.return_value = text
-    rng.getStart.return_value = "start"
-    rng.getEnd.return_value = "end"
-    rng.insertDocumentFromURL = MagicMock()
+    rng = make_paragraph_edge_range(True, True)
 
     controller = MagicMock()
     model = MagicMock()
