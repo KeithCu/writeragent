@@ -20,7 +20,12 @@ from plugin.scripting.document_scripts import (
     set_calc_init_script,
 )
 from plugin.scripting.editor_errors import failure_message
-from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available, probe_webview_import, resolve_editor_python
+from plugin.scripting.editor_host import (
+    cached_webview_probe,
+    launch_monaco_editor,
+    monaco_editor_available,
+    resolve_editor_python,
+)
 
 
 @main_thread_only
@@ -41,9 +46,12 @@ def open_init_script_editor(ctx: Any) -> None:
             _unused, err = resolve_editor_python(ctx)
             msgbox(ctx, title, err or _("Configure a Python venv path in Settings → Python."), box_type=3)
             return
-        webview_ok, webview_detail = probe_webview_import(exe)
-        if not webview_ok:
-            msg = failure_message(_("Cannot import webview (pywebview) in the configured venv."), detail=webview_detail)
+        probe_row = cached_webview_probe(exe)
+        if probe_row is None:
+            msgbox(ctx, title, _("The Python editor check is still running. Open this again in a moment."), box_type=1)
+            return
+        if not probe_row[0]:
+            msg = failure_message(_("Cannot import webview (pywebview) in the configured venv."), detail=probe_row[1])
             msgbox_with_report(ctx, title, msg, reportable=True)
             return
 

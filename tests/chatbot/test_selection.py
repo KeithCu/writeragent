@@ -385,6 +385,7 @@ def test_initialize_registers_all_module_yaml_actions() -> None:
 
 
 def test_bind_and_end_selection_cancel_idle_and_busy_hosts() -> None:
+    from plugin.chatbot.panel import SendButtonListener
     from plugin.chatbot.selection import bind_selection_cancel, end_selection_cancel
     from plugin.chatbot.send_state import SendEventKind
     from plugin.framework.send_cancellation import SendCancellation
@@ -394,9 +395,15 @@ def test_bind_and_end_selection_cancel_idle_and_busy_hosts() -> None:
         def __init__(self) -> None:
             self._send_cancellation = None
             self._stop_requested_fallback = False
+            self._panel_teardown = False
             self.sidebar_state = SimpleNamespace(send=SimpleNamespace(is_busy=False, is_recording=False))
             self.dispatched: list[Any] = []
             self.synced = False
+            self.flushed_restarts = 0
+            self._voice = SimpleNamespace(_flush_sticky_restart=self._flush_sticky_restart)
+
+        def _flush_sticky_restart(self) -> None:
+            self.flushed_restarts += 1
 
         def dispatch(self, event: Any) -> None:
             self.dispatched.append(event)
@@ -407,6 +414,9 @@ def test_bind_and_end_selection_cancel_idle_and_busy_hosts() -> None:
 
         def sync_has_text_from_query(self) -> None:
             self.synced = True
+
+        def close_selection_run(self) -> None:
+            SendButtonListener.close_selection_run(self)
 
     idle_host = FakeIdleHost()
     model = object()
@@ -420,6 +430,7 @@ def test_bind_and_end_selection_cancel_idle_and_busy_hosts() -> None:
     end_selection_cancel(arm)
     assert idle_host._send_cancellation is None
     assert idle_host.synced is True
+    assert idle_host.flushed_restarts == 1
     assert len(idle_host.dispatched) == 2
     assert idle_host.dispatched[1].kind == SendEventKind.SEND_COMPLETED
 
@@ -428,6 +439,7 @@ def test_bind_and_end_selection_cancel_idle_and_busy_hosts() -> None:
         def __init__(self, existing_scope: SendCancellation) -> None:
             self._send_cancellation = existing_scope
             self._stop_requested_fallback = False
+            self._panel_teardown = False
             self.sidebar_state = SimpleNamespace(send=SimpleNamespace(is_busy=True, is_recording=False))
             self.dispatched: list[Any] = []
             self.synced = False
@@ -437,6 +449,9 @@ def test_bind_and_end_selection_cancel_idle_and_busy_hosts() -> None:
 
         def sync_has_text_from_query(self) -> None:
             self.synced = True
+
+        def close_selection_run(self) -> None:
+            raise AssertionError("busy host must not run close_selection_run")
 
     existing_scope = SendCancellation()
     busy_host = FakeBusyHost(existing_scope)
@@ -556,6 +571,7 @@ def test_stream_completion_tasks_stop_between_tasks() -> None:
 
 
 def test_end_selection_cancel_kicks_queued_peer_turn() -> None:
+    from plugin.chatbot.panel import SendButtonListener
     from plugin.chatbot.selection import bind_selection_cancel, end_selection_cancel
     from plugin.chatbot.send_state import SendEventKind
     from plugin.doc.peer_message import enqueue_peer_turn, PeerPendingTurn, reset_peer_queues
@@ -566,8 +582,14 @@ def test_end_selection_cancel_kicks_queued_peer_turn() -> None:
         def __init__(self) -> None:
             self._send_cancellation = None
             self._stop_requested_fallback = False
+            self._panel_teardown = False
             self.sidebar_state = SimpleNamespace(send=SimpleNamespace(is_busy=False, is_recording=False))
             self.started: list[tuple[str, bool]] = []
+            self.flushed_restarts = 0
+            self._voice = SimpleNamespace(_flush_sticky_restart=self._flush_sticky_restart)
+
+        def _flush_sticky_restart(self) -> None:
+            self.flushed_restarts += 1
 
         def dispatch(self, event: Any) -> None:
             if event.kind == SendEventKind.EXTRACTED_SEND:
@@ -577,6 +599,9 @@ def test_end_selection_cancel_kicks_queued_peer_turn() -> None:
 
         def sync_has_text_from_query(self) -> None:
             pass
+
+        def close_selection_run(self) -> None:
+            SendButtonListener.close_selection_run(self)
 
         def start_extracted_peer_send(self, query_text: str, *, already_appended: bool) -> bool:
             self.started.append((query_text, already_appended))
@@ -592,5 +617,6 @@ def test_end_selection_cancel_kicks_queued_peer_turn() -> None:
     assert len(host.started) == 0
 
     end_selection_cancel(arm)
+    assert host.flushed_restarts == 1
     assert len(host.started) == 1
     assert host.started[0] == ("peer query", False)

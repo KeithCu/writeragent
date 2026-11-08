@@ -1157,7 +1157,7 @@ def test_picker_selected_name_listbox_uses_item_pos():
 
 
 def test_monaco_editor_available_respects_force_internal():
-    from plugin.scripting.editor_host import monaco_editor_available
+    from plugin.scripting.editor_host import _PROBE_CACHE, monaco_editor_available
     ctx = MagicMock()
     
     with patch("plugin.framework.config.get_config", return_value=True) as mock_get:
@@ -1168,10 +1168,13 @@ def test_monaco_editor_available_respects_force_internal():
  
     with patch("plugin.framework.config.get_config", return_value=False):
         with patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", None)):
-            with patch("plugin.scripting.editor_host.probe_webview_import", return_value=(True, "")):
+            _PROBE_CACHE["/fake/python"] = (True, "")
+            try:
                 exe, ok = monaco_editor_available(ctx)
                 assert exe == "/fake/python"
                 assert ok is True
+            finally:
+                _PROBE_CACHE.pop("/fake/python", None)
 
 def test_save_script_on_builtin_template():
     ctx = MagicMock()

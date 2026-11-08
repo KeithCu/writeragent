@@ -66,12 +66,32 @@ def test_open_init_script_editor_webview_failure():
         patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
         patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", False)),
         patch("plugin.calc.python.init_script_editor.get_config", return_value=False),
-        patch("plugin.calc.python.init_script_editor.probe_webview_import", return_value=(False, "No webview module")),
+        patch("plugin.calc.python.init_script_editor.cached_webview_probe", return_value=(False, "No webview module")),
         patch("plugin.calc.python.init_script_editor.msgbox_with_report") as mock_report,
     ):
         open_init_script_editor(ctx)
         mock_report.assert_called_once()
         assert "webview" in mock_report.call_args[0][2].lower()
+
+
+def test_open_init_script_editor_probe_pending():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
+        patch("plugin.calc.python.init_script_editor.get_calc_document_from_ctx", return_value=doc),
+        patch("plugin.calc.python.init_script_editor.monaco_editor_available", return_value=("/bin/python", False)),
+        patch("plugin.calc.python.init_script_editor.get_config", return_value=False),
+        patch("plugin.calc.python.init_script_editor.cached_webview_probe", return_value=None),
+        patch("plugin.scripting.editor_host.probe_webview_import", side_effect=AssertionError("probe_webview_import must not run")),
+        patch("plugin.calc.python.init_script_editor.msgbox") as mock_box,
+        patch("plugin.calc.python.init_script_editor.launch_monaco_editor") as mock_launch,
+    ):
+        open_init_script_editor(ctx)
+        mock_box.assert_called_once()
+        assert mock_box.call_args[1].get("box_type") == 1
+        assert "still running" in mock_box.call_args[0][2]
+        mock_launch.assert_not_called()
 
 
 def test_open_init_script_editor_success_and_on_save():
