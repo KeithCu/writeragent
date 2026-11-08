@@ -403,7 +403,7 @@ class ApplyDocumentContent(ToolBase):
 
     name: str | None = "apply_document_content"
     description: str = (
-        "Insert or replace content. "
+        "Insert, replace, or delete content. "
         f"IMPORTANT: {APPLY_DOCUMENT_CONTENT_TOOL_RESEARCH_HINT} "
         "To replace the ENTIRE document use target='full_document' with content only — "
         "do NOT pass the whole document as old_content. "
@@ -422,21 +422,21 @@ class ApplyDocumentContent(ToolBase):
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
-            "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty string at beginning, end, or selection inserts nothing and returns an error. An empty search replacement deletes the match.")},
+            "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty string at beginning, end, or selection inserts nothing and returns an error. An empty search replacement deletes the match (position='delete' requires content='').")},
             "target": enum_param(INSERT_TARGETS, "Where to apply the content."),
             "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
-            "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace'."},
+            "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace' or position='delete'."},
             "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame), not dry_run shape/comment rows. Omit for the existing first-match behavior. Cannot be combined with all_matches=true.")},
             "position": enum_param(
-                ["replace", "before", "after"],
+                ["replace", "before", "after", "delete"],
                 (
-                    "For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
+                    "For target='search': 'replace' (default) replaces the match; 'delete' removes the match (content must be empty); 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it)."
                 ),
             ),
             "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing."},
             "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
             "case_sensitive": {"type": "boolean", "description": "For target='search': force case-sensitive (true) or case-insensitive (false) matching. Omit for the default lenient match."},
-            "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
+            "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after'/'delete', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
         },
         "required": ["content"],
     }
@@ -447,9 +447,33 @@ class ApplyDocumentContent(ToolBase):
     @staticmethod
     def _position_choice(kwargs: Any) -> tuple[str, str | None]:
         position = str(kwargs.get("position") or "replace").strip().lower()
-        if position not in ("replace", "before", "after"):
-            return position, "position must be 'replace', 'before' or 'after'."
+        if position not in ("replace", "before", "after", "delete"):
+            return position, "position must be 'replace', 'before', 'after' or 'delete'."
         return position, None
+
+    @staticmethod
+    def _delete_content_error(position: str, content: Any) -> str | None:
+        if position != "delete":
+            return None
+        if isinstance(content, str):
+            stripped = content.strip()
+            if stripped.startswith("[") and "<" in stripped:
+                parsed = safe_json_loads(stripped)
+                if isinstance(parsed, list):
+                    content = parsed
+        if isinstance(content, list):
+            if any(not isinstance(x, str) for x in content):
+                return "content list items must be strings."
+            text = "\n".join(content)
+        elif isinstance(content, str):
+            text = content
+        elif content is None:
+            text = ""
+        else:
+            return "content must be a string or a list of strings."
+        if text.strip():
+            return "position='delete' removes the old_content match; content must be empty."
+        return None
 
     @staticmethod
     def _override_not_replace(override: Any, position: str) -> str | None:
@@ -796,6 +820,9 @@ class ApplyDocumentContent(ToolBase):
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
             return self._tool_error(pos_err)
+        del_err = self._delete_content_error(position, kwargs.get("content"))
+        if del_err:
+            return self._tool_error(del_err)
         override_err = self._override_not_replace(override, position)
         if override_err:
             return self._tool_error(override_err, code="INVALID_PARAM")
@@ -1004,11 +1031,15 @@ class ApplyDocumentContent(ToolBase):
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
             return self._tool_error(pos_err)
-        if position != "replace" and target != "search":
+        if position in ("before", "after") and target != "search":
             return self._tool_error(
                 "position='before'/'after' requires target='search' "
                 "(it inserts next to an old_content match).")
-        if position != "replace" and kwargs.get("all_matches", False):
+        if position == "delete" and target != "search":
+            return self._tool_error(
+                "position='delete' requires target='search' "
+                "(it removes an old_content match).")
+        if position in ("before", "after") and kwargs.get("all_matches", False):
             return self._tool_error(
                 "position='before'/'after' inserts at a single match; drop all_matches "
                 "or use position='replace'.")
@@ -1029,6 +1060,12 @@ class ApplyDocumentContent(ToolBase):
 
         if not isinstance(content, str):
             return self._tool_error("content must be a string or a list of strings.")
+
+        del_err = self._delete_content_error(position, content)
+        if del_err:
+            return self._tool_error(del_err)
+        if position == "delete":
+            content = ""
 
         if target in ("beginning", "end", "selection") and content.strip() == "":
             return self._tool_error("content is empty; nothing was inserted.")
@@ -1071,6 +1108,17 @@ class ApplyDocumentContent(ToolBase):
         override: str | None = None
 
         if target == "search":
+            override, override_error = self._parse_hyperlink_url(kwargs)
+            if override_error:
+                return self._tool_error(override_error, code="INVALID_PARAM")
+            override_err = self._override_not_replace(override, position)
+            if override_err:
+                return self._tool_error(override_err, code="INVALID_PARAM")
+            if position == "delete":
+                # position='delete' is the empty search replacement, so the match grows
+                # over the same edge spaces, and a table whose last text this removes still goes.
+                position = "replace"
+
             old_stripped = str(old_content).strip()
             search_string = format_support.plain_text_if_markup(old_stripped)
             # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.

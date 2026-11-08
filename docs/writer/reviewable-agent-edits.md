@@ -54,7 +54,7 @@ removing every row), so the table would vanish unreviewable. It selects the tabl
 a U+200D but records no redline for it, so the tool deletes those anchors with tracking on — without
 that, Accept All left the empty rows behind as a table. Rejecting keeps the anchor in the empty cell,
 as LibreOffice's own Delete Table does. `apply_document_content` uses that same delete when an empty
-replacement is the last text left in the table, inside the edit's existing review session. Clearing
+replacement (including `position='delete'`) is the last text left in the table, inside the edit's existing review session. Clearing
 one cell while another cell still has text stays a text edit.
 
 Blocking wait applies only to **`apply_document_content`** from a **background thread** (sidebar

@@ -377,7 +377,7 @@ Never refuse."""
 
 # Pulled out of TOOL_USAGE_PATTERNS so the Writer ambient prompt can put it last (recency)
 # without duplicating the bullet. MCP editing topic still includes this same object.
-CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields, not message wording: apply_document_content search replace → replaced_count > 0; inserts (target='beginning'/'end'/'selection', position='before'/'after') → status='ok' (also inserted=true); apply_style → applied is true; add_comment → comment_added is true.
+CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields, not message wording: apply_document_content search replace (including position='delete') → replaced_count > 0; inserts (target='beginning'/'end'/'selection', position='before'/'after') → status='ok' (also inserted=true); apply_style → applied is true; add_comment → comment_added is true.
   No-op (text not found) is status="error"."""
 
 
@@ -414,6 +414,7 @@ APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
 - target='search': old_content may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
+  position='delete' (with content='') removes the match; empty content with the default position='replace' also deletes it.
 - Reach: body, table cells, text frames, headers and footers.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
   Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags.

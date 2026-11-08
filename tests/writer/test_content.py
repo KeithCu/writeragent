@@ -373,7 +373,7 @@ def test_position_in_schema():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     props = ApplyDocumentContent.parameters["properties"]
-    assert props["position"]["enum"] == ["replace", "before", "after"]
+    assert props["position"]["enum"] == ["replace", "before", "after", "delete"]
 
 
 def test_apply_document_content_validate_accepts_string_or_array():
@@ -1545,5 +1545,209 @@ def test_invalid_regex_is_invalid_regex_in_the_edit_path(extra):
     assert res.get("count", res.get("details", {}).get("count")) == 0
     find_first.assert_not_called()
     find_all.assert_not_called()
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"position": "delete"}])
+def test_delete_and_empty_replace_grow_over_edge_spaces(kwargs):
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    found.getString.return_value = "paragrafo"
+
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch("plugin.writer.apply_document_content.record_preserve_replace") as mock_preserve, \
+         patch("plugin.writer.apply_document_content._grow_over_edge_space", side_effect=lambda f, sep: f) as mock_grow:
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx,
+            old_content=" paragrafo",
+            content="",
+            target="search",
+            **kwargs,
+        )
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    assert res["message"].startswith("Replaced")
+    mock_preserve.assert_called_once()
+    assert mock_preserve.call_args[0][3] == ""
+    mock_grow.assert_called_once_with(found, 1)
+
+
+@pytest.mark.parametrize("content", ["keep", ["<p>x</p>"]])
+def test_delete_position_rejects_non_empty_content(content):
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    with patch("plugin.writer.search.find_first_range") as mock_find:
+        res = ApplyDocumentContent().execute(
+            ctx,
+            old_content="paragrafo",
+            content=content,
+            target="search",
+            position="delete",
+        )
+    assert res["status"] == "error"
+    assert res["message"] == "position='delete' removes the old_content match; content must be empty."
+    mock_find.assert_not_called()
+
+
+@pytest.mark.parametrize("content", ["   ", ["", ""]])
+def test_delete_position_accepts_whitespace_and_empty_list(content):
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    found.getString.return_value = "paragrafo"
+
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch("plugin.writer.apply_document_content.record_preserve_replace") as mock_preserve:
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx,
+            old_content="paragrafo",
+            content=content,
+            target="search",
+            position="delete",
+        )
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    assert res["message"].startswith("Replaced")
+    mock_preserve.assert_called_once()
+    assert mock_preserve.call_args[0][3] == ""
+
+
+def test_delete_position_requires_target_search():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
+        res = ApplyDocumentContent().execute(
+            ctx,
+            content="",
+            target="end",
+            position="delete",
+        )
+    assert res["status"] == "error"
+    assert res["message"] == "position='delete' requires target='search' (it removes an old_content match)."
+    mock_insert.assert_not_called()
+
+
+def test_delete_position_all_matches():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    r1, r2 = MagicMock(), MagicMock()
+    r1.getString.return_value = "old"
+    r2.getString.return_value = "old"
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]) as mock_find_all, \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch("plugin.writer.apply_document_content.record_preserve_replace") as mock_preserve:
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx,
+            content="",
+            target="search",
+            old_content="old",
+            position="delete",
+            all_matches=True,
+        )
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 2
+    mock_find_all.assert_called_once()
+    assert mock_preserve.call_count == 2
+
+
+def test_delete_position_rejects_hyperlink_url():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    with patch("plugin.writer.apply_document_content.record_preserve_replace") as mock_preserve:
+        res = ApplyDocumentContent().execute(
+            ctx,
+            old_content="foo",
+            content="",
+            target="search",
+            position="delete",
+            hyperlink_url="http://example.com",
+        )
+    assert res["status"] == "error"
+    assert res.get("code") == "INVALID_PARAM"
+    assert res["message"] == "hyperlink_url only applies to position='replace'."
+    mock_preserve.assert_not_called()
+
+
+@pytest.mark.parametrize("kwargs", [{}, {"position": "delete"}])
+def test_delete_and_empty_replace_emptied_table_deletion(kwargs):
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.writer_tables_emptied_by_matches", return_value=[(MagicMock(), "T1")]), \
+         patch("plugin.writer.apply_document_content.record_table_deletions", return_value=False) as mock_rec_del:
+        res = ApplyDocumentContent().execute(
+            ctx,
+            target="search",
+            old_content="x",
+            content="",
+            **kwargs,
+        )
+    assert res["status"] == "ok"
+    assert res.get("table_deleted") == "T1"
+    mock_rec_del.assert_called_once()
+
+
+def test_dry_run_delete_position():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    found.getString.return_value = "match text"
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[found]) as mock_find_all, \
+         patch("plugin.writer.search.LocationLabeler") as mock_labeler, \
+         patch("plugin.writer.search.sweep_draw_shape_preview_matches", return_value=[]), \
+         patch("plugin.writer.search.sweep_comment_preview_matches", return_value=[]), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links:
+        mock_labeler.return_value.describe.return_value = "body"
+        res = ApplyDocumentContent().execute(
+            ctx,
+            old_content="match",
+            content="",
+            target="search",
+            position="delete",
+            dry_run=True,
+        )
+    assert res["status"] == "ok"
+    assert res["dry_run"] is True
+    assert len(res["matches"]) == 1
+    assert "hyperlink_url" not in res["matches"][0]
+    mock_find_all.assert_called_once()
+    cap_links.assert_not_called()
+
+    with patch("plugin.writer.search.find_all_ranges") as mock_find_again:
+        res_err = ApplyDocumentContent().execute(
+            ctx,
+            old_content="match",
+            content="keep",
+            target="search",
+            position="delete",
+            dry_run=True,
+        )
+    assert res_err["status"] == "error"
+    assert res_err["message"] == "position='delete' removes the old_content match; content must be empty."
+    mock_find_again.assert_not_called()
+
 
 
