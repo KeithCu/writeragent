@@ -84,6 +84,12 @@ _WORKER_BUSY_MESSAGE = (
     "Python worker is busy with another script; try again when it finishes."
 )
 
+RESET_ABANDONED = "RESET_ABANDONED"
+
+
+def _abandoned_error() -> dict[str, Any]:
+    return _worker_error(RESET_ABANDONED, "Caller abandoned the request before it was sent.")
+
 
 def _worker_error(code: str, message: str, *, details: dict[str, Any] | None = None) -> dict[str, Any]:
     """Host-constructed error dict. Child payloads still go through ``_normalize_response``."""
@@ -472,7 +478,7 @@ class PythonWorkerManager:
             def _take_refusal() -> dict[str, Any] | None:
                 nonlocal refused
                 if abandon_if is not None and abandon_if():
-                    refused = _worker_error("RESET_ABANDONED", "Workbook reopened; reset not sent.")
+                    refused = _abandoned_error()
                     return refused
                 refused = self._refuse_lease()
                 return refused
@@ -503,7 +509,7 @@ class PythonWorkerManager:
                             yield _worker_error("CANCELLED", "Python worker stopped by user")
                             return
                         if abandon_if is not None and abandon_if():
-                            yield _worker_error("RESET_ABANDONED", "Workbook reopened; reset not sent.")
+                            yield _abandoned_error()
                             return
                         warm_err = self._ensure_warmed_unlocked(leased)
                         if warm_err is not None:
@@ -1374,18 +1380,13 @@ def reset_python_session(
     configured = configured_python_exec_timeout()
     timeout_sec = resolve_python_exec_timeout(timeout_sec, configured=configured)
 
-    kwargs: dict[str, Any] = {
-        "timeout_sec": timeout_sec,
-        "session_id": session_id,
-        "action": "reset_session",
-        "lease_wait_sec": lease_wait_sec,
-    }
-    if abandon_if is not None:
-        kwargs["abandon_if"] = abandon_if
-
     return manager.execute(
         None,
-        **kwargs,
+        timeout_sec=timeout_sec,
+        session_id=session_id,
+        action="reset_session",
+        lease_wait_sec=lease_wait_sec,
+        abandon_if=abandon_if,
     )
 
 
@@ -1425,6 +1426,7 @@ def warm_venv_worker(pool: str = WORKER_POOL_DEFAULT) -> None:
 
 __all__ = [
     "PythonWorkerManager",
+    "RESET_ABANDONED",
     "parse_worker_stdout_frame",
     "reset_python_session",
     "run_code_in_user_venv",

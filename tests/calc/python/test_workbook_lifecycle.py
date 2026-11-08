@@ -28,6 +28,7 @@ from plugin.calc.python.workbook_lifecycle import (
     ensure_calc_workbook_unload_resets_python,
     ensure_python_session_cleared_on_unload,
 )
+from plugin.scripting.venv_worker import RESET_ABANDONED
 from plugin.tests.testing_utils import CalcDocStub
 
 
@@ -485,7 +486,7 @@ def test_reset_one_on_abandoned_does_not_retry_or_log_failure(caplog: pytest.Log
         with lifecycle._LOCK:
             lifecycle._LISTENERS["doc-reopen"] = listener2
         if abandon_if():
-            return {"status": "error", "code": "RESET_ABANDONED", "message": "Workbook reopened; reset not sent."}
+            return {"status": "error", "code": RESET_ABANDONED, "message": "Caller abandoned the request before it was sent."}
         return {"status": "ok"}
 
     bg_calls: list[dict[str, Any]] = []
@@ -514,7 +515,7 @@ def test_retry_reset_on_abandoned_stops_immediately_without_warning(caplog: pyte
     def fake_reset(sid: str, **kwargs: Any) -> dict[str, Any]:
         nonlocal call_count
         call_count += 1
-        return {"status": "error", "code": "RESET_ABANDONED", "message": "Workbook reopened; reset not sent."}
+        return {"status": "error", "code": RESET_ABANDONED, "message": "Caller abandoned the request before it was sent."}
 
     caplog.set_level(logging.WARNING)
     with patch("time.sleep"), \

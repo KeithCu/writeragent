@@ -1751,9 +1751,28 @@ def test_harper_client_lint_timeout_error_does_not_close_client() -> None:
         mock_close.assert_not_called()
 
 
+def test_harper_client_lint_timeout_resets_uri_and_drains_queue() -> None:
+    """TimeoutError in lint drains pending messages and resets document URI."""
+    client = _bare_harper_client()
+    orig_uri = client.uri
+    client._doc_opened = True
+    client.stdout_queue.put({"method": "textDocument/publishDiagnostics", "params": {"uri": orig_uri, "diagnostics": []}})
+
+    with patch.object(client, "is_alive", return_value=True), \
+         patch.object(client, "_sync_document"), \
+         patch.object(client, "_collect_diagnostics", side_effect=TimeoutError("dialog budget expired")), \
+         patch.object(client, "_write"):
+        with pytest.raises(TimeoutError):
+            client.lint("Hello world")
+
+    assert client.uri != orig_uri
+    assert not client._doc_opened
+    assert client.stdout_queue.empty()
+
+
 @patch("plugin.framework.worker_pool.run_in_background")
 def test_harper_try_lint_off_main_timeout_marks_idle_and_ensures(mock_bg: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
-    """Off-main TimeoutError logs the error, marks the client IDLE, and kicks ensure."""
+    """Off-main TimeoutError logs error, closes the client, marks IDLE, and kicks ensure."""
     mock_client = MagicMock()
     mock_client.is_alive.return_value = True
     mock_client.lint.side_effect = TimeoutError("off main timeout")
@@ -1766,8 +1785,18 @@ def test_harper_try_lint_off_main_timeout_marks_idle_and_ensures(mock_bg: MagicM
          patch.object(harper_module.runtime, "mark_idle", wraps=harper_module.runtime.mark_idle) as mock_idle:
         assert harper_try_lint("He go to the store.", "/tmp") is None
     assert any("lint failed on ready client" in r.message for r in caplog.records)
+    mock_client.close.assert_called_once()
+    assert "/bin/harper-ls" not in harper_module.runtime.clients
     mock_idle.assert_called_once()
     assert mock_bg.call_count == 1
+
+    # Next ensure installs a new client rather than reusing the old one
+    fresh_client = MagicMock()
+    fresh_client.is_alive.return_value = True
+    with patch("plugin.writer.locale.harper.get_harper_binary", return_value="/bin/harper-ls"), \
+         patch("plugin.writer.locale.harper.HarperLSClient", return_value=fresh_client):
+        harper_module.runtime.ensure_body("/tmp", "en-US")
+        assert harper_module.runtime.clients["/bin/harper-ls"] is fresh_client
 
 
 def test_harper_try_lint_off_main_keeps_lint_budget() -> None:

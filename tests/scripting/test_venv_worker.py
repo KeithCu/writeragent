@@ -20,7 +20,7 @@ from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, FRAME_HEARTBEAT, FRA
 import plugin.scripting.venv_worker as venv_worker_module
 from plugin.framework.subprocess_env import scrub_subprocess_env
 from plugin.scripting.session_key import SessionKey
-from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RetryWithNewLease, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
+from plugin.scripting.venv_worker import FailedAfterStart, PythonWorkerManager, RESET_ABANDONED, RetryWithNewLease, Terminal, _worker_error, _worker_error_message, _ExecRequest, parse_worker_stdout_frame, reset_python_session, run_code_in_user_venv, shutdown_venv_workers_for_tests, warm_venv_worker
 from plugin.framework.child_runtime import Deadline
 from plugin.framework.warm_child import supervisor
 from plugin.scripting.venv.venv_sandbox import run_sandboxed_code, serialize_result
@@ -1680,7 +1680,7 @@ def test_reset_python_session_passes_lease_wait_sec(monkeypatch: pytest.MonkeyPa
     assert len(calls) == 1
     assert calls[0].get('timeout_sec') == 3
     assert calls[0].get('lease_wait_sec') == 3
-    assert 'abandon_if' not in calls[0]
+    assert calls[0].get('abandon_if') is None
 
 
 def test_reset_python_session_passes_abandon_if(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1710,7 +1710,6 @@ def test_io_session_abandon_if_after_lease_acquired_yields_reset_abandoned():
 
     mgr = PythonWorkerManager(sys.executable, {'PATH': os.environ.get('PATH', '')})
     warm = MagicMock()
-    warm._io_lock = threading.Lock()
     mgr._warm = warm
 
     @contextlib.contextmanager
@@ -1726,7 +1725,7 @@ def test_io_session_abandon_if_after_lease_acquired_yields_reset_abandoned():
         with mgr._io_session(abandon_if=lambda: True) as session:
             assert isinstance(session, dict)
             assert session.get('status') == 'error'
-            assert session.get('code') == 'RESET_ABANDONED'
+            assert session.get('code') == RESET_ABANDONED
         mock_ensure.assert_not_called()
 
 
@@ -1773,7 +1772,7 @@ def test_execute_abandon_if_during_pipe_wait_returns_reset_abandoned():
                 lease_wait_sec=5.0,
             )
             assert res.get('status') == 'error'
-            assert res.get('code') == 'RESET_ABANDONED'
+            assert res.get('code') == RESET_ABANDONED
             mock_ipc.assert_not_called()
     finally:
         release_lock.set()

@@ -136,6 +136,19 @@ class HarperRuntime:
         for client in clients:
             client.close()
 
+    def close_clients(self) -> None:
+        """Close and discard all cached clients so ensure spawns a fresh process."""
+        if not self._acquire_state_lock():
+            log.debug("[harper] State lock busy; skipped close_clients on main thread")
+            return
+        try:
+            clients = list(self.clients.values())
+            self.clients.clear()
+        finally:
+            self.lock.release()
+        for client in clients:
+            client.close()
+
     def _acquire_state_lock(self) -> bool:
         # The lint worker holds this lock across client.lint (and _initialize / close).
         # On the UI thread an untimed wait sits under SolarMutex after wait_while_pumping
@@ -577,7 +590,10 @@ class HarperLSClient:
         path caches the sentence with no errors so Writer does not walk
         it again. A real publish with ``diagnostics: []`` is still a
         clean sentence. The sentinel, a dead process, and a timeout are
-        not.
+        not. Because harper-ls publishes diagnostics without version,
+        HarperLSClient drains the queue and resets the document URI
+        after a timeout so stale diagnostic responses cannot bleed
+        into a later lint.
         """
         while _deadline_remaining(deadline) > 0:
             # If harper-ls dies with an empty queue before publishDiagnostics,
@@ -618,6 +634,23 @@ class HarperLSClient:
             log.exception("[harper] Failed to fetch codeActions")
         return suggestions
 
+    def _drain_stdout_queue(self) -> None:
+        while not self.stdout_queue.empty():
+            try:
+                self.stdout_queue.get_nowait()
+            except queue.Empty:
+                break
+
+    def _reset_document_uri(self) -> None:
+        if self._doc_opened:
+            try:
+                self._write(_lsp_notification("textDocument/didClose", {"textDocument": {"uri": self.uri}}))
+            except (RuntimeError, OSError):
+                log.debug("[harper] didClose notification failed during doc reset", exc_info=True)
+            self.uri = f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
+            self._doc_opened = False
+            self._doc_version = 0
+
     def lint(
         self,
         text: str,
@@ -650,8 +683,12 @@ class HarperLSClient:
                 diagnostics = self._collect_diagnostics(version, deadline)
                 return [{"diagnostic": diag, "suggestions": self._suggestions_for_diagnostic(diag, deadline)} for diag in diagnostics]
             except TimeoutError:
-                # A deadline expiration or cancellation leaves the server process healthy.
-                # Re-raise so the caller can handle the timeout without tearing down harper-ls.
+                # A main-thread dialog budget expiration or cancellation leaves the
+                # server process healthy. Re-raise so the caller can decide whether
+                # to keep or close the client. Drain pending messages and reset the document
+                # URI so late diagnostics for this sentence cannot bleed into the next lint.
+                self._drain_stdout_queue()
+                self._reset_document_uri()
                 raise
             except Exception:
                 log.exception("[harper] Exception during linting, closing client")
@@ -859,20 +896,20 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
     except HarperLockTimeoutError:
         grammar_obs("harper_try_lint_none", reason="lock_timeout", ensure_submitted=False)
         return None
-    except TimeoutError:
+    except Exception as exc:
         from plugin.framework.queue_executor import main
 
-        if main.is_current():
+        if isinstance(exc, TimeoutError) and main.is_current():
             # Main-thread proofreading bounds dialog responsiveness to a short budget.
             # When this budget expires, return an empty walk without cycling the client.
             log.debug("[harper] main-thread dialog lint timed out; returning empty walk")
             grammar_obs("harper_try_lint_none", reason="dialog_budget", ensure_submitted=False)
             return None
-        log.exception("[harper] lint failed on ready client; empty aErrors this walk")
-        runtime.mark_idle()
-        harper_ensure_ready_async(user_config_dir, bcp47)
-        return None
-    except Exception:
+
+        # Off-main timeout or worker exception: close the stuck client so background
+        # ensure starts a fresh server rather than reusing a wedged process.
+        runtime.close_clients()
+
         # restart=False: do not Popen on the linguistic thread. The
         # walk returns empty; background ensure restarts harper-ls.
         # Leave the state IDLE. FAILED starts the 30s cooldown, so the

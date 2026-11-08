@@ -27,7 +27,7 @@ from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import _HAVE_UNO as _HAVE_UNO_DOC_EVENTS
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from plugin.scripting.session_manager import calc_workbook_base_session_id
-from plugin.scripting.venv_worker import reset_python_session
+from plugin.scripting.venv_worker import RESET_ABANDONED, reset_python_session
 
 log = logging.getLogger(__name__)
 
@@ -176,7 +176,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
                 name="reset_python_session_retry",
                 dedicated=True,
             )
-        elif isinstance(res, dict) and res.get("status") != "ok" and res.get("code") != "RESET_ABANDONED":
+        elif isinstance(res, dict) and res.get("status") != "ok" and res.get("code") != RESET_ABANDONED:
             log.debug("python_workbook_lifecycle: reset on unload failed for %s: %s", sid, res.get("message"))
 
     def _reset_sessions(self, session_ids: tuple[str, ...]) -> None:
