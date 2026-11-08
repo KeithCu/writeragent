@@ -2415,7 +2415,8 @@ def test_monaco_editor_available_pending_does_not_run_subprocess():
     exe = "/venv/bin/python"
     launch_mod.reset_webview_probe_state()
     try:
-        launch_mod._probe_running = True
+        with patch.object(launch_mod, "run_in_background"):
+            launch_mod._ensure_webview_probe(exe)
         with patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")):
             with patch.object(
                 launch_mod.ManagedSubprocess,
@@ -2474,6 +2475,25 @@ def test_venv_path_change_schedules_one_webview_probe():
         launch_mod.reset_webview_probe_state()
 
 
+def test_venv_path_change_with_force_internal_does_not_probe():
+    """When force_internal_script_editor is True, venv change invalidates cache but skips probe."""
+    exe = "/venv/bin/python"
+    try:
+        launch_mod.reset_webview_probe_state()
+        launch_mod._PROBE_CACHE[exe] = (True, "ok")
+        with (
+            patch("plugin.framework.config.get_config", return_value=True),
+            patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
+            patch.object(launch_mod, "run_in_background") as mock_bg,
+            patch.object(launch_mod, "terminate_persistent_editor"),
+        ):
+            launch_mod._on_config_changed(key="scripting.python_venv_path")
+            mock_bg.assert_not_called()
+            assert exe not in launch_mod._PROBE_CACHE
+    finally:
+        launch_mod.reset_webview_probe_state()
+
+
 def test_monaco_editor_available_cache_miss_arms_once():
     ctx = MagicMock()
     exe = "/venv/bin/python"
@@ -2521,9 +2541,8 @@ def test_probe_webview_import_stale_generation_does_not_store():
 def test_webview_probe_worker_picks_up_new_exe_on_config_change():
     """When config changes while a probe runs, stale result is dropped and new exe is probed."""
     launch_mod.reset_webview_probe_state()
-    with launch_mod._PROBE_LOCK:
-        launch_mod._probe_wanted = "/old/python"
-        launch_mod._probe_running = True
+    with patch.object(launch_mod, "run_in_background"):
+        launch_mod._ensure_webview_probe("/old/python")
 
     calls: list[str] = []
 

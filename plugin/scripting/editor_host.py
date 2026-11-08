@@ -183,8 +183,8 @@ def _cached_probe_locked(exe: str) -> tuple[bool, str] | None:
 
 def reset_webview_probe_state() -> None:
     """Reset webview probe caches and worker state (testing only)."""
+    global _probe_generation, _probe_wanted, _probe_running
     with _PROBE_LOCK:
-        global _probe_generation, _probe_wanted, _probe_running
         _PROBE_CACHE.clear()
         _PROBE_FAILURE_CACHE.clear()
         _probe_generation = 0
@@ -248,13 +248,13 @@ def probe_webview_import(exe: str, *, apply_generation: int) -> tuple[bool, str]
     return _remember_failure((False, detail))
 
 
-def _start_probe_worker_unlocked(exe: str) -> None:
+def _spawn_probe_worker(exe: str) -> None:
     """Schedule the background probe worker outside the lock, rolling back on failure."""
+    global _probe_running, _probe_wanted
     try:
         run_in_background(_webview_probe_worker, name="webview-probe", dedicated=False)
     except Exception:
         with _PROBE_LOCK:
-            global _probe_running, _probe_wanted
             _probe_running = False
             if _probe_wanted == exe:
                 _probe_wanted = None
@@ -272,7 +272,7 @@ def _ensure_webview_probe(exe: str) -> None:
         _probe_wanted = exe
         _probe_running = True
 
-    _start_probe_worker_unlocked(exe)
+    _spawn_probe_worker(exe)
 
 
 def _invalidate_webview_probe(exe: str | None) -> None:
@@ -289,7 +289,7 @@ def _invalidate_webview_probe(exe: str | None) -> None:
             start_worker = True
 
     if start_worker and exe is not None:
-        _start_probe_worker_unlocked(exe)
+        _spawn_probe_worker(exe)
 
 
 def _webview_probe_worker() -> None:
@@ -1080,7 +1080,7 @@ def _on_config_changed(**kwargs: Any) -> None:
     if venv_changed or editor_changed:
         # The probe checks different packages per editor (rocher only for Monaco).
         log.info("editor_host: venv path or python_editor changed, terminating background editor process")
-        exe, _err = resolve_editor_python(None)
+        exe = resolve_probeable_editor_python(None)
         try:
             _invalidate_webview_probe(exe)
         except Exception:
@@ -1095,14 +1095,24 @@ def _on_config_changed(**kwargs: Any) -> None:
 get_event_bus().subscribe("config:changed", _on_config_changed)
 
 
-def arm_webview_probe_at_startup(ctx: Any = None) -> None:
-    """Arm the webview probe on the background pool at startup if configured."""
+def resolve_probeable_editor_python(ctx: Any = None) -> str | None:
+    """Return configured venv Python executable if Monaco is enabled and configured, else None."""
     from plugin.framework.config import get_config
 
     if get_config("scripting.force_internal_script_editor"):
-        return
-    exe, _err = resolve_editor_python(ctx)
-    if exe:
+        log.debug("monaco editor bypassed by scripting.force_internal_script_editor")
+        return None
+    exe, err = resolve_editor_python(ctx)
+    if not exe:
+        log.debug("monaco editor venv python unavailable (%s)", err)
+        return None
+    return exe
+
+
+def arm_webview_probe_at_startup(ctx: Any = None) -> None:
+    """Arm the webview probe on the background pool at startup if configured."""
+    exe = resolve_probeable_editor_python(ctx)
+    if exe is not None:
         _ensure_webview_probe(exe)
 
 
@@ -1111,14 +1121,8 @@ def arm_webview_probe_at_startup(ctx: Any = None) -> None:
 
 def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
     """Return (venv python exe, True) when Monaco can launch, else (exe or None, False)."""
-    from plugin.framework.config import get_config
-    if get_config("scripting.force_internal_script_editor"):
-        log.debug("monaco_editor_available: bypassed by scripting.force_internal_script_editor")
-        return None, False
-
-    exe, err = resolve_editor_python(ctx)
+    exe = resolve_probeable_editor_python(ctx)
     if not exe:
-        log.debug("monaco_editor_available: no venv python (%s)", err)
         return None, False
     if _PERSISTENT_EDITOR.is_running:
         log.debug("monaco_editor_available: editor process already running, skipping probe")
