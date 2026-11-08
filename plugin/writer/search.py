@@ -204,28 +204,28 @@ def build_search_not_found_response(
     use_regex: bool = False,
     tracked_deletions: bool = False,
     closest: dict[str, Any] | None = None,
-    normalized_old_content: str | None = None,
 ) -> dict[str, Any]:
     """Standardized search not-found response dictionary."""
     if shape_name:
-        resp = {
+        return {
             "status": "error",
             "message": shape_only_search_message("old_content", shape_name),
             "replaced_count": 0,
         }
-        if normalized_old_content is not None:
-            resp["normalized_old_content"] = normalized_old_content
-        return resp
 
-    if doc is not None and needle and not use_regex and old_content_covers_most(doc, len(needle)):
-        resp = {
+    # Near-miss mismatch detection: check if there is a close match in the document.
+    # We compute closest first so that a typo in a needle covering >50% of the body
+    # still receives the helpful near-miss hint rather than an oversized refusal.
+    if closest is None and doc is not None and needle and not use_regex:
+        closest = search_closest_mismatch(doc, needle, lenient=lenient)
+
+    if closest is None and doc is not None and needle and not use_regex and old_content_covers_most(doc, len(needle)):
+        return {
             "status": "error",
             "message": OVERSIZED_OLD_CONTENT_MESSAGE,
             "replaced_count": 0,
+            "oversized": True,
         }
-        if normalized_old_content is not None:
-            resp["normalized_old_content"] = normalized_old_content
-        return resp
 
     from plugin.writer.review_scan import document_has_tracked_deletions
 
@@ -236,13 +236,10 @@ def build_search_not_found_response(
     else:
         base_msg = "old_content not found in document. Try a shorter, unique substring." + hint
 
-    if closest is None and doc is not None and needle and not use_regex:
-        closest = search_closest_mismatch(doc, needle, lenient=lenient)
-
     if closest:
         base_msg = f"{base_msg} {closest['message']}"
 
-    resp = {
+    resp: dict[str, Any] = {
         "status": "error",
         "message": base_msg,
         "replaced_count": 0,
@@ -250,8 +247,6 @@ def build_search_not_found_response(
     if closest:
         resp["closest_match"] = closest["closest_match"]
         resp["diff_at"] = closest["diff_at"]
-    if normalized_old_content is not None:
-        resp["normalized_old_content"] = normalized_old_content
     return resp
 
 
@@ -988,34 +983,64 @@ def closest_mismatch(
 
     Windows are scored by folded common-prefix length, with ties broken by earlier
     start. If the folded needle appears as a prefix of any window (an exact match),
-    None is returned. Comparisons are bounded at 2,000,000 characters.
+    None is returned. Candidate starts are accelerated via str.find on the prefix.
     """
     if not needle or not hay:
         return None
 
-    def _fold(s: str) -> str:
+    def _fold_with_map(s: str) -> tuple[str, list[int]]:
+        if not lenient:
+            return s, list(range(len(s)))
         translated = s.translate(_FOLD_NORMALIZE_MAP)
-        return "".join(c.lower() if len(c.lower()) == 1 else c for c in translated)
+        chars: list[str] = []
+        idx_map: list[int] = []
+        in_space = False
+        for i, c in enumerate(translated):
+            c_folded = c.lower() if len(c.lower()) == 1 else c
+            if c_folded == " ":
+                if not in_space:
+                    chars.append(" ")
+                    idx_map.append(i)
+                    in_space = True
+            else:
+                in_space = False
+                chars.append(c_folded)
+                idx_map.append(i)
+        return "".join(chars), idx_map
 
-    folded_needle = _fold(needle) if lenient else needle
-    folded_hay = _fold(hay) if lenient else hay
+    folded_needle, needle_map = _fold_with_map(needle)
+    folded_hay, hay_map = _fold_with_map(hay)
 
-    needle_len = len(needle)
-    hay_len = len(hay)
+    needle_len = len(folded_needle)
+    hay_len = len(folded_hay)
+    if needle_len == 0 or hay_len == 0:
+        return None
+
+    min_score = max(1, min(8, needle_len // 2))
+    k = min_score
+    candidate = folded_needle[:k]
+
     best_score = -1
     best_i = -1
     best_diff = -1
     comparisons = 0
     max_comparisons = 2_000_000
 
-    for i in range(hay_len):
+    start_pos = 0
+    while True:
         if comparisons >= max_comparisons:
             break
+        i = folded_hay.find(candidate, start_pos)
+        if i == -1:
+            break
+        start_pos = i + 1
+
         window_len = min(needle_len, hay_len - i)
         mismatch_found = False
         diff_idx = -1
-        score = 0
-        for j in range(window_len):
+        score = k
+        comparisons += k
+        for j in range(k, window_len):
             comparisons += 1
             if folded_needle[j] == folded_hay[i + j]:
                 score += 1
@@ -1034,15 +1059,19 @@ def closest_mismatch(
             best_i = i
             best_diff = diff_idx
 
-    min_score = max(1, min(8, needle_len // 2))
     if best_score < min_score:
         return None
 
-    window = hay[best_i : best_i + needle_len]
-    preview = window[:16] + ("\u2026" if len(window) > 16 else "")
-    diff_at = best_diff
+    diff_at = needle_map[best_diff]
     raw_needle_char = needle[diff_at]
-    raw_hay_char = hay[best_i + diff_at]
+    raw_hay_pos = hay_map[best_i + best_diff]
+    raw_hay_char = hay[raw_hay_pos]
+
+    raw_start = hay_map[best_i]
+    raw_end = hay_map[min(best_i + needle_len - 1, hay_len - 1)] + 1
+    window = hay[raw_start:raw_end]
+    preview = window[:16] + ("\u2026" if len(window) > 16 else "")
+
     msg = (
         f"closest match starts {preview!r}, differs at character {diff_at}: "
         f"{raw_needle_char} vs {raw_hay_char}"

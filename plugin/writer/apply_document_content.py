@@ -607,7 +607,7 @@ class ApplyDocumentContent(ToolBase):
         new_text: str,
         *,
         all_matches: bool,
-        use_opts: bool = False,
+        use_opts: bool,
     ) -> dict[str, Any]:
         shape = search_mod.drawing_shape_object_containing(
             doc, opts_pattern,
@@ -811,9 +811,7 @@ class ApplyDocumentContent(ToolBase):
         edit_idx = 0 if occurrence is None else occurrence
 
         old_stripped = str(old_content).strip() if old_content is not None else ""
-        s = kwargs.get("_normalized_old_content")
-        if s is None:
-            s = search_mod.prepare_old_content(old_content)
+        s = search_mod.prepare_old_content(old_content)
         if not s:
             return self._tool_error("old_content is empty after normalization.")
         regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, s)
@@ -885,12 +883,11 @@ class ApplyDocumentContent(ToolBase):
             res = search_mod.build_search_not_found_response(
                 ctx.doc, s, lenient=not use_opts, use_regex=regex
             )
-            if res.get("message") == search_mod.OVERSIZED_OLD_CONTENT_MESSAGE:
-                return res
             result["message"] = res["message"]
             if "closest_match" in res:
                 result["closest_match"] = res["closest_match"]
                 result["diff_at"] = res["diff_at"]
+        result["normalized_old_content"] = s
         if occurrence is not None and ranges:
             selected = ranges[occurrence]
             selected_location, selected_text = _match_snippet(selected)
@@ -916,13 +913,9 @@ class ApplyDocumentContent(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Thin wrapper so every return path gets the read-only-attribute note, including the
         # review-wait branch that does not go through annotate_review_status.
-        normalized_old = None
-        if kwargs.get("target") == "search" or kwargs.get("old_content") is not None or kwargs.get("dry_run"):
-            normalized_old = search_mod.prepare_old_content(kwargs.get("old_content"))
-            kwargs["_normalized_old_content"] = normalized_old
         result = _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
-        if normalized_old is not None:
-            result.setdefault("normalized_old_content", normalized_old)
+        if kwargs.get("target") == "search" and "normalized_old_content" not in result:
+            result["normalized_old_content"] = search_mod.prepare_old_content(kwargs.get("old_content"))
         return result
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -1097,9 +1090,7 @@ class ApplyDocumentContent(ToolBase):
 
         if target == "search":
             old_stripped = str(old_content).strip() if old_content is not None else ""
-            search_string = kwargs.get("_normalized_old_content")
-            if search_string is None:
-                search_string = search_mod.prepare_old_content(old_content)
+            search_string = search_mod.prepare_old_content(old_content)
             if not search_string:
                 # Parameter error (like old_content=None), not a search no-op: the search never ran,
                 # so there's no replaced_count to report — use the standard tool error shape.
@@ -1155,7 +1146,9 @@ class ApplyDocumentContent(ToolBase):
             return self._edit_insert_at(ctx, session, params)
         if params.target == "selection":
             return self._edit_selection(ctx, session, params)
-        return self._edit_search(ctx, session, params)
+        res = self._edit_search(ctx, session, params)
+        res["normalized_old_content"] = params.search_string
+        return res
 
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,

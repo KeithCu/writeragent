@@ -1349,9 +1349,8 @@ class ApplyStyle(FrameworkToolBase):
 
         def _finish_success(res: dict[str, Any], rep_list: list[Any]) -> dict[str, Any]:
             res.update(self._merge_reports(rep_list))
-            if target == "search":
-                if "matched" not in res:
-                    res["matched"] = True
+            if target == "search" and "matched" not in res:
+                res["matched"] = True
             flag_style_unreviewed(res)
             return res
 
@@ -1369,12 +1368,7 @@ class ApplyStyle(FrameworkToolBase):
 
             s = prepare_old_content(old_content)
             if not s:
-                return {
-                    "status": "error",
-                    "message": "target='search' requires old_content.",
-                    "applied": False,
-                    "matched": False,
-                }
+                return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
             ranges = find_all_ranges(ctx.doc, s) if s else []
             if not ranges:
                 res = build_search_not_found_response(ctx.doc, s, all_matches=True)
@@ -1449,13 +1443,7 @@ class ApplyStyle(FrameworkToolBase):
                 # apply_document_content, so a client can branch on matched/applied.
                 # TODO(follow-up): consider _tool_error(..., details={...}) so this path also
                 # carries a standard error code like other apply_style failures.
-                return {
-                    "status": "error",
-                    "message": str(ve),
-                    "target": "search",
-                    "applied": False,
-                    "matched": False,
-                }
+                return {"status": "error", "message": str(ve), "target": "search", "applied": False, "matched": False}
             return self._tool_error(str(ve))
 
         # execute_safe reports a failed apply. This catch hid a closed document

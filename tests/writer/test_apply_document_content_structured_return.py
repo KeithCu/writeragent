@@ -170,6 +170,45 @@ def test_search_oversized_old_content_never_blocks_match(monkeypatch):
     assert res["normalized_old_content"] == "huge content"
 
 
+def test_search_oversized_old_content_with_near_miss_reports_hint_not_refusal(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
+    monkeypatch.setattr(
+        search_mod,
+        "search_closest_mismatch",
+        lambda doc, s, lenient=True: {
+            "closest_match": "huge content…",
+            "diff_at": 10,
+            "message": "closest match starts 'huge content…', differs at character 10: x vs y",
+        },
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="huge content", content="BAR"
+    )
+    assert res["status"] == "error", res
+    assert "target='full_document'" not in res["message"]
+    assert "differs at character 10" in res["message"]
+    assert res["closest_match"] == "huge content…"
+    assert res["diff_at"] == 10
+
+
+def test_dry_run_oversized_retains_dry_run_keys(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [])
+    monkeypatch.setattr(search_mod, "sweep_draw_shape_preview_matches", lambda *a, **k: [])
+    monkeypatch.setattr(search_mod, "sweep_comment_preview_matches", lambda *a, **k: [])
+    monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="huge content", content="BAR", dry_run=True
+    )
+    assert res["status"] == "ok", res
+    assert res["dry_run"] is True
+    assert res["count"] == 0
+    assert res["replaceable_count"] == 0
+    assert res["matches"] == []
+    assert "target='full_document'" in res["message"]
+    assert res["normalized_old_content"] == "huge content"
+
+
 def test_search_empty_after_normalization_reports_normalized_key():
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="   ", content="BAR"
