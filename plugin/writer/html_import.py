@@ -296,7 +296,7 @@ def _insert_mixed_or_plain_html(
     unescaped_content = field_restore.rewrite_exported_field_spans(unescaped_content, nonce=nonce)
     # Strip data-lo-style and data-lo-para so the StarWriter import sees clean markup (it drops unknown
     # attributes anyway); we re-apply formatting via UNO afterwards only when apply_styles is True.
-    clean, block_styles, block_paras, _skipped_paras = html_import_styles._extract_block_lo_styles(unescaped_content)
+    clean, block_styles, block_paras, skipped_paras = html_import_styles._extract_block_lo_styles(unescaped_content)
     # Expand literal \n and \t before measuring ruby offsets and StarWriter import
     clean = _expand_escapes(clean)
     has_math = html_fragment_contains_mixed_math(clean)
@@ -334,9 +334,17 @@ def _insert_mixed_or_plain_html(
         failures = html_import_styles._apply_block_lo_styles(
             model, text_obj, start, block_styles, end=imported_end, paras=block_paras,
         )
+        for skipped_css in skipped_paras:
+            failures.extend(html_import_styles._declaration_names(skipped_css))
         end_c = model.getText().createTextCursor()
         end_c.gotoEnd(False)
         cursor.gotoRange(end_c.getStart(), False)
+    else:
+        for block_css in block_paras:
+            if block_css:
+                failures.extend(html_import_styles._declaration_names(block_css))
+        for skipped_css in skipped_paras:
+            failures.extend(html_import_styles._declaration_names(skipped_css))
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
     return failures
 
@@ -682,7 +690,7 @@ def replace_single_range_with_content(
                     apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
-            return []
+            return html_import_styles.unapplied_para_names_for_content(prepared)
         else:
             # apply_styles=False: a search/replace splits the matched paragraph, so applying a
             # data-lo-style here would restyle the surrounding text. Styled writes use full_document.

@@ -473,4 +473,49 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
         assert count_after == count_before
 
 
+@native_test
+@with_native_doc("writer")
+def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: Any) -> None:
+    """Paragraph direct formatting (alignment, margins, background) survives named style application."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    html = (
+        '<h1 data-lo-style="Heading1" data-lo-para="text-align:center; margin-left:2cm; background-color:#ffe4c4">Heading</h1>'
+        '<blockquote><p data-lo-para="margin-left:1cm">Quoted text</p></blockquote>'
+    )
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=html)
+    assert res.get("status") == "ok", res
+
+    enum = doc.getText().createEnumeration()
+    p1 = enum.nextElement()
+    p2 = enum.nextElement()
+
+    assert p1.getPropertyValue("ParaAdjust") == 3
+    assert p1.getPropertyValue("ParaLeftMargin") == 2000
+    assert p1.getPropertyValue("ParaBackColor") == 0xFFE4C4
+    assert p2.getPropertyValue("ParaLeftMargin") == 1000
+
+    got = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert got.get("status") == "ok", got
+    content = got.get("content") or ""
+    assert "data-lo-para" in content
+
+    res2 = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=content)
+    assert res2.get("status") == "ok", res2
+
+    enum2 = doc.getText().createEnumeration()
+    r1 = enum2.nextElement()
+    r2 = enum2.nextElement()
+
+    assert r1.getPropertyValue("ParaAdjust") == 3
+    assert r1.getPropertyValue("ParaLeftMargin") == 2000
+    assert r1.getPropertyValue("ParaBackColor") == 0xFFE4C4
+    assert r2.getPropertyValue("ParaLeftMargin") == 1000
+
+
+
 

@@ -100,6 +100,7 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 # On write, text-align, margin-left, margin-right, and background-color are mapped onto paragraph
 # properties after the style is set (for full_document, beginning, and end targets). Other property
 # names arrive in warnings. selection/search targets and table cells do not apply data-lo-para.
+# Not emitted as style="": the import reads style="" as a character override.
 # ODF attribute -> CSS name, in emit order.
 _FODT_OVERRIDE_ATTRS = (
     ("fo:margin-left", "margin-left"),
@@ -109,6 +110,7 @@ _FODT_OVERRIDE_ATTRS = (
     ("fo:text-indent", "text-indent"),
     ("fo:text-align", "text-align"),
     ("fo:line-height", "line-height"),
+    ("fo:background-color", "background-color"),
     ("style:font-name", "font-family"),
     ("fo:font-family", "font-family"),
     ("fo:font-size", "font-size"),

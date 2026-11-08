@@ -29,6 +29,20 @@ def _strip_data_lo_attrs(start_tag: str) -> str:
     return re.sub(r'\s+data-lo-(?:style|para)=(?:"[^"]*"|\'[^\']*\')', "", start_tag)
 
 
+def _declaration_names(css: str) -> list[str]:
+    """Collect CSS property names declared in a data-lo-para string in declaration order."""
+    names: list[str] = []
+    for part in css.split(";"):
+        part = part.strip()
+        if not part or ":" not in part:
+            continue
+        prop, _ = part.split(":", 1)
+        prop = prop.strip().lower()
+        if prop:
+            names.append(prop)
+    return names
+
+
 _LENGTH_RE = re.compile(r"^(-?(?:\d+(?:\.\d+)?|\.\d+))(cm|mm|in|pt|pc|px)$")
 
 
@@ -60,23 +74,20 @@ def _parse_length_to_unit(val: str) -> int | None:
     return None
 
 
-def parse_data_lo_para(css: str) -> tuple[dict[str, Any], list[str]]:
-    """Parse a data-lo-para CSS fragment into UNO paragraph properties and unapplied names.
+def parse_data_lo_para(css: str) -> tuple[dict[str, tuple[str, Any]], list[str]]:
+    """Parse a data-lo-para CSS fragment into UNO property mappings and unapplied names.
 
     Maps text-align, margin-left, margin-right, and background-color to their respective
-    UNO property values. Returns a 2-tuple of (uno_properties_dict, dropped_css_names).
-    Declarations that cannot be mapped, unrecognised property names, or mapped properties
-    with invalid values are returned in dropped_css_names in the order they were declared.
+    UNO property values. Returns a 2-tuple of (mapped_dict, dropped_css_names), where
+    mapped_dict is {css_prop: (uno_prop_name, uno_value)}. Declarations that cannot be
+    mapped, unrecognised property names, or mapped properties with invalid values are
+    returned in dropped_css_names in the order they were declared.
     """
-    adjust_fn: Any = None
-    color_fn: Any = None
     try:
         from .styles import _para_adjust_to_uno, _style_color_to_uno
-
-        adjust_fn = _para_adjust_to_uno
-        color_fn = _style_color_to_uno
     except ImportError:
-        pass
+        _para_adjust_to_uno = None  # type: ignore[assignment]
+        _style_color_to_uno = None  # type: ignore[assignment]
 
     declarations: dict[str, str] = {}
     for part in css.split(";"):
@@ -88,15 +99,15 @@ def parse_data_lo_para(css: str) -> tuple[dict[str, Any], list[str]]:
         val = val.strip()
         declarations[prop] = val
 
-    uno_props: dict[str, Any] = {}
+    mapped: dict[str, tuple[str, Any]] = {}
     dropped: list[str] = []
 
     for prop, val in declarations.items():
         if prop == "text-align":
             mapped_val = xhtml_post._ODF_TEXT_ALIGN.get(val, val)
-            if adjust_fn is not None:
+            if _para_adjust_to_uno is not None:
                 try:
-                    uno_props["ParaAdjust"] = adjust_fn(mapped_val)
+                    mapped[prop] = ("ParaAdjust", _para_adjust_to_uno(mapped_val))
                     continue
                 except ValueError:
                     pass
@@ -104,26 +115,26 @@ def parse_data_lo_para(css: str) -> tuple[dict[str, Any], list[str]]:
         elif prop == "margin-left":
             length = _parse_length_to_unit(val)
             if length is not None:
-                uno_props["ParaLeftMargin"] = length
+                mapped[prop] = ("ParaLeftMargin", length)
             else:
                 dropped.append(prop)
         elif prop == "margin-right":
             length = _parse_length_to_unit(val)
             if length is not None:
-                uno_props["ParaRightMargin"] = length
+                mapped[prop] = ("ParaRightMargin", length)
             else:
                 dropped.append(prop)
         elif prop == "background-color":
-            if color_fn is not None:
-                col = color_fn(val)
+            if _style_color_to_uno is not None:
+                col = _style_color_to_uno(val)
                 if col is not None:
-                    uno_props["ParaBackColor"] = col
+                    mapped[prop] = ("ParaBackColor", col)
                     continue
             dropped.append(prop)
         else:
             dropped.append(prop)
 
-    return uno_props, dropped
+    return mapped, dropped
 
 
 @final
@@ -188,8 +199,8 @@ class _BlockLoStyleExtractor(xhtml_post._HtmlPassthroughParser):
             self._out.append(_strip_data_lo_attrs(raw))
             return
         if self._table_depth or (t not in xhtml_post.BLOCK_TAGS and t != "div"):
-            # Inline tags, and blocks inside a table (their data-lo-style is left for the import to
-            # ignore -- v1 doesn't apply cell styles), stay verbatim in structure, but record skipped para css.
+            # Inline tags, and blocks inside a table: attributes are stripped (cell styles are out
+            # of scope); data-lo-para is recorded as skipped.
             para = self._para_of(attrs)
             if para is not None:
                 self.skipped_para.append(para)
@@ -283,12 +294,19 @@ def _resolve_paragraph_style_token(
     return "Standard"
 
 
-_UNO_TO_CSS_PROP: dict[str, str] = {
-    "ParaAdjust": "text-align",
-    "ParaLeftMargin": "margin-left",
-    "ParaRightMargin": "margin-right",
-    "ParaBackColor": "background-color",
-}
+def unapplied_para_names_for_content(content: str) -> list[str]:
+    """Collect all data-lo-para property names declared in *content* (none applied)."""
+    if "data-lo-para" not in content:
+        return []
+    _clean, _styles, paras, skipped = _extract_block_lo_styles(content)
+    unapplied: list[str] = []
+    for p in paras:
+        if p:
+            unapplied.extend(_declaration_names(p))
+    for s in skipped:
+        if s:
+            unapplied.extend(_declaration_names(s))
+    return unapplied
 
 
 def _apply_block_lo_styles(
@@ -310,10 +328,17 @@ def _apply_block_lo_styles(
     try:
         from .styles import apply_paragraph_style_preserving_direct_char
     except ImportError:
-        return []
+        failed_import: list[str] = []
+        if paras:
+            for p in paras:
+                if p:
+                    failed_import.extend(_declaration_names(p))
+        return failed_import
 
     fam = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles"), None)
     element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
+    para_list = paras if paras is not None else [None] * len(styles)
+    failed: list[str] = []
 
     try:
         start_range = start.getStart() if hasattr(start, "getStart") else start
@@ -321,13 +346,15 @@ def _apply_block_lo_styles(
         walk_cur.gotoStartOfParagraph(False)
     except Exception as exc:
         reraise_if_disposed(exc)
-        return []
+        for p in para_list:
+            if p:
+                failed.extend(_declaration_names(p))
+        return failed
 
     style_cache: dict[Any, Any] = {}
-    failed: list[str] = []
-    para_list = paras if paras is not None else [None] * len(styles)
+    reached_count = 0
 
-    for style, para_css in zip(styles, para_list):
+    for idx, (style, para_css) in enumerate(zip(styles, para_list)):
         # Stop at the first paragraph that does not start before the parked end cursor.
         try:
             if end is not None and text_obj.compareRegionStarts(walk_cur.getStart(), end) != 1:
@@ -335,6 +362,8 @@ def _apply_block_lo_styles(
         except Exception as exc:
             reraise_if_disposed(exc)
             break
+
+        reached_count = idx + 1
 
         if style:
             resolved = _resolve_paragraph_style_token(fam, style, element_names=element_names)
@@ -352,22 +381,23 @@ def _apply_block_lo_styles(
                     log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
 
         if para_css:
-            uno_props, _ = parse_data_lo_para(para_css)
-            if uno_props:
+            mapped, dropped = parse_data_lo_para(para_css)
+            failed.extend(dropped)
+            if mapped:
                 try:
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
-                    for uno_prop, val in uno_props.items():
+                    for css_name, (uno_prop, val) in mapped.items():
                         try:
                             para_cur.setPropertyValue(uno_prop, val)
                         except Exception as exc:
                             reraise_if_disposed(exc)
-                            css_name = _UNO_TO_CSS_PROP.get(uno_prop, uno_prop)
                             log.debug("data-lo-para: failed to set %s (%s)", uno_prop, css_name, exc_info=True)
                             failed.append(css_name)
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-para: cursor creation failed", exc_info=True)
+                    failed.extend(mapped.keys())
 
         try:
             if not walk_cur.gotoNextParagraph(False):
@@ -375,5 +405,9 @@ def _apply_block_lo_styles(
         except Exception as exc:
             reraise_if_disposed(exc)
             break
+
+    for p in para_list[reached_count:]:
+        if p:
+            failed.extend(_declaration_names(p))
 
     return failed

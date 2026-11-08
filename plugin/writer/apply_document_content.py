@@ -302,86 +302,14 @@ def _find_ranges(
 # ------------------------------------------------------------------
 
 
-def _declaration_names(css: str) -> list[str]:
-    """Collect CSS property names declared in a data-lo-para string in declaration order."""
-    names: list[str] = []
-    for part in css.split(";"):
-        part = part.strip()
-        if not part or ":" not in part:
-            continue
-        prop, _ = part.split(":", 1)
-        prop = prop.strip().lower()
-        if prop:
-            names.append(prop)
-    return names
-
-
-def _attach_data_lo_para_warnings(
-    result: Any,
-    content: Any,
-    target: Any,
-    old_content: Any = None,
-) -> Any:
-    """Report unapplied data-lo-para properties on successful document mutations.
-
-    On full_document, beginning, and end targets, mapped properties (alignment, margins,
-    background) apply to the document, and any unapplied properties are reported in
-    warnings. On selection, search, or inside tables where paragraph formatting cannot be
-    safely mapped, all declared properties are reported in warnings.
-    """
-    if not isinstance(result, dict):
+def _attach_para_warnings(result: dict[str, Any], unapplied: list[str]) -> dict[str, Any]:
+    """Attach warnings for unapplied data-lo-para properties on a successful edit result."""
+    if not unapplied or result.get("status") != "ok":
         return result
-    if result.get("status") != "ok":
-        if "_data_lo_para_failed" in result:
-            result = dict(result)
-            result.pop("_data_lo_para_failed", None)
-        return result
-
-    result = dict(result)
-    failed_runtime: list[str] = result.pop("_data_lo_para_failed", [])
-
-    if isinstance(content, str):
-        stripped = content.strip()
-        if stripped.startswith("[") and "<" in stripped:
-            parsed = safe_json_loads(stripped)
-            if isinstance(parsed, list):
-                content = parsed
-
-    items: list[str]
-    if isinstance(content, (list, tuple)):
-        items = [x for x in content if isinstance(x, str)]
-    elif isinstance(content, str):
-        items = [content]
-    else:
-        items = []
-
-    eff_target = "search" if not target and old_content is not None else target
-    applies_formatting = eff_target in ("full_document", "beginning", "end")
-
-    from . import html_import_styles
-
-    warned_names: list[str] = []
-
-    for item in items:
-        _, _styles, paras, skipped = html_import_styles._extract_block_lo_styles(item)
-        for p in paras:
-            if not p:
-                continue
-            if applies_formatting:
-                _, dropped = html_import_styles.parse_data_lo_para(p)
-                warned_names.extend(dropped)
-            else:
-                warned_names.extend(_declaration_names(p))
-        for s in skipped:
-            if s:
-                warned_names.extend(_declaration_names(s))
-
-    warned_names.extend(failed_runtime)
-    deduped = list(dict.fromkeys(warned_names))
-    if deduped:
-        result["warnings"] = [
-            f"data-lo-para property '{name}' was not applied" for name in deduped
-        ]
+    deduped = list(dict.fromkeys(unapplied))
+    result["warnings"] = [
+        f"data-lo-para property '{name}' was not applied" for name in deduped
+    ]
     return result
 
 
@@ -954,14 +882,7 @@ class ApplyDocumentContent(ToolBase):
             log.exception("apply_document_content: review session cleanup failed")
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Thin wrapper so every return path gets unapplied data-lo-para warnings, including the
-        # review-wait branch that does not go through annotate_review_status.
-        return _attach_data_lo_para_warnings(
-            self._execute(ctx, **kwargs),
-            kwargs.get("content"),
-            self._effective_target(kwargs.get("target"), kwargs.get("old_content")),
-            kwargs.get("old_content"),
-        )
+        return self._execute(ctx, **kwargs)
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = main.is_current()
@@ -1213,9 +1134,7 @@ class ApplyDocumentContent(ToolBase):
         if err:
             return err
         res: dict[str, Any] = {"status": "ok", "message": "Replaced entire document."}
-        if failed:
-            res["_data_lo_para_failed"] = failed
-        return res
+        return _attach_para_warnings(res, failed)
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1242,9 +1161,7 @@ class ApplyDocumentContent(ToolBase):
             anchor = collapsed_anchor(ctx.doc.getText().getStart())
         res = attach_edited_context(
             {"status": "ok", "message": msg}, anchor)
-        if failed:
-            res["_data_lo_para_failed"] = failed
-        return res
+        return _attach_para_warnings(res, failed)
 
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
@@ -1269,9 +1186,7 @@ class ApplyDocumentContent(ToolBase):
             return err
         res = attach_edited_context(
             {"status": "ok", "message": "Inserted content at selection."}, anchor)
-        if failed:
-            res["_data_lo_para_failed"] = failed
-        return res
+        return _attach_para_warnings(res, failed)
 
 
     def _edit_replace_all(
@@ -1398,26 +1313,35 @@ class ApplyDocumentContent(ToolBase):
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
         if params.all_matches:
-            return self._edit_replace_all(ctx, session, params)
-        doc = ctx.doc
-        if params.occurrence is not None:
-            # Index the same replaceable list the edit path uses. Empty ranges fall
-            # through to the existing miss / drawing-shape path (models often send 0).
-            ranges = _find_ranges(
-                doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
-            if ranges and params.occurrence >= len(ranges):
-                return self._occurrence_oor(params.occurrence, len(ranges))
-            found = ranges[params.occurrence] if ranges else None
+            res = self._edit_replace_all(ctx, session, params)
         else:
-            found = _find_ranges(
-                doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
-        if found is None:
-            return self._finish_search_miss(
-                doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
-                params.track_reviewable, params.plain, all_matches=False)
-        if params.position in ("before", "after"):
-            return self._edit_insert_next_to_match(ctx, session, params, found)
-        return self._edit_replace_one(ctx, session, params, found)
+            doc = ctx.doc
+            if params.occurrence is not None:
+                # Index the same replaceable list the edit path uses. Empty ranges fall
+                # through to the existing miss / drawing-shape path (models often send 0).
+                ranges = _find_ranges(
+                    doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
+                if ranges and params.occurrence >= len(ranges):
+                    return self._occurrence_oor(params.occurrence, len(ranges))
+                found = ranges[params.occurrence] if ranges else None
+            else:
+                found = _find_ranges(
+                    doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=False)
+            if found is None:
+                return self._finish_search_miss(
+                    doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
+                    params.track_reviewable, params.plain, all_matches=False)
+            if params.position in ("before", "after"):
+                res = self._edit_insert_next_to_match(ctx, session, params, found)
+            else:
+                res = self._edit_replace_one(ctx, session, params, found)
+
+        if res.get("status") == "ok" and "data-lo-para" in str(params.content):
+            from . import html_import_styles
+
+            unapplied = html_import_styles.unapplied_para_names_for_content(str(params.content))
+            return _attach_para_warnings(res, unapplied)
+        return res
 
     def _edit_insert_next_to_match(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
