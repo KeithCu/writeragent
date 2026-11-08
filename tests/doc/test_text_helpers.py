@@ -766,3 +766,30 @@ def test_iter_elements_limited_leaves_enum_when_cap_hit():
     assert seen == 1
     assert enum.hasMoreElements() is True
 
+
+def test_starts_at_or_after():
+    from plugin.doc.text_helpers import starts_at_or_after
+
+    text = MagicMock()
+    left = MagicMock()
+    right = MagicMock()
+
+    # None text -> False
+    assert starts_at_or_after(None, left, right) is False
+
+    # 1: left starts before right -> False
+    text.compareRegionStarts.return_value = 1
+    assert starts_at_or_after(text, left, right) is False
+
+    # 0: left starts at right -> True
+    text.compareRegionStarts.return_value = 0
+    assert starts_at_or_after(text, left, right) is True
+
+    # -1: left starts after right -> True
+    text.compareRegionStarts.return_value = -1
+    assert starts_at_or_after(text, left, right) is True
+
+    # Exception during compare -> False
+    text.compareRegionStarts.side_effect = RuntimeError("UNO error")
+    assert starts_at_or_after(text, left, right) is False
+

@@ -340,3 +340,51 @@ def test_apply_document_content_anchor_range_case_sensitive_uno(ctx, doc):
     body = doc.getText().getString()
     assert "Replaced Case Insensitive" in body
     assert "Intermediate Text" not in body
+
+
+def _reject_all_changes(doc, ctx):
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    frame = doc.getCurrentController().getFrame()
+    helper.executeDispatch(frame, ".uno:RejectAllTrackedChanges", "", 0, ())
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_anchor_range_review_record_uno(ctx, doc):
+    """Anchor range replacement records tracked changes when review mode is record; reject restores."""
+    from plugin.framework.config import get_config, save
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+
+    text.insertString(cursor, "Review Start Landmark", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Original Middle Content", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Review End Landmark", False)
+
+    flag = "doc.agent_edit_review_mode"
+    prev = get_config(flag)
+    save({flag: "record"})
+    try:
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx),
+            start_anchor="Review Start Landmark",
+            end_anchor="Review End Landmark",
+            content="Replacement Under Review",
+        )
+        assert res.get("status") == "ok", res
+        assert res.get("replaced_count") == 1, res
+        assert doc.getRedlines().getCount() > 0
+        body = doc.getText().getString()
+        assert "Replacement Under Review" in body
+
+        _reject_all_changes(doc, ctx)
+        body_restored = doc.getText().getString()
+        assert "Review Start Landmark" in body_restored
+        assert "Original Middle Content" in body_restored
+        assert "Review End Landmark" in body_restored
+        assert "Replacement Under Review" not in body_restored
+    finally:
+        save({flag: prev})

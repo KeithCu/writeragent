@@ -28,6 +28,7 @@ from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
     iter_elements,
     normalize_linebreaks,
+    starts_at_or_after,
     with_view_cursor_left_body_locked,
 )
 from plugin.framework.errors import reraise_if_disposed, uno_read
@@ -580,26 +581,6 @@ def _is_same_text(candidate: Any, boundary_end: Any) -> bool:
     return bool(uno_read(lambda: uno_same(cand_text, bound_text), False))
 
 
-def _starts_at_or_after(candidate: Any, boundary_end: Any) -> bool:
-    """True when candidate starts at or after boundary_end within the same XText.
-
-    compareRegionStarts returns 1 when the first range starts before the second, 0 when they
-    start at the same point, and -1 when after. A return value not equal to 1 therefore means
-    candidate starts at or after boundary_end. When comparison fails, False is returned so the
-    candidate is skipped rather than misreporting a match.
-    """
-    cand_text = uno_read(lambda: candidate.getText(), None)
-    if cand_text is None:
-        return False
-    cmp_val = uno_read(
-        lambda: cand_text.compareRegionStarts(candidate.getStart(), boundary_end),
-        FAILED,
-    )
-    if cmp_val is FAILED or cmp_val is None:
-        return False
-    return cmp_val != 1
-
-
 def pick_end_after_start(
     start: Any, ends: Iterator[Any] | Iterable[Any]
 ) -> tuple[Any | None, AnchorMissKind | None]:
@@ -616,7 +597,8 @@ def pick_end_after_start(
         if not _is_same_text(end, boundary_end):
             saw_different_text = True
             continue
-        if not _starts_at_or_after(end, boundary_end):
+        cand_text = uno_read(lambda: end.getText(), None)
+        if not starts_at_or_after(cand_text, end.getStart(), boundary_end):
             continue
         text = start.getText()
         cursor = text.createTextCursorByRange(start.getStart())
