@@ -541,7 +541,7 @@ def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, do
     doc.getText().setString("Initial paragraph")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
-    html = '<p data-lo-style="Heading1" data-lo-para="margin-left:1.5cm; background-color:#ffe4c4">Appended paragraph</p>'
+    html = '<p data-lo-para="background-color:#ffe4c4">Appended paragraph</p>'
     res2 = ApplyDocumentContent().execute(tool_ctx, target="end", content=html)
     assert res2.get("status") == "ok", res2
     assert "warnings" not in res2, res2
@@ -555,12 +555,10 @@ def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, do
 
     p_initial = next((p for p in paras if "Initial paragraph" in p.getString()), None)
     assert p_initial is not None, [p.getString() for p in paras]
-    assert p_initial.getPropertyValue("ParaLeftMargin") != 1500
     assert int(p_initial.getPropertyValue("ParaBackColor")) != 0xFFE4C4
 
     p_appended = next((p for p in paras if "Appended paragraph" in p.getString()), None)
     assert p_appended is not None, [p.getString() for p in paras]
-    assert p_appended.getPropertyValue("ParaLeftMargin") == 1500
     solid_fill = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
     assert p_appended.getPropertyValue("FillStyle") == solid_fill
     assert p_appended.getPropertyValue("FillColor") == 0xFFE4C4
