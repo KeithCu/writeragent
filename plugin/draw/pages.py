@@ -29,9 +29,11 @@ from plugin.framework.errors import available_miss_details, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import uno_same
 from plugin.writer.search import (
+    CASE_SENSITIVE_DESCRIPTION,
     DEFAULT_SEARCH_RESULTS,
     MAX_SEARCH_HITS,
     invalid_regex_tool_message,
+    resolve_case_sensitive,
     search_results_cap_hint,
     shape_text_hits,
     validate_regex_pattern,
@@ -298,7 +300,7 @@ class SearchSlides(ToolBase):
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
             "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
-            "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
             "max_results": {
                 "type": "integer",
                 "description": "Maximum results to return (default: %d). Must be a positive integer." % DEFAULT_SEARCH_RESULTS,
@@ -324,7 +326,7 @@ class SearchSlides(ToolBase):
             return self._tool_error("pattern is required.")
 
         use_regex = kwargs.get("regex", False)
-        case_sensitive = kwargs.get("case_sensitive", False)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
 
         if use_regex:
             rex_err = validate_regex_pattern(pattern)
@@ -371,6 +373,7 @@ class SearchSlides(ToolBase):
             "matches": matches,
             "count": total_count,
             "returned": len(matches),
+            "matched_case_sensitive": case_sensitive,
         }
         if len(matches) < total_count:
             result["hint"] = search_results_cap_hint(len(matches), total_count)

@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 
+class TargetSearchMiss(ValueError):
+    """Search target string not found in document."""
+
+
 def cursor_spanning_range(rng: Any) -> Any:
     cursor = rng.getText().createTextCursorByRange(rng.getStart())
     cursor.gotoRange(rng.getEnd(), True)
@@ -89,8 +93,8 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     if found is None:
         shape_name = search_mod.drawing_shape_containing(doc, search_string)
         if shape_name:
-            raise ValueError(search_mod.shape_only_search_message("old_content", shape_name))
-        raise ValueError("old_content not found in document. Try a shorter, unique substring.")
+            raise TargetSearchMiss(search_mod.shape_only_search_message("old_content", shape_name))
+        raise TargetSearchMiss("old_content not found in document. Try a shorter, unique substring.")
 
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell
     # or text frame is a different XText, and gotoRange across text objects raises (format.py

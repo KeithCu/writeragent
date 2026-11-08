@@ -54,6 +54,7 @@ from plugin.framework.errors import is_disposal, name_miss_details, reraise_if_d
 from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
+from plugin.writer.search import SEARCH_CASE_SENSITIVE_DEFAULT
 from .page import get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
 from .target_resolver import cursor_spanning_range, resolve_target_cursor
@@ -1341,8 +1342,10 @@ class ApplyStyle(FrameworkToolBase):
 
         def _finish_success(res: dict[str, Any], rep_list: list[Any]) -> dict[str, Any]:
             res.update(self._merge_reports(rep_list))
-            if target == "search" and "matched" not in res:
-                res["matched"] = True
+            if target == "search":
+                if "matched" not in res:
+                    res["matched"] = True
+                res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
             flag_style_unreviewed(res)
             return res
 
@@ -1362,11 +1365,20 @@ class ApplyStyle(FrameworkToolBase):
             s = normalize_search_string_for_find(s)
             ranges = find_all_ranges(ctx.doc, s) if s else []
             if not ranges:
-                return {"status": "error", "message": "old_content not found in document.", "target": "search", "applied": False, "matched": False}
+                return {
+                    "status": "error",
+                    "message": "old_content not found in document.",
+                    "target": "search",
+                    "applied": False,
+                    "matched": False,
+                    "matched_case_sensitive": SEARCH_CASE_SENSITIVE_DEFAULT,
+                }
             if occ_raw is not None:
                 # Schema type integer (bool fails). validate has no min/max.
                 if occ_raw < 0 or occ_raw >= len(ranges):
-                    return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
+                    err_res = self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
+                    err_res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
+                    return err_res
                 ranges = [ranges[occ_raw]]
             reports = []
 
@@ -1432,7 +1444,14 @@ class ApplyStyle(FrameworkToolBase):
                 # apply_document_content, so a client can branch on matched/applied.
                 # TODO(follow-up): consider _tool_error(..., details={...}) so this path also
                 # carries a standard error code like other apply_style failures.
-                return {"status": "error", "message": str(ve), "target": "search", "applied": False, "matched": False}
+                return {
+                    "status": "error",
+                    "message": str(ve),
+                    "target": "search",
+                    "applied": False,
+                    "matched": False,
+                    "matched_case_sensitive": SEARCH_CASE_SENSITIVE_DEFAULT,
+                }
             return self._tool_error(str(ve))
 
         # execute_safe reports a failed apply. This catch hid a closed document

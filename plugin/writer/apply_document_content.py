@@ -339,10 +339,11 @@ def _search_options(
     search_string: str,
 ) -> tuple[bool, bool, bool, str, str | None]:
     regex = bool(kwargs.get("regex"))
-    case = kwargs.get("case_sensitive")
-    use_opts = regex or case is not None
+    raw = kwargs.get("case_sensitive")
+    explicit = raw is not None
+    use_opts = regex or explicit
+    cs = search_mod.resolve_case_sensitive(raw)
     pattern = old_stripped if regex else search_string
-    cs = bool(case) if case is not None else False
     rex_err = search_mod.validate_regex_pattern(old_stripped) if regex else None
     return regex, use_opts, cs, pattern, rex_err
 
@@ -435,7 +436,7 @@ class ApplyDocumentContent(ToolBase):
             ),
             "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing."},
             "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
-            "case_sensitive": {"type": "boolean", "description": "For target='search': force case-sensitive (true) or case-insensitive (false) matching. Omit for the default lenient match."},
+            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.CASE_SENSITIVE_DESCRIPTION}"},
             "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
         },
         "required": ["content"],
@@ -898,7 +899,10 @@ class ApplyDocumentContent(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Thin wrapper so every return path gets the read-only-attribute note, including the
         # review-wait branch that does not go through annotate_review_status.
-        return _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
+        result = _note_read_only_attrs(self._execute(ctx, **kwargs), kwargs.get("content"))
+        if self._effective_target(kwargs.get("target"), kwargs.get("old_content")) == "search":
+            result["matched_case_sensitive"] = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
+        return result
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = main.is_current()
@@ -1206,8 +1210,8 @@ class ApplyDocumentContent(ToolBase):
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
-        # Explicit regex / case control (opt-in): a direct SearchDescriptor find that bypasses the
-        # default lenient matcher, so "search with options then replace" agrees with search_in_document.
+        # An explicit regex or case_sensitive uses the literal descriptor so that call matches
+        # search_in_document; an omitted flag stays on the chained matcher.
         ranges = _find_ranges(
             doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
         if not ranges:

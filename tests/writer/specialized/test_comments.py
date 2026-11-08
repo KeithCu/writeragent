@@ -635,7 +635,8 @@ def test_add_comment_search_uses_find_occurrence_range():
         res = AddComment().execute(ctx, content="test note", search="find me", occurrence=1)
 
     assert res["status"] == "ok"
-    mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive_order=(True, False))
+    assert res["matched_case_sensitive"] is False
+    mock_find.assert_called_once_with(doc, "find me", occurrence=1)
     mock_find_all.assert_not_called()
 
 
@@ -652,6 +653,7 @@ def test_add_comment_search_index_error_and_none_return_not_found():
         "message": "Text 'hit' not found at occurrence 3.",
         "matched": False,
         "comment_added": False,
+        "matched_case_sensitive": False,
     }
 
     with patch("plugin.writer.search.find_occurrence_range", return_value=None):
@@ -661,6 +663,7 @@ def test_add_comment_search_index_error_and_none_return_not_found():
         "message": "Text 'missing' not found.",
         "matched": False,
         "comment_added": False,
+        "matched_case_sensitive": False,
     }
 
 

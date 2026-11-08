@@ -975,7 +975,7 @@ class _DrawProxy:
         Args:
             pattern (required): Search string or regex pattern.
             regex (optional): Use regular expression (default: false).
-            case_sensitive (optional): Case-sensitive search (default: false).
+            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
         """
         return call_host_tool("search_slides", pattern=pattern, regex=regex, case_sensitive=case_sensitive, max_results=max_results)
@@ -1129,7 +1129,7 @@ class _FootnoteProxy:
             label (optional): Optional custom mark (e.g., '*'). If omitted or empty, it uses auto-numbering.
             insert_after (optional): If non-empty, find this substring in the document and insert the footnote/endnote anchor immediately after that match instead of using the view cursor. Use the exact text from the document (or from the delegating task). Required when position matters and the tool is run outside normal user cursor control.
             occurrence (optional): 0-based index when insert_after matches multiple times (default 0 = first match).
-            case_sensitive (optional): Search matching for insert_after (default true).
+            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
         """
         return call_host_tool("footnotes_insert", note=note, text=text, label=label, insert_after=insert_after, occurrence=occurrence, case_sensitive=case_sensitive)
 
@@ -1605,7 +1605,7 @@ class _PageProxy:
             before_text (optional): Break so this passage starts a new page (page break on the match's paragraph).
             after_text (optional): Break the page right after this passage's paragraph.
             occurrence (optional): 0-based match to use when the anchor text repeats (default 0).
-            case_sensitive (optional): Case-sensitive anchor match (default true).
+            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             page_style (optional): Name of an existing page style to apply from this break onward (paragraph property PageDescName). Often a style_clone of the current page. Unknown names error and change nothing. Omit to keep the current page style.
             restart_page_number (optional): Page number to start at on the new page (integer >= 1, paragraph property PageNumberOffset). Requires page_style. Omit to continue the current sequence. 0 is not a restart.
         """
@@ -1619,7 +1619,7 @@ class _PageProxy:
             old_content (required): Exact substring to find in the region's text. Does not match inside a field.
             content (required): Text to write in place of old_content. Empty deletes the match.
             style (optional): Page style name. Defaults to 'Standard'.
-            case_sensitive (optional): Case-sensitive match (default true).
+            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             occurrence (optional): 0-based match to replace (default 0). Cannot be combined with all_matches=true.
             all_matches (optional): Replace every match (default false). Cannot be combined with occurrence.
         """
@@ -1887,7 +1887,7 @@ class _SearchProxy:
         Args:
             pattern (required): Search string or regex pattern.
             regex (optional): Use regular expression (default: false).
-            case_sensitive (optional): Case-sensitive search (default: false).
+            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return (default: 50). Must be a positive integer.
             sheet (optional): Sheet to search (active sheet if omitted).
             all_sheets (optional): Search all sheets (default: false).
@@ -1901,7 +1901,7 @@ class _SearchProxy:
             search (required): Text or regex pattern to find.
             replace (required): Replacement text.
             regex (optional): Use regular expression (default: false).
-            case_sensitive (optional): Case-sensitive matching (default: false).
+            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             sheet (optional): Sheet to operate on (active sheet if omitted).
             all_sheets (optional): Replace across all sheets (default: false).
         """
@@ -2564,7 +2564,7 @@ class _WriterProxy:
             position (optional): For target='search': 'replace' (default) replaces the match; 'before'/'after' INSERT the content next to the match and leave the matched text untouched (result reports inserted=true instead of replaced_count). Inline content (plain text, <b>, <i>, ...) goes at the exact match edge; block content (<p>, headings, lists, tables) goes before/after the whole paragraph that holds the match (result reports snapped_to_paragraph=true when that moved it). One of: replace, before, after.
             dry_run (optional): For target='search': do NOT edit. Return replaceable matches (each tagged with occurrence) plus shape/comment previews, so you can check before committing.
             regex (optional): For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining).
-            case_sensitive (optional): For target='search': force case-sensitive (true) or case-insensitive (false) matching. Omit for the default lenient match.
+            case_sensitive (optional): For target='search': Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             hyperlink_url (optional): For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.
         """
         return call_host_tool("apply_document_content", content=content, target=target, old_content=old_content, all_matches=all_matches, occurrence=occurrence, position=position, dry_run=dry_run, regex=regex, case_sensitive=case_sensitive, hyperlink_url=hyperlink_url)
@@ -2620,7 +2620,7 @@ class _WriterProxy:
         Args:
             pattern (required): Search string or regex pattern.
             regex (optional): Use regular expression (default: false).
-            case_sensitive (optional): Case-sensitive search (default: false).
+            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             max_results (optional): Maximum results to return (default: 20). Must be a positive integer.
             return_offsets (optional): If true, returns {start, end, text} character offsets for body text only (no regex, no shapes/comments). Default: false.
         """
@@ -2632,7 +2632,7 @@ class _WriterProxy:
         Args:
             search_text (optional): Text to select (first match unless occurrence is set).
             occurrence (optional): 0-based match to select when search_text repeats (default 0).
-            case_sensitive (optional): Case-sensitive search_text match (default true).
+            case_sensitive (optional): Case-sensitive match (default: false). The result includes matched_case_sensitive for the mode that ran.
             char_start (optional): Alternative to search_text: 0-based start character offset (body text).
             char_end (optional): End character offset (exclusive), required with char_start.
         """

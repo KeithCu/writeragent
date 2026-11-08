@@ -19,8 +19,9 @@ from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
 from plugin.framework.tool import ToolBaseDummy
 from plugin.framework.uno_context import create_property_value
 from ..edit_review import next_agent_edit_undo_title
+from ..search import SEARCH_CASE_SENSITIVE_DEFAULT
 from ..specialized_base import ToolWriterEmbeddedBase, enum_param, target_params
-from ..target_resolver import resolve_target_cursor
+from ..target_resolver import TargetSearchMiss, resolve_target_cursor
 
 log = logging.getLogger("writeragent.embedded")
 
@@ -228,7 +229,10 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:
-            return self._tool_error(str(ve))
+            err = self._tool_error(str(ve))
+            if isinstance(ve, TargetSearchMiss):
+                err["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
+            return err
 
         deselect_err = _deselect_inplace_embed(ctx.doc, self)
         if deselect_err is not None:
@@ -340,7 +344,10 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         )
         if error is not None:
             return error
-        return result_holder[0]
+        res = result_holder[0]
+        if target == "search":
+            res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
+        return res
 
 
 class EmbeddedEdit(ToolWriterEmbeddedBase, ToolBaseDummy):  # type: ignore[misc]  # pyright: ignore[reportIncompatibleVariableOverride]

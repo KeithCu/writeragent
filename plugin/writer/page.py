@@ -35,7 +35,11 @@ from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES
 from .range_copy import _ANCHORED_GRAPHIC_PROPS
-from .search import parse_non_negative_int
+from .search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    parse_non_negative_int,
+    resolve_case_sensitive,
+)
 from .specialized_base import ToolWriterPageBase, enum_param
 
 log = logging.getLogger("writeragent.writer")
@@ -1260,7 +1264,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             },
             "case_sensitive": {
                 "type": "boolean",
-                "description": "Case-sensitive match (default true).",
+                "description": CASE_SENSITIVE_DESCRIPTION,
             },
             "occurrence": {
                 "type": "integer",
@@ -1289,7 +1293,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             return self._tool_error("old_content must be a non-empty string.")
         if _FIELD_CURSOR_STEP in old_content:
             return self._tool_error("old_content cannot include a field.")
-        case_sensitive = kwargs.get("case_sensitive", True)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         all_matches = kwargs.get("all_matches", False)
         raw_occurrence = kwargs.get("occurrence", None)
         if all_matches and raw_occurrence is not None:
@@ -1329,14 +1333,18 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             message = "'%s' was not found in the %s of page style '%s'." % (old_content, region, style_name)
             if notes:
                 message = "%s %s" % (message, notes[0])
-            return self._tool_error(message)
+            err_res = self._tool_error(message)
+            err_res["matched_case_sensitive"] = case_sensitive
+            return err_res
         if all_matches:
             chosen = hits
         elif occurrence >= len(hits):
-            return self._tool_error(
+            err_res = self._tool_error(
                 "'%s' has %d match(es) in the %s; occurrence %d is past the end. Nothing was changed."
                 % (old_content, len(hits), region, occurrence)
             )
+            err_res["matched_case_sensitive"] = case_sensitive
+            return err_res
         else:
             chosen = [hits[occurrence]]
 
@@ -1344,9 +1352,11 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
         for para, offset in chosen:
             cursor = _cursor_for_match(text_obj, para, offset, len(old_content))
             if cursor is None:
-                return self._tool_error(
+                err_res = self._tool_error(
                     "Could not select '%s' in the %s. Nothing was changed." % (old_content, region)
                 )
+                err_res["matched_case_sensitive"] = case_sensitive
+                return err_res
             try:
                 selected = cursor.getString()
             except Exception:
@@ -1354,26 +1364,32 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             # The portion index and the cursor must name the same characters.
             # A miss here means a field was counted wrong; do not setString.
             if not isinstance(selected, str) or (pair := _fold(selected, old_content, case_sensitive))[0] != pair[1]:
-                return self._tool_error(
+                err_res = self._tool_error(
                     "The match for '%s' did not line up with the text (a field may sit inside it). "
                     "Nothing was changed." % old_content
                 )
+                err_res["matched_case_sensitive"] = case_sensitive
+                return err_res
             cursors.append(cursor)
 
         blocked = _character_anchor_in_matches(ctx.doc, text_obj, cursors)
         if blocked:
-            return self._tool_error(
+            err_res = self._tool_error(
                 "An image (%s) is anchored to a character inside '%s', so replacing it would drop "
                 "the image. Nothing was changed." % (blocked, old_content)
             )
+            err_res["matched_case_sensitive"] = case_sensitive
+            return err_res
 
         error, fields_preserved, shapes_preserved = _apply_match_cursors(
             ctx.doc, text_obj, cursors, new_text,
         )
         if error:
-            return self._tool_error(
+            err_res = self._tool_error(
                 "Could not replace '%s' in the %s: %s" % (old_content, region, error)
             )
+            err_res["matched_case_sensitive"] = case_sensitive
+            return err_res
         result: dict[str, Any] = {
             "status": "ok",
             "style": style_name,
@@ -1381,6 +1397,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             "replaced_count": len(cursors),
             "fields_preserved": fields_preserved,
             "shapes_preserved": shapes_preserved,
+            "matched_case_sensitive": case_sensitive,
         }
         if notes:
             result["warning"] = notes[0]
@@ -1564,7 +1581,7 @@ class PageInsertBreak(ToolWriterPageBase):
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
         "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
-        "case_sensitive": {"type": "boolean", "description": "Case-sensitive anchor match (default true)."},
+        "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
         "page_style": {
             "type": "string",
             "description": (
@@ -1596,7 +1613,11 @@ class PageInsertBreak(ToolWriterPageBase):
         except ValueError as e:
             return self._tool_error(str(e))
 
-        if before_text or after_text:
+        has_anchor = bool(before_text or after_text)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive")) if has_anchor else None
+
+        if has_anchor:
+            assert case_sensitive is not None
             anchor = str(before_text or after_text)
             # coerce=True normalizes string and float occurrence values from the model.
             occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
@@ -1606,14 +1627,16 @@ class PageInsertBreak(ToolWriterPageBase):
             sd = doc.createSearchDescriptor()
             sd.SearchString = anchor
             sd.SearchRegularExpression = False
-            sd.SearchCaseSensitive = bool(kwargs.get("case_sensitive", True))
+            sd.SearchCaseSensitive = case_sensitive
             found = doc.findFirst(sd)
             for _unused in range(occurrence):
                 if found is None:
                     break
                 found = doc.findNext(found.getEnd(), sd)
             if found is None:
-                return self._tool_error("Anchor text '%s' not found%s." % (anchor, (" at occurrence %d" % occurrence) if occurrence else ""))
+                err_res = self._tool_error("Anchor text '%s' not found%s." % (anchor, (" at occurrence %d" % occurrence) if occurrence else ""))
+                err_res["matched_case_sensitive"] = case_sensitive
+                return err_res
             text = found.getText()
             # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
             # after_text -> the paragraph that FOLLOWS the match.
@@ -1622,9 +1645,11 @@ class PageInsertBreak(ToolWriterPageBase):
                 # At the LAST paragraph there is nothing after the anchor; silently breaking
                 # on the anchor's own paragraph would push the anchor itself to a new page
                 # (the opposite of what was asked) while reporting ok.
-                return self._tool_error(
+                err_res = self._tool_error(
                     "The anchor is in the document's last paragraph; there is nothing after it "
                     "to start a new page with. Use before_text, or append content first.")
+                err_res["matched_case_sensitive"] = case_sensitive
+                return err_res
             success_text = "Page break inserted %s the anchor." % ("before" if before_text else "after")
         else:
             view_cursor = doc.getCurrentController().getViewCursor()
@@ -1644,7 +1669,13 @@ class PageInsertBreak(ToolWriterPageBase):
         # BreakType inside a table cell is ignored or harms layout, so the tool refuses
         # and leaves the document unchanged.
         if _in_text_table(cursor):
-            return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
+            err_res = self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
+            if has_anchor and case_sensitive is not None:
+                err_res["matched_case_sensitive"] = case_sensitive
+            return err_res
         _apply_page_break(cursor, page_style, restart)
-        return _page_break_ok(success_text, page_style, restart)
+        result = _page_break_ok(success_text, page_style, restart)
+        if has_anchor and case_sensitive is not None:
+            result["matched_case_sensitive"] = case_sensitive
+        return result
 
