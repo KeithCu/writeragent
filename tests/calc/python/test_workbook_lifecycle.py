@@ -526,5 +526,27 @@ def test_retry_reset_on_abandoned_stops_immediately_without_warning(caplog: pyte
     assert not any("still busy or timed out" in r.message for r in caplog.records)
 
 
+def test_teardown_resets_sessions_without_holding_lifecycle_lock() -> None:
+    """_teardown must drop _LOCK before resetting so abandon_if does not deadlock."""
+    lock_owned_during_reset = None
+    abandon_if_can_acquire = None
+
+    def fake_reset(sid: str, **kwargs: Any) -> dict[str, Any]:
+        nonlocal lock_owned_during_reset, abandon_if_can_acquire
+        lock_owned_during_reset = lifecycle._LOCK._is_owned()
+        abandon_if = kwargs.get("abandon_if")
+        if callable(abandon_if):
+            abandon_if_can_acquire = abandon_if()
+        return {"status": "ok"}
+
+    ctx = MagicMock()
+    listener = _CalcPythonUnloadListener(ctx, "calc:wb-lock-check", WorkbookState(key="key-lock-check"))
+    with patch("plugin.calc.python.workbook_lifecycle.reset_python_session", side_effect=fake_reset):
+        listener._teardown()
+
+    assert lock_owned_during_reset is False
+    assert abandon_if_can_acquire is False
+
+
 
 

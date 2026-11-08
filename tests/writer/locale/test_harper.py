@@ -1863,6 +1863,34 @@ def test_harper_try_lint_ctx_none_main_thread_timeout_keeps_client(caplog: pytes
     assert any("reason='dialog_budget'" in r.message for r in caplog.records)
 
 
+def test_harper_try_lint_main_thread_timeout_after_abort_recovers_via_dead_client_on_next_lint() -> None:
+    """A main-thread timeout after abort_lint closes the client recovers on the next lint via dead_client ensure."""
+    client = _bare_harper_client()
+    with harper_module.runtime.lock:
+        harper_module.runtime.clients["/bin/harper-ls"] = client
+        harper_module.runtime.state = HarperRuntimeState.READY
+
+    # First lint times out on the main thread; simulate abort_lint having closed the process
+    client.close()
+    assert not client.is_alive()
+
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
+         patch.object(harper_module.runtime, "lint_now", side_effect=TimeoutError("dialog budget expired")), \
+         patch("plugin.writer.locale.harper.harper_ensure_ready_async") as mock_ensure:
+        first_res = harper_try_lint("First sentence.", "/tmp", ctx=None)
+
+    assert first_res is None
+    mock_ensure.assert_not_called()
+
+    # Second lint walks against the dead client; lint_now detects dead_client and triggers ensure
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
+         patch("plugin.writer.locale.harper.harper_ensure_ready_async", return_value=True) as mock_ensure_2:
+        second_res = harper_try_lint("Second sentence.", "/tmp", ctx=None)
+
+    assert second_res is None
+    mock_ensure_2.assert_called_once_with("/tmp", "en-US")
+
+
 def test_harper_client_lint_after_drain_with_eof_sentinel_reinitializes() -> None:
     """Draining stdout queue containing None EOF sentinel allows next lint to detect dead proc and re-init."""
     client = _bare_harper_client()

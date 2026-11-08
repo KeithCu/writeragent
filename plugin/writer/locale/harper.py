@@ -408,6 +408,10 @@ class HarperLSClient:
     _doc_opened: bool
     _lint_cancel: threading.Event | None
 
+    @staticmethod
+    def _new_uri() -> str:
+        return f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
+
     def __init__(self, binary_path: str, user_config_dir: str = "", bcp47: str = "en-US", *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> None:
         self.binary_path = binary_path
         self.user_config_dir = user_config_dir
@@ -416,7 +420,7 @@ class HarperLSClient:
         self._lsp_settings = _harper_lsp_settings(bcp47, user_config_dir)
         self.proc: subprocess.Popen[bytes] | None = None
         self.request_id = 0
-        self.uri = f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
+        self.uri = self._new_uri()
         self._doc_version = 0
         self._doc_opened = False
         self.stdout_queue: queue.Queue[dict[str, Any] | None] = queue.Queue()
@@ -646,7 +650,7 @@ class HarperLSClient:
         # timed-out sentence from matching future lints. Do not send didClose:
         # if the server's stdin pipe is full, a blocking _write under runtime.lock
         # would wedge the caller (and the main thread in dialog lint).
-        self.uri = f"file:///tmp/writeragent_harper_lint_{time.time_ns()}.txt"
+        self.uri = self._new_uri()
         self._doc_opened = False
         self._doc_version = 0
 
@@ -669,6 +673,7 @@ class HarperLSClient:
             if cancel_event is not None and cancel_event.is_set():
                 raise TimeoutError("Harper LSP operation cancelled")
             if not self.is_alive():
+                # Catches internal TimeoutError and wraps in RuntimeError (calling self.close())
                 self._initialize()
 
             emit_progress(self._heartbeat_fn, "Linting…")
@@ -677,23 +682,22 @@ class HarperLSClient:
             self._doc_version += 1
             version = self._doc_version
 
-            try:
-                self._sync_document(text, version)
-                diagnostics = self._collect_diagnostics(version, deadline)
-                return [{"diagnostic": diag, "suggestions": self._suggestions_for_diagnostic(diag, deadline)} for diag in diagnostics]
-            except TimeoutError:
-                # A main-thread dialog budget expiration or cancellation leaves the
-                # server process healthy. Re-raise so the caller can decide whether
-                # to keep or close the client. Because harper-ls publishes diagnostics
-                # without version, a timed-out lint drains pending messages and rotates
-                # the document URI so stale diagnostic responses cannot bleed into a later lint.
-                self._drain_stdout_queue()
-                self._reset_document_uri()
-                raise
-            except Exception:
-                log.exception("[harper] Exception during linting, closing client")
-                self.close()
-                raise
+            self._sync_document(text, version)
+            diagnostics = self._collect_diagnostics(version, deadline)
+            return [{"diagnostic": diag, "suggestions": self._suggestions_for_diagnostic(diag, deadline)} for diag in diagnostics]
+        except TimeoutError:
+            # A main-thread dialog budget expiration or cancellation leaves the
+            # server process healthy. Re-raise so the caller can decide whether
+            # to keep or close the client. Because harper-ls publishes diagnostics
+            # without version, a timed-out lint drains pending messages and rotates
+            # the document URI so stale diagnostic responses cannot bleed into a later lint.
+            self._drain_stdout_queue()
+            self._reset_document_uri()
+            raise
+        except Exception as exc:
+            log.exception("[harper] Exception during linting, closing client: %s", exc)
+            self.close()
+            raise
         finally:
             self._lint_cancel = previous_cancel
 
@@ -901,8 +905,9 @@ def harper_try_lint(text: str, user_config_dir: str, bcp47: str = "en-US", *, ct
 
         if isinstance(exc, TimeoutError) and main.is_current():
             # Main-thread proofreading bounds dialog responsiveness to a short budget.
-            # When this budget expires, return an empty walk without cycling the client
-            # (unless abort_lint already closed it).
+            # When this budget expires, return an empty walk without cycling the client.
+            # If abort_lint had to close a stuck worker, the next walk detects dead_client
+            # and automatically schedules background ensure.
             log.debug("[harper] main-thread dialog lint timed out; returning empty walk")
             grammar_obs("harper_try_lint_none", reason="dialog_budget", ensure_submitted=False)
             return None

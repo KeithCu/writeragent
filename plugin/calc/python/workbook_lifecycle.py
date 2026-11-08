@@ -141,7 +141,7 @@ class _CalcPythonUnloadListener(BaseDocumentEventListener):
         res: Any = None
         for _attempt in range(10):
             time.sleep(0.5)
-            # Check after the sleep: a reopen can register during it.
+            # Cheap early exit if already reopened; abandon_if covers the subsequent pipe wait.
             if self._session_has_new_listener(sid):
                 log.debug("python_workbook_lifecycle: %s reopened; dropping reset retry", sid)
                 return
