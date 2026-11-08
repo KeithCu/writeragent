@@ -119,8 +119,6 @@ def _aspect_size(aspect: tuple[int, int] | None, long_side: int = DEFAULT_CHART_
     from com.sun.star.awt import Size
 
     if aspect is None:
-        if long_side == DEFAULT_CHART_SIZE_WIDTH:
-            return Size(DEFAULT_CHART_SIZE_WIDTH, DEFAULT_CHART_SIZE_HEIGHT)
         return Size(long_side, round(long_side * DEFAULT_CHART_SIZE_HEIGHT / DEFAULT_CHART_SIZE_WIDTH))
     w, h = aspect
     major = max(w, h)
@@ -155,6 +153,7 @@ def _parse_plot_tag(desc: str) -> tuple[tuple[int, int] | None, str | None] | No
 
     Returns None if desc is not a valid wa-plot tag.
     Coordinates or sha may be None if omitted from the tag.
+    A single comma-less field (wa-plot:<sha>) is accepted for legacy compatibility.
     """
     if not isinstance(desc, str) or not desc.startswith("wa-plot:"):
         return None
@@ -284,9 +283,19 @@ def _slot_cursor(
 
 
 def _shape_matches_target_cell(shape: Any, target_cell: Any) -> bool:
-    """True when shape is anchored to target_cell or tagged with target_cell's coordinates."""
+    """True when shape is anchored to target_cell, or has no cell anchor and matches by tag."""
     if _shape_anchor_matches_cell(shape, target_cell):
         return True
+
+    # If the shape is anchored to another grid cell, that anchor takes precedence over a stale tag.
+    try:
+        anchor = shape.getPropertyValue("Anchor")
+    except (AttributeError, TypeError):
+        anchor = None
+    if anchor is not None and not _supports_service(anchor, "com.sun.star.sheet.Spreadsheet"):
+        if _cell_address_key(anchor) is not None:
+            return False
+
     addr_key = _cell_address_key(target_cell)
     if addr_key is None:
         return False
@@ -528,6 +537,164 @@ def insert_image_result_on_sheet(
     _run()
 
 
+def _place_new_plot(
+    doc: Any,
+    sheet: Any,
+    draw_page: Any,
+    target_cell: Any,
+    file_url: str,
+    data_bytes: bytes | None,
+    aspect_size: Any,
+    image_index: int,
+    slots: list[tuple[Any, int]],
+    rtl: bool,
+) -> Any:
+    """Create, load, anchor, and place a new plot shape on the sheet."""
+    from com.sun.star.awt import Point
+    from plugin.calc.calc_utils import get_cell_geometry
+
+    shape = doc.createInstance(_DRAW_GRAPHIC_SERVICE)
+    shape.setSize(aspect_size)
+    draw_page.add(shape)
+    shape.setPropertyValue("Name", _plot_slot_name(image_index))
+
+    graphic_exc: Exception | None = None
+    try:
+        # Setter loads the file into the shape's Graphic before returning.
+        # _unlink_temp_image runs in finally, after this call.
+        shape.setPropertyValue("GraphicURL", file_url)
+    except Exception as exc:
+        # Collabora pythonplots.cxx:434-441: keep the shape on the drawing page
+        # as an empty graphic placeholder, but still raise ImageEgressError after
+        # positioning so =PY() reports the insertion failure.
+        graphic_exc = exc
+
+    if target_cell is not None:
+        try:
+            cell_pos, cell_size = get_cell_geometry(sheet, target_cell)
+            try:
+                is_merged = bool(target_cell.IsMerged)
+            except (AttributeError, TypeError):
+                is_merged = False
+            width = int(cell_size.Width)
+            height = int(cell_size.Height)
+            is_large_placeholder = (
+                is_merged
+                and width >= MIN_CHART_PLACEHOLDER_WIDTH
+                and height >= MIN_CHART_PLACEHOLDER_HEIGHT
+            )
+
+            cursor_x, cursor_y = _slot_cursor(
+                cell_pos, cell_size, image_index, slots, rtl
+            )
+
+            shape.setPropertyValue("Anchor", target_cell)
+
+            # Only slot 0 can fill a merged placeholder block. Later slots are placed
+            # beside the merged block at their intrinsic aspect ratio so they do not stack
+            # on top of each other or stretch to the same placeholder.
+            if image_index == 0 and is_large_placeholder:
+                shape.setPropertyValue("ResizeWithCell", True)
+                shape.setSize(cell_size)
+                target_width = width
+            else:
+                shape.setPropertyValue("ResizeWithCell", False)
+                shape.setSize(aspect_size)
+                target_width = int(aspect_size.Width)
+
+            # Each successive plot slot chains horizontally from the outer edge of the
+            # preceding slot. Reading the live rectangle of each resolved slot ensures
+            # slots fit flush against each other without gaps or overlaps.
+            if image_index == 0 and not rtl:
+                shape.setPosition(cell_pos)
+            else:
+                place_x = cursor_x - target_width if rtl else cursor_x
+                shape.setPosition(Point(place_x, cursor_y))
+
+            # Collabora pythonplots.cxx:214-216, 223-225: re-evaluate visibility against formula cell axis.
+            shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
+
+            if graphic_exc is None:
+                _record_plot_tag(shape, target_cell, data_bytes)
+            else:
+                _record_plot_tag(shape, target_cell, None)
+        except Exception as exc:
+            best_effort(
+                lambda: draw_page.remove(shape),
+                "insert_image_result_on_sheet: failed to remove failed shape",
+            )
+            raise ImageEgressError("could not anchor plot to the formula cell") from exc
+
+    if graphic_exc is not None:
+        if target_cell is None:
+            best_effort(
+                lambda: draw_page.remove(shape),
+                "insert_image_result_on_sheet: failed to remove failed shape without target cell",
+            )
+        raise ImageEgressError("could not load image into graphic shape") from graphic_exc
+
+    return shape
+
+
+def _refresh_existing_plot(
+    sheet: Any,
+    shape: Any,
+    target_cell: Any,
+    file_url: str,
+    data_bytes: bytes | None,
+    aspect: tuple[int, int] | None,
+    rtl: bool,
+) -> None:
+    """Update visibility, graphic, and geometry on an existing plot shape."""
+    from com.sun.star.awt import Point
+
+    if target_cell is not None:
+        # Collabora pythonplots.cxx:214-216, 223-225: re-evaluate visibility against formula cell axis.
+        shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
+
+    # LibreOffice's UNO API does not expose the raw graphic link or byte identity of
+    # an embedded GraphicObjectShape. We store the SHA-256 digest tag in Description
+    # so subsequent recalculations can detect unchanged image bytes and avoid reloading
+    # the graphic or resetting user adjustments.
+    if data_bytes is not None and _bytes_match(shape, data_bytes):
+        # Refresh the owner tag with the current cell coordinates on every reuse.
+        if target_cell is not None:
+            _record_plot_tag(shape, target_cell, data_bytes)
+    else:
+        try:
+            shape.setPropertyValue("GraphicURL", file_url)
+        except Exception as exc:
+            # Collabora pythonplots.cxx: leave existing picture untouched on graphic load failure.
+            # Raise ImageEgressError so =PY() reports the failure to the formula cell.
+            raise ImageEgressError("could not update graphic shape with image") from exc
+
+        if data_bytes is not None:
+            _record_plot_tag(shape, target_cell, data_bytes)
+
+        try:
+            resize_with_cell = bool(shape.getPropertyValue("ResizeWithCell"))
+        except (AttributeError, TypeError):
+            resize_with_cell = False
+
+        if not resize_with_cell:
+            try:
+                old_pos = shape.getPosition()
+                old_size = shape.getSize()
+                old_w = int(old_size.Width)
+                old_h = int(old_size.Height)
+                old_x = int(old_pos.X)
+                old_y = int(old_pos.Y)
+
+                if aspect is not None and _aspect_ratio_changed(old_w, old_h, aspect[0], aspect[1]):
+                    new_size = _aspect_size(aspect, long_side=max(old_w, old_h))
+                    shape.setSize(new_size)
+                    if rtl:
+                        new_x = old_x + old_w - int(new_size.Width)
+                        shape.setPosition(Point(new_x, old_y))
+            except (AttributeError, TypeError):
+                log.debug("could not update existing plot geometry", exc_info=True)
+
+
 def _insert_image_result_on_sheet_impl(
     payload: dict[str, Any],
     code: str | None = None,
@@ -539,7 +706,6 @@ def _insert_image_result_on_sheet_impl(
 ) -> None:
     """Main-thread implementation of graphic shape creation and anchoring."""
     import uno
-    from com.sun.star.awt import Point
 
     # Resolve the target sheet and cell from the formula when the code is
     # known. During a workbook recalc (Ctrl+Shift+F9, or file open) the
@@ -553,8 +719,6 @@ def _insert_image_result_on_sheet_impl(
     # venv, and plot_data report the picture as inserted.
     created_path: str | None = None
     try:
-        from plugin.calc.calc_utils import get_cell_geometry
-
         # Callers pass the document (=PY() passes its caller argument). Do not
         # fall back to the front window.
         if doc is None:
@@ -607,128 +771,14 @@ def _insert_image_result_on_sheet_impl(
         shape = _resolve_slot(slots, image_index)
         rtl = _sheet_is_rtl(sheet)
 
-        created_shape = False
         if shape is None:
-            shape = doc.createInstance(_DRAW_GRAPHIC_SERVICE)
-            shape.setSize(aspect_size)
-            draw_page.add(shape)
-            created_shape = True
-            shape.setPropertyValue("Name", _plot_slot_name(image_index))
-
-        if created_shape:
-            graphic_exc: Exception | None = None
-            try:
-                # Setter loads the file into the shape's Graphic before returning.
-                # _unlink_temp_image runs in finally, after this call.
-                shape.setPropertyValue("GraphicURL", file_url)
-            except Exception as exc:
-                # Collabora pythonplots.cxx:434-441: keep the shape on the drawing page
-                # as an empty graphic placeholder, but still raise ImageEgressError after
-                # positioning so =PY() reports the insertion failure.
-                graphic_exc = exc
-
-            if target_cell is not None:
-                try:
-                    cell_pos, cell_size = get_cell_geometry(sheet, target_cell)
-                    try:
-                        is_merged = bool(target_cell.IsMerged)
-                    except (AttributeError, TypeError):
-                        is_merged = False
-                    width = int(cell_size.Width)
-                    height = int(cell_size.Height)
-                    is_large_placeholder = (
-                        is_merged
-                        and width >= MIN_CHART_PLACEHOLDER_WIDTH
-                        and height >= MIN_CHART_PLACEHOLDER_HEIGHT
-                    )
-
-                    cursor_x, cursor_y = _slot_cursor(
-                        cell_pos, cell_size, image_index, slots, rtl
-                    )
-
-                    shape.setPropertyValue("Anchor", target_cell)
-
-                    # Only slot 0 can fill a merged placeholder block. Later slots are placed
-                    # beside the merged block at their intrinsic aspect ratio so they do not stack
-                    # on top of each other or stretch to the same placeholder.
-                    if image_index == 0 and is_large_placeholder:
-                        shape.setPropertyValue("ResizeWithCell", True)
-                        shape.setSize(cell_size)
-                        target_width = width
-                    else:
-                        shape.setPropertyValue("ResizeWithCell", False)
-                        shape.setSize(aspect_size)
-                        target_width = int(aspect_size.Width)
-
-                    # Each successive plot slot chains horizontally from the outer edge of the
-                    # preceding slot. Reading the live rectangle of each resolved slot ensures
-                    # slots fit flush against each other without gaps or overlaps.
-                    if image_index == 0 and not rtl:
-                        shape.setPosition(cell_pos)
-                    else:
-                        place_x = cursor_x - target_width if rtl else cursor_x
-                        shape.setPosition(Point(place_x, cursor_y))
-
-                    # Collabora pythonplots.cxx:214-216, 223-225: re-evaluate visibility against formula cell axis.
-                    shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
-
-                    if graphic_exc is None:
-                        _record_plot_tag(shape, target_cell, data_bytes)
-                    else:
-                        _record_plot_tag(shape, target_cell, None)
-                except Exception as exc:
-                    best_effort(
-                        lambda: draw_page.remove(shape),
-                        "insert_image_result_on_sheet: failed to remove failed shape",
-                    )
-                    raise ImageEgressError("could not anchor plot to the formula cell") from exc
-
-            if graphic_exc is not None:
-                raise ImageEgressError("could not load image into graphic shape") from graphic_exc
+            _place_new_plot(
+                doc, sheet, draw_page, target_cell, file_url, data_bytes, aspect_size, image_index, slots, rtl
+            )
         else:
-            if target_cell is not None:
-                # Collabora pythonplots.cxx:214-216, 223-225: re-evaluate visibility against formula cell axis.
-                shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
-
-            if data_bytes is not None and _bytes_match(shape, data_bytes):
-                # LibreOffice's UNO API does not expose the raw graphic link or byte identity of
-                # an embedded GraphicObjectShape. We store the SHA-256 digest tag in Description
-                # so subsequent recalculations can detect unchanged image bytes and avoid reloading
-                # the graphic or resetting user adjustments.
-                pass
-            else:
-                try:
-                    shape.setPropertyValue("GraphicURL", file_url)
-                except Exception as exc:
-                    # Collabora pythonplots.cxx: leave existing picture untouched on graphic load failure.
-                    # Raise ImageEgressError so =PY() reports the failure to the formula cell.
-                    raise ImageEgressError("could not update graphic shape with image") from exc
-
-                if data_bytes is not None:
-                    _record_plot_tag(shape, target_cell, data_bytes)
-
-                try:
-                    resize_with_cell = bool(shape.getPropertyValue("ResizeWithCell"))
-                except (AttributeError, TypeError):
-                    resize_with_cell = False
-
-                if not resize_with_cell:
-                    try:
-                        old_pos = shape.getPosition()
-                        old_size = shape.getSize()
-                        old_w = int(old_size.Width)
-                        old_h = int(old_size.Height)
-                        old_x = int(old_pos.X)
-                        old_y = int(old_pos.Y)
-
-                        if aspect is not None and _aspect_ratio_changed(old_w, old_h, aspect[0], aspect[1]):
-                            new_size = _aspect_size(aspect, long_side=max(old_w, old_h))
-                            shape.setSize(new_size)
-                            if rtl:
-                                new_x = old_x + old_w - int(new_size.Width)
-                                shape.setPosition(Point(new_x, old_y))
-                    except (AttributeError, TypeError):
-                        log.debug("could not update existing plot geometry", exc_info=True)
+            _refresh_existing_plot(
+                sheet, shape, target_cell, file_url, data_bytes, aspect, rtl
+            )
 
         # Only a caller that passes image_count owns the slot family. =PY() and
         # run_venv_python_script pass it and enumerate image_index from 0, so the
