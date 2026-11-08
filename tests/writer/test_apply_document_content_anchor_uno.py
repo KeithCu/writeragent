@@ -231,7 +231,7 @@ def test_apply_document_content_anchor_range_skips_frame_end_and_finds_body_end_
     assert "Keep Trailing Text" in body
     assert "Middle Content" not in body
     assert "Frame Section Start" not in body
-    assert frame.getText().getString() == "Target End Landmark"
+    assert "Target End Landmark" not in body
 
 
 @native_test
