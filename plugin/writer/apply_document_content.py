@@ -385,7 +385,6 @@ class EditParams:
     case_sensitive: bool = False
     separator: int = 0
     override: str | None = None
-    anchor_span: bool = False
     anchor_start: str = ""
     anchor_end: str = ""
     anchor_case_order: tuple[bool, ...] | None = None
@@ -645,7 +644,7 @@ class ApplyDocumentContent(ToolBase):
             doc, opts_pattern,
             use_regex=regex_opt, case_sensitive=opts_cs)
         if shape is not None:
-            shape_name = search_mod._shape_display_name(shape)
+            shape_name = search_mod.shape_display_name(shape)
             if track_reviewable:
                 return {
                     "status": "error",
@@ -1028,6 +1027,47 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
+    def _parse_anchor_params(
+        self, kwargs: Any, start_anchor: Any, end_anchor: Any
+    ) -> tuple[str, str, tuple[bool, ...] | None] | dict[str, Any]:
+        """Validate and normalize start_anchor and end_anchor; returns (start, end, case_order) or error dict."""
+        from . import html_import as format_support
+
+        if start_anchor is None or end_anchor is None:
+            return self._tool_error("start_anchor and end_anchor are both required.")
+        if not isinstance(start_anchor, str) or not isinstance(end_anchor, str):
+            return self._tool_error("start_anchor and end_anchor must both be strings.")
+        norm_start = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(start_anchor))
+        if not norm_start:
+            return self._tool_error("start_anchor is empty after normalization.")
+        norm_end = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(end_anchor))
+        if not norm_end:
+            return self._tool_error("end_anchor is empty after normalization.")
+        if kwargs.get("regex"):
+            return self._tool_error("regex does not apply to start_anchor and end_anchor.")
+        if kwargs.get("all_matches"):
+            return self._tool_error("all_matches cannot be combined with start_anchor and end_anchor.")
+        anchor_case_order = None
+        if "case_sensitive" in kwargs and kwargs.get("case_sensitive") is not None:
+            anchor_case_order = (bool(kwargs["case_sensitive"]),)
+        return norm_start, norm_end, anchor_case_order
+
+    def _parse_old_content(
+        self, old_content: Any
+    ) -> tuple[str, str] | dict[str, Any]:
+        """Normalize old_content; returns (old_stripped, search_string) or error dict."""
+        from . import html_import as format_support
+
+        old_stripped = str(old_content).strip()
+        search_string = format_support.plain_text_if_markup(old_stripped)
+        # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
+        search_string = search_mod.normalize_search_string_for_find(search_string)
+        if not search_string:
+            # Parameter error (like old_content=None), not a search no-op: the search never ran,
+            # so there's no replaced_count to report — use the standard tool error shape.
+            return self._tool_error("old_content is empty after normalization.")
+        return old_stripped, search_string
+
     def _parse_edit_params(self, kwargs: Any) -> EditParams | dict[str, Any]:
         from . import html_import as format_support
         content = kwargs.get("content", "")
@@ -1055,22 +1095,10 @@ class ApplyDocumentContent(ToolBase):
         norm_end = ""
         anchor_case_order = None
         if has_anchors:
-            if start_anchor is None or end_anchor is None:
-                return self._tool_error("start_anchor and end_anchor are both required.")
-            if not isinstance(start_anchor, str) or not isinstance(end_anchor, str):
-                return self._tool_error("start_anchor and end_anchor must both be strings.")
-            norm_start = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(start_anchor))
-            if not norm_start:
-                return self._tool_error("start_anchor is empty after normalization.")
-            norm_end = search_mod.normalize_search_string_for_find(format_support.plain_text_if_markup(end_anchor))
-            if not norm_end:
-                return self._tool_error("end_anchor is empty after normalization.")
-            if kwargs.get("regex"):
-                return self._tool_error("regex does not apply to start_anchor and end_anchor.")
-            if kwargs.get("all_matches"):
-                return self._tool_error("all_matches cannot be combined with start_anchor and end_anchor.")
-            if "case_sensitive" in kwargs and kwargs.get("case_sensitive") is not None:
-                anchor_case_order = (bool(kwargs["case_sensitive"]),)
+            anchor_res = self._parse_anchor_params(kwargs, start_anchor, end_anchor)
+            if isinstance(anchor_res, dict):
+                return anchor_res
+            norm_start, norm_end, anchor_case_order = anchor_res
 
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
@@ -1133,13 +1161,14 @@ class ApplyDocumentContent(ToolBase):
         # recording state. Default off -> the session is inert and behavior is unchanged.
         # review_recording_enabled tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
-        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
 
         plain = ""
         if target != "search":
             plain = content if use_preserve else self._replacement_plain(content)
 
+        has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
         all_matches = False if has_anchors else kwargs.get("all_matches", False)
+
         old_stripped = ""
         search_string = ""
         pattern = ""
@@ -1150,18 +1179,14 @@ class ApplyDocumentContent(ToolBase):
         override: str | None = None
 
         if target == "search":
-            if not has_anchors:
-                old_stripped = str(old_content).strip()
-                search_string = format_support.plain_text_if_markup(old_stripped)
-                # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
-                search_string = search_mod.normalize_search_string_for_find(search_string)
-                if not search_string:
-                    # Parameter error (like old_content=None), not a search no-op: the search never ran,
-                    # so there's no replaced_count to report — use the standard tool error shape.
-                    return self._tool_error("old_content is empty after normalization.")
-
-            plain = content if use_preserve else self._replacement_plain(content)
-            if not has_anchors:
+            if has_anchors:
+                plain = content if use_preserve else self._replacement_plain(content)
+            else:
+                old_res = self._parse_old_content(old_content)
+                if isinstance(old_res, dict):
+                    return old_res
+                old_stripped, search_string = old_res
+                plain = content if use_preserve else self._replacement_plain(content)
                 # The search drops the spaces at old_content's edges. The replacement
                 # must drop the same edges, or old_content=" paragrafo" with content=""
                 # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
@@ -1174,17 +1199,16 @@ class ApplyDocumentContent(ToolBase):
                     content, separator = _match_stripped_edges(str(old_content), content)
                     plain = content
 
+                regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
+                if rex_err:
+                    return self._invalid_regex(rex_err)
+
             override, override_error = self._parse_hyperlink_url(kwargs)
             if override_error:
                 return self._tool_error(override_error, code="INVALID_PARAM")
             override_err = self._override_not_replace(override, position)
             if override_err:
                 return self._tool_error(override_err, code="INVALID_PARAM")
-
-            if not has_anchors:
-                regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
-                if rex_err:
-                    return self._invalid_regex(rex_err)
 
         return EditParams(
             content=content,
@@ -1203,7 +1227,6 @@ class ApplyDocumentContent(ToolBase):
             case_sensitive=cs,
             separator=separator,
             override=override,
-            anchor_span=has_anchors,
             anchor_start=norm_start,
             anchor_end=norm_end,
             anchor_case_order=anchor_case_order,
@@ -1420,7 +1443,7 @@ class ApplyDocumentContent(ToolBase):
                 doc, anchor_text, use_regex=False, case_sensitive=cs
             )
             if shape is not None:
-                shape_name = search_mod._shape_display_name(shape)
+                shape_name = search_mod.shape_display_name(shape)
                 return {
                     "status": "error",
                     "message": search_mod.shape_only_search_message(subject, shape_name),
@@ -1437,7 +1460,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_search(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        if params.anchor_span:
+        if params.anchor_start:
             doc = ctx.doc
             try:
                 found, miss_kind = search_mod.find_anchor_span(
@@ -1618,7 +1641,7 @@ class ApplyDocumentContent(ToolBase):
             plain=params.plain)
         if link_err:
             return link_err
-        if params.anchor_span:
+        if params.anchor_start:
             resp = build_anchor_replace_response(use_preserve=params.use_preserve)
         else:
             resp = build_search_replace_response(1, use_preserve=params.use_preserve)

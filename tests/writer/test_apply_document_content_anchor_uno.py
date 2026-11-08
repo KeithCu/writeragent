@@ -192,3 +192,151 @@ def test_apply_document_content_anchor_range_missing_end_uno(ctx, doc):
     assert "not found" in msg
     body = doc.getText().getString()
     assert "MIDDLE-UNIQUE-SHOULD-VANISH" in body
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_anchor_range_skips_frame_end_and_finds_body_end_uno(ctx, doc):
+    """An end anchor inside an attached text frame is skipped in favor of a same-text body end."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+
+    text.insertString(cursor, "Frame Section Start", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Middle Content", False)
+    text.insertControlCharacter(cursor, 0, False)
+
+    frame = doc.createInstance("com.sun.star.text.TextFrame")
+    text.insertTextContent(cursor, frame, False)
+    frame.getText().setString("Target End Landmark")
+
+    cursor.gotoEnd(False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Target End Landmark", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Keep Trailing Text", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        start_anchor="Frame Section Start",
+        end_anchor="Target End Landmark",
+        content="Consolidated Section",
+    )
+
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 1, res
+    body = doc.getText().getString()
+    assert "Consolidated Section" in body
+    assert "Keep Trailing Text" in body
+    assert "Middle Content" not in body
+    assert "Frame Section Start" not in body
+    assert frame.getText().getString() == "Target End Landmark"
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_anchor_range_different_text_refused_uno(ctx, doc):
+    """When the only matching end anchor is in a table cell, the different-text error is returned."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+
+    text.insertString(cursor, "Body Start Landmark", False)
+    text.insertControlCharacter(cursor, 0, False)
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(cursor, tbl, False)
+    tbl.getCellByName("A1").setString("Only End Anchor In Cell")
+
+    cursor.gotoEnd(False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Body Trailing Text", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        start_anchor="Body Start Landmark",
+        end_anchor="Only End Anchor In Cell",
+        content="New Text",
+    )
+
+    assert res.get("status") == "error", res
+    assert res.get("replaced_count") == 0, res
+    msg = res.get("message", "")
+    assert "not in the same text" in msg
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_anchor_range_occurrence_uno(ctx, doc):
+    """occurrence selects the 0-based matching start anchor landmark."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+
+    text.insertString(cursor, "Section Start", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "First Body", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Section End", False)
+    text.insertControlCharacter(cursor, 0, False)
+
+    text.insertString(cursor, "Section Start", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Second Body", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Section End", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        start_anchor="Section Start",
+        end_anchor="Section End",
+        occurrence=1,
+        content="<p>Updated Second Section</p>",
+    )
+
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 1, res
+    body = doc.getText().getString()
+    assert "First Body" in body
+    assert "Updated Second Section" in body
+    assert "Second Body" not in body
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_document_content_anchor_range_case_sensitive_uno(ctx, doc):
+    """case_sensitive=True rejects case mismatch while case_sensitive=False matches it."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    cursor.gotoEnd(False)
+
+    text.insertString(cursor, "lowercase landmark start", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "Intermediate Text", False)
+    text.insertControlCharacter(cursor, 0, False)
+    text.insertString(cursor, "lowercase landmark end", False)
+
+    res_strict = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        start_anchor="LOWERCASE LANDMARK START",
+        end_anchor="lowercase landmark end",
+        case_sensitive=True,
+        content="New Text",
+    )
+    assert res_strict.get("status") == "error", res_strict
+    assert "start_anchor not found" in res_strict.get("message", "")
+
+    res_loose = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx),
+        start_anchor="LOWERCASE LANDMARK START",
+        end_anchor="LOWERCASE LANDMARK END",
+        case_sensitive=False,
+        content="<p>Replaced Case Insensitive</p>",
+    )
+    assert res_loose.get("status") == "ok", res_loose
+    assert res_loose.get("replaced_count") == 1, res_loose
+    body = doc.getText().getString()
+    assert "Replaced Case Insensitive" in body
+    assert "Intermediate Text" not in body

@@ -606,7 +606,7 @@ def test_anchor_shape_miss_does_not_replace_text_in_shape(monkeypatch):
     monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (None, "start"))
     mock_shape = MagicMock()
     monkeypatch.setattr(search_mod, "drawing_shape_object_containing", lambda doc, text, **k: mock_shape)
-    monkeypatch.setattr(search_mod, "_shape_display_name", lambda shape: "MyBox")
+    monkeypatch.setattr(search_mod, "shape_display_name", lambda shape: "MyBox")
     replace_shape_called = False
 
     def _replace_shape(*args, **kwargs):

@@ -574,9 +574,12 @@ def _same_text_starts_at_or_after(candidate: Any, boundary_end: Any) -> bool | N
     candidate starts at or after boundary_end. When comparison fails, False is returned so the
     candidate is skipped rather than misreporting a different text container.
     """
-    cand_text = candidate.getText()
-    bound_text = boundary_end.getText()
-    if not uno_same(cand_text, bound_text):
+    cand_text = uno_read(lambda: candidate.getText(), None)
+    bound_text = uno_read(lambda: boundary_end.getText(), None)
+    if cand_text is None or bound_text is None:
+        return False
+    same = uno_read(lambda: uno_same(cand_text, bound_text), False)
+    if not same:
         return None
     cmp_val = uno_read(
         lambda: cand_text.compareRegionStarts(candidate.getStart(), boundary_end),
@@ -592,23 +595,25 @@ def pick_end_after_start(
 ) -> tuple[Any | None, str | None]:
     """Select the first end match at or after start.getEnd() and combine them into a single cursor.
 
-    Walks candidate end matches. If an end match sits in a different XText, the walk stops
-    with a 'different_text' error rather than skipping to a later match. Candidates whose start
-    falls before start.getEnd() (e.g. from backward chaining) are skipped. Returns (cursor, None)
-    on success, or (None, 'different_text' | 'end') on failure.
+    Walks candidate end matches. Candidates whose start falls before start.getEnd()
+    (e.g. from backward chaining) are skipped. Candidates in a different XText are skipped,
+    remembering that one was seen so if no same-text candidate is found, 'different_text' is
+    returned rather than 'end'. Returns (cursor, None) on success.
     """
     boundary_end = start.getEnd()
+    saw_different_text = False
     for end in ends:
         rel = _same_text_starts_at_or_after(end, boundary_end)
         if rel is None:
-            return None, "different_text"
+            saw_different_text = True
+            continue
         if not rel:
             continue
         text = start.getText()
         cursor = text.createTextCursorByRange(start.getStart())
         cursor.gotoRange(end.getEnd(), True)
         return cursor, None
-    return None, "end"
+    return None, "different_text" if saw_different_text else "end"
 
 
 def find_anchor_span(
@@ -892,7 +897,7 @@ def iter_floating_shape_texts(doc: Any) -> Iterator[tuple[Any, str]]:
         yield shape, text
 
 
-def _shape_display_name(shape: Any) -> str:
+def shape_display_name(shape: Any) -> str:
     return (getattr(shape, "Name", "") or "").strip() or "(unnamed shape)"
 
 
@@ -901,7 +906,7 @@ def iter_shape_hits(doc: Any, pattern: str, use_regex: bool, case_sensitive: boo
         hits = shape_text_hits(shape_text, pattern, use_regex, case_sensitive)
         if not hits:
             continue
-        sname = uno_read(lambda: _shape_display_name(shape), "(unnamed shape)")
+        sname = uno_read(lambda: shape_display_name(shape), "(unnamed shape)")
         for hit in hits:
             yield hit, "shape '%s'" % sname, shape_text.strip()
 
@@ -960,7 +965,7 @@ def drawing_shape_containing(doc: Any, search_string: str, *, use_regex: bool = 
         doc, search_string, use_regex=use_regex, case_sensitive=case_sensitive)
     if shape is None:
         return None
-    return _shape_display_name(shape)
+    return shape_display_name(shape)
 
 
 def _preview_matches(hits: Iterator[tuple[str, str, str]], limit: int) -> list[dict[str, Any]]:
