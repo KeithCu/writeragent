@@ -14,12 +14,13 @@
 #     (when supplied), else CSS fingerprint, else omitted
 #
 # v1 limitations (see docs/writer/html-style-model-plan.md#v1-limitations-shipped):
-#   - Whole-paragraph Para* overrides (center, margins, paragraph font, para colour) do not
-#     round-trip on WRITE; FODT recovers the base style NAME only. Char-level overrides via
-#     text-* spans survive (including run colour). Read REPORTS geometry, paragraph font, and
-#     fo:color as read-only data-lo-para, taken from the flat-ODF sidecar (see
-#     _parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell an
-#     override from an inherited value.
+#   - Whole-paragraph Para* overrides in data-lo-para: on write, text-align, margin-left,
+#     margin-right, and background-color round-trip on full_document, beginning, and end;
+#     other properties (margins top/bottom, indent, line-height, fonts, text color) arrive
+#     in warnings. selection/search and table cells do not apply data-lo-para. Read reports
+#     geometry, paragraph font, and fo:color in data-lo-para from the flat-ODF sidecar (see
+#     _parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell an override from
+#     an inherited value.
 #   - Inside <table>: paragraph-* classes stripped; no data-lo-style (cell styles out of scope).
 #   - Colliding compact tokens (two UNO names -> same token): token omitted on read.
 #
@@ -83,9 +84,8 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
     return bool(_BODY_AUTOSTYLE_RE.search(body))
 
 
-# Direct paragraph overrides surfaced to the agent as read-only ``data-lo-para``. v1 dropped them
-# entirely, so an agent could not tell an indented block quote from body text, nor verify an
-# indent it had just set.
+# Direct paragraph overrides surfaced to the agent via ``data-lo-para`` so an agent can tell an
+# indented block quote from body text, or verify an indent it had just set.
 #
 # Read from the flat-ODF sidecar, NOT from the XHTML CSS: an autostyle's XHTML rule is FLATTENED
 # (base style + override merged, with no rule emitted for the base at all), so it cannot say which
@@ -97,9 +97,10 @@ def xhtml_has_paragraph_autostyle(xhtml: str) -> bool:
 # look like it did nothing. fo:color was missing here, so Issue-1-style center+red never showed
 # red in data-lo-para (char spans could still carry colour).
 #
-# INFORMATIONAL only — the write path ignores ``data-lo-para`` (it still cannot restore Para* when
-# applying a named style), which is why it is not emitted as ``style=""``: that would round-trip
-# back and be silently swallowed. ODF attribute -> CSS name, in emit order.
+# On write, text-align, margin-left, margin-right, and background-color are mapped onto paragraph
+# properties after the style is set (for full_document, beginning, and end targets). Other property
+# names arrive in warnings. selection/search targets and table cells do not apply data-lo-para.
+# ODF attribute -> CSS name, in emit order.
 _FODT_OVERRIDE_ATTRS = (
     ("fo:margin-left", "margin-left"),
     ("fo:margin-right", "margin-right"),
@@ -296,11 +297,10 @@ class _SemanticTransformer(_HtmlPassthroughParser):
         export keeps the parent and ``Pn`` is the same name in both exports — so the real style
         name is recovered. CSS fingerprint is the fallback when there is no FODT map.
 
-        KNOWN LIMITATION (v1): the whole-paragraph DIRECT *overrides* themselves (alignment,
-        margins, whole-paragraph colour baked into the autostyle CSS) are still dropped — only
-        the style NAME is recovered, and character-level overrides survive via inline ``text-*``
-        spans. Whole-paragraph Para* overrides do not round-trip (the write path cannot restore
-        Para* when applying a named style).
+        Whole-paragraph direct overrides: on write, alignment, horizontal margins, and
+        background color from data-lo-para apply after the named style on full_document,
+        beginning, and end; other properties arrive in warnings. selection/search and
+        table cells do not apply data-lo-para.
         """
         # crosshair: off
         if _AUTOSTYLE_RE.match(suffix):

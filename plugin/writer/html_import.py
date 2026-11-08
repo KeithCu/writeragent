@@ -283,20 +283,20 @@ def _insert_mixed_or_plain_html(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
-) -> None:
+) -> list[str]:
     """HTML import (optional MathML + TeX layer).
 
-    data-lo-style paragraph styling is applied via UNO after the import when *apply_styles* is True
-    (``full_document``, and ``beginning``/``end`` after absorb prep in ``insert_content_at_position``).
+    data-lo-style and data-lo-para paragraph styling is applied via UNO after import when *apply_styles*
+    is True (``full_document``, and ``beginning``/``end`` after absorb prep in ``insert_content_at_position``).
     For ``selection``/``search`` it stays False: those paths split or merge into neighbor text, so
-    applying the named style would restyle pre-existing content. We still strip data-lo-style for a
-    clean StarWriter import either way.
+    applying formatting would restyle pre-existing content. We still strip attributes for a clean
+    StarWriter import either way. Returns CSS property names that failed to apply.
     """
     nonce = uuid.uuid4().hex[:8]
     unescaped_content = field_restore.rewrite_exported_field_spans(unescaped_content, nonce=nonce)
-    # Strip data-lo-style so the StarWriter import sees clean markup (it drops unknown attributes
-    # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
-    clean, block_styles = html_import_styles._extract_block_lo_styles(unescaped_content)
+    # Strip data-lo-style and data-lo-para so the StarWriter import sees clean markup (it drops unknown
+    # attributes anyway); we re-apply formatting via UNO afterwards only when apply_styles is True.
+    clean, block_styles, block_paras, _skipped_paras = html_import_styles._extract_block_lo_styles(unescaped_content)
     # Expand literal \n and \t before measuring ruby offsets and StarWriter import
     clean = _expand_escapes(clean)
     has_math = html_fragment_contains_mixed_math(clean)
@@ -305,7 +305,7 @@ def _insert_mixed_or_plain_html(
         clean, ruby_spans = html_ruby.extract_and_strip_ruby(clean)
     else:
         ruby_spans = []
-    styled = apply_styles and any(block_styles)
+    styled = bool(apply_styles and (any(block_styles) or any(block_paras)))
     text_obj = cursor.getText()
     ruby_skip = html_ruby._ruby_skip(text_obj, cursor, ruby_spans)
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
@@ -322,6 +322,7 @@ def _insert_mixed_or_plain_html(
         single = _ensure_html_linebreaks(clean)
         _insert_starwriter_html_at_cursor(None if styled else model, cursor, single)
 
+    failures: list[str] = []
     if styled:
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
         # This wrapper swallowed compareRegionStarts, so a closed document
@@ -330,11 +331,14 @@ def _insert_mixed_or_plain_html(
             start = _paragraph_after(text_obj, before_para)
         else:
             start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
-        html_import_styles._apply_block_lo_styles(model, text_obj, start, block_styles, end=imported_end)
+        failures = html_import_styles._apply_block_lo_styles(
+            model, text_obj, start, block_styles, end=imported_end, paras=block_paras,
+        )
         end_c = model.getText().createTextCursor()
         end_c.gotoEnd(False)
         cursor.gotoRange(end_c.getStart(), False)
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
+    return failures
 
 
 
@@ -345,10 +349,10 @@ def insert_html_at_cursor(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
-) -> None:
+) -> list[str]:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
     with image_placeholders._keep_placeholder_images(model, unescaped_content) as content:
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
+        return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
 
@@ -499,7 +503,7 @@ def _decode_complete_character_references(text: str) -> str:
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
 
 
-def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> None:
+def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> list[str]:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
@@ -570,7 +574,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
         styled = position in ("beginning", "end")
         if styled:
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
+        return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
 
 
 
@@ -584,7 +588,7 @@ def _deletion_author() -> Any:
         return contextlib.nullcontext()
 
 
-def replace_full_document(model: Any, ctx: Any, content: str) -> None:
+def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         content = _decode_complete_character_references(swapped)
@@ -597,8 +601,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
             cursor.setString("")
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
-            _insert_mixed_or_plain_html(model, ctx, cursor, content)
-            return
+            return _insert_mixed_or_plain_html(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
         # paragraph as direct formatting -- a document opening with an 18pt
@@ -611,7 +614,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
         text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
         cursor.goLeft(1, False)
         leftover = text.createTextCursorByRange(cursor.getStart())
-        _insert_mixed_or_plain_html(model, ctx, cursor, content)
+        failures = _insert_mixed_or_plain_html(model, ctx, cursor, content)
         leftover.gotoEndOfParagraph(True)
         if leftover.getString() == "":
             leftover.collapseToStart()
@@ -619,13 +622,14 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
             # Tip: a tracked delete of this break joins paragraphs ('initiativeproject'); delete it untracked.
             with record_changes.record_changes(model, False):
                 leftover.setString("")
+        return failures
 
 
 
 
 def replace_single_range_with_content(
     model: Any, text_range: Any, content: str, ctx: Any
-) -> None:
+) -> list[str]:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         prepared = _decode_complete_character_references(swapped)
@@ -678,11 +682,12 @@ def replace_single_range_with_content(
                     apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
+            return []
         else:
             # apply_styles=False: a search/replace splits the matched paragraph, so applying a
             # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
             try:
-                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
+                return _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
             except Exception as e:
                 reraise_if_disposed(e)
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter

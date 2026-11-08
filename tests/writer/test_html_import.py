@@ -524,7 +524,7 @@ def test_nested_blocks_share_one_style_slot():
             '<blockquote><p data-lo-style="Quotations">q</p></blockquote>'
             '<ul><li><p data-lo-style="Standard">a</p></li><li><p data-lo-style="Standard">b</p></li></ul>'
             '<h2 data-lo-style="Heading2">D</h2>')
-    clean, styles = _extract_block_lo_styles(html)
+    clean, styles, _paras, _skipped = _extract_block_lo_styles(html)
     assert styles == ["Heading1", "Quotations", "Standard", "Standard", "Heading2"]
     assert "data-lo-style" not in clean
 
@@ -532,7 +532,7 @@ def test_nested_blocks_share_one_style_slot():
 def test_second_block_inside_a_block_gets_its_own_slot():
     from plugin.writer.html_import_styles import _extract_block_lo_styles
 
-    _clean, styles = _extract_block_lo_styles(
+    _clean, styles, _paras, _skipped = _extract_block_lo_styles(
         '<li data-lo-style="List"><p>a</p><p data-lo-style="Standard">b</p></li><p data-lo-style="Standard">c</p>')
     assert styles == ["List", "Standard", "Standard"]
 
@@ -703,9 +703,164 @@ def test_deletion_author_noop_when_review_authors_missing(monkeypatch):
 def test_styled_div_is_a_slot_and_plain_div_is_not(value, value_2):
     from plugin.writer.html_import_styles import _extract_block_lo_styles
 
-    _clean, styles = _extract_block_lo_styles(
+    _clean, styles, _paras, _skipped = _extract_block_lo_styles(
         value)
     assert styles == ["Standard", value_2]
+
+
+def test_parse_data_lo_para_text_align_center():
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    props, dropped = parse_data_lo_para("text-align:center")
+    assert props == {"ParaAdjust": 3}
+    assert dropped == []
+
+
+def test_apply_block_lo_styles_applies_style_then_para_adjust():
+    """Para* properties apply after paragraph styles so setting the style does not clear them."""
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 1"]
+    fam.hasByName.return_value = True
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Standard"
+    walk_cur.gotoNextParagraph.return_value = False
+
+    para_cur = MagicMock()
+    text.createTextCursorByRange.side_effect = [walk_cur, para_cur, para_cur]
+
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply_style:
+        order: list[str] = []
+        apply_style.side_effect = lambda *a, **k: order.append("style")
+        para_cur.setPropertyValue.side_effect = lambda *a: order.append("para")
+
+        html_import_styles._apply_block_lo_styles(
+            model, text, MagicMock(), ["Heading1"], paras=["text-align:center"]
+        )
+
+    assert order == ["style", "para"]
+    apply_style.assert_called_once()
+    para_cur.setPropertyValue.assert_called_with("ParaAdjust", 3)
+
+
+def test_apply_block_lo_styles_skips_style_if_already_equal_and_sets_para_adjust():
+    """When the style already matches, apply_paragraph_style_preserving_direct_char is skipped."""
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 1"]
+    fam.hasByName.return_value = True
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Heading 1"
+    walk_cur.gotoNextParagraph.return_value = False
+
+    para_cur = MagicMock()
+    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
+
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply_style:
+        html_import_styles._apply_block_lo_styles(
+            model, text, MagicMock(), ["Heading1"], paras=["text-align:center"]
+        )
+
+    apply_style.assert_not_called()
+    para_cur.setPropertyValue.assert_called_with("ParaAdjust", 3)
+
+
+def test_parse_data_lo_para_margins():
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    props_left, dropped_left = parse_data_lo_para("margin-left:3.25cm")
+    assert props_left == {"ParaLeftMargin": 3250}
+    assert dropped_left == []
+
+    props_right, dropped_right = parse_data_lo_para("margin-right:1in")
+    assert props_right == {"ParaRightMargin": 2540}
+    assert dropped_right == []
+
+
+def test_parse_data_lo_para_background_color():
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    props_hex, dropped_hex = parse_data_lo_para("background-color:#ffe4c4")
+    assert props_hex == {"ParaBackColor": 0xFFE4C4}
+    assert dropped_hex == []
+
+    props_trans, dropped_trans = parse_data_lo_para("background-color:transparent")
+    assert props_trans == {"ParaBackColor": -1}
+    assert dropped_trans == []
+
+
+def test_round_trip_read_fodt_autostyle_value():
+    from unittest.mock import MagicMock, call
+    from plugin.writer import html_import_styles
+    from plugin.writer.xhtml_style_postprocess import _parse_fodt_autostyles
+
+    fodt = """<?xml version="1.0" encoding="UTF-8"?>
+<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0"
+ xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0"
+ xmlns:fo="urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0">
+ <style:style style:name="P2" style:family="paragraph" style:parent-style-name="Standard">
+  <style:paragraph-properties fo:margin-left="3.25cm" fo:text-indent="0cm" fo:text-align="start"/>
+ </style:style>
+</office:document>"""
+    emitted = _parse_fodt_autostyles(fodt)[1]["P2"]
+    assert emitted == "margin-left:3.25cm; text-indent:0cm; text-align:left"
+
+    props, dropped = html_import_styles.parse_data_lo_para(emitted)
+    assert props == {"ParaLeftMargin": 3250, "ParaAdjust": 0}
+    assert dropped == ["text-indent"]
+
+    html = f'<p data-lo-para="{emitted}">Clause text</p>'
+    clean, styles, paras, skipped = html_import_styles._extract_block_lo_styles(html)
+    assert clean == "<p>Clause text</p>"
+    assert paras == [emitted]
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Standard"]
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Standard"
+    walk_cur.gotoNextParagraph.return_value = False
+
+    para_cur = MagicMock()
+    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
+
+    html_import_styles._apply_block_lo_styles(
+        model, text, MagicMock(), styles, paras=paras
+    )
+    para_cur.setPropertyValue.assert_has_calls([
+        call("ParaLeftMargin", 3250),
+        call("ParaAdjust", 0),
+    ], any_order=True)
+
+
+def test_extractor_handles_data_lo_para():
+    from plugin.writer.html_import_styles import _extract_block_lo_styles
+
+    html = ('<blockquote data-lo-style="Quotations">'
+            '<p data-lo-para="margin-left:1cm">Indented quote</p>'
+            '</blockquote>'
+            '<p data-lo-para="text-align:right">Only para</p>')
+    clean, styles, paras, skipped = _extract_block_lo_styles(html)
+    assert "data-lo-para" not in clean
+    assert "data-lo-style" not in clean
+    assert styles == ["Quotations", None]
+    assert paras == ["margin-left:1cm", "text-align:right"]
+    assert skipped == []
 
 # --- data-less images kept (get_document_content leaves the picture data out) ------------------
 
