@@ -931,9 +931,10 @@ def test_apply_para_props_split_helper():
     assert failed == []
     para_cur.setPropertyValue.assert_called_once_with("ParaAdjust", 3)
     para_obj.setPropertyValue.assert_has_calls([
+        call("ParaAdjust", 3),
         call("FillColor", 0xFFE4C4),
         call("FillStyle", solid_style),
-    ])
+    ], any_order=True)
 
 
 def test_parse_data_lo_para_duplicate_properties_keeps_first():

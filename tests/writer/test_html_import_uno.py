@@ -541,7 +541,7 @@ def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, do
     doc.getText().setString("Initial paragraph")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
 
-    html = '<p data-lo-style="Textbody" data-lo-para="margin-left:1.5cm; background-color:#ffe4c4">Appended paragraph</p>'
+    html = '<p data-lo-style="Heading1" data-lo-para="margin-left:1.5cm; background-color:#ffe4c4">Appended paragraph</p>'
     res2 = ApplyDocumentContent().execute(tool_ctx, target="end", content=html)
     assert res2.get("status") == "ok", res2
     assert "warnings" not in res2, res2

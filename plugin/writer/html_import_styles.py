@@ -353,6 +353,8 @@ def _apply_para_props(
                     para_obj.setPropertyValue("FillStyle", solid_style)
             else:
                 para_cur.setPropertyValue(uno_prop, val)
+                if para_obj is not None:
+                    para_obj.setPropertyValue(uno_prop, val)
         except Exception as exc:
             reraise_if_disposed(exc)
             log.debug("data-lo-para: failed to set %s (%s)", uno_prop, css_name, exc_info=True)
