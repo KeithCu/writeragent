@@ -408,16 +408,12 @@ WRITER_REVIEW_MODES_RULES = """TRACKED CHANGES / REVIEW MODES:
 
 # apply_document_content only — design notes in docs/chat/sidebar-implementation.md § Chat prompt constants and docs/writer/math-tex.md.
 APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
-- Required: `content` and `target`.
-  Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
-- Local edits: target='search' + old_content. Rewrite/translation: target='full_document'.
-- **Never** pass the entire document as old_content — that is not supported and will fail search.
-- target='search': old_content may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
-  position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
-- Reach: body, table cells, text frames, headers and footers.
+- target='search': old_content is a substring (HTML in old_content is matched as plain text) and may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
+  Do not pass the whole document as old_content — use target='full_document'.
+  position='before'/'after' inserts beside the match and leaves it untouched — do not re-send the matched clause.
+- Reach: body, table cells, and text frames. target='search' also edits headers and footers. beginning, end, and full_document write the body only.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.
-  Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags.
-- Headers/footers: delegate_to_specialized_writer_toolset(domain="page", task=...)."""
+  Rich/block HTML in a table cell is not supported (clear error, document untouched); use plain text or inline tags."""
 
 SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (one fragment per heading/paragraph).
   We wrap in <html>/<body>.
