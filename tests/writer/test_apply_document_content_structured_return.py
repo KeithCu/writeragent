@@ -620,3 +620,20 @@ def test_anchor_occurrence_index_error(monkeypatch):
     assert res["status"] == "error"
     assert res["code"] == "OCCURRENCE_OUT_OF_RANGE"
     assert "occurrence 2 out of range" in res["message"]
+
+
+def test_anchor_span_containing_table_refused(monkeypatch):
+    table_elem = MagicMock()
+    table_elem.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextTable"
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
+    enum.nextElement.return_value = table_elem
+    mock_range = MockRange()
+    mock_range.createEnumeration = lambda: enum
+
+    monkeypatch.setattr(search_mod, "find_anchor_span", lambda doc, s, e, **k: (mock_range, None))
+    tool = ApplyDocumentContent()
+    res = tool.execute(_ctx(), start_anchor="foo", end_anchor="bar", content="new")
+    assert res["status"] == "error"
+    assert res["code"] == "TABLE_IN_ANCHOR_RANGE"
+    assert "table_delete" in res["message"]

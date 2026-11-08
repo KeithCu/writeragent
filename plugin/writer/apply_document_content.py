@@ -252,6 +252,18 @@ def writer_tables_emptied_by_matches(ranges: list[Any], content: Any) -> list[tu
     return emptied
 
 
+def _range_contains_table(text_range: Any) -> bool:
+    """True when text_range contains a TextTable between its endpoints."""
+    enum = uno_read(lambda: text_range.createEnumeration(), None)
+    if enum is None:
+        return False
+    while uno_read(lambda: enum.hasMoreElements(), False):
+        elem = uno_read(lambda: enum.nextElement(), None)
+        if elem is not None and uno_read(lambda: elem.supportsService("com.sun.star.text.TextTable"), False):
+            return True
+    return False
+
+
 def _doc_table_count(doc: Any) -> int | None:
     """Table count from doc.getTextTables(); None when unreadable (a mock). Disposal propagates."""
     # Invariant: uno_read raises DocumentDisposedError, so table verification never reports success on a closed doc.
@@ -1446,6 +1458,11 @@ class ApplyDocumentContent(ToolBase):
                 return self._tool_error(str(e), code="OCCURRENCE_OUT_OF_RANGE")
             if found is None:
                 return self._anchor_miss(doc, params, miss_kind or "start")
+            if _range_contains_table(found):
+                return self._tool_error(
+                    "The range from start_anchor through end_anchor contains a table; delete the table first with table_delete.",
+                    code="TABLE_IN_ANCHOR_RANGE",
+                )
             return self._edit_replace_one(ctx, session, params, found)
         if params.all_matches:
             return self._edit_replace_all(ctx, session, params)
