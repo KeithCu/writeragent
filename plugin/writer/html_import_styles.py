@@ -312,15 +312,15 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
 def _get_fill_style_enums() -> tuple[Any, Any]:
     """Return (SOLID, NONE) FillStyle enums for paragraph background fill."""
     try:
-        from com.sun.star.drawing import FillStyle
-        return FillStyle.SOLID, FillStyle.NONE
-    except (ImportError, AttributeError):
+        import uno
+        return (
+            uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"),
+            uno.Enum("com.sun.star.drawing.FillStyle", "NONE"),
+        )
+    except Exception:
         try:
-            import uno
-            return (
-                uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"),
-                uno.Enum("com.sun.star.drawing.FillStyle", "NONE"),
-            )
+            from com.sun.star.drawing import FillStyle
+            return FillStyle.SOLID, FillStyle.NONE
         except Exception:
             return 1, 0
 
