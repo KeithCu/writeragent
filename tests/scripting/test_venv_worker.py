@@ -2175,6 +2175,110 @@ def test_heartbeat_callback_sets_serving_tool_call():
     assert reentry_info.get('code') == 'WORKER_REENTRY'
     assert 'busy' in (reentry_info.get('message') or '')
 
+
+@pytest.mark.parametrize(
+    ("frame_type", "raises"),
+    [
+        ("tool_call", False),
+        ("tool_call", True),
+        ("llm_request", False),
+        ("llm_request", True),
+        ("worker_event", False),
+        ("worker_event", True),
+        (None, False),
+    ],
+)
+def test_intermediate_dispatch_observes_serving_flag(frame_type: str | None, raises: bool):
+    import plugin.scripting.venv_worker as vw
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._serving_tool_call is False
+
+    if frame_type is not None:
+        payload = {"type": frame_type, "id": "t1"}
+    else:
+        payload = {"status": "ok", "result": 1}
+
+    frame_bytes = pickle.dumps(payload, protocol=5)
+    observed_flag: list[bool] = []
+
+    def mock_dispatch(*args: Any, **kwargs: Any) -> bool:
+        observed_flag.append(mgr._serving_tool_call)
+        if raises:
+            raise RuntimeError("simulated dispatch error")
+        return False
+
+    with (
+        patch.object(mgr, "_read_response_bytes", return_value=frame_bytes),
+        patch("plugin.scripting.venv_worker._maybe_dispatch_intermediate_response", side_effect=mock_dispatch),
+    ):
+        result = mgr._read_until_terminal(
+            io.BytesIO(),
+            io.BytesIO(),
+            _ExecRequest(allow_heartbeat=False),
+            {"id": "t1"},
+            vw._TurnState(),
+            host_read_timeout_sec=1.0,
+            write_timeout_sec=1.0,
+            allowed_tools=None,
+            resolved_script_session_id=None,
+        )
+
+    assert observed_flag == [True]
+    assert mgr._serving_tool_call is False
+    if raises:
+        assert isinstance(result, FailedAfterStart)
+    else:
+        assert isinstance(result, Terminal)
+        assert result.response == payload
+
+
+def test_heartbeat_raising_callback_observes_serving_flag():
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._serving_tool_call is False
+
+    call_count = 0
+
+    def mock_parse_frame(frame_bytes):
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            return {"frame_type": FRAME_HEARTBEAT, "payload": {"phase": "test"}}
+        return {"frame_type": FRAME_RESULT, "status": "ok"}
+
+    observed_flag: list[bool] = []
+
+    def on_heartbeat(payload):
+        observed_flag.append(mgr._serving_tool_call)
+        raise RuntimeError("simulated ui callback error")
+
+    with (
+        patch.object(mgr, "_read_frame_bytes", return_value=b"dummy"),
+        patch("plugin.scripting.venv_worker.parse_worker_stdout_frame", side_effect=mock_parse_frame),
+    ):
+        result = mgr._read_response_with_heartbeats(
+            stdout=io.BytesIO(), timeout_sec=10.0, grace_sec=5, on_heartbeat=on_heartbeat
+        )
+
+    assert result == {"frame_type": FRAME_RESULT, "status": "ok"}
+    assert observed_flag == [True]
+    assert mgr._serving_tool_call is False
+
+
+def test_serving_callback_context_manager():
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._serving_tool_call is False
+    with mgr.serving_callback():
+        assert mgr._serving_tool_call is True
+    assert mgr._serving_tool_call is False
+
+    with pytest.raises(RuntimeError, match="simulated"):
+        with mgr.serving_callback():
+            assert mgr._serving_tool_call is True
+            raise RuntimeError("simulated")
+    assert mgr._serving_tool_call is False
+
+
 def test_execute_ipc_attempts_cancel_aborts() -> None:
 
     class MockProc:
