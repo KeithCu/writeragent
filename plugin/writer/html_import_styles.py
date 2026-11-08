@@ -18,6 +18,7 @@ import re
 from typing import Any, ClassVar, final
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.uno_context import enum_has_more
 
 from . import xhtml_style_postprocess as xhtml_post
 
@@ -365,6 +366,15 @@ def _apply_block_lo_styles(
     style_cache: dict[Any, Any] = {}
     reached_count = 0
 
+    cur_para_elem: Any = None
+    para_enum: Any = None
+    if any(para_list):
+        try:
+            if hasattr(text_obj, "createEnumeration"):
+                para_enum = text_obj.createEnumeration()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+
     for idx, (style, para_css) in enumerate(zip(styles, para_list)):
         # Stop at the first paragraph that does not start before the parked end cursor.
         try:
@@ -399,15 +409,36 @@ def _apply_block_lo_styles(
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
                     para_obj = None
-                    try:
-                        enum = para_cur.createEnumeration()
-                        if enum is not None and getattr(enum, "hasMoreElements", lambda: False)():
-                            el = enum.nextElement()
-                            if getattr(el, "supportsService", lambda _: False)("com.sun.star.text.Paragraph") is True:
-                                para_obj = el
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        log.debug("data-lo-para: could not enumerate paragraph object: %s", exc)
+                    if para_enum is not None:
+                        try:
+                            walk_start = walk_cur.getStart()
+                            while True:
+                                if cur_para_elem is None:
+                                    if enum_has_more(para_enum):
+                                        cur_para_elem = para_enum.nextElement()
+                                    else:
+                                        break
+                                if not hasattr(cur_para_elem, "getStart"):
+                                    # Non-range element (such as SwXTextTable); skip
+                                    cur_para_elem = None
+                                    continue
+                                cmp = text_obj.compareRegionStarts(walk_start, cur_para_elem.getStart())
+                                if cmp == -1:
+                                    # cur_para_elem starts before walk_start; advance
+                                    cur_para_elem = None
+                                    continue
+                                elif cmp == 0:
+                                    # Matched the paragraph at current walk_start
+                                    para_obj = cur_para_elem
+                                    cur_para_elem = None
+                                    break
+                                else:
+                                    # cur_para_elem starts after walk_start
+                                    break
+                        except Exception as exc:
+                            reraise_if_disposed(exc)
+                            log.debug("data-lo-para: could not match paragraph from enumeration: %s", exc)
+
                     for css_name, (uno_prop, val) in mapped.items():
                         try:
                             if uno_prop == "ParaBackColor":
@@ -416,11 +447,12 @@ def _apply_block_lo_styles(
                                 # LibreOffice ignores the ParaBackColor setting.
                                 is_trans = (val == -1)
                                 _try_set_property(para_cur, "ParaBackTransparent", is_trans)
-                                _try_set_property(walk_cur, "ParaBackTransparent", is_trans)
                                 _try_set_property(para_obj, "ParaBackTransparent", is_trans)
-                            para_cur.setPropertyValue(uno_prop, val)
-                            if uno_prop == "ParaBackColor":
-                                _try_set_property(walk_cur, uno_prop, val)
+                                para_cur.setPropertyValue(uno_prop, val)
+                                _try_set_property(para_obj, uno_prop, val)
+                                _try_set_property(para_obj, "ParaBackTransparent", is_trans)
+                            else:
+                                para_cur.setPropertyValue(uno_prop, val)
                                 _try_set_property(para_obj, uno_prop, val)
                         except Exception as exc:
                             reraise_if_disposed(exc)
