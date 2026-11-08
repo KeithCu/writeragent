@@ -420,4 +420,34 @@ def test_handle_llm_request_uno_frame_skips_str():
     assert resp["message"] == "boom"
     assert calls == []
 
+    class HostileUnoEmpty(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+        Message = ""
 
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("str() called on hostile UNO exception with empty message")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("repr() called on hostile UNO exception with empty message")
+
+    written_empty: list[bytes] = []
+    with patch(
+        "plugin.framework.queue_executor.main.call",
+        side_effect=HostileUnoEmpty(),
+    ):
+        handled_empty = dispatch_worker_response(
+            {"type": "llm_request", "id": "err-uno-empty", "messages": [{"role": "user", "content": "x"}]},
+            stdin_write=written_empty.append,
+        )
+
+    assert handled_empty is True
+    assert len(written_empty) == 1
+    resp_empty = read_pickle_frame(io.BytesIO(written_empty[0]), require_dict=True)
+    assert resp_empty is not None
+    assert resp_empty["status"] == "error"
+    assert resp_empty["id"] == "err-uno-empty"
+    assert resp_empty["code"] == "TOOL_EXECUTION_ERROR"
+    assert resp_empty["message"] == "HostileUnoEmpty"
+    assert calls == []

@@ -546,10 +546,7 @@ def handle_tool_call_frame(
         # (ToolExecutionError code="USER_STOPPED", domain codes). A payload of
         # only status and message hid that code from the child worker.
         err_code = getattr(exc, "code", None)
-        # str() on a UNO exception walks PyUNO fields and takes SolarMutex.
-        # This thread holds the venv pipe lock, and the UI thread may be blocked
-        # in run_blocking_in_thread still holding that mutex.
-        # resolve_exception_message reads .Message first.
+        # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
         tool_response = _error_frame(resolve_exception_message(exc), code=str(err_code) if err_code else None)
     _reply(tool_response)
     return True

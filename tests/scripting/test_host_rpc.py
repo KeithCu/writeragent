@@ -438,7 +438,35 @@ def test_handle_tool_call_frame_uno_message_skips_str():
     assert "code" not in resp
     assert calls == []
 
-    # Blank str falls back to exception type name via resolve_exception_message
+    class HostileUnoEmptyMessage(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+        Message = ""
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("str() called on hostile UNO exception with empty message")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("repr() called on hostile UNO exception with empty message")
+
+    written_empty: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool", side_effect=HostileUnoEmptyMessage()):
+        handled_empty = handle_tool_call_frame(
+            {"type": "tool_call", "id": "e_uno_empty", "tool": "apply_document_content", "args": {}},
+            stdin_write=written_empty.append,
+        )
+    assert handled_empty is True
+    resp_empty = read_pickle_frame(io.BytesIO(written_empty[0]), require_dict=True)
+    assert resp_empty is not None
+    assert resp_empty["status"] == "error"
+    assert resp_empty["id"] == "e_uno_empty"
+    assert resp_empty["message"] == "HostileUnoEmptyMessage"
+    assert "code" not in resp_empty
+    assert calls == []
+
+
+def test_handle_tool_call_frame_blank_message_uses_type_name():
     written_blank: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("")):
         handled_blank = handle_tool_call_frame(

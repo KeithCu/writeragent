@@ -72,6 +72,7 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
             },
         }
 
+    # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
     except ToolExecutionError as exc:
         # Preserve USER_STOPPED. A generic error string lets the child keep
         # the turn going after Stop.
@@ -82,10 +83,6 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         return format_error_payload(ToolExecutionError(text))
     except Exception as exc:
         log.exception("ppt-master llm_request failed")
-        # str() on a UNO exception walks PyUNO fields and takes SolarMutex.
-        # This thread holds the venv pipe lock, and the UI thread may be blocked
-        # in run_blocking_in_thread still holding that mutex.
-        # resolve_exception_message reads .Message first.
         text = resolve_exception_message(exc)
         return format_error_payload(ToolExecutionError(text))
 
