@@ -2,7 +2,16 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Monaco editor host: spawn child process, pipe bridge, and session launch."""
+"""Monaco editor host: spawn child process, pipe bridge, and session launch.
+
+Concurrency:
+_PROBE_LOCK guards the webview probe caches (_PROBE_CACHE, _PROBE_FAILURE_CACHE),
+_probe_generation, _probe_wanted, and _probe_running. UI thread code only reads
+cached results via cached_webview_probe and arms checks via _ensure_webview_probe.
+The webview-probe worker thread is the only caller that runs ManagedSubprocess.run
+for this probe and the only writer that stores results into the probe caches.
+_PROBE_LOCK is never held across ManagedSubprocess.run.
+"""
 
 # =========================================================================================
 # WARNING: PARITY INVARIANT WITH MONACO JAVASCRIPT FRONTEND
@@ -144,6 +153,11 @@ def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
     return exe, ""
 
 
+_PROBE_LOCK = threading.Lock()
+_probe_generation: int = 0
+_probe_wanted: str | None = None
+_probe_running: bool = False
+
 _PROBE_CACHE: dict[str, tuple[bool, str]] = {}
 # Failures only: (monotonic expiry, result). Successes stay in _PROBE_CACHE
 # until the venv path changes.
@@ -154,13 +168,7 @@ _PROBE_FAILURE_CACHE: dict[str, tuple[float, tuple[bool, str]]] = {}
 _PROBE_FAILURE_TTL_SEC = 30.0
 
 
-def probe_webview_import(exe: str) -> tuple[bool, str]:
-    """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics.
-
-    Monaco also needs ``rocher`` (Monaco's files); CodeMirror does not.
-    Successes stay cached until the venv path or scripting.python_editor changes. Failures are remembered
-    for ``_PROBE_FAILURE_TTL_SEC``.
-    """
+def _cached_probe_locked(exe: str) -> tuple[bool, str] | None:
     cached = _PROBE_CACHE.get(exe)
     if cached is not None and cached[0]:
         return cached
@@ -170,10 +178,33 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         if time.monotonic() < expires_at:
             return result
         _PROBE_FAILURE_CACHE.pop(exe, None)
+    return None
+
+
+def cached_webview_probe(exe: str) -> tuple[bool, str] | None:
+    """Return cached webview probe result for *exe*, or None if not cached or expired."""
+    with _PROBE_LOCK:
+        return _cached_probe_locked(exe)
+
+
+def probe_webview_import(exe: str, *, apply_generation: int | None = None) -> tuple[bool, str]:
+    """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics.
+
+    Monaco also needs ``rocher`` (Monaco's files); CodeMirror does not.
+    Successes stay cached until the venv path or scripting.python_editor changes. Failures are remembered
+    for ``_PROBE_FAILURE_TTL_SEC``.
+    """
+    cached = cached_webview_probe(exe)
+    if cached is not None:
+        return cached
 
     def _remember_failure(result: tuple[bool, str]) -> tuple[bool, str]:
-        # Failed probes are cached for a TTL because monaco_editor_available runs on the UI thread and each subprocess probe can block up to 30s. Without caching failures, every editor open would hit that full wait on a broken venv.
-        _PROBE_FAILURE_CACHE[exe] = (time.monotonic() + _PROBE_FAILURE_TTL_SEC, result)
+        # Failed probes are cached for a TTL so a broken or slow venv does not repeatedly trigger
+        # background subprocess probes on every editor check. Once the TTL expires, the next check
+        # can arm a fresh probe if the user has installed the missing packages.
+        with _PROBE_LOCK:
+            if apply_generation is None or apply_generation == _probe_generation:
+                _PROBE_FAILURE_CACHE[exe] = (time.monotonic() + _PROBE_FAILURE_TTL_SEC, result)
         return result
 
     env = build_editor_child_env()
@@ -194,13 +225,80 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         detail = f"{detail}\n{r.stderr}".strip() if detail else r.stderr.strip()
     if r.returncode == 0:
         res = (True, detail)
-        _PROBE_CACHE[exe] = res
-        _PROBE_FAILURE_CACHE.pop(exe, None)
+        with _PROBE_LOCK:
+            if apply_generation is None or apply_generation == _probe_generation:
+                _PROBE_CACHE[exe] = res
+                _PROBE_FAILURE_CACHE.pop(exe, None)
         return res
     if not detail:
         detail = f"exit code {r.returncode}"
     log.warning("probe_webview_import: %s returned %s: %s", exe, r.returncode, detail)
     return _remember_failure((False, detail))
+
+
+def _ensure_webview_probe(exe: str) -> None:
+    """Arm a background probe for *exe* if no cached result exists and no probe is running."""
+    global _probe_wanted, _probe_running
+    start_worker = False
+    with _PROBE_LOCK:
+        if _cached_probe_locked(exe) is not None:
+            return
+        if _probe_running or _probe_wanted is not None:
+            return
+        _probe_wanted = exe
+        _probe_running = True
+        start_worker = True
+
+    if start_worker:
+        try:
+            run_in_background(_webview_probe_worker, name="webview-probe", dedicated=False)
+        except Exception:
+            with _PROBE_LOCK:
+                _probe_running = False
+                if _probe_wanted == exe:
+                    _probe_wanted = None
+            raise
+
+
+def _invalidate_webview_probe(exe: str | None) -> None:
+    """Clear probe caches, invalidate in-flight probe generation, and queue *exe* if not None."""
+    global _probe_generation, _probe_wanted, _probe_running
+    start_worker = False
+    with _PROBE_LOCK:
+        _PROBE_CACHE.clear()
+        _PROBE_FAILURE_CACHE.clear()
+        _probe_generation += 1
+        _probe_wanted = exe
+        if exe is not None and not _probe_running:
+            _probe_running = True
+            start_worker = True
+
+    if start_worker:
+        try:
+            run_in_background(_webview_probe_worker, name="webview-probe", dedicated=False)
+        except Exception:
+            with _PROBE_LOCK:
+                _probe_running = False
+                if _probe_wanted == exe:
+                    _probe_wanted = None
+            raise
+
+
+def _webview_probe_worker() -> None:
+    """Worker loop that drains requested webview probes outside the lock."""
+    global _probe_wanted, _probe_running
+    while True:
+        with _PROBE_LOCK:
+            exe = _probe_wanted
+            _probe_wanted = None
+            gen = _probe_generation
+            if exe is None:
+                _probe_running = False
+                return
+        try:
+            probe_webview_import(exe, apply_generation=gen)
+        except Exception:
+            log.exception("Unexpected error in webview-probe worker for %s", exe)
 
 
 def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subprocess.Popen[bytes]:
@@ -974,8 +1072,8 @@ def _on_config_changed(**kwargs: Any) -> None:
     if venv_changed or editor_changed:
         # The probe checks different packages per editor (rocher only for Monaco).
         log.info("editor_host: venv path or python_editor changed, terminating background editor process")
-        _PROBE_CACHE.clear()
-        _PROBE_FAILURE_CACHE.clear()
+        exe, _err = resolve_editor_python(None)
+        _invalidate_webview_probe(exe)
 
     if force_changed:
         log.info("editor_host: scripting.force_internal_script_editor changed, terminating background editor process")
@@ -1003,11 +1101,15 @@ def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
     if _PERSISTENT_EDITOR.is_running:
         log.debug("monaco_editor_available: editor process already running, skipping probe")
         return exe, True
-    webview_ok, detail = probe_webview_import(exe)
-    if not webview_ok:
-        log.debug("monaco_editor_available: webview probe failed for %s: %s", exe, detail[:200] if detail else "")
-        return exe, False
-    return exe, True
+    cached = cached_webview_probe(exe)
+    if cached is None:
+        _ensure_webview_probe(exe)
+        cached = cached_webview_probe(exe)
+    if cached is not None:
+        if not cached[0]:
+            log.debug("monaco_editor_available: webview probe failed for %s: %s", exe, cached[1][:200] if cached[1] else "")
+        return exe, cached[0]
+    return exe, False
 
 
 def monaco_session_needs_flush() -> bool:

@@ -513,11 +513,17 @@ def test_probe_webview_import_nonzero_exit_is_cached_failure():
 
 def test_monaco_editor_available_false_when_webview_missing():
     ctx = MagicMock()
-    with patch.object(launch_mod, "resolve_editor_python", return_value=("/venv/bin/python", "")):
-        with patch.object(launch_mod, "probe_webview_import", return_value=(False, "no webview")):
-            exe, ok = launch_mod.monaco_editor_available(ctx)
-    assert exe == "/venv/bin/python"
-    assert ok is False
+    exe = "/venv/bin/python"
+    try:
+        launch_mod._PROBE_FAILURE_CACHE[exe] = (time.monotonic() + 30.0, (False, "no webview"))
+        with patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")):
+            with patch.object(launch_mod.ManagedSubprocess, "run") as mock_run:
+                returned_exe, ok = launch_mod.monaco_editor_available(ctx)
+                mock_run.assert_not_called()
+        assert returned_exe == exe
+        assert ok is False
+    finally:
+        launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
 
 
 class _FakeProc:
@@ -1667,13 +1673,17 @@ def test_venv_path_change_clears_webview_probe_failure_cache():
     launch_mod._PROBE_CACHE[exe] = (True, "ok")
     launch_mod._PROBE_FAILURE_CACHE[exe] = (10**12, (False, "no"))
     try:
-        with patch.object(launch_mod, "terminate_persistent_editor"):
-            launch_mod._on_config_changed(key="scripting.python_venv_path")
+        with patch.object(launch_mod, "resolve_editor_python", return_value=(None, "")):
+            with patch.object(launch_mod, "terminate_persistent_editor"):
+                launch_mod._on_config_changed(key="scripting.python_venv_path")
         assert exe not in launch_mod._PROBE_CACHE
         assert exe not in launch_mod._PROBE_FAILURE_CACHE
     finally:
         launch_mod._PROBE_CACHE.pop(exe, None)
         launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+        launch_mod._probe_generation = 0
+        launch_mod._probe_wanted = None
+        launch_mod._probe_running = False
 
 
 def test_send_warns_for_a_type_the_child_does_not_queue(caplog):
@@ -2376,23 +2386,27 @@ def test_config_change_python_editor_terminates_editor_and_clears_probe_caches()
     launch_mod._PROBE_CACHE[exe] = (True, "ok")
     launch_mod._PROBE_FAILURE_CACHE[exe] = (999999.0, (False, "err"))
     try:
-        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
-            launch_mod._on_config_changed(key="scripting.python_editor")
-            mock_term.assert_called_once()
-            assert exe not in launch_mod._PROBE_CACHE
-            assert exe not in launch_mod._PROBE_FAILURE_CACHE
+        with patch.object(launch_mod, "resolve_editor_python", return_value=(None, "")):
+            with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
+                launch_mod._on_config_changed(key="scripting.python_editor")
+                mock_term.assert_called_once()
+                assert exe not in launch_mod._PROBE_CACHE
+                assert exe not in launch_mod._PROBE_FAILURE_CACHE
 
-        launch_mod._PROBE_CACHE[exe] = (True, "ok")
-        launch_mod._PROBE_FAILURE_CACHE[exe] = (999999.0, (False, "err"))
+            launch_mod._PROBE_CACHE[exe] = (True, "ok")
+            launch_mod._PROBE_FAILURE_CACHE[exe] = (999999.0, (False, "err"))
 
-        with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
-            launch_mod._on_config_changed(key="", keys=("scripting.python_editor",))
-            mock_term.assert_called_once()
-            assert exe not in launch_mod._PROBE_CACHE
-            assert exe not in launch_mod._PROBE_FAILURE_CACHE
+            with patch.object(launch_mod, "terminate_persistent_editor") as mock_term:
+                launch_mod._on_config_changed(key="", keys=("scripting.python_editor",))
+                mock_term.assert_called_once()
+                assert exe not in launch_mod._PROBE_CACHE
+                assert exe not in launch_mod._PROBE_FAILURE_CACHE
     finally:
         launch_mod._PROBE_CACHE.pop(exe, None)
         launch_mod._PROBE_FAILURE_CACHE.pop(exe, None)
+        launch_mod._probe_generation = 0
+        launch_mod._probe_wanted = None
+        launch_mod._probe_running = False
 
 
 def test_config_change_unrelated_key_keeps_editor_and_probe_cache():
@@ -2405,3 +2419,137 @@ def test_config_change_unrelated_key_keeps_editor_and_probe_cache():
             assert launch_mod._PROBE_CACHE[exe] == (True, "ok")
     finally:
         launch_mod._PROBE_CACHE.pop(exe, None)
+
+
+def test_monaco_editor_available_pending_does_not_run_subprocess():
+    ctx = MagicMock()
+    exe = "/venv/bin/python"
+    try:
+        launch_mod._PROBE_CACHE.clear()
+        launch_mod._PROBE_FAILURE_CACHE.clear()
+        launch_mod._probe_running = True
+        with patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")):
+            with patch.object(
+                launch_mod.ManagedSubprocess,
+                "run",
+                side_effect=AssertionError("ManagedSubprocess.run must not be called"),
+            ) as mock_run:
+                returned_exe, ok = launch_mod.monaco_editor_available(ctx)
+                mock_run.assert_not_called()
+        assert returned_exe == exe
+        assert ok is False
+    finally:
+        launch_mod._PROBE_CACHE.clear()
+        launch_mod._PROBE_FAILURE_CACHE.clear()
+        launch_mod._probe_running = False
+        launch_mod._probe_wanted = None
+        launch_mod._probe_generation = 0
+
+
+def test_venv_path_change_schedules_one_webview_probe():
+    exe = "/venv/bin/python"
+
+    def _reset():
+        launch_mod._PROBE_CACHE.clear()
+        launch_mod._PROBE_FAILURE_CACHE.clear()
+        launch_mod._probe_running = False
+        launch_mod._probe_wanted = None
+        launch_mod._probe_generation = 0
+
+    try:
+        _reset()
+        with (
+            patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
+            patch.object(launch_mod, "run_in_background") as mock_bg,
+            patch.object(launch_mod, "terminate_persistent_editor"),
+        ):
+            launch_mod._on_config_changed(key="scripting.python_venv_path")
+            assert mock_bg.call_count == 1
+            assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
+            assert mock_bg.call_args[1].get("name") == "webview-probe"
+            assert mock_bg.call_args[1].get("dedicated") is False
+            assert launch_mod._probe_running is True
+
+            launch_mod._on_config_changed(key="scripting.python_venv_path")
+            assert mock_bg.call_count == 1
+
+        _reset()
+        with (
+            patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
+            patch.object(launch_mod, "run_in_background") as mock_bg,
+            patch.object(launch_mod, "terminate_persistent_editor"),
+        ):
+            launch_mod._on_config_changed(key="", keys=("scripting.python_venv_path",))
+            assert mock_bg.call_count == 1
+            assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
+            assert mock_bg.call_args[1].get("name") == "webview-probe"
+
+        _reset()
+        with (
+            patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
+            patch.object(launch_mod, "run_in_background") as mock_bg,
+            patch.object(launch_mod, "terminate_persistent_editor"),
+        ):
+            launch_mod._on_config_changed(key="scripting.python_editor")
+            assert mock_bg.call_count == 1
+            assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
+            assert mock_bg.call_args[1].get("name") == "webview-probe"
+    finally:
+        _reset()
+
+
+def test_monaco_editor_available_cache_miss_arms_once():
+    ctx = MagicMock()
+    exe = "/venv/bin/python"
+    try:
+        launch_mod._PROBE_CACHE.clear()
+        launch_mod._PROBE_FAILURE_CACHE.clear()
+        launch_mod._probe_running = False
+        launch_mod._probe_wanted = None
+        launch_mod._probe_generation = 0
+        with (
+            patch.object(launch_mod, "resolve_editor_python", return_value=(exe, "")),
+            patch.object(launch_mod, "run_in_background") as mock_bg,
+            patch.object(
+                launch_mod.ManagedSubprocess,
+                "run",
+                side_effect=AssertionError("ManagedSubprocess.run must not be called on caller"),
+            ) as mock_run,
+        ):
+            returned_exe, ok = launch_mod.monaco_editor_available(ctx)
+            assert returned_exe == exe
+            assert ok is False
+            assert mock_bg.call_count == 1
+            assert mock_bg.call_args[0][0] == launch_mod._webview_probe_worker
+            assert mock_bg.call_args[1].get("name") == "webview-probe"
+            mock_run.assert_not_called()
+    finally:
+        launch_mod._PROBE_CACHE.clear()
+        launch_mod._PROBE_FAILURE_CACHE.clear()
+        launch_mod._probe_running = False
+        launch_mod._probe_wanted = None
+        launch_mod._probe_generation = 0
+
+
+def test_probe_webview_import_stale_generation_does_not_store():
+    exe = "/venv/bin/python"
+    try:
+        launch_mod._PROBE_CACHE.clear()
+        launch_mod._PROBE_FAILURE_CACHE.clear()
+        launch_mod._probe_generation = 5
+        mock_res = MagicMock(returncode=0, stdout="ok", stderr="")
+        with patch.object(launch_mod.ManagedSubprocess, "run", return_value=mock_res):
+            ok, _detail = launch_mod.probe_webview_import(exe, apply_generation=4)
+            assert ok is True
+            assert exe not in launch_mod._PROBE_CACHE
+            assert exe not in launch_mod._PROBE_FAILURE_CACHE
+
+            ok, _detail = launch_mod.probe_webview_import(exe, apply_generation=5)
+            assert ok is True
+            assert launch_mod._PROBE_CACHE.get(exe) == (True, "ok")
+    finally:
+        launch_mod._PROBE_CACHE.clear()
+        launch_mod._PROBE_FAILURE_CACHE.clear()
+        launch_mod._probe_generation = 0
+        launch_mod._probe_wanted = None
+        launch_mod._probe_running = False
