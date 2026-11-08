@@ -431,7 +431,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
 - Fields: Writer fields are empty spans whose title is the field kind, e.g. <span title="page-number"/>. Same shape in body HTML and in headers/footers.
 - Hand-set formatting: `data-lo-para` (e.g. `data-lo-para="margin-left:3.25cm; font-size:12pt"`) reports what a paragraph has set directly. On write (full_document, beginning, end), text-align, margin-left, margin-right, and background-color are applied; other properties arrive in warnings. It is how you tell a block quote from body text in a document formatted by hand. Reported on both scope='full' and scope='range'.
   apply_style defaults to clear_direct='style_props': the style's font name/size and paragraph indents show; bold/italic/colour stay. Pass clear_direct='none' only to keep a hand-set font. clear_direct='all' is Ctrl+M (refused on target='full_document').
-  Re-applying a style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
+  Re-applying a style via apply_style does not keep a quote indent — LibreOffice drops direct Para* (margins/alignment) when ParaStyleName is set.
 
 EXAMPLES:
 - Good: ["<h1>Title</h1>", "<p>Paragraph with <strong>bold</strong> text and \\"quotes\\".</p>"]

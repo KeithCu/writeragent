@@ -357,10 +357,10 @@ def insert_html_at_cursor(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
-) -> list[str]:
+) -> None:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
     with image_placeholders._keep_placeholder_images(model, unescaped_content) as content:
-        return _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=apply_styles)
 
 
 
@@ -637,7 +637,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
 
 def replace_single_range_with_content(
     model: Any, text_range: Any, content: str, ctx: Any
-) -> list[str]:
+) -> None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         prepared = _decode_complete_character_references(swapped)
@@ -690,12 +690,11 @@ def replace_single_range_with_content(
                     apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
-            return html_import_styles.unapplied_para_names_for_content(prepared)
         else:
             # apply_styles=False: a search/replace splits the matched paragraph, so applying a
             # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
             try:
-                return _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
+                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
             except Exception as e:
                 reraise_if_disposed(e)
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter

@@ -838,7 +838,7 @@ def test_apply_block_lo_styles_background_color_sets_fill_properties_on_paragrap
     penum = MagicMock()
     penum.hasMoreElements.side_effect = [True, False]
     penum.nextElement.return_value = para_el
-    text.createEnumeration.return_value = penum
+    para_cur.createEnumeration.return_value = penum
 
     solid_style, _none_style = html_import_styles._get_fill_style_enums()
 
@@ -877,7 +877,7 @@ def test_apply_block_lo_styles_background_color_transparent_sets_fill_none():
     penum = MagicMock()
     penum.hasMoreElements.side_effect = [True, False]
     penum.nextElement.return_value = para_el
-    text.createEnumeration.return_value = penum
+    para_cur.createEnumeration.return_value = penum
 
     _solid_style, none_style = html_import_styles._get_fill_style_enums()
 
@@ -906,14 +906,45 @@ def test_apply_block_lo_styles_background_color_missing_para_obj_fails():
 
     para_cur = MagicMock()
     text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
-    # No enumeration available so para_obj cannot be resolved
-    text.createEnumeration.return_value = None
-    model.getText.return_value.createEnumeration.return_value = None
+    # No enumeration available on cursor so para_obj cannot be resolved
+    para_cur.createEnumeration.return_value = None
 
     failed = html_import_styles._apply_block_lo_styles(
         model, text, MagicMock(), [None], paras=["background-color:#ffe4c4"]
     )
     assert failed == ["background-color"]
+
+
+def test_apply_para_props_split_helper():
+    from unittest.mock import MagicMock, call
+    from plugin.writer.html_import_styles import _apply_para_props, _get_fill_style_enums
+
+    solid_style, _none_style = _get_fill_style_enums()
+    para_cur = MagicMock()
+    para_obj = MagicMock()
+
+    mapped = {
+        "text-align": ("ParaAdjust", 3),
+        "background-color": ("ParaBackColor", 0xFFE4C4),
+    }
+    failed = _apply_para_props(para_cur, para_obj, mapped)
+    assert failed == []
+    para_cur.setPropertyValue.assert_called_once_with("ParaAdjust", 3)
+    para_obj.setPropertyValue.assert_has_calls([
+        call("FillColor", 0xFFE4C4),
+        call("FillStyle", solid_style),
+    ])
+
+
+def test_parse_data_lo_para_duplicate_properties_keeps_first():
+    from plugin.writer.html_import_styles import parse_data_lo_para
+
+    props, dropped = parse_data_lo_para("margin-left:1cm; margin-left:2cm; text-align:center; text-align:right")
+    assert props == {
+        "margin-left": ("ParaLeftMargin", 1000),
+        "text-align": ("ParaAdjust", 3),
+    }
+    assert dropped == []
 
 
 def test_extractor_handles_data_lo_para():

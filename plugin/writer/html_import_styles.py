@@ -89,7 +89,10 @@ def parse_data_lo_para(css: str) -> tuple[dict[str, tuple[str, Any]], list[str]]
         _para_adjust_to_uno = None  # type: ignore[assignment]
         _style_color_to_uno = None  # type: ignore[assignment]
 
-    declarations: dict[str, str] = {}
+    seen: set[str] = set()
+    mapped: dict[str, tuple[str, Any]] = {}
+    dropped: list[str] = []
+
     for part in css.split(";"):
         part = part.strip()
         if not part or ":" not in part:
@@ -97,12 +100,10 @@ def parse_data_lo_para(css: str) -> tuple[dict[str, tuple[str, Any]], list[str]]
         prop, val = part.split(":", 1)
         prop = prop.strip().lower()
         val = val.strip()
-        declarations[prop] = val
+        if not prop or prop in seen:
+            continue
+        seen.add(prop)
 
-    mapped: dict[str, tuple[str, Any]] = {}
-    dropped: list[str] = []
-
-    for prop, val in declarations.items():
         if prop == "text-align":
             mapped_val = xhtml_post._ODF_TEXT_ALIGN.get(val, val)
             if _para_adjust_to_uno is not None:
@@ -311,18 +312,52 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
 
 def _get_fill_style_enums() -> tuple[Any, Any]:
     """Return (SOLID, NONE) FillStyle enums for paragraph background fill."""
-    try:
-        import uno
-        return (
-            uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"),
-            uno.Enum("com.sun.star.drawing.FillStyle", "NONE"),
-        )
-    except Exception:
+    import uno
+    return (
+        uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"),
+        uno.Enum("com.sun.star.drawing.FillStyle", "NONE"),
+    )
+
+
+def _apply_para_props(
+    para_cur: Any,
+    para_obj: Any,
+    mapped: dict[str, tuple[str, Any]],
+) -> list[str]:
+    """Apply parsed UNO paragraph properties to *para_cur* and background fill to *para_obj*.
+
+    Returns a list of CSS property names that failed to apply.
+    """
+    failed: list[str] = []
+    for css_name, (uno_prop, val) in mapped.items():
         try:
-            from com.sun.star.drawing import FillStyle
-            return FillStyle.SOLID, FillStyle.NONE
-        except Exception:
-            return 1, 0
+            if css_name == "background-color":
+                if para_obj is None:
+                    failed.append(css_name)
+                    continue
+                # Setting ParaBackColor on a cursor only writes RES_BACKGROUND without
+                # converting to fill attributes (only SwXStyle::SetPropertyValue in
+                # sw/source/core/unocore/unostyle.cxx converts RES_BACKGROUND to drawing fill).
+                # getPropertyValue("ParaBackColor") delegates via SwXParagraph to
+                # getSvxBrushItemFromSourceSet (svx/source/unodraw/unobrushitemhelper.cxx),
+                # which returns COL_AUTO (-1) when FillStyle is missing or NONE.
+                # Direct paragraph backgrounds must set FillColor and FillStyle on the
+                # SwXParagraph element itself (FILL_PROPERTIES_SW in
+                # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap; not exposed
+                # on COMPLETE_TEXT_CURSOR_MAP).
+                solid_style, none_style = _get_fill_style_enums()
+                if val == -1:
+                    para_obj.setPropertyValue("FillStyle", none_style)
+                else:
+                    para_obj.setPropertyValue("FillColor", val)
+                    para_obj.setPropertyValue("FillStyle", solid_style)
+            else:
+                para_cur.setPropertyValue(uno_prop, val)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            log.debug("data-lo-para: failed to set %s (%s)", uno_prop, css_name, exc_info=True)
+            failed.append(css_name)
+    return failed
 
 
 def _apply_block_lo_styles(
@@ -370,20 +405,6 @@ def _apply_block_lo_styles(
     style_cache: dict[Any, Any] = {}
     reached_count = 0
 
-    all_paras: list[Any] = []
-    if any(para_list):
-        try:
-            penum = None
-            if hasattr(text_obj, "createEnumeration"):
-                penum = text_obj.createEnumeration()
-            elif model is not None and hasattr(model, "getText"):
-                penum = model.getText().createEnumeration()
-            if penum is not None:
-                from plugin.doc.text_helpers import iter_elements
-                all_paras = list(iter_elements(penum))
-        except Exception as exc:
-            reraise_if_disposed(exc)
-
     for idx, (style, para_css) in enumerate(zip(styles, para_list)):
         # Stop at the first paragraph that does not start before the parked end cursor.
         try:
@@ -418,47 +439,19 @@ def _apply_block_lo_styles(
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
                     para_obj = None
-                    if all_paras:
-                        try:
-                            from plugin.doc.paragraph_search import find_paragraph_for_range
-                            p_idx = find_paragraph_for_range(walk_cur, all_paras, text_obj)
-                            if p_idx is not None and 0 <= p_idx < len(all_paras):
-                                para_obj = all_paras[p_idx]
-                            elif idx < len(all_paras):
-                                para_obj = all_paras[idx]
-                        except Exception as exc:
-                            reraise_if_disposed(exc)
-                            if idx < len(all_paras):
-                                para_obj = all_paras[idx]
+                    try:
+                        enum = para_cur.createEnumeration()
+                        if enum is not None and getattr(enum, "hasMoreElements", lambda: False)():
+                            el = enum.nextElement()
+                            if getattr(el, "supportsService", lambda _: False)("com.sun.star.text.Paragraph") is True:
+                                para_obj = el
+                            elif el is not None:
+                                para_obj = el
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        log.debug("data-lo-para: could not enumerate paragraph object: %s", exc)
 
-                    for css_name, (uno_prop, val) in mapped.items():
-                        try:
-                            if css_name == "background-color":
-                                if para_obj is None:
-                                    failed.append(css_name)
-                                    continue
-                                # Setting ParaBackColor on a cursor only writes RES_BACKGROUND without
-                                # converting to fill attributes (only SwXStyle::SetPropertyValue in
-                                # sw/source/core/unocore/unostyle.cxx converts RES_BACKGROUND to drawing fill).
-                                # getPropertyValue("ParaBackColor") delegates via SwXParagraph to
-                                # getSvxBrushItemFromSourceSet (svx/source/unodraw/unobrushitemhelper.cxx),
-                                # which returns COL_AUTO (-1) when FillStyle is missing or NONE.
-                                # Direct paragraph backgrounds must set FillColor and FillStyle on the
-                                # SwXParagraph element itself (FILL_PROPERTIES_SW in
-                                # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap; not exposed
-                                # on COMPLETE_TEXT_CURSOR_MAP).
-                                solid_style, none_style = _get_fill_style_enums()
-                                if val == -1:
-                                    para_obj.setPropertyValue("FillStyle", none_style)
-                                else:
-                                    para_obj.setPropertyValue("FillColor", val)
-                                    para_obj.setPropertyValue("FillStyle", solid_style)
-                            else:
-                                para_cur.setPropertyValue(uno_prop, val)
-                        except Exception as exc:
-                            reraise_if_disposed(exc)
-                            log.debug("data-lo-para: failed to set %s (%s)", uno_prop, css_name, exc_info=True)
-                            failed.append(css_name)
+                    failed.extend(_apply_para_props(para_cur, para_obj, mapped))
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-para: cursor creation failed", exc_info=True)

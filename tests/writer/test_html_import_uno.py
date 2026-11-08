@@ -529,5 +529,37 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
     assert r2.getPropertyValue("ParaLeftMargin") == 1000
 
 
+@native_test
+@with_native_doc("writer")
+def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, doc: Any) -> None:
+    """data-lo-para background-color is applied to the newly inserted paragraph at 'end' of non-empty doc."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    import uno
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    res1 = ApplyDocumentContent().execute(tool_ctx, target="full_document", content="<p>Initial paragraph</p>")
+    assert res1.get("status") == "ok", res1
+
+    html = '<p data-lo-style="Textbody" data-lo-para="margin-left:1.5cm; background-color:#ffe4c4">Appended paragraph</p>'
+    res2 = ApplyDocumentContent().execute(tool_ctx, target="end", content=html)
+    assert res2.get("status") == "ok", res2
+    assert "warnings" not in res2, res2
+
+    enum = doc.getText().createEnumeration()
+    p1 = enum.nextElement()
+    p2 = enum.nextElement()
+
+    assert p1.getString() == "Initial paragraph"
+
+    assert p2.getString() == "Appended paragraph"
+    assert p2.getPropertyValue("ParaLeftMargin") == 1500
+    solid_fill = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    assert p2.getPropertyValue("FillStyle") == solid_fill
+    assert p2.getPropertyValue("FillColor") == 0xFFE4C4
+    assert int(p2.getPropertyValue("ParaBackColor")) == 0xFFE4C4
+
+
 
 

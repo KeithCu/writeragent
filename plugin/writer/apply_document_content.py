@@ -1123,13 +1123,12 @@ class ApplyDocumentContent(ToolBase):
         content = params.content
         plain = params.plain
         has_table = params.has_table
-        failed: list[str] = []
         with session:
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
-            record_html_atomically(
+            failed = record_html_atomically(
                 session, ctx.doc,
-                lambda: failed.extend(format_support.replace_full_document(ctx.doc, ctx.ctx, content) or []),
-                proposed_preview=plain)
+                lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
             return err
@@ -1145,11 +1144,10 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         target = params.target
         tables_before = _doc_table_count(ctx.doc) if has_table else None
-        failed: list[str] = []
         with session:
-            session.record_mutation(
-                lambda: failed.extend(format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target) or []),
-                proposed_preview=plain)
+            failed = session.record_mutation(
+                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
@@ -1174,13 +1172,12 @@ class ApplyDocumentContent(ToolBase):
         # collapsed position (not the selection range itself) survives the replace.
         anchor = selection_anchor(ctx.doc)
         tables_before = _doc_table_count(ctx.doc) if has_table else None
-        failed: list[str] = []
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
-            record_html_atomically(
+            failed = record_html_atomically(
                 session, ctx.doc,
-                lambda: failed.extend(format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection") or []),
-                proposed_preview=plain)
+                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
+                proposed_preview=plain) or []
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
@@ -1336,10 +1333,10 @@ class ApplyDocumentContent(ToolBase):
             else:
                 res = self._edit_replace_one(ctx, session, params, found)
 
-        if res.get("status") == "ok" and "data-lo-para" in str(params.content):
+        if res.get("status") == "ok" and "data-lo-para" in params.content:
             from . import html_import_styles
 
-            unapplied = html_import_styles.unapplied_para_names_for_content(str(params.content))
+            unapplied = html_import_styles.unapplied_para_names_for_content(params.content)
             return _attach_para_warnings(res, unapplied)
         return res
 
