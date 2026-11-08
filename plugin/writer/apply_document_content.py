@@ -327,6 +327,32 @@ def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
     return result
 
 
+def _attach_style_notes(result: dict[str, Any], notes: list[str]) -> dict[str, Any]:
+    """Append unapplied data-lo-style warnings to result's warning and message fields."""
+    if not isinstance(result, dict) or result.get("status") != "ok" or not notes:
+        return result
+    seen: set[str] = set()
+    unique_notes: list[str] = []
+    for note in notes:
+        if note and note not in seen:
+            seen.add(note)
+            unique_notes.append(note)
+    if not unique_notes:
+        return result
+    note_text = " ".join(unique_notes)
+    existing_warning = result.get("warning")
+    if existing_warning:
+        result["warning"] = f"{existing_warning} {note_text}"
+    else:
+        result["warning"] = note_text
+    existing_message = result.get("message") or ""
+    if existing_message:
+        result["message"] = f"{existing_message} {note_text}"
+    else:
+        result["message"] = note_text
+    return result
+
+
 def _run_on_main_thread(fn: Any) -> Any:
     if main.is_current():
         return fn()
@@ -668,7 +694,8 @@ class ApplyDocumentContent(ToolBase):
                        use_preserve: bool, content: Any,
                        ctx: ToolContext, track_reviewable: bool,
                        override: str | None, batch: bool,
-                       plain: str) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+                       plain: str,
+                       style_notes: list[str] | None = None) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
@@ -698,18 +725,27 @@ class ApplyDocumentContent(ToolBase):
             elif batch:
                 # The all_matches loop already entered an undo context. A second
                 # record_html_atomically would nest another and close it early.
-                def replace_one(f: Any = found) -> None:
-                    format_support.replace_single_range_with_content(
+                def replace_one(f: Any = found) -> Any:
+                    note = format_support.replace_single_range_with_content(
                         doc, f, content, ctx.ctx)
+                    if isinstance(note, str) and style_notes is not None:
+                        style_notes.append(note)
+                    return note
 
                 session.record_mutation(
                     replace_one,
                     original_preview=original, proposed_preview=plain)
             else:
+                def replace_single() -> Any:
+                    note = format_support.replace_single_range_with_content(
+                        doc, found, content, ctx.ctx)
+                    if isinstance(note, str) and style_notes is not None:
+                        style_notes.append(note)
+                    return note
+
                 record_html_atomically(
                     session, doc,
-                    lambda: format_support.replace_single_range_with_content(
-                        doc, found, content, ctx.ctx),
+                    replace_single,
                     original_preview=original, proposed_preview=plain)
             if not needs_fix:
                 return []
@@ -1188,15 +1224,17 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
-            record_html_atomically(
+            note = record_html_atomically(
                 session, ctx.doc,
                 lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
             return err
-        return attach_edited_context(
-            {"status": "ok", "message": "Inserted content at selection."}, anchor)
+        resp = {"status": "ok", "message": "Inserted content at selection."}
+        if isinstance(note, str):
+            _attach_style_notes(resp, [note])
+        return attach_edited_context(resp, anchor)
 
 
     def _edit_replace_all(
@@ -1226,6 +1264,7 @@ class ApplyDocumentContent(ToolBase):
         else:
             anchor = collapsed_anchor(ranges[0])
         count = 0
+        style_notes: list[str] = []
         link_failure_holder: list[dict[str, Any] | None] = [None]
         link_reports: list[dict[str, Any]] = []
         tracked_delete_box = [False]
@@ -1243,7 +1282,7 @@ class ApplyDocumentContent(ToolBase):
                         session, doc, found, use_preserve=params.use_preserve,
                         content=params.content, ctx=ctx,
                         track_reviewable=params.track_reviewable, override=params.override, batch=True,
-                        plain=params.plain)
+                        plain=params.plain, style_notes=style_notes)
                     if link_err:
                         link_failure_holder[0] = link_err
                         raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
@@ -1316,6 +1355,7 @@ class ApplyDocumentContent(ToolBase):
                 if "pending_review" in deletion:
                     resp["pending_review"] = deletion["pending_review"]
                 resp["message"] = (resp.get("message") or "").rstrip() + " " + deletion["message"]
+        _attach_style_notes(resp, style_notes)
         self._attach_hyperlink_reports(resp, link_reports)
         return attach_edited_context(resp, anchor)
 
@@ -1475,11 +1515,12 @@ class ApplyDocumentContent(ToolBase):
             with session:
                 tracked_delete = record_table_deletions(session, doc, ctx, doomed)
             return _table_deletion_result([name for _table, name in doomed], tracked_delete)
+        style_notes: list[str] = []
         reports, link_err = self._replace_found(
             session, doc, found, use_preserve=params.use_preserve,
             content=params.content, ctx=ctx,
             track_reviewable=params.track_reviewable, override=params.override, batch=False,
-            plain=params.plain)
+            plain=params.plain, style_notes=style_notes)
         if link_err:
             return link_err
         resp = build_search_replace_response(1, use_preserve=params.use_preserve)
@@ -1488,5 +1529,6 @@ class ApplyDocumentContent(ToolBase):
         err = self._table_insert_error(doc, params.has_table, tables_before)
         if err:
             return err
+        _attach_style_notes(resp, style_notes)
         self._attach_hyperlink_reports(resp, reports or [])
         return attach_edited_context(resp, anchor)

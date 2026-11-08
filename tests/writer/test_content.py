@@ -616,6 +616,43 @@ def test_all_matches_hoists_plain_text_conversion():
     assert mock_html_plain.call_args_list[1][0][0] == "<b>hi</b>"
 
 
+def test_search_replace_attaches_style_note_warning():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_import import _LO_STYLE_PARTIAL_MATCH_NOTE
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    found.getString.return_value = "old"
+
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "replace_single_range_with_content", return_value=_LO_STYLE_PARTIAL_MATCH_NOTE):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old"
+        )
+    assert res["status"] == "ok"
+    assert "warning" in res
+    assert "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "apply_style(target='search', old_content=...)" in res["message"]
+
+    # When replace_single_range_with_content returns None, warning is absent
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "replace_single_range_with_content", return_value=None):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res_no_warn = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old"
+        )
+    assert res_no_warn["status"] == "ok"
+    assert "warning" not in res_no_warn
+
+
 def test_edge_spaces_with_use_preserve():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 

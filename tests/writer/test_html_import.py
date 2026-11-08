@@ -1331,3 +1331,138 @@ def test_collect_range_portions_magic_mock_returns_immediately():
     assert portions == []
 
 
+def test_lo_style_for_replaced_range_predicates():
+    from plugin.writer.html_import import (
+        _lo_style_for_replaced_range,
+        _LO_STYLE_PARTIAL_MATCH_NOTE,
+    )
+
+    model = MagicMock()
+    content = '<p data-lo-style="Heading2">content</p>'
+
+    def make_range(is_start: bool, is_end: bool) -> MagicMock:
+        start_cur = MagicMock()
+        start_cur.isStartOfParagraph.return_value = is_start
+        end_cur = MagicMock()
+        end_cur.isEndOfParagraph.return_value = is_end
+        text = MagicMock()
+        text.createTextCursorByRange.side_effect = lambda pos: start_cur if pos == "start" else end_cur
+        rng = MagicMock()
+        rng.getText.return_value = text
+        rng.getStart.return_value = "start"
+        rng.getEnd.return_value = "end"
+        return rng
+
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        # Both edges true -> apply True, note None
+        apply, note = _lo_style_for_replaced_range(model, content, make_range(True, True))
+        assert apply is True
+        assert note is None
+
+        # Start only -> apply False, note partial
+        apply, note = _lo_style_for_replaced_range(model, content, make_range(True, False))
+        assert apply is False
+        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+
+        # End only -> apply False, note partial
+        apply, note = _lo_style_for_replaced_range(model, content, make_range(False, True))
+        assert apply is False
+        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+
+        # Neither -> apply False, note partial
+        apply, note = _lo_style_for_replaced_range(model, content, make_range(False, False))
+        assert apply is False
+        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+
+
+def test_lo_style_for_replaced_range_recording():
+    from plugin.writer.html_import import (
+        _lo_style_for_replaced_range,
+        _LO_STYLE_PARTIAL_MATCH_NOTE,
+        _LO_STYLE_RECORDING_NOTE,
+    )
+
+    model = MagicMock()
+    content = '<p data-lo-style="Heading2">content</p>'
+
+    def make_range(is_start: bool, is_end: bool) -> MagicMock:
+        start_cur = MagicMock()
+        start_cur.isStartOfParagraph.return_value = is_start
+        end_cur = MagicMock()
+        end_cur.isEndOfParagraph.return_value = is_end
+        text = MagicMock()
+        text.createTextCursorByRange.side_effect = lambda pos: start_cur if pos == "start" else end_cur
+        rng = MagicMock()
+        rng.getText.return_value = text
+        rng.getStart.return_value = "start"
+        rng.getEnd.return_value = "end"
+        return rng
+
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
+        # Edges true, recording true -> apply False, recording sentence
+        apply, note = _lo_style_for_replaced_range(model, content, make_range(True, True))
+        assert apply is False
+        assert note == _LO_STYLE_RECORDING_NOTE
+
+        # Geometry checked first: partial match while recording returns partial note
+        apply, note = _lo_style_for_replaced_range(model, content, make_range(False, True))
+        assert apply is False
+        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+
+
+def test_lo_style_for_replaced_range_non_block_tokens():
+    from plugin.writer.html_import import _lo_style_for_replaced_range
+
+    model = MagicMock()
+    rng = MagicMock()
+
+    # Span token -> (False, None), range cursor methods not probed
+    apply, note = _lo_style_for_replaced_range(model, '<span data-lo-style="Heading2">x</span>', rng)
+    assert apply is False
+    assert note is None
+    rng.getText.assert_not_called()
+
+    # Body-text mention -> (False, None)
+    apply, note = _lo_style_for_replaced_range(model, '<p>The attribute data-lo-style is cool</p>', rng)
+    assert apply is False
+    assert note is None
+    rng.getText.assert_not_called()
+
+    # Table-only token -> (False, None)
+    apply, note = _lo_style_for_replaced_range(
+        model, '<table><tr><td data-lo-style="Heading2">cell</td></tr></table>', rng
+    )
+    assert apply is False
+    assert note is None
+    rng.getText.assert_not_called()
+
+
+def test_styled_insert_epilogue_cursor_move():
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model_text = MagicMock()
+    model.getText.return_value = model_text
+
+    cursor = MagicMock()
+    cursor_text = MagicMock()
+    cursor.getText.return_value = cursor_text
+
+    parked = MagicMock()
+    cursor_text.createTextCursorByRange.return_value = parked
+
+    with patch.object(html_import, "_insert_starwriter_html_at_cursor"), \
+         patch("plugin.writer.html_import_styles._apply_block_lo_styles"), \
+         patch.object(html_import, "_apply_ruby_and_restore_fields"):
+        html_import._insert_mixed_or_plain_html(
+            model, MagicMock(), cursor,
+            '<p data-lo-style="Heading1">Heading</p>',
+            apply_styles=True,
+        )
+
+    # cursor.gotoRange received the parked cursor's start
+    cursor.gotoRange.assert_called_with(parked.getStart.return_value, False)
+    # model.getText().createTextCursor is not called
+    model_text.createTextCursor.assert_not_called()
+
+
