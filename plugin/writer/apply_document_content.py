@@ -302,6 +302,25 @@ def _find_ranges(
 # ------------------------------------------------------------------
 
 
+def _attach_writer_suggestions(result: dict[str, Any]) -> None:
+    """Attach apply_style suggested tool calls to Writer write warnings."""
+    for w in result.get("warnings", []):
+        code = w.get("code")
+        if code == "data_lo_para_ignored" or code == "data_lo_para_property_ignored" or (
+            isinstance(code, str) and code.startswith("paragraph_")
+        ):
+            w["suggested_call"] = {
+                "tool": "apply_style",
+                "arguments": {"family": "ParagraphStyles"},
+            }
+        elif code in ("data_lo_style_ignored", "table_cell_style_ignored"):
+            args: dict[str, Any] = {"family": "ParagraphStyles", "target": "search"}
+            if "value" in w:
+                args["style"] = w["value"]
+            w["suggested_call"] = {"tool": "apply_style", "arguments": args}
+            w["message"] = f"{w['message']} Pass old_content and the real style name to apply_style."
+
+
 def _run_on_main_thread(fn: Any) -> Any:
     if main.is_current():
         return fn()
@@ -874,18 +893,23 @@ class ApplyDocumentContent(ToolBase):
         # Thin wrapper so every return path attaches dropped-attribute warnings to a
         # successful write, including the review-wait branch that does not go through
         # annotate_review_status.
+        from .html_import import STYLED_TARGETS, format_styled_targets
         from .html_import_styles import attach_write_warnings
 
-        styles_applied = self._effective_target(kwargs.get("target"), kwargs.get("old_content")) in (
-            "full_document",
-            "beginning",
-            "end",
+        styles_applied = self._effective_target(kwargs.get("target"), kwargs.get("old_content")) in STYLED_TARGETS
+        style_msg = (
+            f"named styles are applied only on {format_styled_targets()}, "
+            "and only on paragraph blocks outside tables."
         )
-        return attach_write_warnings(
+        res = attach_write_warnings(
             self._execute(ctx, **kwargs),
             kwargs.get("content"),
             styles_applied=styles_applied,
+            style_ignored_message=style_msg,
         )
+        if isinstance(res, dict) and res.get("status") == "ok":
+            _attach_writer_suggestions(res)
+        return res
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = main.is_current()

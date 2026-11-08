@@ -469,6 +469,7 @@ def test_set_header_footer_text_warnings():
         ]
         assert len(style_warnings) == 1
         assert "suggested_call" not in style_warnings[0]
+        assert style_warnings[0]["value"] == "Heading1"
 
 
 

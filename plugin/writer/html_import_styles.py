@@ -226,23 +226,24 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
 # ------------------------------------------------------------------
 
 # Known property categories parsed out of data-lo-para, in stable emission order.
-# Each entry pairs a warning code with the specific CSS property names belonging to it.
-_KNOWN_PROPERTY_SPECS: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("paragraph_margin_ignored", ("margin", "margin-left", "margin-right", "margin-top", "margin-bottom")),
-    ("paragraph_indent_ignored", ("text-indent",)),
-    ("paragraph_alignment_ignored", ("text-align",)),
-    ("paragraph_line_height_ignored", ("line-height",)),
-    ("paragraph_font_ignored", ("font", "font-family", "font-size", "font-weight", "font-style")),
-    ("paragraph_color_ignored", ("color", "background", "background-color")),
+# Each entry pairs a warning code with CSS property names, human label, and optional message hint.
+_KNOWN_PROPERTY_SPECS: tuple[tuple[str, tuple[str, ...], str, str], ...] = (
+    ("paragraph_margin_ignored", ("margin", "margin-left", "margin-right", "margin-top", "margin-bottom"), "margin", ""),
+    ("paragraph_indent_ignored", ("text-indent",), "indent", " A named style has to carry the indent."),
+    ("paragraph_alignment_ignored", ("text-align",), "alignment", ""),
+    ("paragraph_line_height_ignored", ("line-height",), "line-height", ""),
+    ("paragraph_font_ignored", ("font", "font-family", "font-size", "font-weight", "font-style"), "font", ""),
+    ("paragraph_color_ignored", ("color", "background", "background-color"), "colour", ""),
 )
 
 _KNOWN_PROPERTY_MAP: dict[str, str] = {
-    prop: code for code, props in _KNOWN_PROPERTY_SPECS for prop in props
+    prop: code for code, props, _label, _hint in _KNOWN_PROPERTY_SPECS for prop in props
 }
 
-# The read path reports hand-set paragraph formatting as data-lo-para. When an agent passes
-# it back to a write tool, the write filter drops it. We append this note to the success message
-# whenever data-lo-para was detected, pointing the caller to apply_style.
+# get_document_content reports a paragraph's hand-set formatting as data-lo-para. It is a read
+# report, not an instruction: the import path cannot restore Para* when applying a named style,
+# so the attribute is dropped. We append this note to the success message (in addition to the
+# structured warnings list) so models that read only the top-level message still see the explanation.
 _DATA_LO_PARA_NOTE = (
     " Note: data-lo-para in the content was ignored — it is a read-only report of a paragraph's hand-set"
     " formatting. To change an indent or a font, apply a named style (apply_style;"
@@ -265,8 +266,8 @@ class _WriteWarningCollector(html.parser.HTMLParser):
         self._table_depth = 0
         self.has_data_lo_para = False
         self.para_properties: dict[str, str] = {}
-        self.has_data_lo_style_ignored = False
-        self.has_table_cell_style_ignored = False
+        self.ignored_styles: list[str] = []
+        self.table_cell_styles: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         t = tag.lower()
@@ -289,80 +290,26 @@ class _WriteWarningCollector(html.parser.HTMLParser):
         if "data-lo-style" in attr_dict:
             raw_style = attr_dict["data-lo-style"]
             if raw_style is not None and raw_style.strip():
+                token = raw_style.strip()
                 if self._table_depth > 0:
-                    self.has_table_cell_style_ignored = True
+                    if token not in self.table_cell_styles:
+                        self.table_cell_styles.append(token)
                 else:
                     is_block = t in xhtml_post.BLOCK_TAGS or t == "div"
                     if not (self.styles_applied and is_block):
-                        self.has_data_lo_style_ignored = True
+                        if token not in self.ignored_styles:
+                            self.ignored_styles.append(token)
 
     def handle_endtag(self, tag: str) -> None:
         if tag.lower() == "table" and self._table_depth > 0:
             self._table_depth -= 1
 
 
-def _build_property_warning(
-    code: str,
-    prop: str,
-    val: str,
-    suggest: str,
-    suggest_arguments: dict[str, Any] | None,
-) -> dict[str, Any]:
-    """Construct a warning dictionary for a single dropped paragraph property declaration."""
-    if code == "paragraph_margin_ignored":
-        message = f"Paragraph margin {prop}={val} was not applied."
-    elif code == "paragraph_indent_ignored":
-        message = f"Paragraph indent {prop}={val} was not applied. A named style has to carry the indent."
-    elif code == "paragraph_alignment_ignored":
-        message = f"Paragraph alignment {prop}={val} was not applied."
-    elif code == "paragraph_line_height_ignored":
-        message = f"Paragraph line-height {prop}={val} was not applied."
-    elif code == "paragraph_font_ignored":
-        message = f"Paragraph font {prop}={val} was not applied."
-    elif code == "paragraph_color_ignored":
-        message = f"Paragraph colour {prop}={val} was not applied."
-    else:
-        message = f"Paragraph property {prop}={val} was not applied."
-
-    suggested_call: dict[str, Any] | None = None
-    if suggest == "apply_style":
-        suggested_call = {
-            "tool": "apply_style",
-            "arguments": {"family": "ParagraphStyles"},
-        }
-    elif suggest == "set_style":
-        args: dict[str, Any] = {}
-        if suggest_arguments:
-            args.update(suggest_arguments)
-        if prop == "text-align" and val.lower() in ("left", "center", "right", "justify"):
-            args["h_align"] = val.lower()
-            suggested_call = {"tool": "set_style", "arguments": args}
-        elif prop in ("color", "background-color", "background"):
-            clean_val = val.strip()
-            is_hex = bool(re.match(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$", clean_val))
-            is_word = bool(re.match(r"^[a-zA-Z]+$", clean_val))
-            if is_hex or is_word:
-                color_key = "bg_color" if "background" in prop else "font_color"
-                args[color_key] = clean_val
-                suggested_call = {"tool": "set_style", "arguments": args}
-
-    w: dict[str, Any] = {
-        "code": code,
-        "attribute": prop,
-        "value": val,
-        "message": message,
-    }
-    if suggested_call is not None:
-        w["suggested_call"] = suggested_call
-    return w
-
-
 def collect_write_warnings(
     content: Any,
     *,
     styles_applied: bool,
-    suggest: str = "apply_style",
-    suggest_arguments: dict[str, Any] | None = None,
+    style_ignored_message: str | None = None,
 ) -> list[dict[str, Any]]:
     """Scan write content and return structured warning dictionaries for dropped attributes.
 
@@ -371,92 +318,70 @@ def collect_write_warnings(
     data_lo_style_ignored, and table_cell_style_ignored.
     """
     if isinstance(content, (list, tuple)):
-        content = "\n".join(x for x in content if isinstance(x, str))
-    if not isinstance(content, str) or "data-lo-" not in content.lower():
+        if not any(isinstance(x, str) and "data-lo-" in x.lower() for x in content):
+            return []
+    elif not isinstance(content, str) or "data-lo-" not in content.lower():
         return []
 
     collector = _WriteWarningCollector(styles_applied=styles_applied)
-    collector.feed(content)
+    if isinstance(content, (list, tuple)):
+        for item in content:
+            if isinstance(item, str):
+                collector._table_depth = 0
+                collector.feed(item)
+    elif isinstance(content, str):
+        collector.feed(content)
     collector.close()
 
     warnings: list[dict[str, Any]] = []
 
     if collector.has_data_lo_para:
-        w_umbrella: dict[str, Any] = {
+        warnings.append({
             "code": "data_lo_para_ignored",
             "attribute": "data-lo-para",
             "message": "data-lo-para was ignored. It is a read-only report of hand-set paragraph formatting, not a write instruction.",
-        }
-        if suggest == "apply_style":
-            w_umbrella["suggested_call"] = {
-                "tool": "apply_style",
-                "arguments": {"family": "ParagraphStyles"},
-            }
-        warnings.append(w_umbrella)
+        })
 
-    for _code, prop_names in _KNOWN_PROPERTY_SPECS:
+    for code, prop_names, label, hint in _KNOWN_PROPERTY_SPECS:
         for prop in prop_names:
             if prop in collector.para_properties:
                 val = collector.para_properties[prop]
-                warnings.append(
-                    _build_property_warning(
-                        _code,
-                        prop,
-                        val,
-                        suggest,
-                        suggest_arguments,
-                    )
-                )
+                warnings.append({
+                    "code": code,
+                    "attribute": prop,
+                    "value": val,
+                    "message": f"Paragraph {label} {prop}={val} was not applied.{hint}",
+                })
 
     for prop, val in collector.para_properties.items():
         if prop not in _KNOWN_PROPERTY_MAP:
-            warnings.append(
-                _build_property_warning(
-                    "data_lo_para_property_ignored",
-                    prop,
-                    val,
-                    suggest,
-                    suggest_arguments,
-                )
-            )
+            warnings.append({
+                "code": "data_lo_para_property_ignored",
+                "attribute": prop,
+                "value": val,
+                "message": f"Paragraph property {prop}={val} was not applied.",
+            })
 
-    if collector.has_data_lo_style_ignored:
-        msg_style = "named styles are applied only on full_document, beginning, and end, and only on paragraph blocks outside tables."
-        w_style: dict[str, Any] = {
-            "code": "data_lo_style_ignored",
-            "attribute": "data-lo-style",
-        }
-        if suggest == "apply_style":
-            w_style["message"] = f"{msg_style} Pass old_content and the real style name to apply_style."
-            w_style["suggested_call"] = {
-                "tool": "apply_style",
-                "arguments": {
-                    "family": "ParagraphStyles",
-                    "target": "search",
-                },
-            }
-        else:
-            w_style["message"] = msg_style
-        warnings.append(w_style)
+    def _add_style_warnings(styles: list[str], code: str, message: str) -> None:
+        for token in styles:
+            warnings.append({
+                "code": code,
+                "attribute": "data-lo-style",
+                "value": token,
+                "message": message,
+            })
 
-    if collector.has_table_cell_style_ignored:
-        msg_table = "data-lo-style inside a table is not applied."
-        w_table: dict[str, Any] = {
-            "code": "table_cell_style_ignored",
-            "attribute": "data-lo-style",
-        }
-        if suggest == "apply_style":
-            w_table["message"] = f"{msg_table} Pass old_content and the real style name to apply_style."
-            w_table["suggested_call"] = {
-                "tool": "apply_style",
-                "arguments": {
-                    "family": "ParagraphStyles",
-                    "target": "search",
-                },
-            }
-        else:
-            w_table["message"] = msg_table
-        warnings.append(w_table)
+    style_msg = style_ignored_message or (
+        "named styles are applied only on paragraph blocks outside tables."
+        if styles_applied
+        else "data-lo-style is not applied by this tool."
+    )
+    _add_style_warnings(collector.ignored_styles, "data_lo_style_ignored", style_msg)
+    _add_style_warnings(
+        collector.table_cell_styles,
+        "table_cell_style_ignored",
+        "data-lo-style inside a table is not applied.",
+    )
 
     return warnings
 
@@ -466,8 +391,7 @@ def attach_write_warnings(
     content: Any,
     *,
     styles_applied: bool,
-    suggest: str = "apply_style",
-    suggest_arguments: dict[str, Any] | None = None,
+    style_ignored_message: str | None = None,
 ) -> Any:
     """Attach write warnings to successful document write results.
 
@@ -482,8 +406,7 @@ def attach_write_warnings(
     warnings = collect_write_warnings(
         content,
         styles_applied=styles_applied,
-        suggest=suggest,
-        suggest_arguments=suggest_arguments,
+        style_ignored_message=style_ignored_message,
     )
     copied["warnings"] = warnings
     if any(w.get("code") == "data_lo_para_ignored" for w in warnings):

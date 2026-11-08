@@ -25,6 +25,7 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 from __future__ import annotations
 
 import logging
+import re
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable
 from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_call, uno_read
@@ -747,6 +748,28 @@ class WriteCellRange(ToolBase):
         )
 
 
+def _attach_calc_suggestions(result: dict[str, Any], addr: str) -> None:
+    """Attach set_style suggestions to Calc cell write warnings."""
+    for w in result.get("warnings", []):
+        prop = w.get("attribute")
+        val = str(w.get("value", ""))
+        if w.get("code") == "paragraph_alignment_ignored" and val.lower() in ("left", "center", "right", "justify"):
+            w["suggested_call"] = {
+                "tool": "set_style",
+                "arguments": {"range": [addr], "h_align": val.lower()},
+            }
+        elif w.get("code") == "paragraph_color_ignored":
+            clean_val = val.strip()
+            is_hex = bool(re.match(r"^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$", clean_val))
+            is_word = bool(re.match(r"^[a-zA-Z]+$", clean_val))
+            if is_hex or is_word:
+                color_key = "bg_color" if "background" in str(prop) else "font_color"
+                w["suggested_call"] = {
+                    "tool": "set_style",
+                    "arguments": {"range": [addr], color_key: clean_val},
+                }
+
+
 class InsertCellHtml(ToolBase):
     """Insert HTML as rich text into a single cell (active sheet)."""
 
@@ -791,13 +814,15 @@ class InsertCellHtml(ToolBase):
         result = {"status": "ok", "message": f"Inserted rich HTML into cell {addr.upper()}."}
         from plugin.writer.html_import_styles import attach_write_warnings
 
-        return attach_write_warnings(
+        res = attach_write_warnings(
             result,
             html,
             styles_applied=False,
-            suggest="set_style",
-            suggest_arguments={"range": [addr]},
+            style_ignored_message="data-lo-style is not applied to spreadsheet cells.",
         )
+        if isinstance(res, dict) and res.get("status") == "ok":
+            _attach_calc_suggestions(res, addr)
+        return res
 
 
 class SetCellStyle(ToolBase):

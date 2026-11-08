@@ -208,6 +208,7 @@ def test_attach_write_warnings_table_cell_style_ignored():
     out = attach_write_warnings(res, content, styles_applied=True)
     assert len(out["warnings"]) == 1
     assert out["warnings"][0]["code"] == "table_cell_style_ignored"
+    assert out["warnings"][0]["value"] == "Heading1"
 
 
 def test_attach_write_warnings_styles_not_applied_flags_data_lo_style():
@@ -219,6 +220,7 @@ def test_attach_write_warnings_styles_not_applied_flags_data_lo_style():
     out = attach_write_warnings(res, content, styles_applied=False)
     assert len(out["warnings"]) == 1
     assert out["warnings"][0]["code"] == "data_lo_style_ignored"
+    assert out["warnings"][0]["value"] == "Heading1"
 
 
 def test_attach_write_warnings_non_block_tag_style_ignored():
@@ -230,6 +232,72 @@ def test_attach_write_warnings_non_block_tag_style_ignored():
     out = attach_write_warnings(res, content, styles_applied=True)
     assert len(out["warnings"]) == 1
     assert out["warnings"][0]["code"] == "data_lo_style_ignored"
+    assert out["warnings"][0]["value"] == "Emphasis"
+
+
+def test_attach_write_warnings_unclosed_table_in_list_item_does_not_leak():
+    """An unclosed table in one list item does not cause subsequent items to report table cell warnings."""
+    from plugin.writer.html_import_styles import attach_write_warnings
+
+    res = {"status": "ok"}
+    content = ["<table><tr><td>Unclosed cell", '<p data-lo-style="Heading1">Paragraph</p>']
+    out = attach_write_warnings(res, content, styles_applied=False)
+    style_warnings = [w for w in out["warnings"] if w["code"] == "data_lo_style_ignored"]
+    assert len(style_warnings) == 1
+    assert style_warnings[0]["value"] == "Heading1"
+
+
+def test_execute_styled_targets_do_not_warn_data_lo_style(monkeypatch):
+    """Targets in STYLED_TARGETS apply block styles, so no data_lo_style_ignored warning is emitted."""
+    monkeypatch.setattr(format_mod, "replace_full_document", lambda *a, **k: None)
+    monkeypatch.setattr(format_mod, "insert_content_at_position", lambda *a, **k: None)
+
+    res_full = ApplyDocumentContent().execute(
+        _ctx(), target="full_document", content='<p data-lo-style="Heading1">Heading</p>'
+    )
+    assert res_full["status"] == "ok"
+    assert res_full["warnings"] == []
+
+    res_end = ApplyDocumentContent().execute(
+        _ctx(), target="end", content='<p data-lo-style="Heading1">Ending</p>'
+    )
+    assert res_end["status"] == "ok"
+    assert res_end["warnings"] == []
+
+
+def test_execute_search_unknown_para_property_warns(monkeypatch):
+    """Unrecognized CSS declarations in data-lo-para emit data_lo_para_property_ignored."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    content = '<p data-lo-para="custom-foo:10px">text</p>'
+    res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="foo", content=content)
+    assert res["status"] == "ok"
+    prop_warnings = [
+        w for w in res["warnings"] if w["code"] == "data_lo_para_property_ignored"
+    ]
+    assert len(prop_warnings) == 1
+    assert prop_warnings[0]["attribute"] == "custom-foo"
+    assert prop_warnings[0]["value"] == "10px"
+    assert prop_warnings[0].get("suggested_call", {}).get("tool") == "apply_style"
+
+
+def test_execute_search_dropped_style_suggestion_includes_style(monkeypatch):
+    """Dropped data-lo-style suggestion populates family, target, and style parameters."""
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    content = '<p data-lo-style="Heading1">text</p>'
+    res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="foo", content=content)
+    assert res["status"] == "ok"
+    style_warnings = [w for w in res["warnings"] if w["code"] == "data_lo_style_ignored"]
+    assert len(style_warnings) == 1
+    assert style_warnings[0]["value"] == "Heading1"
+    assert style_warnings[0]["suggested_call"] == {
+        "tool": "apply_style",
+        "arguments": {
+            "family": "ParagraphStyles",
+            "target": "search",
+            "style": "Heading1",
+        },
+    }
+
 
 
 def test_attach_write_warnings_self_closing_tag_reported_once():

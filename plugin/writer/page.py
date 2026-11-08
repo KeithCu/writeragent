@@ -1013,7 +1013,7 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
                 result,
                 content,
                 styles_applied=False,
-                suggest="none",
+                style_ignored_message="data-lo-style is not applied to headers or footers.",
             )
         except Exception as e:
             if is_disposal(e):

@@ -499,6 +499,20 @@ def _decode_complete_character_references(text: str) -> str:
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
 
 
+# Edit targets where named block styles (data-lo-style) are applied on write.
+# Other targets (e.g. search, selection) insert markup but leave adjacent paragraph styles intact.
+STYLED_TARGETS: frozenset[str] = frozenset({"full_document", "beginning", "end"})
+
+
+def format_styled_targets() -> str:
+    """Format STYLED_TARGETS as an Oxford-comma list (e.g. 'full_document, beginning, and end')."""
+    order = ["full_document", "beginning", "end"]
+    ordered = [t for t in order if t in STYLED_TARGETS] + [t for t in sorted(STYLED_TARGETS) if t not in order]
+    if len(ordered) > 1:
+        return f"{', '.join(ordered[:-1])}, and {ordered[-1]}"
+    return ordered[0] if ordered else ""
+
+
 def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
@@ -567,7 +581,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
 
         # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
         # selection/search: still apply_styles=False — replace splits/merges into neighbor text (phase 3).
-        styled = position in ("beginning", "end")
+        styled = position in STYLED_TARGETS
         if styled:
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
         _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
