@@ -49,6 +49,7 @@ from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
+from plugin.writer.styles import REMOVED_DIRECT_INDENTS_SENTENCE, merge_removed_direct_indents
 from plugin.writer.table_nesting import cell_hosted_table_names
 from plugin.writer.specialized_base import INSERT_TARGETS, enum_param
 from plugin.framework.errors import (
@@ -329,22 +330,12 @@ def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
 
 def _note_removed_direct_indents(result: Any, indent_reports: list[dict[str, Any]]) -> dict[str, Any]:
     """Append removed direct indent report to success result."""
-    if not isinstance(result, dict) or result.get("status") != "ok":
-        return result
-    if not indent_reports:
-        return result
-    merged: dict[str, Any] = {}
-    for rep in indent_reports:
-        merged.update(rep)
-    if not merged:
+    if not isinstance(result, dict) or result.get("status") != "ok" or not indent_reports:
         return result
     result = dict(result)
-    result["removed_direct_indents"] = merged
-    from .styles import removed_direct_indents_sentence
-
-    sentence = removed_direct_indents_sentence()
+    result["removed_direct_indents"] = merge_removed_direct_indents(indent_reports)
     msg = (result.get("message") or "").rstrip()
-    result["message"] = f"{msg} {sentence}".strip()
+    result["message"] = f"{msg} {REMOVED_DIRECT_INDENTS_SENTENCE}".strip()
     return result
 
 
@@ -1151,16 +1142,15 @@ class ApplyDocumentContent(ToolBase):
         indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if params.target == "full_document":
-            return self._edit_full_document(ctx, session, params, indent_reports=indent_reports)
+            return self._edit_full_document(ctx, session, params)
         if params.target in ("end", "beginning"):
-            return self._edit_insert_at(ctx, session, params, indent_reports=indent_reports)
+            return self._edit_insert_at(ctx, session, params)
         if params.target == "selection":
-            return self._edit_selection(ctx, session, params, indent_reports=indent_reports)
+            return self._edit_selection(ctx, session, params)
         return self._edit_search(ctx, session, params, indent_reports=indent_reports)
 
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
-        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from . import html_import as format_support
         content = params.content
@@ -1170,7 +1160,7 @@ class ApplyDocumentContent(ToolBase):
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
             record_html_atomically(
                 session, ctx.doc,
-                lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content, indent_reports=indent_reports),
+                lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
@@ -1179,7 +1169,6 @@ class ApplyDocumentContent(ToolBase):
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
-        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from . import html_import as format_support
         content = params.content
@@ -1189,7 +1178,7 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             session.record_mutation(
-                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target, indent_reports=indent_reports),
+                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
@@ -1205,7 +1194,6 @@ class ApplyDocumentContent(ToolBase):
 
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
-        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from . import html_import as format_support
         content = params.content
@@ -1219,7 +1207,7 @@ class ApplyDocumentContent(ToolBase):
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             record_html_atomically(
                 session, ctx.doc,
-                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", indent_reports=indent_reports),
+                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:

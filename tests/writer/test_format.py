@@ -1605,7 +1605,7 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
     cursor.getText.return_value.createTextCursorByRange.return_value = cursor
     cursor.createEnumeration.return_value = doc_enum
 
-    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="none")
+    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="keep_everything")
     assert rep.get("capture_incomplete") is True
     assert "warning" in rep
     assert rep.get("preserved_char_overrides", {}).get("CharWeight") == 150
@@ -1675,7 +1675,7 @@ def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
     cursor.getText.return_value.createTextCursorByRange.return_value = cursor
     cursor.createEnumeration.return_value = doc_enum
 
-    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="none")
+    rep = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor, "Heading 1", clear_direct="keep_everything")
     assert rep.get("capture_incomplete") is not True
     assert "could not be re-applied" in rep["warning"]
     assert "could not be read" not in rep["warning"]
@@ -1775,20 +1775,11 @@ def test_apply_paragraph_style_preserving_direct_char_indent_reporting():
     cursor1.getText.return_value.createTextCursorByRange.return_value = cursor1
     cursor1.createEnumeration.return_value = doc_enum1
 
-    rep1 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", clear_direct="none")
+    rep1 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", clear_direct="keep_everything")
     assert rep1["clear_direct"] == "keep_everything"
     assert rep1.get("removed_direct_indents") == {"ParaLeftMargin": 3251}
-    assert rep1.get("removed_direct_indent_paragraphs") == 1
     assert "warning" in rep1
     assert "Direct paragraph indents were removed when applying the style." in rep1["warning"]
-
-    # Same check with clear_direct="keep_everything": echoes keep_everything
-    left_margin_vals = [3251, 0]
-    doc_enum1.hasMoreElements.side_effect = [True, False]
-    doc_enum1.nextElement.side_effect = [para1]
-    rep1_canon = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", clear_direct="keep_everything")
-    assert rep1_canon["clear_direct"] == "keep_everything"
-    assert rep1_canon.get("removed_direct_indents") == {"ParaLeftMargin": 3251}
 
     # Case 2: equal-to-style margin (0 == 0) adds nothing
     para2 = MagicMock()

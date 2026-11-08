@@ -644,13 +644,13 @@ def test_bookmarks_cleaned_when_edit_raises_midway_uno(ctx, doc):
     save({_FLAG: "record"})
 
     class _BoomTool(ApplyDocumentContent):
-        def _edit_insert_at(self, tctx, session, params, *, indent_reports=None):
+        def _edit_insert_at(self, tctx, session, params):
             from plugin.writer import html_import as fmt
 
             with session:
                 session.record_mutation(
                     lambda: fmt.insert_content_at_position(
-                        tctx.doc, tctx.ctx, "<p>Inserted.</p>", params.target, indent_reports=indent_reports),
+                        tctx.doc, tctx.ctx, "<p>Inserted.</p>", params.target),
                     proposed_preview=params.plain)
             raise RuntimeError("boom after anchoring the first change")
 

@@ -642,8 +642,7 @@ def test_apply_block_lo_styles_skips_when_style_already_matches():
     walk_cur.gotoNextParagraph.assert_called_once_with(False)
 
 
-def test_apply_block_lo_styles_collects_removed_direct_indents():
-    from typing import Any
+def test_apply_block_lo_styles_applies_when_style_differs():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import_styles
 
@@ -659,34 +658,37 @@ def test_apply_block_lo_styles_collects_removed_direct_indents():
     walk_cur.gotoNextParagraph.return_value = False
     text.createTextCursorByRange.return_value = walk_cur
 
-    sink: list[dict[str, Any]] = []
-    fake_report = {"removed_direct_indents": {"ParaLeftMargin": 3251}}
-    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", return_value=fake_report) as apply:
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
         html_import_styles._apply_block_lo_styles(
-            model, text, MagicMock(), ["Heading1"], indent_reports=sink,
+            model, text, MagicMock(), ["Heading1"],
         )
     assert apply.call_count == 1
-    assert sink == [{"ParaLeftMargin": 3251}]
 
 
-def test_replace_full_document_forwards_indent_reports():
+def test_replace_single_range_with_content_collects_removed_direct_indents():
     from typing import Any
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import
 
     model = MagicMock()
+    model.getPropertyValue.return_value = False  # RecordChanges
     text = MagicMock()
-    cursor = MagicMock()
-    text.createTextCursor.return_value = cursor
-    model.getText.return_value = text
+    text.createTextCursorByRange.return_value = MagicMock()
+    range_mock = MagicMock()
+    range_mock.getText.return_value = text
+    range_mock.getPropertyValue.return_value = "Heading 1"
+    range_mock.getStart.return_value = MagicMock()
+    range_mock.getEnd.return_value = MagicMock()
 
     sink: list[dict[str, Any]] = []
-    with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, \
+    fake_report = {"removed_direct_indents": {"ParaLeftMargin": 3251}}
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", return_value=fake_report) as apply, \
+         patch("plugin.writer.html_import._insert_mixed_or_plain_html"), \
          patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
-        html_import.replace_full_document(model, MagicMock(), "<p>Hello</p>", indent_reports=sink)
+        html_import.replace_single_range_with_content(model, range_mock, "replacement", MagicMock(), indent_reports=sink)
 
-    assert mock_insert.call_count == 1
-    assert mock_insert.call_args.kwargs.get("indent_reports") is sink
+    assert apply.call_count == 1
+    assert sink == [{"ParaLeftMargin": 3251}]
 
 
 def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():

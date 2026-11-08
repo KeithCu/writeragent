@@ -83,12 +83,19 @@ CLEAR_DIRECT_ALIASES = {
     "none": "keep_everything",
     "all": "reset_everything",
 }
-CLEAR_DIRECT_VALUES = (*CLEAR_DIRECT_CANONICAL, "style_props", "none", "all")
+CLEAR_DIRECT_VALUES = (*CLEAR_DIRECT_CANONICAL, *CLEAR_DIRECT_ALIASES)
+
+REMOVED_DIRECT_INDENTS_SENTENCE = "Direct paragraph indents were removed when applying the style."
 
 
-def removed_direct_indents_sentence() -> str:
-    """Warning note appended when applying a style removes direct paragraph indents."""
-    return "Direct paragraph indents were removed when applying the style."
+def merge_removed_direct_indents(reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge removed-indent dicts across ranges, keeping the first seen value per property."""
+    merged: dict[str, Any] = {}
+    for rep in reports:
+        for prop, val in rep.items():
+            if prop not in merged:
+                merged[prop] = val
+    return merged
 
 
 def _canonical_clear_direct(raw: Any) -> str:
@@ -165,7 +172,6 @@ class ParagraphStyleApplyReport(TypedDict, total=False):
     preserved_char_overrides: dict[str, Any]
     removed_char_overrides: dict[str, Any]
     removed_direct_indents: dict[str, Any]
-    removed_direct_indent_paragraphs: int
     cleared_char_properties: list[str]
     cleared_paragraph_properties: list[str]
     warning: str
@@ -176,7 +182,7 @@ def apply_paragraph_style_preserving_direct_char(
     doc: Any,
     cursor: Any,
     style_name: str,
-    clear_direct: Literal["keep_everything", "keep_emphasis", "reset_everything", "none", "style_props", "all"] = "keep_everything",
+    clear_direct: Literal["keep_everything", "keep_emphasis", "reset_everything"] = "keep_everything",
     style_cache: dict[Any, Any] | None = None,
 ) -> ParagraphStyleApplyReport:
     """Set *cursor*'s ParaStyleName to *style_name*, deciding what happens to direct formatting.
@@ -202,9 +208,9 @@ def apply_paragraph_style_preserving_direct_char(
       ``"reset_everything"`` (alias ``"all"``) restores nothing and clears the paragraph
       properties too (Ctrl+M semantics).
 
-    A result with a ``warning`` and ``capture_incomplete=True`` means later runs were not read
-    back, so the override dict may be short. A warning without ``capture_incomplete`` means
-    some captured overrides could not be re-applied; the style still applied.
+    A result with a ``warning`` can indicate that the paragraph or portion walk hit its cap
+    (``capture_incomplete=True``), that some captured overrides could not be re-applied, or
+    that direct paragraph indents were dropped when setting the style.
 
     Returns a report dict so callers can tell the agent what actually happened.
 
@@ -217,10 +223,7 @@ def apply_paragraph_style_preserving_direct_char(
     if style_cache is None:
         style_cache = {}
 
-    clear_direct_canon = _canonical_clear_direct(clear_direct) or "keep_everything"
-    if clear_direct_canon not in CLEAR_DIRECT_CANONICAL:
-        clear_direct_canon = "keep_everything"
-    mode = cast("Literal['keep_everything', 'keep_emphasis', 'reset_everything']", clear_direct_canon)
+    mode = clear_direct
 
     def _expand_to_full_paragraphs(cur: Any) -> Any:
         text = cur.getText()
@@ -429,7 +432,6 @@ def apply_paragraph_style_preserving_direct_char(
         report["cleared_paragraph_properties"] = _reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
 
     removed_direct_indents: dict[str, Any] = {}
-    removed_indent_paras: set[int] = set()
     for para, prop_name, old_val in indent_snapshots:
         try:
             new_val = para.getPropertyValue(prop_name)
@@ -441,12 +443,10 @@ def apply_paragraph_style_preserving_direct_char(
         if new_val != old_val:
             if prop_name not in removed_direct_indents:
                 removed_direct_indents[prop_name] = old_val
-            removed_indent_paras.add(id(para))
 
     if removed_direct_indents:
         report["removed_direct_indents"] = removed_direct_indents
-        report["removed_direct_indent_paragraphs"] = len(removed_indent_paras)
-        walk_notes.append(removed_direct_indents_sentence())
+        walk_notes.append(REMOVED_DIRECT_INDENTS_SENTENCE)
 
     if capture_failures > 0:
         walk_notes.append("Some direct formatting overrides could not be read; the capture may be incomplete.")
@@ -1338,7 +1338,7 @@ class ApplyStyle(FrameworkToolBase):
         family: str,
         uno_value: str,
         cursor: Any,
-        clear_direct: Literal["keep_everything", "keep_emphasis", "reset_everything", "none", "style_props", "all"] = "keep_emphasis",
+        clear_direct: Literal["keep_everything", "keep_emphasis", "reset_everything"] = "keep_emphasis",
     ) -> ParagraphStyleApplyReport | None:
         """Apply the style to one cursor. Returns the direct-formatting report (or None)."""
         if family == "ParagraphStyles":
@@ -1350,7 +1350,6 @@ class ApplyStyle(FrameworkToolBase):
     def _merge_reports(reports: list[Any]) -> dict[str, Any]:
         """Fold per-range reports into the fields echoed on the tool result."""
         out: dict[str, Any] = {}
-        merged_indents: dict[str, Any] = {}
         for rep in reports:
             if not rep:
                 continue
@@ -1359,8 +1358,6 @@ class ApplyStyle(FrameworkToolBase):
             for key in ("preserved_char_overrides", "removed_char_overrides"):
                 if rep.get(key):
                     out.setdefault(key, {}).update(rep[key])
-            if rep.get("removed_direct_indents"):
-                merged_indents.update(rep["removed_direct_indents"])
             for key in ("cleared_char_properties", "cleared_paragraph_properties"):
                 if rep.get(key):
                     out[key] = rep[key]  # same list for every range; last one wins
@@ -1369,14 +1366,16 @@ class ApplyStyle(FrameworkToolBase):
                 out.setdefault("warning", rep["warning"])
             if rep.get("capture_incomplete"):
                 out["capture_incomplete"] = True
+        merged_indents = merge_removed_direct_indents(
+            [rep["removed_direct_indents"] for rep in reports if rep and rep.get("removed_direct_indents")]
+        )
         if merged_indents:
             out["removed_direct_indents"] = merged_indents
-            sentence = removed_direct_indents_sentence()
             if "warning" in out:
-                if sentence not in out["warning"]:
-                    out["warning"] = f"{out['warning']} {sentence}".strip()
+                if REMOVED_DIRECT_INDENTS_SENTENCE not in out["warning"]:
+                    out["warning"] = f"{out['warning']} {REMOVED_DIRECT_INDENTS_SENTENCE}".strip()
             else:
-                out["warning"] = sentence
+                out["warning"] = REMOVED_DIRECT_INDENTS_SENTENCE
         # No retry hint: default is already keep_emphasis (house font shows). preserved_char_overrides
         # is only set on the explicit keep_everything path, which the caller asked for.
         return out
@@ -1436,7 +1435,7 @@ class ApplyStyle(FrameworkToolBase):
                 # per-range path. keep_emphasis (the default) is allowed: house font/size win
                 # and bold/italic/colour stay.
                 return self._tool_error(
-                    "clear_direct='reset_everything' (all is the alias of reset_everything) is not allowed with "
+                    "clear_direct='reset_everything' (or 'all') is not allowed with "
                     "target='full_document': it would flatten emphasis across the whole document. Style each range "
                     "separately (target='search') instead, or omit clear_direct to use keep_emphasis."
                 )

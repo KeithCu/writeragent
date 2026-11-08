@@ -283,7 +283,6 @@ def _insert_mixed_or_plain_html(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
-    indent_reports: list[dict[str, Any]] | None = None,
 ) -> None:
     """HTML import (optional MathML + TeX layer).
 
@@ -332,7 +331,7 @@ def _insert_mixed_or_plain_html(
         else:
             start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
         html_import_styles._apply_block_lo_styles(
-            model, text_obj, start, block_styles, end=imported_end, indent_reports=indent_reports
+            model, text_obj, start, block_styles, end=imported_end
         )
         end_c = model.getText().createTextCursor()
         end_c.gotoEnd(False)
@@ -348,7 +347,6 @@ def insert_html_at_cursor(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
-    indent_reports: list[dict[str, Any]] | None = None,
 ) -> None:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
     with image_placeholders._keep_placeholder_images(model, unescaped_content) as content:
@@ -508,8 +506,6 @@ def insert_content_at_position(
     ctx: Any,
     content: str,
     position: str,
-    *,
-    indent_reports: list[dict[str, Any]] | None = None,
 ) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
@@ -581,7 +577,7 @@ def insert_content_at_position(
         styled = position in ("beginning", "end")
         if styled:
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled, indent_reports=indent_reports)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
 
 
 
@@ -599,8 +595,6 @@ def replace_full_document(
     model: Any,
     ctx: Any,
     content: str,
-    *,
-    indent_reports: list[dict[str, Any]] | None = None,
 ) -> None:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
@@ -614,7 +608,7 @@ def replace_full_document(
             cursor.setString("")
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
-            _insert_mixed_or_plain_html(model, ctx, cursor, content, indent_reports=indent_reports)
+            _insert_mixed_or_plain_html(model, ctx, cursor, content)
             return
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
@@ -628,7 +622,7 @@ def replace_full_document(
         text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
         cursor.goLeft(1, False)
         leftover = text.createTextCursorByRange(cursor.getStart())
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, indent_reports=indent_reports)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content)
         leftover.gotoEndOfParagraph(True)
         if leftover.getString() == "":
             leftover.collapseToStart()
@@ -707,7 +701,7 @@ def replace_single_range_with_content(
             # apply_styles=False: a search/replace splits the matched paragraph, so applying a
             # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
             try:
-                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False, indent_reports=indent_reports)
+                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
             except Exception as e:
                 reraise_if_disposed(e)
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter

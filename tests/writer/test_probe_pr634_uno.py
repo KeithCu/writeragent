@@ -155,7 +155,7 @@ def test_probe_apply_same_style_para_wide_font(ctx, doc):
 
     from plugin.writer.styles import apply_paragraph_style_preserving_direct_char
 
-    report = apply_paragraph_style_preserving_direct_char(doc, cursor, "Standard", clear_direct="none")
+    report = apply_paragraph_style_preserving_direct_char(doc, cursor, "Standard", clear_direct="keep_everything")
     print(f"DEBUG: report={report}")
     chk = text.createTextCursor()
     chk.gotoStart(False)
