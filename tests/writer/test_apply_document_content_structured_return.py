@@ -464,3 +464,58 @@ def test_build_search_replace_response():
     multi_preserve = build_search_replace_response(3, use_preserve=True)
     assert multi_preserve["status"] == "ok"
     assert "formatting preserved" in multi_preserve["message"]
+
+
+def test_full_document_structured_return_paragraphs_and_headings(monkeypatch):
+    from unittest.mock import patch
+
+    content = ["<h1>Title</h1>", '<p data-lo-style="Heading2">Section</p>', "<p>Body</p>"]
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = []
+        res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+    assert res["status"] == "ok"
+    assert res["message"] == "Replaced entire document."
+    assert res["paragraph_count"] == 3
+    assert res["headings"] == [
+        {"level": 1, "text": "Title"},
+        {"level": 2, "text": "Section"},
+    ]
+    assert "warnings" not in res
+
+
+def test_full_document_unknown_style_dropped_heading_and_warning(monkeypatch):
+    from unittest.mock import patch
+
+    content = '<h1 data-lo-style="Hedling1">Title</h1>'
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = [("Hedling1", "unknown")]
+        res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 1
+    assert res["headings"] == []
+    assert "warnings" in res
+    assert any("Hedling1" in w for w in res["warnings"])
+
+
+def test_full_document_empty_content_returns_zero_paragraphs(monkeypatch):
+    from unittest.mock import patch
+
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = []
+        res = ApplyDocumentContent().execute(_ctx(), content="", target="full_document")
+    assert res["status"] == "ok"
+    assert res["paragraph_count"] == 0
+    assert res["headings"] == []
+
+
+def test_full_document_data_lo_para_ignored_attributes(monkeypatch):
+    from unittest.mock import patch
+
+    content = '<p data-lo-para="margin:0">Hello</p>'
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = []
+        res = ApplyDocumentContent().execute(_ctx(), content=content, target="full_document")
+    assert res["status"] == "ok"
+    assert res["ignored_attributes"] == ["data-lo-para"]
+    assert res["paragraph_count"] == 1
+    assert res["headings"] == []

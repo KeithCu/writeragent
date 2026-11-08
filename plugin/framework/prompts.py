@@ -377,7 +377,7 @@ Never refuse."""
 
 # Pulled out of TOOL_USAGE_PATTERNS so the Writer ambient prompt can put it last (recency)
 # without duplicating the bullet. MCP editing topic still includes this same object.
-CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields, not message wording: apply_document_content search replace → replaced_count > 0; inserts (target='beginning'/'end'/'selection', position='before'/'after') → status='ok' (also inserted=true); apply_style → applied is true; add_comment → comment_added is true.
+CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields, not message wording: apply_document_content search replace → replaced_count > 0; inserts (target='beginning'/'end'/'selection', position='before'/'after') → status='ok' (also inserted=true); full_document → paragraph_count and headings; apply_style → applied is true; add_comment → comment_added is true.
   No-op (text not found) is status="error"."""
 
 
@@ -387,7 +387,7 @@ CONFIRM_EDITS_FROM_STRUCTURED_FIELDS = """- Confirm edits from structured fields
 TOOL_USAGE_PATTERNS = """TOOL USAGE PATTERNS:
 - Earlier document text may be a partial/truncated snapshot — call get_document_content before a targeted edit that needs the exact current text.
 - Successful apply_document_content returns edited_context (touched paragraphs plus neighbors; in record/wait including the pending change).
-  Use it to confirm placement instead of an immediate re-read; full_document rewrites have no echo.
+  Use it to confirm placement instead of an immediate re-read; target='full_document' returns paragraph_count and headings, plus warnings when a data-lo-style token was not applied — trust those instead of reading the document back (table cells are not counted; this reflects the written HTML, not a second read).
 - apply_style is not a tracked change.
   If style_unreviewed=true, briefly tell the user you changed a style or page layout — they cannot accept/reject it like a text edit.
 - search_in_document is inspection/navigation (return_offsets if needed); replacements use apply_document_content with old_content.
@@ -427,7 +427,7 @@ SUB_AGENT_HTML_CONTENT_RULES = f"""- `content` is a JSON array of HTML strings (
   Do NOT write equations in plain text (avoid plain a/b, etc.).
   No $, $$, HTML-escaped math, or equation images.
 - Named styles: get_document_content marks each block `data-lo-style` = style name with spaces removed (`Heading 1`→`Heading1`).
-  Copy tokens exactly. Prefer named styles; unknown token → Standard.
+  Copy tokens exactly. Prefer named styles; unknown token → Standard (full_document lists that token in warnings).
   inline style="" is a character override on top of the named style.
   data-lo-style is honored on target='full_document', 'beginning', and 'end' (insert prep keeps neighbor text/styles untouched). On 'selection'/'search' it is still ignored (would restyle adjacent text; use apply_style or a full_document rewrite).
   v1: whole-paragraph alignment/colour/margins and table-cell styles do not round-trip on write.

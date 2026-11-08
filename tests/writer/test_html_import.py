@@ -612,10 +612,35 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
     text.createTextCursorByRange.return_value = walk_cur
 
     with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles._apply_block_lo_styles(
+        res = html_import_styles._apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1"],
         )
     assert apply.call_args.args[2] == "Standard"
+    assert res == [("Heading1", "ambiguous")]
+
+
+def test_apply_block_lo_styles_unknown_token_resolves_to_standard():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Standard"]
+    fam.hasByName.return_value = False
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = None
+    walk_cur.gotoNextParagraph.return_value = False
+    text.createTextCursorByRange.return_value = walk_cur
+
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
+        res = html_import_styles._apply_block_lo_styles(
+            model, text, MagicMock(), ["Nope"],
+        )
+    assert apply.call_args.args[2] == "Standard"
+    assert res == [("Nope", "unknown")]
 
 
 def test_apply_block_lo_styles_skips_when_style_already_matches():
@@ -635,10 +660,11 @@ def test_apply_block_lo_styles_skips_when_style_already_matches():
     text.createTextCursorByRange.return_value = walk_cur
 
     with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles._apply_block_lo_styles(
+        res = html_import_styles._apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1"],
         )
     apply.assert_not_called()
+    assert res == []
     walk_cur.gotoNextParagraph.assert_called_once_with(False)
 
 
@@ -1249,7 +1275,7 @@ def test_uno_read_probes_raise_on_disposal_and_default_otherwise():
     names = ("Heading 1", "Heading 1", "Text Body")
     fam.getElementNames.return_value = names
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(fam, "Heading1", element_names=names) == "Heading 1"
+    assert _resolve_paragraph_style_token(fam, "Heading1", element_names=names) == ("Heading 1", None)
 
 
 def test_resolve_paragraph_style_token_fallback_and_disposal():
@@ -1266,11 +1292,11 @@ def test_resolve_paragraph_style_token_fallback_and_disposal():
     names = ("Heading 1", "Standard")
     fam.getElementNames.return_value = names
     fam.hasByName.return_value = True
-    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Heading 1"
+    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == ("Heading 1", None)
 
     # (ii) Unknown fallback
     fam.hasByName.return_value = False
-    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == "Standard"
+    assert _resolve_paragraph_style_token(fam, "heading 1", element_names=names) == ("Standard", "unknown")
 
     # (iii) DisposedException on hasByName
     fam.getElementNames.return_value = []
@@ -1329,5 +1355,28 @@ def test_collect_range_portions_magic_mock_returns_immediately():
     has_special, portions = _collect_range_portions(mock_range)
     assert has_special is False
     assert portions == []
+
+
+def test_summarize_written_blocks_slot_counts():
+    """Verify summarize_written_blocks paragraph counts match _BlockLoStyleExtractor.styles."""
+    from plugin.writer.html_import import summarize_written_blocks
+    from plugin.writer.html_import_styles import _BlockLoStyleExtractor
+
+    fixtures = [
+        "<blockquote><p>Quote</p></blockquote>",
+        "<ul><li>Item 1</li><li>Item 2</li></ul>",
+        "<table><tr><td>Cell</td></tr></table><p>After</p>",
+        "<p data-lo-style=\"Heading 10\">Ten</p>",
+    ]
+    for html in fixtures:
+        ex = _BlockLoStyleExtractor()
+        ex.feed(html)
+        ex.close()
+        summary = summarize_written_blocks(html)
+        assert summary["paragraph_count"] == len(ex.styles), f"Mismatch for {html}"
+
+    assert summarize_written_blocks("Hello\n\nWorld")["paragraph_count"] == 2
+    assert summarize_written_blocks("Hello\nWorld")["paragraph_count"] == 1
+
 
 

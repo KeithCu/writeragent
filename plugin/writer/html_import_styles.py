@@ -131,8 +131,11 @@ def _resolve_paragraph_style_token(
     fam: Any,
     token: str,
     element_names: list[str] | tuple[str, ...],
-) -> str:
+) -> tuple[str, str | None]:
     """Resolve an agent-facing compact ``data-lo-style`` token to a real UNO ParaStyleName.
+
+    Returns ``(resolved_style_name, reason)`` where reason is None on success, or
+    ``'ambiguous'`` / ``'unknown'`` when falling back to 'Standard'.
 
     A candidate is any paragraph style whose name equals the token (covers space-free names
     and an agent that passed the exact spaced form) OR whose space-free form equals the token
@@ -149,32 +152,40 @@ def _resolve_paragraph_style_token(
         )
     )
     if len(candidates) == 1:
-        return candidates[0]
+        return candidates[0], None
     if len(candidates) > 1:
         log.debug("data-lo-style: token %r is ambiguous across %r; falling back to Standard",
                   token, candidates)
-        return "Standard"
+        return "Standard", "ambiguous"
     lower = token.lower()
     resolved = token
     for name in element_names:
         if name.lower() == lower:
             resolved = name
             break
-    if fam is None or uno_read(lambda: fam.hasByName(resolved), False):
-        return resolved
-    return "Standard"
+    if fam is None:
+        return resolved, None
+    if uno_read(lambda: fam.hasByName(resolved), False):
+        return resolved, None
+    return "Standard", "unknown"
 
 
-def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[str | None], end: Any = None) -> None:
+def _apply_block_lo_styles(
+    model: Any, text_obj: Any, start: Any, styles: list[str | None], end: Any = None
+) -> list[tuple[str, str]]:
     """Apply each block's data-lo-style to the inserted paragraphs (positionally).
 
     Forward cursor walk from the insertion point avoids scanning the whole document.
-    Compact tokens (``Heading1``) are resolved to UNO names; unknown styles fall back to
-    'Standard' (per the style-model plan)."""
+    Compact tokens (``Heading1``) are resolved to UNO names; ambiguous and unknown styles
+    fall back to 'Standard' (per the style-model plan).
+
+    Returns a list of ``(token, reason)`` pairs, unique in first-seen order, where reason
+    is ``'ambiguous'``, ``'unknown'``, or ``'failed'``.
+    """
     try:
         from .styles import apply_paragraph_style_preserving_direct_char
     except ImportError:
-        return
+        return [(t, "failed") for t in dict.fromkeys(s for s in styles if s)]
 
     fam = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles"), None)
     element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
@@ -185,8 +196,9 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
         walk_cur.gotoStartOfParagraph(False)
     except Exception as exc:
         reraise_if_disposed(exc)
-        return
+        return [(t, "failed") for t in dict.fromkeys(s for s in styles if s)]
 
+    reports: dict[str, str] = {}
     style_cache: dict[Any, Any] = {}
     for style in styles:
         # Stop at the first paragraph that does not start before the parked end cursor.
@@ -198,7 +210,9 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
             break
 
         if style:
-            resolved = _resolve_paragraph_style_token(fam, style, element_names=element_names)
+            resolved, reason = _resolve_paragraph_style_token(fam, style, element_names=element_names)
+            if reason is not None and style not in reports:
+                reports[style] = reason
             # The import already set the style; re-applying only re-reads every portion.
             current = uno_read(lambda: walk_cur.getPropertyValue("ParaStyleName"), None)
             if current != resolved:
@@ -211,6 +225,7 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
+                    reports[style] = "failed"
 
         try:
             if not walk_cur.gotoNextParagraph(False):
@@ -218,3 +233,5 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
         except Exception as exc:
             reraise_if_disposed(exc)
             break
+
+    return list(reports.items())

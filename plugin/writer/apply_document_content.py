@@ -1141,14 +1141,36 @@ class ApplyDocumentContent(ToolBase):
         has_table = params.has_table
         with session:
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
-            record_html_atomically(
+            dropped = record_html_atomically(
                 session, ctx.doc,
                 lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
             return err
-        return {"status": "ok", "message": "Replaced entire document."}
+        drop_tokens = frozenset(token for token, reason in dropped if reason in ("ambiguous", "unknown", "failed"))
+        summary = format_support.summarize_written_blocks(content, drop_heading_styles=drop_tokens)
+        result: dict[str, Any] = {
+            "status": "ok",
+            "message": "Replaced entire document.",
+            "paragraph_count": summary["paragraph_count"],
+            "headings": summary["headings"],
+        }
+        warnings: list[str] = []
+        for token, reason in dropped:
+            if reason == "ambiguous":
+                warnings.append(
+                    f"data-lo-style {token!r} matches more than one paragraph style; those blocks were set to Standard."
+                )
+            elif reason == "unknown":
+                warnings.append(
+                    f"data-lo-style {token!r} is not a paragraph style in this document; those blocks were set to Standard."
+                )
+            elif reason == "failed":
+                warnings.append(f"data-lo-style {token!r} could not be applied.")
+        if warnings:
+            result["warnings"] = warnings
+        return result
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,

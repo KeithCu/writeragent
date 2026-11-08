@@ -401,7 +401,15 @@ class WriterWorld:
         if target == "full_document":
             self._html = content
             self._sync_blocks()
-            return {"status": "ok", "message": "Replaced entire document."}
+            from plugin.writer.html_import import summarize_written_blocks
+
+            summary = summarize_written_blocks(content)
+            return {
+                "status": "ok",
+                "message": "Replaced entire document.",
+                "paragraph_count": summary["paragraph_count"],
+                "headings": summary["headings"],
+            }
         if target == "end":
             self._html = self._html + content
             self._sync_blocks()
