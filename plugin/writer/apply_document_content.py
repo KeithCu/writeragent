@@ -812,7 +812,7 @@ class ApplyDocumentContent(ToolBase):
     def _dry_run_preview(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         """Resolve old_content matches WITHOUT editing, for target='search'. Reports the count and
         each match's location + a short snippet, so the model can check before committing."""
-        if "start_anchor" in kwargs or "end_anchor" in kwargs:
+        if kwargs.get("start_anchor") is not None or kwargs.get("end_anchor") is not None:
             return self._tool_error("dry_run does not apply to start_anchor and end_anchor.")
         old_content = kwargs.get("old_content")
         target = self._effective_target(
@@ -1024,11 +1024,9 @@ class ApplyDocumentContent(ToolBase):
         from . import html_import as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
-        has_start = "start_anchor" in kwargs
-        has_end = "end_anchor" in kwargs
         start_anchor = kwargs.get("start_anchor")
         end_anchor = kwargs.get("end_anchor")
-        has_anchors = has_start or has_end or start_anchor is not None or end_anchor is not None
+        has_anchors = start_anchor is not None or end_anchor is not None
 
         if old_content is not None and has_anchors:
             return self._tool_error("Pass old_content or start_anchor and end_anchor, not both.")
@@ -1047,8 +1045,9 @@ class ApplyDocumentContent(ToolBase):
 
         norm_start = ""
         norm_end = ""
+        anchor_case_order = None
         if has_anchors:
-            if not has_start or not has_end or start_anchor is None or end_anchor is None:
+            if start_anchor is None or end_anchor is None:
                 return self._tool_error("start_anchor and end_anchor are both required.")
             if not isinstance(start_anchor, str) or not isinstance(end_anchor, str):
                 return self._tool_error("start_anchor and end_anchor must both be strings.")
@@ -1062,6 +1061,8 @@ class ApplyDocumentContent(ToolBase):
                 return self._tool_error("regex does not apply to start_anchor and end_anchor.")
             if kwargs.get("all_matches"):
                 return self._tool_error("all_matches cannot be combined with start_anchor and end_anchor.")
+            if "case_sensitive" in kwargs and kwargs.get("case_sensitive") is not None:
+                anchor_case_order = (bool(kwargs["case_sensitive"]),)
 
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
@@ -1125,71 +1126,22 @@ class ApplyDocumentContent(ToolBase):
         # review_recording_enabled tolerates the flag not being registered yet (returns False).
         track_reviewable = review_recording_enabled()
         has_table = bool(re.search(r"<table\b", str(content), re.IGNORECASE))
-        override: str | None = None
-
-        if has_anchors:
-            plain = content if use_preserve else self._replacement_plain(content)
-            anchor_case_order = None
-            if "case_sensitive" in kwargs and kwargs.get("case_sensitive") is not None:
-                anchor_case_order = (bool(kwargs["case_sensitive"]),)
-            override, override_error = self._parse_hyperlink_url(kwargs)
-            if override_error:
-                return self._tool_error(override_error, code="INVALID_PARAM")
-            override_err = self._override_not_replace(override, position)
-            if override_err:
-                return self._tool_error(override_err, code="INVALID_PARAM")
-            return EditParams(
-                content=content,
-                plain=plain,
-                use_preserve=use_preserve,
-                has_table=has_table,
-                target=target,
-                position=position,
-                occurrence=occurrence,
-                all_matches=False,
-                track_reviewable=track_reviewable,
-                separator=0,
-                override=override,
-                anchor_span=True,
-                anchor_start=norm_start,
-                anchor_end=norm_end,
-                anchor_case_order=anchor_case_order,
-            )
 
         plain = ""
         if target != "search":
             plain = content if use_preserve else self._replacement_plain(content)
 
-        all_matches = kwargs.get("all_matches", False)
-
+        all_matches = False if has_anchors else kwargs.get("all_matches", False)
         search_string = ""
         pattern = ""
         regex = False
         use_opts = False
         cs = False
         separator = 0
+        override: str | None = None
 
         if target == "search":
-            old_stripped = str(old_content).strip()
-            search_string = format_support.plain_text_if_markup(old_stripped)
-            # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
-            search_string = search_mod.normalize_search_string_for_find(search_string)
-            if not search_string:
-                # Parameter error (like old_content=None), not a search no-op: the search never ran,
-                # so there's no replaced_count to report — use the standard tool error shape.
-                return self._tool_error("old_content is empty after normalization.")
             plain = content if use_preserve else self._replacement_plain(content)
-            # The search drops the spaces at old_content's edges. The replacement
-            # must drop the same edges, or old_content=" paragrafo" with content=""
-            # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
-            # double space (same for " paragrafo inteiro" -> " inteiro"). A
-            # deletion takes the space on one side along with the word.
-            # Invariant: branch on use_preserve, not on the decoded content (an entity may decode to markup).
-            if (position == "replace" and not kwargs.get("regex")
-                    and use_preserve
-                    and not format_support.content_has_markup(str(old_content))):
-                content, separator = _match_stripped_edges(str(old_content), content)
-                plain = content
             override, override_error = self._parse_hyperlink_url(kwargs)
             if override_error:
                 return self._tool_error(override_error, code="INVALID_PARAM")
@@ -1197,9 +1149,30 @@ class ApplyDocumentContent(ToolBase):
             if override_err:
                 return self._tool_error(override_err, code="INVALID_PARAM")
 
-            regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
-            if rex_err:
-                return self._invalid_regex(rex_err)
+            if not has_anchors:
+                old_stripped = str(old_content).strip()
+                search_string = format_support.plain_text_if_markup(old_stripped)
+                # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
+                search_string = search_mod.normalize_search_string_for_find(search_string)
+                if not search_string:
+                    # Parameter error (like old_content=None), not a search no-op: the search never ran,
+                    # so there's no replaced_count to report — use the standard tool error shape.
+                    return self._tool_error("old_content is empty after normalization.")
+                # The search drops the spaces at old_content's edges. The replacement
+                # must drop the same edges, or old_content=" paragrafo" with content=""
+                # deletes only "paragrafo" and leaves "Primeiro  inteiro." with a
+                # double space (same for " paragrafo inteiro" -> " inteiro"). A
+                # deletion takes the space on one side along with the word.
+                # Invariant: branch on use_preserve, not on the decoded content (an entity may decode to markup).
+                if (position == "replace" and not kwargs.get("regex")
+                        and use_preserve
+                        and not format_support.content_has_markup(str(old_content))):
+                    content, separator = _match_stripped_edges(str(old_content), content)
+                    plain = content
+
+                regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
+                if rex_err:
+                    return self._invalid_regex(rex_err)
 
         return EditParams(
             content=content,
@@ -1218,6 +1191,10 @@ class ApplyDocumentContent(ToolBase):
             case_sensitive=cs,
             separator=separator,
             override=override,
+            anchor_span=has_anchors,
+            anchor_start=norm_start,
+            anchor_end=norm_end,
+            anchor_case_order=anchor_case_order,
         )
 
     def _dispatch_edit(
