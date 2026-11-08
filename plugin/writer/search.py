@@ -566,21 +566,26 @@ def find_occurrence_range(
     return _nth(iter_literal_ranges(doc, search_string, case_order))
 
 
-def _same_text_starts_at_or_after(candidate: Any, boundary_end: Any) -> bool | None:
-    """True when candidate starts at or after boundary_end in the same XText; None if different text.
-
-    compareRegionStarts returns 1 when the first range starts before the second, 0 when they
-    start at the same point, and -1 when after. A return value not equal to 1 therefore means
-    candidate starts at or after boundary_end. When comparison fails, False is returned so the
-    candidate is skipped rather than misreporting a different text container.
-    """
+def _is_same_text(candidate: Any, boundary_end: Any) -> bool:
+    """True when candidate and boundary_end share the same XText container."""
     cand_text = uno_read(lambda: candidate.getText(), None)
     bound_text = uno_read(lambda: boundary_end.getText(), None)
     if cand_text is None or bound_text is None:
         return False
-    same = uno_read(lambda: uno_same(cand_text, bound_text), False)
-    if not same:
-        return None
+    return bool(uno_read(lambda: uno_same(cand_text, bound_text), False))
+
+
+def _starts_at_or_after(candidate: Any, boundary_end: Any) -> bool:
+    """True when candidate starts at or after boundary_end within the same XText.
+
+    compareRegionStarts returns 1 when the first range starts before the second, 0 when they
+    start at the same point, and -1 when after. A return value not equal to 1 therefore means
+    candidate starts at or after boundary_end. When comparison fails, False is returned so the
+    candidate is skipped rather than misreporting a match.
+    """
+    cand_text = uno_read(lambda: candidate.getText(), None)
+    if cand_text is None:
+        return False
     cmp_val = uno_read(
         lambda: cand_text.compareRegionStarts(candidate.getStart(), boundary_end),
         FAILED,
@@ -603,11 +608,10 @@ def pick_end_after_start(
     boundary_end = start.getEnd()
     saw_different_text = False
     for end in ends:
-        rel = _same_text_starts_at_or_after(end, boundary_end)
-        if rel is None:
+        if not _is_same_text(end, boundary_end):
             saw_different_text = True
             continue
-        if not rel:
+        if not _starts_at_or_after(end, boundary_end):
             continue
         text = start.getText()
         cursor = text.createTextCursorByRange(start.getStart())
