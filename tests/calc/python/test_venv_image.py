@@ -2,26 +2,53 @@
 
 from __future__ import annotations
 
+import struct
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
+import uno  # noqa: F401
+from com.sun.star.awt import Point, Size
 
 from plugin.calc.python.image_egress import (
     _DRAW_GRAPHIC_SERVICE,
     _IMAGE_ANNOTATION_PREFIX,
     _PLOT_SHAPE_NAME_PREFIX,
     ImageEgressError,
+    _aspect_ratio_changed,
     _intrinsic_aspect,
+    _plot_byte_tag,
     _plot_slot_index,
     _plot_slot_name,
     _read_image_bytes,
+    _session_slots,
     _shape_anchor_matches_cell,
     insert_image_result_on_sheet,
 )
 from plugin.tests.testing_utils import CalcCellStub
 from plugin.calc.python.venv import RunVenvPythonScript
 from plugin.scripting.payload_codec import PAYLOAD_IMAGE
+
+
+@pytest.fixture(autouse=True)
+def _clear_egress_session_slots():
+    _session_slots.clear()
+    yield
+    _session_slots.clear()
+
+
+def _make_png_payload(w: int, h: int) -> dict[str, Any]:
+    header = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+        + struct.pack(">II", w, h)
+        + b"\x08\x06\x00\x00\x00\x00\x00\x00\x00"
+    )
+    return {
+        "__wa_payload__": PAYLOAD_IMAGE,
+        "format": "png",
+        "data": header,
+    }
 
 _IMAGE_PAYLOAD = {
     "__wa_payload__": PAYLOAD_IMAGE,
@@ -294,7 +321,12 @@ class _AnchoredShape:
 
     def __init__(self, service: str, name: str, anchor: CalcCellStub):
         self.service = service
-        self.props: dict[str, object] = {"Name": name, "Anchor": anchor}
+        self.props: dict[str, object] = {
+            "Name": name,
+            "Anchor": anchor,
+            "ResizeWithCell": False,
+            "Description": "",
+        }
 
     def supportsService(self, service: str) -> bool:
         return service == self.service
@@ -308,8 +340,50 @@ class _AnchoredShape:
     def setSize(self, size: object) -> None:
         self.props["Size"] = size
 
+    def getSize(self):
+        return self.props.get("Size")
+
     def setPosition(self, pos: object) -> None:
         self.props["Position"] = pos
+
+    def getPosition(self):
+        return self.props.get("Position")
+
+
+class _SheetStub:
+    """Sheet stub with drawing page, optional table layout, and row/column visibility."""
+
+    def __init__(
+        self,
+        page: _DrawPage,
+        *,
+        table_layout: int = 0,
+        rows_visible: bool = True,
+        cols_visible: bool = True,
+    ):
+        self.DrawPage = page
+        self.TableLayout = table_layout
+        self._rows_visible = rows_visible
+        self._cols_visible = cols_visible
+
+    def getPropertyValue(self, name: str):
+        if name == "TableLayout":
+            return self.TableLayout
+        return None
+
+    def getRows(self):
+        row = MagicMock()
+        row.IsVisible = self._rows_visible
+        rows = MagicMock()
+        rows.getByIndex.return_value = row
+        return rows
+
+    def getColumns(self):
+        col = MagicMock()
+        col.IsVisible = self._cols_visible
+        cols = MagicMock()
+        cols.getByIndex.return_value = col
+        return cols
 
 
 class _DrawPage:
@@ -479,7 +553,7 @@ def test_image_count_removes_higher_slot():
 
 
 def test_failed_insert_does_not_sweep_extra_slots():
-    """If insert fails, stale slot shapes are not swept."""
+    """A decode miss on slot 0 is not an abort: image_count=1 still drops slot 1 while slot 0 stays."""
     cell = CalcCellStub(col=3, row=6)
     slot0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
     slot1 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_2", cell)
@@ -505,11 +579,11 @@ def test_failed_insert_does_not_sweep_extra_slots():
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
-        pytest.raises(ImageEgressError),
     ):
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0, image_count=1)
 
-    assert slot1 in page.shapes
+    assert slot0 in page.shapes
+    assert slot1 not in page.shapes
 
 
 def test_temp_image_removed_after_graphic_url_and_on_failure(tmp_path):
@@ -557,13 +631,12 @@ def test_temp_image_removed_after_graphic_url_and_on_failure(tmp_path):
     with (
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value=str(png)),
         patch("uno.systemPathToFileUrl", return_value=png.as_uri()),
-        pytest.raises(ImageEgressError),
     ):
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, doc=doc)
 
     assert not png.exists()
-    # The empty shape must be removed from the draw page on GraphicURL failure
-    assert shape not in page.shapes
+    # A new shape whose GraphicURL fails stays on the page as an empty graphic placeholder
+    assert shape in page.shapes
 
 
 def test_svg_aspect_not_stretched():
@@ -643,7 +716,7 @@ def test_read_image_bytes_reads_only_header():
         patch("plugin.calc.python.image_egress.os.path.isfile", return_value=True),
     ):
         _read_image_bytes(None, "/tmp/x.png")
-    m().read.assert_called_once_with(8192)
+    m().read.assert_called_once_with()
 
 
 def test_intrinsic_aspect_handles_mixed_svg_units():
@@ -728,9 +801,11 @@ def test_off_main_failure_annotates_and_does_not_raise():
 
 
 def test_reused_shape_not_removed_on_failure():
-    """A reused shape is not removed from DrawPage when GraphicURL setter fails."""
+    """A reused shape is not removed from DrawPage and keeps rectangle when GraphicURL fails."""
     cell = CalcCellStub(col=3, row=6)
     plot = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
+    plot.setPosition(Point(100, 200))
+    plot.setSize(Size(3000, 2000))
     page = _DrawPage([plot])
     ctx = MagicMock()
     target = MagicMock(name="target")
@@ -752,12 +827,13 @@ def test_reused_shape_not_removed_on_failure():
         ),
         patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/chart.svg"),
         patch("uno.systemPathToFileUrl", return_value="file:///tmp/chart.svg"),
-        pytest.raises(ImageEgressError),
     ):
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0)
 
-    # Reused shape must still remain on the draw page
+    # Reused shape remains on the draw page, position and size stay
     assert plot in page.shapes
+    assert plot.getPosition() == Point(100, 200)
+    assert plot.getSize() == Size(3000, 2000)
 
 
 def test_off_main_failure_does_not_replace_user_annotation():
@@ -1072,5 +1148,384 @@ def test_partial_insert_failure_unlinks_only_embedded_temps():
     mock_unlink.assert_called_once_with("/tmp/plot0.svg")
     assert out["image_paths"] == ["/tmp/plot1.svg"]
     assert out["image_path"] == "/tmp/plot1.svg"
+
+
+def test_mixed_aspect_slots_chain_edges():
+    """Slot 0 aspect 100x50 and slot 1 aspect 50x100 chain flush at slot 0's right edge."""
+    cell = CalcCellStub(col=1, row=2)
+    page = _DrawPage([])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    created_shapes: list[_AnchoredShape] = []
+
+    def _create_shape(service):
+        shape = _AnchoredShape(service, "", cell)
+        created_shapes.append(shape)
+        return shape
+
+    doc.createInstance.side_effect = _create_shape
+
+    ctx = MagicMock()
+    cell_pos = Point(1000, 2000)
+    cell_size = Size(3000, 1000)
+    payload0 = _make_png_payload(100, 50)
+    payload1 = _make_png_payload(50, 100)
+
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", side_effect=["/tmp/p0.png", "/tmp/p1.png"]),
+        patch("uno.systemPathToFileUrl", side_effect=["file:///tmp/p0.png", "file:///tmp/p1.png"]),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(cell_pos, cell_size)),
+    ):
+        insert_image_result_on_sheet(ctx, payload0, code="plt.show()", doc=doc, image_index=0)
+        insert_image_result_on_sheet(ctx, payload1, code="plt.show()", doc=doc, image_index=1)
+
+    assert len(created_shapes) == 2
+    slot0, slot1 = created_shapes
+    assert slot0.getSize() == Size(10000, 5000)
+    assert slot0.getPosition() == Point(1000, 2000)
+    assert slot1.getSize() == Size(5000, 10000)
+    # Revert target: _cursor_x chaining. Without chaining, slot 1 would be placed at 1000 + 1 * 5000 = 6000
+    assert slot1.getPosition() == Point(11000, 2000)
+
+
+def test_large_merge_slot0_fills_and_slot1_chains_at_aspect():
+    """Slot 0 fills large merge; slot 1 preserves aspect size and starts at merged block's edge."""
+    cell = CalcCellStub(col=1, row=2)
+    cell.IsMerged = True
+    page = _DrawPage([])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    created_shapes: list[_AnchoredShape] = []
+
+    def _create_shape(service):
+        shape = _AnchoredShape(service, "", cell)
+        created_shapes.append(shape)
+        return shape
+
+    doc.createInstance.side_effect = _create_shape
+
+    ctx = MagicMock()
+    cell_pos = Point(1000, 2000)
+    cell_size = Size(8000, 5000)
+    payload0 = _make_png_payload(100, 50)
+    payload1 = _make_png_payload(100, 50)
+
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", side_effect=["/tmp/m0.png", "/tmp/m1.png"]),
+        patch("uno.systemPathToFileUrl", side_effect=["file:///tmp/m0.png", "file:///tmp/m1.png"]),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(cell_pos, cell_size)),
+    ):
+        insert_image_result_on_sheet(ctx, payload0, code="plt.show()", doc=doc, image_index=0)
+        insert_image_result_on_sheet(ctx, payload1, code="plt.show()", doc=doc, image_index=1)
+
+    assert len(created_shapes) == 2
+    slot0, slot1 = created_shapes
+    assert slot0.getPropertyValue("ResizeWithCell") is True
+    assert slot0.getSize() == Size(8000, 5000)
+    # Revert target: the fill branch requiring image_index == 0. Without it, slot 1 also fills.
+    assert slot1.getPropertyValue("ResizeWithCell") is False
+    assert slot1.getSize() == Size(10000, 5000)
+    assert slot1.getPosition() == Point(9000, 2000)
+
+
+def test_rtl_sheet_slots_layout_right_to_left():
+    """In RTL sheets (TableLayout=1), slots chain from right to left."""
+    cell = CalcCellStub(col=1, row=2)
+    page = _DrawPage([])
+    sheet = _SheetStub(page, table_layout=1)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    created_shapes: list[_AnchoredShape] = []
+
+    def _create_shape(service):
+        shape = _AnchoredShape(service, "", cell)
+        created_shapes.append(shape)
+        return shape
+
+    doc.createInstance.side_effect = _create_shape
+
+    ctx = MagicMock()
+    cell_pos = Point(-3000, 100)
+    cell_size = Size(3000, 1000)
+    payload0 = _make_png_payload(100, 60)
+    payload1 = _make_png_payload(50, 100)
+
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", side_effect=["/tmp/r0.png", "/tmp/r1.png"]),
+        patch("uno.systemPathToFileUrl", side_effect=["file:///tmp/r0.png", "file:///tmp/r1.png"]),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(cell_pos, cell_size)),
+    ):
+        insert_image_result_on_sheet(ctx, payload0, code="plt.show()", doc=doc, image_index=0)
+        insert_image_result_on_sheet(ctx, payload1, code="plt.show()", doc=doc, image_index=1)
+
+    assert len(created_shapes) == 2
+    slot0, slot1 = created_shapes
+    # Revert target: RTL place-x calculation (cursor_x - target_width)
+    assert slot0.getPosition() == Point(-10000, 100)
+    assert slot1.getPosition() == Point(-15000, 100)
+
+
+def test_existing_slot_matching_byte_tag_skips_graphic_and_layout():
+    """An existing slot whose Description matches the byte digest tag skips reload and geometry."""
+    cell = CalcCellStub(col=3, row=6)
+    slot0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
+    payload = _make_png_payload(100, 50)
+    tag = _plot_byte_tag(payload["data"])
+    slot0.setPropertyValue("Description", tag)
+    slot0.setPosition(Point(500, 600))
+    slot0.setSize(Size(8000, 4000))
+    page = _DrawPage([slot0])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/match.png"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/match.png"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, payload, code="plt.show()", doc=doc, image_index=0)
+
+    # Revert target: early match return on matching byte tag
+    assert slot0.getPropertyValue("GraphicURL") is None
+    assert slot0.getPosition() == Point(500, 600)
+    assert slot0.getSize() == Size(8000, 4000)
+
+
+def test_existing_non_fill_slot_same_aspect_keeps_rectangle():
+    """An existing slot with changed bytes but same aspect ratio updates graphic and keeps rectangle."""
+    cell = CalcCellStub(col=3, row=6)
+    slot0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
+    slot0.setPosition(Point(500, 600))
+    slot0.setSize(Size(8000, 4000))
+    page = _DrawPage([slot0])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    payload = _make_png_payload(200, 100)
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/same_aspect.png"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/same_aspect.png"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, payload, code="plt.show()", doc=doc, image_index=0)
+
+    assert slot0.getPropertyValue("GraphicURL") == "file:///tmp/same_aspect.png"
+    # Revert target: update path not snapping existing slots back to cell origin
+    assert slot0.getPosition() == Point(500, 600)
+    assert slot0.getSize() == Size(8000, 4000)
+
+
+def test_existing_non_fill_slot_aspect_ratio_change_and_threshold():
+    """Existing slot updates size when aspect changes by >1%; preserves size when <=1% or ResizeWithCell."""
+    # Direct helper checks
+    assert not _aspect_ratio_changed(200, 100, 202, 100)
+    assert _aspect_ratio_changed(200, 100, 203, 100)
+
+    cell = CalcCellStub(col=3, row=6)
+    slot0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
+    slot0.setPosition(Point(500, 600))
+    slot0.setSize(Size(10000, 5000))
+    page = _DrawPage([slot0])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    # Ratio change: 10000x5000 (2:1) to 50x100 (1:2). Long side max(10000, 5000) = 10000.
+    payload = _make_png_payload(50, 100)
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/change_aspect.png"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/change_aspect.png"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, payload, code="plt.show()", doc=doc, image_index=0)
+
+    # Revert target: _aspect_size(..., long_side=max(old_w, old_h)) on update path
+    assert slot0.getPosition() == Point(500, 600)
+    assert slot0.getSize() == Size(5000, 10000)
+
+    # A box with max side 8000 (8000x4000) becomes (4000, 8000)
+    slot0.setSize(Size(8000, 4000))
+    slot0.setPropertyValue("Description", "")
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/change_aspect2.png"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/change_aspect2.png"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, payload, code="plt.show()", doc=doc, image_index=0)
+
+    assert slot0.getSize() == Size(4000, 8000)
+
+    # A slot with ResizeWithCell=True does not resize on aspect change
+    slot0.setPropertyValue("ResizeWithCell", True)
+    slot0.setSize(Size(8000, 5000))
+    slot0.setPropertyValue("Description", "")
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/change_aspect3.png"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/change_aspect3.png"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(1000, 2000), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, payload, code="plt.show()", doc=doc, image_index=0)
+
+    assert slot0.getSize() == Size(8000, 5000)
+
+
+def test_new_shape_graphic_url_failure_leaves_draft_placeholder():
+    """A new shape whose GraphicURL raises is left on the page and does not raise or annotate."""
+    cell = CalcCellStub(col=0, row=0)
+    page = _DrawPage([])
+    sheet = _SheetStub(page)
+    annotations = MagicMock()
+    sheet.getAnnotations = lambda: annotations
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
+
+    def _set_fail(prop, _val):
+        if prop == "GraphicURL":
+            raise RuntimeError("graphic load error")
+
+    shape.setPropertyValue = _set_fail
+    doc.createInstance.return_value = shape
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (cell._row, cell._col)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/fail.svg"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/fail.svg"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0)
+
+    # Revert target: not removing the shape on GraphicURL failure
+    assert shape in page.shapes
+    annotations.insertNew.assert_not_called()
+
+
+def test_new_shape_hides_when_formula_row_or_col_hidden():
+    """A newly created shape anchored to a hidden row or column is set to Visible=False."""
+    cell = CalcCellStub(col=0, row=0)
+    ctx = MagicMock()
+
+    # Case 1: Hidden row
+    page_row = _DrawPage([])
+    sheet_row = _SheetStub(page_row, rows_visible=False, cols_visible=True)
+    doc_row = MagicMock(name="doc_row")
+    doc_row.getCurrentController.return_value = None
+    shape_row = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
+    doc_row.createInstance.return_value = shape_row
+
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet_row, cell, (0, 0)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/vis1.svg"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/vis1.svg"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc_row, image_index=0)
+
+    # Revert target: Visible assignment when _formula_axis_hidden is true
+    assert shape_row.getPropertyValue("Visible") is False
+
+    # Case 2: Hidden column
+    page_col = _DrawPage([])
+    sheet_col = _SheetStub(page_col, rows_visible=True, cols_visible=False)
+    doc_col = MagicMock(name="doc_col")
+    doc_col.getCurrentController.return_value = None
+    shape_col = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
+    doc_col.createInstance.return_value = shape_col
+
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet_col, cell, (0, 0)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/vis2.svg"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/vis2.svg"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc_col, image_index=0)
+
+    assert shape_col.getPropertyValue("Visible") is False
+
+    # Case 3: Visible row and column does not set Visible False
+    page_vis = _DrawPage([])
+    sheet_vis = _SheetStub(page_vis, rows_visible=True, cols_visible=True)
+    doc_vis = MagicMock(name="doc_vis")
+    doc_vis.getCurrentController.return_value = None
+    shape_vis = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
+    doc_vis.createInstance.return_value = shape_vis
+
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet_vis, cell, (0, 0)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/vis3.svg"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/vis3.svg"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+    ):
+        insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc_vis, image_index=0)
+
+    assert shape_vis.getPropertyValue("Visible") is not False
 
 
