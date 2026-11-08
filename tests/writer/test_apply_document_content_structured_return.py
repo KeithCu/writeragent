@@ -22,6 +22,7 @@ from plugin.writer.apply_document_content import (
 )
 
 _real_content_has_markup = format_mod.content_has_markup
+_real_normalize_search_string_for_find = search_mod.normalize_search_string_for_find
 
 
 def test_heading_rewrite_uno_skips_windows_leftover_hidden_apply() -> None:
@@ -129,7 +130,7 @@ def test_search_all_matches_no_match_errors(monkeypatch):
 
 def test_search_tagged_needle_normalized(monkeypatch):
     monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
-    monkeypatch.setattr(search_mod, "normalize_search_string_for_find", search_mod.normalize_search_string_for_find)
+    monkeypatch.setattr(search_mod, "normalize_search_string_for_find", _real_normalize_search_string_for_find)
 
     captured = {}
 
@@ -146,9 +147,8 @@ def test_search_tagged_needle_normalized(monkeypatch):
     assert res["normalized_old_content"] == "Hello World"
 
 
-def test_search_oversized_old_content_refused(monkeypatch):
-    mock_find = MagicMock()
-    monkeypatch.setattr(search_mod, "find_first_range", mock_find)
+def test_search_oversized_old_content_refused_on_miss(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
     monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
     res = ApplyDocumentContent().execute(
         _ctx(), target="search", old_content="huge content", content="BAR"
@@ -157,7 +157,17 @@ def test_search_oversized_old_content_refused(monkeypatch):
     assert res["replaced_count"] == 0, res
     assert res["normalized_old_content"] == "huge content"
     assert "target='full_document'" in res["message"]
-    mock_find.assert_not_called()
+
+
+def test_search_oversized_old_content_never_blocks_match(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="huge content", content="BAR"
+    )
+    assert res["status"] == "ok", res
+    assert res["replaced_count"] == 1, res
+    assert res["normalized_old_content"] == "huge content"
 
 
 def test_search_empty_after_normalization_reports_normalized_key():

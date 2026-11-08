@@ -952,7 +952,8 @@ def test_apply_style_search_miss_reports_normalized_and_closest():
 def test_apply_style_search_oversized_refused():
     from plugin.writer.styles import ApplyStyle
 
-    with patch("plugin.writer.search.old_content_covers_most", return_value=True), \
+    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+         patch("plugin.writer.search.old_content_covers_most", return_value=True), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
          patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",

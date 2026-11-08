@@ -80,23 +80,13 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     if not search_string:
         raise ValueError("old_content is empty after normalization.")
 
-    if search_mod.old_content_covers_most(doc, len(search_string)):
-        raise ValueError(search_mod.OVERSIZED_OLD_CONTENT_MESSAGE)
-
     found = search_mod.find_first_range(doc, search_string)
 
     if found is None:
         shape_name = search_mod.drawing_shape_containing(doc, search_string)
-        if shape_name:
-            raise ValueError(search_mod.shape_only_search_message("old_content", shape_name))
-        from plugin.writer.review_scan import document_has_tracked_deletions
-
-        hint = search_mod._TRACKED_DELETION_HINT if document_has_tracked_deletions(doc) else ""
-        base_msg = "old_content not found in document. Try a shorter, unique substring." + hint
-        closest = search_mod.search_closest_mismatch(doc, search_string, lenient=True)
-        if closest:
-            base_msg = f"{base_msg} {closest['message']}"
-        raise ValueError(base_msg)
+        raise ValueError(
+            search_mod.search_miss_message(doc, search_string, shape_name=shape_name)
+        )
 
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell
     # or text frame is a different XText, and gotoRange across text objects raises (format.py

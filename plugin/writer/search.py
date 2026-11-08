@@ -195,10 +195,14 @@ def shape_only_search_message(subject: str, shape_name: str, *, review: bool = F
 
 
 def build_search_not_found_response(
+    doc: Any = None,
+    needle: str = "",
+    *,
     all_matches: bool = False,
     shape_name: str | None = None,
+    lenient: bool = True,
+    use_regex: bool = False,
     tracked_deletions: bool = False,
-    *,
     closest: dict[str, Any] | None = None,
     normalized_old_content: str | None = None,
 ) -> dict[str, Any]:
@@ -212,13 +216,32 @@ def build_search_not_found_response(
         if normalized_old_content is not None:
             resp["normalized_old_content"] = normalized_old_content
         return resp
-    hint = _TRACKED_DELETION_HINT if tracked_deletions else ""
+
+    if doc is not None and needle and not use_regex and old_content_covers_most(doc, len(needle)):
+        resp = {
+            "status": "error",
+            "message": OVERSIZED_OLD_CONTENT_MESSAGE,
+            "replaced_count": 0,
+        }
+        if normalized_old_content is not None:
+            resp["normalized_old_content"] = normalized_old_content
+        return resp
+
+    from plugin.writer.review_scan import document_has_tracked_deletions
+
+    has_tracked = tracked_deletions or (doc is not None and document_has_tracked_deletions(doc))
+    hint = _TRACKED_DELETION_HINT if has_tracked else ""
     if all_matches:
         base_msg = "Replaced 0 occurrence(s). No matches found. Try a shorter substring." + hint
     else:
         base_msg = "old_content not found in document. Try a shorter, unique substring." + hint
+
+    if closest is None and doc is not None and needle and not use_regex:
+        closest = search_closest_mismatch(doc, needle, lenient=lenient)
+
     if closest:
         base_msg = f"{base_msg} {closest['message']}"
+
     resp = {
         "status": "error",
         "message": base_msg,
@@ -230,6 +253,27 @@ def build_search_not_found_response(
     if normalized_old_content is not None:
         resp["normalized_old_content"] = normalized_old_content
     return resp
+
+
+def search_miss_message(
+    doc: Any,
+    needle: str,
+    *,
+    shape_name: str | None = None,
+    lenient: bool = True,
+    all_matches: bool = False,
+    use_regex: bool = False,
+) -> str:
+    """Format the error message for a failed search (for target_resolver and diagnostics)."""
+    resp = build_search_not_found_response(
+        doc,
+        needle,
+        shape_name=shape_name,
+        lenient=lenient,
+        all_matches=all_matches,
+        use_regex=use_regex,
+    )
+    return str(resp.get("message", ""))
 
 
 def find_text_ranges(
@@ -286,7 +330,12 @@ def _search_try_strings(search_string: str) -> Iterator[str]:
 
 
 def escape_for_lo_regex(s: str) -> str:
-    """Escape regular expression characters and match any horizontal space sequence."""
+    """Escape regex characters and fold spaces, quotes, and dashes into pattern classes.
+
+    Typographic single and double quotes (from autocorrect or word processors) match
+    straight ASCII quotes in search needles, and various hyphen/dash codepoints
+    match interchangeably while keeping match length 1:1 with the needle.
+    """
     s = s.translate(SPACE_NORMALIZE_MAP)
     escaped = re_mod.sub(r'([\\^$.|?*+()\[\]{}])', r'\\\1', s)
     escaped = _SINGLE_QUOTE_RE.sub(lambda match: SINGLE_QUOTE_CLASS, escaped)
@@ -985,7 +1034,8 @@ def closest_mismatch(
             best_i = i
             best_diff = diff_idx
 
-    if best_score < 0:
+    min_score = max(1, min(8, needle_len // 2))
+    if best_score < min_score:
         return None
 
     window = hay[best_i : best_i + needle_len]
@@ -1002,6 +1052,9 @@ def closest_mismatch(
         "diff_at": diff_at,
         "message": msg,
     }
+
+
+MAX_MISS_HAYSTACK_CHARS = 2_000_000
 
 
 def get_search_miss_haystack(doc: Any) -> str:
@@ -1029,7 +1082,10 @@ def get_search_miss_haystack(doc: Any) -> str:
         reraise_if_disposed(exc)
         log.warning("Failed to enumerate text frames for search miss: %s", exc)
 
-    return "\n".join(parts)
+    hay = "\n".join(parts)
+    if len(hay) > MAX_MISS_HAYSTACK_CHARS:
+        return hay[:MAX_MISS_HAYSTACK_CHARS]
+    return hay
 
 
 def search_closest_mismatch(

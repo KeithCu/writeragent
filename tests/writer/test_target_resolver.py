@@ -92,6 +92,8 @@ def test_search_converts_markup_before_find(monkeypatch):
 
 def test_search_oversized_old_content_raises_value_error(monkeypatch):
     ctx, _ = _ctx()
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.find_first_range", lambda doc, s: None)
+    monkeypatch.setattr("plugin.writer.target_resolver.search_mod.drawing_shape_containing", lambda doc, s: None)
     monkeypatch.setattr("plugin.writer.target_resolver.search_mod.old_content_covers_most", lambda doc, n: True)
     with pytest.raises(ValueError, match="target='full_document'"):
         resolve_target_cursor(ctx, "search", "half or more of doc")

@@ -1297,6 +1297,14 @@ class ApplyStyle(FrameworkToolBase):
         return val
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        result = self._execute(ctx, **kwargs)
+        if kwargs.get("target") == "search":
+            from plugin.writer.search import prepare_old_content
+
+            result.setdefault("normalized_old_content", prepare_old_content(kwargs.get("old_content")))
+        return result
+
+    def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs["style"].strip()
         if not style_name:
             return self._tool_error("style is required.")
@@ -1344,10 +1352,6 @@ class ApplyStyle(FrameworkToolBase):
             if target == "search":
                 if "matched" not in res:
                     res["matched"] = True
-                if "normalized_old_content" not in res:
-                    from plugin.writer.search import prepare_old_content
-
-                    res["normalized_old_content"] = prepare_old_content(old_content)
             flag_style_unreviewed(res)
             return res
 
@@ -1358,11 +1362,9 @@ class ApplyStyle(FrameworkToolBase):
         occ_raw = kwargs.get("occurrence")
         if target == "search" and (all_matches or occ_raw is not None):
             from plugin.writer.search import (
+                build_search_not_found_response,
                 find_all_ranges,
-                old_content_covers_most,
                 prepare_old_content,
-                search_closest_mismatch,
-                OVERSIZED_OLD_CONTENT_MESSAGE,
             )
 
             s = prepare_old_content(old_content)
@@ -1372,39 +1374,16 @@ class ApplyStyle(FrameworkToolBase):
                     "message": "target='search' requires old_content.",
                     "applied": False,
                     "matched": False,
-                    "normalized_old_content": "",
-                }
-            if old_content_covers_most(ctx.doc, len(s)):
-                return {
-                    "status": "error",
-                    "message": OVERSIZED_OLD_CONTENT_MESSAGE,
-                    "applied": False,
-                    "matched": False,
-                    "normalized_old_content": s,
                 }
             ranges = find_all_ranges(ctx.doc, s) if s else []
             if not ranges:
-                msg = "old_content not found in document."
-                res = {
-                    "status": "error",
-                    "message": msg,
-                    "target": "search",
-                    "applied": False,
-                    "matched": False,
-                    "normalized_old_content": s,
-                }
-                closest = search_closest_mismatch(ctx.doc, s, lenient=True)
-                if closest:
-                    res["message"] = f"{msg} {closest['message']}"
-                    res["closest_match"] = closest["closest_match"]
-                    res["diff_at"] = closest["diff_at"]
+                res = build_search_not_found_response(ctx.doc, s, all_matches=True)
+                res.update({"target": "search", "applied": False, "matched": False})
                 return res
             if occ_raw is not None:
                 # Schema type integer (bool fails). validate has no min/max.
                 if occ_raw < 0 or occ_raw >= len(ranges):
-                    oor_err = self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
-                    oor_err["normalized_old_content"] = s
-                    return oor_err
+                    return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
                 ranges = [ranges[occ_raw]]
             reports = []
 
@@ -1470,15 +1449,12 @@ class ApplyStyle(FrameworkToolBase):
                 # apply_document_content, so a client can branch on matched/applied.
                 # TODO(follow-up): consider _tool_error(..., details={...}) so this path also
                 # carries a standard error code like other apply_style failures.
-                from plugin.writer.search import prepare_old_content
-
                 return {
                     "status": "error",
                     "message": str(ve),
                     "target": "search",
                     "applied": False,
                     "matched": False,
-                    "normalized_old_content": prepare_old_content(old_content),
                 }
             return self._tool_error(str(ve))
 

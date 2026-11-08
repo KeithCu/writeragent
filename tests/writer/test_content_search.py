@@ -66,10 +66,12 @@ def test_escape_for_lo_regex_quotes_and_dashes():
 
 
 def test_paragraph_matches_part_tail_and_middle():
-    ok, off = _paragraph_matches_part("prefix and tail", "tail", tail=True)
+    ok, off = _paragraph_matches_part("prefix and ‘tail’", "'tail'", tail=True)
     assert ok is True
     ok, off = _paragraph_matches_part("prefix and tail", "prefix", tail=True)
     assert ok is False
+    ok, off = _paragraph_matches_part("middle–line", "middle-line")
+    assert ok is True
     ok, off = _paragraph_matches_part("middle line", "muddle line")
     assert ok is False
 
@@ -84,11 +86,21 @@ def test_closest_mismatch_near_miss():
     assert res["diff_at"] == 17
 
 
+def test_closest_mismatch_no_useful_match_returns_none():
+    hay = "The revenue grew last year."
+    needle = "Completely unrelated search text"
+    assert closest_mismatch(needle, hay, lenient=True) is None
+    # Leading character mismatch should not trigger a near-miss report for position 0
+    assert closest_mismatch("Revenue grew last year", hay, lenient=False) is None
+
+
 def test_closest_mismatch_lenient_quote_pair_returns_no_mismatch():
-    assert closest_mismatch("it's fine", "it’s fine", lenient=True) is None
-    res = closest_mismatch("it's fine", "it’s fine", lenient=False)
+    needle = "it is fine with 'quotes'"
+    hay = "it is fine with ’quotes’"
+    assert closest_mismatch(needle, hay, lenient=True) is None
+    res = closest_mismatch(needle, hay, lenient=False)
     assert res is not None
-    assert res["diff_at"] == 2
+    assert res["diff_at"] == 16
 
 
 class _FakeCursorForSteps:
