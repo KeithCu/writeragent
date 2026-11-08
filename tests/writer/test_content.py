@@ -1750,4 +1750,29 @@ def test_dry_run_delete_position():
     mock_find_again.assert_not_called()
 
 
+def test_join_content():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    # List of strings
+    text, err = ApplyDocumentContent._join_content(["<p>a</p>", "<p>b</p>"])
+    assert text == "<p>a</p>\n<p>b</p>"
+    assert err is None
+
+    # JSON-string list
+    text, err = ApplyDocumentContent._join_content('["<p>a</p>", "<p>b</p>"]')
+    assert text == "<p>a</p>\n<p>b</p>"
+    assert err is None
+
+    # Non-string item in list
+    text, err = ApplyDocumentContent._join_content(["<p>a</p>", 123])
+    assert text is None
+    assert err == "content list items must be strings."
+
+    # Non-string (int)
+    text, err = ApplyDocumentContent._join_content(123)
+    assert text is None
+    assert err == "content must be a string or a list of strings."
+
+
+
 

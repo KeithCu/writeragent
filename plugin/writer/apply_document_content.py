@@ -452,25 +452,30 @@ class ApplyDocumentContent(ToolBase):
         return position, None
 
     @staticmethod
-    def _delete_content_error(position: str, content: Any) -> str | None:
-        if position != "delete":
-            return None
+    def _join_content(content: Any) -> tuple[str | None, str | None]:
+        # If the model serialized a list as a JSON string, parse it back so commas/brackets
+        # do not become literal document text.
         if isinstance(content, str):
             stripped = content.strip()
             if stripped.startswith("[") and "<" in stripped:
                 parsed = safe_json_loads(stripped)
                 if isinstance(parsed, list):
                     content = parsed
+
         if isinstance(content, list):
             if any(not isinstance(x, str) for x in content):
-                return "content list items must be strings."
-            text = "\n".join(content)
-        elif isinstance(content, str):
-            text = content
-        elif content is None:
-            text = ""
-        else:
-            return "content must be a string or a list of strings."
+                return None, "content list items must be strings."
+            content = "\n".join(content)
+
+        if not isinstance(content, str):
+            return None, "content must be a string or a list of strings."
+
+        return content, None
+
+    @staticmethod
+    def _delete_content_error(position: str, text: str) -> str | None:
+        if position != "delete":
+            return None
         if text.strip():
             return "position='delete' removes the old_content match; content must be empty."
         return None
@@ -820,7 +825,11 @@ class ApplyDocumentContent(ToolBase):
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
             return self._tool_error(pos_err)
-        del_err = self._delete_content_error(position, kwargs.get("content"))
+        content_str, content_err = self._join_content(kwargs.get("content", ""))
+        if content_err:
+            return self._tool_error(content_err)
+        assert content_str is not None
+        del_err = self._delete_content_error(position, content_str)
         if del_err:
             return self._tool_error(del_err)
         override_err = self._override_not_replace(override, position)
@@ -1044,22 +1053,11 @@ class ApplyDocumentContent(ToolBase):
                 "position='before'/'after' inserts at a single match; drop all_matches "
                 "or use position='replace'.")
 
-        # If the model serialized a list as a JSON string, parse it back so commas/brackets
-        # do not become literal document text.
-        if isinstance(content, str):
-            stripped = content.strip()
-            if stripped.startswith("[") and "<" in stripped:
-                parsed = safe_json_loads(stripped)
-                if isinstance(parsed, list):
-                    content = parsed
-
-        if isinstance(content, list):
-            if any(not isinstance(x, str) for x in content):
-                return self._tool_error("content list items must be strings.")
-            content = "\n".join(content)
-
-        if not isinstance(content, str):
-            return self._tool_error("content must be a string or a list of strings.")
+        content_str, content_err = self._join_content(content)
+        if content_err:
+            return self._tool_error(content_err)
+        assert content_str is not None
+        content = content_str
 
         del_err = self._delete_content_error(position, content)
         if del_err:
@@ -1117,6 +1115,8 @@ class ApplyDocumentContent(ToolBase):
             if position == "delete":
                 # position='delete' is the empty search replacement, so the match grows
                 # over the same edge spaces, and a table whose last text this removes still goes.
+                # The flip must come before the edge-strip check below, which keys on
+                # position == "replace", or the match would not expand over edge whitespace.
                 position = "replace"
 
             old_stripped = str(old_content).strip()
@@ -1139,12 +1139,6 @@ class ApplyDocumentContent(ToolBase):
                     and not format_support.content_has_markup(str(old_content))):
                 content, separator = _match_stripped_edges(str(old_content), content)
                 plain = content
-            override, override_error = self._parse_hyperlink_url(kwargs)
-            if override_error:
-                return self._tool_error(override_error, code="INVALID_PARAM")
-            override_err = self._override_not_replace(override, position)
-            if override_err:
-                return self._tool_error(override_err, code="INVALID_PARAM")
 
             regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
             if rex_err:
