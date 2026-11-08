@@ -18,7 +18,6 @@ import re
 from typing import Any, ClassVar, final
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
-from plugin.framework.uno_context import enum_has_more
 
 from . import xhtml_style_postprocess as xhtml_post
 
@@ -366,12 +365,20 @@ def _apply_block_lo_styles(
     style_cache: dict[Any, Any] = {}
     reached_count = 0
 
-    cur_para_elem: Any = None
-    para_enum: Any = None
+    all_paras: list[Any] = []
     if any(para_list):
         try:
             if hasattr(text_obj, "createEnumeration"):
-                para_enum = text_obj.createEnumeration()
+                penum = text_obj.createEnumeration()
+                if penum is not None and getattr(penum, "hasMoreElements", None) is not None:
+                    while True:
+                        has_more = getattr(penum, "hasMoreElements", lambda: False)()
+                        if has_more is not True and not (type(has_more) is int and has_more == 1):
+                            break
+                        el = penum.nextElement()
+                        supp = getattr(el, "supportsService", None)
+                        if callable(supp) and supp("com.sun.star.text.Paragraph") in (True, 1):
+                            all_paras.append(el)
         except Exception as exc:
             reraise_if_disposed(exc)
 
@@ -409,35 +416,18 @@ def _apply_block_lo_styles(
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
                     para_obj = None
-                    if para_enum is not None:
+                    if all_paras:
                         try:
-                            walk_start = walk_cur.getStart()
-                            while True:
-                                if cur_para_elem is None:
-                                    if enum_has_more(para_enum):
-                                        cur_para_elem = para_enum.nextElement()
-                                    else:
-                                        break
-                                if not hasattr(cur_para_elem, "getStart"):
-                                    # Non-range element (such as SwXTextTable); skip
-                                    cur_para_elem = None
-                                    continue
-                                cmp = text_obj.compareRegionStarts(walk_start, cur_para_elem.getStart())
-                                if cmp == -1:
-                                    # cur_para_elem starts before walk_start; advance
-                                    cur_para_elem = None
-                                    continue
-                                elif cmp == 0:
-                                    # Matched the paragraph at current walk_start
-                                    para_obj = cur_para_elem
-                                    cur_para_elem = None
-                                    break
-                                else:
-                                    # cur_para_elem starts after walk_start
-                                    break
+                            from plugin.doc.paragraph_search import find_paragraph_for_range
+                            p_idx = find_paragraph_for_range(walk_cur, all_paras, text_obj)
+                            if p_idx is not None and 0 <= p_idx < len(all_paras):
+                                para_obj = all_paras[p_idx]
+                            elif idx < len(all_paras):
+                                para_obj = all_paras[idx]
                         except Exception as exc:
                             reraise_if_disposed(exc)
-                            log.debug("data-lo-para: could not match paragraph from enumeration: %s", exc)
+                            if idx < len(all_paras):
+                                para_obj = all_paras[idx]
 
                     for css_name, (uno_prop, val) in mapped.items():
                         try:
