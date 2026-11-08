@@ -368,17 +368,14 @@ def _apply_block_lo_styles(
     all_paras: list[Any] = []
     if any(para_list):
         try:
+            penum = None
             if hasattr(text_obj, "createEnumeration"):
                 penum = text_obj.createEnumeration()
-                if penum is not None and getattr(penum, "hasMoreElements", None) is not None:
-                    while True:
-                        has_more = getattr(penum, "hasMoreElements", lambda: False)()
-                        if has_more is not True and not (type(has_more) is int and has_more == 1):
-                            break
-                        el = penum.nextElement()
-                        supp = getattr(el, "supportsService", None)
-                        if callable(supp) and supp("com.sun.star.text.Paragraph") in (True, 1):
-                            all_paras.append(el)
+            elif model is not None and hasattr(model, "getText"):
+                penum = model.getText().createEnumeration()
+            if penum is not None:
+                from plugin.doc.text_helpers import iter_elements
+                all_paras = list(iter_elements(penum))
         except Exception as exc:
             reraise_if_disposed(exc)
 
@@ -439,6 +436,7 @@ def _apply_block_lo_styles(
                                 _try_set_property(para_cur, "ParaBackTransparent", is_trans)
                                 _try_set_property(para_obj, "ParaBackTransparent", is_trans)
                                 para_cur.setPropertyValue(uno_prop, val)
+                                _try_set_property(para_cur, "ParaBackTransparent", is_trans)
                                 _try_set_property(para_obj, uno_prop, val)
                                 _try_set_property(para_obj, "ParaBackTransparent", is_trans)
                             else:
