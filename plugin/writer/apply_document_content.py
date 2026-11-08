@@ -799,7 +799,11 @@ class ApplyDocumentContent(ToolBase):
         override_err = self._override_not_replace(override, position)
         if override_err:
             return self._tool_error(override_err, code="INVALID_PARAM")
-        rewrites_outline = position == "replace"
+        content = kwargs.get("content")
+        if isinstance(content, list):
+            content = "\n".join(str(part) for part in content)
+        # Empty replacements delete the match without painting a put-back URL.
+        rewrites_outline = position == "replace" and str(content or "").strip() != ""
         edit_idx = 0 if occurrence is None else occurrence
         from . import html_import as format_support
 
