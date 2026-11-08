@@ -207,7 +207,9 @@ def _record_plot_tag(shape: Any, target_cell: Any = None, data: bytes | None = N
     try:
         desc = shape.getPropertyValue("Description")
         if not isinstance(desc, str) or not desc or desc.startswith("wa-plot:"):
-            shape.setPropertyValue("Description", _plot_byte_tag(data, col, row))
+            new_tag = _plot_byte_tag(data, col, row)
+            if desc != new_tag:
+                shape.setPropertyValue("Description", new_tag)
     except (AttributeError, TypeError):
         log.debug("could not record plot tag", exc_info=True)
 
@@ -285,7 +287,14 @@ def _slot_cursor(
 
 
 def _shape_matches_target_cell(shape: Any, target_cell: Any) -> bool:
-    """True when shape is anchored to target_cell, or has no cell anchor and matches by tag."""
+    """True when shape is anchored to target_cell, or has no cell anchor and matches by tag.
+
+    When LibreOffice re-anchors a shape off the cell grid, matching falls back to the
+    (col, row) coordinates stored in the wa-plot tag. If rows or columns are inserted
+    above or to the left of the formula, the cell address shifts while an off-grid
+    re-anchored shape retains stale tag coordinates until matched; in-cell anchored shapes
+    remain matched by cell anchor identity.
+    """
     if _shape_anchor_matches_cell(shape, target_cell):
         return True
 
@@ -535,6 +544,63 @@ def insert_image_result_on_sheet(
     _run()
 
 
+def _position_new_plot(
+    sheet: Any,
+    shape: Any,
+    target_cell: Any,
+    aspect_size: Any,
+    image_index: int,
+    slots: list[tuple[Any, int]],
+    rtl: bool,
+) -> None:
+    """Anchor, size, position, and set initial visibility on a new plot shape."""
+    from com.sun.star.awt import Point
+    from plugin.calc.calc_utils import get_cell_geometry
+
+    cell_pos, cell_size = get_cell_geometry(sheet, target_cell)
+    try:
+        is_merged = bool(target_cell.IsMerged)
+    except (AttributeError, TypeError):
+        is_merged = False
+    width = int(cell_size.Width)
+    height = int(cell_size.Height)
+    is_large_placeholder = (
+        is_merged
+        and width >= MIN_CHART_PLACEHOLDER_WIDTH
+        and height >= MIN_CHART_PLACEHOLDER_HEIGHT
+    )
+
+    cursor_x, cursor_y = _slot_cursor(
+        cell_pos, cell_size, image_index, slots, rtl
+    )
+
+    shape.setPropertyValue("Anchor", target_cell)
+
+    # Only slot 0 can fill a merged placeholder block. Later slots are placed
+    # beside the merged block at their intrinsic aspect ratio so they do not stack
+    # on top of each other or stretch to the same placeholder.
+    if image_index == 0 and is_large_placeholder:
+        shape.setPropertyValue("ResizeWithCell", True)
+        shape.setSize(cell_size)
+        target_width = width
+    else:
+        shape.setPropertyValue("ResizeWithCell", False)
+        shape.setSize(aspect_size)
+        target_width = int(aspect_size.Width)
+
+    # Each successive plot slot chains horizontally from the outer edge of the
+    # preceding slot. Reading the live rectangle of each resolved slot ensures
+    # slots fit flush against each other without gaps or overlaps.
+    if image_index == 0 and not rtl:
+        shape.setPosition(cell_pos)
+    else:
+        place_x = cursor_x - target_width if rtl else cursor_x
+        shape.setPosition(Point(place_x, cursor_y))
+
+    # Collabora pythonplots.cxx:214-216, 223-225: evaluate visibility against formula cell axis.
+    shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
+
+
 def _place_new_plot(
     doc: Any,
     sheet: Any,
@@ -548,9 +614,6 @@ def _place_new_plot(
     rtl: bool,
 ) -> Any:
     """Create, load, anchor, and place a new plot shape on the sheet."""
-    from com.sun.star.awt import Point
-    from plugin.calc.calc_utils import get_cell_geometry
-
     shape = doc.createInstance(_DRAW_GRAPHIC_SERVICE)
     shape.setSize(aspect_size)
     draw_page.add(shape)
@@ -569,53 +632,10 @@ def _place_new_plot(
 
     if target_cell is not None:
         try:
-            cell_pos, cell_size = get_cell_geometry(sheet, target_cell)
-            try:
-                is_merged = bool(target_cell.IsMerged)
-            except (AttributeError, TypeError):
-                is_merged = False
-            width = int(cell_size.Width)
-            height = int(cell_size.Height)
-            is_large_placeholder = (
-                is_merged
-                and width >= MIN_CHART_PLACEHOLDER_WIDTH
-                and height >= MIN_CHART_PLACEHOLDER_HEIGHT
+            _position_new_plot(
+                sheet, shape, target_cell, aspect_size, image_index, slots, rtl
             )
-
-            cursor_x, cursor_y = _slot_cursor(
-                cell_pos, cell_size, image_index, slots, rtl
-            )
-
-            shape.setPropertyValue("Anchor", target_cell)
-
-            # Only slot 0 can fill a merged placeholder block. Later slots are placed
-            # beside the merged block at their intrinsic aspect ratio so they do not stack
-            # on top of each other or stretch to the same placeholder.
-            if image_index == 0 and is_large_placeholder:
-                shape.setPropertyValue("ResizeWithCell", True)
-                shape.setSize(cell_size)
-                target_width = width
-            else:
-                shape.setPropertyValue("ResizeWithCell", False)
-                shape.setSize(aspect_size)
-                target_width = int(aspect_size.Width)
-
-            # Each successive plot slot chains horizontally from the outer edge of the
-            # preceding slot. Reading the live rectangle of each resolved slot ensures
-            # slots fit flush against each other without gaps or overlaps.
-            if image_index == 0 and not rtl:
-                shape.setPosition(cell_pos)
-            else:
-                place_x = cursor_x - target_width if rtl else cursor_x
-                shape.setPosition(Point(place_x, cursor_y))
-
-            # Collabora pythonplots.cxx:214-216, 223-225: re-evaluate visibility against formula cell axis.
-            shape.setPropertyValue("Visible", not _formula_axis_hidden(sheet, target_cell))
-
-            if graphic_exc is None:
-                _record_plot_tag(shape, target_cell, data_bytes)
-            else:
-                _record_plot_tag(shape, target_cell, None)
+            _record_plot_tag(shape, target_cell, data_bytes if graphic_exc is None else None)
         except Exception as exc:
             best_effort(
                 lambda: draw_page.remove(shape),
@@ -653,7 +673,9 @@ def _refresh_existing_plot(
     # so subsequent recalculations can detect unchanged image bytes and avoid reloading
     # the graphic or resetting user adjustments.
     if data_bytes is not None and _bytes_match(shape, data_bytes):
-        # Refresh the owner tag with the current cell coordinates on every reuse.
+        # When image bytes match, skipping graphic reload preserves user modifications
+        # (such as manual resizing, cropping, or graphic alterations) across recalculations;
+        # the user owns the placed shape once inserted.
         if target_cell is not None:
             _record_plot_tag(shape, target_cell, data_bytes)
     else:
@@ -770,22 +792,23 @@ def _insert_image_result_on_sheet_impl(
         shape = _resolve_slot(slots, image_index)
         rtl = _sheet_is_rtl(sheet)
 
-        if shape is None:
-            _place_new_plot(
-                doc, sheet, draw_page, target_cell, file_url, data_bytes, aspect_size, image_index, slots, rtl
-            )
-        else:
-            _refresh_existing_plot(
-                shape, target_cell, file_url, data_bytes, aspect, rtl
-            )
-
-        # Only a caller that passes image_count owns the slot family. =PY() and
-        # run_venv_python_script pass it and enumerate image_index from 0, so the
-        # sweep runs once on index 0. Omitting image_count (chat plot_data / viz)
-        # must not remove sibling WriterAgentPlot_N shapes; they may belong to a
-        # formula on the selected cell.
-        if image_count is not None and image_index == 0 and target_cell is not None:
-            _drop_extra_plot_slots(draw_page, slots, image_count)
+        try:
+            if shape is None:
+                _place_new_plot(
+                    doc, sheet, draw_page, target_cell, file_url, data_bytes, aspect_size, image_index, slots, rtl
+                )
+            else:
+                _refresh_existing_plot(
+                    shape, target_cell, file_url, data_bytes, aspect, rtl
+                )
+        finally:
+            # Only a caller that passes image_count owns the slot family. =PY() and
+            # run_venv_python_script pass it and enumerate image_index from 0, so the
+            # sweep runs once on index 0. Stale slots >= image_count are swept even when
+            # slot 0 fails to load, so obsolete sibling shapes do not linger beside an empty draft.
+            # Omitting image_count (chat plot_data / viz) must not remove sibling WriterAgentPlot_N shapes.
+            if image_count is not None and image_index == 0 and target_cell is not None:
+                _drop_extra_plot_slots(draw_page, slots, image_count)
     except ImageEgressError:
         raise
     except Exception as exc:

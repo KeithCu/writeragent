@@ -546,8 +546,8 @@ def test_image_count_removes_higher_slot():
     assert other_plot in page.shapes
 
 
-def test_failed_insert_does_not_sweep_extra_slots():
-    """If insert fails on slot 0, stale slot shapes are not swept."""
+def test_failed_insert_sweeps_extra_slots_while_preserving_slot0():
+    """If insert fails on slot 0, extra slot shapes are swept while slot 0 is preserved."""
     cell = CalcCellStub(col=3, row=6)
     slot0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, cell)
     slot1 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_2", cell)
@@ -578,7 +578,7 @@ def test_failed_insert_does_not_sweep_extra_slots():
         insert_image_result_on_sheet(ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=target, image_index=0, image_count=1)
 
     assert slot0 in page.shapes
-    assert slot1 in page.shapes
+    assert slot1 not in page.shapes
 
 
 def test_temp_image_removed_after_graphic_url_and_on_failure(tmp_path):
@@ -1763,6 +1763,84 @@ def test_new_shape_anchor_failure_chains_graphic_exception():
 
     # Revert target: raise ImageEgressError from graphic_exc in _place_new_plot
     assert exc_info.value.__cause__ is graphic_error
+
+
+def test_slot0_failure_still_sweeps_extra_slots():
+    """When slot 0 raises ImageEgressError, extra slots >= image_count are still swept via finally."""
+    cell = CalcCellStub(col=0, row=0)
+    slot1 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, f"{_PLOT_SHAPE_NAME_PREFIX}_2", cell)
+    page = _DrawPage([slot1])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+
+    # Slot 0 shape creation will fail on GraphicURL
+    shape0 = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, "", cell)
+
+    def _set_prop(name: str, val: Any) -> None:
+        if name == "GraphicURL":
+            raise RuntimeError("graphic boom")
+
+    shape0.setPropertyValue = MagicMock(side_effect=_set_prop)
+    doc.createInstance.return_value = shape0
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, cell, (0, 0)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/test.png"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/test.png"),
+        patch("plugin.calc.calc_utils.get_cell_geometry", return_value=(Point(0, 0), Size(3000, 1000))),
+    ):
+        with pytest.raises(ImageEgressError):
+            insert_image_result_on_sheet(
+                ctx, _IMAGE_PAYLOAD, code="plt.show()", doc=doc, image_index=0, image_count=1
+            )
+
+    # Revert target: _drop_extra_plot_slots running in finally block of _insert_image_result_on_sheet_impl
+    assert slot1 not in page.shapes
+
+
+def test_reused_shape_skips_description_write_when_tag_unchanged():
+    """When Description already equals the target tag, setPropertyValue is not called for Description."""
+    formula_cell = CalcCellStub(col=1, row=2)
+    payload = _make_png_payload(100, 50)
+    tag = _plot_byte_tag(payload["data"], col=1, row=2)
+
+    shape = _AnchoredShape(_DRAW_GRAPHIC_SERVICE, _PLOT_SHAPE_NAME_PREFIX, formula_cell)
+    shape.setPropertyValue("Description", tag)
+    page = _DrawPage([shape])
+    sheet = _SheetStub(page)
+    doc = MagicMock(name="doc")
+    doc.getCurrentController.return_value = None
+
+    set_calls: list[tuple[str, Any]] = []
+    original_set_prop = shape.setPropertyValue
+
+    def _track_set_prop(name: str, val: Any) -> None:
+        set_calls.append((name, val))
+        original_set_prop(name, val)
+
+    shape.setPropertyValue = _track_set_prop
+
+    ctx = MagicMock()
+    with (
+        patch("plugin.scripting.document_scripts.get_calc_document_from_ctx", return_value=MagicMock(name="front")),
+        patch(
+            "plugin.calc.python.formula_locator_cache.locate_formula_cell_in_doc",
+            return_value=(sheet, formula_cell, (2, 1)),
+        ),
+        patch("plugin.calc.python.image_egress.write_image_payload_to_temp", return_value="/tmp/match.png"),
+        patch("uno.systemPathToFileUrl", return_value="file:///tmp/match.png"),
+    ):
+        insert_image_result_on_sheet(ctx, payload, code="plt.show()", doc=doc, image_index=0)
+
+    # Revert target: `if desc != new_tag:` guard in `_record_plot_tag`
+    desc_calls = [c for c in set_calls if c[0] == "Description"]
+    assert len(desc_calls) == 0
+
 
 
 
