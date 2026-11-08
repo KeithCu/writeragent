@@ -202,8 +202,11 @@ def test_apply_document_content_block_style_does_not_report_removed_indents_uno(
     """Importing new HTML with block data-lo-style must not report spurious removed indents."""
     _set_body(doc, "seed")
     tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
-    content = '<ul data-lo-style="List 1"><li data-lo-style="List 1">Item 1</li></ul>'
-    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=content)
-    assert res.get("status") == "ok", res
-    assert "removed_direct_indents" not in res, res
+    content = '<blockquote data-lo-style="Quotations"><p>Quoted paragraph</p></blockquote>'
+    try:
+        res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=content)
+        assert res.get("status") == "ok", res
+        assert "removed_direct_indents" not in res, res
+    finally:
+        _set_body(doc, "")
 
