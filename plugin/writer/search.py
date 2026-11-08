@@ -501,6 +501,35 @@ def find_all_ranges(doc: Any, search_string: str) -> list[Any]:
     return find_chained_range(doc, search_string, all_matches=True)
 
 
+def iter_literal_ranges(
+    doc: Any,
+    search_string: str,
+    case_order: tuple[bool, ...],
+    after: Any = None,
+) -> Iterator[Any]:
+    """Iterate matches in document order using native search with newline chaining fallback.
+
+    Iterates through each candidate from _search_try_strings. If any candidate yields
+    matches, those hits are emitted and search stops. If none match and search_string
+    spans lines, yields chained paragraph matches.
+    """
+    if not search_string:
+        return
+    matched = False
+    for candidate in _search_try_strings(search_string):
+        for hit in _iter_lo_matches(doc, candidate, case_order, after=after):
+            matched = True
+            yield hit
+        if matched:
+            return
+
+    parts = search_string.split("\n")
+    if len(parts) > 1:
+        anchor_idx = _anchor_index(parts)
+        if anchor_idx != -1:
+            yield from _iter_chain_matches(doc, parts, anchor_idx, case_order, after=after)
+
+
 def find_occurrence_range(
     doc: Any,
     text: str,
@@ -534,50 +563,7 @@ def find_occurrence_range(
         return None
 
     case_order = (case_sensitive,) if case_sensitive_order is None else case_sensitive_order
-
-    for candidate in _search_try_strings(search_string):
-        match = _nth(_iter_lo_matches(doc, candidate, case_order))
-        if match is not None:
-            return match
-
-    parts = search_string.split('\n')
-    if len(parts) > 1:
-        anchor_idx = _anchor_index(parts)
-        if anchor_idx != -1:
-            match = _nth(_iter_chain_matches(doc, parts, anchor_idx, case_order))
-            if match is not None:
-                return match
-
-    return None
-
-
-def iter_literal_ranges(
-    doc: Any,
-    search_string: str,
-    case_order: tuple[bool, ...],
-    after: Any = None,
-) -> Iterator[Any]:
-    """Iterate matches in document order using native search with newline chaining fallback.
-
-    Iterates through each candidate from _search_try_strings. If any candidate yields
-    matches, those hits are emitted and search stops. If none match and search_string
-    spans lines, yields chained paragraph matches.
-    """
-    if not search_string:
-        return
-    matched = False
-    for candidate in _search_try_strings(search_string):
-        for hit in _iter_lo_matches(doc, candidate, case_order, after=after):
-            matched = True
-            yield hit
-        if matched:
-            return
-
-    parts = search_string.split("\n")
-    if len(parts) > 1:
-        anchor_idx = _anchor_index(parts)
-        if anchor_idx != -1:
-            yield from _iter_chain_matches(doc, parts, anchor_idx, case_order, after=after)
+    return _nth(iter_literal_ranges(doc, search_string, case_order))
 
 
 def _same_text_starts_at_or_after(candidate: Any, boundary_end: Any) -> bool | None:

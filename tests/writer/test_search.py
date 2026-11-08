@@ -899,3 +899,35 @@ def test_pick_end_after_start_empty_iterator():
     cursor, err = pick_end_after_start(start_range, [])
     assert cursor is None
     assert err == "end"
+
+
+def test_iter_descriptor_hits_with_after():
+    from plugin.writer.search import _iter_descriptor_hits
+
+    doc = MagicMock()
+    sd = MagicMock()
+    after_range = MagicMock()
+    first_hit = MagicMock()
+    first_hit.getString.return_value = "hit1"
+    end_range = MagicMock()
+    first_hit.getEnd.return_value = end_range
+    doc.findNext.side_effect = [first_hit, None]
+
+    hits = list(_iter_descriptor_hits(doc, sd, after=after_range))
+    assert hits == [first_hit]
+    doc.findFirst.assert_not_called()
+    doc.findNext.assert_any_call(after_range, sd)
+
+
+def test_iter_literal_ranges_yields_candidate_matches():
+    from plugin.writer.search import iter_literal_ranges
+
+    doc = MagicMock()
+    hit1 = MagicMock()
+    hit1.getString.return_value = "hello"
+    hit1.getEnd.return_value = MagicMock()
+    doc.findFirst.return_value = hit1
+    doc.findNext.return_value = None
+
+    hits = list(iter_literal_ranges(doc, "hello", (True,)))
+    assert hits == [hit1]
