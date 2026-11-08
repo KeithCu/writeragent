@@ -108,14 +108,14 @@ def test_apply_document_content_anchor_range_identical_strings_uno(ctx, doc):
     text.insertControlCharacter(cursor, 0, False)
     text.insertString(cursor, "Section middle text", False)
     text.insertControlCharacter(cursor, 0, False)
-    text.insertString(cursor, "Note: second occurrence", False)
+    text.insertString(cursor, "second occurrence: Note", False)
     text.insertControlCharacter(cursor, 0, False)
-    text.insertString(cursor, "Note: third occurrence", False)
+    text.insertString(cursor, "third occurrence: Note", False)
 
     res = ApplyDocumentContent().execute(
         _tool_ctx(doc, ctx),
-        start_anchor="Note:",
-        end_anchor="Note:",
+        start_anchor="Note",
+        end_anchor="Note",
         content=["<p>Single consolidated note</p>"],
     )
 
@@ -123,7 +123,7 @@ def test_apply_document_content_anchor_range_identical_strings_uno(ctx, doc):
     assert res.get("replaced_count") == 1, res
     body = doc.getText().getString()
     assert "Single consolidated note" in body
-    assert "Note: third occurrence" in body
+    assert "third occurrence: Note" in body
     assert "first occurrence" not in body
     assert "Section middle text" not in body
     assert "second occurrence" not in body
@@ -145,7 +145,7 @@ def test_apply_document_content_anchor_range_contains_table_refused_uno(ctx, doc
     text.insertTextContent(cursor, tbl, False)
     tbl.getCellByName("A1").setString("Cell data")
 
-    cursor.gotoRange(tbl.getAnchor().getEnd(), False)
+    cursor.gotoEnd(False)
     text.insertControlCharacter(cursor, 0, False)
     text.insertString(cursor, "Table Section End", False)
 
