@@ -389,6 +389,11 @@ def _apply_block_lo_styles(
                     para_cur.gotoEndOfParagraph(True)
                     for css_name, (uno_prop, val) in mapped.items():
                         try:
+                            if uno_prop == "ParaBackColor":
+                                # Paragraph background color requires turning off ParaBackTransparent
+                                # in LibreOffice Writer, or the background remains transparent and
+                                # LibreOffice ignores the ParaBackColor setting.
+                                para_cur.setPropertyValue("ParaBackTransparent", val == -1)
                             para_cur.setPropertyValue(uno_prop, val)
                         except Exception as exc:
                             reraise_if_disposed(exc)

@@ -496,7 +496,7 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
 
     assert p1.getPropertyValue("ParaAdjust") == 3
     assert p1.getPropertyValue("ParaLeftMargin") == 2000
-    assert p1.getPropertyValue("ParaBackColor") == 0xFFE4C4
+    assert int(p1.getPropertyValue("ParaBackColor")) == 0xFFE4C4
     assert p2.getPropertyValue("ParaLeftMargin") == 1000
 
     got = GetDocumentContent().execute(tool_ctx, scope="full")
@@ -513,7 +513,7 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
 
     assert r1.getPropertyValue("ParaAdjust") == 3
     assert r1.getPropertyValue("ParaLeftMargin") == 2000
-    assert r1.getPropertyValue("ParaBackColor") == 0xFFE4C4
+    assert int(r1.getPropertyValue("ParaBackColor")) == 0xFFE4C4
     assert r2.getPropertyValue("ParaLeftMargin") == 1000
 
 
