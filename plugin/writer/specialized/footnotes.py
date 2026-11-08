@@ -99,30 +99,15 @@ class FootnotesInsert(ToolWriterFootnoteBase):
 
         insert_after = str(kwargs.get("insert_after") or "")
         has_search = bool(insert_after.strip())
-        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive")) if has_search else None
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         doc = ctx.doc
 
         if has_search:
-            assert case_sensitive is not None
-            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
-            if occ_err:
-                return self._tool_error(occ_err)
-            occurrence = 0 if occ_val is None else occ_val
-
-            # Shared LO search: NBSP/space normalization plus the newline-chained fallback.
-            try:
-                rng = find_occurrence_range(
-                    doc, insert_after, occurrence=occurrence, case_sensitive=case_sensitive)
-            except IndexError:
-                err = self._tool_error(
-                    f"No match for insert_after_text at occurrence {occurrence} "
-                    "(not enough occurrences).")
-                err["matched_case_sensitive"] = case_sensitive
-                return err
-            if rng is None:
-                err = self._tool_error("No match for insert_after_text in the document.")
-                err["matched_case_sensitive"] = case_sensitive
-                return err
+            rng_or_err = self._resolve_insert_range(doc, insert_after, kwargs.get("occurrence", 0), case_sensitive)
+            if isinstance(rng_or_err, dict):
+                rng_or_err["matched_case_sensitive"] = case_sensitive
+                return rng_or_err
+            rng = rng_or_err
         else:
             # View cursor: active insertion point in the UI.
             ctrl = doc.getCurrentController()
@@ -154,9 +139,31 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         note.setString(text)
 
         res: dict[str, Any] = {"status": "ok", "message": f"Successfully inserted {note_type}.", "label": note.getLabel()}
-        if has_search and case_sensitive is not None:
+        if has_search:
             res["matched_case_sensitive"] = case_sensitive
         return res
+
+    def _resolve_insert_range(
+        self, doc: Any, insert_after: str, raw_occurrence: Any, case_sensitive: bool
+    ) -> Any:
+        occ_val, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
+        if occ_err:
+            return self._tool_error(occ_err)
+        occurrence = 0 if occ_val is None else occ_val
+
+        # Shared LO search: NBSP/space normalization plus the newline-chained fallback.
+        try:
+            rng = find_occurrence_range(
+                doc, insert_after, occurrence=occurrence, case_sensitive=case_sensitive
+            )
+        except IndexError:
+            return self._tool_error(
+                f"No match for insert_after_text at occurrence {occurrence} "
+                "(not enough occurrences)."
+            )
+        if rng is None:
+            return self._tool_error("No match for insert_after_text in the document.")
+        return rng
 
 
 class FootnotesList(ToolWriterFootnoteBase):

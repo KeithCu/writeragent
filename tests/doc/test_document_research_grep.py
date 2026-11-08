@@ -871,12 +871,13 @@ def test_grep_nearby_files_tool_wrapper_matched_case_sensitive():
     ctx.send_cancellation = None
 
     with patch("plugin.doc.document_research_grep_tool.grep_nearby_files") as mock_grep:
-        mock_grep.return_value = {"status": "ok", "hits": []}
+        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": False}
         res_default = tool.execute(ctx, pattern="search_term")
         assert res_default["status"] == "ok"
         assert res_default["matched_case_sensitive"] is False
         assert mock_grep.call_args.kwargs["case_sensitive"] is False
 
+        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": True}
         res_cs = tool.execute(ctx, pattern="search_term", case_sensitive=True)
         assert res_cs["status"] == "ok"
         assert res_cs["matched_case_sensitive"] is True

@@ -211,11 +211,7 @@ class AddComment(ToolBase):
         search_text = kwargs.get("search")
         if not search_text:
             return self._tool_error("Provide search.")
-        from ..search import (
-            SEARCH_CASE_SENSITIVE_DEFAULT,
-            find_occurrence_range,
-            parse_non_negative_int,
-        )
+        from ..search import find_occurrence_range, parse_non_negative_int
 
         # coerce=True lets occurrence accept string numbers and floats from the model;
         # without it, values like "2" or 1.0 are rejected as non-integers.
@@ -244,7 +240,6 @@ class AddComment(ToolBase):
                 "message": "Text '%s' not found%s." % (search_text, where),
                 "matched": False,
                 "comment_added": False,
-                "matched_case_sensitive": SEARCH_CASE_SENSITIVE_DEFAULT,
             }
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
@@ -272,7 +267,6 @@ class AddComment(ToolBase):
                 "matched": True,
                 "comment_added": False,
                 "anchor_text": anchor_text or search_text,
-                "matched_case_sensitive": SEARCH_CASE_SENSITIVE_DEFAULT,
             }
 
         prior = set(n for n in names_before if n)
@@ -285,7 +279,6 @@ class AddComment(ToolBase):
             "comment_added": True,
             "anchor_text": anchor_text or search_text,
             "name": _annotation_name(annotation) or new_name,
-            "matched_case_sensitive": SEARCH_CASE_SENSITIVE_DEFAULT,
         }
 
 

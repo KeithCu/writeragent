@@ -76,6 +76,7 @@ class SetSelection(ToolBase):
         if not has_search and not has_char:
             return self._tool_error("Provide search_text or char_start/char_end.")
 
+        occurrence = 0
         if has_search:
             occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0))
             if occ_err:
@@ -104,38 +105,9 @@ class SetSelection(ToolBase):
             if not search_str.strip():
                 return self._tool_error("search_text is empty after normalization.")
 
-            try:
-                target_range = find_occurrence_range(
-                    doc, search_str, occurrence=occurrence, case_sensitive=case_sensitive  # pyright: ignore[reportPossiblyUnboundVariable]
-                )
-            except IndexError as e:
-                err = self._tool_error(str(e))
-                err["matched_case_sensitive"] = case_sensitive
-                return err
-
-            if target_range is None:
-                shape_name = drawing_shape_containing(doc, search_str, case_sensitive=case_sensitive)
-                if shape_name:
-                    err = self._tool_error(
-                        shape_only_search_message("search_text", shape_name)
-                    )
-                    err["matched_case_sensitive"] = case_sensitive
-                    return err
-                err = self._tool_error(
-                    "No match for search_text '%s'%s."
-                    % (search_str, (" at occurrence %d" % occurrence) if occurrence else "")  # pyright: ignore[reportPossiblyUnboundVariable]
-                )
-                err["matched_case_sensitive"] = case_sensitive
-                return err
-
-            controller.select(target_range)
-            fields = _read_selection_fields(target_range)
-            return {
-                "status": "ok",
-                **fields,
-                "location": describe_match_location(target_range, doc),
-                "matched_case_sensitive": case_sensitive,
-            }
+            res = self._select_by_search(doc, controller, search_str, occurrence, case_sensitive)
+            res["matched_case_sensitive"] = case_sensitive
+            return res
 
         target_range, fully_reached = get_text_cursor_at_range_reached(
             doc, char_start, char_end
@@ -158,3 +130,30 @@ class SetSelection(ToolBase):
             result["char_end"] = char_end
 
         return result
+
+    def _select_by_search(
+        self, doc: Any, controller: Any, search_str: str, occurrence: int, case_sensitive: bool
+    ) -> dict[str, Any]:
+        try:
+            target_range = find_occurrence_range(
+                doc, search_str, occurrence=occurrence, case_sensitive=case_sensitive
+            )
+        except IndexError as e:
+            return self._tool_error(str(e))
+
+        if target_range is None:
+            shape_name = drawing_shape_containing(doc, search_str, case_sensitive=case_sensitive)
+            if shape_name:
+                return self._tool_error(shape_only_search_message("search_text", shape_name))
+            return self._tool_error(
+                "No match for search_text '%s'%s."
+                % (search_str, (" at occurrence %d" % occurrence) if occurrence else "")
+            )
+
+        controller.select(target_range)
+        fields = _read_selection_fields(target_range)
+        return {
+            "status": "ok",
+            **fields,
+            "location": describe_match_location(target_range, doc),
+        }

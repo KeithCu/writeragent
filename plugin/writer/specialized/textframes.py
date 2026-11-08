@@ -27,9 +27,8 @@ from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.doc.visual_helpers import anchor_type_index, mm_to_unit
 from plugin.framework.uno_context import uno_same
-from ..search import SEARCH_CASE_SENSITIVE_DEFAULT
 from ..specialized_base import ToolWriterTextFramesBase, target_params
-from ..target_resolver import TargetSearchMiss, resolve_target_cursor
+from ..target_resolver import resolve_target_cursor
 
 _FRAME_INFO_MAX_CHARS = 4000
 
@@ -335,10 +334,7 @@ class FrameInsert(ToolWriterTextFramesBase):
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:
-            err_res = self._tool_error(str(ve))
-            if isinstance(ve, TargetSearchMiss):
-                err_res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-            return err_res
+            return self._tool_error(str(ve))
 
         from com.sun.star.awt import Size
 
@@ -379,10 +375,7 @@ class FrameInsert(ToolWriterTextFramesBase):
             return err
 
         inserted_name = frame_name or frame.getName() or ""
-        res: dict[str, Any] = {"status": "ok", "frame_name": inserted_name, "anchor_type": anchor_type}
-        if target == "search":
-            res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-        return res
+        return {"status": "ok", "frame_name": inserted_name, "anchor_type": anchor_type}
 
 
 class FrameDelete(ToolWriterTextFramesBase):

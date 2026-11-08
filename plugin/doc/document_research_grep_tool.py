@@ -68,6 +68,4 @@ class GrepNearbyFiles(ToolBase):
             cancel=scope,
             status_callback=ctx.status_callback,
         )
-        if isinstance(result, dict) and result.get("status") == "ok":
-            result["matched_case_sensitive"] = case_sensitive
         return result

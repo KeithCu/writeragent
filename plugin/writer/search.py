@@ -298,17 +298,11 @@ def _lo_regex_descriptor(doc: Any, text: str) -> Any:
 
 
 def _iter_lo_matches(
-    doc: Any, candidate: str, case_order: tuple[bool, ...]
+    doc: Any, candidate: str, case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT
 ) -> Iterator[Any]:
     sd = _lo_regex_descriptor(doc, candidate)
-    for case_sens in case_order:
-        sd.SearchCaseSensitive = case_sens
-        matched_in_pass = False
-        for hit in _iter_descriptor_hits(doc, sd):
-            matched_in_pass = True
-            yield hit
-        if matched_in_pass:
-            return
+    sd.SearchCaseSensitive = case_sensitive
+    yield from _iter_descriptor_hits(doc, sd)
 
 
 def find_lo_regex_ranges(
@@ -320,7 +314,7 @@ def find_lo_regex_ranges(
 ) -> Any:
     """LO regex findFirst/findNext for one candidate string."""
     limit = MAX_SEARCH_REPLACEMENTS if all_matches else 1
-    ranges = list(islice(_iter_lo_matches(doc, candidate, (case_sensitive,)), limit))
+    ranges = list(islice(_iter_lo_matches(doc, candidate, case_sensitive), limit))
     if ranges:
         return ranges if all_matches else ranges[0]
     return [] if all_matches else None
@@ -421,22 +415,15 @@ def _iter_chain_matches(
     doc: Any,
     parts: list[str],
     anchor_idx: int,
-    case_sensitive_order: tuple[bool, ...],
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
 ) -> Iterator[Any]:
     """Iterate matches across paragraph breaks via anchor search and chaining."""
     sd = _lo_regex_descriptor(doc, parts[anchor_idx])
-
-    for case_sens in case_sensitive_order:
-        sd.SearchCaseSensitive = case_sens
-        matched_in_pass = False
-        for found in _iter_descriptor_hits(doc, sd):
-            match_range = _chain_hit_range(found, parts, anchor_idx)
-            if match_range is not None:
-                matched_in_pass = True
-                yield match_range
-
-        if matched_in_pass:
-            break
+    sd.SearchCaseSensitive = case_sensitive
+    for found in _iter_descriptor_hits(doc, sd):
+        match_range = _chain_hit_range(found, parts, anchor_idx)
+        if match_range is not None:
+            yield match_range
 
 
 def _anchor_index(parts: list[str]) -> int:
@@ -484,7 +471,7 @@ def find_chained_range(
         return miss
 
     matched_ranges = []
-    for match in _iter_chain_matches(doc, parts, anchor_idx, (case_sensitive,)):
+    for match in _iter_chain_matches(doc, parts, anchor_idx, case_sensitive):
         if not all_matches:
             return match
         matched_ranges.append(match)
@@ -520,7 +507,6 @@ def find_occurrence_range(
     *,
     occurrence: int = 0,
     case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
-    case_sensitive_order: tuple[bool, ...] | None = None,
 ) -> Any | None:
     """Find the occurrence-th match using native LO search with chaining fallback.
 
@@ -546,10 +532,8 @@ def find_occurrence_range(
             raise _out_of_range(count)
         return None
 
-    case_order = (case_sensitive,) if case_sensitive_order is None else case_sensitive_order
-
     for candidate in _search_try_strings(search_string):
-        match = _nth(_iter_lo_matches(doc, candidate, case_order))
+        match = _nth(_iter_lo_matches(doc, candidate, case_sensitive))
         if match is not None:
             return match
 
@@ -557,7 +541,7 @@ def find_occurrence_range(
     if len(parts) > 1:
         anchor_idx = _anchor_index(parts)
         if anchor_idx != -1:
-            match = _nth(_iter_chain_matches(doc, parts, anchor_idx, case_order))
+            match = _nth(_iter_chain_matches(doc, parts, anchor_idx, case_sensitive))
             if match is not None:
                 return match
 

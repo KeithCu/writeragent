@@ -26,9 +26,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from ..search import SEARCH_CASE_SENSITIVE_DEFAULT
 from ..specialized_base import ToolWriterMailMergeBase, enum_param, target_params
-from ..target_resolver import TargetSearchMiss, resolve_target_cursor
+from ..target_resolver import resolve_target_cursor
 from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.errors import is_disposal, reraise_if_disposed
@@ -340,10 +339,7 @@ class InsertField(ToolWriterMailMergeBase):
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:
-            err_res = self._tool_error(str(ve))
-            if isinstance(ve, TargetSearchMiss):
-                err_res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-            return err_res
+            return self._tool_error(str(ve))
 
         cmd_type_val = _COMMAND_TYPES[command_type_str]
 
@@ -402,7 +398,7 @@ class InsertField(ToolWriterMailMergeBase):
                     raise
                 return self._tool_error(f"Failed to insert merge field: {exc}")
 
-        res: dict[str, Any] = {
+        return {
             "status": "ok",
             "message": f"Successfully inserted merge field '<{column_name}>'.",
             "field": {
@@ -412,9 +408,6 @@ class InsertField(ToolWriterMailMergeBase):
                 "command_type": command_type_str,
             },
         }
-        if target == "search":
-            res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-        return res
 
 
 class ListFields(ToolWriterMailMergeBase):

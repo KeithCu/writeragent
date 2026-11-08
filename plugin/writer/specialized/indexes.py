@@ -39,8 +39,8 @@ from plugin.writer.specialized_base import (
     index_error,
     target_params,
 )
-from ..search import SEARCH_CASE_SENSITIVE_DEFAULT, parse_non_negative_int
-from ..target_resolver import TargetSearchMiss, resolve_target_cursor
+from ..search import parse_non_negative_int
+from ..target_resolver import resolve_target_cursor
 
 log = logging.getLogger("writeragent.writer.specialized.indexes")
 
@@ -387,9 +387,7 @@ def _locate_toc_entry(
         return None, None, None, err
     found, find_error = toc_match(doc, anchor, str(old_content).strip(), occ)
     if find_error:
-        err = tool._tool_error(find_error, code="NOT_FOUND")
-        err["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-        return None, None, None, err
+        return None, None, None, tool._tool_error(find_error, code="NOT_FOUND")
     return idx, anchor, found, None
 
 
@@ -821,15 +819,11 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             return err
         preview, preview_error = self._preview(found, content, override)
         if preview_error or preview is None:
-            err_res = preview_error or self._tool_error(
+            return preview_error or self._tool_error(
                 "Could not preview the TOC entry.", code="TOOL_EXECUTION_ERROR")
-            err_res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-            return err_res
-        res = self._write(
+        return self._write(
             ctx, doc, idx, found, content, override, preview, bool(kwargs.get("dry_run"))
         )
-        res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-        return res
 
     def _override_error(self, override: Any, snapshot: Any) -> dict[str, Any] | None:
         if override and len(snapshot.links) != 1:
@@ -950,9 +944,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             return err
         para = _paragraph_element(found)
         if para is None:
-            err_res = self._tool_error("Could not read the TOC entry.", code="TOOL_EXECUTION_ERROR")
-            err_res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-            return err_res
+            return self._tool_error("Could not read the TOC entry.", code="TOOL_EXECUTION_ERROR")
         entry = _entry_text(para)[:160]
         preview: dict[str, Any] = {"text": entry, "text_after": ""}
 
@@ -960,7 +952,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             _remove_paragraph(anchor.getText(), para, anchor)
             return None
 
-        res = _commit_toc_mutation(
+        return _commit_toc_mutation(
             self,
             doc,
             idx,
@@ -969,8 +961,6 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             bool(kwargs.get("dry_run")),
             failure_message="TOC entry delete failed; the change was rolled back",
         )
-        res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-        return res
 
 
 def _page_text(raw: Any) -> tuple[str | None, str | None]:
@@ -1326,10 +1316,7 @@ class IndexesCreate(ToolWriterIndexBase):
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:
-            err = self._tool_error(str(ve))
-            if isinstance(ve, TargetSearchMiss):
-                err["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-            return err
+            return self._tool_error(str(ve))
 
         replace_match = target == "search" and bool(old_content)
 
@@ -1358,10 +1345,7 @@ class IndexesCreate(ToolWriterIndexBase):
         else:
             mutate()
 
-        res: dict[str, Any] = {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
-        if target == "search":
-            res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-        return res
+        return {"status": "ok", "message": f"Created '{index_kind}' index successfully", "title": title}
 
 
 class IndexesAddMark(ToolWriterIndexBase):
@@ -1414,10 +1398,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         try:
             cursor = resolve_target_cursor(ctx, target, old_content)
         except ValueError as ve:
-            err = self._tool_error(str(ve))
-            if isinstance(ve, TargetSearchMiss):
-                err["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-            return err
+            return self._tool_error(str(ve))
 
         # schema enum.
         if index_kind == "bibliography":
@@ -1440,10 +1421,7 @@ class IndexesAddMark(ToolWriterIndexBase):
         text = cursor.getText()
         text.insertTextContent(cursor, mark, False)
 
-        res: dict[str, Any] = {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
-        if target == "search":
-            res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-        return res
+        return {"status": "ok", "message": f"Added '{index_kind}' index mark for '{mark_text}'"}
 
     def _insert_bibliography_cite(self, doc: Any, cursor: Any, kwargs: Any) -> dict[str, Any]:
         pairs = collect_bibliography_field_pairs(kwargs)
@@ -1461,13 +1439,10 @@ class IndexesAddMark(ToolWriterIndexBase):
         set_bibliography_field_values(field, pairs)
         text = cursor.getText()
         text.insertTextContent(cursor, field, False)
-        cite_res: dict[str, Any] = {
+        return {
             "status": "ok",
             "message": "Added bibliography cite '%s'" % identifier,
             "kind": "bibliography",
             "identifier": identifier,
             "fields": dict(pairs),
         }
-        if kwargs.get("target") == "search":
-            cite_res["matched_case_sensitive"] = SEARCH_CASE_SENSITIVE_DEFAULT
-        return cite_res
