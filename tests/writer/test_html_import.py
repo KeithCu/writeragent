@@ -1,5 +1,6 @@
 
 import html as html_mod
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -247,7 +248,7 @@ def test_ensure_html_linebreaks_escapes_prose_angle_brackets():
 
 
 def test_decode_complete_character_references_only_decodes_with_semicolon():
-    from plugin.writer.html_import import _decode_complete_character_references
+    from plugin.writer.html_import_styles import _decode_complete_character_references
 
     assert _decode_complete_character_references("&sect 2o &amp;lt;") == "&sect 2o &lt;"
     assert _decode_complete_character_references("&amp; &quot; &#36; &#x24;") == '& " $ $'
@@ -682,7 +683,9 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     leftover.getString.return_value = ""
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
          patch.object(html_import, "_deletion_author"):
-        html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+        imp.return_value = [("token", "failed")]
+        dropped = html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+    assert dropped == [("token", "failed")]
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
     cursor.goLeft.assert_called_once_with(1, False)
@@ -700,7 +703,9 @@ def test_full_document_without_review_imports_in_place():
     model.getPropertyValue.return_value = False
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
          patch.object(html_import, "_deletion_author"):
-        html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+        imp.return_value = [("token", "failed")]
+        dropped = html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+    assert dropped == [("token", "failed")]
     model.getText.return_value.insertControlCharacter.assert_not_called()
     imp.assert_called_once()
 
@@ -1357,16 +1362,62 @@ def test_collect_range_portions_magic_mock_returns_immediately():
     assert portions == []
 
 
-def test_summarize_written_blocks_slot_counts():
+@pytest.mark.parametrize(
+    ("html", "expected_count", "expected_headings"),
+    [
+        # Unclosed tag closes when the next paragraph begins.
+        ("<h1>Title<p>Next", 2, [{"level": 1, "text": "Title"}]),
+        # data-lo-style to non-heading style overrides the heading tag.
+        ('<h1 data-lo-style="Quotations">Title</h1>', 1, []),
+        # Heading11 is beyond LibreOffice heading level 1-10 range.
+        ('<p data-lo-style="Heading11">Title</p>', 1, []),
+        # Shared first child slot: outer style token overrides inner tag level.
+        ('<blockquote data-lo-style="Heading2"><h1>Title</h1></blockquote>', 1, [{"level": 2, "text": "Title"}]),
+        ('<li data-lo-style="Heading3"><h1>Title</h1></li>', 1, [{"level": 3, "text": "Title"}]),
+        ('<blockquote data-lo-style="Quotations"><h1>Title</h1></blockquote>', 1, []),
+        # Entity references decoded and nested markup text combined.
+        ("<h1>Tom &amp; <b>Jerry</b></h1>", 1, [{"level": 1, "text": "Tom & Jerry"}]),
+        # Heading text longer than 120 chars is truncated with an ellipsis.
+        ("<h1>" + "A" * 130 + "</h1>", 1, [{"level": 1, "text": "A" * 120 + "…"}]),
+        # Styled div counts as a paragraph slot.
+        ('<div data-lo-style="Heading1">Hello</div>', 1, [{"level": 1, "text": "Hello"}]),
+        # <br> inside paragraph separates text with whitespace.
+        ('<p data-lo-style="Heading1">Hello<br>World</p>', 1, [{"level": 1, "text": "Hello World"}]),
+        # Plain text without HTML tags: blank lines delimit paragraphs.
+        ("Hello\n\nWorld", 2, []),
+        ("Hello\nWorld", 1, []),
+        # Ruby markup without math is stripped to base text.
+        ("<ruby>漢字<rt>かんじ</rt></ruby>", 1, []),
+        # Encoded HTML tags in prose are decoded before summarization.
+        ("<p>Intro</p>&lt;h2&gt;Sub&lt;/h2&gt;", 2, [{"level": 2, "text": "Sub"}]),
+    ],
+)
+def test_summarize_written_blocks_fixtures(html: str, expected_count: int, expected_headings: list[dict[str, Any]]) -> None:
+    from plugin.writer.html_import_styles import summarize_written_blocks
+
+    summary = summarize_written_blocks(html)
+    assert summary["paragraph_count"] == expected_count
+    assert summary["headings"] == expected_headings
+
+
+def test_summarize_written_blocks_drops_specified_heading_styles():
+    from plugin.writer.html_import_styles import summarize_written_blocks
+
+    html = '<p data-lo-style="Heading1">One</p><p data-lo-style="Heading2">Two</p>'
+    summary = summarize_written_blocks(html, drop_heading_styles={"Heading1"})
+    assert summary["paragraph_count"] == 2
+    assert summary["headings"] == [{"level": 2, "text": "Two"}]
+
+
+def test_summarize_written_blocks_matches_extractor_slot_counts():
     """Verify summarize_written_blocks paragraph counts match _BlockLoStyleExtractor.styles."""
-    from plugin.writer.html_import import summarize_written_blocks
-    from plugin.writer.html_import_styles import _BlockLoStyleExtractor
+    from plugin.writer.html_import_styles import _BlockLoStyleExtractor, summarize_written_blocks
 
     fixtures = [
         "<blockquote><p>Quote</p></blockquote>",
         "<ul><li>Item 1</li><li>Item 2</li></ul>",
         "<table><tr><td>Cell</td></tr></table><p>After</p>",
-        "<p data-lo-style=\"Heading 10\">Ten</p>",
+        '<p data-lo-style="Heading 10">Ten</p>',
     ]
     for html in fixtures:
         ex = _BlockLoStyleExtractor()
@@ -1374,9 +1425,6 @@ def test_summarize_written_blocks_slot_counts():
         ex.close()
         summary = summarize_written_blocks(html)
         assert summary["paragraph_count"] == len(ex.styles), f"Mismatch for {html}"
-
-    assert summarize_written_blocks("Hello\n\nWorld")["paragraph_count"] == 2
-    assert summarize_written_blocks("Hello\nWorld")["paragraph_count"] == 1
 
 
 

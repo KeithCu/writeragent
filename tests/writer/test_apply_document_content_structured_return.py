@@ -466,7 +466,7 @@ def test_build_search_replace_response():
     assert "formatting preserved" in multi_preserve["message"]
 
 
-def test_full_document_structured_return_paragraphs_and_headings(monkeypatch):
+def test_full_document_structured_return_paragraphs_and_headings():
     from unittest.mock import patch
 
     content = ["<h1>Title</h1>", '<p data-lo-style="Heading2">Section</p>', "<p>Body</p>"]
@@ -483,7 +483,7 @@ def test_full_document_structured_return_paragraphs_and_headings(monkeypatch):
     assert "warnings" not in res
 
 
-def test_full_document_unknown_style_dropped_heading_and_warning(monkeypatch):
+def test_full_document_unknown_style_dropped_heading_and_warning():
     from unittest.mock import patch
 
     content = '<h1 data-lo-style="Hedling1">Title</h1>'
@@ -497,7 +497,7 @@ def test_full_document_unknown_style_dropped_heading_and_warning(monkeypatch):
     assert any("Hedling1" in w for w in res["warnings"])
 
 
-def test_full_document_empty_content_returns_zero_paragraphs(monkeypatch):
+def test_full_document_empty_content_returns_zero_paragraphs():
     from unittest.mock import patch
 
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
@@ -508,7 +508,7 @@ def test_full_document_empty_content_returns_zero_paragraphs(monkeypatch):
     assert res["headings"] == []
 
 
-def test_full_document_data_lo_para_ignored_attributes(monkeypatch):
+def test_full_document_data_lo_para_ignored_attributes():
     from unittest.mock import patch
 
     content = '<p data-lo-para="margin:0">Hello</p>'

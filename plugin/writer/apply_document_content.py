@@ -1135,7 +1135,7 @@ class ApplyDocumentContent(ToolBase):
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import as format_support, html_import_styles
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1149,7 +1149,7 @@ class ApplyDocumentContent(ToolBase):
         if err:
             return err
         drop_tokens = frozenset(token for token, reason in dropped if reason in ("ambiguous", "unknown", "failed"))
-        summary = format_support.summarize_written_blocks(content, drop_heading_styles=drop_tokens)
+        summary = html_import_styles.summarize_written_blocks(content, drop_heading_styles=drop_tokens)
         result: dict[str, Any] = {
             "status": "ok",
             "message": "Replaced entire document.",

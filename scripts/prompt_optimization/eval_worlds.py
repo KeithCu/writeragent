@@ -401,7 +401,7 @@ class WriterWorld:
         if target == "full_document":
             self._html = content
             self._sync_blocks()
-            from plugin.writer.html_import import summarize_written_blocks
+            from plugin.writer.html_import_styles import summarize_written_blocks
 
             summary = summarize_written_blocks(content)
             return {

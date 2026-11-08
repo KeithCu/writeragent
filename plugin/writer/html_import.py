@@ -16,12 +16,10 @@ base run. Not a text field — do not use ``TextField.Ruby``.
 from __future__ import annotations
 
 import contextlib
-import html as html_mod
-from html.parser import HTMLParser
 import logging
 import re
 import uuid
-from typing import Any, final
+from typing import Any
 
 
 from plugin.framework.errors import best_effort
@@ -85,12 +83,9 @@ def _ensure_html_linebreaks(content: str) -> str:
     if _LINEBREAK_MARKUP_RE.search(content):
         return _wrap_html_fragment(content)
 
-    content = re.sub(r"\n{3,}", "\n\n", content)
-    paras = content.split("\n\n")
+    paras = html_import_styles._plain_paragraphs(content)
     out = []
     for p in paras:
-        if not p.strip():
-            continue
         p_html = p.replace("\n", "<br>\n")
         out.append("<p>%s</p>" % p_html)
     return _wrap_html_fragment("\n".join(out))
@@ -112,192 +107,6 @@ def html_to_plain_text(html_string: str) -> str:
 
     stripped, _unused_ruby = html_ruby.extract_and_strip_ruby(html_string)
     return html_to_search_text(stripped).strip()
-
-
-_HEADING_STYLE_RE = re.compile(r"^heading\s*([1-9]|10)$", re.IGNORECASE)
-_HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
-_PARA_LEVEL = frozenset({"p", "pre", "h1", "h2", "h3", "h4", "h5", "h6"})
-
-
-@final
-class _Slot:
-    """A Writer paragraph slot, holding its resolved heading level and accumulated text."""
-
-    def __init__(self, level: int | None, style_token: str | None) -> None:
-        self.level: int | None = level
-        self.style_token: str | None = style_token
-        self.text_parts: list[str] = []
-        self.flushed: bool = False
-
-
-@final
-class _BlockSummarizer(HTMLParser):
-    """Walk HTML blocks to count Writer paragraph slots and extract headings.
-
-    Uses the same slot rule as _BlockLoStyleExtractor._slot to mirror
-    LibreOffice StarWriter paragraph slot allocation. Discards script/style bodies
-    and tables, and tracks heading levels from data-lo-style (levels 1-10) or h1-h6 tags.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(convert_charrefs=True)
-        self.slots: list[_Slot] = []
-        self.headings: list[dict[str, Any]] = []
-        self._open: list[list[Any]] = []
-        self._table_depth = 0
-        self._ignored_depth = 0
-
-    @staticmethod
-    def _style_of(attrs: list[tuple[str, str | None]]) -> str | None:
-        return dict(attrs).get("data-lo-style")
-
-    def _heading_info(self, tag: str, style_token: str | None) -> int | None:
-        if style_token is not None:
-            m = _HEADING_STYLE_RE.match(style_token.strip())
-            return int(m.group(1)) if m else None
-        if tag in _HEADING_TAGS:
-            return int(tag[1])
-        return None
-
-    def _is_block(self, tag: str, attrs: list[tuple[str, str | None]]) -> bool:
-        from . import xhtml_style_postprocess as xhtml_post
-
-        return tag in xhtml_post.BLOCK_TAGS or (tag == "div" and self._style_of(attrs) is not None)
-
-    def _flush_slot(self, slot: _Slot | None) -> None:
-        if slot is None or slot.flushed:
-            return
-        slot.flushed = True
-        if slot.level is not None:
-            raw = "".join(slot.text_parts)
-            text = " ".join(raw.split())
-            if len(text) > 120:
-                text = text[:120] + "…"
-            self.headings.append({
-                "level": slot.level,
-                "text": text,
-                "_token": slot.style_token,
-            })
-
-    def _slot(self, tag: str, style_token: str | None, level: int | None) -> _Slot:
-        # Same slot rule as _BlockLoStyleExtractor._slot: blockquote or li and its
-        # first child block share a slot. A shared first child overwrites level and token.
-        parent = self._open[-1] if self._open else None
-        if parent is not None and parent[1] is False:
-            parent[1] = True
-            slot: _Slot = parent[2]
-            if style_token is not None or tag in _HEADING_TAGS:
-                slot.style_token = style_token
-                slot.level = level
-            return slot
-        slot = _Slot(level, style_token)
-        self.slots.append(slot)
-        return slot
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        from . import xhtml_style_postprocess as xhtml_post
-
-        t = tag.lower()
-        if t in ("script", "style"):
-            self._ignored_depth += 1
-            return
-        if t == "table":
-            self._table_depth += 1
-            return
-        if self._table_depth or (t not in xhtml_post.BLOCK_TAGS and t != "div"):
-            return
-        if not self._is_block(t, attrs):
-            self._open.append([t, None, None])
-            return
-        while self._open and self._open[-1][0] in _PARA_LEVEL:
-            popped = self._open.pop()
-            self._flush_slot(popped[2])
-        style = self._style_of(attrs)
-        lvl = self._heading_info(t, style)
-        slot = self._slot(t, style, lvl)
-        self._open.append([t, False, slot])
-
-    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        t = tag.lower()
-        if self._table_depth == 0 and self._is_block(t, attrs):
-            style = self._style_of(attrs)
-            lvl = self._heading_info(t, style)
-            slot = self._slot(t, style, lvl)
-            self._flush_slot(slot)
-
-    def handle_endtag(self, tag: str) -> None:
-        from . import xhtml_style_postprocess as xhtml_post
-
-        t = tag.lower()
-        if t in ("script", "style") and self._ignored_depth > 0:
-            self._ignored_depth -= 1
-            return
-        if t == "table" and self._table_depth > 0:
-            self._table_depth -= 1
-        elif self._table_depth == 0 and (t in xhtml_post.BLOCK_TAGS or t == "div"):
-            for idx in range(len(self._open) - 1, -1, -1):
-                if self._open[idx][0] == t:
-                    for item in reversed(self._open[idx:]):
-                        self._flush_slot(item[2])
-                    del self._open[idx:]
-                    break
-
-    def handle_data(self, data: str) -> None:
-        if self._table_depth or self._ignored_depth:
-            return
-        for item in reversed(self._open):
-            slot = item[2]
-            if slot is not None:
-                slot.text_parts.append(data)
-                break
-
-    def close(self) -> None:
-        super().close()
-        for item in reversed(self._open):
-            self._flush_slot(item[2])
-        self._open.clear()
-
-
-def summarize_written_blocks(
-    content: str, *, drop_heading_styles: frozenset[str] = frozenset()
-) -> dict[str, Any]:
-    """Summarize paragraph slot count and outline headings from written HTML/text content.
-
-    Walks the blocks matching StarWriter paragraph slot allocation and extracts headings
-    either from data-lo-style (levels 1-10) or h1-h6 tags without data-lo-style.
-    """
-    if not isinstance(content, str) or not content:
-        return {"paragraph_count": 0, "headings": []}
-
-    from plugin.framework.html_stripper import escape_prose_angle_brackets
-
-    content = _normalize(content)
-    content = escape_prose_angle_brackets(content)
-    content = _expand_escapes(content)
-
-    if not html_fragment_contains_mixed_math(content):
-        content, _unused_ruby = html_ruby.extract_and_strip_ruby(content)
-
-    if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
-        from .html_export import strip_html_boilerplate
-
-        content = strip_html_boilerplate(content)
-
-    if not _LINEBREAK_MARKUP_RE.search(content):
-        content = re.sub(r"\n{3,}", "\n\n", content)
-        paras = [p for p in content.split("\n\n") if p.strip()]
-        return {"paragraph_count": len(paras), "headings": []}
-
-    parser = _BlockSummarizer()
-    parser.feed(content)
-    parser.close()
-
-    headings = [
-        {"level": h["level"], "text": h["text"]}
-        for h in parser.headings
-        if h["_token"] is None or h["_token"] not in drop_heading_styles
-    ]
-    return {"paragraph_count": len(parser.slots), "headings": headings}
 
 
 
@@ -677,23 +486,12 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
         _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
 
 
-# Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references with trailing semicolon.
-_COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
-
-
-def _decode_complete_character_references(text: str) -> str:
-    """Decode only HTML character references ending with a semicolon, ignoring incomplete references like '&sect 2o'."""
-    if "&" not in text or not _COMPLETE_ENTITY_RE.search(text):
-        return text
-    return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
-
-
 def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        content = _decode_complete_character_references(swapped)
+        content = html_import_styles._decode_complete_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
@@ -776,7 +574,7 @@ def _deletion_author() -> Any:
 def replace_full_document(model: Any, ctx: Any, content: str) -> list[tuple[str, str]]:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        content = _decode_complete_character_references(swapped)
+        content = html_import_styles._decode_complete_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
@@ -817,7 +615,7 @@ def replace_single_range_with_content(
 ) -> None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        prepared = _decode_complete_character_references(swapped)
+        prepared = html_import_styles._decode_complete_character_references(swapped)
         text_obj = text_range.getText()
 
         # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
