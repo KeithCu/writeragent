@@ -283,6 +283,7 @@ def _insert_mixed_or_plain_html(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
+    indent_reports: list[dict[str, Any]] | None = None,
 ) -> None:
     """HTML import (optional MathML + TeX layer).
 
@@ -330,7 +331,9 @@ def _insert_mixed_or_plain_html(
             start = _paragraph_after(text_obj, before_para)
         else:
             start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
-        html_import_styles._apply_block_lo_styles(model, text_obj, start, block_styles, end=imported_end)
+        html_import_styles._apply_block_lo_styles(
+            model, text_obj, start, block_styles, end=imported_end, indent_reports=indent_reports
+        )
         end_c = model.getText().createTextCursor()
         end_c.gotoEnd(False)
         cursor.gotoRange(end_c.getStart(), False)
@@ -345,6 +348,7 @@ def insert_html_at_cursor(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
+    indent_reports: list[dict[str, Any]] | None = None,
 ) -> None:
     """Insert HTML or plain text at *cursor* (public API for tools)."""
     with image_placeholders._keep_placeholder_images(model, unescaped_content) as content:
@@ -499,7 +503,14 @@ def _decode_complete_character_references(text: str) -> str:
     return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
 
 
-def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> None:
+def insert_content_at_position(
+    model: Any,
+    ctx: Any,
+    content: str,
+    position: str,
+    *,
+    indent_reports: list[dict[str, Any]] | None = None,
+) -> None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
@@ -570,7 +581,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
         styled = position in ("beginning", "end")
         if styled:
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled, indent_reports=indent_reports)
 
 
 
@@ -584,7 +595,13 @@ def _deletion_author() -> Any:
         return contextlib.nullcontext()
 
 
-def replace_full_document(model: Any, ctx: Any, content: str) -> None:
+def replace_full_document(
+    model: Any,
+    ctx: Any,
+    content: str,
+    *,
+    indent_reports: list[dict[str, Any]] | None = None,
+) -> None:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
         content = _decode_complete_character_references(swapped)
@@ -597,7 +614,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
             cursor.setString("")
         cursor.gotoStart(False)
         if not record_changes.is_recording_changes(model):
-            _insert_mixed_or_plain_html(model, ctx, cursor, content)
+            _insert_mixed_or_plain_html(model, ctx, cursor, content, indent_reports=indent_reports)
             return
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
@@ -611,7 +628,7 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
         text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
         cursor.goLeft(1, False)
         leftover = text.createTextCursorByRange(cursor.getStart())
-        _insert_mixed_or_plain_html(model, ctx, cursor, content)
+        _insert_mixed_or_plain_html(model, ctx, cursor, content, indent_reports=indent_reports)
         leftover.gotoEndOfParagraph(True)
         if leftover.getString() == "":
             leftover.collapseToStart()
@@ -624,7 +641,12 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
 
 
 def replace_single_range_with_content(
-    model: Any, text_range: Any, content: str, ctx: Any
+    model: Any,
+    text_range: Any,
+    content: str,
+    ctx: Any,
+    *,
+    indent_reports: list[dict[str, Any]] | None = None,
 ) -> None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
@@ -675,14 +697,17 @@ def replace_single_range_with_content(
                 def restore_style() -> None:
                     restore = text_obj.createTextCursorByRange(anchor.getStart())
                     restore.gotoRange(cursor.getEnd(), True)
-                    apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
+                    rep = apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
+                    indents = rep.get("removed_direct_indents") if rep else None
+                    if indent_reports is not None and indents:
+                        indent_reports.append(indents)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
         else:
             # apply_styles=False: a search/replace splits the matched paragraph, so applying a
             # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
             try:
-                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
+                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False, indent_reports=indent_reports)
             except Exception as e:
                 reraise_if_disposed(e)
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter

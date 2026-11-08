@@ -642,6 +642,53 @@ def test_apply_block_lo_styles_skips_when_style_already_matches():
     walk_cur.gotoNextParagraph.assert_called_once_with(False)
 
 
+def test_apply_block_lo_styles_collects_removed_direct_indents():
+    from typing import Any
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Heading 1"]
+    fam.hasByName.return_value = True
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Standard"
+    walk_cur.gotoNextParagraph.return_value = False
+    text.createTextCursorByRange.return_value = walk_cur
+
+    sink: list[dict[str, Any]] = []
+    fake_report = {"removed_direct_indents": {"ParaLeftMargin": 3251}}
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char", return_value=fake_report) as apply:
+        html_import_styles._apply_block_lo_styles(
+            model, text, MagicMock(), ["Heading1"], indent_reports=sink,
+        )
+    assert apply.call_count == 1
+    assert sink == [{"ParaLeftMargin": 3251}]
+
+
+def test_replace_full_document_forwards_indent_reports():
+    from typing import Any
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    text = MagicMock()
+    cursor = MagicMock()
+    text.createTextCursor.return_value = cursor
+    model.getText.return_value = text
+
+    sink: list[dict[str, Any]] = []
+    with patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert, \
+         patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        html_import.replace_full_document(model, MagicMock(), "<p>Hello</p>", indent_reports=sink)
+
+    assert mock_insert.call_count == 1
+    assert mock_insert.call_args.kwargs.get("indent_reports") is sink
+
+
 def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     """Imported at the start of the deleted text, the new paragraphs took its character formatting
     (an 18pt bold opening heading spread over the whole document)."""

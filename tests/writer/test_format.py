@@ -1739,3 +1739,92 @@ def test_apply_paragraph_style_negative_caches_failed_property_set_info():
     assert "preserved_char_overrides" not in rep1
     assert "preserved_char_overrides" not in rep2
 
+
+def test_apply_paragraph_style_preserving_direct_char_indent_reporting():
+    from unittest.mock import MagicMock
+    from plugin.writer import styles as fmt
+
+    doc = MagicMock()
+    para_styles = MagicMock()
+    doc.getStyleFamilies.return_value.getByName.return_value = para_styles
+    style = MagicMock()
+    para_styles.getByName.return_value = style
+    style.getPropertyValue.side_effect = lambda name: 0 if name == "ParaLeftMargin" else None
+
+    # Case 1: para has margin 3251 against style 0, re-read 0 -> reported in removed_direct_indents & warning
+    para1 = MagicMock()
+    para1.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    left_margin_vals = [3251, 0]
+
+    def para1_get_prop(name):
+        if name == "ParaStyleName":
+            return "Standard"
+        if name == "ParaLeftMargin":
+            return left_margin_vals.pop(0) if left_margin_vals else 0
+        return None
+
+    para1.getPropertyValue.side_effect = para1_get_prop
+    para1_enum = MagicMock()
+    para1_enum.hasMoreElements.return_value = False
+    para1.createEnumeration.return_value = para1_enum
+
+    cursor1 = MagicMock()
+    doc_enum1 = MagicMock()
+    doc_enum1.hasMoreElements.side_effect = [True, False]
+    doc_enum1.nextElement.side_effect = [para1]
+    cursor1.getText.return_value.createTextCursorByRange.return_value = cursor1
+    cursor1.createEnumeration.return_value = doc_enum1
+
+    rep1 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", clear_direct="none")
+    assert rep1["clear_direct"] == "keep_everything"
+    assert rep1.get("removed_direct_indents") == {"ParaLeftMargin": 3251}
+    assert rep1.get("removed_direct_indent_paragraphs") == 1
+    assert "warning" in rep1
+    assert "Direct paragraph indents were removed when applying the style." in rep1["warning"]
+
+    # Same check with clear_direct="keep_everything": echoes keep_everything
+    left_margin_vals = [3251, 0]
+    doc_enum1.hasMoreElements.side_effect = [True, False]
+    doc_enum1.nextElement.side_effect = [para1]
+    rep1_canon = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor1, "Heading 1", clear_direct="keep_everything")
+    assert rep1_canon["clear_direct"] == "keep_everything"
+    assert rep1_canon.get("removed_direct_indents") == {"ParaLeftMargin": 3251}
+
+    # Case 2: equal-to-style margin (0 == 0) adds nothing
+    para2 = MagicMock()
+    para2.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para2.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else (0 if name == "ParaLeftMargin" else None)
+    para2_enum = MagicMock()
+    para2_enum.hasMoreElements.return_value = False
+    para2.createEnumeration.return_value = para2_enum
+
+    cursor2 = MagicMock()
+    doc_enum2 = MagicMock()
+    doc_enum2.hasMoreElements.side_effect = [True, False]
+    doc_enum2.nextElement.side_effect = [para2]
+    cursor2.getText.return_value.createTextCursorByRange.return_value = cursor2
+    cursor2.createEnumeration.return_value = doc_enum2
+
+    rep2 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor2, "Heading 1")
+    assert "removed_direct_indents" not in rep2
+    assert "warning" not in rep2
+
+    # Case 3: boolean True adds nothing (not a measure)
+    para3 = MagicMock()
+    para3.supportsService.side_effect = lambda s: s == "com.sun.star.text.Paragraph"
+    para3.getPropertyValue.side_effect = lambda name: "Standard" if name == "ParaStyleName" else (True if name == "ParaLeftMargin" else None)
+    para3_enum = MagicMock()
+    para3_enum.hasMoreElements.return_value = False
+    para3.createEnumeration.return_value = para3_enum
+
+    cursor3 = MagicMock()
+    doc_enum3 = MagicMock()
+    doc_enum3.hasMoreElements.side_effect = [True, False]
+    doc_enum3.nextElement.side_effect = [para3]
+    cursor3.getText.return_value.createTextCursorByRange.return_value = cursor3
+    cursor3.createEnumeration.return_value = doc_enum3
+
+    rep3 = fmt.apply_paragraph_style_preserving_direct_char(doc, cursor3, "Heading 1")
+    assert "removed_direct_indents" not in rep3
+    assert "warning" not in rep3
+

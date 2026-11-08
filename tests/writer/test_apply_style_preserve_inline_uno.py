@@ -344,6 +344,7 @@ def test_apply_style_reapply_drops_direct_para_indent_uno(ctx, doc):
         clear_direct="none",
     )
     assert res.get("status") == "ok", f"apply_style failed: {res}"
+    assert res.get("removed_direct_indents", {}).get("ParaLeftMargin") == 3251
 
     chk = text.createTextCursorByRange(text.getStart())
     chk.gotoEnd(True)

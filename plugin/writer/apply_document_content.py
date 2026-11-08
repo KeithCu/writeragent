@@ -323,7 +323,28 @@ def _note_read_only_attrs(result: Any, content: Any) -> dict[str, Any]:
     result["message"] = (result.get("message") or "") + (
         " Note: %s in the content was ignored — it is a read-only report of a paragraph's hand-set"
         " formatting. To change an indent or a font, apply a named style (apply_style;"
-        " default clear_direct lets the style's font and size show)." % _READ_ONLY_ATTR)
+        " default clear_direct='keep_emphasis' lets the style's font and size show)." % _READ_ONLY_ATTR)
+    return result
+
+
+def _note_removed_direct_indents(result: Any, indent_reports: list[dict[str, Any]]) -> dict[str, Any]:
+    """Append removed direct indent report to success result."""
+    if not isinstance(result, dict) or result.get("status") != "ok":
+        return result
+    if not indent_reports:
+        return result
+    merged: dict[str, Any] = {}
+    for rep in indent_reports:
+        merged.update(rep)
+    if not merged:
+        return result
+    result = dict(result)
+    result["removed_direct_indents"] = merged
+    from .styles import removed_direct_indents_sentence
+
+    sentence = removed_direct_indents_sentence()
+    msg = (result.get("message") or "").rstrip()
+    result["message"] = f"{msg} {sentence}".strip()
     return result
 
 
@@ -668,7 +689,8 @@ class ApplyDocumentContent(ToolBase):
                        use_preserve: bool, content: Any,
                        ctx: ToolContext, track_reviewable: bool,
                        override: str | None, batch: bool,
-                       plain: str) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
+                       plain: str,
+                       indent_reports: list[dict[str, Any]] | None = None) -> tuple[list[dict[str, Any]] | None, dict[str, Any] | None]:
         """Replace one search match and, when it sits in an outline link, fix that URL.
 
         *batch* is the all_matches loop, which already holds the undo context. A single
@@ -700,7 +722,7 @@ class ApplyDocumentContent(ToolBase):
                 # record_html_atomically would nest another and close it early.
                 def replace_one(f: Any = found) -> None:
                     format_support.replace_single_range_with_content(
-                        doc, f, content, ctx.ctx)
+                        doc, f, content, ctx.ctx, indent_reports=indent_reports)
 
                 session.record_mutation(
                     replace_one,
@@ -709,7 +731,7 @@ class ApplyDocumentContent(ToolBase):
                 record_html_atomically(
                     session, doc,
                     lambda: format_support.replace_single_range_with_content(
-                        doc, found, content, ctx.ctx),
+                        doc, found, content, ctx.ctx, indent_reports=indent_reports),
                     original_preview=original, proposed_preview=plain)
             if not needs_fix:
                 return []
@@ -909,6 +931,7 @@ class ApplyDocumentContent(ToolBase):
             return _run_on_main_thread(lambda: self._dry_run_preview(ctx, **kwargs))
         wait_seconds = self._review_wait_seconds()
         session_box: list[Any] = []
+        indent_reports: list[dict[str, Any]] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any]:
             parsed = self._parse_edit_params(kwargs)
@@ -916,7 +939,7 @@ class ApplyDocumentContent(ToolBase):
                 return parsed, None
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
             session_box.append(session)
-            return self._dispatch_edit(ctx, session, parsed), session
+            return self._dispatch_edit(ctx, session, parsed, indent_reports=indent_reports), session
 
         if get_agent_edit_review_mode() != "wait" or on_main:
             # No review-wait: review is off, it was toggled off after this call was dispatched
@@ -929,6 +952,7 @@ class ApplyDocumentContent(ToolBase):
             # of 3 replace-all matches fails after the 1st).
             try:
                 result = _run_on_main_thread(_do_edit)[0]
+                result = _note_removed_direct_indents(result, indent_reports)
                 return annotate_review_status(result)
             except ToolExecutionError as e:
                 return self._tool_error(str(e), code=getattr(e, "code", "TOOL_EXECUTION_ERROR"))
@@ -943,6 +967,7 @@ class ApplyDocumentContent(ToolBase):
             # default 30s marshalling timeout would reject large full-document replaces that
             # are fine without review mode.
             result, session = _run_on_main_thread(_do_edit)
+            result = _note_removed_direct_indents(result, indent_reports)
         except Exception as e:
             if session_box:
                 self._release_review_session(session_box[0])
@@ -1123,17 +1148,19 @@ class ApplyDocumentContent(ToolBase):
 
     def _dispatch_edit(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if params.target == "full_document":
-            return self._edit_full_document(ctx, session, params)
+            return self._edit_full_document(ctx, session, params, indent_reports=indent_reports)
         if params.target in ("end", "beginning"):
-            return self._edit_insert_at(ctx, session, params)
+            return self._edit_insert_at(ctx, session, params, indent_reports=indent_reports)
         if params.target == "selection":
-            return self._edit_selection(ctx, session, params)
-        return self._edit_search(ctx, session, params)
+            return self._edit_selection(ctx, session, params, indent_reports=indent_reports)
+        return self._edit_search(ctx, session, params, indent_reports=indent_reports)
 
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from . import html_import as format_support
         content = params.content
@@ -1143,7 +1170,7 @@ class ApplyDocumentContent(ToolBase):
             # Delete-then-import: make it atomic so a failed import can't strand a cleared document.
             record_html_atomically(
                 session, ctx.doc,
-                lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content),
+                lambda: format_support.replace_full_document(ctx.doc, ctx.ctx, content, indent_reports=indent_reports),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
@@ -1152,6 +1179,7 @@ class ApplyDocumentContent(ToolBase):
 
     def _edit_insert_at(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from . import html_import as format_support
         content = params.content
@@ -1161,7 +1189,7 @@ class ApplyDocumentContent(ToolBase):
         tables_before = _doc_table_count(ctx.doc) if has_table else None
         with session:
             session.record_mutation(
-                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target),
+                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, target, indent_reports=indent_reports),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
@@ -1177,6 +1205,7 @@ class ApplyDocumentContent(ToolBase):
 
     def _edit_selection(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         from . import html_import as format_support
         content = params.content
@@ -1190,7 +1219,7 @@ class ApplyDocumentContent(ToolBase):
             # Selection insert clears the selection first, then imports -> atomic (full_document above).
             record_html_atomically(
                 session, ctx.doc,
-                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection"),
+                lambda: format_support.insert_content_at_position(ctx.doc, ctx.ctx, content, "selection", indent_reports=indent_reports),
                 proposed_preview=plain)
         err = self._table_insert_error(ctx.doc, has_table, tables_before)
         if err:
@@ -1201,6 +1230,7 @@ class ApplyDocumentContent(ToolBase):
 
     def _edit_replace_all(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         doc = ctx.doc
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
@@ -1243,7 +1273,8 @@ class ApplyDocumentContent(ToolBase):
                         session, doc, found, use_preserve=params.use_preserve,
                         content=params.content, ctx=ctx,
                         track_reviewable=params.track_reviewable, override=params.override, batch=True,
-                        plain=params.plain)
+                        plain=params.plain,
+                        indent_reports=indent_reports)
                     if link_err:
                         link_failure_holder[0] = link_err
                         raise RuntimeError(link_err.get("message") or "outline hyperlink update failed")
@@ -1321,9 +1352,10 @@ class ApplyDocumentContent(ToolBase):
 
     def _edit_search(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
+        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         if params.all_matches:
-            return self._edit_replace_all(ctx, session, params)
+            return self._edit_replace_all(ctx, session, params, indent_reports=indent_reports)
         doc = ctx.doc
         if params.occurrence is not None:
             # Index the same replaceable list the edit path uses. Empty ranges fall
@@ -1342,7 +1374,7 @@ class ApplyDocumentContent(ToolBase):
                 params.track_reviewable, params.plain, all_matches=False)
         if params.position in ("before", "after"):
             return self._edit_insert_next_to_match(ctx, session, params, found)
-        return self._edit_replace_one(ctx, session, params, found)
+        return self._edit_replace_one(ctx, session, params, found, indent_reports=indent_reports)
 
     def _edit_insert_next_to_match(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
@@ -1452,6 +1484,7 @@ class ApplyDocumentContent(ToolBase):
 
     def _edit_replace_one(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams, found: Any,
+        indent_reports: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         doc = ctx.doc
         found = _grow_over_edge_space(found, params.separator)
@@ -1479,7 +1512,8 @@ class ApplyDocumentContent(ToolBase):
             session, doc, found, use_preserve=params.use_preserve,
             content=params.content, ctx=ctx,
             track_reviewable=params.track_reviewable, override=params.override, batch=False,
-            plain=params.plain)
+            plain=params.plain,
+            indent_reports=indent_reports)
         if link_err:
             return link_err
         resp = build_search_replace_response(1, use_preserve=params.use_preserve)

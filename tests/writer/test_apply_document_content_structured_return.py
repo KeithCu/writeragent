@@ -464,3 +464,35 @@ def test_build_search_replace_response():
     multi_preserve = build_search_replace_response(3, use_preserve=True)
     assert multi_preserve["status"] == "ok"
     assert "formatting preserved" in multi_preserve["message"]
+
+
+def test_note_removed_direct_indents_appends_on_ok_and_leaves_errors_untouched():
+    from plugin.writer.apply_document_content import _note_removed_direct_indents
+
+    # Success payload appends sentence, sets removed_direct_indents, and introduces NO warning key
+    ok_res = {"status": "ok", "message": "Replaced entire document."}
+    reports = [{"ParaLeftMargin": 3251}]
+    res = _note_removed_direct_indents(ok_res, reports)
+    assert res["status"] == "ok"
+    assert res["removed_direct_indents"] == {"ParaLeftMargin": 3251}
+    assert "Direct paragraph indents were removed when applying the style." in res["message"]
+    assert "warning" not in res
+
+    # Error payload stays untouched
+    err_res = {"status": "error", "message": "target='search' requires old_content."}
+    res_err = _note_removed_direct_indents(err_res, reports)
+    assert res_err == err_res
+    assert "removed_direct_indents" not in res_err
+    assert "warning" not in res_err
+
+    # Partial failure payload stays untouched
+    partial_err = {"status": "error", "partial_failure": True, "message": "failed mid-batch"}
+    res_partial = _note_removed_direct_indents(partial_err, reports)
+    assert res_partial == partial_err
+    assert "removed_direct_indents" not in res_partial
+    assert "warning" not in res_partial
+
+    # Empty indent reports leave result untouched
+    res_empty = _note_removed_direct_indents(ok_res, [])
+    assert res_empty == ok_res
+    assert "removed_direct_indents" not in res_empty

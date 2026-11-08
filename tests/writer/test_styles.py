@@ -239,20 +239,38 @@ def test_get_style_info_page_styles_returns_page_properties():
     assert page["properties"] == res["properties"]
 
 
-def test_apply_style_clear_direct_schema_default_is_style_props():
+def test_apply_style_clear_direct_schema_default_is_keep_emphasis():
     """Small models read the schema; default must be the house-font-wins value."""
     schema = ApplyStyle.parameters["properties"]["clear_direct"]
-    assert schema["default"] == "style_props"
-    assert schema["enum"] == ["none", "style_props", "all"]
+    assert schema["default"] == "keep_emphasis"
+    assert schema["enum"] == [
+        "keep_emphasis", "keep_everything", "reset_everything",
+        "style_props", "none", "all",
+    ]
 
 
 def test_resolve_clear_direct_defaults():
-    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", None) == "style_props"
-    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "") == "style_props"
-    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "none") == "none"
-    assert ApplyStyle._resolve_clear_direct("CharacterStyles", None) == "none"
-    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "style_props") == "none"
-    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "all") == "all"
+    # ParagraphStyles defaults & canonical names
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", None) == "keep_emphasis"
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "") == "keep_emphasis"
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "keep_emphasis") == "keep_emphasis"
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "keep_everything") == "keep_everything"
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "reset_everything") == "reset_everything"
+
+    # ParagraphStyles aliases
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "style_props") == "keep_emphasis"
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "none") == "keep_everything"
+    assert ApplyStyle._resolve_clear_direct("ParagraphStyles", "all") == "reset_everything"
+
+    # CharacterStyles defaults, canonical names, and aliases
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", None) == "keep_everything"
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "") == "keep_everything"
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "keep_everything") == "keep_everything"
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "keep_emphasis") == "keep_everything"
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "style_props") == "keep_everything"
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "none") == "keep_everything"
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "reset_everything") == "reset_everything"
+    assert ApplyStyle._resolve_clear_direct("CharacterStyles", "all") == "reset_everything"
 
 
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
@@ -266,7 +284,7 @@ def test_apply_style_paragraph(mock_resolve, mock_preserve, mock_ctx):
 
     assert res["status"] == "ok"
     assert res["family"] == "ParagraphStyles"
-    mock_preserve.assert_called_once_with(mock_ctx.doc, cursor, "Heading 1", "style_props")
+    mock_preserve.assert_called_once_with(mock_ctx.doc, cursor, "Heading 1", "keep_emphasis")
     cursor.setPropertyValue.assert_not_called()
 
 
@@ -275,34 +293,42 @@ def test_apply_style_paragraph(mock_resolve, mock_preserve, mock_ctx):
 def test_apply_style_clear_direct_is_forwarded(mock_resolve, mock_preserve, mock_ctx):
     """clear_direct reaches the apply helper, which decides what happens to direct formatting."""
     mock_resolve.return_value = MagicMock()
-    mock_preserve.return_value = {"direct_formatting": "cleared", "clear_direct": "style_props",
+    mock_preserve.return_value = {"direct_formatting": "cleared", "clear_direct": "keep_emphasis",
                                   "removed_char_overrides": {"CharFontName": "Times New Roman"},
                                   "cleared_char_properties": ["CharFontName", "CharHeight"],
                                   "cleared_paragraph_properties": ["ParaLeftMargin"]}
 
-    res = ApplyStyle().execute(mock_ctx, style="Heading 1", target="selection", clear_direct="style_props")
-
+    # Forward canonical name
+    res = ApplyStyle().execute(mock_ctx, style="Heading 1", target="selection", clear_direct="keep_emphasis")
     assert res["status"] == "ok"
-    assert mock_preserve.call_args[0][3] == "style_props"
+    assert mock_preserve.call_args[0][3] == "keep_emphasis"
     assert res["removed_char_overrides"] == {"CharFontName": "Times New Roman"}
     assert res["cleared_char_properties"] == ["CharFontName", "CharHeight"]
     assert res["cleared_paragraph_properties"] == ["ParaLeftMargin"]
     assert "hint" not in res  # nothing was preserved -> nothing to warn about
 
+    # Forward alias
+    res_alias = ApplyStyle().execute(mock_ctx, style="Heading 1", target="selection", clear_direct="style_props")
+    assert res_alias["status"] == "ok"
+    assert mock_preserve.call_args[0][3] == "keep_emphasis"
+
 
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
 @patch("plugin.writer.styles.resolve_target_cursor")
 def test_apply_style_explicit_none_reports_overrides_without_retry_hint(mock_resolve, mock_preserve, mock_ctx):
-    """clear_direct='none' still echoes what was kept. No retry-with-style_props hint: that
-    dance was for the old default=none no-op; default already shows the house font."""
+    """clear_direct='none' or 'keep_everything' echoes what was kept without retry hints."""
     mock_resolve.return_value = MagicMock()
-    mock_preserve.return_value = {"direct_formatting": "preserved", "clear_direct": "none",
+    mock_preserve.return_value = {"direct_formatting": "preserved", "clear_direct": "keep_everything",
                                   "preserved_char_overrides": {"CharFontName": "Times New Roman", "CharHeight": 12.0}}
 
     res = ApplyStyle().execute(mock_ctx, style="Standard", target="selection", clear_direct="none")
-
+    assert mock_preserve.call_args[0][3] == "keep_everything"
     assert res["preserved_char_overrides"]["CharHeight"] == 12.0
     assert "hint" not in res
+
+    res2 = ApplyStyle().execute(mock_ctx, style="Standard", target="selection", clear_direct="keep_everything")
+    assert mock_preserve.call_args[0][3] == "keep_everything"
+    assert res2["preserved_char_overrides"]["CharHeight"] == 12.0
 
 
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
@@ -312,7 +338,7 @@ def test_apply_style_forwards_walk_cap_warning(mock_resolve, mock_preserve, mock
     mock_resolve.return_value = MagicMock()
     mock_preserve.return_value = {
         "direct_formatting": "preserved",
-        "clear_direct": "none",
+        "clear_direct": "keep_everything",
         "warning": "Walk stopped after 50000 text portions (cap 50000). Later content was not read, so formatting may be incomplete.",
     }
 
@@ -324,27 +350,34 @@ def test_apply_style_forwards_walk_cap_warning(mock_resolve, mock_preserve, mock
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
 @patch("plugin.writer.styles.resolve_target_cursor")
 def test_apply_style_default_allowed_on_full_document(mock_resolve, mock_preserve, mock_ctx):
-    """Default style_props is allowed on full_document so house font shows without a flag."""
+    """Default keep_emphasis is allowed on full_document so house font shows without a flag."""
     mock_resolve.return_value = MagicMock()
-    mock_preserve.return_value = {"direct_formatting": "cleared", "clear_direct": "style_props"}
+    mock_preserve.return_value = {"direct_formatting": "cleared", "clear_direct": "keep_emphasis"}
 
     res = ApplyStyle().execute(mock_ctx, style="Standard", target="full_document")
 
     assert res["status"] == "ok"
-    assert mock_preserve.call_args[0][3] == "style_props"
+    assert mock_preserve.call_args[0][3] == "keep_emphasis"
+
+    # Explicit keep_emphasis is also allowed
+    res_explicit = ApplyStyle().execute(mock_ctx, style="Standard", target="full_document", clear_direct="keep_emphasis")
+    assert res_explicit["status"] == "ok"
+    assert mock_preserve.call_args[0][3] == "keep_emphasis"
 
 
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
 @patch("plugin.writer.styles.resolve_target_cursor")
 def test_apply_style_clear_direct_all_rejected_on_full_document(mock_resolve, mock_preserve, mock_ctx):
-    """Ctrl+M on the whole document would wipe emphasis; force the per-range path."""
+    """Resetting direct formatting across the entire document is refused for both all and reset_everything."""
     mock_resolve.return_value = MagicMock()
 
-    res = ApplyStyle().execute(mock_ctx, style="Standard", target="full_document", clear_direct="all")
-
-    assert res["status"] == "error"
-    assert "full_document" in res["message"]
-    mock_preserve.assert_not_called()
+    for flag in ("all", "reset_everything"):
+        res = ApplyStyle().execute(mock_ctx, style="Standard", target="full_document", clear_direct=flag)
+        assert res["status"] == "error"
+        assert "full_document" in res["message"]
+        assert "reset_everything" in res["message"]
+        assert "all" in res["message"]
+        mock_preserve.assert_not_called()
 
 
 @patch("plugin.writer.styles.resolve_target_cursor")
@@ -352,11 +385,11 @@ def test_apply_style_clear_direct_rejected_for_character_styles(mock_resolve, mo
     """Character styles do not go through the paragraph apply path, so the flag would be a no-op."""
     mock_resolve.return_value = MagicMock()
 
-    res = ApplyStyle().execute(mock_ctx, style="Source Text", family="CharacterStyles",
-                               target="selection", clear_direct="all")
-
-    assert res["status"] == "error"
-    assert "ParagraphStyles" in res["message"]
+    for flag in ("all", "reset_everything"):
+        res = ApplyStyle().execute(mock_ctx, style="Source Text", family="CharacterStyles",
+                                   target="selection", clear_direct=flag)
+        assert res["status"] == "error"
+        assert "ParagraphStyles" in res["message"]
 
 
 @patch("plugin.writer.styles.resolve_target_cursor")
@@ -366,7 +399,16 @@ def test_apply_style_rejects_unknown_clear_direct(mock_resolve, mock_ctx):
     res = ApplyStyle().execute(mock_ctx, style="Standard", target="selection", clear_direct="yes")
 
     assert res["status"] == "error"
-    assert "clear_direct" in res["message"]
+    assert "clear_direct must be one of: keep_emphasis, keep_everything, reset_everything." in res["message"]
+
+
+def test_merge_reports_keeps_indent_sentence_when_earlier_range_has_warning():
+    rep1 = {"warning": "Walk stopped after 50000 text portions (cap 50000)."}
+    rep2 = {"removed_direct_indents": {"ParaLeftMargin": 3251}}
+    merged = ApplyStyle._merge_reports([rep1, rep2])
+    assert merged["removed_direct_indents"] == {"ParaLeftMargin": 3251}
+    assert "Walk stopped" in merged["warning"]
+    assert "Direct paragraph indents were removed when applying the style." in merged["warning"]
 
 
 @patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char")
@@ -1172,6 +1214,10 @@ def test_apply_style_character_ignores_schema_default_clear_direct():
     with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor):
         res = ApplyStyle().execute(ctx, style="Source Text", family="CharacterStyles", clear_direct="style_props")
         assert res["status"] == "ok"
+        cursor.setPropertyValue.assert_called_with("CharStyleName", "Source Text")
+
+        res2 = ApplyStyle().execute(ctx, style="Source Text", family="CharacterStyles", clear_direct="keep_emphasis")
+        assert res2["status"] == "ok"
         cursor.setPropertyValue.assert_called_with("CharStyleName", "Source Text")
 
 

@@ -165,7 +165,15 @@ def _resolve_paragraph_style_token(
     return "Standard"
 
 
-def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[str | None], end: Any = None) -> None:
+def _apply_block_lo_styles(
+    model: Any,
+    text_obj: Any,
+    start: Any,
+    styles: list[str | None],
+    end: Any = None,
+    *,
+    indent_reports: list[dict[str, Any]] | None = None,
+) -> None:
     """Apply each block's data-lo-style to the inserted paragraphs (positionally).
 
     Forward cursor walk from the insertion point avoids scanning the whole document.
@@ -205,9 +213,12 @@ def _apply_block_lo_styles(model: Any, text_obj: Any, start: Any, styles: list[s
                 try:
                     cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     cur.gotoEndOfParagraph(True)
-                    apply_paragraph_style_preserving_direct_char(
+                    rep = apply_paragraph_style_preserving_direct_char(
                         model, cur, resolved, style_cache=style_cache,
                     )
+                    indents = rep.get("removed_direct_indents") if rep else None
+                    if indent_reports is not None and indents:
+                        indent_reports.append(indents)
                 except Exception as exc:
                     reraise_if_disposed(exc)
                     log.debug("data-lo-style: failed to apply %r", style, exc_info=True)
