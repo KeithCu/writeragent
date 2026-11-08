@@ -21,6 +21,55 @@ log = logging.getLogger(__name__)
 
 MIN_REQUEST_SEC = 1.0
 _OMIT_ID = object()
+_prctl: Any | None = None
+_bound_parent_pid: int | None = None
+PR_SET_PDEATHSIG = 1
+SIGKILL = 9
+
+
+def bind_pdeathsig() -> bool:
+    """Resolve libc prctl once in the parent process before fork.
+
+    Child preexec functions must not import modules or call dlopen, which
+    can deadlock on internal locks held by other threads during fork.
+    Captures the parent process pid so preexec can detect parent death
+    occurring between fork and exec. Returns whether prctl was bound.
+    """
+    global _prctl, _bound_parent_pid
+    if sys.platform != "linux":
+        return False
+    _bound_parent_pid = os.getpid()
+    if _prctl is not None:
+        return True
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL("libc.so.6", use_errno=True)
+        _prctl = libc.prctl
+        return True
+    except (OSError, AttributeError) as exc:
+        log.debug("Failed to resolve libc prctl: %s", exc)
+        _prctl = None
+        return False
+
+
+def _arm_pdeathsig(expected_ppid: int | None = None) -> bool:
+    """Arm PR_SET_PDEATHSIG in the current process.
+
+    Assumes bind_pdeathsig() was called in the parent before fork.
+    Delivers SIGKILL if the parent thread dies, and kills itself immediately
+    if the parent died before prctl executed. When expected_ppid is provided,
+    checks against that pid to detect parent death between fork and exec.
+    No imports or logging here.
+    """
+    if _prctl is None:
+        return False
+    ppid = expected_ppid if expected_ppid is not None else os.getppid()
+    if _prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) != 0:
+        return False
+    if os.getppid() != ppid:
+        os.kill(os.getpid(), SIGKILL)
+    return True
 
 
 def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, **extra: Any) -> dict[str, Any]:
@@ -90,17 +139,20 @@ def die_with_parent() -> bool:
     if sys.platform != "linux":
         return False
     try:
-        import ctypes
-
-        PR_SET_PDEATHSIG = 1
-        SIGKILL = 9
         ppid = os.getppid()
-        libc = ctypes.CDLL("libc.so.6", use_errno=True)
-        if libc.prctl(PR_SET_PDEATHSIG, SIGKILL, 0, 0, 0) != 0:
-            return False
-        if os.getppid() != ppid:
-            os.kill(os.getpid(), SIGKILL)
-        return True
+        bind_pdeathsig()
+        return _arm_pdeathsig(expected_ppid=ppid)
     except Exception as exc:
         log.debug("Failed to configure PR_SET_PDEATHSIG: %s", exc)
         return False
+
+
+def pdeathsig_preexec() -> None:
+    """Arm PR_SET_PDEATHSIG in the child process immediately before exec.
+
+    Linux PR_SET_PDEATHSIG delivers the signal when the thread that created the
+    process exits, not when the parent process as a whole exits. For this reason,
+    processes arming this hook must be spawned on a long-lived thread such as
+    Supervisor.spawn rather than short-lived timer or sync worker threads.
+    """
+    _arm_pdeathsig(expected_ppid=_bound_parent_pid)

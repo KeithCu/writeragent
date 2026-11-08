@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.framework.errors import ToolExecutionError, format_error_payload
+from plugin.framework.errors import ToolExecutionError, format_error_payload, resolve_exception_message
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
@@ -72,17 +72,18 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
             },
         }
 
+    # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
     except ToolExecutionError as exc:
         # Preserve USER_STOPPED. A generic error string lets the child keep
         # the turn going after Stop.
         if getattr(exc, "code", None) == "USER_STOPPED":
             return format_error_payload(exc)
         log.exception("ppt-master llm_request failed")
-        text = str(exc).strip() or type(exc).__name__
+        text = resolve_exception_message(exc)
         return format_error_payload(ToolExecutionError(text))
     except Exception as exc:
         log.exception("ppt-master llm_request failed")
-        text = str(exc).strip() or type(exc).__name__
+        text = resolve_exception_message(exc)
         return format_error_payload(ToolExecutionError(text))
 
 

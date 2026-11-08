@@ -138,7 +138,7 @@ def test_run_slash_formula_ignores_apps_filter():
         append_output=MagicMock(),
         cached_doc_type="writer",
         slash_run_formula=MagicMock(),
-        session=SimpleNamespace(messages=[]),
+        session=SimpleNamespace(messages=[], history_notice=""),
         sidebar_state=SimpleNamespace(tool_loop=None),
         _send_cancellation=None,
         query_control=MagicMock(),
@@ -1103,7 +1103,8 @@ def test_slash_answer_send_keeps_typed_transcript_line():
                 "content": "Summarize the selected text, or the whole document if nothing is selected. in 400 words",
                 "_transcript_text": "/summarize in 400 words",
             }
-        ]
+        ],
+        history_notice="",
     )
     items = session_history_items(session)
     assert items == [("user", "/summarize in 400 words")]

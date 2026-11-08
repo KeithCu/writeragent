@@ -517,6 +517,7 @@ class AsyncProcess:
     stderr_cb: Optional[Callable[[str], None]]
     on_exit_cb: Optional[Callable[[int], None]]
     _env: Optional[dict[str, str]]
+    _die_with_parent: bool
 
     def __init__(
         self,
@@ -526,6 +527,7 @@ class AsyncProcess:
         on_exit_cb: Optional[Callable[[int], None]] = None,
         *,
         env: dict[str, str] | None = None,
+        die_with_parent: bool = False,
     ) -> None:
         self.args = args
         self.stdout_cb = stdout_cb
@@ -536,6 +538,7 @@ class AsyncProcess:
         # over the same pipe would desync the two buffers.
         self.process: Optional[subprocess.Popen[Any]] = None
         self._env = env
+        self._die_with_parent = die_with_parent
 
         self._managed: Any = None
         self._stdout_thread: BackgroundHandle | None = None
@@ -581,6 +584,7 @@ class AsyncProcess:
             label="asyncproc",
             inherit_env=self._env is None,
             base_env=self._env,
+            die_with_parent=self._die_with_parent,
         )
         try:
             managed.start()

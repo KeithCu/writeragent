@@ -722,7 +722,8 @@ class TunnelManager:
             # Some CLIs (cloudflared) print the URL on stderr more often than stdout.
             env = os.environ.copy()
             env.update(provider.extra_env(effect.provider_token))
-            proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, env=env)
+            # Arm PDEATHSIG on the supervisor thread so the CLI terminates when LibreOffice dies.
+            proc = AsyncProcess(cmd, stdout_cb=_on_line, stderr_cb=_on_line, on_exit_cb=_on_exit, env=env, die_with_parent=True)
             proc_ref = proc
             self._process = proc
             proc.start()

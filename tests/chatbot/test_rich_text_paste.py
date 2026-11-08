@@ -490,7 +490,7 @@ class TestAppendRichTextViaClipboard:
 class TestHistoryMessageBatching:
 
     def test_session_history_items_skips_system_and_tool_only(self):
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [
             {"role": "system", "content": "sys"},
             {"role": "user", "content": "question"},
@@ -508,7 +508,7 @@ class TestHistoryMessageBatching:
         """No empty 'Assistant:' row and no trailing blank line for the stop banner."""
         from plugin.chatbot.tool_loop_actions import _STOP_LINE
 
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [
             {"role": "user", "content": "q"},
             {"role": "assistant", "content": "Paragraph 1\n\nParagraph 2 can press"},
@@ -526,7 +526,7 @@ class TestHistoryMessageBatching:
     def test_session_history_items_stop_before_first_token_keeps_a_bare_banner_row(self):
         from plugin.chatbot.tool_loop_actions import _STOP_LINE
 
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}, {"role": "assistant", "content": _STOP_LINE}]
         assert session_history_items(session) == [("user", "q"), ("assistant", "[Stopped by user]")]
 

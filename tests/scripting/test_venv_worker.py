@@ -2112,6 +2112,7 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
     from plugin.framework.ipc import FRAME_HEARTBEAT, FRAME_RESULT
     import io
     mgr = PythonWorkerManager.__new__(PythonWorkerManager)
+    mgr._serving_tool_call = False
     call_count = 0
 
     def mock_parse_frame(frame_bytes):
@@ -2121,14 +2122,17 @@ def test_read_response_with_heartbeats_swallows_callback_exceptions():
             return {'frame_type': FRAME_HEARTBEAT, 'payload': {'phase': 'test'}}
         return {'frame_type': FRAME_RESULT, 'status': 'ok'}
     heartbeat_calls = []
+    observed_flag: list[bool] = []
 
     def on_heartbeat(payload):
+        observed_flag.append(mgr._serving_tool_call)
         heartbeat_calls.append(payload)
         raise RuntimeError('simulated ui callback error')
     with patch.object(mgr, '_read_frame_bytes', return_value=b'dummy'), patch('plugin.scripting.venv_worker.parse_worker_stdout_frame', side_effect=mock_parse_frame):
         result = mgr._read_response_with_heartbeats(stdout=io.BytesIO(), timeout_sec=10.0, grace_sec=5, on_heartbeat=on_heartbeat)
     assert result == {'frame_type': FRAME_RESULT, 'status': 'ok'}
     assert heartbeat_calls == [{'phase': 'test'}]
+    assert observed_flag == [True]
     assert mgr._serving_tool_call is False
 
 def test_heartbeat_callback_sets_serving_tool_call():
@@ -2174,6 +2178,89 @@ def test_heartbeat_callback_sets_serving_tool_call():
     assert mgr._serving_tool_call is False
     assert reentry_info.get('code') == 'WORKER_REENTRY'
     assert 'busy' in (reentry_info.get('message') or '')
+
+
+@pytest.mark.parametrize(
+    ("frame_type", "raises"),
+    [
+        ("tool_call", False),
+        ("tool_call", True),
+        ("llm_request", False),
+        ("llm_request", True),
+        ("worker_event", False),
+        ("worker_event", True),
+        (None, False),
+    ],
+)
+def test_intermediate_dispatch_observes_serving_flag(frame_type: str | None, raises: bool):
+    import plugin.scripting.venv_worker as vw
+
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._serving_tool_call is False
+
+    terminal_payload = {"status": "ok", "result": 1}
+    terminal_bytes = pickle.dumps(terminal_payload, protocol=5)
+
+    if frame_type is not None:
+        intermediate_payload = {"type": frame_type, "id": "t1"}
+        intermediate_bytes = pickle.dumps(intermediate_payload, protocol=5)
+        response_bytes_sequence = [intermediate_bytes, terminal_bytes]
+    else:
+        response_bytes_sequence = [terminal_bytes]
+
+    observed_flag: list[bool] = []
+
+    def mock_dispatch(response: dict[str, Any], *args: Any, **kwargs: Any) -> bool:
+        observed_flag.append(mgr._serving_tool_call)
+        if response.get("type") in ("tool_call", "llm_request", "worker_event"):
+            if raises:
+                raise RuntimeError("simulated dispatch error")
+            return True
+        return False
+
+    turn_state = vw._TurnState()
+    with (
+        patch.object(mgr, "_read_response_bytes", side_effect=response_bytes_sequence),
+        patch("plugin.scripting.venv_worker._maybe_dispatch_intermediate_response", side_effect=mock_dispatch),
+    ):
+        result = mgr._read_until_terminal(
+            io.BytesIO(),
+            io.BytesIO(),
+            _ExecRequest(allow_heartbeat=False),
+            {"id": "t1"},
+            turn_state,
+            host_read_timeout_sec=1.0,
+            write_timeout_sec=1.0,
+            allowed_tools=None,
+            resolved_script_session_id=None,
+        )
+
+    assert mgr._serving_tool_call is False
+    if raises:
+        assert observed_flag == [True]
+        assert turn_state.dispatched_intermediate is True
+        assert isinstance(result, FailedAfterStart)
+    else:
+        expected_flag_count = 2 if frame_type is not None else 1
+        assert observed_flag == [True] * expected_flag_count
+        assert turn_state.dispatched_intermediate is (frame_type is not None)
+        assert isinstance(result, Terminal)
+        assert result.response == terminal_payload
+
+
+def test_serving_callback_context_manager():
+    mgr = PythonWorkerManager(sys.executable, {})
+    assert mgr._serving_tool_call is False
+    with mgr.serving_callback():
+        assert mgr._serving_tool_call is True
+    assert mgr._serving_tool_call is False
+
+    with pytest.raises(RuntimeError, match="simulated"):
+        with mgr.serving_callback():
+            assert mgr._serving_tool_call is True
+            raise RuntimeError("simulated")
+    assert mgr._serving_tool_call is False
+
 
 def test_execute_ipc_attempts_cancel_aborts() -> None:
 

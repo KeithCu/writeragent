@@ -17,6 +17,8 @@ See [`threading.md`](threading.md) and [`streaming-and-threading.md`](streaming-
 
 The UI thread often calls `log.*` from a VCL callback that already holds SolarMutex. `Handler.handle` holds the handler lock across `LogRecord.getMessage`, which runs `str(msg) % args`. `PyUNO_str` is a UNO call (`getImplementationName`, supported services, types) and deadlocks if the main thread already owns SolarMutex. `plugin/framework/logging.py` installs a log-record factory that replaces PyUNO proxies with the string `"<pyuno>"` before handlers run—including values nested in lists, tuples, or dicts—and preformats `exc_text` in that factory so exception formatting does not run under the handler lock. `__pyunostruct__` values become `<UNO TypeName: Message>`; their `exc_text` is `format_tb` plus that label.
 
+Host tool-call and ppt-master `llm_request` error text is `resolve_exception_message` (`.Message` before `str`) because those handlers run on the pipe holder while `WarmChild._io_lock` is held and the UI thread may still be inside `run_blocking_in_thread`. `log.exception` stays; the record factory owns `exc_text` for `__pyunostruct__`.
+
 ### Why Concurrency Bugs Are "Whack-a-Mole"
 Historically, threading bugs in this codebase were uncovered only after mysterious production hangs:
 - **Timing & Doc-Size Dependent**: Race conditions often do not reproduce on a developer's machine with small documents, but reliably deadlock on large documents or slower machines under GIL contention.
