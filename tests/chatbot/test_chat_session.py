@@ -20,6 +20,7 @@ def test_init_with_system_prompt_sets_system_message():
     assert session.base_system_prompt == "You are helpful."
     assert session.document_context == ""
     assert session.compaction is None
+    assert session.history_notice == ""
 
 
 def test_init_without_system_prompt_leaves_messages_empty():
@@ -118,6 +119,7 @@ def test_load_failure_does_not_seed_system_row():
         session = ChatSession(system_prompt="Sys", session_id="sid-bad")
 
     assert session.messages == []
+    assert session.history_notice == ""
     mock_db.add_message.assert_not_called()
 
 
@@ -128,6 +130,7 @@ def test_load_oserror_does_not_seed_system_row():
         session = ChatSession(system_prompt="Sys", session_id="sid-os")
 
     assert session.messages == []
+    assert session.history_notice == ""
     mock_db.add_message.assert_not_called()
 
 
@@ -207,6 +210,9 @@ def test_refresh_document_context_sets_prompt_and_excerpt():
 
 
 def test_history_load_failure_still_applies_system_prompt():
+    from plugin.chatbot.chat_session import history_open_failed_text
+    from plugin.chatbot.rich_text_paste import plain_transcript_text, session_history_items
+
     with patch(
         "plugin.chatbot.chat_session.get_chat_history",
         side_effect=WriterAgentException("db down"),
@@ -215,6 +221,36 @@ def test_history_load_failure_still_applies_system_prompt():
 
     assert session.db is None
     assert session.messages == [{"role": "system", "content": "Fallback sys"}]
+    notice = history_open_failed_text()
+    assert session.history_notice == notice
+    assert session.history_notice != ""
+    assert session_history_items(session) == [("assistant", notice)]
+    assert notice in plain_transcript_text(session)
+    assert not any(notice in str(m.get("content", "")) for m in session.messages_for_request())
+
+    session.clear()
+    assert session.history_notice == notice
+    assert session_history_items(session) == [("assistant", notice)]
+    assert session.messages == [{"role": "system", "content": "Fallback sys"}]
+
+
+def test_failed_history_open_without_prompt_still_notices():
+    from plugin.chatbot.chat_session import history_open_failed_text
+    from plugin.chatbot.rich_text_paste import plain_transcript_text, session_history_items
+
+    with patch(
+        "plugin.chatbot.chat_session.get_chat_history",
+        side_effect=OSError("disk fault"),
+    ):
+        session = ChatSession(session_id="sid")
+
+    assert session.db is None
+    assert session.messages == []
+    notice = history_open_failed_text()
+    assert session.history_notice == notice
+    assert session.history_notice != ""
+    assert session_history_items(session) == [("assistant", notice)]
+    assert notice in plain_transcript_text(session)
 
 
 def test_set_system_context_missing_role_inserts_system():

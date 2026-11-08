@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
 import re
 import sqlite3
+import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -173,6 +175,75 @@ CREATE VIRTUAL TABLE IF NOT EXISTS {tbl_name} USING vec0(
 """
 
 
+def _opts_tokens(opts: str) -> set[str]:
+    return {part.strip().casefold() for part in opts.split(",") if part.strip()}
+
+
+def _path_for_mount_match(path: str | Path) -> str:
+    """Normalize *path* for prefix comparison against psutil mount points."""
+    text = str(path)
+    if sys.platform == "win32":
+        return os.path.normpath(text)
+    return os.path.realpath(text)
+
+
+def _longest_mount_partition(path: str | Path, partitions: list[Any]) -> Any | None:
+    """Pick the disk_partitions row whose mountpoint is the longest prefix of *path*."""
+    target = _path_for_mount_match(path)
+    best_len = -1
+    best_part: Any | None = None
+    for part in partitions:
+        mp = str(part.mountpoint)
+        if target == mp:
+            mp_len = len(mp)
+        elif mp == "/" and target.startswith("/"):
+            mp_len = 1
+        elif target.startswith(mp.rstrip("/") + "/") or target.startswith(mp.rstrip("\\") + "\\"):
+            mp_len = len(mp.rstrip("/\\"))
+        else:
+            continue
+        if mp_len > best_len:
+            best_len = mp_len
+            best_part = part
+    return best_part
+
+
+def _partition_is_local(path: str | Path, part: Any) -> bool:
+    """Classify a psutil disk_partitions row as local or remote."""
+    fstype = str(part.fstype or "").strip()
+    opts = str(part.opts or "")
+    if sys.platform == "win32":
+        # Mapped shares and local NTFS both report NTFS; psutil tags DRIVE_REMOTE in opts.
+        return "remote" not in _opts_tokens(opts)
+    if sys.platform == "darwin":
+        # psutil copies MNT_LOCAL into a ``local`` mount option token.
+        return "local" in _opts_tokens(opts)
+    from plugin.contrib.fstype_network import fstype_is_network
+
+    if not fstype:
+        return True
+    return not fstype_is_network(fstype)
+
+
+def path_is_local_disk(path: str | Path) -> bool:
+    """Check whether a folder resides on a local disk rather than a network mount."""
+    path_text = str(path)
+    if path_text.startswith(("\\\\", "//")):
+        return False
+    try:
+        import psutil
+    except ImportError:
+        return True
+    try:
+        partitions = psutil.disk_partitions(all=True)
+    except Exception:
+        return True
+    part = _longest_mount_partition(path, partitions)
+    if part is None:
+        return True
+    return _partition_is_local(path, part)
+
+
 def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
     """Open corpus.db with row factory.
 
@@ -184,7 +255,21 @@ def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = dbapi.connect(str(path))
     conn.row_factory = dbapi.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    wanted = "wal" if path_is_local_disk(path.parent) else "delete"
+    # WAL on a local disk; a known network filesystem uses DELETE so two
+    # hosts do not share one WAL; an unrecognized type stays WAL.
+    if wanted == "wal":
+        res = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+    else:
+        res = conn.execute("PRAGMA journal_mode=DELETE").fetchone()
+    actual = str(res[0]).casefold() if res else ""
+    if actual != wanted:
+        log.warning(
+            "Corpus database journal mode mismatch in %s: wanted %s, got %s",
+            path.parent,
+            wanted,
+            actual,
+        )
     return cast(sqlite3.Connection, conn)
 
 

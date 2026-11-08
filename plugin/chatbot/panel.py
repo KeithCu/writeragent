@@ -1752,19 +1752,20 @@ class ClearButtonListener(BaseActionListener):
 
         if self.send_listener and self.send_listener.rich_text_widget:
             try:
-                self.send_listener.rich_text_widget.clear_and_greeting(greeting)
+                self.send_listener.rich_text_widget.paint_session(self.session, greeting)
             except Exception:
                 log.exception("Error clearing RichTextControl sidebar")
                 ctrl = getattr(self.send_listener.rich_text_widget, "control", None)
                 if ctrl is not None:
                     from plugin.chatbot.dialogs import set_control_text
+                    from plugin.chatbot.rich_text_paste import plain_transcript_text
 
-                    set_control_text(ctrl, greeting + "\n")
+                    set_control_text(ctrl, plain_transcript_text(self.session, greeting))
         elif self.response_control and self.response_control.getModel():
             from plugin.chatbot.dialogs import set_control_text
+            from plugin.chatbot.rich_text_paste import plain_transcript_text
 
-            text = greeting + "\n" if greeting else ""
-            set_control_text(self.response_control, text)
+            set_control_text(self.response_control, plain_transcript_text(self.session, greeting))
 
         if self.status_control:
             self.status_control.setText("")

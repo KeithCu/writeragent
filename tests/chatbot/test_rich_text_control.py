@@ -717,13 +717,30 @@ class TestRichTextChatWidget:
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 
         widget = RichTextChatWidget(MagicMock(), MagicMock())
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}]
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
             widget.paint_session(session, "Hi there")
             widget.paint_session(session)
         assert paint.call_args[0][2] == [("assistant", "Hi there"), ("user", "q")]
+
+    def test_paint_session_with_history_notice_after_clear(self):
+        """paint_session on a cleared session with a history warning includes the notice row."""
+        from plugin.chatbot.chat_session import ChatSession
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+        from plugin.framework.errors import WriterAgentException
+
+        with patch("plugin.chatbot.chat_session.get_chat_history", side_effect=WriterAgentException("db down")):
+            session = ChatSession(session_id="failed-db")
+        session.clear()
+
+        widget = RichTextChatWidget(MagicMock(), MagicMock())
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10), \
+             patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
+            widget.paint_session(session, "Welcome")
+
+        assert paint.call_args[0][2] == [("assistant", "Welcome"), ("assistant", session.history_notice)]
 
     def test_rerender_reformats_before_the_final_scroll(self):
         """One reformat per turn at Ready, then stick to the end."""

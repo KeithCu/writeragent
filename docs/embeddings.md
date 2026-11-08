@@ -332,7 +332,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | **`corpus.db`** | `chunks`, FTS5 `passages`, `vec_chunks_<model_slug>`, `indexed_files`, `indexed_paragraphs`, `model_metadata` |
 | **`corpus_meta.json`** | `schema_version`, `embedding_model`, `dim`, `chunk_count`, `storage_backend`, `updated_at` |
 
-`CorpusMeta.save` writes the dict it loaded via `os.replace` after writing to `tempfile.mkstemp` in the same `writeragent_embeddings/` directory. There is still no cross-process lock; overlapping merges can still drop fields. For sqlite, an omitted `db_path` (including `index_is_empty`'s default) uses the `corpus.db` next to the meta file before checking emptiness. A missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty. `resolve_index_context` returns `corpus.db` and `corpus_meta.json` paths, does not create `writeragent_embeddings/`, and does not delete (probes call it on every status refresh and research search; `CorpusMeta.save` and `connect_corpus_db` create the directory on write; stale-schema deletion runs on the corpus-index thread). `clear_folder_cache` deletes `corpus.db-wal` and `corpus.db-shm` with `corpus.db`.
+`CorpusMeta.save` writes the dict it loaded via `os.replace` after writing to `tempfile.mkstemp` in the same `writeragent_embeddings/` directory. There is still no cross-process lock; overlapping merges can still drop fields. For sqlite, an omitted `db_path` (including `index_is_empty`'s default) uses the `corpus.db` next to the meta file before checking emptiness. A missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty. `resolve_index_context` returns `corpus.db` and `corpus_meta.json` paths, does not create `writeragent_embeddings/`, and does not delete (probes call it on every status refresh and research search; `CorpusMeta.save` and `connect_corpus_db` create the directory on write; stale-schema deletion runs on the corpus-index thread). `clear_folder_cache` deletes `corpus.db-wal` and `corpus.db-shm` with `corpus.db`. `connect_corpus_db` sets WAL when `path_is_local_disk` is true and DELETE otherwise; chat history stays WAL.
 
 Experimental backends use side-by-side stores: `writeragent_embeddings/zvec/` or `lancedb/` — `corpus.db` remains untouched when flipping modes.
 
@@ -576,6 +576,7 @@ Per-folder semantic search runs in the user venv via trusted RPC modules. Settin
 | [icu4py](https://pypi.org/project/icu4py/) | (same line) | Sentence boundaries for prose chunking (`SentenceBreaker`; bundled ICU wheels) |
 | [langdetect](https://pypi.org/project/langdetect/) | (same line) | Plain-text locale detection; grammar Local language detection (via embeddings worker RPC) |
 | [envwrap](https://pypi.org/project/envwrap/) | (same line) | Transitive dependency for `sentence-transformers` / Hugging Face stack on some Python versions |
+| [psutil](https://pypi.org/project/psutil/) | (same line) | Corpus `corpus.db` journal mode: classify local vs network mount (`embeddings_sqlite.path_is_local_disk`) |
 
 Canonical install constant: `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py).
 
@@ -584,7 +585,7 @@ Settings → **Python Test** and [`venv_diagnostics.py`](../plugin/scripting/ven
 **Minimum install:**
 
 ```bash
-uv pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap icu4py langdetect odfpy pandas openpyxl xlrd python-docx
+uv pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap psutil icu4py langdetect odfpy pandas openpyxl xlrd python-docx
 ```
 
 See [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py) for the canonical one-liner. [Installing sqlite-vec](#installing-sqlite-vec) if `sqlite_vec.load()` fails.
