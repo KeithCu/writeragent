@@ -820,7 +820,10 @@ class ApplyDocumentContent(ToolBase):
         """Resolve old_content matches WITHOUT editing, for target='search'. Reports the count and
         each match's location + a short snippet, so the model can check before committing."""
         if kwargs.get("start_anchor") is not None or kwargs.get("end_anchor") is not None:
-            return self._tool_error("dry_run does not apply to start_anchor and end_anchor.")
+            rejected = self._reject_unsupported_with_anchors(kwargs)
+            return rejected if rejected is not None else self._tool_error(
+                "dry_run does not apply to start_anchor and end_anchor."
+            )
         old_content = kwargs.get("old_content")
         target = self._effective_target(
             kwargs.get("target"),
@@ -1433,7 +1436,9 @@ class ApplyDocumentContent(ToolBase):
         self._attach_hyperlink_reports(resp, link_reports)
         return attach_edited_context(resp, anchor)
 
-    def _anchor_miss(self, doc: Any, anchor: AnchorSpec, miss_kind: str) -> dict[str, Any]:
+    def _anchor_miss(
+        self, doc: Any, anchor: AnchorSpec, miss_kind: search_mod.AnchorMissKind
+    ) -> dict[str, Any]:
         # Anchors spanning text across document structure cannot be applied as shape-text
         # replacements, so matches found in drawing shapes are only reported to the user
         # without mutating shape text. Review-mode wording is omitted because shapes are

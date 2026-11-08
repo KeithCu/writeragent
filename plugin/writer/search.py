@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import re as re_mod
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Iterable, Iterator
+from typing import TYPE_CHECKING, Any, Iterable, Iterator, Literal
 
 from plugin.doc.text_helpers import (
     FAILED,
@@ -178,14 +178,19 @@ def build_search_not_found_response(
     }
 
 
-def anchor_miss_message(kind: str, *, tracked_deletions: bool = False) -> str:
+AnchorMissKind = Literal["start", "end", "different_text"]
+
+
+def anchor_miss_message(kind: AnchorMissKind, *, tracked_deletions: bool = False) -> str:
     """Return an error message for a failed start_anchor or end_anchor search."""
     if kind == "start":
         msg = "start_anchor not found in document."
     elif kind == "different_text":
         msg = "end_anchor after start_anchor is not in the same text, so it cannot be one range."
-    else:
+    elif kind == "end":
         msg = "end_anchor not found after start_anchor."
+    else:
+        raise ValueError(f"Unknown anchor miss kind: {kind!r}")
     hint = _TRACKED_DELETION_HINT if tracked_deletions else ""
     return msg + hint
 
@@ -597,7 +602,7 @@ def _starts_at_or_after(candidate: Any, boundary_end: Any) -> bool:
 
 def pick_end_after_start(
     start: Any, ends: Iterator[Any] | Iterable[Any]
-) -> tuple[Any | None, str | None]:
+) -> tuple[Any | None, AnchorMissKind | None]:
     """Select the first end match at or after start.getEnd() and combine them into a single cursor.
 
     Walks candidate end matches. Candidates whose start falls before start.getEnd()
@@ -627,7 +632,7 @@ def find_anchor_span(
     *,
     occurrence: int = 0,
     case_sensitive_order: tuple[bool, ...] | None = None,
-) -> tuple[Any | None, str | None]:
+) -> tuple[Any | None, AnchorMissKind | None]:
     """Find a range spanning from start_anchor through end_anchor.
 
     The end search starts at the start match's end so a repeated heading reaches the next
