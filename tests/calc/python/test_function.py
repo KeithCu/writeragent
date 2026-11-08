@@ -58,6 +58,27 @@ from tests.calc.python.calc_workbook_test_access import (
 )
 
 
+class _AwtSize(tuple):
+    @property
+    def Width(self) -> int:
+        return int(self[1])
+
+    @property
+    def Height(self) -> int:
+        return int(self[2])
+
+
+class _AwtPoint(tuple):
+    @property
+    def X(self) -> int:
+        return int(self[1])
+
+    @property
+    def Y(self) -> int:
+        return int(self[2])
+
+
+
 def _patch_immediate_debounce(monkeypatch: pytest.MonkeyPatch) -> None:
     from plugin.calc.python.workbook_state import Debounce
 
@@ -177,7 +198,7 @@ def test_insert_image_result_uses_merged_safe_geometry(monkeypatch: pytest.Monke
     import sys
 
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: ("Size", w, h), Point=lambda x, y: ("Point", x, y))
+    awt_mod = SimpleNamespace(Size=lambda w, h: _AwtSize(("Size", w, h)), Point=lambda x, y: _AwtPoint(("Point", x, y)))
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     doc = CalcDocStub(selection="C4")
@@ -228,7 +249,7 @@ def test_insert_image_result_thin_merged_cell_preserves_default_size(monkeypatch
     import sys
 
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: ("Size", w, h), Point=lambda x, y: ("Point", x, y))
+    awt_mod = SimpleNamespace(Size=lambda w, h: _AwtSize(("Size", w, h)), Point=lambda x, y: _AwtPoint(("Point", x, y)))
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     doc = CalcDocStub(selection="A1")
@@ -284,7 +305,7 @@ def test_insert_image_result_targets_formula_cell_sheet_when_another_sheet_activ
     import sys
 
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: ("Size", w, h), Point=lambda x, y: ("Point", x, y))
+    awt_mod = SimpleNamespace(Size=lambda w, h: _AwtSize(("Size", w, h)), Point=lambda x, y: _AwtPoint(("Point", x, y)))
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     sheet_overview = CalcSheetStub("Overview")
@@ -367,7 +388,7 @@ def test_insert_image_result_unmerged_single_cell_default_size(monkeypatch: pyte
     import sys
 
     monkeypatch.setitem(sys.modules, "uno", _UnoModule())
-    awt_mod = SimpleNamespace(Size=lambda w, h: ("Size", w, h), Point=lambda x, y: ("Point", x, y))
+    awt_mod = SimpleNamespace(Size=lambda w, h: _AwtSize(("Size", w, h)), Point=lambda x, y: _AwtPoint(("Point", x, y)))
     monkeypatch.setitem(sys.modules, "com.sun.star.awt", awt_mod)
 
     doc = CalcDocStub(selection="C4")
