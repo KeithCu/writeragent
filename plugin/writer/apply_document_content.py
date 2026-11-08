@@ -835,7 +835,7 @@ class ApplyDocumentContent(ToolBase):
         override_err = self._override_not_replace(override, position)
         if override_err:
             return self._tool_error(override_err, code="INVALID_PARAM")
-        rewrites_outline = position == "replace"
+        rewrites_outline = position in ("replace", "delete") and content_str.strip() != ""
         edit_idx = 0 if occurrence is None else occurrence
         from . import html_import as format_support
 

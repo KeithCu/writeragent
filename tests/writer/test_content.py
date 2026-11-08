@@ -1708,7 +1708,8 @@ def test_delete_and_empty_replace_emptied_table_deletion(kwargs):
     mock_rec_del.assert_called_once()
 
 
-def test_dry_run_delete_position():
+@pytest.mark.parametrize("kwargs", [{}, {"position": "delete"}])
+def test_dry_run_delete_position(kwargs):
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -1726,8 +1727,8 @@ def test_dry_run_delete_position():
             old_content="match",
             content="",
             target="search",
-            position="delete",
             dry_run=True,
+            **kwargs,
         )
     assert res["status"] == "ok"
     assert res["dry_run"] is True
@@ -1736,18 +1737,19 @@ def test_dry_run_delete_position():
     mock_find_all.assert_called_once()
     cap_links.assert_not_called()
 
-    with patch("plugin.writer.search.find_all_ranges") as mock_find_again:
-        res_err = ApplyDocumentContent().execute(
-            ctx,
-            old_content="match",
-            content="keep",
-            target="search",
-            position="delete",
-            dry_run=True,
-        )
-    assert res_err["status"] == "error"
-    assert res_err["message"] == "position='delete' removes the old_content match; content must be empty."
-    mock_find_again.assert_not_called()
+    if kwargs.get("position") == "delete":
+        with patch("plugin.writer.search.find_all_ranges") as mock_find_again:
+            res_err = ApplyDocumentContent().execute(
+                ctx,
+                old_content="match",
+                content="keep",
+                target="search",
+                position="delete",
+                dry_run=True,
+            )
+        assert res_err["status"] == "error"
+        assert res_err["message"] == "position='delete' removes the old_content match; content must be empty."
+        mock_find_again.assert_not_called()
 
 
 def test_join_content():
