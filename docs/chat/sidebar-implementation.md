@@ -42,6 +42,8 @@ File layout in [`prompts.py`](../../plugin/framework/prompts.py) is Generic, the
 
 Design notes for prompt authors live in this section so the source file stays scannable.
 
+For `apply_document_content`, search edits in-use header/footer text; body insert targets do not; page-structure tools stay on the page domain catalog and are not named in this block.
+
 ### `apply_document_content` — JSON array of HTML strings
 
 **Scope:** document tool only (`apply_document_content`). Not sidebar chat (`reply_to_user` / `final_answer`) or web-research `final_answer`.
