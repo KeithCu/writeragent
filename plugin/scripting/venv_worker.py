@@ -380,9 +380,10 @@ class PythonWorkerManager:
         self._warm = None
         # Same-thread owner -> WORKER_REENTRY; host callback in flight (tool RPC or on_heartbeat) -> busy.
         # Every caller waits up to _IO_LOCK_ACQUIRE_TIMEOUT_SEC.
-        # _serving_tool_call is a plain GIL-atomic bool on this manager, read
-        # without the pipe lock: the holder keeps that lock across host RPC, so a
-        # waiter has to see the flag without acquiring it.
+        # _serving_tool_call is a plain GIL-atomic bool on this manager, written
+        # as True only inside serving_callback. It is read without the pipe lock:
+        # the holder keeps that lock across host RPC, so a waiter has to see the
+        # flag without acquiring it.
         self._serving_tool_call: bool = False
         self._primed = False
         self._primed_generation = -1
@@ -433,6 +434,23 @@ class PythonWorkerManager:
         if self._retired:
             return _worker_error("WORKER_IPC_ERROR", _RETIRED_MESSAGE)
         return None
+
+    @contextlib.contextmanager
+    def serving_callback(self) -> Generator[None, None, None]:
+        """Set _serving_tool_call for one host callback and clear it on the way out.
+
+        _refuse_lease reads the flag without the pipe lock. A waiter that sees
+        it refuses with busy, because the callback may need the waiting thread
+        (see _reentry_error). This is the only writer of True. A raise still
+        clears the flag; this method does not swallow it. One enter at a time:
+        the holder refuses reentry before another dispatch, and a nested enter
+        would clear the flag early.
+        """
+        self._serving_tool_call = True
+        try:
+            yield
+        finally:
+            self._serving_tool_call = False
 
     @contextlib.contextmanager
     def _io_session(
@@ -712,8 +730,7 @@ class PythonWorkerManager:
                 # Set may_have_run before dispatch so a tool that mutates then raises is not replayed when exec_started never arrives.
                 if response.get("type") in ("tool_call", "llm_request", "worker_event"):
                     state.dispatched_intermediate = True
-                self._serving_tool_call = True
-                try:
+                with self.serving_callback():
                     is_intermediate = _maybe_dispatch_intermediate_response(
                         response,
                         stdin_write=_stdin_write,
@@ -723,8 +740,6 @@ class PythonWorkerManager:
                         cancel=req.cancel,
                         script_session_id=resolved_script_session_id,
                     )
-                finally:
-                    self._serving_tool_call = False
                 if is_intermediate:
                     state.dispatched_intermediate = True
                     continue
@@ -1127,18 +1142,11 @@ class PythonWorkerManager:
             if frame_type == FRAME_HEARTBEAT:
                 payload = data.get("payload")
                 if on_heartbeat is not None and isinstance(payload, dict):
-                    # Heartbeat callbacks run under the pipe lock, like tool RPC.
-                    # Another thread leasing this worker would wait for the callback
-                    # to finish, but the callback may need that thread to proceed.
-                    # This flag makes _refuse_lease return busy during the callback;
-                    # finally clears it before the next frame.
-                    self._serving_tool_call = True
-                    try:
-                        on_heartbeat(payload)
-                    except Exception:
-                        log.exception("Heartbeat callback failed (ignoring)")
-                    finally:
-                        self._serving_tool_call = False
+                    with self.serving_callback():
+                        try:
+                            on_heartbeat(payload)
+                        except Exception:
+                            log.exception("Heartbeat callback failed (ignoring)")
                 extended = time.monotonic() + grace
                 if extended > ceiling:
                     deadline = ceiling
