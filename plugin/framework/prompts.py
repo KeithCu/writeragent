@@ -412,7 +412,7 @@ APPLY_DOCUMENT_TARGET_RULES = """APPLY_DOCUMENT_CONTENT AND HTML (CRITICAL):
   Targets: 'beginning', 'end', 'selection', 'full_document', 'search' (substring find/replace; also `old_content` as a **substring** — HTML in old_content is matched as plain text).
 - Local edits: target='search' + old_content. Rewrite/translation: target='full_document'.
 - **Never** pass the entire document as old_content — that is not supported and will fail search.
-- target='search': old_content may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph.
+- target='search': old_content may span paragraphs (newlines). First line may be a paragraph suffix, last a prefix; every middle line must equal a whole paragraph. Literal search returns normalized_old_content, and the default lenient match equates quotes, spaces, and dashes. An old_content spanning more than half the document is an error that directs you to use target='full_document'; a search miss reports the closest passage and the first differing character.
   position='before'/'after' INSERTS next to the match and leaves it untouched — add a paragraph without re-sending the clause.
 - Reach: body, table cells, text frames, headers and footers.
   Floating drawing-shape text: in place only when review is off — in record/wait it cannot become a tracked change, so the tool routes you to the shapes domain.

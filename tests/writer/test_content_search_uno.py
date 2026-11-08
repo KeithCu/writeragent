@@ -48,6 +48,19 @@ def test_search_exotic_space_in_cell_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_search_quotes_and_dashes_uno(ctx, doc):
+    """Verify that lenient search equates straight and curly quotes and dash variants."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    text.insertString(cursor, "It’s a–b", False)
+
+    found = find_first_range(doc, "It's a-b")
+    assert found is not None
+    assert found.getString() == "It’s a–b"
+
+
+@native_test
+@with_native_doc("writer")
 def test_search_multi_paragraph_in_frame_uno(ctx, doc):
     """Verify that search finds multi-paragraph matches inside a text frame."""
     text = doc.getText()

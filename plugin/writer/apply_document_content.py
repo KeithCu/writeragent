@@ -619,6 +619,7 @@ class ApplyDocumentContent(ToolBase):
                     "status": "error",
                     "message": search_mod.shape_only_search_message("old_content", shape_name, review=True),
                     "replaced_count": 0,
+                    "normalized_old_content": search_string,
                 }
             # commit_or_rollback wraps shape replacement so a failed replace_text_in_shape
             # rolls back instead of leaving a partial setString in the document.
@@ -644,7 +645,10 @@ class ApplyDocumentContent(ToolBase):
                 if err is not None and err.get("code") == "ROLLBACK_FAILED":
                     return err
                 if err is not None and err.get("code") == "SHAPE_REPLACE_FAILED":
-                    return search_mod.build_search_not_found_response(shape_name=shape_name)
+                    return search_mod.build_search_not_found_response(
+                        shape_name=shape_name,
+                        normalized_old_content=search_string,
+                    )
             except UndoUnavailable:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
@@ -658,11 +662,19 @@ class ApplyDocumentContent(ToolBase):
                   "message": ("Replaced 1 occurrence inside drawing shape '%s' (edited the "
                               "shape's own text directly — NOT a tracked change; surrounding "
                               "formatting preserved)." % shape_name),
-                  "replaced_count": 1, "review_bypassed": True},
+                  "replaced_count": 1, "review_bypassed": True,
+                  "normalized_old_content": search_string},
                 None)
             return annotate_review_status(result)
+        closest = None
+        if not regex_opt:
+            closest = search_mod.search_closest_mismatch(doc, search_string, lenient=not opts_cs)
         return search_mod.build_search_not_found_response(
-            all_matches=all_matches, tracked_deletions=document_has_tracked_deletions(doc))
+            all_matches=all_matches,
+            tracked_deletions=document_has_tracked_deletions(doc),
+            closest=closest,
+            normalized_old_content=search_string,
+        )
 
     def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
                        use_preserve: bool, content: Any,
@@ -801,23 +813,37 @@ class ApplyDocumentContent(ToolBase):
             return self._tool_error(override_err, code="INVALID_PARAM")
         rewrites_outline = position == "replace"
         edit_idx = 0 if occurrence is None else occurrence
-        from . import html_import as format_support
 
-        old_stripped = str(old_content).strip()
-        s = format_support.plain_text_if_markup(old_stripped)
-        s = search_mod.normalize_search_string_for_find(s)
+        old_stripped = str(old_content).strip() if old_content is not None else ""
+        s = search_mod.prepare_old_content(old_content)
         if not s:
-            return self._tool_error("old_content is empty after normalization.")
+            err = self._tool_error("old_content is empty after normalization.")
+            err["normalized_old_content"] = ""
+            return err
         regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, s)
         if rex_err:
-            return self._invalid_regex(rex_err)
+            err = self._invalid_regex(rex_err)
+            err["normalized_old_content"] = s
+            return err
+        needle_len = len(pattern) if regex else len(s)
+        if search_mod.old_content_covers_most(ctx.doc, needle_len):
+            return {
+                "status": "error",
+                "message": search_mod.OVERSIZED_OLD_CONTENT_MESSAGE,
+                "replaced_count": 0,
+                "normalized_old_content": s,
+            }
         try:
             ranges = _find_ranges(ctx.doc, pattern, regex, cs, use_opts, all_matches=True)
         except ValueError as e:
-            return self._tool_error(str(e), code="INVALID_REGEX")
+            err = self._tool_error(str(e), code="INVALID_REGEX")
+            err["normalized_old_content"] = s
+            return err
         except Exception as e:
             log.exception("apply_document_content dry_run search failed")
-            return self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
+            err = self._tool_error("dry_run search failed: %s" % e, code="SEARCH_FAILED")
+            err["normalized_old_content"] = s
+            return err
         labeler = search_mod.LocationLabeler(ctx.doc)
         matches = []
 
@@ -847,6 +873,7 @@ class ApplyDocumentContent(ToolBase):
                 row_override = override if idx == edit_idx else None
                 fields, outline_err = self._outline_match_fields(found, _plain, row_override)
                 if outline_err:
+                    outline_err["normalized_old_content"] = s
                     return outline_err
                 row.update(fields)
             matches.append(row)
@@ -857,22 +884,36 @@ class ApplyDocumentContent(ToolBase):
                 matches.append({"location": item["location"], "text": item["text"][:160]})
         total = len(ranges) + len(shape_hits) + len(comment_hits)
         if occurrence is not None and ranges and occurrence >= len(ranges):
-            return self._occurrence_oor(
+            err = self._occurrence_oor(
                 occurrence, len(ranges),
                 replaceable_count=len(ranges),
                 matches=matches,
             )
+            err["normalized_old_content"] = s
+            return err
         result: dict[str, object] = {
             "status": "ok",
             "dry_run": True,
             "count": total,
             "replaceable_count": len(ranges),
             "matches": matches,
+            "normalized_old_content": s,
             "edit_reach_note": (
                 "dry_run counts body/table/frame matches the edit path can replace, plus drawing shapes "
                 "and comments (search_in_document uses the same split; only floating shapes are editable "
                 "in review-off mode or via the shapes toolset)."),
         }
+        if not ranges:
+            hint = search_mod._TRACKED_DELETION_HINT if document_has_tracked_deletions(ctx.doc) else ""
+            msg = "old_content not found in document. Try a shorter, unique substring." + hint
+            closest = None
+            if not regex:
+                closest = search_mod.search_closest_mismatch(ctx.doc, s, lenient=not cs)
+            if closest:
+                msg = f"{msg} {closest['message']}"
+                result["closest_match"] = closest["closest_match"]
+                result["diff_at"] = closest["diff_at"]
+            result["message"] = msg
         if occurrence is not None and ranges:
             selected = ranges[occurrence]
             selected_location, selected_text = _match_snippet(selected)
@@ -911,7 +952,7 @@ class ApplyDocumentContent(ToolBase):
         session_box: list[Any] = []
 
         def _do_edit() -> tuple[dict[str, Any], Any]:
-            parsed = self._parse_edit_params(kwargs)
+            parsed = self._parse_edit_params(kwargs, doc=ctx.doc)
             if isinstance(parsed, dict):
                 return parsed, None
             session = EditReviewSession(ctx.doc, ctx.ctx, enabled=parsed.track_reviewable)
@@ -982,7 +1023,7 @@ class ApplyDocumentContent(ToolBase):
             )
         return result
 
-    def _parse_edit_params(self, kwargs: Any) -> EditParams | dict[str, Any]:
+    def _parse_edit_params(self, kwargs: Any, doc: Any | None = None) -> EditParams | dict[str, Any]:
         from . import html_import as format_support
         content = kwargs.get("content", "")
         old_content = kwargs.get("old_content")
@@ -993,25 +1034,35 @@ class ApplyDocumentContent(ToolBase):
                 "or old_content for find-and-replace.")
 
         if target == "search" and old_content is None:
-            return self._tool_error("target='search' requires old_content.")
+            err = self._tool_error("target='search' requires old_content.")
+            err["normalized_old_content"] = ""
+            return err
 
         occurrence, occurrence_error = self._parse_occurrence(kwargs, target)
         if occurrence_error:
-            return self._tool_error(occurrence_error, code="INVALID_PARAM")
+            err = self._tool_error(occurrence_error, code="INVALID_PARAM")
+            if target == "search":
+                err["normalized_old_content"] = search_mod.prepare_old_content(old_content)
+            return err
 
         # position is a search-only refinement; validate it up front (silently ignoring it on an
         # insert target would teach the model a parameter that "works" by accident).
         position, pos_err = self._position_choice(kwargs)
         if pos_err:
-            return self._tool_error(pos_err)
+            err = self._tool_error(pos_err)
+            if target == "search":
+                err["normalized_old_content"] = search_mod.prepare_old_content(old_content)
+            return err
         if position != "replace" and target != "search":
             return self._tool_error(
                 "position='before'/'after' requires target='search' "
                 "(it inserts next to an old_content match).")
         if position != "replace" and kwargs.get("all_matches", False):
-            return self._tool_error(
+            err = self._tool_error(
                 "position='before'/'after' inserts at a single match; drop all_matches "
                 "or use position='replace'.")
+            err["normalized_old_content"] = search_mod.prepare_old_content(old_content)
+            return err
 
         # If the model serialized a list as a JSON string, parse it back so commas/brackets
         # do not become literal document text.
@@ -1071,14 +1122,14 @@ class ApplyDocumentContent(ToolBase):
         override: str | None = None
 
         if target == "search":
-            old_stripped = str(old_content).strip()
-            search_string = format_support.plain_text_if_markup(old_stripped)
-            # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
-            search_string = search_mod.normalize_search_string_for_find(search_string)
+            old_stripped = str(old_content).strip() if old_content is not None else ""
+            search_string = search_mod.prepare_old_content(old_content)
             if not search_string:
                 # Parameter error (like old_content=None), not a search no-op: the search never ran,
                 # so there's no replaced_count to report — use the standard tool error shape.
-                return self._tool_error("old_content is empty after normalization.")
+                err = self._tool_error("old_content is empty after normalization.")
+                err["normalized_old_content"] = ""
+                return err
             plain = content if use_preserve else self._replacement_plain(content)
             # The search drops the spaces at old_content's edges. The replacement
             # must drop the same edges, or old_content=" paragrafo" with content=""
@@ -1093,14 +1144,29 @@ class ApplyDocumentContent(ToolBase):
                 plain = content
             override, override_error = self._parse_hyperlink_url(kwargs)
             if override_error:
-                return self._tool_error(override_error, code="INVALID_PARAM")
+                err = self._tool_error(override_error, code="INVALID_PARAM")
+                err["normalized_old_content"] = search_string
+                return err
             override_err = self._override_not_replace(override, position)
             if override_err:
-                return self._tool_error(override_err, code="INVALID_PARAM")
+                err = self._tool_error(override_err, code="INVALID_PARAM")
+                err["normalized_old_content"] = search_string
+                return err
 
             regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, search_string)
             if rex_err:
-                return self._invalid_regex(rex_err)
+                err = self._invalid_regex(rex_err)
+                err["normalized_old_content"] = search_string
+                return err
+
+            needle_len = len(pattern) if regex else len(search_string)
+            if doc is not None and search_mod.old_content_covers_most(doc, needle_len):
+                return {
+                    "status": "error",
+                    "message": search_mod.OVERSIZED_OLD_CONTENT_MESSAGE,
+                    "replaced_count": 0,
+                    "normalized_old_content": search_string,
+                }
 
         return EditParams(
             content=content,
@@ -1130,7 +1196,10 @@ class ApplyDocumentContent(ToolBase):
             return self._edit_insert_at(ctx, session, params)
         if params.target == "selection":
             return self._edit_selection(ctx, session, params)
-        return self._edit_search(ctx, session, params)
+        res = self._edit_search(ctx, session, params)
+        if "normalized_old_content" not in res:
+            res["normalized_old_content"] = params.search_string
+        return res
 
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,

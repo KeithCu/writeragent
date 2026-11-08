@@ -1,9 +1,16 @@
 # Unit tests for apply_document_content search helpers (no LibreOffice required).
 from plugin.writer.search import (
+    _compare_normalize,
+    _paragraph_matches_part,
+    closest_mismatch,
+    DASH_CLASS,
     drawing_shape_containing,
     escape_for_lo_regex,
     HORIZONTAL_SPACE_CLASS,
     normalize_search_string_for_find,
+    old_content_covers_most,
+    prepare_old_content,
+    SINGLE_QUOTE_CLASS,
     SPACE_NORMALIZE_MAP,
 )
 import pytest
@@ -38,6 +45,90 @@ def test_escape_for_lo_regex_normalizes_exotic_spaces_in_needle():
 def test_escape_for_lo_regex_escapes_regex_metacharacters():
     assert escape_for_lo_regex("a.b") == r"a\.b"
     assert escape_for_lo_regex("(test)") == r"\(test\)"
+
+
+def test_prepare_old_content_strips_tags_and_preserves_newlines():
+    assert prepare_old_content("<p>Hello <b>World</b></p>") == "Hello World"
+    assert prepare_old_content("<p>Hello</p><p>World</p>") == "Hello\nWorld"
+    assert prepare_old_content(None) == ""
+    assert prepare_old_content("   ") == ""
+
+
+def test_compare_normalize_quotes_and_dashes():
+    assert _compare_normalize("it’s") == _compare_normalize("it's")
+    assert _compare_normalize("a–b") == _compare_normalize("a-b")
+
+
+def test_escape_for_lo_regex_quotes_and_dashes():
+    assert escape_for_lo_regex("it's") == escape_for_lo_regex("it’s")
+    assert SINGLE_QUOTE_CLASS in escape_for_lo_regex("it's")
+    assert DASH_CLASS in escape_for_lo_regex("a-b")
+
+
+def test_paragraph_matches_part_tail_and_middle():
+    ok, off = _paragraph_matches_part("prefix and tail", "tail", tail=True)
+    assert ok is True
+    ok, off = _paragraph_matches_part("prefix and tail", "prefix", tail=True)
+    assert ok is False
+    ok, off = _paragraph_matches_part("middle line", "muddle line")
+    assert ok is False
+
+
+def test_closest_mismatch_near_miss():
+    hay = "Preface. The revenue grew last year."
+    needle = "The revenue grew fast"
+    res = closest_mismatch(needle, hay, lenient=True)
+    assert res is not None
+    assert res["message"] == "closest match starts 'The revenue grew…', differs at character 17: f vs l"
+    assert res["closest_match"] == "The revenue grew…"
+    assert res["diff_at"] == 17
+
+
+def test_closest_mismatch_lenient_quote_pair_returns_no_mismatch():
+    assert closest_mismatch("it's fine", "it’s fine", lenient=True) is None
+    res = closest_mismatch("it's fine", "it’s fine", lenient=False)
+    assert res is not None
+    assert res["diff_at"] == 2
+
+
+class _FakeCursorForSteps:
+    def __init__(self, length):
+        self.length = length
+        self.pos = 0
+
+    def gotoStart(self, expand=False):
+        self.pos = 0
+
+    def goRight(self, n, expand=False):
+        if self.pos + n <= self.length:
+            self.pos += n
+            return True
+        self.pos = self.length
+        return False
+
+
+class _FakeTextForSteps:
+    def __init__(self, length):
+        self.length = length
+
+    def createTextCursor(self):
+        return _FakeCursorForSteps(self.length)
+
+
+class _FakeDocForSteps:
+    def __init__(self, length):
+        self.text = _FakeTextForSteps(length)
+
+    def getText(self):
+        return self.text
+
+
+def test_old_content_covers_most_proved_table():
+    assert old_content_covers_most(_FakeDocForSteps(10), 6) is True
+    assert old_content_covers_most(_FakeDocForSteps(10), 5) is False
+    assert old_content_covers_most(_FakeDocForSteps(0), 3) is False
+    assert old_content_covers_most(_FakeDocForSteps(4), 5) is True
+    assert old_content_covers_most(_FakeDocForSteps(10), 0) is False
 
 
 # --- drawing_shape_containing (C7): actionable "text is inside a shape" diagnostic -----------

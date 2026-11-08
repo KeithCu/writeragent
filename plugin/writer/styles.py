@@ -1341,8 +1341,13 @@ class ApplyStyle(FrameworkToolBase):
 
         def _finish_success(res: dict[str, Any], rep_list: list[Any]) -> dict[str, Any]:
             res.update(self._merge_reports(rep_list))
-            if target == "search" and "matched" not in res:
-                res["matched"] = True
+            if target == "search":
+                if "matched" not in res:
+                    res["matched"] = True
+                if "normalized_old_content" not in res:
+                    from plugin.writer.search import prepare_old_content
+
+                    res["normalized_old_content"] = prepare_old_content(old_content)
             flag_style_unreviewed(res)
             return res
 
@@ -1352,21 +1357,54 @@ class ApplyStyle(FrameworkToolBase):
         all_matches = bool(kwargs.get("all_matches"))
         occ_raw = kwargs.get("occurrence")
         if target == "search" and (all_matches or occ_raw is not None):
-            from plugin.writer.search import find_all_ranges, normalize_search_string_for_find
-            from plugin.writer.html_import import plain_text_if_markup
+            from plugin.writer.search import (
+                find_all_ranges,
+                old_content_covers_most,
+                prepare_old_content,
+                search_closest_mismatch,
+                OVERSIZED_OLD_CONTENT_MESSAGE,
+            )
 
-            s = str(old_content).strip() if old_content is not None else ""
+            s = prepare_old_content(old_content)
             if not s:
-                return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
-            s = plain_text_if_markup(s)
-            s = normalize_search_string_for_find(s)
+                return {
+                    "status": "error",
+                    "message": "target='search' requires old_content.",
+                    "applied": False,
+                    "matched": False,
+                    "normalized_old_content": "",
+                }
+            if old_content_covers_most(ctx.doc, len(s)):
+                return {
+                    "status": "error",
+                    "message": OVERSIZED_OLD_CONTENT_MESSAGE,
+                    "applied": False,
+                    "matched": False,
+                    "normalized_old_content": s,
+                }
             ranges = find_all_ranges(ctx.doc, s) if s else []
             if not ranges:
-                return {"status": "error", "message": "old_content not found in document.", "target": "search", "applied": False, "matched": False}
+                msg = "old_content not found in document."
+                res = {
+                    "status": "error",
+                    "message": msg,
+                    "target": "search",
+                    "applied": False,
+                    "matched": False,
+                    "normalized_old_content": s,
+                }
+                closest = search_closest_mismatch(ctx.doc, s, lenient=True)
+                if closest:
+                    res["message"] = f"{msg} {closest['message']}"
+                    res["closest_match"] = closest["closest_match"]
+                    res["diff_at"] = closest["diff_at"]
+                return res
             if occ_raw is not None:
                 # Schema type integer (bool fails). validate has no min/max.
                 if occ_raw < 0 or occ_raw >= len(ranges):
-                    return self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
+                    oor_err = self._tool_error("occurrence %s out of range (found %d match(es), use 0..%d)." % (occ_raw, len(ranges), len(ranges) - 1))
+                    oor_err["normalized_old_content"] = s
+                    return oor_err
                 ranges = [ranges[occ_raw]]
             reports = []
 
@@ -1432,7 +1470,16 @@ class ApplyStyle(FrameworkToolBase):
                 # apply_document_content, so a client can branch on matched/applied.
                 # TODO(follow-up): consider _tool_error(..., details={...}) so this path also
                 # carries a standard error code like other apply_style failures.
-                return {"status": "error", "message": str(ve), "target": "search", "applied": False, "matched": False}
+                from plugin.writer.search import prepare_old_content
+
+                return {
+                    "status": "error",
+                    "message": str(ve),
+                    "target": "search",
+                    "applied": False,
+                    "matched": False,
+                    "normalized_old_content": prepare_old_content(old_content),
+                }
             return self._tool_error(str(ve))
 
         # execute_safe reports a failed apply. This catch hid a closed document
