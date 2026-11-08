@@ -489,6 +489,7 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
     )
     res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=html)
     assert res.get("status") == "ok", res
+    assert "warnings" not in res, res
 
     enum = doc.getText().createEnumeration()
     p1 = enum.nextElement()
@@ -496,7 +497,10 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
 
     assert p1.getPropertyValue("ParaAdjust") == 3
     assert p1.getPropertyValue("ParaLeftMargin") == 2000
-    assert int(p1.getPropertyValue("ParaBackColor")) == 0xFFE4C4
+    got_p1_color = int(p1.getPropertyValue("ParaBackColor"))
+    assert got_p1_color == 0xFFE4C4, (
+        f"expected 0xFFE4C4, got {hex(got_p1_color)} (res={res})"
+    )
     assert p2.getPropertyValue("ParaLeftMargin") == 1000
 
     got = GetDocumentContent().execute(tool_ctx, scope="full")
@@ -513,7 +517,10 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
 
     assert r1.getPropertyValue("ParaAdjust") == 3
     assert r1.getPropertyValue("ParaLeftMargin") == 2000
-    assert int(r1.getPropertyValue("ParaBackColor")) == 0xFFE4C4
+    got_r1_color = int(r1.getPropertyValue("ParaBackColor"))
+    assert got_r1_color == 0xFFE4C4, (
+        f"expected 0xFFE4C4, got {hex(got_r1_color)} (res2={res2})"
+    )
     assert r2.getPropertyValue("ParaLeftMargin") == 1000
 
 

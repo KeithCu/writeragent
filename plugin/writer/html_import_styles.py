@@ -309,6 +309,17 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
     return unapplied
 
 
+def _try_set_property(target: Any, prop_name: str, val: Any) -> None:
+    """Best-effort property assignment for optional paragraph handles (cursor/paragraph)."""
+    if target is None:
+        return
+    try:
+        target.setPropertyValue(prop_name, val)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.debug("data-lo-para: best-effort set %s failed: %s", prop_name, exc)
+
+
 def _apply_block_lo_styles(
     model: Any,
     text_obj: Any,
@@ -387,14 +398,30 @@ def _apply_block_lo_styles(
                 try:
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
+                    para_obj = None
+                    try:
+                        enum = para_cur.createEnumeration()
+                        if enum is not None and getattr(enum, "hasMoreElements", lambda: False)():
+                            el = enum.nextElement()
+                            if getattr(el, "supportsService", lambda _: False)("com.sun.star.text.Paragraph") is True:
+                                para_obj = el
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        log.debug("data-lo-para: could not enumerate paragraph object: %s", exc)
                     for css_name, (uno_prop, val) in mapped.items():
                         try:
                             if uno_prop == "ParaBackColor":
                                 # Paragraph background color requires turning off ParaBackTransparent
                                 # in LibreOffice Writer, or the background remains transparent and
                                 # LibreOffice ignores the ParaBackColor setting.
-                                para_cur.setPropertyValue("ParaBackTransparent", val == -1)
+                                is_trans = (val == -1)
+                                _try_set_property(para_cur, "ParaBackTransparent", is_trans)
+                                _try_set_property(walk_cur, "ParaBackTransparent", is_trans)
+                                _try_set_property(para_obj, "ParaBackTransparent", is_trans)
                             para_cur.setPropertyValue(uno_prop, val)
+                            if uno_prop == "ParaBackColor":
+                                _try_set_property(walk_cur, uno_prop, val)
+                                _try_set_property(para_obj, uno_prop, val)
                         except Exception as exc:
                             reraise_if_disposed(exc)
                             log.debug("data-lo-para: failed to set %s (%s)", uno_prop, css_name, exc_info=True)
