@@ -135,8 +135,8 @@ class AudioRecorder:
         self._epoch: int = 0
         self._start_job: BackgroundHandle | None = None
         self._stop_job: BackgroundHandle | None = None
-        self._commit_pending: bool = False
-        self._commit_for_epoch: int = -1
+        # Epoch of the start job that owes on_capture_stopped(None); older jobs cannot consume newer stops.
+        self._commit_epoch: int | None = None
         self._discard_take: bool = False
         self.stream: Any = None
         self.wav_file: Any = None
@@ -227,6 +227,14 @@ class AudioRecorder:
         )
 
     def _take_new_temp_wav(self, epoch: int) -> str | None:
+        """Create a unique temporary WAV file for this recording epoch.
+
+        Takes ownership of any abandoned temp_filename under the lifecycle lock
+        so failed or aborted takes do not leak files. Creating the path and deleting
+        the previous file run outside the lock. A second epoch check confirms this
+        take was not cancelled while creating the path before publishing it,
+        discarding the path if stale so a newer take's file is not overwritten.
+        """
         with self._lifecycle_lock:
             if self._epoch != epoch:
                 return None
@@ -326,7 +334,6 @@ class AudioRecorder:
                     path = None
         finally:
             with self._lifecycle_lock:
-                self._commit_pending = False
                 discard = self._discard_take
             if discard:
                 if path:
@@ -350,10 +357,9 @@ class AudioRecorder:
         and closes only the passed host WAV.
         """
         with self._lifecycle_lock:
-            deliver = self._commit_pending and self._commit_for_epoch == epoch and not self._discard_take
+            deliver = self._commit_epoch == epoch
             if deliver:
-                self._commit_pending = False
-                self._commit_for_epoch = -1
+                self._commit_epoch = None
             if proc is not None and self._proc is proc:
                 self._proc = None
             if wav is not None and self.wav_file is wav:
@@ -509,8 +515,7 @@ class AudioRecorder:
             with self._lifecycle_lock:
                 self._epoch += 1
                 epoch = self._epoch
-                self._commit_pending = False
-                self._commit_for_epoch = -1
+                self._commit_epoch = None
                 self._discard_take = False
 
             self._start_job = run_in_background(
@@ -534,7 +539,8 @@ class AudioRecorder:
 
                 if try_stub_stop(self):
                     return
-            if self.stream is not None:
+            stream_published = self.stream is not None
+            if stream_published:
                 self._teardown_capture()
 
             with self._lifecycle_lock:
@@ -552,17 +558,16 @@ class AudioRecorder:
 
                 # If the start job is alive and _stop_handoff is None, bump epoch,
                 # kill_process_tree without waiting on UI thread; the start job reaps.
-                if start_alive and handoff is None:
+                if start_alive and handoff is None and not stream_published:
                     invalidated = self._epoch
                     self._epoch += 1
                     if proc is not None:
                         self._background_rec_stop(kill_process_tree, proc.popen)
                     if not self._discard_take:
-                        self._commit_pending = True
-                        self._commit_for_epoch = invalidated
+                        self._commit_epoch = invalidated
                         self.stop_deferred = True
                     else:
-                        self._commit_for_epoch = -1
+                        self._commit_epoch = None
                     self.temp_filename = None
                     return
 
@@ -573,7 +578,6 @@ class AudioRecorder:
                         except Exception as exc:
                             log.warning("signal_recording_stop failed: %s", exc)
                     if not self._discard_take:
-                        self._commit_pending = True
                         self.stop_deferred = True
                     self.temp_filename = None
                     self._stop_job = self._background_rec_stop(
@@ -640,8 +644,7 @@ class AudioRecorder:
         """Terminate an in-flight recording child (panel teardown)."""
         with self._lifecycle_lock:
             self._discard_take = True
-            self._commit_pending = False
-            self._commit_for_epoch = -1
+            self._commit_epoch = None
 
         if self._proc is not None or self.stream is not None or self.state.status in ("initializing", "recording"):
             try:
