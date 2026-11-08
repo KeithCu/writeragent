@@ -380,3 +380,74 @@ def test_dispatch_llm_request_handles_get_ctx_failure():
     assert resp["code"] == "TOOL_EXECUTION_ERROR"
     assert "main thread queue failure" in resp["message"]
 
+
+def test_handle_llm_request_uno_frame_skips_str():
+    """UNO exception during host llm_request reads .Message without calling str() or repr()."""
+    import plugin.framework.logging  # noqa: F401  # ensures the log-record factory is installed
+    from plugin.ppt_master.venv.host_rpc import dispatch_worker_response
+
+    calls: list[str] = []
+
+    class HostileUno(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+        Message = "boom"
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("str() called on hostile UNO exception")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("repr() called on hostile UNO exception")
+
+    written: list[bytes] = []
+    with patch(
+        "plugin.framework.queue_executor.main.call",
+        side_effect=HostileUno(),
+    ):
+        handled = dispatch_worker_response(
+            {"type": "llm_request", "id": "err-uno", "messages": [{"role": "user", "content": "x"}]},
+            stdin_write=written.append,
+        )
+
+    assert handled is True
+    assert len(written) == 1
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["id"] == "err-uno"
+    assert resp["code"] == "TOOL_EXECUTION_ERROR"
+    assert resp["message"] == "boom"
+    assert calls == []
+
+    class HostileUnoEmpty(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+        Message = ""
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("str() called on hostile UNO exception with empty message")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("repr() called on hostile UNO exception with empty message")
+
+    written_empty: list[bytes] = []
+    with patch(
+        "plugin.framework.queue_executor.main.call",
+        side_effect=HostileUnoEmpty(),
+    ):
+        handled_empty = dispatch_worker_response(
+            {"type": "llm_request", "id": "err-uno-empty", "messages": [{"role": "user", "content": "x"}]},
+            stdin_write=written_empty.append,
+        )
+
+    assert handled_empty is True
+    assert len(written_empty) == 1
+    resp_empty = read_pickle_frame(io.BytesIO(written_empty[0]), require_dict=True)
+    assert resp_empty is not None
+    assert resp_empty["status"] == "error"
+    assert resp_empty["id"] == "err-uno-empty"
+    assert resp_empty["code"] == "TOOL_EXECUTION_ERROR"
+    assert resp_empty["message"] == "HostileUnoEmpty"
+    assert calls == []

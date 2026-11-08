@@ -928,6 +928,16 @@ def test_resolve_exception_message_total():
     assert resolve_exception_message(BlankStrWithMessage("uno message")) == "uno message"
     assert format_error_message(BlankStrWithMessage("uno message")) == "uno message"
 
+    class UnoEmptyMessage(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+        Message = ""
+
+        def __str__(self) -> str:
+            raise AssertionError("str() called on hostile UNO exception with empty message")
+
+    assert resolve_exception_message(UnoEmptyMessage()) == "UnoEmptyMessage"
+    assert format_error_message(UnoEmptyMessage()) == "UnoEmptyMessage"
+
     kb = KeyboardInterrupt()
     assert resolve_exception_message(kb) == "KeyboardInterrupt"
     assert format_error_message(kb) == "KeyboardInterrupt"

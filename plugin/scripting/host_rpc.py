@@ -32,6 +32,7 @@ import logging
 import re
 from typing import Any, Callable
 
+from plugin.framework.errors import resolve_exception_message
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
@@ -545,6 +546,7 @@ def handle_tool_call_frame(
         # (ToolExecutionError code="USER_STOPPED", domain codes). A payload of
         # only status and message hid that code from the child worker.
         err_code = getattr(exc, "code", None)
-        tool_response = _error_frame(str(exc), code=str(err_code) if err_code else None)
+        # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
+        tool_response = _error_frame(resolve_exception_message(exc), code=str(err_code) if err_code else None)
     _reply(tool_response)
     return True

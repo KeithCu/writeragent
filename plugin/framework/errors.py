@@ -157,16 +157,24 @@ class suppress_disposed(contextlib.ContextDecorator):
 
 def _exception_text(obj: Any) -> str:
     """Non-empty Message, else str. Either read can throw on a hostile UNO proxy."""
-    for read, msg in (
-        (lambda: getattr(obj, "Message", None), "resolve_exception_message: Message unreadable (%s)"),
-        (lambda: str(obj), "resolve_exception_message: str(exception) failed (%s)"),
-    ):
-        try:
-            raw = read()
-            if isinstance(raw, str) and raw.strip():
-                return raw.strip()
-        except Exception as exc:
-            logging.getLogger("writeragent.errors").debug(msg, type(exc).__name__)
+    try:
+        raw_msg = getattr(obj, "Message", None)
+        if isinstance(raw_msg, str) and raw_msg.strip():
+            return raw_msg.strip()
+    except Exception as exc:
+        logging.getLogger("writeragent.errors").debug("resolve_exception_message: Message unreadable (%s)", type(exc).__name__)
+
+    # str() on a UNO struct walks PyUNO fields and takes SolarMutex (see logging._logged_uno_label).
+    # When Message is empty, skip str() to avoid deadlocks on background threads holding locks.
+    if getattr(type(obj), "__pyunostruct__", None) is not None:
+        return ""
+
+    try:
+        raw_str = str(obj)
+        if isinstance(raw_str, str) and raw_str.strip():
+            return raw_str.strip()
+    except Exception as exc:
+        logging.getLogger("writeragent.errors").debug("resolve_exception_message: str(exception) failed (%s)", type(exc).__name__)
     return ""
 
 
