@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.framework.errors import ToolExecutionError, format_error_payload
+from plugin.framework.errors import ToolExecutionError, format_error_payload, resolve_exception_message
 from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
 from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancellation, is_cancelled
@@ -78,11 +78,15 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
         if getattr(exc, "code", None) == "USER_STOPPED":
             return format_error_payload(exc)
         log.exception("ppt-master llm_request failed")
-        text = str(exc).strip() or type(exc).__name__
+        text = resolve_exception_message(exc)
         return format_error_payload(ToolExecutionError(text))
     except Exception as exc:
         log.exception("ppt-master llm_request failed")
-        text = str(exc).strip() or type(exc).__name__
+        # str() on a UNO exception walks PyUNO fields and takes SolarMutex.
+        # This thread holds the venv pipe lock, and the UI thread may be blocked
+        # in run_blocking_in_thread still holding that mutex.
+        # resolve_exception_message reads .Message first.
+        text = resolve_exception_message(exc)
         return format_error_payload(ToolExecutionError(text))
 
 
