@@ -812,3 +812,90 @@ def test_build_page_map_propagates_disposed_document():
     vc.getPage.side_effect = type("DisposedException", (Exception,), {})("gone")
     with pytest.raises(DocumentDisposedError):
         _build_page_map(doc)
+
+
+def test_pick_end_after_start_selection():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+    start_point = MagicMock()
+    start_range.getStart.return_value = start_point
+
+    # compareRegionStarts returns 1 (starts before boundary) then -1 (starts after boundary).
+    # The first candidate (e.g. from chaining) is skipped, second range wins.
+    cand1 = MagicMock()
+    cand1.getText.return_value = shared_text
+    cand2 = MagicMock()
+    cand2.getText.return_value = shared_text
+    end2_point = MagicMock()
+    cand2.getEnd.return_value = end2_point
+
+    shared_text.compareRegionStarts.side_effect = [1, -1]
+    created_cursor = MagicMock()
+    shared_text.createTextCursorByRange.return_value = created_cursor
+
+    cursor, err = pick_end_after_start(start_range, [cand1, cand2])
+    assert err is None
+    assert cursor is created_cursor
+    shared_text.createTextCursorByRange.assert_called_with(start_point)
+    created_cursor.gotoRange.assert_called_with(end2_point, True)
+
+
+def test_pick_end_after_start_zero_accepted():
+    from plugin.writer.search import pick_end_after_start
+
+    shared_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = shared_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = shared_text
+    start_range.getEnd.return_value = start_boundary
+    start_range.getStart.return_value = MagicMock()
+
+    cand = MagicMock()
+    cand.getText.return_value = shared_text
+    shared_text.compareRegionStarts.return_value = 0
+    created_cursor = MagicMock()
+    shared_text.createTextCursorByRange.return_value = created_cursor
+
+    cursor, err = pick_end_after_start(start_range, [cand])
+    assert err is None
+    assert cursor is created_cursor
+
+
+def test_pick_end_after_start_different_xtext_stops():
+    from plugin.writer.search import pick_end_after_start
+
+    start_text = MagicMock()
+    different_text = MagicMock()
+    start_range = MagicMock()
+    start_range.getText.return_value = start_text
+    start_boundary = MagicMock()
+    start_boundary.getText.return_value = start_text
+    start_range.getEnd.return_value = start_boundary
+
+    cand1 = MagicMock()
+    cand1.getText.return_value = different_text
+    cand2 = MagicMock()
+    cand2.getText.return_value = start_text
+
+    ends = iter([cand1, cand2])
+    cursor, err = pick_end_after_start(start_range, ends)
+    assert cursor is None
+    assert err == "different_text"
+    # The walk stops immediately at the different XText without skipping to cand2.
+    assert next(ends, None) is cand2
+
+
+def test_pick_end_after_start_empty_iterator():
+    from plugin.writer.search import pick_end_after_start
+
+    start_range = MagicMock()
+    cursor, err = pick_end_after_start(start_range, [])
+    assert cursor is None
+    assert err == "end"

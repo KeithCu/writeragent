@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 import re as re_mod
 from itertools import islice
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any, Iterable, Iterator
 
 from plugin.doc.text_helpers import (
     FAILED,
@@ -178,6 +178,18 @@ def build_search_not_found_response(
     }
 
 
+def anchor_miss_message(kind: str, *, tracked_deletions: bool = False) -> str:
+    """Return an error message for a failed start_anchor or end_anchor search."""
+    if kind == "start":
+        msg = "start_anchor not found in document."
+    elif kind == "different_text":
+        msg = "end_anchor after start_anchor is not in the same text, so it cannot be one range."
+    else:
+        msg = "end_anchor not found after start_anchor."
+    hint = _TRACKED_DELETION_HINT if tracked_deletions else ""
+    return msg + hint
+
+
 def find_text_ranges(
     model: Any,
     search: str,
@@ -264,8 +276,8 @@ def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, ta
     return actual_norm == expected_norm, None
 
 
-def _iter_descriptor_hits(doc: Any, sd: Any) -> Iterator[Any]:
-    found = doc.findFirst(sd)
+def _iter_descriptor_hits(doc: Any, sd: Any, after: Any = None) -> Iterator[Any]:
+    found = doc.findFirst(sd) if after is None else doc.findNext(after, sd)
     while found is not None:
         yield found
         found = find_next_after_match(doc, found, sd)
@@ -286,13 +298,13 @@ def _lo_regex_descriptor(doc: Any, text: str) -> Any:
 
 
 def _iter_lo_matches(
-    doc: Any, candidate: str, case_order: tuple[bool, ...]
+    doc: Any, candidate: str, case_order: tuple[bool, ...], after: Any = None
 ) -> Iterator[Any]:
     sd = _lo_regex_descriptor(doc, candidate)
     for case_sens in case_order:
         sd.SearchCaseSensitive = case_sens
         matched_in_pass = False
-        for hit in _iter_descriptor_hits(doc, sd):
+        for hit in _iter_descriptor_hits(doc, sd, after=after):
             matched_in_pass = True
             yield hit
         if matched_in_pass:
@@ -408,6 +420,7 @@ def _iter_chain_matches(
     parts: list[str],
     anchor_idx: int,
     case_sensitive_order: tuple[bool, ...],
+    after: Any = None,
 ) -> Iterator[Any]:
     """Iterate matches across paragraph breaks via anchor search and chaining."""
     sd = _lo_regex_descriptor(doc, parts[anchor_idx])
@@ -415,7 +428,7 @@ def _iter_chain_matches(
     for case_sens in case_sensitive_order:
         sd.SearchCaseSensitive = case_sens
         matched_in_pass = False
-        for found in _iter_descriptor_hits(doc, sd):
+        for found in _iter_descriptor_hits(doc, sd, after=after):
             match_range = _chain_hit_range(found, parts, anchor_idx)
             if match_range is not None:
                 matched_in_pass = True
@@ -536,6 +549,108 @@ def find_occurrence_range(
                 return match
 
     return None
+
+
+def iter_literal_ranges(
+    doc: Any,
+    search_string: str,
+    case_order: tuple[bool, ...],
+    after: Any = None,
+) -> Iterator[Any]:
+    """Iterate matches in document order using native search with newline chaining fallback.
+
+    Iterates through each candidate from _search_try_strings. If any candidate yields
+    matches, those hits are emitted and search stops. If none match and search_string
+    spans lines, yields chained paragraph matches.
+    """
+    if not search_string:
+        return
+    matched = False
+    for candidate in _search_try_strings(search_string):
+        for hit in _iter_lo_matches(doc, candidate, case_order, after=after):
+            matched = True
+            yield hit
+        if matched:
+            return
+
+    parts = search_string.split("\n")
+    if len(parts) > 1:
+        anchor_idx = _anchor_index(parts)
+        if anchor_idx != -1:
+            yield from _iter_chain_matches(doc, parts, anchor_idx, case_order, after=after)
+
+
+def _same_text_starts_at_or_after(candidate: Any, boundary_end: Any) -> bool | None:
+    """True when candidate starts at or after boundary_end in the same XText; None if different text.
+
+    compareRegionStarts returns 1 when the first range starts before the second, 0 when they
+    start at the same point, and -1 when after. A return value not equal to 1 therefore means
+    candidate starts at or after boundary_end.
+    """
+    cand_text = candidate.getText()
+    bound_text = boundary_end.getText()
+    if not uno_same(cand_text, bound_text):
+        return None
+    cmp_val = uno_read(
+        lambda: cand_text.compareRegionStarts(candidate.getStart(), boundary_end),
+        FAILED,
+    )
+    if cmp_val is FAILED or cmp_val is None:
+        return None
+    return cmp_val != 1
+
+
+def pick_end_after_start(
+    start: Any, ends: Iterator[Any] | Iterable[Any]
+) -> tuple[Any | None, str | None]:
+    """Select the first end match at or after start.getEnd() and combine them into a single cursor.
+
+    Walks candidate end matches. If an end match sits in a different XText, the walk stops
+    with a 'different_text' error rather than skipping to a later match. Candidates whose start
+    falls before start.getEnd() (e.g. from backward chaining) are skipped. Returns (cursor, None)
+    on success, or (None, 'different_text' | 'end') on failure.
+    """
+    boundary_end = start.getEnd()
+    for end in ends:
+        rel = _same_text_starts_at_or_after(end, boundary_end)
+        if rel is None:
+            return None, "different_text"
+        if not rel:
+            continue
+        text = start.getText()
+        cursor = text.createTextCursorByRange(start.getStart())
+        cursor.gotoRange(end.getEnd(), True)
+        return cursor, None
+    return None, "end"
+
+
+def find_anchor_span(
+    doc: Any,
+    start_string: str,
+    end_string: str,
+    *,
+    occurrence: int = 0,
+    case_sensitive_order: tuple[bool, ...] | None = None,
+) -> tuple[Any | None, str | None]:
+    """Find a range spanning from start_anchor through end_anchor.
+
+    The end search starts at the start match's end so a repeated heading reaches the next
+    occurrence, and the cursor includes both anchors. If occurrence is out of range,
+    IndexError propagates from find_occurrence_range. Returns (cursor, None) or
+    (None, 'start' | 'end' | 'different_text').
+    """
+    case_order = _DEFAULT_CASE_SENSITIVE_ORDER if case_sensitive_order is None else case_sensitive_order
+    start = find_occurrence_range(
+        doc,
+        start_string,
+        occurrence=occurrence,
+        case_sensitive_order=case_order,
+    )
+    if start is None:
+        return None, "start"
+
+    ends = iter_literal_ranges(doc, end_string, case_order, after=start.getEnd())
+    return pick_end_after_start(start, ends)
 
 
 def _safe_name(obj: Any) -> str:
