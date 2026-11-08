@@ -817,6 +817,105 @@ def test_round_trip_read_fodt_autostyle_value():
     ], any_order=True)
 
 
+def test_apply_block_lo_styles_background_color_sets_fill_properties_on_paragraph():
+    from unittest.mock import MagicMock, call
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Standard"]
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Standard"
+    walk_cur.gotoNextParagraph.return_value = False
+
+    para_cur = MagicMock()
+    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
+
+    para_el = MagicMock()
+    penum = MagicMock()
+    penum.hasMoreElements.side_effect = [True, False]
+    penum.nextElement.return_value = para_el
+    text.createEnumeration.return_value = penum
+
+    solid_style, _none_style = html_import_styles._get_fill_style_enums()
+
+    failed = html_import_styles._apply_block_lo_styles(
+        model, text, MagicMock(), [None], paras=["background-color:#ffe4c4"]
+    )
+    assert failed == []
+    para_el.setPropertyValue.assert_has_calls([
+        call("FillColor", 0xFFE4C4),
+        call("FillStyle", solid_style),
+    ])
+    # Must not set FillStyle or ParaBackColor on the text cursor.
+    cursor_set_props = [c.args[0] for c in para_cur.setPropertyValue.call_args_list]
+    assert "FillStyle" not in cursor_set_props
+    assert "ParaBackColor" not in cursor_set_props
+
+
+def test_apply_block_lo_styles_background_color_transparent_sets_fill_none():
+    from unittest.mock import MagicMock, call
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Standard"]
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Standard"
+    walk_cur.gotoNextParagraph.return_value = False
+
+    para_cur = MagicMock()
+    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
+
+    para_el = MagicMock()
+    penum = MagicMock()
+    penum.hasMoreElements.side_effect = [True, False]
+    penum.nextElement.return_value = para_el
+    text.createEnumeration.return_value = penum
+
+    _solid_style, none_style = html_import_styles._get_fill_style_enums()
+
+    failed = html_import_styles._apply_block_lo_styles(
+        model, text, MagicMock(), [None], paras=["background-color:transparent"]
+    )
+    assert failed == []
+    para_el.setPropertyValue.assert_has_calls([
+        call("FillStyle", none_style),
+    ])
+
+
+def test_apply_block_lo_styles_background_color_missing_para_obj_fails():
+    from unittest.mock import MagicMock
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Standard"]
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = "Standard"
+    walk_cur.gotoNextParagraph.return_value = False
+
+    para_cur = MagicMock()
+    text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
+    # No enumeration available so para_obj cannot be resolved
+    text.createEnumeration.return_value = None
+    model.getText.return_value.createEnumeration.return_value = None
+
+    failed = html_import_styles._apply_block_lo_styles(
+        model, text, MagicMock(), [None], paras=["background-color:#ffe4c4"]
+    )
+    assert failed == ["background-color"]
+
+
 def test_extractor_handles_data_lo_para():
     from plugin.writer.html_import_styles import _extract_block_lo_styles
 

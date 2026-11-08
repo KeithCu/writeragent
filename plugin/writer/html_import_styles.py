@@ -309,15 +309,20 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
     return unapplied
 
 
-def _try_set_property(target: Any, prop_name: str, val: Any) -> None:
-    """Best-effort property assignment for optional paragraph handles (cursor/paragraph)."""
-    if target is None:
-        return
+def _get_fill_style_enums() -> tuple[Any, Any]:
+    """Return (SOLID, NONE) FillStyle enums for paragraph background fill."""
     try:
-        target.setPropertyValue(prop_name, val)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        log.debug("data-lo-para: best-effort set %s failed: %s", prop_name, exc)
+        from com.sun.star.drawing import FillStyle
+        return FillStyle.SOLID, FillStyle.NONE
+    except (ImportError, AttributeError):
+        try:
+            import uno
+            return (
+                uno.Enum("com.sun.star.drawing.FillStyle", "SOLID"),
+                uno.Enum("com.sun.star.drawing.FillStyle", "NONE"),
+            )
+        except Exception:
+            return 1, 0
 
 
 def _apply_block_lo_styles(
@@ -428,20 +433,28 @@ def _apply_block_lo_styles(
 
                     for css_name, (uno_prop, val) in mapped.items():
                         try:
-                            if uno_prop == "ParaBackColor":
-                                # Paragraph background color requires turning off ParaBackTransparent
-                                # in LibreOffice Writer, or the background remains transparent and
-                                # LibreOffice ignores the ParaBackColor setting.
-                                is_trans = (val == -1)
-                                _try_set_property(para_cur, "ParaBackTransparent", is_trans)
-                                _try_set_property(para_obj, "ParaBackTransparent", is_trans)
-                                para_cur.setPropertyValue(uno_prop, val)
-                                _try_set_property(para_cur, "ParaBackTransparent", is_trans)
-                                _try_set_property(para_obj, uno_prop, val)
-                                _try_set_property(para_obj, "ParaBackTransparent", is_trans)
+                            if css_name == "background-color":
+                                if para_obj is None:
+                                    failed.append(css_name)
+                                    continue
+                                # Setting ParaBackColor on a cursor only writes RES_BACKGROUND without
+                                # converting to fill attributes (only SwXStyle::SetPropertyValue in
+                                # sw/source/core/unocore/unostyle.cxx converts RES_BACKGROUND to drawing fill).
+                                # getPropertyValue("ParaBackColor") delegates via SwXParagraph to
+                                # getSvxBrushItemFromSourceSet (svx/source/unodraw/unobrushitemhelper.cxx),
+                                # which returns COL_AUTO (-1) when FillStyle is missing or NONE.
+                                # Direct paragraph backgrounds must set FillColor and FillStyle on the
+                                # SwXParagraph element itself (FILL_PROPERTIES_SW in
+                                # sw/source/core/unocore/unomap1.cxx GetParagraphPropertyMap; not exposed
+                                # on COMPLETE_TEXT_CURSOR_MAP).
+                                solid_style, none_style = _get_fill_style_enums()
+                                if val == -1:
+                                    para_obj.setPropertyValue("FillStyle", none_style)
+                                else:
+                                    para_obj.setPropertyValue("FillColor", val)
+                                    para_obj.setPropertyValue("FillStyle", solid_style)
                             else:
                                 para_cur.setPropertyValue(uno_prop, val)
-                                _try_set_property(para_obj, uno_prop, val)
                         except Exception as exc:
                             reraise_if_disposed(exc)
                             log.debug("data-lo-para: failed to set %s (%s)", uno_prop, css_name, exc_info=True)

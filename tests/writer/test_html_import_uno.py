@@ -478,6 +478,7 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
 def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: Any) -> None:
     """Paragraph direct formatting (alignment, margins, background) survives named style application."""
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from com.sun.star.drawing import FillStyle
     from plugin.tests.testing_utils import TestingFactory
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.get_document_content import GetDocumentContent
@@ -497,6 +498,8 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
 
     assert p1.getPropertyValue("ParaAdjust") == 3
     assert p1.getPropertyValue("ParaLeftMargin") == 2000
+    assert p1.getPropertyValue("FillStyle") == FillStyle.SOLID
+    assert p1.getPropertyValue("FillColor") == 0xFFE4C4
     got_p1_color = int(p1.getPropertyValue("ParaBackColor"))
     assert got_p1_color == 0xFFE4C4, (
         f"expected 0xFFE4C4, got {hex(got_p1_color)} (res={res})"
@@ -517,6 +520,8 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
 
     assert r1.getPropertyValue("ParaAdjust") == 3
     assert r1.getPropertyValue("ParaLeftMargin") == 2000
+    assert r1.getPropertyValue("FillStyle") == FillStyle.SOLID
+    assert r1.getPropertyValue("FillColor") == 0xFFE4C4
     got_r1_color = int(r1.getPropertyValue("ParaBackColor"))
     assert got_r1_color == 0xFFE4C4, (
         f"expected 0xFFE4C4, got {hex(got_r1_color)} (res2={res2})"
