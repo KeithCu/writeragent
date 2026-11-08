@@ -124,11 +124,12 @@ class _FakeDocForSteps:
 
 
 def test_old_content_covers_most_proved_table():
-    assert old_content_covers_most(_FakeDocForSteps(10), 6) is True
-    assert old_content_covers_most(_FakeDocForSteps(10), 5) is False
-    assert old_content_covers_most(_FakeDocForSteps(0), 3) is False
-    assert old_content_covers_most(_FakeDocForSteps(4), 5) is True
-    assert old_content_covers_most(_FakeDocForSteps(10), 0) is False
+    assert old_content_covers_most(_FakeDocForSteps(200), 120) is True
+    assert old_content_covers_most(_FakeDocForSteps(200), 100) is False
+    assert old_content_covers_most(_FakeDocForSteps(0), 120) is False
+    assert old_content_covers_most(_FakeDocForSteps(150), 160) is True
+    assert old_content_covers_most(_FakeDocForSteps(200), 0) is False
+    assert old_content_covers_most(_FakeDocForSteps(50), 40) is False
 
 
 # --- drawing_shape_containing (C7): actionable "text is inside a shape" diagnostic -----------

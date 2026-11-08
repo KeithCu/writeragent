@@ -95,6 +95,7 @@ _FOLD_NORMALIZE_MAP = {
     **{cp: "-" for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)},
 }
 
+MIN_OVERSIZED_CHARS = 100
 OVERSIZED_OLD_CONTENT_MESSAGE = (
     "old_content covers most of the document. Use target='full_document' with "
     "content only — do not pass the whole document as old_content."
@@ -904,9 +905,11 @@ def old_content_covers_most(doc: Any, needle_len: int) -> bool:
 
     Probe the body using cursor character steps. If the needle length exceeds half
     the body character count, caller directs the user to target='full_document'.
+    Short needles (under 100 characters) are never oversized: local edits on small
+    documents or headings must not be forced to whole-document replacements.
     An empty body or non-positive needle length returns False.
     """
-    if needle_len <= 0:
+    if needle_len < MIN_OVERSIZED_CHARS:
         return False
     try:
         text = doc.getText()
