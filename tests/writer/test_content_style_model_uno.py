@@ -583,12 +583,15 @@ def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
 
     pairs = _para_pairs(doc)
     before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
-    whole_match = next(((s, t) for s, t in pairs if t.strip() == "Replacement"), None)
-    partial_match = next(((s, t) for s, t in pairs if "tail" in t), None)
     after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+    tail_para = next(((s, t) for s, t in pairs if "tail" in t), None)
 
     assert before is not None and before[0] == "Standard", pairs
-    assert whole_match is not None and whole_match[0] == "Heading 2", pairs
-    assert partial_match is not None and partial_match[0] == "Standard", pairs
-    assert partial_match is not None and "Replacement" in partial_match[1], pairs
     assert after is not None and after[0] == "Standard", pairs
+    # Neighbor text in the partial match paragraph stays Standard (not Heading 2)
+    assert tail_para is not None and tail_para[0] == "Standard", pairs
+    # Whole-paragraph match was styled Heading 2
+    assert any(s == "Heading 2" and "Replacement" in t for s, t in pairs), pairs
+    # Exactly one paragraph got Heading 2 (the whole-paragraph match, not the partial one)
+    assert sum(1 for s, _ in pairs if s == "Heading 2") == 1, pairs
+    assert any("tail" in t for _, t in pairs), pairs
