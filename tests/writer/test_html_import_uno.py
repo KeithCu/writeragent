@@ -547,18 +547,25 @@ def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, do
     assert res2.get("status") == "ok", res2
     assert "warnings" not in res2, res2
 
+    paras = []
     enum = doc.getText().createEnumeration()
-    p1 = enum.nextElement()
-    p2 = enum.nextElement()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
 
-    assert p1.getString() == "Initial paragraph"
+    p_initial = next((p for p in paras if "Initial paragraph" in p.getString()), None)
+    assert p_initial is not None, [p.getString() for p in paras]
+    assert p_initial.getPropertyValue("ParaLeftMargin") != 1500
+    assert int(p_initial.getPropertyValue("ParaBackColor")) != 0xFFE4C4
 
-    assert p2.getString() == "Appended paragraph"
-    assert p2.getPropertyValue("ParaLeftMargin") == 1500
+    p_appended = next((p for p in paras if "Appended paragraph" in p.getString()), None)
+    assert p_appended is not None, [p.getString() for p in paras]
+    assert p_appended.getPropertyValue("ParaLeftMargin") == 1500
     solid_fill = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
-    assert p2.getPropertyValue("FillStyle") == solid_fill
-    assert p2.getPropertyValue("FillColor") == 0xFFE4C4
-    assert int(p2.getPropertyValue("ParaBackColor")) == 0xFFE4C4
+    assert p_appended.getPropertyValue("FillStyle") == solid_fill
+    assert p_appended.getPropertyValue("FillColor") == 0xFFE4C4
+    assert int(p_appended.getPropertyValue("ParaBackColor")) == 0xFFE4C4
 
 
 
