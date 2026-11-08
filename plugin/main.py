@@ -206,6 +206,13 @@ def _writeragent_bootstrap_finish(ctx: Any) -> None:
         # calls get_desktop() in this process and can segfault soffice.
         if main.policy is not Policy.eval_harness:
             register_core_handlers()
+
+        try:
+            from plugin.scripting.editor_host import arm_webview_probe_at_startup
+
+            arm_webview_probe_at_startup(ctx)
+        except Exception:
+            log.exception("bootstrap: failed to arm webview probe at startup")
     except Exception as exc:
         log.exception("bootstrap failed after the init flag was set")
         if bootstrap.bootstrap_error() is None:
