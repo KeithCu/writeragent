@@ -94,6 +94,7 @@ from plugin.framework.uno_listeners import (
     BaseItemListener,        # override on_item_state_changed(self, rEvent)
     BaseTextListener,        # override on_text_changed(self, rEvent)
     BaseKeyListener,         # override on_key_pressed(self, e), on_key_released(self, e)
+    BaseKeyHandler,          # override on_key_pressed(self, e), on_key_released(self, e) returning bool
     BaseWindowListener,      # override on_window_resized, on_window_moved, on_window_shown, on_window_hidden
     BaseTopWindowListener,   # override on_window_closing(self, rEvent)
     BaseDocumentEventListener,

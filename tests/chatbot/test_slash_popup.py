@@ -505,20 +505,42 @@ def test_document_key_handler_does_not_steal_printable():
     assert popup.visible_names == ["help"]
 
 
-def test_frame_and_toolkit_sources_are_nav_only():
-    import inspect
+def test_slash_key_handler_key_pressed_behaviour() -> None:
     from plugin.chatbot.slash_popup import _make_slash_key_handler
 
-    handler_src = inspect.getsource(_make_slash_key_handler)
+    calls: list[tuple[int, int, str | None, bool]] = []
+
+    class FakeHost:
+        def handle_key(self, code: int, mods: int, ch: str | None, *, from_overlay: bool) -> int:
+            calls.append((code, mods, ch, from_overlay))
+            return 1
+
+    host = FakeHost()
+    handler = _make_slash_key_handler(host, "frame")
+    ev = SimpleNamespace(KeyCode=1280, Modifiers=0, KeyChar="\x1b")
+
+    result = handler.keyPressed(ev)
+    assert result is True
+    assert type(result) is bool
+    assert calls == [(1280, 0, "\x1b", False)]
+
+    def _failing_handle_key(*args: Any, **kwargs: Any) -> int:
+        raise ValueError("broken key handler")
+
+    host.handle_key = _failing_handle_key  # type: ignore[method-assign]
+    assert handler.keyPressed(ev) is False
+
+
+def test_frame_and_toolkit_sources_are_nav_only():
+    import inspect
+
     attach = inspect.getsource(SlashPopupController._attach_key_handler)
     frame = inspect.getsource(SlashPopupController._attach_frame_keys)
     toolkit = inspect.getsource(SlashPopupController._attach_toolkit_keys)
     listed = inspect.getsource(SlashPopupController._attach_keys)
-    assert "from_overlay=False" in handler_src
     assert "_make_slash_key_handler" in attach
     assert "_attach_key_handler" in frame
     assert "_attach_key_handler" in toolkit
-    assert "from_overlay=True" not in handler_src
     assert "from_overlay=True" not in attach
     assert "from_overlay=True" in listed
 

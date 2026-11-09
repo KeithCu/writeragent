@@ -80,6 +80,9 @@ if TYPE_CHECKING:
     class _XMouseClickHandlerParent:
         pass
 
+    class _XKeyHandlerParent:
+        pass
+
     class _XTopWindowListenerParent:
         pass
 
@@ -99,6 +102,7 @@ else:
             XItemListener as _XItemListenerParent,
             XTextListener as _XTextListenerParent,
             XKeyListener as _XKeyListenerParent,
+            XKeyHandler as _XKeyHandlerParent,
             XWindowListener as _XWindowListenerParent,
             XMouseListener as _XMouseListenerParent,
             XFocusListener as _XFocusListenerParent,
@@ -120,6 +124,7 @@ else:
         _XItemListenerParent = type("_DummyItemListener", (), {})
         _XTextListenerParent = type("_DummyTextListener", (), {})
         _XKeyListenerParent = type("_DummyKeyListener", (), {})
+        _XKeyHandlerParent = type("_DummyKeyHandler", (), {})
         _XWindowListenerParent = type("_DummyWindowListener", (), {})
         _XDocumentEventListenerParent = type("_DummyDocumentEventListener", (), {})
         _XActivationEventListenerParent = type("_DummyActivationListener", (), {})
@@ -506,6 +511,22 @@ class BaseMouseClickHandler(BaseListener, _XMouseClickHandlerParent):
         return False
 
     def on_mouse_released(self, e: Any) -> bool:
+        return False
+
+
+class BaseKeyHandler(BaseListener, _XKeyHandlerParent):
+    @_catch_and_log(failure=False)
+    def keyPressed(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
+        return bool(self.on_key_pressed(e))
+
+    @_catch_and_log(failure=False)
+    def keyReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
+        return bool(self.on_key_released(e))
+
+    def on_key_pressed(self, e: Any) -> bool:
+        return False
+
+    def on_key_released(self, e: Any) -> bool:
         return False
 
 
