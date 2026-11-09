@@ -148,8 +148,8 @@ def test_search_occurrence_dry_run_does_not_edit_uno(ctx, doc):
     assert res.get("dry_run") is True, res
     assert res.get("selected_occurrence") == 1, res
     assert res.get("replaceable_count") == 2, res
-    assert res.get("matches")[0].get("occurrence") == 0, res
-    assert res.get("matches")[1].get("occurrence") == 1, res
+    assert res.get("replaceable")[0].get("occurrence") == 0, res
+    assert res.get("replaceable")[1].get("occurrence") == 1, res
     assert doc.getText().getString() == before
 
 
