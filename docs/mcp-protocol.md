@@ -963,9 +963,9 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 (e.g. `"body"`, `"table 'Table1' cell B2"`, `"shape 'Callout 1'"`, `"comment by 'Ana'"`).
 `context` is the enclosing paragraph or shape/comment text.
 
-Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false**),
+Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false**; shared constant `SEARCH_CASE_SENSITIVE_DEFAULT` in [`search.py`](../plugin/writer/search.py)),
 `max_results` (default 20), `return_offsets` (default **false** — body literal offsets only; no regex,
-no shapes/comments). Invalid regex with zero hits returns `code: INVALID_REGEX`.
+no shapes/comments). Invalid regex with zero hits returns `code: INVALID_REGEX`. Search tools across domains share this default (omitted or JSON `null` means case-insensitive), and every tool result that executes a search reports the mode that ran in `matched_case_sensitive`.
 
 `max_results` must be a positive integer. Body, table, and text frame searches use LibreOffice/ICU regex, while floating shapes and comments use Python `re` after a Python `re.compile` validation check; `SEARCH_FAILED` includes the underlying exception text. A zero-width match stops the text-model walk, preserves `status: "ok"`, and sets `truncated: true` with a warning. A global cap of 10000 matches covers body text plus shapes and comments. `return_offsets=true` drops non-body `XText` hits (such as headers, footers, tables, and frames) while counting tracked deletions in the offset space. A failure while computing `return_offsets` (closed document or UNO error) is not `status: ok` with an empty `ranges` list; it is `DOCUMENT_DISPOSED` or `TOOL_EXECUTION_ERROR`.
 

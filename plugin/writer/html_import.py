@@ -16,7 +16,6 @@ base run. Not a text field — do not use ``TextField.Ruby``.
 from __future__ import annotations
 
 import contextlib
-import html as html_mod
 import logging
 import re
 import uuid
@@ -84,12 +83,9 @@ def _ensure_html_linebreaks(content: str) -> str:
     if _LINEBREAK_MARKUP_RE.search(content):
         return _wrap_html_fragment(content)
 
-    content = re.sub(r"\n{3,}", "\n\n", content)
-    paras = content.split("\n\n")
+    paras = html_import_styles._plain_paragraphs(content)
     out = []
     for p in paras:
-        if not p.strip():
-            continue
         p_html = p.replace("\n", "<br>\n")
         out.append("<p>%s</p>" % p_html)
     return _wrap_html_fragment("\n".join(out))
@@ -499,17 +495,6 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
         _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
 
 
-# Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references with trailing semicolon.
-_COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
-
-
-def _decode_complete_character_references(text: str) -> str:
-    """Decode only HTML character references ending with a semicolon, ignoring incomplete references like '&sect 2o'."""
-    if "&" not in text or not _COMPLETE_ENTITY_RE.search(text):
-        return text
-    return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
-
-
 def _range_covers_whole_paragraphs(text_range: Any) -> bool:
     """Return True if *text_range* starts at paragraph start and ends at paragraph end."""
     text = text_range.getText()
@@ -548,7 +533,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        content = _decode_complete_character_references(swapped)
+        content = html_import_styles._decode_complete_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
@@ -639,7 +624,7 @@ def _deletion_author() -> Any:
 def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        content = _decode_complete_character_references(swapped)
+        content = html_import_styles._decode_complete_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
@@ -680,7 +665,7 @@ def replace_single_range_with_content(
 ) -> str | None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        prepared = _decode_complete_character_references(swapped)
+        prepared = html_import_styles._decode_complete_character_references(swapped)
         text_obj = text_range.getText()
 
         # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).

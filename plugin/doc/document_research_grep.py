@@ -31,6 +31,7 @@ from plugin.doc.paragraph_search import compile_search_pattern, search_paragraph
 from plugin.doc.text_helpers import get_string_without_tracked_deletions
 from plugin.framework.errors import uno_read, user_stopped_payload
 from plugin.framework.send_cancellation import SendCancelled, SendCancellation, is_cancelled
+from plugin.writer.search import SEARCH_CASE_SENSITIVE_DEFAULT
 
 log = logging.getLogger(__name__)
 
@@ -378,7 +379,7 @@ def grep_nearby_files(
     *,
     file_subset: str | None = None,
     regex: bool = False,
-    case_sensitive: bool = False,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
     cancel: SendCancellation | None = None,
     status_callback: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
@@ -488,6 +489,7 @@ def grep_nearby_files(
         "truncated_files": truncated_files,
         "stopped_early": stopped_early,
         "hits": hits,
+        "matched_case_sensitive": case_sensitive,
     }
     if errors:
         result["errors"] = errors

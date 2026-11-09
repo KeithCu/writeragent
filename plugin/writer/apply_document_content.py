@@ -46,7 +46,6 @@ from plugin.writer.edit_review import (
     next_agent_edit_undo_title,
 )
 from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
-from plugin.writer.review_scan import document_has_tracked_deletions
 from plugin.writer.specialized.shapes import replace_text_in_shape
 from plugin.writer.specialized.tables import record_table_deletions
 from plugin.writer.table_nesting import cell_hosted_table_names
@@ -378,10 +377,11 @@ def _search_options(
     search_string: str,
 ) -> tuple[bool, bool, bool, str, str | None]:
     regex = bool(kwargs.get("regex"))
-    case = kwargs.get("case_sensitive")
-    use_opts = regex or case is not None
+    raw = kwargs.get("case_sensitive")
+    explicit = raw is not None
+    use_opts = regex or explicit
+    cs = search_mod.resolve_case_sensitive(raw)
     pattern = old_stripped if regex else search_string
-    cs = bool(case) if case is not None else False
     rex_err = search_mod.validate_regex_pattern(old_stripped) if regex else None
     return regex, use_opts, cs, pattern, rex_err
 
@@ -475,7 +475,7 @@ class ApplyDocumentContent(ToolBase):
             ),
             "dry_run": {"type": "boolean", "description": "For target='search': do NOT edit. Return replaceable and not_replaceable."},
             "regex": {"type": "boolean", "description": "For target='search': treat old_content as a regular expression (default false = literal). Regex mode is single-paragraph (no cross-paragraph chaining)."},
-            "case_sensitive": {"type": "boolean", "description": "For target='search': force case-sensitive (true) or case-insensitive (false) matching. Omit for the default lenient match."},
+            "case_sensitive": {"type": "boolean", "description": f"For target='search': {search_mod.CASE_SENSITIVE_DESCRIPTION}"},
             "hyperlink_url": {"type": "string", "description": ("For target='search' with position='replace', when the match overlaps exactly one outline hyperlink (#…|outline): set this exact URL instead of substituting the matched text. content may equal old_content when the visible title is already correct and only the URL is stale. Omit it to update that target when the matched text occurs once outside the |outline suffix. Rejected with all_matches=true, with position='before'/'after', and when the match is not exactly one outline link. Bookmark targets are never rewritten.")},
         },
         "required": ["content"],
@@ -648,6 +648,7 @@ class ApplyDocumentContent(ToolBase):
         new_text: str,
         *,
         all_matches: bool,
+        use_opts: bool,
     ) -> dict[str, Any]:
         shape = search_mod.drawing_shape_object_containing(
             doc, opts_pattern,
@@ -684,7 +685,9 @@ class ApplyDocumentContent(ToolBase):
                 if err is not None and err.get("code") == "ROLLBACK_FAILED":
                     return err
                 if err is not None and err.get("code") == "SHAPE_REPLACE_FAILED":
-                    return search_mod.build_search_not_found_response(shape_name=shape_name)
+                    return search_mod.build_search_not_found_response(
+                        shape_name=shape_name,
+                    )
             except UndoUnavailable:
                 return self._tool_error(
                     "Cannot edit text inside the drawing shape '%s' atomically "
@@ -701,8 +704,14 @@ class ApplyDocumentContent(ToolBase):
                   "replaced_count": 1, "review_bypassed": True},
                 None)
             return annotate_review_status(result)
+
         return search_mod.build_search_not_found_response(
-            all_matches=all_matches, tracked_deletions=document_has_tracked_deletions(doc))
+            doc,
+            search_string,
+            all_matches=all_matches,
+            lenient=not use_opts,
+            use_regex=regex_opt,
+        )
 
     def _replace_found(self, session: EditReviewSession, doc: Any, found: Any, *,
                        use_preserve: bool, content: Any,
@@ -853,11 +862,9 @@ class ApplyDocumentContent(ToolBase):
         # Empty replacements delete the match without painting a put-back URL.
         rewrites_outline = position == "replace" and str(content or "").strip() != ""
         edit_idx = 0 if occurrence is None else occurrence
-        from . import html_import as format_support
 
-        old_stripped = str(old_content).strip()
-        s = format_support.plain_text_if_markup(old_stripped)
-        s = search_mod.normalize_search_string_for_find(s)
+        old_stripped = str(old_content).strip() if old_content is not None else ""
+        s = search_mod.prepare_old_content(old_content)
         if not s:
             return self._tool_error("old_content is empty after normalization.")
         regex, use_opts, cs, pattern, rex_err = _search_options(kwargs, old_stripped, s)
@@ -932,6 +939,15 @@ class ApplyDocumentContent(ToolBase):
                 "editable in review-off mode or via the shapes toolset."
             ),
         }
+        if not ranges:
+            res = search_mod.build_search_not_found_response(
+                ctx.doc, s, lenient=not use_opts, use_regex=regex
+            )
+            result["message"] = res["message"]
+            if "closest_match" in res:
+                result["closest_match"] = res["closest_match"]
+                result["diff_at"] = res["diff_at"]
+        result["normalized_old_content"] = s
         if occurrence is not None and ranges:
             selected = ranges[occurrence]
             selected_location, selected_text = _match_snippet(selected)
@@ -955,7 +971,12 @@ class ApplyDocumentContent(ToolBase):
             log.exception("apply_document_content: review session cleanup failed")
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        return self._execute(ctx, **kwargs)
+        result = self._execute(ctx, **kwargs)
+        if self._effective_target(kwargs.get("target"), kwargs.get("old_content")) == "search":
+            result["matched_case_sensitive"] = search_mod.resolve_case_sensitive(kwargs.get("case_sensitive"))
+        if kwargs.get("target") == "search" and "normalized_old_content" not in result:
+            result["normalized_old_content"] = search_mod.prepare_old_content(kwargs.get("old_content"))
+        return result
 
     def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         on_main = main.is_current()
@@ -1128,10 +1149,8 @@ class ApplyDocumentContent(ToolBase):
         override: str | None = None
 
         if target == "search":
-            old_stripped = str(old_content).strip()
-            search_string = format_support.plain_text_if_markup(old_stripped)
-            # Collapse exotic horizontal whitespace; preserve newlines for paragraph-aware search.
-            search_string = search_mod.normalize_search_string_for_find(search_string)
+            old_stripped = str(old_content).strip() if old_content is not None else ""
+            search_string = search_mod.prepare_old_content(old_content)
             if not search_string:
                 # Parameter error (like old_content=None), not a search no-op: the search never ran,
                 # so there's no replaced_count to report — use the standard tool error shape.
@@ -1187,12 +1206,14 @@ class ApplyDocumentContent(ToolBase):
             return self._edit_insert_at(ctx, session, params)
         if params.target == "selection":
             return self._edit_selection(ctx, session, params)
-        return self._edit_search(ctx, session, params)
+        res = self._edit_search(ctx, session, params)
+        res["normalized_old_content"] = params.search_string
+        return res
 
     def _edit_full_document(
         self, ctx: ToolContext, session: EditReviewSession, params: EditParams,
     ) -> dict[str, Any]:
-        from . import html_import as format_support
+        from . import html_import as format_support, html_import_styles
         content = params.content
         plain = params.plain
         has_table = params.has_table
@@ -1205,7 +1226,13 @@ class ApplyDocumentContent(ToolBase):
         err = self._table_insert_error(ctx.doc, has_table, None)
         if err:
             return err
-        res: dict[str, Any] = {"status": "ok", "message": "Replaced entire document."}
+        summary = html_import_styles.summarize_written_blocks(content)
+        res: dict[str, Any] = {
+            "status": "ok",
+            "message": "Replaced entire document.",
+            "paragraph_count": summary["paragraph_count"],
+            "headings": summary["headings"],
+        }
         return _attach_para_warnings(res, failed)
 
     def _edit_insert_at(
@@ -1273,14 +1300,14 @@ class ApplyDocumentContent(ToolBase):
         # replaced_count is the machine-readable success signal: 0 -> status "error" (a silent
         # no-op surfaced as a failure), N>0 -> "ok". No matched_count/warning/partial-replace:
         # if a replace raises mid-all_matches the existing abort behavior stands.
-        # Explicit regex / case control (opt-in): a direct SearchDescriptor find that bypasses the
-        # default lenient matcher, so "search with options then replace" agrees with search_in_document.
+        # An explicit regex or case_sensitive uses the literal descriptor so that call matches
+        # search_in_document; an omitted flag stays on the chained matcher.
         ranges = _find_ranges(
             doc, params.pattern, params.regex, params.case_sensitive, params.use_opts, all_matches=True)
         if not ranges:
             return self._finish_search_miss(
                 doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
-                params.track_reviewable, params.plain, all_matches=True)
+                params.track_reviewable, params.plain, all_matches=True, use_opts=params.use_opts)
         max_limit_hit = len(ranges) >= search_mod.MAX_SEARCH_REPLACEMENTS
         # Decide before any replace. An empty replacement that is the last text
         # in a table deletes the table instead of leaving an empty shell; those
@@ -1409,7 +1436,7 @@ class ApplyDocumentContent(ToolBase):
             if found is None:
                 return self._finish_search_miss(
                     doc, params.search_string, params.pattern, params.regex, params.case_sensitive,
-                    params.track_reviewable, params.plain, all_matches=False)
+                    params.track_reviewable, params.plain, all_matches=False, use_opts=params.use_opts)
             if params.position in ("before", "after"):
                 res = self._edit_insert_next_to_match(ctx, session, params, found)
             else:

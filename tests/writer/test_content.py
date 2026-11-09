@@ -807,6 +807,7 @@ def test_empty_full_document_is_not_the_insert_error():
 
     ctx = _edit_ctx()
     with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = []
         res = ApplyDocumentContent().execute(ctx, content="", target="full_document")
     assert res["status"] == "ok"
     assert "content is empty; nothing was inserted." not in (res.get("message") or "")

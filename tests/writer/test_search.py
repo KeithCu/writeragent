@@ -548,43 +548,6 @@ def test_find_occurrence_range_repeated_text_and_past_end():
         find_occurrence_range(doc, "hit", occurrence=5)
 
 
-def test_find_occurrence_range_case_sensitive_order():
-    from plugin.writer.search import find_occurrence_range
-
-    doc = MagicMock()
-    sd = MagicMock()
-    doc.createSearchDescriptor.return_value = sd
-
-    insensitive_hit = MagicMock()
-    insensitive_hit.getString.return_value = "hit"
-
-    # Finds case-insensitive-only hit when sensitive pass has no hits
-    def find_first_mock(desc):
-        if desc.SearchCaseSensitive is True:
-            return None
-        return insensitive_hit
-
-    doc.findFirst.side_effect = find_first_mock
-    res = find_occurrence_range(doc, "hit", occurrence=0, case_sensitive_order=(True, False))
-    assert res is insensitive_hit
-
-    # Does not fall through to insensitive pass when sensitive pass found fewer hits than requested
-    doc.reset_mock()
-    doc.createSearchDescriptor.return_value = sd
-    sensitive_hit = MagicMock()
-    sensitive_hit.getString.return_value = "hit"
-
-    def find_first_sensitive(desc):
-        if desc.SearchCaseSensitive is True:
-            return sensitive_hit
-        raise AssertionError("Should not fall through to case-insensitive pass")
-
-    doc.findFirst.side_effect = find_first_sensitive
-    doc.findNext.return_value = None  # Only 1 sensitive hit found
-    with pytest.raises(IndexError, match=r"occurrence 2 out of range"):
-        find_occurrence_range(doc, "hit", occurrence=2, case_sensitive_order=(True, False))
-
-
 def test_find_occurrence_range_case_sensitive_flags():
     from plugin.writer.search import find_occurrence_range
 
@@ -641,7 +604,7 @@ def test_find_occurrence_range_newline_passage():
     assert find_occurrence_range(doc, "Para 1\nPara 2") is None
 
 
-def test_find_first_range_sensitive_then_insensitive_fallback():
+def test_find_first_range_default_case_insensitive():
     from plugin.writer.search import find_first_range
 
     doc = MagicMock()
@@ -651,10 +614,12 @@ def test_find_first_range_sensitive_then_insensitive_fallback():
     hit = MagicMock()
     hit.getString.return_value = "lower"
 
-    doc.findFirst.side_effect = [None, hit]
+    doc.findFirst.return_value = hit
 
     res = find_first_range(doc, "LOWER")
     assert res is hit
+    assert sd.SearchCaseSensitive is False
+    assert doc.findFirst.call_count == 1
 
 
 def test_parse_non_negative_int():
@@ -812,3 +777,240 @@ def test_build_page_map_propagates_disposed_document():
     vc.getPage.side_effect = type("DisposedException", (Exception,), {})("gone")
     with pytest.raises(DocumentDisposedError):
         _build_page_map(doc)
+
+
+class _SampleFakeCursor:
+    def __init__(self, doc, pos=0):
+        self.doc = doc
+        self.pos = pos
+        self.end_pos = pos
+
+    def gotoStart(self, select=False):
+        self.pos = 0
+        if not select:
+            self.end_pos = 0
+
+    def gotoRange(self, r, select=False):
+        target = r.pos if hasattr(r, "pos") else r
+        if select:
+            self.end_pos = target
+        else:
+            self.pos = target
+            self.end_pos = target
+
+    def getString(self):
+        return self.doc.text[self.pos:self.end_pos]
+
+    def goLeft(self, count=1, select=False):
+        return False
+
+    def goRight(self, count=1, select=False):
+        return False
+
+    def getPropertyValue(self, name):
+        return None
+
+
+class _SampleFakeRange:
+    def __init__(self, doc, start, end):
+        self.doc = doc
+        self.start = start
+        self.end = end
+
+    @property
+    def pos(self):
+        return self.start
+
+    def getString(self):
+        return self.doc.text[self.start:self.end]
+
+    def getStart(self):
+        return _SampleFakeCursor(self.doc, self.start)
+
+    def getEnd(self):
+        return _SampleFakeCursor(self.doc, self.end)
+
+    def getText(self):
+        return self.doc
+
+
+class _SampleFakeSearchDescriptor:
+    def __init__(self):
+        self.SearchString = ""
+        self.SearchCaseSensitive = False
+        self.SearchRegularExpression = False
+
+
+class _SampleFakeDoc:
+    def __init__(self, text):
+        self.text = text
+        self.controller = MagicMock()
+        self.controller.getViewCursor.return_value = MagicMock()
+        um = MagicMock()
+        um.isLocked.return_value = False
+        self.getUndoManager = MagicMock(return_value=um)
+
+    def getCurrentController(self):
+        return self.controller
+
+    def getText(self):
+        return self
+
+    def createTextCursor(self):
+        return _SampleFakeCursor(self, 0)
+
+    def createTextCursorByRange(self, r):
+        pos = r.pos if hasattr(r, "pos") else r
+        return _SampleFakeCursor(self, pos)
+
+    def createSearchDescriptor(self):
+        return _SampleFakeSearchDescriptor()
+
+    def _find_from(self, sd, start_pos):
+        import re
+        pat = sd.SearchString
+        hay = self.text[start_pos:]
+        if getattr(sd, "SearchRegularExpression", False):
+            flags = 0 if getattr(sd, "SearchCaseSensitive", False) else re.IGNORECASE
+            m = re.search(pat, hay, flags)
+            if m:
+                return _SampleFakeRange(self, start_pos + m.start(), start_pos + m.end())
+            return None
+        cs = getattr(sd, "SearchCaseSensitive", False)
+        hay_cmp = hay if cs else hay.lower()
+        pat_cmp = pat if cs else pat.lower()
+        idx = hay_cmp.find(pat_cmp)
+        if idx != -1:
+            return _SampleFakeRange(self, start_pos + idx, start_pos + idx + len(pat))
+        return None
+
+    def findFirst(self, sd):
+        return self._find_from(sd, 0)
+
+    def findNext(self, pos_or_range, sd):
+        start = pos_or_range.pos if hasattr(pos_or_range, "pos") else (pos_or_range if isinstance(pos_or_range, int) else 0)
+        return self._find_from(sd, start)
+
+    def getDrawPage(self):
+        dp = MagicMock()
+        dp.getCount.return_value = 0
+        return dp
+
+    def getTextFields(self):
+        tf = MagicMock()
+        tf.createEnumeration.return_value.hasMoreElements.return_value = False
+        return tf
+
+
+def test_search_selection_apply_shared_case_default_on_sample_text():
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.search import SearchInDocument
+    from plugin.writer.selection import SetSelection
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc = _SampleFakeDoc("Apple pie and apple tart")
+    ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
+
+    # 1. search_in_document
+    # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
+    s_default = SearchInDocument().execute(ctx, pattern="apple")
+    assert s_default["status"] == "ok"
+    assert [m["text"] for m in s_default["matches"]] == ["Apple", "apple"]
+    assert s_default["matched_case_sensitive"] is False
+
+    # Uppercase query with default case-insensitive also hits both
+    s_upper = SearchInDocument().execute(ctx, pattern="APPLE")
+    assert [m["text"] for m in s_upper["matches"]] == ["Apple", "apple"]
+    assert s_upper["matched_case_sensitive"] is False
+
+    # Explicit case_sensitive=True finds only exact casing
+    s_exact = SearchInDocument().execute(ctx, pattern="apple", case_sensitive=True)
+    assert [m["text"] for m in s_exact["matches"]] == ["apple"]
+    assert s_exact["matched_case_sensitive"] is True
+
+    s_exact_miss = SearchInDocument().execute(ctx, pattern="APPLE", case_sensitive=True)
+    assert s_exact_miss["matches"] == []
+    assert s_exact_miss["matched_case_sensitive"] is True
+
+    # 2. set_selection
+    # Default (omitted) is case-insensitive: occurrence 0 hits first match "Apple"
+    sel_default = SetSelection().execute(ctx, search_text="apple")
+    assert sel_default["status"] == "ok"
+    assert sel_default["selected_text"] == "Apple"
+    assert sel_default["matched_case_sensitive"] is False
+
+    sel_upper = SetSelection().execute(ctx, search_text="APPLE")
+    assert sel_upper["status"] == "ok"
+    assert sel_upper["selected_text"] == "Apple"
+    assert sel_upper["matched_case_sensitive"] is False
+
+    # Explicit case_sensitive=True selects exact match
+    sel_exact = SetSelection().execute(ctx, search_text="apple", case_sensitive=True)
+    assert sel_exact["status"] == "ok"
+    assert sel_exact["selected_text"] == "apple"
+    assert sel_exact["matched_case_sensitive"] is True
+
+    sel_exact_miss = SetSelection().execute(ctx, search_text="APPLE", case_sensitive=True)
+    assert sel_exact_miss["status"] == "error"
+    assert "No match" in sel_exact_miss["message"]
+    assert sel_exact_miss["matched_case_sensitive"] is True
+
+    # 3. apply_document_content (dry_run preview)
+    # Default (omitted) is case-insensitive: finds both "Apple" and "apple"
+    app_default = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", dry_run=True)
+    assert app_default["status"] == "ok"
+    assert app_default["replaceable"][0]["text"] == "Apple"
+    assert [m["text"] for m in app_default["replaceable"]] == ["Apple", "apple"]
+    assert app_default["matched_case_sensitive"] is False
+
+    app_upper = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="APPLE", dry_run=True)
+    assert [m["text"] for m in app_upper["replaceable"]] == ["Apple", "apple"]
+    assert app_upper["matched_case_sensitive"] is False
+
+    # Explicit case_sensitive=True finds only exact casing
+    app_exact = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="apple", case_sensitive=True, dry_run=True)
+    assert [m["text"] for m in app_exact["replaceable"]] == ["apple"]
+    assert app_exact["matched_case_sensitive"] is True
+
+    app_exact_miss = ApplyDocumentContent().execute(ctx, content="cherry", target="search", old_content="APPLE", case_sensitive=True, dry_run=True)
+    assert app_exact_miss["replaceable"] == []
+    assert app_exact_miss["matched_case_sensitive"] is True
+
+    # 4. Explicit case_sensitive=None (JSON null) falls back to default case-insensitive
+    s_none = SearchInDocument().execute(ctx, pattern="apple", case_sensitive=None)
+    assert s_none["matched_case_sensitive"] is False
+    assert [m["text"] for m in s_none["matches"]] == ["Apple", "apple"]
+
+    sel_none = SetSelection().execute(ctx, search_text="apple", case_sensitive=None)
+    assert sel_none["matched_case_sensitive"] is False
+    assert sel_none["selected_text"] == "Apple"
+
+    app_none = ApplyDocumentContent().execute(
+        ctx, content="cherry", target="search", old_content="apple", case_sensitive=None, dry_run=True,
+    )
+    assert app_none["matched_case_sensitive"] is False
+    assert [m["text"] for m in app_none["replaceable"]] == ["Apple", "apple"]
+
+    # 5. apply_document_content non-dry-run replace with all_matches=True
+    doc_replace = _SampleFakeDoc("Apple pie and apple tart")
+    ctx_replace = TestingFactory.create_context(doc=doc_replace, doc_type="writer")
+
+    replaced_items: list[str] = []
+
+    def fake_replace_preserving(model, target_range, new_text, *args, **kwargs):
+        replaced_items.append(target_range.getString())
+        model.text = model.text[:target_range.start] + new_text + model.text[target_range.end:]
+
+    with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.edit_review_wait_seconds", return_value=0), \
+         patch("plugin.writer.html_import.replace_preserving_format", side_effect=fake_replace_preserving), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=MagicMock()):
+        res_replace = ApplyDocumentContent().execute(
+            ctx_replace, content=["cherry"], target="search", old_content="apple", all_matches=True,
+        )
+        assert res_replace["status"] == "ok"
+        assert res_replace["replaced_count"] == 2
+        assert res_replace["matched_case_sensitive"] is False
+        assert set(replaced_items) == {"Apple", "apple"}
+        assert doc_replace.text == "cherry pie and cherry tart"

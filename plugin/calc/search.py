@@ -15,7 +15,12 @@ from plugin.calc.spreadsheet_search import (
     iter_target_sheets,
     search_spreadsheet_cells,
 )
-from plugin.writer.search import invalid_regex_tool_message, validate_regex_pattern
+from plugin.writer.search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    invalid_regex_tool_message,
+    resolve_case_sensitive,
+    validate_regex_pattern,
+)
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -38,7 +43,7 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
         "properties": {
             "pattern": {"type": "string", "description": "Search string or regex pattern."},
             "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
-            "case_sensitive": {"type": "boolean", "description": "Case-sensitive search (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
             "max_results": {"type": "integer", "minimum": 1, "description": "Maximum results to return (default: 50). Must be a positive integer."},
             "sheet": {"type": "string", "description": "Sheet to search (active sheet if omitted)."},
             "all_sheets": {"type": "boolean", "description": "Search all sheets (default: false)."},
@@ -62,19 +67,20 @@ class SearchInSpreadsheet(ToolCalcSearchBase):
             if err:
                 return err
 
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         scope = ctx.send_cancellation
         matches = search_spreadsheet_cells(
             ctx.doc,
             pattern,
             regex=use_regex,
-            case_sensitive=kwargs.get("case_sensitive", False),
+            case_sensitive=case_sensitive,
             max_results=max_results,
             all_sheets=kwargs.get("all_sheets", False),
             sheet_name=kwargs.get("sheet"),
             cancel=scope,
         )
 
-        return {"status": "ok", "matches": matches, "count": len(matches)}
+        return {"status": "ok", "matches": matches, "count": len(matches), "matched_case_sensitive": case_sensitive}
 
 
 class ReplaceInSpreadsheet(ToolCalcSearchBase):
@@ -88,7 +94,7 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
             "search": {"type": "string", "description": "Text or regex pattern to find."},
             "replace": {"type": "string", "description": "Replacement text."},
             "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
-            "case_sensitive": {"type": "boolean", "description": "Case-sensitive matching (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
             "sheet": {"type": "string", "description": "Sheet to operate on (active sheet if omitted)."},
             "all_sheets": {"type": "boolean", "description": "Replace across all sheets (default: false)."},
         },
@@ -109,11 +115,18 @@ class ReplaceInSpreadsheet(ToolCalcSearchBase):
             if err:
                 return err
 
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         total = 0
         for sheet, _name in iter_target_sheets(ctx.doc, all_sheets=kwargs.get("all_sheets", False), sheet_name=kwargs.get("sheet")):
             rd = sheet.createReplaceDescriptor()
-            configure_search_descriptor(rd, search, regex=use_regex, case_sensitive=kwargs.get("case_sensitive", False))
+            configure_search_descriptor(rd, search, regex=use_regex, case_sensitive=case_sensitive)
             rd.ReplaceString = replace
             total += sheet.replaceAll(rd)
 
-        return {"status": "ok", "replacements": total, "search": search, "replace": replace}
+        return {
+            "status": "ok",
+            "replacements": total,
+            "search": search,
+            "replace": replace,
+            "matched_case_sensitive": case_sensitive,
+        }

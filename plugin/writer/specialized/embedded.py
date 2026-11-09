@@ -226,7 +226,7 @@ class EmbeddedInsert(ToolWriterEmbeddedBase):
         old_content = kwargs.get("old_content")
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
         except ValueError as ve:
             return self._tool_error(str(ve))
 

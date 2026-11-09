@@ -33,6 +33,8 @@ import threading
 import time
 from typing import Any
 
+from plugin.writer.search import SEARCH_CASE_SENSITIVE_DEFAULT
+
 _lo_queue: queue.Queue[Any] = queue.Queue()
 _lo_thread = None
 _lo_ctx = None
@@ -566,7 +568,12 @@ def apply_document_content(content: str, old_content: str = "", all_matches: boo
     return LOBackend.call(_do)
 
 
-def find_text(search: str, start=0, limit=None, case_sensitive=True) -> str:
+def find_text(
+    search: str,
+    start: int = 0,
+    limit: int | None = None,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> str:
     def _do():
         doc = LOBackend.acquire_document()
         from plugin.writer.search import find_text_ranges
@@ -792,7 +799,12 @@ def dspy_apply_document_content(content: str, old_content: str = "", all_matches
     return apply_document_content(content, old_content, all_matches)
 
 
-def dspy_find_text(search: str, start: int = 0, limit: int = None, case_sensitive: bool = True) -> str:
+def dspy_find_text(
+    search: str,
+    start: int = 0,
+    limit: int | None = None,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> str:
     """Search the LibreOffice document for text. Returns JSON with ranges."""
     return find_text(search, start, limit, case_sensitive)
 
