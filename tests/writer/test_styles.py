@@ -898,6 +898,7 @@ def test_apply_style_all_matches_applies_to_each():
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok" and res["applied_count"] == 3
+    assert res["normalized_old_content"] == "Title"
     assert ap.call_count == 3
 
 def test_apply_style_all_matches_does_not_abort_on_stop_checker():
@@ -929,6 +930,37 @@ def test_apply_style_occurrence_out_of_range():
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", occurrence=5)
     assert res["status"] == "error" and "out of range" in res["message"]
+    assert res["normalized_old_content"] == "Title"
+
+
+def test_apply_style_search_miss_reports_normalized_and_closest():
+    from plugin.writer.styles import ApplyStyle
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.search.search_closest_mismatch", return_value={"message": "closest match starts 'Title…', differs at character 4: e vs x", "closest_match": "Title…", "diff_at": 4}), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "error"
+    assert res["normalized_old_content"] == "Title"
+    assert "closest match starts 'Title…', differs at character 4: e vs x" in res["message"]
+    assert res["closest_match"] == "Title…"
+    assert res["diff_at"] == 4
+
+
+def test_apply_style_search_oversized_refused():
+    from plugin.writer.styles import ApplyStyle
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+         patch("plugin.writer.search.old_content_covers_most", return_value=True), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "error"
+    assert res["normalized_old_content"] == "Title"
+    assert "target='full_document'" in res["message"]
 
 # ---- 8) recoverable error messages ----------------------------------------------
 

@@ -1402,9 +1402,9 @@ def test_dry_run_empty_replacement_omits_outline_rewrite_fields(empty_content):
     assert res["dry_run"] is True
     assert res["count"] == 1
     mock_capture.assert_not_called()
-    assert len(res["matches"]) == 1
+    assert len(res["replaceable"]) == 1
     for key in ("hyperlink_url", "hyperlink_url_after", "hyperlink_updated", "hyperlinks"):
-        assert key not in res["matches"][0]
+        assert key not in res["replaceable"][0]
         assert key not in res["selected_match"]
 
 

@@ -1297,6 +1297,14 @@ class ApplyStyle(FrameworkToolBase):
         return val
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        result = self._execute(ctx, **kwargs)
+        if kwargs.get("target") == "search":
+            from plugin.writer.search import prepare_old_content
+
+            result.setdefault("normalized_old_content", prepare_old_content(kwargs.get("old_content")))
+        return result
+
+    def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs["style"].strip()
         if not style_name:
             return self._tool_error("style is required.")
@@ -1352,17 +1360,20 @@ class ApplyStyle(FrameworkToolBase):
         all_matches = bool(kwargs.get("all_matches"))
         occ_raw = kwargs.get("occurrence")
         if target == "search" and (all_matches or occ_raw is not None):
-            from plugin.writer.search import find_all_ranges, normalize_search_string_for_find
-            from plugin.writer.html_import import plain_text_if_markup
+            from plugin.writer.search import (
+                build_search_not_found_response,
+                find_all_ranges,
+                prepare_old_content,
+            )
 
-            s = str(old_content).strip() if old_content is not None else ""
+            s = prepare_old_content(old_content)
             if not s:
                 return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
-            s = plain_text_if_markup(s)
-            s = normalize_search_string_for_find(s)
             ranges = find_all_ranges(ctx.doc, s) if s else []
             if not ranges:
-                return {"status": "error", "message": "old_content not found in document.", "target": "search", "applied": False, "matched": False}
+                res = build_search_not_found_response(ctx.doc, s, all_matches=True)
+                res.update({"target": "search", "applied": False, "matched": False})
+                return res
             if occ_raw is not None:
                 # Schema type integer (bool fails). validate has no min/max.
                 if occ_raw < 0 or occ_raw >= len(ranges):

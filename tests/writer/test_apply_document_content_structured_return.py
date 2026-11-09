@@ -21,6 +21,9 @@ from plugin.writer.apply_document_content import (
     build_search_replace_response,
 )
 
+_real_content_has_markup = format_mod.content_has_markup
+_real_normalize_search_string_for_find = search_mod.normalize_search_string_for_find
+
 
 def test_heading_rewrite_uno_skips_windows_leftover_hidden_apply() -> None:
     """GHA 34681661844: leftover Hidden _default swriter hung on second apply."""
@@ -98,6 +101,7 @@ def test_search_no_match_returns_error_zero(monkeypatch):
     res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="zzz", content="BAR")
     assert res["status"] == "error", res
     assert res["replaced_count"] == 0, res
+    assert res["normalized_old_content"] == "zzz", res
 
 
 def test_search_single_success(monkeypatch):
@@ -105,6 +109,7 @@ def test_search_single_success(monkeypatch):
     res = ApplyDocumentContent().execute(_ctx(), target="search", old_content="foo", content="BAR")
     assert res["status"] == "ok", res
     assert res["replaced_count"] == 1, res
+    assert res["normalized_old_content"] == "foo", res
 
 
 def test_search_all_matches_reports_count(monkeypatch):
@@ -113,6 +118,7 @@ def test_search_all_matches_reports_count(monkeypatch):
         _ctx(), target="search", old_content="foo", content="BAR", all_matches=True)
     assert res["status"] == "ok", res
     assert res["replaced_count"] == 3, res
+    assert res["normalized_old_content"] == "foo", res
 
 
 def test_search_all_matches_no_match_errors(monkeypatch):
@@ -121,7 +127,124 @@ def test_search_all_matches_no_match_errors(monkeypatch):
         _ctx(), target="search", old_content="zzz", content="BAR", all_matches=True)
     assert res["status"] == "error", res
     assert res["replaced_count"] == 0, res
+    assert res["normalized_old_content"] == "zzz", res
     assert res["message"].startswith("Replaced 0 occurrence"), res
+
+
+def test_search_tagged_needle_normalized(monkeypatch):
+    monkeypatch.setattr(format_mod, "content_has_markup", _real_content_has_markup)
+    monkeypatch.setattr(search_mod, "normalize_search_string_for_find", _real_normalize_search_string_for_find)
+
+    captured = {}
+
+    def fake_find(doc, s):
+        captured["needle"] = s
+        return MockRange()
+
+    monkeypatch.setattr(search_mod, "find_first_range", fake_find)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="<p>Hello <b>World</b></p>", content="BAR"
+    )
+    assert res["status"] == "ok", res
+    assert captured["needle"] == "Hello World"
+    assert res["normalized_old_content"] == "Hello World"
+
+
+def test_search_oversized_old_content_refused_on_miss(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="huge content", content="BAR"
+    )
+    assert res["status"] == "error", res
+    assert res["replaced_count"] == 0, res
+    assert res["normalized_old_content"] == "huge content"
+    assert "target='full_document'" in res["message"]
+
+
+def test_search_oversized_old_content_never_blocks_match(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: MockRange())
+    monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="huge content", content="BAR"
+    )
+    assert res["status"] == "ok", res
+    assert res["replaced_count"] == 1, res
+    assert res["normalized_old_content"] == "huge content"
+
+
+def test_search_oversized_old_content_with_near_miss_reports_hint_not_refusal(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_first_range", lambda doc, s: None)
+    monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
+    monkeypatch.setattr(
+        search_mod,
+        "search_closest_mismatch",
+        lambda doc, s, lenient=True: {
+            "closest_match": "huge content…",
+            "diff_at": 10,
+            "message": "closest match starts 'huge content…', differs at character 10: x vs y",
+        },
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="huge content", content="BAR"
+    )
+    assert res["status"] == "error", res
+    assert "target='full_document'" not in res["message"]
+    assert "differs at character 10" in res["message"]
+    assert res["closest_match"] == "huge content…"
+    assert res["diff_at"] == 10
+
+
+def test_dry_run_oversized_retains_dry_run_keys(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [])
+    monkeypatch.setattr(search_mod, "sweep_draw_shape_preview_matches", lambda *a, **k: [])
+    monkeypatch.setattr(search_mod, "sweep_comment_preview_matches", lambda *a, **k: [])
+    monkeypatch.setattr(search_mod, "old_content_covers_most", lambda doc, n: True)
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="huge content", content="BAR", dry_run=True
+    )
+    assert res["status"] == "ok", res
+    assert res["dry_run"] is True
+    assert res["count"] == 0
+    assert res["replaceable_count"] == 0
+    assert res["replaceable"] == []
+    assert res["not_replaceable"] == []
+    assert "target='full_document'" in res["message"]
+    assert res["normalized_old_content"] == "huge content"
+
+
+def test_search_empty_after_normalization_reports_normalized_key():
+    res = ApplyDocumentContent().execute(
+        _ctx(), target="search", old_content="   ", content="BAR"
+    )
+    assert res["status"] == "error", res
+    assert res["normalized_old_content"] == ""
+    assert "empty after normalization" in res["message"]
+
+
+def test_dry_run_reports_normalized_old_content_and_miss_fields(monkeypatch):
+    monkeypatch.setattr(search_mod, "find_all_ranges", lambda doc, s: [])
+    monkeypatch.setattr(search_mod, "sweep_draw_shape_preview_matches", lambda *a, **k: [])
+    monkeypatch.setattr(search_mod, "sweep_comment_preview_matches", lambda *a, **k: [])
+    monkeypatch.setattr(
+        search_mod,
+        "search_closest_mismatch",
+        lambda doc, s, lenient=True: {
+            "closest_match": "The revenue grew…",
+            "diff_at": 17,
+            "message": "closest match starts 'The revenue grew…', differs at character 17: f vs l",
+        },
+    )
+    res = ApplyDocumentContent().execute(
+        _ctx(), dry_run=True, old_content="The revenue grew fast", content="BAR"
+    )
+    assert res["status"] == "ok", res
+    assert res["dry_run"] is True
+    assert res["replaceable_count"] == 0
+    assert res["normalized_old_content"] == "The revenue grew fast"
+    assert res["closest_match"] == "The revenue grew…"
+    assert res["diff_at"] == 17
+    assert "closest match starts 'The revenue grew…', differs at character 17: f vs l" in res["message"]
 
 
 # --- data-lo-para warning annotations on write --------------------------------------
