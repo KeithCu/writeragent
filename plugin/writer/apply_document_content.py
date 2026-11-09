@@ -468,8 +468,8 @@ class ApplyDocumentContent(ToolBase):
       end_anchor beginning at or after that start match in the same text.
       occurrence selects the start match; regex, all_matches, position,
       dry_run, and hyperlink_url do not apply to anchor spans.
-      Plain anchor text is imported as new paragraphs and does not keep the span's
-      character or paragraph formatting; anchor replacements skip outline URL fixup.
+      Multi-line plain text becomes new paragraphs; single-line plain text replaces the span
+      inline and keeps the host paragraph and its style. Anchor replacements skip outline URL fixup.
     """
 
     name: str | None = "apply_document_content"
@@ -497,7 +497,7 @@ class ApplyDocumentContent(ToolBase):
             "content": {"type": ["array", "string"], "items": {"type": "string"}, "description": ("List of HTML fragments or plain-text fragments (one per block), or one string. A string is one block; execute still joins a list with newlines. Shape and math per the APPLY_DOCUMENT_CONTENT AND HTML rules — the editing-html guidance covers them if they are not already in your context. No Markdown. An empty string at beginning, end, or selection inserts nothing and returns an error. An empty search replacement deletes the match.")},
             "target": enum_param(INSERT_TARGETS, "Where to apply the content."),
             "old_content": {"type": "string", "description": ("Substring to find when target='search'. Not for whole-document replace — use target='full_document' instead.")},
-            "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace; requires end_anchor, where the end is the first match that begins at or after the start match in the same text and the middle is not copied. Plain anchor text is imported as new paragraphs and does not keep the span's character or paragraph formatting; anchor replacements skip outline URL fixup."},
+            "start_anchor": {"type": "string", "description": "Literal substring marking the start of a range to replace; requires end_anchor, where the end is the first match that begins at or after the start match in the same text and the middle is not copied. Multi-line plain text becomes new paragraphs; single-line plain text replaces the span inline and keeps the host paragraph and its style; anchor replacements skip outline URL fixup."},
             "end_anchor": {"type": "string", "description": "Literal substring marking the end of a range to replace; requires start_anchor, matching the first occurrence that begins at or after the start match in the same text and the middle is not copied."},
             "all_matches": {"type": "boolean", "description": "Replace all occurrences (true) or first only. Default false. Only for target='search' with position='replace' and old_content (cannot be combined with start_anchor and end_anchor)."},
             "occurrence": {"type": "integer", "minimum": 0, "description": ("For target='search': 0-based index into replaceable Writer text matches (body/table/frame) or the start_anchor match (not dry_run shape/comment rows). Omit for the existing first-match behavior. Cannot be combined with all_matches=true.")},
@@ -761,13 +761,11 @@ class ApplyDocumentContent(ToolBase):
         """
         from . import html_import as format_support
 
+        # An anchor span's text never equals one link title, so outline fixup has nothing to match.
         anchor = None
         snapshot = None
         needs_fix = False
-        if not fix_outline:
-            # An anchor span's text never equals one link title, so outline fixup has nothing to match.
-            pass
-        else:
+        if fix_outline:
             anchor = collapsed_anchor(found)
             # Invariant: a failed capture refuses the edit (HYPERLINK_UPDATE_FAILED) before any text change; disposal propagates.
             snapshot, err = self._read_outline_snapshot(found, "apply_document_content: outline hyperlink capture failed")
@@ -810,9 +808,8 @@ class ApplyDocumentContent(ToolBase):
                     session, doc,
                     replace_single,
                     original_preview=original, proposed_preview=plain)
-            if not needs_fix:
+            if not needs_fix or anchor is None or snapshot is None:
                 return []
-            assert anchor is not None and snapshot is not None
             return restore_outline_hyperlinks(anchor, snapshot, plain, override)
 
         if batch:
@@ -1230,24 +1227,22 @@ class ApplyDocumentContent(ToolBase):
         # the host paragraph. Entities are left intact here because the HTML parser decodes them during import.
         use_preserve = (not format_support.content_has_markup(content)) and anchor is None
 
-        if anchor is not None and content and not format_support.content_has_markup(content) and not format_support.html_fragment_contains_mixed_math(content):
-            expanded = content.replace("\\n", "\n").replace("\\t", "\t")
-            if "\n" in expanded:
-                lines = [line for line in expanded.split("\n") if line.strip()]
-                content = "\n".join("<p>%s</p>" % line for line in lines)
-            else:
-                content = expanded
-        elif use_preserve:
+        if not format_support.content_has_markup(content):
             content = content.replace("\\n", "\n").replace("\\t", "\t")
-            # HTML entry points decode complete references once, and the StarWriter
-            # filter decodes what remains in markup. This format-preserving path must
-            # do the same, or content lands verbatim. content_has_markup() sees no tag
-            # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path. Decode
-            # ONLY complete references (_ENTITY_RE, ";" required); unescaping the whole
-            # string also expands semicolon-less names ("&sect 2o" -> "§ 2o"). A bare "&"
-            # in "Banco & Cia" is never touched.
-            if _ENTITY_RE.search(content):
-                content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)
+            if anchor is not None and not format_support.html_fragment_contains_mixed_math(content):
+                if "\n" in content:
+                    lines = [line for line in content.split("\n") if line.strip()]
+                    content = "\n".join("<p>%s</p>" % line for line in lines)
+            elif use_preserve:
+                # HTML entry points decode complete references once, and the StarWriter
+                # filter decodes what remains in markup. This format-preserving path must
+                # do the same, or content lands verbatim. content_has_markup() sees no tag
+                # in "R&#36;5.000,00", so an escaped dollar sign takes the plain path. Decode
+                # ONLY complete references (_ENTITY_RE, ";" required); unescaping the whole
+                # string also expands semicolon-less names ("&sect 2o" -> "§ 2o"). A bare "&"
+                # in "Banco & Cia" is never touched.
+                if _ENTITY_RE.search(content):
+                    content = _ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), content)
 
         # Opt-in review mode: when doc.agent_edit_review_mode is record/wait, EditReviewSession records
         # the agent's edits as native tracked changes (redlines) the user can accept/reject --
@@ -1261,7 +1256,7 @@ class ApplyDocumentContent(ToolBase):
         pattern = ""
         regex = False
         use_opts = False
-        cs = False
+        cs = anchor.case_sensitive if anchor is not None else False
         separator = 0
         override: str | None = None
 
