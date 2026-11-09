@@ -1030,3 +1030,29 @@ def test_full_read_exports_a_copy_with_tracked_changes_accepted():
     with patch.object(hx, "document_has_tracked_deletions", return_value=False):
         with hx._without_tracked_deletions(model, ctx) as source:
             assert source is model
+
+
+def test_full_read_falls_back_to_model_when_accepted_copy_fails():
+    """When creating the accepted copy fails (e.g. storeToURL raises), the full read falls back
+    to the original model and records a warning rather than raising an error."""
+    from plugin.writer import html_export as hx
+
+    model, ctx = MagicMock(), MagicMock()
+    model.storeToURL.side_effect = RuntimeError("disk full")
+
+    warnings: list[str] = []
+    with patch.object(hx, "document_has_tracked_deletions", return_value=True):
+        with hx._without_tracked_deletions(model, ctx, walk_warnings=warnings) as source:
+            assert source is model
+    assert "tracked deletions could not be hidden; content includes pending deleted text" in warnings
+
+    # Full document_to_content read also returns content and preserves the warning
+    warnings.clear()
+    with patch.object(hx, "document_has_tracked_deletions", return_value=True), \
+            patch.object(hx, "_export_xhtml", return_value="<p>live text</p>"), \
+            patch.object(hx, "_autostyle_maps", return_value=({}, {}, False)), \
+            patch.object(hx, "inject_exported_math_tex", side_effect=lambda _m, _c, text: text), \
+            patch.object(hx.html_ruby, "_inject_ruby_from_model", side_effect=lambda _m, text, _rf: text):
+        res = hx.document_to_content(model, ctx, scope="full", walk_warnings=warnings)
+        assert "<p>live text</p>" in res
+        assert "tracked deletions could not be hidden; content includes pending deleted text" in warnings

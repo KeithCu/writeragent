@@ -147,7 +147,8 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     Writer stores ruby as ``TextPortionType="Ruby"`` marks: the start has
     ``RubyText`` / ``RubyIsAbove`` / ``RubyAdjust``; the base is a normal
     ``Text`` run; the end mark is empty. ``getString()`` on the paragraph is
-    base only — reading is not a text field.
+    base only — reading is not a text field. Ruby extraction is handled
+    per paragraph.
     """
     portion_enum = uno_read(lambda: para.createEnumeration(), FAILED)
     if portion_enum is FAILED:

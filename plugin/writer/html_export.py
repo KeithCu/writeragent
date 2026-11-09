@@ -514,22 +514,51 @@ def _range_to_content_via_temp_doc(
 
 
 @contextmanager
-def _without_tracked_deletions(model: Any, ctx: Any) -> Generator[Any, None, None]:
+def _without_tracked_deletions(
+    model: Any, ctx: Any, walk_warnings: list[str] | None = None
+) -> Generator[Any, None, None]:
     """*model*, or when it has pending tracked deletions a hidden copy with every change accepted."""
     if not document_has_tracked_deletions(model):
         yield model
         return
     from plugin.doc.temp_files import with_temp_buffer
 
-    with with_temp_buffer(ext=".odt") as (_unused, url):
-        model.storeToURL(url, (create_property_value("FilterName", "writer8"),))
-        copy = get_desktop(ctx).loadComponentFromURL(url, "_blank", 0, (create_property_value("Hidden", True),))
-        try:
+    copy = None
+    try:
+        with with_temp_buffer(ext=".odt") as (_unused, url):
+            model.storeToURL(url, (create_property_value("FilterName", "writer8"),))
+            desktop = get_desktop(ctx)
+            if desktop is None:
+                raise RuntimeError("get_desktop returned None")
+            copy = desktop.loadComponentFromURL(url, "_blank", 0, (create_property_value("Hidden", True),))
+            if copy is None:
+                raise RuntimeError("loadComponentFromURL returned None")
             dispatcher = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
-            dispatcher.executeDispatch(copy.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
-            yield copy
+            if dispatcher is None:
+                raise RuntimeError("DispatchHelper unavailable")
+            controller = copy.getCurrentController()
+            frame = controller.getFrame() if controller is not None else None
+            if frame is None:
+                raise RuntimeError("frame unavailable")
+            dispatcher.executeDispatch(frame, ".uno:AcceptAllTrackedChanges", "", 0, ())
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.warning("_without_tracked_deletions: copy failed; falling back to original model", exc_info=exc)
+        if walk_warnings is not None:
+            walk_warnings.append("tracked deletions could not be hidden; content includes pending deleted text")
+        if copy is not None:
+            failed_copy = copy
+            best_effort(lambda: failed_copy.close(True), "_without_tracked_deletions: close copy failed")
+            copy = None
+
+    if copy is not None:
+        accepted_copy = copy
+        try:
+            yield accepted_copy
         finally:
-            best_effort(lambda: copy.close(True), "_without_tracked_deletions: close copy failed")
+            best_effort(lambda: accepted_copy.close(True), "_without_tracked_deletions: close copy failed")
+    else:
+        yield model
 
 
 def document_to_content(
@@ -604,12 +633,12 @@ def document_to_content(
             scope,
         )
 
-    # The XHTML filter writes text a pending tracked change deleted as ordinary text, so a full
-    # read showed the user's own tracked deletions as live paragraphs and a full-document
-    # replace built from it put them back (#1318). Export a copy with the changes accepted:
-    # that is the text the range reads and get_string_without_tracked_deletions return.
+    # The XHTML filter writes text a pending tracked change deleted as ordinary text;
+    # otherwise a full read returns pending deleted text as live text, and a full replace
+    # built from it restores it (#1318). Export a copy with the changes accepted: that is
+    # the text the range reads and get_string_without_tracked_deletions return.
     # finish() reads ``model`` too, so it follows the copy.
-    with _without_tracked_deletions(model, ctx) as model:
+    with _without_tracked_deletions(model, ctx, walk_warnings=walk_warnings) as model:
         # scope == "full" — preferred: XHTML (+ flat-ODF parent map) -> semantic data-lo-style.
         xhtml_error: Exception | None = None
         try:

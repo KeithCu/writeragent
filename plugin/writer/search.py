@@ -334,13 +334,32 @@ def find_text_ranges(
     matches = []
     deleted = tracked_deletion_spans(model)
     found = model.findNext(cursor, sd)
+    walker = None
+    running = 0
+    walker_text = None
+    deletion_state = [False]
     while found:
         if (not body_only or uno_same(found.getText(), model.getText())) and not inside_tracked_deletion(found, deleted):
-            measure = found.getText().createTextCursor()
-            measure.gotoStart(False)
-            measure.gotoRange(found.getStart(), True)
-            # Visible offsets, the ones get_document_content scope=range takes.
-            m_start = len(get_string_without_tracked_deletions(measure))
+            hit_text = found.getText()
+            if not deleted:
+                # Fast path when no deletions exist: measure natively without portion walks.
+                measure = hit_text.createTextCursor()
+                measure.gotoStart(False)
+                measure.gotoRange(found.getStart(), True)
+                m_start = len(measure.getString())
+            else:
+                # Incremental forward walk: carry walker, running offset, and deletion state across hits.
+                if walker is None or not uno_same(walker_text, hit_text):
+                    walker = hit_text.createTextCursor()
+                    walker.gotoStart(False)
+                    running = 0
+                    walker_text = hit_text
+                    deletion_state = [False]
+                gap = hit_text.createTextCursorByRange(walker.getStart())
+                gap.gotoRange(found.getStart(), True)
+                running += len(get_string_without_tracked_deletions(gap, deletion_state=deletion_state))
+                walker.gotoRange(found.getStart(), False)
+                m_start = running
             matched_text = found.getString()
             m_end = m_start + len(matched_text)
             matches.append({"start": m_start, "end": m_end, "text": matched_text})
@@ -405,8 +424,14 @@ def tracked_deletion_spans(doc: Any) -> list[tuple[Any, Any]]:
     spans: list[tuple[Any, Any]] = []
 
     def on_redline(rl: Any) -> bool:
-        if rl.getPropertyValue("RedlineType") == "Delete":
-            spans.append((rl.getPropertyValue("RedlineStart"), rl.getPropertyValue("RedlineEnd")))
+        try:
+            if rl.getPropertyValue("RedlineType") == "Delete":
+                start = rl.getPropertyValue("RedlineStart")
+                end = rl.getPropertyValue("RedlineEnd")
+                spans.append((start, end))
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            return True
         return True
 
     scan_redlines(doc, on_redline)

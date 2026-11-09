@@ -874,7 +874,7 @@ def paragraph_window_text(anchor: Any | None, max_chars: int = _EDITED_CONTEXT_M
         span = text.createTextCursorByRange(start.getStart())
         span.gotoRange(end.getEnd(), True)
         # Without the text a tracked change deleted: in review mode the replaced text is still
-        # in the document, and getString() echoed it next to its replacement.
+        # in the document, and getString() would include it next to its replacement.
         return get_string_without_tracked_deletions(span)
 
     s = uno_read(window, None)

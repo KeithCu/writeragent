@@ -451,11 +451,11 @@ def skip_tracked_deletions(
     """Drop the redline marks, and the portions inside tracked deletions, from one paragraph's
     ``(portion, TextPortionType)`` pairs.
 
-    Each Delete mark's ``IsStart`` says whether a deletion opens or closes there. Toggling on
-    every mark was wrong for a deletion across paragraphs (#1318): its start mark is in the
-    first paragraph and its end mark in the last, so the toggle showed the deleted rest of
-    the first paragraph and hid the live rest of the last one. Text before the paragraph's
-    first Delete mark is deleted when that mark closes a deletion.
+    Each Delete mark's ``IsStart`` indicates whether a deletion opens or closes there. A
+    multi-paragraph deletion has its start mark in the first paragraph and its end mark in the
+    last; middle paragraphs have none, so state is read from ``IsStart`` and carried across
+    paragraphs (#1318). Text before the paragraph's first Delete mark is deleted when that
+    mark closes a deletion.
 
     A paragraph in the middle of such a deletion has no mark at all. *deletion_state* is a
     one-item list a multi-paragraph walk passes to every paragraph: on entry, whether this
@@ -582,7 +582,12 @@ def _table_visible_text(table: Any) -> str:
 
 
 @main_thread_only
-def get_string_without_tracked_deletions(text_range: Any, *, starts_in_deletion: bool = False) -> str:
+def get_string_without_tracked_deletions(
+    text_range: Any,
+    *,
+    starts_in_deletion: bool = False,
+    deletion_state: list[bool] | None = None,
+) -> str:
     """Return *text_range* text while skipping tracked deletions when possible.
 
     A paragraph (``com.sun.star.text.Paragraph``, or first child has
@@ -591,8 +596,10 @@ def get_string_without_tracked_deletions(text_range: Any, *, starts_in_deletion:
     and includes table-cell text, including nested tables.
     *starts_in_deletion*: the range starts inside a tracked deletion (a caller
     walking paragraphs in order knows; see ``skip_tracked_deletions``).
+    *deletion_state*: carried one-item ``[in_deletion]`` state across walks.
     """
-    deletion_state = [starts_in_deletion]
+    if deletion_state is None:
+        deletion_state = [starts_in_deletion]
     try:
         if _range_is_paragraph(text_range):
             return _paragraph_visible_text(text_range, deletion_state)

@@ -1352,3 +1352,83 @@ def test_edit_search_skips_hits_in_tracked_deletions():
         assert search.find_ranges_regex_case(doc, "Para", False, False, all_matches=False) is live_hit
         doc.findNext.side_effect = [live_hit, None]
         assert search.find_lo_regex_ranges(doc, "Para", all_matches=True) == [live_hit]
+
+
+def test_tracked_deletion_spans_skips_unreadable_redlines():
+    """Unreadable redlines must not abort the scan or hide later tracked deletions (#1318)."""
+    from plugin.writer import search
+
+    doc = MagicMock()
+    bad_rl = MagicMock()
+    bad_rl.getPropertyValue.side_effect = RuntimeError("corrupt redline")
+
+    good_rl = MagicMock()
+    start_pos, end_pos = MagicMock(), MagicMock()
+    good_rl.getPropertyValue.side_effect = lambda name: {
+        "RedlineType": "Delete",
+        "RedlineStart": start_pos,
+        "RedlineEnd": end_pos,
+    }[name]
+
+    def fake_scan(d, on_item):
+        on_item(bad_rl)
+        on_item(good_rl)
+
+    with patch.object(search, "scan_redlines", side_effect=fake_scan):
+        spans = search.tracked_deletion_spans(doc)
+    assert spans == [(start_pos, end_pos)]
+
+
+def test_find_text_ranges_without_deletions_uses_fast_path():
+    """When the document has no tracked deletions, find_text_ranges measures natively
+    without invoking get_string_without_tracked_deletions portion walks."""
+    from plugin.writer import search
+
+    model = MagicMock()
+    text = MagicMock()
+    model.getText.return_value = text
+    cursor = MagicMock()
+    text.createTextCursor.return_value = cursor
+    cursor.getString.return_value = "hello "
+
+    hit = MagicMock()
+    hit.getText.return_value = text
+    hit.getString.return_value = "world"
+    model.findNext.side_effect = [hit, None]
+
+    with patch.object(search, "tracked_deletion_spans", return_value=[]), \
+            patch.object(search, "get_string_without_tracked_deletions") as mock_helper:
+        matches = search.find_text_ranges(model, "world")
+        assert len(matches) == 1
+        assert matches[0] == {"start": 6, "end": 11, "text": "world"}
+        mock_helper.assert_not_called()
+
+
+def test_find_text_ranges_with_deletions_measures_incrementally():
+    """When tracked deletions exist, find_text_ranges measures forward incrementally."""
+    from plugin.writer import search
+
+    model = MagicMock()
+    text = MagicMock()
+    model.getText.return_value = text
+
+    hit1 = MagicMock()
+    hit1.getText.return_value = text
+    hit1.getString.return_value = "one"
+
+    hit2 = MagicMock()
+    hit2.getText.return_value = text
+    hit2.getString.return_value = "two"
+
+    model.findNext.side_effect = [hit1, hit2, None]
+
+    # Incremental walk returns length for each gap
+    # gap 1: offset 10, gap 2: offset 15 -> hit 2 at 10 + 15 = 25
+    gaps = [10, 15]
+    with patch.object(search, "tracked_deletion_spans", return_value=[(MagicMock(), MagicMock())]), \
+            patch.object(search, "inside_tracked_deletion", return_value=False), \
+            patch.object(search, "get_string_without_tracked_deletions", side_effect=lambda g, **kw: "x" * gaps.pop(0)):
+        matches = search.find_text_ranges(model, "pattern")
+        assert len(matches) == 2
+        assert matches[0] == {"start": 10, "end": 13, "text": "one"}
+        assert matches[1] == {"start": 25, "end": 28, "text": "two"}
