@@ -192,10 +192,13 @@ def test_openrouter_prompt_caching():
     assert "cache_control" not in data1  # Root JSON has no cache_control
 
     msgs1 = data1["messages"]
-    # Roles stay assistant, tool, tool (no trailing user message)
-    assert [m["role"] for m in msgs1] == ["assistant", "tool", "tool"]
+    # Roles become assistant, tool, tool, user (split snapshot onto trailing user message)
+    assert [m["role"] for m in msgs1] == ["assistant", "tool", "tool", "user"]
+    assert msgs1[0]["content"] == ""
     assert msgs1[1]["content"] == "res1"  # first tool unchanged
-    assert msgs1[2]["content"] == f"res2\n\n{snap}"
+    assert msgs1[2]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs1[3]["content"] == snap
+    assert json.dumps(data1).count("cache_control") == 1
 
     # 2. Same shim with openai/gpt-oss-120b: no cache_control anywhere
     _m, _url, body2, _h = shim.build_chat_request(
@@ -300,6 +303,101 @@ def test_openai_tool_choice():
     assert data_none["tool_choice"] == "none"
     assert data_none["parallel_tool_calls"] is False
     assert "tools" in data_none
+
+
+def test_openrouter_tool_round_splits_trailing_snapshot():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _get_provider(self):
+            return "openrouter"
+
+        def _service_name(self):
+            return "openrouter"
+
+        def _endpoint(self):
+            return "http://test"
+
+        def _api_path(self):
+            return "/api/v1"
+
+        def _headers(self):
+            return {}
+
+    shim = OpenRouterShim(DummyClient())
+    snap = snapshot_text("Document text")
+    messages = [
+        {"role": "user", "content": "hello"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "f1", "arguments": "{}"}},
+                {"id": "t2", "function": {"name": "f2", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": "res1"},
+        {"role": "tool", "tool_call_id": "t2", "content": f"res2\n\n{snap}"},
+    ]
+
+    _m, _url, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "anthropic/claude-sonnet-4.5", None
+    )
+    data = json.loads(body)
+    msgs = data["messages"]
+    assert msgs[0]["content"] == "hello"
+    assert msgs[1]["content"] == ""
+    assert msgs[2]["content"] == "res1"
+    assert msgs[3]["content"] == [{"type": "text", "text": "res2", "cache_control": {"type": "ephemeral"}}]
+    assert msgs[4]["role"] == "user"
+    assert msgs[4]["content"] == snap
+    assert json.dumps(data).count("cache_control") == 1
+
+
+def test_openrouter_single_tool_marks_tool_result():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _get_provider(self):
+            return "openrouter"
+
+        def _service_name(self):
+            return "openrouter"
+
+        def _endpoint(self):
+            return "http://test"
+
+        def _api_path(self):
+            return "/api/v1"
+
+        def _headers(self):
+            return {}
+
+    shim = OpenRouterShim(DummyClient())
+    snap = snapshot_text("Document text")
+    messages = [
+        {"role": "user", "content": "hello"},
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "f1", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": f"res1\n\n{snap}"},
+    ]
+
+    _m, _url, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "anthropic/claude-sonnet-4.5", None
+    )
+    data = json.loads(body)
+    msgs = data["messages"]
+    assert msgs[0]["content"] == "hello"
+    assert msgs[1]["content"] == ""
+    assert msgs[2]["content"] == [{"type": "text", "text": "res1", "cache_control": {"type": "ephemeral"}}]
+    assert msgs[3]["role"] == "user"
+    assert msgs[3]["content"] == snap
+    assert json.dumps(data).count("cache_control") == 1
 
 
 def test_cache_route_openrouter_body_session_id():

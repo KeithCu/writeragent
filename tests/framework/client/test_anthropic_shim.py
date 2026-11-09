@@ -400,13 +400,21 @@ def test_anthropic_tool_loop_prompt_caching_and_merge():
     user_msg = converted_messages[1]
     assert user_msg["role"] == "user"
     parts = user_msg["content"]
-    assert len(parts) == 2
+    assert len(parts) == 3
     assert parts[0]["type"] == "tool_result"
     assert parts[0]["tool_use_id"] == "t1"
+    assert "cache_control" not in parts[0]
+    assert parts[0]["content"] == [{"type": "text", "text": "res1"}]
 
     assert parts[1]["type"] == "tool_result"
     assert parts[1]["tool_use_id"] == "t2"
-    assert parts[1]["content"][0]["text"] == f"res2\n\n{snap}"
+    assert parts[1].get("cache_control") == {"type": "ephemeral"}
+    assert parts[1]["content"] == [{"type": "text", "text": "res2"}]
+
+    assert parts[2]["type"] == "text"
+    assert parts[2]["text"] == snap
+    assert "cache_control" not in parts[2]
+    assert json.dumps(data).count("cache_control") == 1
 
 
 def test_anthropic_user_send_prompt_caching():
@@ -491,6 +499,58 @@ def test_anthropic_tool_choice():
     assert data2["tool_choice"] == {"type": "none"}
 
 
+def test_anthropic_single_tool_round_cache_breakpoint():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    snap = snapshot_text("Document text")
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "f1", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": f"res1\n\n{snap}"},
+    ]
+
+    _m, _p, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "cache_control" not in data
+    converted = data["messages"]
+    assert len(converted) == 2
+    asst_msg = converted[0]
+    assert asst_msg["role"] == "assistant"
+    assert len(asst_msg["content"]) == 1
+    assert asst_msg["content"][0]["type"] == "tool_use"
+    assert asst_msg["content"][0]["id"] == "t1"
+    assert "cache_control" not in asst_msg["content"][0]
+
+    user_msg = converted[1]
+    assert user_msg["role"] == "user"
+    assert len(user_msg["content"]) == 2
+    tool_res = user_msg["content"][0]
+    assert tool_res["type"] == "tool_result"
+    assert tool_res.get("cache_control") == {"type": "ephemeral"}
+    assert tool_res["content"] == [{"type": "text", "text": "res1"}]
+
+    snap_part = user_msg["content"][1]
+    assert snap_part["type"] == "text"
+    assert snap_part["text"] == snap
+    assert "cache_control" not in snap_part
+    assert json.dumps(data).count("cache_control") == 1
+
+
 def test_anthropic_omits_cache_session_id():
     class DummyClient:
         def _get_provider(self):
@@ -511,6 +571,3 @@ def test_anthropic_omits_cache_session_id():
     assert "session_id" not in data
     assert "prompt_cache_key" not in data
     assert "x-grok-conv-id" not in headers
-
-
-
