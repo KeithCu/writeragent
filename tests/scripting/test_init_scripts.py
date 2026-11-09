@@ -16,15 +16,15 @@ from plugin.scripting.document_scripts import (
     set_calc_init_script,
 )
 from plugin.scripting.named_scripts import script_body_hash
-from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
+from plugin.scripting.venv.venv_sandbox import SESSIONS, reset_sandbox_session, run_sandboxed_code
 from tests.writer.test_document_helpers import _DocWithUserDefinedProperties, _UserDefinedProperties
 
 
 @pytest.fixture(autouse=True)
 def _clear_sessions():
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     yield
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 def test_get_set_calc_init_script_roundtrip():
@@ -80,7 +80,8 @@ def test_init_script_runs_once_in_isolated_mode():
         # One init execution + two cell executions.
         assert mock_run.call_count == 3
 
-    init_exec = vs._SESSION_EXECUTORS[init_sid]
+    init_exec = SESSIONS.executor(init_sid)
+    assert init_exec is not None
     assert init_exec.state.get("INIT_RUNS") == 1
 
 
@@ -226,7 +227,6 @@ def test_isolated_init_mutation_does_not_leak():
 
 
 def test_reset_non_calc_session_drops_init_companion():
-    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "online-wb:init"
     run_sandboxed_code(
@@ -236,10 +236,10 @@ def test_reset_non_calc_session_drops_init_companion():
         init_session_id=init_sid,
         init_script_hash="h",
     )
-    assert init_sid in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is not None
     assert reset_sandbox_session("online-wb")["status"] == "ok"
-    assert init_sid not in vs._SESSION_EXECUTORS
-    assert "online-wb" not in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is None
+    assert SESSIONS.executor("online-wb") is None
 
 
 def test_isolated_cells_do_not_share_cell_assignments():
@@ -264,7 +264,6 @@ def test_isolated_cells_do_not_share_cell_assignments():
 
 
 def test_reset_clears_init_session():
-    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "calc:wb-reset:init"
     cell_sid = "calc:wb-reset"
@@ -277,9 +276,9 @@ def test_reset_clears_init_session():
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    assert init_sid in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is not None
     assert reset_sandbox_session(cell_sid)["status"] == "ok"
-    assert init_sid not in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is None
     run_sandboxed_code(
         "result = MAGIC",
         session_id=None,
@@ -287,11 +286,12 @@ def test_reset_clears_init_session():
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    assert vs._SESSION_EXECUTORS[init_sid].state.get("INIT_RUNS") == 1
+    rerun_exec = SESSIONS.executor(init_sid)
+    assert rerun_exec is not None
+    assert rerun_exec.state.get("INIT_RUNS") == 1
 
 
 def test_reset_clears_from_init_session_id():
-    from plugin.scripting.venv import venv_sandbox as vs
 
     init_sid = "calc:wb-reset-init:init"
     cell_sid = "calc:wb-reset-init"
@@ -304,20 +304,20 @@ def test_reset_clears_from_init_session_id():
         init_session_id=init_sid,
         init_script_hash=h,
     )
-    assert init_sid in vs._SESSION_EXECUTORS
-    assert cell_sid in vs._SESSION_EXECUTORS
+    assert SESSIONS.executor(init_sid) is not None
+    assert SESSIONS.executor(cell_sid) is not None
     assert reset_sandbox_session(init_sid)["status"] == "ok"
-    assert init_sid not in vs._SESSION_EXECUTORS
-    assert cell_sid not in vs._SESSION_EXECUTORS
-    assert init_sid not in vs._INIT_SCRIPT_HASH
-    assert cell_sid not in vs._CELL_SESSION_INIT_DIGEST
+    assert SESSIONS.executor(init_sid) is None
+    assert SESSIONS.executor(cell_sid) is None
+    assert SESSIONS.init_script_hash(init_sid) is None
+    assert SESSIONS.seeded_digest(cell_sid) is None
 
 
 def test_build_python_eval_init_kwargs():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     set_calc_init_script(doc, "import pandas as pd")
-    with patch("plugin.scripting.session_manager._workbook_session_key", return_value="doc-1"):
+    with patch("plugin.scripting.session_manager.mint_document_key", return_value="doc-1"):
         kw = build_python_eval_init_kwargs(doc)
     assert kw["init_script"] == "import pandas as pd"
     assert kw["init_session_id"] == "calc:doc-1:init"
@@ -327,18 +327,17 @@ def test_build_python_eval_init_kwargs():
 def test_run_code_forwards_init_kwargs():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    ctx = MagicMock()
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     set_calc_init_script(doc, "x = 1")
     with (
         patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr,
-        patch("plugin.scripting.session_manager._workbook_session_key", return_value="k"),
+        patch("plugin.scripting.session_manager.mint_document_key", return_value="k"),
     ):
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
-        run_code_in_user_venv(ctx, "result = 1", init_script="x = 1", init_session_id="calc:k:init", init_script_hash="abc")
+        run_code_in_user_venv("result = 1", init_script="x = 1", init_session_id="calc:k:init", init_script_hash="abc")
         assert manager.execute.call_args.kwargs.get("init_script") == "x = 1"
 
 
@@ -346,7 +345,7 @@ def test_workbook_session_id_recursion_off_main_thread(monkeypatch: pytest.Monke
     from plugin.scripting.session_manager import workbook_session_id
 
     # No caller doc: None without a desktop lookup or deadlock (#402)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.scripting.session_manager.python_session_mode", lambda: "shared")
 
     doc = MagicMock()

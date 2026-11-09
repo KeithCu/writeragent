@@ -10,15 +10,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, reset_sandbox_session, run_sandboxed_code
+from plugin.scripting.venv.venv_sandbox import SESSIONS, reset_sandbox_session, run_sandboxed_code
 from plugin.scripting.venv.worker_harness import _handle_request
 
 
 @pytest.fixture(autouse=True)
 def _clear_sessions():
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     yield
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 def test_shared_session_persists_variables():
@@ -85,12 +85,11 @@ def test_handle_request_reset_session_action():
 def test_run_code_in_user_venv_forwards_session_id():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    ctx = MagicMock()
     with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr:
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
-        run_code_in_user_venv(ctx, "result = 1", session_id="calc:wb1")
+        run_code_in_user_venv("result = 1", session_id="calc:wb1")
         manager.execute.assert_called_once()
         assert manager.execute.call_args.kwargs.get("session_id") == "calc:wb1"
 
@@ -170,9 +169,9 @@ def test_shared_session_data_and_ranges_isolation():
 def test_rebind_result_to_same_singleton_survives_trailing_statement():
     """A trailing statement must not hide ``result = <singleton>``.
 
-    What was wrong: egress treated ``current is not prior_result`` as a rebind.
-    Small ints, None, True, and interned strings are singletons, and
-    ``result += [2]`` stores the same list. ``pass`` then returned None.
+    Egress must not treat ``current is not prior_result`` as a rebind when the
+    value is a singleton or the same list object. A trailing ``pass`` must not
+    clear ``result`` after ``result = <singleton>``.
     """
     sid = "calc:test-result-singleton"
     assert run_sandboxed_code("result = 5", None, session_id=sid)["result"] == 5

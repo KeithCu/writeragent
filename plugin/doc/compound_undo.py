@@ -11,9 +11,19 @@ without depending on ``edit_review.py``.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from typing import Any
 
+from plugin.framework.errors import is_disposal, reraise_if_disposed
+
 log = logging.getLogger(__name__)
+
+
+def _is_undo_locked(um: Any) -> bool:
+    fn = getattr(um, "isLocked", None)
+    if fn is None:
+        return False
+    return fn() is True
 
 
 class WriterCompoundUndo:
@@ -34,28 +44,37 @@ class WriterCompoundUndo:
     _undo_manager: Any | None
     _open: bool
     entered: bool
+    leave_error: BaseException | None
+    rollback_error: BaseException | None
+    _titles_before: tuple[str, ...] | None
 
-    def __init__(self, doc: Any, title: str) -> None:
+    def __init__(self, doc: Any, title: str, *, _warn: bool = True) -> None:
         self._title = title
         self._undo_manager = None
         self._open = False
         self.entered = False
+        self.leave_error = None
+        self.rollback_error = None
+        self._titles_before = None
         try:
             if not hasattr(doc, "getUndoManager"):
-                log.warning("WriterCompoundUndo: doc has no getUndoManager, undo grouping skipped (title=%r)", title)
+                if _warn:
+                    log.warning("WriterCompoundUndo: doc has no getUndoManager, undo grouping skipped (title=%r)", title)
                 return
             um = doc.getUndoManager()
             if um is None:
-                log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
+                if _warn:
+                    log.warning("WriterCompoundUndo: getUndoManager() returned None, undo grouping skipped (title=%r)", title)
                 return
-            # Bugfix: what was wrong: enterUndoContext on a locked XUndoManager silently failed,
-            # but left entered=True / _open=True, causing mismatched leave and inaccurate status.
-            # How it happened: XUndoManager ignores enterUndoContext when locked without raising.
-            # Why this change fixes it: checks isLocked() upfront and aborts grouping early.
-            if hasattr(um, "isLocked") and um.isLocked():
-                log.warning("WriterCompoundUndo: undo manager is locked, undo grouping skipped (title=%r)", title)
+            if _is_undo_locked(um):
+                if _warn:
+                    log.warning("WriterCompoundUndo: undo manager is locked, undo grouping skipped (title=%r)", title)
                 return
-            # Probe undo manager state to detect prior unclosed contexts (best-effort; UNO may not expose these).
+            try:
+                self._titles_before = tuple(um.getAllUndoActionTitles() or ())
+            except Exception as titles_e:
+                reraise_if_disposed(titles_e)
+                self._titles_before = None
             try:
                 is_in_ctx = um.isInContext()
                 undo_enabled = um.isUndoEnabled()
@@ -66,20 +85,18 @@ class WriterCompoundUndo:
             self._undo_manager = um
             self._open = True
             self.entered = True
-            # Log after success so we always see this when the context is live.
             log.debug("WriterCompoundUndo: context entered %r", title)
         except Exception as e:
-            from plugin.framework.errors import reraise_if_disposed
-
-            # Bugfix: what was wrong: enterUndoContext swallowed DisposedException behind warning log.
-            # How it happened: broad except Exception caught DocumentDisposedError/DisposedException.
-            # Why this change fixes it: re-raises disposed exceptions per project error policy.
             reraise_if_disposed(e)
-            # Upgrade from debug to warning so failures are visible without debug logging.
-            # "Insert $1" in the undo menu means this context was never opened.
-            log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
+            if _warn:
+                log.warning("WriterCompoundUndo: enterUndoContext failed, undo grouping disabled (title=%r): %s", title, e)
 
-    def __enter__(self) -> "WriterCompoundUndo":
+    @classmethod
+    def try_enter(cls, doc: Any, title: str) -> WriterCompoundUndo | None:
+        inst = cls(doc, title, _warn=False)
+        return inst if inst.entered else None
+
+    def __enter__(self) -> WriterCompoundUndo:
         return self
 
     def __exit__(self, exc_type: type[BaseException] | None, exc: BaseException | None, tb: Any) -> None:
@@ -99,16 +116,142 @@ class WriterCompoundUndo:
             log.debug("WriterCompoundUndo: leaving context %r", self._title)
             um.leaveUndoContext()
         except Exception as e:
-            from plugin.framework.errors import reraise_if_disposed
-
-            # Bugfix: what was wrong: leaveUndoContext swallowed DisposedException behind error log.
-            # How it happened: broad except Exception caught DocumentDisposedError/DisposedException.
-            # Why this change fixes it: re-raises disposed exceptions per project error policy.
             reraise_if_disposed(e)
-            # Keep _open/_undo_manager so a later close() can retry; clearing them
-            # here left the undo context open for the rest of the session.
+            self.leave_error = e
+            # Keep _open so a later close() can retry; clearing it leaves the context open.
             log.exception("leaveUndoContext failed (title=%r)", self._title)
             return False
         self._open = False
-        self._undo_manager = None
         return True
+
+    def rollback_if_top(self) -> bool:
+        """Roll back the undo context if it is the top action on the undo stack."""
+        if not self.entered or self._open or self._titles_before is None or self._undo_manager is None:
+            return False
+        try:
+            raw = self._undo_manager.getAllUndoActionTitles()
+            after = tuple(raw or ())
+            if after != self._titles_before and after and after[0] == self._title:
+                self._undo_manager.undo()
+                return True
+            return False
+        except Exception as e:
+            reraise_if_disposed(e)
+            self.rollback_error = e
+            log.exception("rollback_if_top failed (title=%r)", self._title)
+            return False
+
+
+class UndoUnavailable(RuntimeError):
+    """Raised when an undo manager cannot be entered or is locked."""
+
+
+@dataclass(frozen=True)
+class UndoOutcome:
+    """Result of :func:`commit_or_rollback`.
+
+    ``rolled_back`` is True only when ``rollback_if_top`` actually ran undo.
+    ``nothing_landed`` compares the session change count to the pre-mutate snapshot (or is
+    True when undo ran). Callers should read it only on failure paths (``error`` or
+    ``mutate_error`` set); on success it can be True even when no rollback was needed.
+    ``ROLLBACK_FAILED`` in ``error`` means undo itself failed after a failed mutate.
+    Document disposal still raises from :func:`commit_or_rollback`; it is never stored
+    on ``mutate_error``.
+    """
+
+    error: dict[str, Any] | None = None
+    rolled_back: bool = False
+    nothing_landed: bool = False
+    mutate_error: Exception | None = None
+
+    def raise_mutate_error(self) -> None:
+        """Re-raise a failed ``mutate`` when the caller uses exception flow."""
+        if self.mutate_error is not None:
+            raise self.mutate_error
+
+
+def commit_or_rollback(
+    doc: Any,
+    title: str,
+    mutate: Any,
+    *,
+    session: Any | None = None,
+) -> UndoOutcome:
+    """Run mutate inside an undo context with title.
+
+    Missing or locked undo manager raises UndoUnavailable.
+    Rolls back on error dict or exception from mutate. Document disposal is re-raised
+    immediately (not returned on the outcome). Other mutate exceptions are returned on
+    ``UndoOutcome.mutate_error``.
+
+    Optional ``session`` (duck-typed review session with ``changes`` and
+    ``discard_changes_since``) lets Writer paths drop review records after rollback
+    without importing ``edit_review`` here. The snapshot is ``len(session.changes)`` taken
+    before ``mutate()`` runs.
+
+    ``mutate`` returns an error dict or None; any dict is treated as an error.
+    """
+    group = WriterCompoundUndo.try_enter(doc, title)
+    if group is None:
+        raise UndoUnavailable("Undo manager is missing, locked, or could not be entered.")
+
+    error: dict[str, Any] | None = None
+    exc_cause: Exception | None = None
+    rolled_back = False
+    changes_snapshot: int | None = None
+    if session is not None:
+        changes_snapshot = len(session.changes)
+    try:
+        res = mutate()
+        if isinstance(res, dict):
+            error = res
+    except Exception as exc:
+        exc_cause = exc
+    finally:
+        left = False
+        try:
+            left = group.close()
+        except Exception as exc:
+            if is_disposal(exc):
+                exc_cause = exc
+        if not left and error is None and exc_cause is None and group.leave_error is not None:
+            error = {
+                "status": "error",
+                "code": "UNDO_CONTEXT_LEAK",
+                "message": f"Could not close the undo context; the document may stay in one undo group ({group.leave_error}).",
+            }
+        failed = error is not None or exc_cause is not None
+        if failed and left:
+            undone = group.rollback_if_top()
+            if undone:
+                rolled_back = True
+                if session is not None and changes_snapshot is not None:
+                    # Same rule as the old on_fail callback: discard review records only when
+                    # undo actually ran, so a partial edit still in the document keeps them.
+                    try:
+                        session.discard_changes_since(changes_snapshot)
+                    except Exception:
+                        log.debug("commit_or_rollback: session discard failed", exc_info=True)
+            if group.rollback_error is not None:
+                # Keep the original cause and use a code distinct from a clean rollback.
+                cause = str(error.get("message")) if error and error.get("message") else str(exc_cause)
+                error = {
+                    "status": "error",
+                    "code": "ROLLBACK_FAILED",
+                    "message": f"Rollback failed; the document may be only partly edited ({group.rollback_error}). Cause: {cause}",
+                }
+                exc_cause = None
+
+    nothing_landed = rolled_back or (
+        session is not None and len(session.changes) == changes_snapshot
+    )
+
+    if exc_cause is not None:
+        reraise_if_disposed(exc_cause)
+        return UndoOutcome(
+            error=error,
+            rolled_back=rolled_back,
+            nothing_landed=nothing_landed,
+            mutate_error=exc_cause,
+        )
+    return UndoOutcome(error=error, rolled_back=rolled_back, nothing_landed=nothing_landed)

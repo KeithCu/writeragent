@@ -34,7 +34,7 @@ _ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)),
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from plugin.scripting.ipc import (  # noqa: E402
+from plugin.framework.ipc import (  # noqa: E402
     claim_ipc_channel,
     read_pickle_frame,
     write_pickle_frame,
@@ -47,27 +47,30 @@ from plugin.audio.kokoro_g2p import (  # noqa: E402
 )
 
 # (model_path, voices_path), Kokoro instance, soundfile module.
-# Replaced when the paths change. ImportError stays sticky for this process.
+# Replaced when the paths change.
 _loaded: tuple[tuple[str, str], Any, Any] | None = None
-_import_failure: BaseException | None = None
 
 
 def _import_audio() -> tuple[Any, Any]:
-    global _import_failure
-    if isinstance(_import_failure, ImportError):
-        raise _import_failure
     try:
         from kokoro_onnx import Kokoro  # type: ignore[import-not-found, ty:unresolved-import]
         import soundfile as sf  # type: ignore[import-not-found, ty:unresolved-import]
 
         return Kokoro, sf
     except ImportError as exc:
-        _import_failure = exc
-        raise
+        from plugin.audio.kokoro_g2p import KOKORO_PIP_INSTALL
+
+        raise ImportError(
+            f"Kokoro dependency missing ({exc}). Install with: {KOKORO_PIP_INSTALL}"
+        ) from exc
 
 
 def run_kokoro_stdio_loop(handler: Any) -> int:
     """Pickle 5 request loop. First frame is ``{"status": "ready", "pid": ...}``."""
+    from plugin.framework.child_runtime import die_with_parent
+
+    die_with_parent()
+
     stdin_bin = sys.stdin.buffer
     try:
         is_real_fd1 = hasattr(sys.stdout, "fileno") and sys.stdout.fileno() == 1
@@ -76,7 +79,9 @@ def run_kokoro_stdio_loop(handler: Any) -> int:
     stdout_bin = claim_ipc_channel()
     if is_real_fd1:
         sys.stdout = sys.stderr
-    write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
+    from plugin.framework.child_runtime import announce_ready
+
+    announce_ready(stdout_bin)
     while True:
         # A length-prefix or decode error has consumed stdin mid-frame;
         # writing an error and reading again would desync every later job.
@@ -108,12 +113,7 @@ def run_kokoro_stdio_loop(handler: Any) -> int:
 def _fallback_voice(kokoro: Any, requested: str) -> str:
     """Choose a fallback voice if the requested voice is missing.
 
-    What was wrong: voices[0] on an NpzFile raises KeyError ('0 is not a file
-    in the archive').
-    How it happened: kokoro_onnx stores np.load of the voices pack (NpzFile);
-    the tests used a list and a pack that still contained af_sky.
-    Why this change: iterate the archive keys into a list and take the first
-    (voices[0] raises KeyError).
+    Kokoro voice packs are NpzFile; enumerate archive keys instead of indexing voices[0].
     """
     voices = kokoro.voices
     names = [str(name) for name in voices]
@@ -157,7 +157,7 @@ def handle_kokoro_job(req: dict[str, Any]) -> dict[str, Any]:
         return {"status": "error", "error": "voices_path is required"}
 
     voice = str(req.get("voice") or "af_sky")
-    # What was wrong: float(req.get("speed") or 1.0) mapped a real 0.0 to 1.0.
+    # speed uses get default 1.0 so explicit 0.0 is preserved (not falsy-or).
     try:
         speed = float(req.get("speed", 1.0))
     except (TypeError, ValueError):

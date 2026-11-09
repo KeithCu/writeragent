@@ -15,7 +15,7 @@ from typing import Any, ClassVar
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.framework.errors import user_stopped_payload
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.doc.document_research import close_document_research_document, open_document_for_read, resolve_path_or_name
 
 log = logging.getLogger(__name__)
@@ -56,13 +56,13 @@ def run_inner_read_agent(parent_ctx: ToolContext, opened_model: Any, doc_type: s
         return registry.get_tools(
             doc=opened_model,
             doc_type=doc_type,
-            names=[*allowlist, "specialized_workflow_finished"],
+            names=frozenset((*allowlist, "specialized_workflow_finished")),
             exclude_tiers=(),
         )
 
     from plugin.framework.send_cancellation import SendCancelled
     try:
-        tools = run_on_main(_fetch_inner_tools)
+        tools = main.run(_fetch_inner_tools)
     except SendCancelled:
         return user_stopped_payload()
 
@@ -146,7 +146,7 @@ class DelegateReadDocument(ToolBase):
             if path is None:
                 return self._tool_error(url_or_err or "Could not resolve file", path_or_name=path_or_name)
             target = url_or_err if url_or_err and url_or_err.startswith("file://") else path
-            model, doc_type, err, opened_for_document_research = run_on_main(
+            model, doc_type, err, opened_for_document_research = main.run(
                 open_document_for_read, ctx.ctx, target
             )
         except SendCancelled:
@@ -154,8 +154,10 @@ class DelegateReadDocument(ToolBase):
         if model is None or doc_type is None:
             return self._tool_error(err or "Open failed", path=path)
         try:
-            stop_checker = ctx.stop_checker if isinstance(ctx, ToolContext) else None
-            if stop_checker is not None and stop_checker():
+            from plugin.framework.send_cancellation import is_cancelled
+
+            scope = ctx.send_cancellation
+            if is_cancelled(scope):
                 return user_stopped_payload()
             result = run_inner_read_agent(ctx, model, doc_type, str(task))
         finally:
@@ -163,13 +165,12 @@ class DelegateReadDocument(ToolBase):
                 close_document_research_document(model, opened_for_document_research=opened_for_document_research)
 
             try:
-                run_on_main(_do_close)
+                main.run(_do_close)
             except (SendCancelled, TimeoutError, RuntimeError):
-                from plugin.framework.queue_executor import post_to_main_thread
                 # Post unscoped (bound_scope=None) so the cancelled turn scope does not drop
                 # this close during queue processing or cancel_pending_work.
                 try:
-                    post_to_main_thread(_do_close, bound_scope=None)
+                    main.post(_do_close, bound_scope=None)
                 except Exception:
                     # post raises TimeoutError when AsyncCallback is missing and the
                     # pending list is full; an exception from finally would replace
@@ -192,7 +193,7 @@ class DelegateReadDocument(ToolBase):
         if not isinstance(result, dict):
             # Discussion #2262: a plain-text return means the read agent never called the finish
             # tool (output-limit truncation or max steps); report it with the #2029 incomplete contract.
-            from plugin.doc.python_domain_specialized import _normalize_inner_result
+            from plugin.doc.specialized_catalog import normalize_inner_result
 
-            return {**_normalize_inner_result(result, ["document_research"], []), "path": path, "doc_type": doc_type}
+            return {**normalize_inner_result(result, ["document_research"], []), "path": path, "doc_type": doc_type}
         return {"status": "ok", "path": path, "doc_type": doc_type, "result": str(payload)}

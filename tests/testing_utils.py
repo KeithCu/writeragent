@@ -27,8 +27,7 @@ from unittest.mock import MagicMock
 def _register_testing_utils_aliases() -> None:
     this = sys.modules[__name__]
     # Parent packages must exist before the dotted names are injected
-    # (importing tests.testing_utils first used to make ``import plugin.tests``
-    # fail with ``cannot import name 'tests' from 'plugin'``).
+    # Import order: parent packages must exist before dotted names land in sys.modules.
     import plugin.tests  # noqa: F401
     import tests  # noqa: F401
 
@@ -259,20 +258,11 @@ def reactivate_harness_keeper(desktop=None) -> bool:
 def prepare_windows_writer_factory(ctx) -> int:
     """Harness-only: log leftover paste Writers and reactivate the keeper.
 
-    What was wrong: GHA 34554275072 / 34553944171 hung 30s on the
-    *second* text_helpers Writer factory. Leftovers uid=26/27 were
-    already open (``close skipped pasted=True``). The first factory +
-    ``close_doc`` returned. GHA 34556185752 then hung 30s *inside*
-    leftover ``close(True)`` — product and harness must not close those
-    Writers after paste (33771766524).
-
-    Why this: enum leftovers (read-only; safe before load) and
-    ``setActiveFrame`` the keeper. Do not close leftovers. Returns how
-    many non-keeper Writers are still open. Windows-only caller.
-
-    GHA 34593327841: the next hang was ``private:factory/scalc`` in
-    ``document_research_uno`` ``_create_nearby_test_env``, not swriter.
-    Call this before every Windows ``private:factory/`` load.
+    After HTML paste on Windows, leftover Writers (uids 26/27) stay open when
+    ``close`` is skipped; closing them wedges later factory loads. Enum leftovers
+    (read-only; safe before load) and ``setActiveFrame`` the keeper—do not close
+    leftovers. Returns how many non-keeper Writers are still open. Windows-only
+    caller. Call before every Windows ``private:factory/`` load (Writer or Calc).
     """
     if ctx is None:
         return 0
@@ -465,15 +455,11 @@ _WINDOWS_NOTEBOOK_TARGET = "_wa_notebook"
 def note_windows_html_paste_leftover() -> None:
     """Mark leftover_open after ``insert_cell_html_rich`` close skipped.
 
-    What was wrong: GHA 34649699848 / 34648929578 leftover paste Writers
-    (uids 26/27) existed, but the cached leftover count stayed 0 because
-    pooled Calc reuse never called ``prepare_windows_writer_factory``.
-    Later slash ``createPeer`` and Hidden ``Budget_read.ods`` then hung
-    or bitmap-failed without the skip path seeing leftovers.
-
-    How: the paste UNO tests call this after a successful paste. Do not
-    enum ``getComponents`` (can hang after paste close, 33771766524).
-    Cached count only. Do not close leftover paste Writers (34556185752).
+    Paste can leave Writers open without updating the cached leftover count when
+    pooled Calc reuse skips ``prepare_windows_writer_factory``; downstream peer
+    loads then miss the skip path. Paste UNO tests call this after a successful
+    paste. Do not enum ``getComponents`` (can hang after paste close). Cached
+    count only. Do not close leftover paste Writers.
     """
     if sys.platform != "win32":
         return
@@ -668,7 +654,7 @@ def skip_windows_awt_top_dialog(reason: str) -> None:
 
     ``skip_windows_leftover_hidden_load`` does not cover this — that
     helper is leftover_open>0. Overlay ``createWindow`` TOP + later
-    ``setVisible`` is the same VCL map. ENABLE_SLASH stays parked.
+    ``setVisible`` is the same VCL map. Overlay tests still map on Linux UNO.
     Linux UNO still maps the overlay. Do not map a TOP dialog on win32
     CI.
     """
@@ -939,15 +925,10 @@ def _draw_doc_has_math_ole(doc) -> bool:
 def _windows_should_skip_math_ole_close(uid: str = "") -> bool:
     """True when Windows must not ``close_doc`` this marked Math OLE uid.
 
-    What was wrong: GHA 34607010446 (master ``3720c175``) closed a Draw
-    after ``insert_math`` and soffice exited 0. GHA 34612145495 then
-    died on the *first* Draw forms ``close(True)`` after this helper
-    walked pages/shapes and ``_native_doc_svc`` probed the model.
-    Master closed ordinary Draw docs without that extra UNO.
-
-    How: skip only when ``mark_windows_math_ole_doc`` recorded the uid.
-    Do not walk the document. Unmarked Draw close stays GC + 50 ms +
-    ``close(True)``. Not a product fix.
+    Extra UNO on Math-OLE Draw docs during teardown can exit soffice early on
+    Windows. Skip close only when ``mark_windows_math_ole_doc`` recorded the
+    uid; do not walk the document. Unmarked Draw close stays GC + 50 ms +
+    ``close(True)``. Harness-only; not a product fix.
     """
     if sys.platform != "win32" or not uid:
         return False
@@ -957,27 +938,13 @@ def _windows_should_skip_math_ole_close(uid: str = "") -> bool:
 def _windows_should_skip_draw_family_close() -> bool:
     """True when native_doc must not close Impress/Draw on Windows.
 
-    What was wrong: GHA 35450779692 (post-#803 SHA ``cd9da961``)
-    leftover Writer reuse (``leftover_open=1``,
-    ``html_paste_writer: leftovers open=1 uids=['27']``) then
-    ``draw.test_designs_uno`` loaded ``private:factory/simpress``
-    (``target=_wa_simpress`` flags=63, uid=30). Body returned
-    (~300ms). ``native_doc`` teardown already used
-    ``close_draw_family_doc`` (bare ``close(True)`` on win32). During
-    that raw close (~3s) soffice exited 0; pids disappeared;
-    ``LIFECYCLE close_doc dispose`` / ``LIFECYCLE office dead after
-    close doc_type=impress``; raw close raised ``DisposedException``;
-    runner aborted remaining suites. Same abort as pre-#803
-    35413789298 / 35407952704 — GC/sleep avoidance is not enough
-    when a leftover Writer is open.
-
-    How: skip ``close_draw_family_doc`` on win32 only when
-    ``_windows_leftover_open() > 0``. Drop the proxy; leftover
-    ``CREATE|GLOBAL`` ``_wa_simpress`` / ``_wa_sdraw`` reuse replaces
-    instead of stacking (34657826349). Peer skip-close is the same
-    family (``test_peer_message_uno``); suite-end recycle kills the
-    leftover Draw-family doc. Math OLE Draw still uses ``close_doc``
-    so that skip stays (34607010446). Not a product fix.
+    With a leftover paste Writer open, ``close_draw_family_doc`` on win32 can
+    kill soffice during raw ``close(True)`` and abort the runner. Skip
+    ``close_draw_family_doc`` on win32 only when ``_windows_leftover_open() > 0``.
+    Drop the proxy; named ``_wa_simpress`` / ``_wa_sdraw`` targets reuse instead
+    of stacking. Peer skip-close uses the same rule; suite-end recycle clears the
+    leftover Draw-family doc. Math OLE Draw still uses ``close_doc`` with its
+    own skip. Harness-only; not a product fix.
     """
     if sys.platform != "win32":
         return False
@@ -987,27 +954,15 @@ def _windows_should_skip_draw_family_close() -> bool:
 def close_draw_family_doc(doc):
     """Harness-only Impress/Draw close. Does **not** go through ``close_doc``.
 
-    What was wrong: GHA 34518091151 hung 30s in ``TestingFactory.close_doc``
-    at ``doc.close(True)`` while tearing down Impress in
-    ``test_peer_impress_rejected_on_resolved_model`` (Writer still open;
-    both factory loads had succeeded). #710's post-close settle never ran.
-    Skipping close/dispose (34537826720) unblocked that teardown, then the
-    *next* ``private:factory/swriter`` load hung 30s — leftover Impress
-    poisons later Writer factory loads (same family as #710).
-
-    How: ``close_doc`` GCs leftover peer-resolve wrappers then close()s
-    after 50 ms. On Windows, GC + sleep *immediately before* ``close`` /
-    ``dispose`` blocks the UI thread (34532953982 / 34535868114). A bare
-    ``close(True)`` with no pre-close GC is the only Impress close that
-    has returned on Windows (#710 / 34419828920).
-
-    Why this: Windows calls ``close(True)`` with no setModified / GC /
-    sleep in front of it, then callers drop the proxy and
-    ``settle_after_draw_family_close``. POSIX still marks unmodified, GC,
-    pre-close settle, then ``close(True)``. Peer tests keep Writer open
-    across the Windows raw close (the #710 returning order) and
-    re-activate it before closing Writer. Logs svc/uid and each step.
-    Not a product fix.
+    On Windows, pre-close GC/sleep in ``close_doc`` blocks the UI thread;
+    Draw-family teardown uses a bare ``close(True)`` with no setModified /
+    GC / sleep in front of it, then callers drop the proxy and
+    ``settle_after_draw_family_close``. Leftover Impress with Writer still
+    open poisons later Writer factory loads if closed through the heavy path.
+    POSIX still marks unmodified, GC, pre-close settle, then ``close(True)``.
+    Peer tests keep Writer open across the Windows raw close and re-activate
+    it before closing Writer. Logs svc/uid and each step. Harness-only; not a
+    product fix.
     """
     if not doc:
         return
@@ -1737,12 +1692,9 @@ class TestingFactory:
             # Release PyUNO sequences before Calc tears down the document.
             # Large getDataArray results held across close can abort soffice (glibc double-free).
             gc.collect()
-            # What was wrong: Draw close raced URP ~SvxShape / SdrRectObj with
-            # SfxItemPool::unregisterNameOrIndex (SalAbort after the test returned).
-            # How: Python still held page/shape proxies; close tore the model down
-            # while cppu_threadpool released the wrappers. Why this: GC then a short
-            # settle lets ~SvxShape finish before close. Unscoped: Writer
-            # ControlShape / charts use the same pool. Post-close wait did not help.
+            # Draw close can race URP shape release with SfxItemPool teardown if Python still
+            # holds page/shape proxies. GC plus a short settle lets wrappers finish before
+            # close (Writer ControlShape / charts share the same pool).
             time.sleep(_CLOSE_DOC_URP_SETTLE_S)
             if hasattr(doc, "close"):
                 doc.close(True)
@@ -1757,8 +1709,8 @@ class TestingFactory:
                 reactivate_harness_keeper()
                 _progress("close_doc: done uid=%s" % (uid or "-"))
         except Exception as exc:
-            # Harness-only: close used to swallow DisposedException, so the
-            # *next* factory open became the named victim. Log the trail here.
+            # Harness-only: swallowing DisposedException here poisons the next factory open;
+            # log the close failure trail instead.
             _log_close_doc_failure(exc)
 
 
@@ -1921,9 +1873,7 @@ class TestingFactory:
 
                         leftover_open = _windows_leftover_open()
                         if _windows_should_skip_draw_family_close():
-                            from plugin.testing_runner import (
-                                request_office_recycle_after_suite,
-                            )
+                            from plugin.testing_runner import current_office
 
                             # Do not close(True) while leftover Writer is
                             # open (35450779692). Drop the proxy; leftover
@@ -1935,7 +1885,7 @@ class TestingFactory:
                                 % leftover_open
                             )
                             doc = None
-                            request_office_recycle_after_suite()
+                            current_office().request_recycle()
                             _log_office_health_after_close(ctx, doc_type)
                         else:
                             _progress(
@@ -2016,7 +1966,7 @@ class TestingFactory:
         ``KeyError`` / ``ValueError`` from the registry become
         ``{"status": "error", "error": ...}`` (same contract as the old per-file helpers).
         """
-        from plugin.main import get_tools, get_services
+        from plugin.app import get_tools, get_services
 
         if services is None:
             services = get_services()
@@ -2068,7 +2018,7 @@ def writer_services_tool_context(doc, ctx, *, skip_reason: str):
 
     services = None
     try:
-        from plugin.main import get_services
+        from plugin.app import get_services
 
         services = get_services()
     except Exception:

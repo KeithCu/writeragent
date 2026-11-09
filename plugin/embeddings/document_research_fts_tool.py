@@ -18,6 +18,18 @@ _MAX_SEARCH_K = 30
 _DEFAULT_NEAR_SLOP = 10
 
 
+class _FolderHybridSearchCancelled(Exception):
+    """Stop was requested before or during folder hybrid search."""
+
+
+class _FolderHybridSearchFailed(Exception):
+    message: str
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
 class SearchNearbyFiles(ToolBase):
     """Hybrid keyword + semantic search over indexed paragraphs in the active document folder."""
 
@@ -56,11 +68,12 @@ class SearchNearbyFiles(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        checker = getattr(ctx, "stop_checker", None)
-        if callable(checker) and checker() is True:
+        from plugin.framework.send_cancellation import is_cancelled
+
+        if is_cancelled(ctx.send_cancellation):
             return {"status": "error", "message": "Cancelled"}
         from plugin.framework.constants import folder_search_enabled
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
 
         if not folder_search_enabled():
             return self._tool_error(
@@ -82,18 +95,12 @@ class SearchNearbyFiles(ToolBase):
 
         from plugin.doc.document_research_grep import resolve_grep_candidates
         from plugin.embeddings.embeddings_cache import (
-            index_is_empty,
-            query_blocked_for_model,
+            folder_store,
             resolve_index_context,
-            zvec_collection_looks_populated,
-            zvec_collection_path,
-            lancedb_collection_looks_populated,
-            lancedb_collection_path,
         )
         from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
         from plugin.embeddings.embedding_client import get_embedding_model
         from plugin.embeddings.embeddings_service import hybrid_search
-        from plugin.framework.config import get_config
         import pathlib
 
         def _resolve_uno_context() -> tuple[str | None, str | None, dict[str, str]]:
@@ -117,24 +124,16 @@ class SearchNearbyFiles(ToolBase):
             if folder_key is None or db_path is None or meta_path is None:
                 return {"error": listing_root or "No folder context"}
 
-            mode = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-            looks_empty = False
-            if mode == "zvec":
-                zpath = zvec_collection_path(listing_root, create_parent=False)
-                looks_empty = not zvec_collection_looks_populated(zpath)
-            elif mode == "lancedb":
-                lpath = lancedb_collection_path(listing_root, create_parent=False)
-                looks_empty = not lancedb_collection_looks_populated(lpath)
-            else:
-                looks_empty = index_is_empty(meta_path, db_path)
+            store = folder_store(listing_root, meta_path, db_path)
+            looks_empty = store.is_empty
 
             # Hybrid search always queries vec0. A model change must not read
             # the previous table (empty, partial, or the wrong dimension).
-            if not looks_empty and mode != "fts" and query_blocked_for_model(meta_path, get_embedding_model()):
+            if not looks_empty and store.mode != "fts" and store.meta.query_blocked_for_model(get_embedding_model()):
                 looks_empty = True
 
             if looks_empty:
-                ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
+                ensure_index_wakeup(ctx.ctx, ctx.doc)
                 return {"empty": True, "folder_key": folder_key}
 
             allowed_urls: set[str] | None = None
@@ -159,12 +158,7 @@ class SearchNearbyFiles(ToolBase):
                     if url:
                         allowed_urls.add(url)
 
-            if mode == "zvec":
-                search_path = str(zvec_collection_path(listing_root, create_parent=True))
-            elif mode == "lancedb":
-                search_path = str(lancedb_collection_path(listing_root, create_parent=True))
-            else:
-                search_path = str(db_path)
+            search_path = store.search_path
 
             return {
                 "search_path": search_path,
@@ -172,12 +166,10 @@ class SearchNearbyFiles(ToolBase):
                 "allowed_urls": allowed_urls,
             }
 
-        from plugin.framework.thread_guard import on_main_thread
-
-        if on_main_thread():
+        if main.is_current():
             resolved_listing_root, exclude_path, open_paths = _resolve_uno_context()
         else:
-            resolved_listing_root, exclude_path, open_paths = execute_on_main_thread(_resolve_uno_context)
+            resolved_listing_root, exclude_path, open_paths = main.call(_resolve_uno_context)
 
         context_result = _resolve_context(resolved_listing_root, exclude_path, open_paths)
 
@@ -194,37 +186,69 @@ class SearchNearbyFiles(ToolBase):
             }
 
         search_path = context_result["search_path"]
-        allowed_urls = context_result["allowed_urls"]
+        filter_urls = context_result["allowed_urls"]
         model = get_embedding_model()
 
-        try:
-            result = hybrid_search(
-                ctx.ctx,
-                search_path,
-                str(query),
-                k,
-                model=model,
-                near_slop=near_slop,
-                stop_checker=ctx.stop_checker,
-                cancellation_scope=ctx.send_cancellation,
-            )
-            if result.get("error"):
-                return self._tool_error(result["error"], code="FOLDER_HYBRID_SEARCH_ERROR")
-        except Exception as exc:
-            log.exception("search_nearby_files failed")
-            return self._tool_error(str(exc), code="FOLDER_HYBRID_SEARCH_ERROR")
+        scope = ctx.send_cancellation
+
+        if filter_urls is not None and not filter_urls:
+            return {
+                "status": "ok",
+                "hits": [],
+                "folder_key": context_result["folder_key"],
+                "stale": False,
+            }
 
         def _wakeup() -> None:
-            ensure_index_wakeup(ctx.ctx, ctx.services, ctx.doc)
+            ensure_index_wakeup(ctx.ctx, ctx.doc)
 
-        if on_main_thread():
+        def _hybrid_hits(doc_url_filter: str | None) -> list[dict[str, Any]]:
+            if is_cancelled(scope):
+                raise _FolderHybridSearchCancelled()
+            # doc_url_filter applies before LIMIT; post-filtering the global top-k loses hits outside that window.
+            try:
+                result = hybrid_search(
+                    ctx.ctx,
+                    search_path,
+                    str(query),
+                    k,
+                    model=model,
+                    near_slop=near_slop,
+                    cancel=scope,
+                    doc_url_filter=doc_url_filter,
+                )
+            except Exception as exc:
+                log.exception("search_nearby_files failed")
+                raise _FolderHybridSearchFailed(str(exc)) from exc
+            if result.get("error"):
+                raise _FolderHybridSearchFailed(str(result["error"]))
+            return list(result.get("hits") or [])
+
+        try:
+            if filter_urls is None:
+                hits = _hybrid_hits(None)
+            elif len(filter_urls) == 1:
+                hits = _hybrid_hits(next(iter(filter_urls)))
+            else:
+                from plugin.doc.document_research_grep import DEFAULT_GREP_MAX_FILES
+
+                subset_urls = sorted(filter_urls)[:DEFAULT_GREP_MAX_FILES]
+                combined: list[dict[str, Any]] = []
+                for doc_url in subset_urls:
+                    combined.extend(_hybrid_hits(doc_url))
+                # Per-file RRF scores are rank-based, not comparable across files; order here is
+                # best-effort until corpus search accepts multiple doc_url filters in one query.
+                combined.sort(key=lambda hit: hit.get("score", 0), reverse=True)
+                hits = combined[:k]
+        except _FolderHybridSearchCancelled:
+            return {"status": "error", "message": "Cancelled"}
+        except _FolderHybridSearchFailed as exc:
+            return self._tool_error(exc.message, code="FOLDER_HYBRID_SEARCH_ERROR")
+
+        if main.is_current():
             _wakeup()
         else:
-            execute_on_main_thread(_wakeup)
-
-        hits = list(result.get("hits") or [])
-        if allowed_urls is not None:
-            hits = [h for h in hits if h.get("doc_url") in allowed_urls]
+            main.call(_wakeup)
 
         return {
             "status": "ok",

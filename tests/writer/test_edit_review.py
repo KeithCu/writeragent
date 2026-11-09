@@ -59,7 +59,7 @@ def test_review_recording_enabled(mode, recording):
 )
 def test_edit_review_wait_seconds(mode, timeout, expected):
     with patch("plugin.writer.edit_review.get_agent_edit_review_mode", return_value=mode), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=timeout):
+         patch("plugin.framework.config.get_config", return_value=timeout):
         assert edit_review_wait_seconds() == expected
 
 
@@ -463,8 +463,8 @@ def test_wait_for_review_completes_on_reliable_empty():
 
 def test_wait_for_review_orphan_token_does_not_block_after_registered_change_resolves():
     # The registered change's token is gone. An unregistered wa-review tag from a failed
-    # tag or a failed missing-bookmark clear is still on a redline. That used to keep
-    # wait_for_review looping; the user has no review row for it.
+    # tag or a failed missing-bookmark clear is still on a redline. wait_for_review must
+    # not loop on that orphan; the user has no review row for it.
     from plugin.writer.edit_review import ChangeRecord, EditReviewSession
 
     session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
@@ -498,6 +498,70 @@ def test_wait_for_review_still_waits_on_open_registered_change_beside_orphan():
     assert result["complete"] is False
     assert result["timed_out"] is True
     assert result["changes"][0]["outcome"] == "pending"
+
+
+def test_wait_for_review_aborts_on_cancelled_scope():
+    from plugin.framework.send_cancellation import SendCancellation
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = make_agent_token(session.session_id, 0)
+    orphan = make_agent_token(session.session_id, 1)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([
+        _FakeRl("open", comment=registered),
+        _FakeRl("orphan", comment=orphan),
+    ])
+    scope = SendCancellation()
+    scope.cancel()
+    cleanup_ran = {"n": 0}
+    orig_cleanup = session.cleanup
+
+    def _cleanup():
+        cleanup_ran["n"] += 1
+        orig_cleanup()
+
+    session.cleanup = _cleanup
+    result = session.wait_for_review(timeout=0.2, poll=0.01, cancel=scope)
+    assert result["complete"] is False
+    assert result["timed_out"] is False
+    assert cleanup_ran["n"] == 1
+
+
+def test_wait_for_review_aborts_when_still_reviewing_false():
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = make_agent_token(session.session_id, 0)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([_FakeRl("open", comment=registered)])
+    result = session.wait_for_review(
+        timeout=0.2,
+        poll=0.01,
+        still_reviewing=lambda: False,
+        cancel=None,
+    )
+    assert result["complete"] is False
+    assert result["timed_out"] is False
+
+
+def test_wait_for_review_still_reviewing_true_times_out():
+    from plugin.writer.edit_review import ChangeRecord, EditReviewSession
+
+    session = EditReviewSession(MagicMock(), MagicMock(), enabled=True)
+    session._active = True
+    registered = make_agent_token(session.session_id, 0)
+    session.changes = [ChangeRecord(registered, "", "NEW", "OLD", "", "")]
+    session.doc = _redlines_doc([_FakeRl("open", comment=registered)])
+    result = session.wait_for_review(
+        timeout=0,
+        poll=0.01,
+        still_reviewing=lambda: True,
+        cancel=None,
+    )
+    assert result["timed_out"] is True
 
 
 def test_wait_for_review_unreliable_scan_does_not_complete_on_empty_intersection():
@@ -774,7 +838,7 @@ def test_wait_for_review_aborts_immediately_when_document_disposed():
 
     with (
         _patch.object(session, "_pending_tokens", return_value=(set(), False)),
-        _patch("plugin.framework.errors.is_document_disposed", return_value=True),
+        _patch("plugin.writer.edit_review.document_is_disposed", return_value=True),
         _patch.object(session, "_review_payload", side_effect=lambda complete, timed_out: fake_payload(complete=complete, timed_out=timed_out)),
         _patch.object(session, "cleanup") as cleanup,
     ):
@@ -952,8 +1016,8 @@ class _SkipRange:
 
 
 def test_string_skipping_redline_unreadable_type_returns_prefix():
-    # What was wrong: falling back to the whole string glued deleted text.
-    # Why this fixes it: return the skipped prefix accumulated before the error.
+    # On an unreadable portion mid-span, return the accepted prefix accumulated before the error,
+    # not the whole range string with deleted text glued in.
     from plugin.writer.edit_review import _string_skipping_redline
 
     span = _SkipRange([_SkipPara([
@@ -1041,4 +1105,66 @@ def test_block_safe_for_surgical_rejects_multi_paragraph():
     from plugin.writer.edit_review import _block_safe_for_surgical
 
     assert _block_safe_for_surgical(_Block([["Text"], ["Text"]])) is False
+
+
+def test_empty_append_finish_closes_undo():
+    from plugin.writer.edit_review import WriterStreamedAppendSession
+
+    undo = MagicMock()
+    doc = MagicMock()
+    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)):
+        session = WriterStreamedAppendSession(doc, MagicMock(), "orig")
+    undo.reset_mock()
+    session.finish()
+    undo.close.assert_called()
+
+
+def test_empty_rewrite_finish_closes_undo():
+    from plugin.writer.edit_review import WriterStreamedRewriteSession
+
+    undo = MagicMock()
+    doc = MagicMock()
+    with patch("plugin.writer.edit_review._begin_streamed_edit", return_value=(undo, False, None)):
+        session = WriterStreamedRewriteSession(doc, MagicMock(), "orig")
+    undo.reset_mock()
+    session.finish()
+    undo.close.assert_called()
+
+
+def test_strip_echoed_edit_scaffolding_removes_completion_markers():
+    from plugin.writer.edit_review import strip_echoed_edit_scaffolding
+
+    raw = "Fixed text\nEND OF DOCUMENT"
+    assert strip_echoed_edit_scaffolding(raw) == "Fixed text"
+    assert strip_echoed_edit_scaffolding("EDITED VERSION:\nHello") == "Hello"
+
+
+def test_rewrite_session_preserves_paragraph_breaks_on_finish():
+    from plugin.writer.edit_review import _replace_range_with_paragraph_text
+
+    text_obj = MagicMock()
+    text_range = MagicMock()
+    text_range.getText.return_value = text_obj
+    cursor = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+
+    _replace_range_with_paragraph_text(text_range, "Alpha\nBeta\nGamma")
+
+    assert cursor.setString.call_args_list[0].args[0] == ""
+    assert cursor.setString.call_args_list[1].args[0] == "Alpha"
+    assert text_obj.insertControlCharacter.call_count == 2
+
+
+def test_replace_range_collapses_doubled_newlines_between_paragraphs():
+    from plugin.writer.edit_review import _replace_range_with_paragraph_text
+
+    text_obj = MagicMock()
+    text_range = MagicMock()
+    text_range.getText.return_value = text_obj
+    cursor = MagicMock()
+    text_obj.createTextCursorByRange.return_value = cursor
+
+    _replace_range_with_paragraph_text(text_range, "Alpha\n\nBeta\n\nGamma", collapse_blank_paragraph_lines=True)
+
+    assert text_obj.insertControlCharacter.call_count == 2
 

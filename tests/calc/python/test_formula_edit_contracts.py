@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from plugin.calc.python.formula_edit import (
-    PythonFormulaParts,
+    PyFormula,
     _deal_data_args_ok,
     _deal_range_addr_ok,
     _parts_result_ok,
@@ -40,7 +40,7 @@ def test_quoted_parse_result_ok() -> None:
 
 def test_parts_result_ok() -> None:
     assert _parts_result_ok(None) is True
-    assert _parts_result_ok(PythonFormulaParts("=PY(", "x", ")")) is True
-    assert _parts_result_ok(PythonFormulaParts("=PY", "x", ")")) is False
-    assert _parts_result_ok(PythonFormulaParts("", "x", ")")) is False
-    assert _parts_result_ok(PythonFormulaParts("=PY(", "x", "")) is False
+    assert _parts_result_ok(PyFormula("=PY(", "x", data_suffix=")")) is True
+    assert _parts_result_ok(PyFormula("=PY", "x", data_suffix=")")) is False
+    assert _parts_result_ok(PyFormula("", "x", data_suffix=")")) is False
+    assert _parts_result_ok(PyFormula("=PY(", "x", data_suffix="")) is False

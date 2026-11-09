@@ -47,16 +47,13 @@ def should_prepend_dev_llm_system_prefix() -> bool:
 
 # Local / Harmony-style models sometimes leak chat-template control tokens.
 _CHAT_TEMPLATE_CONTROL_TOKEN_RE = re.compile(r"<\|[a-zA-Z0-9_]+\|>")
-# Bugfix: Previously _DATA_URI_IMAGE_RE used [a-zA-Z0-9+/=\s]+ which greedily
-# swallowed trailing plain text/prose that shared base64 alphabet characters across newlines.
-# The new pattern matches the initial base64 run, followed only by valid MIME-wrapped
-# continuation lines (>=40 chars) or a short padded tail ending in '='.
+# Matches data URL image base64 without greedily swallowing following prose.
 _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/([a-zA-Z0-9+.-]+);base64,([A-Za-z0-9+/=]+(?:\s+[A-Za-z0-9+/=]{40,})*(?:\s+[A-Za-z0-9+/=]{0,39}={1,2})?)"
 )
 
 
-def _text_of(value: object) -> str:
+def text_of(value: object) -> str:
     """Coerce value to str if it is a str instance, else empty string."""
     return value if isinstance(value, str) else ""
 
@@ -74,10 +71,9 @@ def normalize_message_content(raw: Any) -> str | None:
             if isinstance(item, str):
                 parts.append(item)
             elif isinstance(item, dict):
-                # Bugfix: a non-string text (a nested object) reached str.join
-                # and the stream loop turned the TypeError into NetworkError.
+                # Ensure text part is converted to string.
                 if item.get("type") == "text" or "text" in item:
-                    parts.append(_text_of(item.get("text")))
+                    parts.append(text_of(item.get("text")))
         return "".join(parts) if parts else None
     return str(raw)
 
@@ -151,14 +147,14 @@ def extract_and_strip_images_from_message(message: dict[str, Any], strip_structu
         new_content_list: list[Any] = []
         for part in content:
             if isinstance(part, dict) and part.get("type") == "text":
-                part["text"] = _DATA_URI_IMAGE_RE.sub(repl, _text_of(part.get("text")))
+                part["text"] = _DATA_URI_IMAGE_RE.sub(repl, text_of(part.get("text")))
             elif (
                 isinstance(part, dict)
                 and part.get("type") == "image_url"
                 and strip_structured_image_blocks
             ):
                 image_url = part.get("image_url")
-                url_val = _text_of(image_url.get("url") if isinstance(image_url, dict) else image_url)
+                url_val = text_of(image_url.get("url") if isinstance(image_url, dict) else image_url)
                 if not url_val:
                     part = {"type": "text", "text": "[Image Ref]"}
                 elif url_val.startswith("data:"):
@@ -214,10 +210,7 @@ def normalize_multimodal_messages(messages: list[dict[str, Any]], provider: str)
 
             if target_message is None:
                 target_message = {"role": "user", "content": "[Image attached by tool/system]"}
-                # Bugfix: When all preceding messages were system messages, insert_idx previously
-                # remained 0, placing the synthetic user message before system instructions.
-                # Defaulting insert_idx to len(messages) appends after all system messages when no
-                # non-system message exists, while correctly inserting before the first non-system message otherwise.
+                # Insert synthetic user message after system messages or before first non-system message.
                 insert_idx = len(messages)
                 for i, msg in enumerate(messages):
                     if not isinstance(msg, dict) or msg.get("role") != "system":
@@ -248,13 +241,11 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
     """Coalesce consecutive system messages, inject the date line, then flatten text-only system content.
 
     Dev-build prefix and ``normalize_multimodal_messages`` stay between the date
-    line and the flatten. That was the order inside ``make_chat_request``;
-    pulling the three blocks out must not reorder them around image normalization.
+    line and the flatten.
     """
     coalesced_messages: list[Any] = []
     coalesced_any = False
     for m in messages:
-        # Bugfix: Non-dict messages in the list previously caused AttributeError when checking .get("role").
         # Pass non-dict items through untouched.
         if not isinstance(m, dict):
             coalesced_messages.append(m)
@@ -290,7 +281,7 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
 
     messages = coalesced_messages
 
-    # Inject date into the first system message
+    # Non-chat callers never see the chat tail, so the date is injected here.
     today = datetime.date.today().strftime("%A, %Y-%m-%d")
     date_msg = f"Today's date is {today}."
     system_message: Any = None
@@ -315,14 +306,14 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
                 if isinstance(item, dict) and item.get("type") == "text":
                     if text_item is None:
                         text_item = item
-                    t = _text_of(item.get("text"))
+                    t = text_of(item.get("text"))
                     if _has_date_line(t, date_msg):
                         already_has_date_line = True
                         break
 
             if not already_has_date_line:
                 if text_item:
-                    t = _text_of(text_item.get("text"))
+                    t = text_of(text_item.get("text"))
                     text_item["text"] = f"{date_msg}\n\n{t}" if t else date_msg
                 else:
                     old_content.insert(0, {"type": "text", "text": date_msg})
@@ -345,7 +336,7 @@ def prepare_chat_messages(messages: list[Any], provider: str, *, prepend_dev_bui
                 only_text = True
                 for item in content:
                     if isinstance(item, dict) and item.get("type") == "text":
-                        all_text.append(_text_of(item.get("text")))
+                        all_text.append(text_of(item.get("text")))
                     else:
                         only_text = False
                         break
@@ -375,7 +366,7 @@ def prepend_dev_build_system_prefix_to_messages(messages: list[dict[str, Any]]) 
             # Prepend to the first text block if it doesn't already have it
             for item in c:
                 if isinstance(item, dict) and item.get("type") == "text":
-                    text = _text_of(item.get("text"))
+                    text = text_of(item.get("text"))
                     if text.startswith(prefix):
                         return
                     item["text"] = f"{prefix}\n\n{text}" if text else prefix

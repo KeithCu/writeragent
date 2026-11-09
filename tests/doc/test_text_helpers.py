@@ -387,7 +387,6 @@ def test_get_document_length_is_the_visible_writer_text():
     model = MagicMock()
     with (
         patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.WRITER),
-        patch.object(text_helpers, "check_disposed"),
         patch.object(text_helpers, "get_string_without_tracked_deletions", return_value="ab\r\ncd") as visible,
     ):
         assert text_helpers.get_document_length(model) == 5
@@ -751,14 +750,51 @@ def test_get_document_length_non_writer_is_zero():
     from plugin.doc import text_helpers
 
     model = MagicMock()
-    with (
-        patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.CALC),
-        patch.object(text_helpers, "check_disposed"),
-    ):
+    with patch.object(text_helpers._doc_type, "get_document_type", return_value=text_helpers._doc_type.DocumentType.CALC):
         assert text_helpers.get_document_length(model) == 0
     model.getText.assert_not_called()
 
 
+def test_iter_elements_limited_leaves_enum_when_cap_hit():
+    """Capped walks must not consume past the limit before record_walk_cap checks."""
+    from plugin.doc.text_helpers import iter_elements_limited
+
+    enum = MagicMock()
+    rest = ["a", "b", "c"]
+    enum.hasMoreElements.side_effect = lambda: bool(rest)
+    enum.nextElement.side_effect = lambda: rest.pop(0)
+    seen = 0
+    for _item in iter_elements_limited(enum, 1):
+        seen += 1
+    assert seen == 1
+    assert enum.hasMoreElements() is True
+
+
+def test_starts_at_or_after():
+    from plugin.doc.text_helpers import starts_at_or_after
+
+    text = MagicMock()
+    left = MagicMock()
+    right = MagicMock()
+
+    # None text -> False
+    assert starts_at_or_after(None, left, right) is False
+
+    # 1: left starts before right -> False
+    text.compareRegionStarts.return_value = 1
+    assert starts_at_or_after(text, left, right) is False
+
+    # 0: left starts at right -> True
+    text.compareRegionStarts.return_value = 0
+    assert starts_at_or_after(text, left, right) is True
+
+    # -1: left starts after right -> True
+    text.compareRegionStarts.return_value = -1
+    assert starts_at_or_after(text, left, right) is True
+
+    # Exception during compare -> False
+    text.compareRegionStarts.side_effect = RuntimeError("UNO error")
+    assert starts_at_or_after(text, left, right) is False
 
 
 def _del_mark(is_start):

@@ -253,9 +253,8 @@ def test_pure_insertion_and_deletion_outcomes_uno(ctx, doc):
 @with_native_doc("writer")
 def test_split_three_runs_resolve_individually_and_reconstruct_uno(ctx, doc):
     """THREE surgical changes in one paragraph -> three independently reviewable changes. This
-    exercises the real right-to-left offset application for 3+ runs (the central risk, previously
-    only smoke-tested with two words): resolve the middle one alone, then accept the rest and confirm
-    the paragraph reconstructs to the agent's text exactly."""
+    exercises right-to-left offset application for 3+ runs (not just two words): resolve the middle
+    one alone, then accept the rest and confirm the paragraph reconstructs to the agent's text exactly."""
     base = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu"
     _body(doc, ctx, "Intro.", base)
     found = _find(doc, base)
@@ -325,7 +324,7 @@ def test_block_safe_for_surgical_guard_uno(ctx, doc):
 @with_native_doc("writer")
 def test_go_right_chunks_past_short_cap_uno(ctx, doc):
     """_go_right moves/selects correctly PAST goRight's 32767 short cap (chunked). This is
-    the offset helper the surgical path uses; before the fix a raw goRight(>32767) overflowed.
+    the offset helper the surgical path uses; a raw goRight(>32767) overflows without chunking.
     Tested directly because the surgical path needs a search range (which we can't build for a
     35000-char block via findFirst)."""
     from plugin.doc.text_helpers import go_right
@@ -345,7 +344,7 @@ def test_surgical_partial_apply_rolls_back_atomically_uno(ctx, doc):
     back. Proves the two UNO semantics the fix relies on and unit fakes can't: (a) undoing the
     grouped context removes the first sub-edit's tagged redlines, (b) the orphan anchor bookmark is
     cleaned -- so the document is byte-for-byte pristine and the failure is surfaced, not swallowed."""
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     base = "The quick brown fox jumps over the lazy dog near the river."
     _body(doc, ctx, base)
@@ -394,7 +393,7 @@ def test_surgical_first_subedit_failure_preserves_prior_undo_uno(ctx, doc):
     the undo context is empty and discarded on leave -- so the rollback must NOT call undo() (that
     would revert the user's PRIOR action). Proves the empty-context-discard semantics with a real
     undoable user edit that must survive the failed batch."""
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     _body(doc, ctx, "Alpha beta gamma delta epsilon zeta.")
     # A real, undoable user edit BEFORE the agent batch -- it MUST survive the rollback.
@@ -439,7 +438,7 @@ def test_prior_surgical_batch_survives_later_empty_failed_batch_uno(ctx, doc):
     fails before mutating, so its context is EMPTY and discarded on leave -- exposing batch 1's title
     on top. The per-batch-unique title must stop batch 2's rollback from undoing batch 1's good edit
     (a constant title would match and revert it)."""
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     b1 = "The quick brown fox jumps over the lazy dog."
     b2 = "A nimble red cat leaps across the small wooden fence."

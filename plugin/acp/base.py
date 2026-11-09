@@ -16,11 +16,16 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """Abstract base for agent backends. All adapters push events into a queue.Queue."""
 
-from typing import Any, ClassVar
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, ClassVar
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 
 class AgentBackend:
-    """Contract for pluggable agent backends (builtin plus the five ACP backends).
+    """Contract for pluggable agent backends (builtin plus the six ACP backends).
 
     Inputs: user_message, document_context, document_url (for MCP targeting),
     optional system_prompt.
@@ -35,10 +40,20 @@ class AgentBackend:
         """Return True if this backend can be used (e.g. CLI installed, config valid)."""
         return True
 
-    def send(self, queue: Any, user_message: str, document_context: str | None, document_url: str | None, system_prompt: str | None = None, mcp_url: str | None = None, stop_checker: Any = None) -> None:
+    def send(
+        self,
+        queue: Any,
+        user_message: str,
+        document_context: str | None,
+        document_url: str | None,
+        system_prompt: str | None = None,
+        mcp_url: str | None = None,
+        cancel: SendCancellation | None = None,
+    ) -> None:
         """Run the agent; push events to queue. Block until done or stopped.
 
-        Called from a worker thread. stop_checker() should return True when user pressed Stop.
+        Called from a worker thread. ``cancel`` is this send's :class:`~plugin.framework.send_cancellation.SendCancellation`;
+        ``None`` means the call is not tied to a sidebar send scope.
         """
         raise NotImplementedError
 

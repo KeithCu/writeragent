@@ -73,14 +73,14 @@ def test_venv_probe_progress_pumps_events():
     with (
         patch("plugin.scripting.venv_probe_ui.process_events_to_idle") as mock_pump,
         patch("plugin.scripting.venv_probe_ui.set_control_text"),
-        patch("plugin.scripting.venv_probe_ui.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         progress.set_status("warming worker")
 
     mock_pump.assert_called_once_with(ctx)
 
 
-def test_venv_probe_progress_finish_pumps_only_on_main_thread() -> None:
+def test_venv_probe_progress_finish_pumps_only_when_current() -> None:
     ctx = MagicMock()
     progress = VenvProbeProgressDialog(ctx)
     progress._dlg = MagicMock()
@@ -90,7 +90,7 @@ def test_venv_probe_progress_finish_pumps_only_on_main_thread() -> None:
         patch("plugin.scripting.venv_probe_ui.process_events_to_idle") as mock_pump,
         patch("plugin.scripting.venv_probe_ui.set_control_text"),
         patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
-        patch("plugin.scripting.venv_probe_ui.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         progress.finish("Venv check failed", False)
 
@@ -100,7 +100,7 @@ def test_venv_probe_progress_finish_pumps_only_on_main_thread() -> None:
         patch("plugin.scripting.venv_probe_ui.process_events_to_idle") as mock_pump,
         patch("plugin.scripting.venv_probe_ui.set_control_text"),
         patch("plugin.scripting.venv_probe_ui.set_control_enabled"),
-        patch("plugin.scripting.venv_probe_ui.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
     ):
         progress.finish("Venv OK", True)
 
@@ -157,7 +157,7 @@ def test_download_vec_pack_listener_runs_vec_only_download() -> None:
     with (
         patch("plugin.librepy.settings.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_vec_pack_download", side_effect=fake_download),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_execute),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_execute),
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=fake_ensure),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=fake_invalidate),
     ):
@@ -190,7 +190,7 @@ def test_download_vec_pack_listener_skips_bind_when_download_fails() -> None:
     with (
         patch("plugin.librepy.settings.VenvProbeProgressDialog", _FakeProgress),
         patch("plugin.scripting.native_binaries.run_vec_pack_download", side_effect=fake_download),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=AssertionError("hop")),
+        patch("plugin.framework.queue_executor.main.call", side_effect=AssertionError("hop")),
         patch("plugin.scripting.native_binaries.ensure_native_binaries_on_path", side_effect=AssertionError("ensure")),
         patch("plugin.scripting.payload_codec.invalidate_host_cython_accelerator", side_effect=AssertionError("invalidate")),
     ):
@@ -409,7 +409,7 @@ def test_open_librepy_settings_ok_writes_one_batch() -> None:
         patch("plugin.librepy.settings.get_optional", return_value=MagicMock()),
         patch("plugin.librepy.settings.read_settings_control", side_effect=fake_read),
         patch("plugin.chatbot.settings_fields.get_config", return_value={}),
-        patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
+        patch("plugin.chatbot.settings_fields.save") as mock_set,
     ):
         open_librepy_settings(MagicMock())
 

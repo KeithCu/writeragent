@@ -9,9 +9,7 @@ This module holds **Unicode sentence-boundary** tables, scheduling thresholds,
 Thai/Lao/Khmer whitespace chunking, hashing/fingerprinting, and the LLM worker caps/prompts.
 
 Must not import sibling grammar-processing modules under ``plugin.writer.locale``
-(leaf data modules such as ``locale_abbrev`` are fine). ``grammar_max_in_flight`` is the
-one deliberate exception: it lazily imports ``grammar_worker`` because the worker imports
-this module (a top-level import would cycle).
+(leaf data modules such as ``locale_abbrev`` and ``grammar_settings`` are fine).
 """
 
 from __future__ import annotations
@@ -22,6 +20,7 @@ import re
 from typing import Any, Sequence
 
 from plugin.framework.grammar_rule_ids import bcp47_to_uno_lang_country
+from plugin.writer.locale import grammar_settings
 
 _log = logging.getLogger("writeragent.grammar")
 
@@ -39,22 +38,18 @@ GRAMMAR_CACHE_VERSION = 4
 GRAMMAR_CACHE_MAX_CHARS = 900_000
 
 # Name of the user-defined string property under which the document-embedded cache is stored inside the ODT file.
-# Default: "WriterAgentGrammarCache"
 GRAMMAR_DOC_CACHE_UDPROP = "WriterAgentGrammarCache"
 
 # Cache sizing limits
 # Maximum number of entries kept in the in-memory sentence LRU cache per session to prevent memory leaks.
-# Default: 2048 sentences
 MAX_CACHE_SIZE = 2048
 
 # Maximum number of recent incomplete sentences scanned backward from the LRU tail for prefix compaction.
 # Bounding this scan prevents O(N) overhead during active typing bursts.
-# Default: 10 sentences
 MAX_RECENT_INCOMPLETE_SCAN = 10
 
 # The hard upper limit for batching sentences from a single paragraph into one LLM request.
 # Rationale: Avoids hitting LLM output token limits and prevents batch failures while optimizing throughput.
-# Default: 8 sentences
 GRAMMAR_BATCH_MAX_SENTENCES = 8
 
 # Hard upper limit for simultaneous background grammar HTTP calls (doc.grammar_proofreader_max_in_flight).
@@ -65,7 +60,10 @@ def _clamped_int_config(key: str, lo: int, hi: int, *, warn_name: str = "") -> i
     """Read an int config key, falling back to lo if <= 0 and clamping to [lo, hi]."""
     from plugin.framework import config
 
-    n = config.get_config_int_safe(key)
+    try:
+        n = int(config.get_config(key))
+    except Exception:
+        n = 0
     clamped = max(lo, min(hi, n))
     if warn_name and n > 0 and clamped != n:
         _log.warning("[grammar] %s %d out of range [%d, %d], clamping", warn_name, n, lo, hi)
@@ -78,11 +76,8 @@ def grammar_max_in_flight() -> int:
     Local providers (Harper, LanguageTool, Vale) always use 1 worker; parallel
     drain threads and HTTP slots apply only when the grammar provider is LLM.
     """
-    # Lazy: grammar_worker imports this module at top level, so importing it here would cycle.
-    from plugin.writer.locale.grammar_worker import get_grammar_provider
-
     n = _clamped_int_config("doc.grammar_proofreader_max_in_flight", lo=1, hi=GRAMMAR_MAX_IN_FLIGHT)
-    if get_grammar_provider() != "llm":
+    if grammar_settings.provider() != "llm":
         # Harper / LanguageTool / Vale: never parallel drain threads.
         if n > 1:
             _log.debug("[grammar] max_in_flight=%s ignored for local provider (always 1)", n)
@@ -145,28 +140,23 @@ def checked_grammar_text(text: str, limit: int) -> str:
 
 
 # Maximum tokens requested for a single-sentence language detection LLM call.
-# Default: 256 tokens
 GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_SINGLE = 256
 
 # Token allocation target per item when batching language detection checks.
-# Default: 150 tokens
 GRAMMAR_LANGUAGE_DETECT_MAX_TOKENS_PER_BATCH_ITEM = 150
 
 # The idle/quiet period wait time in seconds before sequential worker drains and executes partial sentences.
 # Complete sentences do not wait out this pause; they coalesce for GRAMMAR_COMPLETE_COALESCE_S.
 # Rationale: Aggregates rapid edits during active typing to avoid spamming the LLM on every single keystroke.
-# Default: 1.0 second
 GRAMMAR_WORKER_PAUSE_TIMEOUT_S = 1.0
 
 # Fixed coalesce window for complete sentences before grouping and executing.
 # Complete sentences do not debounce keystroke-by-keystroke like partials.
-# Default: 0.05 seconds (50ms)
 GRAMMAR_COMPLETE_COALESCE_S = 0.05
 
 # Text scheduling thresholds
 # Minimum number of non-space characters required to enqueue incomplete sentence fragments during typing.
 # Rationale: Drops tiny partial word fragments to prevent checking garbage/incomplete drafts.
-# Default: 15 non-space characters
 GRAMMAR_PARTIAL_MIN_NONSPACE_CHARS = 15
 
 # Worker LLM system prompts
@@ -207,6 +197,33 @@ The 'results' array must have exactly the same number of elements as the input s
 def fingerprint_for_text(text: str) -> str:
     """Truncate to 24 hex characters (96 bits) for stable collision-resistant sentence caching."""
     return hashlib.sha256(text.encode("utf-8", errors="surrogatepass")).hexdigest()[:24]
+
+
+def normalize_for_sentence_cache(text: str) -> str:
+    """Canonical form for cache key that preserves first sentence terminator.
+
+    - rstrip() whitespace (preserves existing "Hello." vs "Hello. " behavior).
+    - Keep everything up to and including the *first* sentence terminator.
+    - Ignore any additional trailing punctuation after the first terminator.
+    - This makes "Hello." and "Hello..." share a cache entry, and
+      "Hello?" and "Hello?..." share one, but "Hello?" and "Hello." remain distinct.
+
+    The regex below matches all sentence terminators in ``grammar_proofread_locale.GRAMMAR_SENTENCE_TERMINATORS``
+    (the full Unicode STerm set). Both ``looks_complete_sentence`` and cache key normalization
+    are fully aligned and use the exact same character set.
+    """
+    s = text.rstrip()
+    if not s:
+        return s
+    match = GRAMMAR_CACHE_NORMALIZATION_RE.search(s)
+    if match:
+        return match.group(1)
+    return s
+
+
+def sentence_identity_fp(sentence: str) -> str:
+    """Stable fingerprint for cache lookup: normalize then hash (same key space as L1 cache keys)."""
+    return fingerprint_for_text(normalize_for_sentence_cache(sentence))
 
 
 def uno_locales_for_tags(tags: Sequence[str]) -> tuple[Any, ...]:

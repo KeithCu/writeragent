@@ -67,15 +67,15 @@ def test_get_embedder_loads_via_offline_helper(mock_load: MagicMock) -> None:
 @patch("plugin.embeddings.venv.embeddings_cross_encoder_rerank.cross_encoder_rerank_candidates")
 def test_llama_index_postprocessor_uses_shared_cross_encoder(mock_rerank: MagicMock) -> None:
     from plugin.embeddings.venv.embeddings_llama_index import (
-        HAS_LLAMA_INDEX,
-        NodeWithScore,
-        QueryBundle,
-        TextNode,
+        llama_index_installed,
         _apply_llama_index_postprocessors,
     )
 
-    if not HAS_LLAMA_INDEX:
+    if not llama_index_installed():
         pytest.skip("llama-index-core not installed")
+
+    from llama_index.core.schema import NodeWithScore, TextNode  # type: ignore
+    from llama_index.core import QueryBundle  # type: ignore
 
     node = TextNode(text="snippet one", id_="1", metadata={"doc_url": "file:///a.odt", "para_index": 0})
     nodes = [NodeWithScore(node=node, score=0.5)]

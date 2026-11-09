@@ -31,7 +31,7 @@ import functools
 import logging
 from typing import Any, Callable, NoReturn, TYPE_CHECKING
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.thread_guard import THREAD_VIOLATION_MARK
 
 log = logging.getLogger(__name__)
@@ -80,6 +80,9 @@ if TYPE_CHECKING:
     class _XMouseClickHandlerParent:
         pass
 
+    class _XKeyHandlerParent:
+        pass
+
     class _XTopWindowListenerParent:
         pass
 
@@ -99,6 +102,7 @@ else:
             XItemListener as _XItemListenerParent,
             XTextListener as _XTextListenerParent,
             XKeyListener as _XKeyListenerParent,
+            XKeyHandler as _XKeyHandlerParent,
             XWindowListener as _XWindowListenerParent,
             XMouseListener as _XMouseListenerParent,
             XFocusListener as _XFocusListenerParent,
@@ -120,6 +124,7 @@ else:
         _XItemListenerParent = type("_DummyItemListener", (), {})
         _XTextListenerParent = type("_DummyTextListener", (), {})
         _XKeyListenerParent = type("_DummyKeyListener", (), {})
+        _XKeyHandlerParent = type("_DummyKeyHandler", (), {})
         _XWindowListenerParent = type("_DummyWindowListener", (), {})
         _XDocumentEventListenerParent = type("_DummyDocumentEventListener", (), {})
         _XActivationEventListenerParent = type("_DummyActivationListener", (), {})
@@ -166,7 +171,7 @@ def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
     """The one boundary for *exc*, or None when the callback may fail soft.
 
     None is an ordinary Python or UNO runtime error. Real disposal uses
-    :func:`plugin.framework.errors.is_real_disposal`, so a ``RuntimeException``
+    :func:`plugin.framework.errors.is_disposal`, so a ``RuntimeException``
     name is not disposal.
     """
     if isinstance(exc, ListenerBoundary):
@@ -176,7 +181,7 @@ def listener_boundary(exc: BaseException) -> ListenerBoundary | None:
     name = type(exc).__name__
     if "CloseVetoException" in name or "TerminationVetoException" in name:
         return ListenerBoundary("veto", exc)
-    if is_real_disposal(exc):
+    if is_disposal(exc):
         return ListenerBoundary("disposed", exc)
     return None
 
@@ -252,10 +257,7 @@ def _catch_and_log(func: Any = None, *, failure: Any = None) -> Any:
 class BaseListener(_BaseParent, _XEventListenerParent):
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
-        # What was wrong: a hand-maintained frozenset missed new callbacks, so a
-        # subclass override entered the bridge without _catch_and_log.
-        # How it happened: adding or wrapping new listener methods required updating _UNO_CALLBACK_NAMES.
-        # Why this change: discover callback names dynamically from base classes on the MRO with _CATCH_LOGGED_ATTR.
+        # Discover callback names dynamically from base classes on the MRO with _CATCH_LOGGED_ATTR.
         for name, method in list(cls.__dict__.items()):
             if method is None or getattr(method, _CATCH_LOGGED_ATTR, None) is not None:
                 continue
@@ -512,6 +514,22 @@ class BaseMouseClickHandler(BaseListener, _XMouseClickHandlerParent):
         return False
 
 
+class BaseKeyHandler(BaseListener, _XKeyHandlerParent):
+    @_catch_and_log(failure=False)
+    def keyPressed(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
+        return bool(self.on_key_pressed(e))
+
+    @_catch_and_log(failure=False)
+    def keyReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO signature
+        return bool(self.on_key_released(e))
+
+    def on_key_pressed(self, e: Any) -> bool:
+        return False
+
+    def on_key_released(self, e: Any) -> bool:
+        return False
+
+
 class BaseModifyListener(BaseListener, _XModifyListenerParent):
     """Base listener for model/sheet/controller change notifications (XModifyListener).
 
@@ -549,8 +567,8 @@ class BaseTerminateListener(BaseListener, _XTerminateListenerParent):
         pass
 
 
-def _controller_alive(controller: Any) -> bool:  # pyright: ignore[reportUnusedFunction]
-    """Pruning must never raise: uno_probe re-raises real disposal."""
+def controller_alive(controller: Any) -> bool:
+    """Pruning must never raise: uno_read re-raises real disposal."""
     try:
         return controller.getModel() is not None
     except Exception:

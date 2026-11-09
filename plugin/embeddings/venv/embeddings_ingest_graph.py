@@ -8,13 +8,12 @@
 """LangGraph ingestion pipeline: split → embed → sqlite-vec upsert (trusted venv)."""
 from __future__ import annotations
 
-import json
 import logging
 import time
 from pathlib import Path
 from typing import Any, NotRequired, TypedDict
 
-from plugin.embeddings.embeddings_cache import dim_from_meta_path
+from plugin.embeddings.embeddings_cache import CorpusMeta
 from plugin.embeddings.embeddings_split import CHUNK_OVERLAP, CHUNK_SIZE
 from plugin.framework.constants import EMBEDDINGS_INGEST_BATCH_SIZE, EMBEDDINGS_SCHEMA_VERSION as SCHEMA_VERSION
 from plugin.embeddings.venv.embeddings_index import embed_texts
@@ -24,9 +23,10 @@ from plugin.embeddings.venv.embeddings_sqlite import (
     delete_by_chunk_locator,
     delete_paragraph_keys,
     ensure_schema,
-    upsert_chunk_with_vector,
-    _conn_operational_error,
+    missing_vector_chunks,
     model_slug,
+    stored_model_dim,
+    upsert_chunk_with_vector,
 )
 
 log = logging.getLogger(__name__)
@@ -73,26 +73,13 @@ def delete_stale(state: IngestState) -> dict[str, Any]:
     build_fts = bool(state.get("build_fts"))
     build_vectors = bool(state.get("build_vectors"))
     model = str(state.get("model") or "")
-    dim = dim_from_meta_path(str(state.get("meta_path") or ""))
+    meta = CorpusMeta.load(str(state.get("meta_path") or ""))
+    dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        # Cold corpus: model_metadata does not exist until ensure_schema.
-        # Catch this connection's OperationalError and continue. macOS opens
-        # the corpus with pysqlite3 (stdlib sqlite3 has no
-        # enable_load_extension), and pysqlite3.OperationalError does not
-        # subclass sqlite3.OperationalError, so "no such table" would abort
-        # the node.
         if dim is None and build_vectors:
-            try:
-                row = conn.execute(
-                    "SELECT dim FROM model_metadata WHERE embedding_model = ?",
-                    (model,),
-                ).fetchone()
-                if row is not None:
-                    dim = int(row["dim"])
-            except _conn_operational_error(conn):
-                pass
+            dim = stored_model_dim(conn, model)
 
         # Cold build: embedding dim is unknown until embed runs; upsert creates vec_chunks.
         with_vec = build_vectors and dim is not None
@@ -130,72 +117,17 @@ def embed_and_upsert_batches(state: IngestState) -> dict[str, Any]:
 
     conn = connect_corpus_db(str(state["db_path"]))
     try:
-        if build_vectors:
-            from plugin.embeddings.venv.embeddings_sqlite import _load_vec_extension
-            _load_vec_extension(conn)
-        schema_dim = dim_from_meta_path(str(state.get("meta_path") or ""))
+        meta = CorpusMeta.load(str(state.get("meta_path") or ""))
+        schema_dim = meta.dim if (meta.is_valid and meta.dim > 0) else None
 
-        # Same cold-DB catch as delete_stale: this connection's OperationalError.
         if schema_dim is None and build_vectors:
-            try:
-                row = conn.execute(
-                    "SELECT dim FROM model_metadata WHERE embedding_model = ?",
-                    (model,),
-                ).fetchone()
-                if row is not None:
-                    schema_dim = int(row["dim"])
-            except _conn_operational_error(conn):
-                pass
+            schema_dim = stored_model_dim(conn, model)
 
         with_vec = build_vectors and schema_dim is not None
         ensure_schema(conn, dim=schema_dim, with_fts=build_fts, with_vec=with_vec, model=model)
 
-        # Identify missing vector embeddings for the active model
-        slug = model_slug(model)
-        tbl_name = f"vec_chunks_{slug}"
-        has_table = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
-            (tbl_name,),
-        ).fetchone()
-
-        missing_chunks = []
-        if has_table:
-            rows = conn.execute(
-                f"""
-                SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
-                FROM chunks
-                WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name})
-                """
-            ).fetchall()
-            for r in rows:
-                missing_chunks.append({
-                    "chunk_id": int(r["chunk_id"]),
-                    "doc_url": str(r["doc_url"] or ""),
-                    "para_index": int(r["para_index"] or 0),
-                    "char_start": int(r["char_start"] or 0),
-                    "char_end": int(r["char_end"] or 0),
-                    "content_hash": str(r["content_hash"] or ""),
-                    "text": str(r["text"] or "").strip(),
-                    "file_mtime": float(r["file_mtime"] or 0.0),
-                })
-        else:
-            rows = conn.execute(
-                """
-                SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
-                FROM chunks
-                """
-            ).fetchall()
-            for r in rows:
-                missing_chunks.append({
-                    "chunk_id": int(r["chunk_id"]),
-                    "doc_url": str(r["doc_url"] or ""),
-                    "para_index": int(r["para_index"] or 0),
-                    "char_start": int(r["char_start"] or 0),
-                    "char_end": int(r["char_end"] or 0),
-                    "content_hash": str(r["content_hash"] or ""),
-                    "text": str(r["text"] or "").strip(),
-                    "file_mtime": float(r["file_mtime"] or 0.0),
-                })
+        # FTS-only ingest must not re-upsert chunks that merely lack a vector.
+        missing_chunks = missing_vector_chunks(conn, model) if build_vectors else []
 
         # Merge incoming chunks with missing chunks
         all_chunks = list(chunks)
@@ -308,16 +240,16 @@ def _write_meta(state: IngestState, *, chunk_count_override: int, dim: int) -> N
     meta_path = Path(str(state.get("meta_path") or ""))
     if not meta_path.parent:
         return
-    meta_path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "schema_version": SCHEMA_VERSION,
-        "storage_backend": "sqlite_vec",
-        "embedding_model": str(state.get("model") or ""),
-        "dim": str(dim),
-        "chunk_count": str(chunk_count_override),
-        "updated_at": str(time.time()),
-    }
-    meta_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    from plugin.embeddings.embeddings_cache import CorpusMeta
+
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        storage_backend="sqlite_vec",
+        embedding_model=str(state.get("model") or ""),
+        dim=dim,
+        chunk_count=chunk_count_override,
+        updated_at=str(time.time()),
+    ).save(meta_path)
 
 
 def _build_ingest_graph() -> Any:

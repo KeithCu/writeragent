@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from typing import Callable
 import zipfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -181,6 +182,7 @@ def test_apply_dag_formulas_defined_name_add_failure_rolls_back(monkeypatch):
 
 
 def test_script_bank_only_long_scripts_and_mirrors_a1():
+    from plugin.calc.address_utils import canonical
     from plugin.calc.excel_py_convert.script_bank import (
         INLINE_CODE_MAX_CHARS,
         code_bank_ref,
@@ -188,10 +190,9 @@ def test_script_bank_only_long_scripts_and_mirrors_a1():
         collect_script_bank,
         collect_safety_warnings,
         formula_for_converted_cell,
-        normalize_bank_a1,
     )
 
-    assert normalize_bank_a1("$h$4") == "H4"
+    assert canonical("$h$4") == "H4"
     assert code_sheet_name_for("Pivots") == "py_code_Pivots"
     assert code_bank_ref("Pivots", "H4") == "py_code_Pivots.H4"
 
@@ -480,7 +481,7 @@ def test_doc_from_event_onnew_controller_throw_still_returns_calc_source():
     assert _doc_from_event(_OnNew()) is source
 
 
-def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
+def test_onload_rewrites_collabora_py_via_call():
     """OnLoadFinished marshals Collabora rewrite (doc only) then geometric open (ctx, doc)."""
     import plugin.calc.excel_py_convert.auto_open as mod
     from plugin.calc.python.collabora_formula import maybe_rewrite_collabora_py_formulas
@@ -502,8 +503,8 @@ def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
     event = _LoadEvent()
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.call") as marshal,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
         patch.object(mod.log, "warning") as warn,
     ):
         listener.on_document_event(event)
@@ -513,6 +514,66 @@ def test_onload_rewrites_collabora_py_via_execute_on_main_thread():
         assert marshal.call_args_list[0][0][1:] == (ctx, doc)
         assert marshal.call_args_list[1][0][0] is maybe_rewrite_collabora_py_formulas
         assert marshal.call_args_list[1][0][1:] == (doc,)
+        warn.assert_not_called()
+
+
+def _run_in_dummy_thread(fn: Callable[[], None], timeout: float = 5.0) -> None:
+    import _thread
+    import threading
+
+    done = threading.Event()
+    exc: list[BaseException] = []
+
+    def target() -> None:
+        try:
+            fn()
+        except BaseException as err:
+            exc.append(err)
+        finally:
+            done.set()
+
+    _thread.start_new_thread(target, ())
+    if not done.wait(timeout):
+        raise TimeoutError(f"Dummy thread failed to finish within {timeout} s")
+    if exc:
+        raise exc[0]
+
+
+def test_onload_collabora_rewrite_inlines_on_untagged_dummy():
+    """OnLoadFinished inlines Collabora rewrite on an untagged Dummy thread (dev UNTAGGED_DUMMY_IS_CURRENT)."""
+    import plugin.calc.excel_py_convert.auto_open as mod
+
+    ctx = MagicMock()
+    smgr = MagicMock()
+    broadcaster = MagicMock()
+    ctx.getServiceManager.return_value = smgr
+    smgr.createInstanceWithContext.return_value = broadcaster
+    mod._doc_listener = None
+    install_excel_py_auto_convert(ctx)
+    listener = broadcaster.addDocumentEventListener.call_args[0][0]
+    doc = CalcDocStub()
+
+    class _LoadEvent:
+        EventName = "OnLoadFinished"
+        Source = doc
+
+    event = _LoadEvent()
+    with (
+        patch.object(mod, "maybe_convert_excel_py_document") as convert,
+        patch.object(mod, "_geometric_open_job"),
+        patch(
+            "plugin.calc.python.collabora_formula.maybe_rewrite_collabora_py_formulas"
+        ) as rewrite,
+        patch("plugin.framework.queue_executor.main.call", side_effect=TimeoutError("main.call should not be reached")) as marshal,
+        patch.object(mod.log, "warning") as warn,
+    ):
+        def _fire() -> None:
+            listener.on_document_event(event)
+
+        _run_in_dummy_thread(_fire)
+        convert.assert_called_once()
+        rewrite.assert_called_once_with(doc)
+        marshal.assert_not_called()
         warn.assert_not_called()
 
 
@@ -536,8 +597,8 @@ def test_onnew_records_geometric_session_inline_on_uno_thread():
 
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.call") as marshal,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch(
             "plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open"
         ) as open_geo,
@@ -567,8 +628,8 @@ def test_oncreate_without_resolvable_doc_still_runs_geometric_open():
 
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+        patch("plugin.framework.queue_executor.main.call") as marshal,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=True),
         patch(
             "plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open"
         ) as open_geo,
@@ -588,15 +649,15 @@ def test_geometric_open_job_wires_unload_listener():
     with (
         patch("plugin.calc.python.geometric_recalc.maybe_geometric_on_document_open") as open_geo,
         patch(
-            "plugin.calc.python.workbook_lifecycle.ensure_calc_workbook_unload_resets_python"
-        ) as ensure_unload,
+            "plugin.calc.python.workbook_state.WorkbookState.for_doc",
+        ) as for_doc_mock,
     ):
         mod._geometric_open_job(ctx, doc)
     open_geo.assert_called_once_with(ctx, doc)
-    ensure_unload.assert_called_once_with(ctx, doc)
+    for_doc_mock.assert_called_once_with(doc)
 
 
-def test_onnew_records_geometric_session_via_execute_on_main_thread():
+def test_onnew_records_geometric_session_via_call():
     """Factory Calc fires OnNew off-main; leftover still needs a marshaled record."""
     import plugin.calc.excel_py_convert.auto_open as mod
 
@@ -616,8 +677,8 @@ def test_onnew_records_geometric_session_via_execute_on_main_thread():
 
     with (
         patch.object(mod, "maybe_convert_excel_py_document") as convert,
-        patch("plugin.framework.queue_executor.execute_on_main_thread") as marshal,
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.call") as marshal,
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         listener.on_document_event(_NewEvent())
         convert.assert_not_called()
@@ -845,7 +906,8 @@ def test_convert_uno_doc_to_excel_large_range_chunked_exports_later_window():
 
 
 def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
-    """Unparseable =PY formula names the cell issue and blocks package write."""
+    """Unparseable =PY formula is skipped and blocks nothing; export on error stops write."""
+    from plugin.calc.excel_py_convert.models import ConversionReport
     from plugin.calc.excel_py_convert.uno_snapshot import convert_uno_doc_to_excel
 
     doc = CalcDocStub()
@@ -853,15 +915,17 @@ def test_convert_uno_doc_to_excel_unparseable_py_formula(tmp_path: Path):
     sheet.getCellRangeByName("B2").setFormula('=PY("x = 1" NOTANARG)')
 
     report = convert_uno_doc_to_excel(doc)
-    assert not report.ok
-    assert any("Sheet1!B2: =PY formula could not be parsed" in i for i in report.issues)
+    assert report.ok
+    assert not report.issues
+    assert not report.cells
 
     ctx = MagicMock()
     path = tmp_path / "bad_py.xlsx"
     path.touch()
+    mock_report = ConversionReport(direction="to_excel", issues=["conversion error"])
     with (
         patch("plugin.doc.text_helpers.get_document_path", return_value=str(path)),
-        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=report),
+        patch("plugin.calc.excel_py_convert.uno_snapshot.convert_uno_doc_to_excel", return_value=mock_report),
         patch("plugin.calc.excel_py_convert.xlsx_write.write_excel_python_xlsx") as mock_write,
         patch("plugin.chatbot.dialogs.msgbox") as box,
     ):

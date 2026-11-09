@@ -41,11 +41,11 @@ class _DirectImageHost(SendHandlersMixin):
         self.ctx = ctx
         self._send_handlers = self  # fake host plays the composed SendHandlersMixin role
         self.stop_requested = False
+        self._send_cancellation = None
         self._active_mode = ""
         self._mode_topic = ""
         self.responses = []
         self.status_history = []
-        self._terminal_status = None
         self.session = MagicMock()
         self.response_control = MagicMock()
         self.aspect_ratio_selector = MagicMock()
@@ -62,22 +62,17 @@ class _DirectImageHost(SendHandlersMixin):
     def _set_status(self, text):
         self.status_history.append(text)
 
-    def resolve_stop_checker(self):
-        return lambda: self.stop_requested
-
     def rerender_rich_text_session(self):
         pass
 
 
 def _drive_direct_image_send(host, doc, execute_return):
     """Run ``_do_send_direct_image`` with mocked tools; live selection is not stubbed."""
-    mock_main = MagicMock()
     mock_registry = MagicMock()
     mock_registry.execute.return_value = execute_return
     mock_registry._services = MagicMock()
-    mock_main.get_tools.return_value = mock_registry
 
-    with patch.dict("sys.modules", {"plugin.main": mock_main}):
+    with patch("plugin.app.get_tools", return_value=mock_registry):
         with patch("plugin.framework.async_stream.run_in_background") as mock_run_bg:
 
             def fake_run_bg(func, **kwargs):
@@ -87,7 +82,7 @@ def _drive_direct_image_send(host, doc, execute_return):
 
             with patch("plugin.framework.async_stream.run_stream_drain_loop") as mock_run_stream:
 
-                def fake_drain_loop(q, toolkit, job_done, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn, stop_checker, **kwargs):
+                def fake_drain_loop(q, toolkit, outcome, apply_chunk, on_stream_done, on_stopped, on_error, on_status_fn=None, cancel=None, **kwargs):
                     # The stub must start the worker because, since #1446, spawn happens only from on_drain_started.
                     if kwargs.get("on_drain_started"):
                         kwargs["on_drain_started"]()
@@ -102,7 +97,7 @@ def _drive_direct_image_send(host, doc, execute_return):
                             on_status_fn(item[1])
                         elif k == StreamQueueKind.ERROR:
                             on_error(item[1])
-                    job_done[0] = True
+                    outcome.done = True
 
                 mock_run_stream.side_effect = fake_drain_loop
                 host._do_send_direct_image("make it look like a wizard", doc)

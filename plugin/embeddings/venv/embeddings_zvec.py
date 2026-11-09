@@ -196,12 +196,17 @@ def zvec_ingest_rows(collection_path: str, meta_path: str, model_name: str, rows
     count = _doc_count(coll) or len(docs)
 
     # Write/refresh the shared corpus_meta.json so host empty checks and UI see progress.
-    from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta
+    from plugin.embeddings.embeddings_cache import SCHEMA_VERSION, CorpusMeta
 
     meta_p = Path(str(meta_path))
-    ensure_corpus_meta(meta_p, embedding_model=model_name, dim=dim or None, chunk_count=count)
-    # Override storage backend for visibility
-    write_corpus_meta(meta_p, storage_backend="zvec", updated_at=str(time.time()))
+    CorpusMeta.load(meta_p).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=model_name,
+        dim=dim or 0,
+        chunk_count=count,
+        storage_backend="zvec",
+        updated_at=str(time.time()),
+    ).save(meta_p)
 
     try:
         coll.flush()
@@ -320,7 +325,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     and can be selected even on a folder that has never used the sqlite backend.
     """
 
-    from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, zvec_collection_path
+    from plugin.embeddings.embeddings_cache import SCHEMA_VERSION, CorpusMeta, zvec_collection_path
     from plugin.embeddings.embeddings_fs import guess_indexable_paths, indexable_chunks_from_path
 
     root = str(listing_root or "").strip()
@@ -329,7 +334,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
 
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
-    # Do not return early when chunk_count_from_meta > 0. That skipped the
+    # Do not return early when meta chunk_count > 0. That skipped the
     # incremental mtime loop, which skips unchanged files and picks up new
     # or modified ones. row_count > 0 is not "nothing to do".
 
@@ -345,7 +350,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     indexed = 0
     upserted_total = 0
 
-    _hb.force({"phase": "start", "mode": mode, "listing_root": root, "files": total})
+    _hb.emit({"phase": "start", "mode": mode, "listing_root": root, "files": total}, immediate=True)
 
     # Probe dim once by embedding a tiny text (or first real body).
     dim = 0
@@ -366,36 +371,45 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
         dim = 384
 
     # Ensure meta reflects we are using zvec for this model (even if count is still 0).
-    ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim)
-    write_corpus_meta(meta_path, storage_backend="zvec")
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        dim=dim,
+        storage_backend="zvec",
+    ).save(meta_path)
 
     # Purge deleted files
     current_urls = {entry.url for entry in files}
     db_path = str(Path(root) / "writeragent_embeddings" / "corpus.db")
-    from plugin.embeddings.venv.embeddings_sqlite import get_all_indexed_urls, remove_file_from_index
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, get_all_indexed_urls_in_db, remove_file_from_index_in_db
 
-    indexed_urls = get_all_indexed_urls(Path(db_path))
+    conn = connect_corpus_db(db_path)
+    try:
+        ensure_schema(conn, with_fts=False, with_vec=False)
+        indexed_urls = get_all_indexed_urls_in_db(conn)
 
-    coll = None
-    if coll_path in _COLL_CACHE or Path(coll_path).exists():
-        try:
-            coll = _open_for_search(coll_path)
-        except Exception as e:
-            log.warning("zvec open failed for stale purge: %s", e)
-
-    for url in indexed_urls:
-        if url in current_urls:
-            continue
-        if coll is not None:
+        coll = None
+        if coll_path in _COLL_CACHE or Path(coll_path).exists():
             try:
-                coll.delete_by_filter(f'doc_url == "{url}"')
+                coll = _open_for_search(coll_path)
             except Exception as e:
-                log.warning("zvec delete failed for stale %s: %s", url, e)
+                log.warning("zvec open failed for stale purge: %s", e)
+
+        for url in indexed_urls:
+            if url in current_urls:
                 continue
-        remove_file_from_index(Path(db_path), url)
+            if coll is not None:
+                try:
+                    coll.delete_by_filter(f'doc_url == "{url}"')
+                except Exception as e:
+                    log.warning("zvec delete failed for stale %s: %s", url, e)
+                    continue
+            remove_file_from_index_in_db(conn, url)
+    finally:
+        conn.close()
 
     for idx, entry in enumerate(files):
-        _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode})
+        _hb.emit({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode}, immediate=True)
 
         try:
             coll = _open_for_search(coll_path)
@@ -423,7 +437,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
 
         rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end, "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
 
-        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "zvec"})
+        _hb.emit({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "zvec"}, immediate=True)
 
         # For clean per-file refresh, remove any previous docs for this doc_url.
         if coll_path in _COLL_CACHE or Path(coll_path).exists():
@@ -445,7 +459,7 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
         upserted_total += up
         indexed += len(rows)
 
-        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "zvec"})
+        _hb.emit({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "zvec"}, immediate=True)
 
     # Final meta + flush
     try:
@@ -458,10 +472,16 @@ def maintain_folder_zvec(listing_root: str, embedding_model: str, *, mode: str =
     except Exception:
         final_count = indexed
 
-    ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim, chunk_count=final_count)
-    write_corpus_meta(meta_path, storage_backend="zvec", updated_at=str(time.time()))
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        dim=dim,
+        chunk_count=final_count,
+        storage_backend="zvec",
+        updated_at=str(time.time()),
+    ).save(meta_path)
 
-    _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
+    _hb.emit({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total}, immediate=True)
 
     return {"mode": "zvec", "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "zvec"}
 

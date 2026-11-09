@@ -32,12 +32,14 @@ import logging
 import re
 from typing import Any, Callable
 
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.errors import resolve_exception_message
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 log = logging.getLogger(__name__)
 
-# ``run_venv_python_script`` would re-enter the same warm worker while
-# ``_io_lock`` is held and deadlock the pipe.
+# ``run_venv_python_script`` would re-enter the same warm worker while the
+# warm-child pipe lock is held and deadlock the pipe.
 _BLOCKED_FROM_VENV = frozenset({"run_venv_python_script"})
 
 # Host sentinel: disable venv → LO tool RPC (Calc ``=PY()`` recalc).
@@ -65,12 +67,14 @@ def _domain_tools_map() -> dict[str, list[str]] | None:
 _DOMAIN_NAMESPACE: dict[str, str] = {
     "bookmarks": "bookmark",
     "charts": "chart",
+    "cell_comments": "cell_comment",
     "comments": "comment",
     "errors": "error",
     "fields": "field",
     "footnotes": "footnote",
     "headers_footers": "headers_footer",
     "indexes": "index",
+    "page_comments": "page_comment",
     "pivot_tables": "pivot_table",
     "ranges": "range",
     "shapes": "shape",
@@ -314,8 +318,7 @@ def execute_tool(
     caller: str = "script",
     allowed_tools: frozenset[str] | None = None,
     script_session_id: str | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    send_cancellation: Any | None = None,
+    send_cancellation: SendCancellation | None = None,
 ) -> Any:
     """Dispatch a registered WriterAgent tool on the LO main thread (UNO-safe)."""
     if tool_name in _BLOCKED_FROM_VENV:
@@ -335,16 +338,16 @@ def execute_tool(
         )
     payload = args if isinstance(args, dict) else {}
     if tool_name in _NAMED_SCRIPT_TOOLS:
-        from plugin.framework.thread_guard import in_sync_host_dispatch, on_main_thread
+        from plugin.framework.queue_executor import main
+        from plugin.framework.thread_guard import in_sync_host_dispatch
 
-        # Off-main callers cannot wait on execute_on_main_thread (deadlock #402).
+        # Off-main callers cannot wait on main.call (deadlock #402).
         # =PY() recalc never reaches here: its allowlist is empty and refused above.
         # User scripts are a config dict. Document scripts need UNO.
-        if in_sync_host_dispatch() and not on_main_thread():
+        if in_sync_host_dispatch() and not main.is_current():
             return _dispatch_named_script(tool_name, payload, allow_document=False)
-        from plugin.framework.queue_executor import execute_on_main_thread
 
-        return execute_on_main_thread(lambda: _dispatch_named_script(tool_name, payload, script_session_id=script_session_id))
+        return main.call(lambda: _dispatch_named_script(tool_name, payload, script_session_id=script_session_id))
     if allowed_tools is not None and tool_name not in allowed_tools:
         raise RuntimeError(
             f"Tool {tool_name!r} is not available in this Python tool domain."
@@ -352,10 +355,10 @@ def execute_tool(
 
     def _run() -> Any:
         try:
-            from plugin.doc.doc_type import is_calc, is_draw, is_writer
+            from plugin.framework.doc_type import is_calc, is_draw, is_writer
             from plugin.framework.tool import ToolContext
             from plugin.framework.uno_context import get_ctx
-            from plugin.main import get_tools
+            from plugin.app import get_tools
         except ImportError as exc:
             raise RuntimeError(
                 "Document tool RPC is not available in this extension build."
@@ -374,21 +377,13 @@ def execute_tool(
         else:
             doc_type = ""
         registry = get_tools()
-        # What was wrong: ToolContext had no stop_checker or send_cancellation,
-        # so web_research and image generation started from a script ran the
-        # HTTP request to completion after Stop.
-        # How it happened: handle_tool_call_frame checked Stop only before
-        # execute_tool, and cancellation_scope stopped in _maybe_dispatch_intermediate_response.
-        # Why this change: The turn's checker and scope are the ones
-        # RunVenvPythonScript.execute captured, copied onto ToolContext so
-        # existing readers abort the wait.
+        # Copy send_cancellation onto ToolContext so script-started HTTP tools honor Stop instead of finishing the request after cancellation.
         tctx = ToolContext(
             doc=doc,
             ctx=uno_ctx,
             doc_type=doc_type,
             services=registry._services,
             caller=caller,
-            stop_checker=stop_checker,
             send_cancellation=send_cancellation,
         )
 
@@ -396,18 +391,18 @@ def execute_tool(
         is_async = tool is not None and tool.is_async()
         return registry, tctx, is_async
 
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
 
     # We keep two hops; collapsing resolve+execute into one hop changes queue semantics/races.
     # Known window: the doc in tctx is resolved in the first hop and used in the second,
     # so it can be closed in between and the tool then sees a dead UNO proxy
     # (DisposedException). That is the same risk as a doc closing mid-tool, so we accept
     # it rather than merge hops; the tool error path must report it cleanly.
-    registry, tctx, is_async = execute_on_main_thread(_run)
+    registry, tctx, is_async = main.call(_run)
 
     if is_async:
         return registry.execute(tool_name, tctx, **payload)
-    return execute_on_main_thread(lambda: registry.execute(tool_name, tctx, **payload))
+    return main.call(lambda: registry.execute(tool_name, tctx, **payload))
 
 
 def _document_script_store(script_session_id: str | None) -> dict[str, str]:
@@ -475,8 +470,7 @@ def handle_tool_call_frame(
     allowed_tools: frozenset[str] | None = None,
     caller: str = "script",
     script_session_id: str | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    send_cancellation: Any | None = None,
+    cancel: SendCancellation | None = None,
 ) -> bool:
     """Handle a worker ``tool_call`` frame. Returns True if the host should keep reading."""
     if response.get("type") != "tool_call":
@@ -499,8 +493,7 @@ def handle_tool_call_frame(
         try:
             frame = pack_pickle_frame(payload, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except IpcFrameError as exc:
-            # An oversized tool result used to be written anyway. The host read
-            # then killed the child and restarted every workbook's shared kernel.
+            # Oversized tool results become error frames so the host does not kill the shared worker parsing a huge pickle.
             frame = pack_pickle_frame(_error_frame(str(exc)), max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except Exception as exc:
             # Unpicklable tool result. Fall back to sending an error frame instead of hanging.
@@ -512,8 +505,7 @@ def handle_tool_call_frame(
         # writing to a closed file in Python, or OSError). Letting that escape
         # aborted the stop path, so the child never received USER_STOPPED and
         # kept calling tools after the sidebar went idle (or the host replayed
-        # the script). The tool may already have run; raising here used to abort
-        # the worker loop. Pipe failure stays here and the host keeps reading.
+        # Pipe write failures are logged without aborting the worker loop so Stop and further frames can still be processed.
         try:
             stdin_write(frame)
         except (OSError, ValueError):
@@ -529,21 +521,9 @@ def handle_tool_call_frame(
         return True
     # Stop was checked once before the venv turn, so the child kept calling
     # host tools, including export, after the sidebar went idle. The same
-    # checker the LLM frame already receives refuses the call and tells the
+    # scope the LLM frame already receives refuses the call and tells the
     # child to end with USER_STOPPED.
-    is_stopped = False
-    if stop_checker is not None:
-        try:
-            is_stopped = stop_checker()
-        except Exception:
-            log.exception("stop_checker raised exception in handle_tool_call_frame")
-            _reply(
-                _error_frame("stop_checker raised exception"),
-                failure_log="venv tool_call error reply failed (worker pipe closed)",
-            )
-            return True
-
-    if is_stopped:
+    if is_cancelled(cancel):
         _reply(
             _error_frame("Stopped by user.", code="USER_STOPPED"),
             failure_log="venv tool_call USER_STOPPED reply failed (worker pipe closed)",
@@ -557,8 +537,7 @@ def handle_tool_call_frame(
             caller=caller,
             allowed_tools=allowed_tools,
             script_session_id=script_session_id,
-            stop_checker=stop_checker,
-            send_cancellation=send_cancellation,
+            send_cancellation=cancel,
         )
         tool_response = {"status": "ok", "id": call_id, "result": res}
     except Exception as exc:
@@ -567,6 +546,7 @@ def handle_tool_call_frame(
         # (ToolExecutionError code="USER_STOPPED", domain codes). A payload of
         # only status and message hid that code from the child worker.
         err_code = getattr(exc, "code", None)
-        tool_response = _error_frame(str(exc), code=str(err_code) if err_code else None)
+        # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
+        tool_response = _error_frame(resolve_exception_message(exc), code=str(err_code) if err_code else None)
     _reply(tool_response)
     return True

@@ -9,7 +9,7 @@
 import json
 import urllib.error
 import urllib.request
-from unittest.mock import MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -390,7 +390,7 @@ def test_options_mcp_unsafe_origin_no_allow_origin(mcp_server, value):
     _assert_forbidden_origin(exc_info.value)
 
 def test_post_mcp_unsafe_origin_is_403_without_jsonrpc(mcp_server):
-    before = mcp_session._mcp_session_id
+    before = mcp_session.current_session_id()
     payload = {
         "jsonrpc": "2.0",
         "id": 1,
@@ -409,7 +409,7 @@ def test_post_mcp_unsafe_origin_is_403_without_jsonrpc(mcp_server):
     err = exc_info.value
     _assert_forbidden_origin(err)
     assert err.headers.get("Mcp-Session-Id") is None
-    assert mcp_session._mcp_session_id == before
+    assert mcp_session.current_session_id() == before
 
 
 def test_post_mcp_no_origin_still_succeeds(mcp_server):
@@ -673,15 +673,15 @@ def test_get_configured_tunnel_host_reads_shared_tunnel_public_url(monkeypatch):
     class _Tunnel:
         public_url = "https://abc.trycloudflare.com"
 
-    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", _Tunnel(), raising=False)
+    monkeypatch.setattr(mcp_pkg, "current_tunnel", lambda: _Tunnel())
     assert get_configured_tunnel_host() == "abc.trycloudflare.com"
-    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", None, raising=False)
+    monkeypatch.setattr(mcp_pkg, "current_tunnel", lambda: None)
     assert get_configured_tunnel_host() is None
 
 
 def test_drain_request_body_reads_up_to_content_length():
     from io import BytesIO
-    from plugin.mcp.cors import _drain_request_body
+    from plugin.mcp.cors import drain_request_body
 
     class _FakeHandler:
         def __init__(self, content: bytes):
@@ -689,47 +689,39 @@ def test_drain_request_body_reads_up_to_content_length():
             self.rfile = BytesIO(content)
 
     handler = _FakeHandler(b"hello world")
-    _drain_request_body(handler)
+    drain_request_body(handler)
     assert handler.rfile.read() == b""
 
     # 100 KiB body is drained (> 64 KiB cap, <= MCP_HTTP_MAX_BODY_BYTES).
     large_handler = _FakeHandler(b"x" * 102400)
-    _drain_request_body(large_handler)
+    drain_request_body(large_handler)
     assert large_handler.rfile.read() == b""
 
 
 def test_reload_cors_config_failure_propagates():
-    services = MagicMock()
-    services.config.proxy_for.side_effect = RuntimeError("config")
     set_allow_private_origins(True)
     set_extra_allowed_origins(["https://evil.example"])
-    with pytest.raises(RuntimeError, match="config"):
-        reload_cors_policy_from_config(services)
+    with patch("plugin.framework.config.get_config", side_effect=RuntimeError("config")):
+        with pytest.raises(RuntimeError, match="config"):
+            reload_cors_policy_from_config(None)
     assert get_allow_private_origins() is True
     assert "https://evil.example" in get_extra_allowed_origins()
 
 
 def test_reload_cors_missing_private_key_stays_on():
-    services = MagicMock()
-    proxy = MagicMock()
-
-    def _get(key, default=None):
-        return None
-
-    proxy.get.side_effect = _get
-    services.config.proxy_for.return_value = proxy
-    reload_cors_policy_from_config(services)
-    assert get_allow_private_origins() is True
+    with patch("plugin.framework.config.get_config", return_value=None):
+        reload_cors_policy_from_config(None)
+        assert get_allow_private_origins() is True
 
 
 def test_drain_request_body_swallows_valueerror_and_oserror():
-    from plugin.mcp.cors import _drain_request_body
+    from plugin.mcp.cors import drain_request_body
 
     class _BadLength:
         headers = {"Content-Length": "nope"}
         rfile = None
 
-    _drain_request_body(_BadLength())
+    drain_request_body(_BadLength())
 
     class _Reset:
         headers = {"Content-Length": "4"}
@@ -740,11 +732,11 @@ def test_drain_request_body_swallows_valueerror_and_oserror():
 
         rfile = _R()
 
-    _drain_request_body(_Reset())
+    drain_request_body(_Reset())
 
 
 def test_drain_request_body_other_error_propagates():
-    from plugin.mcp.cors import _drain_request_body
+    from plugin.mcp.cors import drain_request_body
 
     class _Bug:
         headers = {"Content-Length": "4"}
@@ -756,7 +748,7 @@ def test_drain_request_body_other_error_propagates():
         rfile = _R()
 
     with pytest.raises(RuntimeError, match="bug"):
-        _drain_request_body(_Bug())
+        drain_request_body(_Bug())
 
 
 def test_tunnel_host_lookup_does_not_swallow(monkeypatch):
@@ -768,7 +760,7 @@ def test_tunnel_host_lookup_does_not_swallow(monkeypatch):
         def public_url(self):
             raise RuntimeError("broken tunnel")
 
-    monkeypatch.setattr(mcp_pkg, "_shared_tunnel", _Boom(), raising=False)
+    monkeypatch.setattr(mcp_pkg, "current_tunnel", lambda: _Boom())
     with pytest.raises(RuntimeError, match="broken tunnel"):
         get_configured_tunnel_host()
 
@@ -798,13 +790,14 @@ def test_normalize_origins_list_bad_and_empty_inputs():
     ],
 )
 def test_reload_cors_bad_or_empty_origins_does_not_crash(bad_or_empty):
-    services = MagicMock()
-    proxy = MagicMock()
-    proxy.get.side_effect = lambda key, default=None: bad_or_empty if key == "cors_allowed_origins" else None
-    services.config.proxy_for.return_value = proxy
+    def fake_get(key):
+        if key == "mcp.cors_allowed_origins":
+            return bad_or_empty
+        return None
 
     # Bad or empty config values must not crash module reload or raise PreContractError.
-    reload_cors_policy_from_config(services)
+    with patch("plugin.framework.config.get_config", side_effect=fake_get):
+        reload_cors_policy_from_config(None)
     if bad_or_empty == ["https://valid.example.com", "", 42, "not a url"]:
         assert "https://valid.example.com" in get_extra_allowed_origins()
     else:

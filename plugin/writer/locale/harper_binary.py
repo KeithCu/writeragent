@@ -41,7 +41,7 @@ _RELEASE_CHECK_INTERVAL_SEC = 7 * 24 * 3600
 _RELEASE_CACHE_FILENAME = "harper-ls.release.json"
 
 
-def _emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, message: str) -> None:
+def emit_progress(heartbeat_fn: Callable[[dict[str, str]], None] | None, message: str) -> None:
     if heartbeat_fn is not None:
         heartbeat_fn({"message": message})
 
@@ -82,8 +82,7 @@ def _parse_github_digest(digest: str | None) -> str:
 def _github_api_request(url: str) -> dict[str, Any]:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/vnd.github+json"})
     with urllib.request.urlopen(request, timeout=30) as response:
-        # 1 MB is enough for the current latest-release JSON. Future (plan C11):
-        # read fully with a larger cap if the payload ever truncates.
+        # 1 MB is enough for the current latest-release JSON; raise or read fully if truncated.
         body = response.read(1024 * 1024)
     payload = json.loads(body.decode("utf-8"))
     if not isinstance(payload, dict):
@@ -133,7 +132,7 @@ def _fetch_latest_release_asset(harper_dir: Path, *, heartbeat_fn: Callable[[dic
     if persisted is not None:
         return persisted
 
-    _emit_progress(heartbeat_fn, "Checking Harper release…")
+    emit_progress(heartbeat_fn, "Checking Harper release…")
     try:
         release = _github_api_request(_HARPER_RELEASES_API)
     except Exception as e:
@@ -172,34 +171,10 @@ def _read_installed_version(harper_dir: Path) -> str | None:
         return None
 
 
-# TEMP(2026-08): Remove after ~2026-11 once old profiles no longer have
-# harper-ls-*.{untar,unzip} trees (new installs extract only in TemporaryDirectory).
-# Also used by TEMP bin/ migration cleanup below — delete helpers when both TEMP paths go.
-def _is_harper_archive_or_extract_leftover(name: str) -> bool:
-    """True for stale download archives or extract trees (not the live binary/sidecars)."""
-    return name.startswith("harper-ls-") and (
-        name.endswith((".tar.gz", ".zip", ".tgz")) or name.endswith((".untar", ".unzip"))
-    )
-
-
-# TEMP(2026-08): Remove with _is_harper_archive_or_extract_leftover / leftover cleanup.
-def _remove_harper_archive_leftovers(directory: Path) -> None:
-    """Best-effort delete leftover archives / .untar / .unzip trees under directory."""
-    if not directory.is_dir():
-        return
-    for entry in directory.iterdir():
-        if not _is_harper_archive_or_extract_leftover(entry.name):
-            continue
-        if entry.is_dir():
-            shutil.rmtree(entry, ignore_errors=True)
-        else:
-            entry.unlink(missing_ok=True)
-
-
 def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> None:
     """Download harper-ls via vendored Pooch retrieve (hash verify, retry, archive extract)."""
     log.info("[harper] Downloading v%s binary (%s) from %s", release.version, release.asset_name, release.download_url)
-    _emit_progress(heartbeat_fn, f"Downloading harper-ls v{release.version}…")
+    emit_progress(heartbeat_fn, f"Downloading harper-ls v{release.version}…")
 
     dest_path.parent.mkdir(parents=True, exist_ok=True)
     # Extract under TemporaryDirectory so the ~50MB binary is not left twice under harper/.
@@ -222,7 +197,7 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
                 downloader=downloader,
                 retry_if_failed=2,
             )
-            _emit_progress(heartbeat_fn, "Extracting harper-ls…")
+            emit_progress(heartbeat_fn, "Extracting harper-ls…")
             extracted = processor(str(archive_path), "download", None)
             if not isinstance(extracted, list):
                 raise RuntimeError("Harper archive extraction did not return file paths")
@@ -241,27 +216,15 @@ def _download_harper_binary(dest_path: Path, release: HarperReleaseAsset, *, hea
         best_effort(lambda: tmp_binary.unlink() if tmp_binary.exists() else None, "[harper] temp binary unlink failed")
 
 
-# TEMP(2026-08): Remove after ~2026-11 — one-shot cleanup of extract trees left under
-# harper/ by pre-tempdir installs (second ~50MB binary). New downloads do not create these.
-def _cleanup_harper_install_leftovers(harper_dir: Path) -> None:
-    """Remove stale extract trees left by older installs (second ~50MB binary copy)."""
-    try:
-        _remove_harper_archive_leftovers(harper_dir)
-    except Exception as cleanup_err:
-        log.warning("[harper] Could not remove leftover extract trees under %s: %s", harper_dir, cleanup_err)
-
-
-def _get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> str:  # pyright: ignore[reportUnusedFunction]  # used by harper.py and harper tests
+def get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str, str]], None] | None = None) -> str:
     """Resolve path to harper-ls binary, auto-downloading if missing or outdated."""
-    _emit_progress(heartbeat_fn, "Resolving harper-ls binary…")
+    emit_progress(heartbeat_fn, "Resolving harper-ls binary…")
     sys_path = shutil.which("harper-ls")
     if sys_path:
-        _emit_progress(heartbeat_fn, "Using system harper-ls")
+        emit_progress(heartbeat_fn, "Using system harper-ls")
         return sys_path
 
     harper_dir = Path(user_config_dir) / "harper"
-    # TEMP(2026-08): Remove after ~2026-11 — stale .untar/.unzip under harper/.
-    _cleanup_harper_install_leftovers(harper_dir)
     suffix = ".exe" if os.name == "nt" else ""
     binary_path = harper_dir / f"harper-ls{suffix}"
 
@@ -277,6 +240,6 @@ def _get_harper_binary(user_config_dir: str, *, heartbeat_fn: Callable[[dict[str
             else:
                 raise
     elif installed:
-        _emit_progress(heartbeat_fn, f"Using installed harper-ls v{installed}")
+        emit_progress(heartbeat_fn, f"Using installed harper-ls v{installed}")
 
     return str(binary_path)

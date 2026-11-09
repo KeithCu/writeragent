@@ -227,7 +227,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
     extra_instructions = ""
     model = self._get_document_model()
     try:
-        from plugin.doc.doc_type import (
+        from plugin.framework.doc_type import (
             doc_type_label_for_enum,
             doc_type_title_for_label,
             get_document_type,
@@ -398,9 +398,7 @@ def _wireControls(self: Any, root_window: Any) -> None:  # pyright: ignore[repor
         log.warning("embeddings periodic indexer schedule failed: %s", e)
 
     # 7. Rich Text Control Sidebar (RichTextControl; embedded Writer path removed)
-    from plugin.framework.config import get_config_bool_safe
-
-    rich_sidebar_enabled = get_config_bool_safe("rich_text_control_sidebar")
+    rich_sidebar_enabled = get_config("chatbot.rich_text_control_sidebar")
     log.info("[RICH-CONTROL] config rich_text_control_sidebar=%s", rich_sidebar_enabled)
     if rich_sidebar_enabled:
         try:

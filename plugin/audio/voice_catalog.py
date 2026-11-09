@@ -4,10 +4,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Load the TTS voice catalog once from ``data/voice_catalog.json``.
 
-Piper/Kokoro/OpenAI/OS voice lists, locale defaults, and the OpenAI→Kokoro
-alias map used to be inline dicts in ``tts_service``. Settings and the
-sidebar both read this asset so those lists cannot drift apart. JSON (not
-YAML) because the LibreOffice runtime does not ship PyYAML.
+Piper/Kokoro/OpenAI/OS voice lists, locale defaults, and OpenAI→Kokoro aliases live in one
+JSON asset shared by Settings and the sidebar. JSON (not YAML) because the LibreOffice
+runtime does not ship PyYAML.
 
 _parse_catalog validates ids, fallbacks, locale defaults and aliases at import,
 so a broken asset fails loudly instead of half-loading.

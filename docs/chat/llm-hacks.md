@@ -11,12 +11,14 @@ Instead of requiring a `delimiter` parameter, the tool `write_formula_range` now
 - **Reasoning**: Reduces the cognitive load on the LLM and makes the tool "just work" regardless of the model's preferred separator.
 
 ## 2. Range Writing Semicolon Splitting
-**Problem**: When using `write_formula_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a JSON-encoded array `["Name", "Age", "Salary"]`. Without a workaround, this writes the entire string into a single cell.
+**Problem**: When using `write_formula_range`, the LLM often sends a raw string like `"Name;Age;Salary"` instead of a native row array `[["Name", "Age", "Salary"]]` or a JSON-encoded flat array. Without a workaround, this writes the entire string into a single cell.
 
 ### [Workaround] Raw String Splitting
 The internal `_parse_formula_or_values_string` helper in `core/calc_manipulator.py` detects raw semicolon-separated strings.
 - **Formula-Safe Detection**: It skips strings starting with `=` (standard formulas) but splits other strings containing `;` using `csv.reader`.
 - **CSV Reader**: Using `csv.reader` (with `skipinitialspace=True`) ensures that if the LLM puts a semicolon inside a quoted string, it won't be split incorrectly.
+
+**Preferred shape:** Tool schemas advertise a 2-D native array (one inner array per row). Semicolon and CSV string parsers remain for models that still send text.
 
 ## 3. Formula-Safe JSON Normalization
 **Problem**: LLMs often use semicolons inside JSON arrays (e.g., `["A"; "B"]`). Standard `json.loads` fails here. A blind `replace(";", ",")` fix breaks real formulas that *need* semicolons (e.g., `=SUM(A1;B1)` becomes `=SUM(A1,B1)` which is an error in Calc).
@@ -77,7 +79,7 @@ Main chat: `LlmClient._run_streaming_loop` → `OpenAIShim.parse_response_chunk`
 **Other context:**
 
 - Ollama **native** `/api/chat` uses `message.thinking` ([Ollama thinking](https://docs.ollama.com/capabilities/thinking)); WriterAgent uses `/v1/chat/completions` only.
-- A non-empty sidebar level is sent through `effort_payload` in `base_provider_shim.py` (`reasoning.effort` on OpenRouter, `output_config.effort` on Anthropic, top-level `reasoning_effort` elsewhere), and an empty level sends nothing. Mapping is per provider, never per model: `_PROVIDER_EFFORTS` lists the effort words each provider's current API documents, and a level the provider lacks becomes the nearest lower word (Gemini `max` → `high`). Custom, LM Studio and other unlisted hosts get the level unchanged. When a model rejects the value (HTTP 400 mentioning "effort", before any output), `effort_retry_bodies` tries lower words, then higher ones, then no field. Only grammar's `minimal` may send a thinking-off word (Mistral `none`); a rejected `low` on Mistral Small 4 moves up to `high`, not down to `none`.
+- A non-empty sidebar level is sent through `effort_payload` in `base_provider_shim.py` (`reasoning.effort` on OpenRouter, `output_config.effort` on Anthropic, top-level `reasoning_effort` elsewhere), and an empty level sends nothing. Mapping is per provider, never per model: `_PROVIDER_EFFORTS` lists the effort words each provider's current API documents, and a level the provider lacks becomes the nearest lower word (Gemini `max` → `high`). Custom, LM Studio and other unlisted hosts get the level unchanged. When a model rejects the value (HTTP 400 mentioning "effort", before any output), `effort_retry_bodies` tries lower words, then higher ones, then no field. Those attempts consume the same per-request `RetryBudget` as other sync-path retries (429/503, connection reset). Only grammar's `minimal` may send a thinking-off word (Mistral `none`); a rejected `low` on Mistral Small 4 moves up to `high`, not down to `none`.
 - **`chatbot.show_search_thinking`**: tool/web paths only, not main LLM stream ([`tool_loop.py`](../../plugin/chatbot/tool_loop.py)).
 
 ### Verification (one capture, same prompt/model)
@@ -128,13 +130,15 @@ Tests: [`tests/contrib/smolagents/test_tool_call_parsing.py`](../../tests/contri
 
 **Solution**: [`to_openai_schema` / `to_mcp_schema`](../../plugin/framework/tool_schema.py) (re-exported from `tool.py`) run `_normalize_schema_for_strict_providers`, which emits `"type": [scalar, "null"]` for **optional** scalar properties (`integer`, `number`, `boolean`, `string`), including an optional union of those scalars (`["string", "number"]` becomes `["string", "number", "null"]`). Required parameters stay non-nullable. Every other source type stays too: `apply_document_content` `content` remains `["array", "string"]` because `validate` and execute accept a string or a list. A schema with `properties` and no `type` is still walked. `items` stays when `type` is missing or includes `array`. Tool implementations already treat omitted/`null` as default (e.g. no truncation when `max_chars` is null).
 
+**MCP vs OpenAI**: ``to_mcp_schema`` passes ``for_mcp=True`` into ``_normalize_schema_for_strict_providers``, so optional properties with an ``enum`` do not get JSON ``null`` in ``type`` or ``enum`` (Gemini rejects null enum elements when agy forwards MCP schemas). Non-enum optional scalars on MCP still get ``["scalar", "null"]``. The OpenAI wire from ``to_openai_schema`` is unchanged.
+
 Tests: [`tests/framework/test_tool_schema_convert.py`](../../tests/framework/test_tool_schema_convert.py).
 
 ---
 
 ## 9.1 One tool-call check before the provider shim
 
-**Problem**: An empty ``properties: {}`` was treated as "no schema", so a no-arg tool such as ``list_sheets`` accepted hallucinated kwargs. The same name registered twice (Writer/Calc ``shape_upsert``) kept only the last ``required_core_tools``. Each provider shim then built the next request from the unchecked call.
+**Problem**: An empty ``properties: {}`` was treated as "no schema", so a no-arg tool such as ``sheet_list`` accepted hallucinated kwargs. The same name registered twice (Writer/Calc ``shape_upsert``) kept only the last ``required_core_tools``. Each provider shim then built the next request from the unchecked call.
 
 **Solution**: [`call_properties`](../../plugin/framework/tool_schema.py) / [`without_unknown_kwargs`](../../plugin/framework/tool_schema.py) are the allow-list. ``properties: {}`` is closed. [`normalize_outbound_tool_calls`](../../plugin/framework/tool_schema.py) runs in [`make_chat_request`](../../plugin/framework/client/llm_client.py) before ``build_chat_request``, so OpenAI and Anthropic format the same checked arguments. Duplicate advertised names union ``properties`` instead of last-wins. Duplicate registrations union ``required_core_tools``; ``get_tools`` reads that union. ``ToolRegistry.execute`` strips with the same helper before ``validate``.
 
@@ -178,9 +182,9 @@ Tests: [`tests/calc/test_prompt_function.py`](../../tests/calc/test_prompt_funct
 
 **Workaround** (issue #570):
 
-- [`_format_http_error_response`](../../plugin/framework/client/errors.py) and [`_handle_stream_error`](../../plugin/chatbot/tool_loop.py) detect llama-server terminated / `0xc0000005` / prompt overflow and show a plain sentence that the local Ollama/llama.cpp process crashed because the prompt overflowed a too-small context. Live `num_ctx` from cached Ollama `POST /api/show` (`parameters` / Modelfile only) is named when known (e.g. 4K). Missing `/api/show` still emits the generic overflow sentence.
+- [`format_http_error_response`](../../plugin/framework/client/errors.py) and [`_handle_stream_error`](../../plugin/chatbot/tool_loop.py) detect llama-server terminated / `0xc0000005` / prompt overflow and show a plain sentence that the local Ollama/llama.cpp process crashed because the prompt overflowed a too-small context. Live `num_ctx` from cached Ollama `POST /api/show` (`parameters` / Modelfile only) is named when known (e.g. 4K). Missing `/api/show` still emits the generic overflow sentence.
 - Compact-and-retry (PR2): when `chat_compaction_enabled` and the drain error is prompt-too-large (`is_context_overflow_error` — e.g. `prompt is too long`, `truncating input prompt`), `_handle_stream_error` respawns `_spawn_llm_worker(..., force_compact=True)` up to 3 times instead of appending that sentence. Process death (`llama-server process has terminated`, `0xc0000005`) is **not** overflow and still shows the plain sentence with no retry. `nothing_to_compact` / `no_window` / `failed` / shrink `< 5%` also skip retry. The JSON kill switch disables **both** proactive compact and this overflow path. Compaction itself runs on the worker inside the existing `llm_request_lane`, never on the drain thread.
-- ERROR logs stay loud: the existing provider-body line plus [`_log_http_500_request_diag`](../../plugin/framework/client/errors.py) (PR 571 shape: provider, model, host/path, stream, message/tool counts, payload bytes — plus `n_ctx`, `prompt_chars`, `max_tokens`, `exit_code`). No prompt text or tool schemas.
+- ERROR logs stay loud: the existing provider-body line plus [`log_http_500_request_diag`](../../plugin/framework/client/errors.py) (PR 571 shape: provider, model, host/path, stream, message/tool counts, payload bytes — plus `n_ctx`, `prompt_chars`, `max_tokens`, `exit_code`). No prompt text or tool schemas.
 
 Tests: [`tests/framework/client/test_client_errors.py`](../../tests/framework/client/test_client_errors.py), [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py), [`tests/framework/client/test_model_fetcher.py`](../../tests/framework/client/test_model_fetcher.py).
 
@@ -193,6 +197,25 @@ Tests: [`tests/framework/client/test_client_errors.py`](../../tests/framework/cl
 **Workaround** ([`OpenAIShim.build_chat_request`](../../plugin/framework/client/openai_shim.py)): when the provider is `openai` and the model is in those families, the chat body sends `max_completion_tokens` and drops a non-default temperature. Other providers, including OpenRouter and Groq using an OpenAI-compatible body, keep `max_tokens`. Image `response_format` is unchanged.
 
 Tests: [`tests/framework/test_client_llm.py`](../../tests/framework/test_client_llm.py).
+
+---
+
+## 13. Provider sticky cache routing (`session_id`)
+
+**Problem**: Large LLM providers support sticky routing or explicit cache keys so multi-turn conversations hit warm prompt caches across distributed clusters. Different providers use different fields, caps, or transport mechanisms:
+- **OpenRouter**: Top-level body `session_id` (capped at 256 characters; body takes priority over `x-session-id`).
+- **OpenAI**: Chat Completions and Responses API use body `prompt_cache_key` (no length cap).
+- **Cerebras**: Chat Completions body `prompt_cache_key` (capped at 1024 characters).
+- **xAI**: Header `x-grok-conv-id` (native xAI stays on Chat Completions via `GrokShim`, so header is used; omitted if containing non-printable ASCII).
+
+Anthropic Messages has no session routing key (cache breakpoints use `cache_control` blocks via `annotate_anthropic_cache`), and every unnamed host (`google`, `groq`, `ollama`, `together`, `mistral`, `custom`) gets nothing to avoid HTTP 400 rejection on unknown fields. Non-chat requests (compaction, smol, grammar, images, web research, forms, `=PROMPT()`) do not send it.
+
+**Workaround** ([`cache_route`](../../plugin/framework/client/base_provider_shim.py)):
+`ChatSession.session_id` is passed as `cache_session_id` during tool-loop and final stream requests, applying provider-specific body fields or headers without altering message history or system prompt text. The chat session id overrides any `session_id` in the model's extra JSON, on purpose, so every turn of one chat keeps the same routing key. All librarian chats share [`LIBRARIAN_HISTORY_SESSION_ID`](../../plugin/chatbot/chat_sidebar_mode.py), which is harmless at one user's request rate.
+
+See also: [chat-prompt-caching.md](chat-prompt-caching.md) (document-snapshot layout and Anthropic `cache_control` markers).
+
+Tests: [`tests/framework/client/test_openai_shim.py`](../../tests/framework/client/test_openai_shim.py), [`tests/framework/client/test_anthropic_shim.py`](../../tests/framework/client/test_anthropic_shim.py), [`tests/chatbot/test_tool_loop_errors.py`](../../tests/chatbot/test_tool_loop_errors.py).
 
 ---
 

@@ -27,7 +27,6 @@ from .calc_functions_util import (
     _date_to_serial,
     _extract_numeric_array,
     _is_calc_error,
-    _nan_on_error,
     _parse_weekend,
     _scipy_stats,
     _serial_to_date,
@@ -79,7 +78,6 @@ def t(value: Any) -> str:
     return value if isinstance(value, str) else ""
 
 
-@_nan_on_error
 def tdist(x: Any, df: Any, tails: Any) -> float:
     val = float(x)
     # ScTDist floors df (approxFloor) before the < 1 check. 2.7 was
@@ -235,13 +233,13 @@ def _text_before_or_after(text: Any, delimiter: Any, instance_num: Any, match_mo
             # Virtual delimiter is at 0 when the instance is negative, and
             # at the end otherwise. Text after a leading one is the whole
             # string; text before it is empty. The other sign is the opposite.
-            # Both signs used to return the same string.
+            # Both signs must not return the same string.
             if use_end and abs_inst == n_matches + 1:
                 return s if (inst < 0) == after else ""
             return if_not_found
         # A negative instance counts from the end of that same list.
         chosen = spans[inst - 1] if inst > 0 else spans[inst]
-        # after=True used to return the start for a negative instance and let
+        # after=True must not return the start for a negative instance and let.
         # TEXTAFTER add len(delim). A case-folded match can be a different
         # length than the delimiter, so the cut is the span's own end.
         idx = chosen[1] if after else chosen[0]
@@ -292,15 +290,7 @@ def textjoin(delim: Any, ignore_empty: Any, *args: Any) -> str | float:
         # Python range first. A string is not a range (_is_calc_range).
         values = _flatten_range(arg) if _is_calc_range(arg) else np.asarray(arg, dtype=object).ravel()
         for val in values:
-            # What was wrong: textjoin(",", True, ["a", "#VALUE!", "b"])
-            # returned "a,b", and a ragged [[1, 2], [3]] joined as "[1, 2],[3]".
-            # How it happened: is_missing_value treats an error token and NaN
-            # as a blank, so ignore_empty dropped them. asarray().ravel()
-            # left inner lists intact.
-            # Why this change fixes it: ScTextJoin_MS GetCellString SetError
-            # on a formula error, and PushString then pushes that error.
-            # The first error stops the join. A blank (is_blank_value) is
-            # still skipped or inserted as "".
+            # Formula errors stop TEXTJOIN like Calc; blanks use is_blank_value, not is_missing_value, so #VALUE! is not silently dropped.
             if _is_calc_error(val):
                 if isinstance(val, str):
                     return val.strip()
@@ -333,8 +323,7 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
     try:
         s = str(text)
         # ScTextSplit PushIllegalParameter on empty text. This helper's
-        # illegal parameter is NaN, same as an empty delimiter. "" used to
-        # split to [[""]].
+        # Empty text and illegal parameters return NaN like Calc; they do not split to [[""]].
         if s == "":
             return float("nan")
         ci = (match_mode == 1)
@@ -361,7 +350,6 @@ def textsplit(text: Any, col_delimiter: Any, row_delimiter: Any = None, ignore_e
         return float("nan")
 
 
-@_nan_on_error
 def time(hour: Any, minute: Any, second: Any) -> float:
     # ScInterpreter::ScGetTime (sc/source/core/tool/interpr2.cxx) does
     # fmod(hour*3600 + minute*60 + second, 86400) / 86400. Truncating each
@@ -370,6 +358,8 @@ def time(hour: Any, minute: Any, second: Any) -> float:
     # this helper returns NaN for that, same as its other numeric failures.
     # math.fmod keeps the dividend's sign, matching C fmod.
     total = float(hour) * 3600.0 + float(minute) * 60.0 + float(second)
+    if not math.isfinite(total):
+        return float("nan")
     wrapped = math.fmod(total, 86400.0)
     if wrapped < 0.0 or not math.isfinite(wrapped):
         return float("nan")
@@ -390,11 +380,13 @@ def timevalue(text: Any) -> float:
     return float("nan")
 
 
-@_nan_on_error
 def tinv(prob: Any, df: Any) -> float:
     # float(10**400) raises OverflowError. The handler only caught
     # ValueError and TypeError, so TINV of a huge probability raised.
-    p = float(prob)
+    try:
+        p = float(prob)
+    except OverflowError:
+        return float("nan")
     # ScTInv floors df, same as ScTDist. A fractional df was used as-is.
     d = math.floor(float(df))
     if p <= 0 or p > 1 or d < 1:
@@ -463,7 +455,6 @@ def trend(*args: Any) -> Any:
         return "#VALUE!"
 
 
-@_nan_on_error
 def trimmean(r: Any, percent: Any) -> float:
     # Skip blanks, text, and bools. A formula error (NaN) still propagates.
     arr = _extract_numeric_array(r, propagate_nan=True)
@@ -471,7 +462,10 @@ def trimmean(r: Any, percent: Any) -> float:
         return float("nan")
     # float(10**400) raises OverflowError. The handler only caught
     # ValueError and TypeError, so TRIMMEAN of a huge percent raised.
-    p = float(percent)
+    try:
+        p = float(percent)
+    except OverflowError:
+        return float("nan")
     if p < 0 or p >= 1:
         return float("nan")
     k = int(len(arr) * p / 2)
@@ -481,7 +475,6 @@ def trimmean(r: Any, percent: Any) -> float:
     return float(np.mean(arr[k:-k]))
 
 
-@_nan_on_error
 def ttest(data1: Any, data2: Any, tails: Any, type_: Any) -> float:
     # ``t`` is the public T() function. A local with that name would hide it.
     tail_count = int(float(tails))
@@ -525,7 +518,6 @@ def type(val: Any) -> float:
     return 1.0
 
 
-@_nan_on_error
 def unichar(number: Any) -> str | float:
     val = int(float(number))
     if val <= 0 or val > 0x10FFFF:
@@ -637,7 +629,6 @@ _WEEKNUM_WEEK_START: dict[int, int] = {
 }
 
 
-@_nan_on_error
 def weekday(serial: Any, return_type: int | float = 1) -> float:
     # _serial_to_date returns None for a bad serial. fromordinal raises
     # ValueError or OverflowError, not OSError, so the old OSError arm was dead.
@@ -686,7 +677,6 @@ def _system1_week_number(day: dt.date, week_start: int) -> int:
     return week
 
 
-@_nan_on_error
 def weeknum(serial: Any, return_type: int | float = 1) -> float:
     # The body ignored return_type and always returned the ISO week. ISO is
     # only return_type 21 (and 150, the Gnumeric alias). isoweeknum already
@@ -703,12 +693,14 @@ def weeknum(serial: Any, return_type: int | float = 1) -> float:
     return float(_system1_week_number(day, start))
 
 
-@_nan_on_error
 def weibull(x: Any, alpha: Any, beta: Any, cumulative: Any = True) -> float:
     # float(10**400) raises OverflowError, which this handler missed.
-    val = float(x)
-    a = float(alpha)
-    b = float(beta)
+    try:
+        val = float(x)
+        a = float(alpha)
+        b = float(beta)
+    except OverflowError:
+        return float("nan")
     if val < 0 or a <= 0 or b <= 0:
         return float("nan")
     if (st := _scipy_stats()) is None:
@@ -927,7 +919,7 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
     # so the hit was "5" instead of the number 5. The lookup path
     # already keeps numbers as numbers.
     r_flat = np.asarray(return_arr, dtype=object)
-    # A return array shorter than the matched index used to raise IndexError
+    # A return array shorter than the matched index must not raise IndexError.
     # (xlookup("b", ["a", "b"], [1])). The match succeeded, so this is not
     # if_not_found; it is a bad range. Report #VALUE!, same as other shape
     # mismatches, instead of letting the exception escape.
@@ -935,7 +927,7 @@ def xlookup(lookup_val: Any, lookup_arr: Any, return_arr: Any, if_not_found: Any
         if r_flat.ndim == 2:
             l_shape = np.asarray(lookup_arr).shape
             # Row slice: (N, 1) with N > 1, or a flat (N,) lookup whose return
-            # has one row per lookup value. A flat lookup used to take the
+            # has one row per lookup value. A flat lookup must not take the.
             # column whenever best_idx < width, so
             # xlookup("b", ["a","b","c"], [["x","y"],["z","w"],["p","q"]])
             # returned ["y","w","q"] instead of ["z","w"]. A wide return whose
@@ -973,7 +965,7 @@ def xnpv(rate: Any, values: Any, dates: Any) -> float:
         # Excel XNPV returns #NUM! when rate <= -1. (1+rate)**fraction is
         # complex for a negative base, and rate == -1 is 0**0 == 1 on a
         # cash flow dated with the anchor (or ZeroDivisionError later), so a
-        # finite total or a complex used to leak out of this float return.
+        # finite total or a complex must not leak out of this float return.
         if 1.0 + r <= 0.0:
             return float("nan")
         res = 0.0
@@ -1043,7 +1035,6 @@ def xor(*args: Any) -> bool | float | str:
     return trues % 2 == 1
 
 
-@_nan_on_error
 def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: Any = 0) -> float:
     """Annual yield of a discounted security (e.g. Treasury bill)."""
     p = float(pr)
@@ -1051,7 +1042,7 @@ def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: A
     settle = float(settlement)
     mature = float(maturity)
     # getYielddisc throws when settlement >= maturity. yearfrac swaps
-    # those dates, so a reversed pair used to return a positive yield.
+    # those dates, so a reversed pair must not return a positive yield.
     if p <= 0 or red <= 0 or settle >= mature:
         return float("nan")
     yf = yearfrac(settle, mature, basis)
@@ -1060,7 +1051,6 @@ def yielddisc(settlement: Any, maturity: Any, pr: Any, redemption: Any, basis: A
     return float(((red - p) / p) / yf)
 
 
-@_nan_on_error
 def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, basis: Any = 0) -> float:
     """Annual yield of a security that pays interest at maturity."""
     r = float(rate)
@@ -1084,7 +1074,6 @@ def yieldmat(settlement: Any, maturity: Any, issue: Any, rate: Any, pr: Any, bas
     return float(num / dsm_b)
 
 
-@_nan_on_error
 def ztest(data: Any, x: Any, sigma: Any | None = None) -> float:
     # ScZTest counts numeric cells, including TRUE as 1, and skips text
     # and blanks. dtype=float raised on None, so one blank made the call

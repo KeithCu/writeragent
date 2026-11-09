@@ -39,9 +39,18 @@ def test_filter_agent_sheet_names_keeps_normal_omits_internals():
     ) == ["Sheet1", "Q1"]
 
 
+def _mock_sheet(*, protected: bool = False, visible: bool = True) -> MagicMock:
+    sheet = MagicMock()
+    sheet.isProtected.return_value = protected
+    sheet.getPropertyValue.return_value = visible
+    return sheet
+
+
 def _sheets_doc(*names: str) -> MagicMock:
     sheets = MagicMock()
     sheets.getElementNames.return_value = names
+    by_name = {name: _mock_sheet() for name in names}
+    sheets.getByName.side_effect = lambda n: by_name[n]
     doc = MagicMock()
     doc.getSheets.return_value = sheets
     return doc
@@ -54,9 +63,26 @@ def test_list_sheets_omits_leading_underscore_names():
     result = ListSheets().execute(ctx)
 
     assert result["status"] == "ok"
-    assert result["result"] == ["Sheet1", "Data"]
-    assert "_foo" not in result["result"]
-    assert "__Anonymous_Sheet_DB__0" not in result["result"]
+    assert result["result"] == [
+        {"name": "Sheet1", "protected": False, "visible": True},
+        {"name": "Data", "protected": False, "visible": True},
+    ]
+    names = [entry["name"] for entry in result["result"]]
+    assert "_foo" not in names
+    assert "__Anonymous_Sheet_DB__0" not in names
+
+
+def test_list_sheets_result_entries_have_name_protected_visible():
+    ctx = SimpleNamespace(
+        doc=_sheets_doc("Sheet1", "_foo", "__Anonymous_Sheet_DB__0", "Data")
+    )
+    result = ListSheets().execute(ctx)
+    assert result["status"] == "ok"
+    for entry in result["result"]:
+        assert set(entry.keys()) == {"name", "protected", "visible"}
+        assert isinstance(entry["name"], str)
+        assert isinstance(entry["protected"], bool)
+        assert isinstance(entry["visible"], bool)
 
 
 def test_get_sheet_summary_rejects_leading_underscore_names():
@@ -151,7 +177,8 @@ def test_switch_sheet_missing_name_raises_uno_object_error():
     assert res["code"] == "UNO_OBJECT_ERROR"
     assert "No sheet named 'NoSuchSheet'." in res["message"]
     assert "Available: Sheet1, Data" in res["message"]
-    assert "_hidden" not in res["message"]
+    assert "sheet_list" in res["details"]["hint"]
+    assert "_hidden" not in res["details"].get("similar", [])
 
 
 def test_rename_sheet_missing_old_name_raises_uno_object_error():
@@ -383,3 +410,85 @@ def test_protect_sheet_state_not_changed_error():
         assert res["status"] == "error"
         assert "Failed to set sheet" in res["message"]
 
+
+def _doc_with_named_sheets(*names: str) -> tuple[MagicMock, MagicMock]:
+    sheets = MagicMock()
+    sheets.getElementNames.return_value = names
+    sheets.getCount.return_value = len(names)
+
+    def _sheet(name: str, *, visible: bool = True) -> MagicMock:
+        sh = MagicMock()
+        sh.getName.return_value = name
+        sh.getPropertyValue.return_value = visible
+        return sh
+
+    by_name = {n: _sheet(n) for n in names}
+    sheets.getByName.side_effect = lambda n: by_name[n]
+    doc = MagicMock()
+    doc.getSheets.return_value = sheets
+    return doc, sheets
+
+
+def test_sheet_copy_calls_copy_by_name_at_end():
+    from plugin.calc.sheets import SheetCopy
+
+    doc, sheets = _doc_with_named_sheets("Sheet1", "Data")
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = MagicMock()
+        res = SheetCopy().execute(ctx, source="Sheet1", new_name="Copy1")
+    assert res["status"] == "ok"
+    sheets.copyByName.assert_called_once_with("Sheet1", "Copy1", 2)
+
+
+def test_sheet_copy_position_and_name_validation():
+    from plugin.calc.sheets import SheetCopy
+
+    doc, sheets = _doc_with_named_sheets("Sheet1")
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = MagicMock()
+        bad = SheetCopy().execute(ctx, source="Sheet1", new_name="_bad")
+        assert bad["status"] == "error"
+        assert "reserved" in bad["message"]
+        sheets.copyByName.assert_not_called()
+
+        out = SheetCopy().execute(ctx, source="Sheet1", new_name="Q2", position=99)
+        assert out["status"] == "error"
+        assert "out of range" in out["message"]
+
+
+def test_sheet_copy_rejects_internal_source():
+    from plugin.calc.sheets import SheetCopy
+
+    doc, sheets = _doc_with_named_sheets("_hidden")
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = MagicMock()
+        res = SheetCopy().execute(ctx, source="_hidden", new_name="Copy")
+    assert res["status"] == "error"
+    sheets.copyByName.assert_not_called()
+
+
+def test_sheet_move_calls_move_by_name():
+    from plugin.calc.sheets import SheetMove
+
+    doc, sheets = _doc_with_named_sheets("A", "B", "C")
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = MagicMock()
+        res = SheetMove().execute(ctx, sheet="B", position=0)
+    assert res["status"] == "ok"
+    sheets.moveByName.assert_called_once_with("B", 0)
+
+
+def test_sheet_hide_last_visible_errors():
+    from plugin.calc.sheets import SheetHide
+
+    doc, sheets = _doc_with_named_sheets("Only")
+    ctx = SimpleNamespace(doc=doc)
+    with patch("plugin.calc.sheets.CalcBridge") as bridge_cls:
+        bridge_cls.return_value.get_sheet.return_value = sheets.getByName("Only")
+        res = SheetHide().execute(ctx, sheet="Only", visible=False)
+    assert res["status"] == "error"
+    assert "only visible" in res["message"]

@@ -1,10 +1,10 @@
 """resolve_locator must not turn an unresolved writer locator into paragraph 0."""
 
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import plugin.app as app
 from plugin.doc.document_helpers import (
     DocumentService,
     get_document_context_for_chat,
@@ -120,7 +120,7 @@ def test_live_bookmark_still_resolves(monkeypatch):
         seen["anchor"] = found_anchor
         return 2
 
-    monkeypatch.setattr("plugin.doc.document_helpers._find_paragraph_for_range", fake_find)
+    monkeypatch.setattr("plugin.doc.document_helpers._paragraph_index_for_anchor", fake_find)
     assert resolve_locator(doc, "bookmark:here")["para_index"] == 2
     assert seen["anchor"] is anchor
 
@@ -140,7 +140,7 @@ def test_section_locator_dispatches_to_writer_resolver(monkeypatch):
         seen["anchor"] = found_anchor
         return 4
 
-    monkeypatch.setattr("plugin.doc.document_helpers._find_paragraph_for_range", fake_find)
+    monkeypatch.setattr("plugin.doc.document_helpers._paragraph_index_for_anchor", fake_find)
     hit = resolve_locator(doc, "section:Notes")
     assert hit["para_index"] == 4
     assert hit["section_name"] == "Notes"
@@ -153,7 +153,7 @@ def test_section_locator_dispatches_to_writer_resolver(monkeypatch):
 
 def test_page_locator_dispatches_and_bad_page_errors(monkeypatch):
     monkeypatch.setattr(
-        "plugin.doc.document_helpers._find_paragraph_for_range",
+        "plugin.doc.document_helpers._paragraph_index_for_anchor",
         lambda *_args, **_kwargs: 6,
     )
     doc = _PageDoc()
@@ -169,7 +169,7 @@ def test_page_locator_dispatches_and_bad_page_errors(monkeypatch):
 
 def test_page_locator_when_clone_fails_skips_body_move(monkeypatch):
     monkeypatch.setattr(
-        "plugin.doc.document_helpers._find_paragraph_for_range",
+        "plugin.doc.document_helpers._paragraph_index_for_anchor",
         lambda *_args, **_kwargs: 6,
     )
     doc = _PageDoc()
@@ -206,14 +206,15 @@ def test_registered_writer_tree_is_the_resolver(monkeypatch):
 
     services = MagicMock()
     services.get.return_value = _Tree()
-    main = type(sys)("plugin.main")
-    main._services = services
-    monkeypatch.setitem(sys.modules, "plugin.main", main)
-
-    hit = resolve_locator(WriterDocStub([ElementStub("a")]), "section:Body")
-    assert hit["para_index"] == 9
-    assert calls["args"] == ("section", "Body")
-    services.get.assert_called_with("writer_tree")
+    prev_services = app._services
+    app._services = services
+    try:
+        hit = resolve_locator(WriterDocStub([ElementStub("a")]), "section:Body")
+        assert hit["para_index"] == 9
+        assert calls["args"] == ("section", "Body")
+        services.get.assert_called_with("writer_tree")
+    finally:
+        app._services = prev_services
 
 
 class _PosPara:
@@ -319,15 +320,16 @@ def test_live_bookmark_uses_the_tree_resolver(monkeypatch):
 
     services = MagicMock()
     services.get.return_value = _Tree()
-    main = type(sys)("plugin.main")
-    main._services = services
-    monkeypatch.setitem(sys.modules, "plugin.main", main)
-
-    bookmarks = _Bookmarks(["here"], {"here": object()})
-    doc = _BookmarkDoc([ElementStub("Alpha", outline_level=1)], bookmarks)
-    hit = resolve_locator(doc, "bookmark:here")
-    assert hit["para_index"] == 4
-    assert calls["args"] == ("bookmark", "here")
+    prev_services = app._services
+    app._services = services
+    try:
+        bookmarks = _Bookmarks(["here"], {"here": object()})
+        doc = _BookmarkDoc([ElementStub("Alpha", outline_level=1)], bookmarks)
+        hit = resolve_locator(doc, "bookmark:here")
+        assert hit["para_index"] == 4
+        assert calls["args"] == ("bookmark", "here")
+    finally:
+        app._services = prev_services
 
 
 def test_bookmark_on_first_paragraph_still_resolves():
@@ -577,3 +579,10 @@ def test_excerpt_overlap_other_xtext_is_false():
             model, 0, 10, _Pos(_Text()), _Pos(_Text())) is False
     model.getText.return_value.compareRegionStarts.assert_not_called()
 
+
+def test_document_service_open_documents_magicmock_enum_is_empty():
+    with patch("plugin.framework.uno_context.get_desktop") as mock_desktop:
+        mock_desktop.return_value = MagicMock()
+        mock_desktop.return_value.getComponents.return_value.createEnumeration.return_value = MagicMock()
+        docs = DocumentService().open_documents()
+    assert docs == []

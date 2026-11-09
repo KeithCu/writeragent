@@ -5,7 +5,6 @@
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
-Type errors are left to the worker exception path, which returns #VALUE!.
 """
 
 from __future__ import annotations
@@ -129,8 +128,7 @@ def _parse_complex(val: Any) -> tuple[complex, str]:
     ``suffix`` is ``"i"``, ``"j"``, or ``""`` when the text has no imaginary
     unit. ``Complex::Add`` / ``Mult`` (``analysishelper.hxx``) keep the first
     non-empty unit: a real number stores ``c == '\\0'`` and does not override
-    a later ``j``. Rewriting every ``i`` to ``j`` before parsing used to drop
-    that unit, so ``IMSUM("1+2j","3+j")`` came back as ``"4+3i"``.
+    Preserve the first imaginary unit letter so ``IMSUM`` does not rewrite ``j`` results to ``i`` incorrectly.
 
     A bool is a number. It is an ``int`` subclass, and ``str(True)`` is not
     a complex literal.
@@ -316,10 +314,7 @@ def intrate(settlement: Any, maturity: Any, investment: Any, redemption: Any, ba
     # yf == 0 would be ZeroDivisionError (#DIV/0!). Excel INTRATE is #NUM!.
     if yf == 0:
         return float("nan")
-    # What was wrong: INTRATE with an infinite redemption returned inf.
-    # How it happened: the quotient is outside the conversion, and float
-    # division does not raise. getIntrate returns finiteOrThrow.
-    # Why this change fixes it: a non-finite quotient is NaN.
+    # Non-finite quotient is NaN (Excel/Calc INTRATE returns #NUM!).
     res = (red - inv) / inv / yf
     return res if math.isfinite(res) else float("nan")
 
@@ -360,7 +355,7 @@ def irr(values: Any, guess: Any = 0.1) -> float:
     # below (#NUM!, not #DIV/0!). A huge (1+x)**i raises OverflowError,
     # which the worker returns as #NUM!.
     x = 0.1 if estimated == -1.0 else estimated
-    # The stop used to be abs(NPV) < 1e-7 for 100 steps. ScIRR stops when
+    # The stop must not be abs(NPV) < 1e-7 for 100 steps. ScIRR stops when.
     # the rate step drops below SCdEpsilon (1e-7), and it gives up after
     # 20 steps (NoConvergence). At a 1e9 scale the NPV residual sticks
     # near 1.2e-7 while the step is already ~1e-16, so the old test
@@ -409,8 +404,7 @@ def iserror(val: Any) -> bool:
 def _parity(val: Any) -> int | None:
     """Truncated integer, or None when the value is not a finite number.
 
-    ``int(inf)`` raises ``OverflowError``. That used to escape ``iseven``.
-    NaN is not even and not odd.
+    ``int(inf)`` maps to not-even/not-odd instead of escaping as OverflowError. NaN is not even and not odd.
     """
     try:
         # int(nan) raises ValueError, which the handler below already turns into not-even / not-odd
@@ -425,11 +419,7 @@ def iseven(val: Any) -> bool:
 
 
 def islogical(val: Any) -> bool:
-    # What was wrong: islogical(np.bool_(True)) was False.
-    # How it happened: np.bool_ is not a subclass of bool, and this was the
-    # only logical check that tested bool alone. is_number excludes both,
-    # and n() maps both to 1.0 / 0.0.
-    # Why this change fixes it: a NumPy logical is logical, matching ISLOGICAL.
+    # np.bool_ is not a subclass of bool; both are logical in Calc.
     return isinstance(val, (bool, np.bool_))
 
 
@@ -468,7 +458,7 @@ def ispmt(rate: Any, per: Any, nper: Any, pv_val: Any) -> float:
     p = float(per)
     n = float(nper)
     pv_f = float(pv_val)
-    # nper == 0 used to raise ZeroDivisionError (pv / nper). Excel/Calc are
+    # nper == 0 must not raise ZeroDivisionError (pv / nper). Excel/Calc are.
     # #NUM!; this module returns NaN. Same guard as pmt.
     if n == 0:
         return float("nan")
@@ -509,7 +499,7 @@ def jis(text: Any) -> str:
 def kurt(*args: Any) -> float:
     # ScKurt (interpr3.cxx). Fewer than 4 numbers, or a zero sample stdev,
     # is #DIV/0!. This is the unbiased excess kurtosis. scipy.stats.kurtosis
-    # (bias=False) is the same expression, and a missing scipy used to make
+    # (bias=False) is the same expression, and a missing scipy must not make.
     # every call NaN.
     arr = _extract_numeric_array(*args)
     count = len(arr)
@@ -624,7 +614,7 @@ def loginv(p: Any, mean: Any, stdev: Any) -> float:
     if prob <= 0 or prob >= 1 or s <= 0:
         return float("nan")
     # exp(mue + sigma * gaussinv(p)). statistics.NormalDist is that
-    # inverse CDF. scipy.stats used to be imported inside the call, so
+    # inverse CDF. scipy.stats must not be imported inside the call, so.
     # a missing scipy made every probability NaN.
     # exp(1e308) raises OverflowError, which the worker returns as #NUM!.
     # exp(inf) returns inf, and IFERROR does not treat inf as an error.
@@ -671,8 +661,7 @@ def _lookup_keys(data: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
     A 1-D list is that vector. A 2-D table searches the first column when
     it has at least as many rows as columns, and the first row otherwise.
     The other end of that line is the result when no result vector is passed.
-    ``ravel`` used to search ``[[1, 10], [2, 20]]`` as one list, so
-    ``LOOKUP(2, that)`` returned 2 instead of 20.
+    Pick column or row search axis by table shape so LOOKUP does not ravel 2×2 blocks into the wrong vector.
     """
     if data.size == 0:
         return None
@@ -689,7 +678,7 @@ def _lookup_keys(data: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
 def lookup(lookup_val: Any, *args: Any) -> Any:
     # dtype=object keeps numbers as numbers. Text compares case-insensitively.
     # ScLookup (interpr1.cxx) requires data <= query and the same type. A
-    # number does not match text. str(None) used to be the text "None", so
+    # number does not match text. str(None) must not be the text "None", so.
     # lookup(20, ["10x"]) returned "10x". A miss is #N/A, not Python None.
     if not args:
         return "#N/A"
@@ -736,10 +725,7 @@ def maxa(*args: Any) -> float:
 def _as_matrix(matrix: np.ndarray) -> np.ndarray:
     """2-D array. A scalar is 1×1. A flat list is a row.
 
-    Sheet ranges are already 2-D. ``MMULT`` of two 1-D lists used to be a
-    dot product; ``ScMatMult`` rejects 1×n times 1×n. ``ScMatDet`` of a
-    1×1 matrix is that element, so ``MDETERM(5)`` is 5. ndim > 2 keeps
-    the first block; det/inv/matmul used to peel that inline.
+    Promote scalars and vectors to 2-D shapes matching Calc matrix rules; 1-D MMULT is not a dot product. Higher rank uses the first plane only.
     """
     if matrix.ndim > 2:
         matrix = matrix[0]
@@ -782,7 +768,7 @@ def mirr(values: Any, finance_rate: Any, reinvest_rate: Any) -> float:
     vals = [float(x) for x in np.asarray(values).ravel()]
     fr = float(finance_rate)
     rr = float(reinvest_rate)
-    # rate == -1 used to divide by zero (later negative flows) or return a
+    # rate == -1 must not divide by zero (later negative flows) or return a.
     # finite number (reinvest rate -1). numpy-financial's NPV is undefined
     # there and returns NaN, which is Excel #NUM!.
     return _npf_result("mirr", vals, fr, rr)
@@ -799,7 +785,7 @@ def mmult(array1: Any, array2: Any) -> Any:
 
 def mode(*args: Any) -> Any:
     # ScModalValue (interpr3.cxx) takes one or more arguments and keeps
-    # numbers only. mode(1, 2, 2) used to raise TypeError. Text is not a
+    # numbers only. mode(1, 2, 2) must not raise TypeError. Text is not a.
     # candidate. A Calc bool is a numeric cell, so True and 1 are the same
     # value and must stay merged.
     arr = _extract_numeric_array(*args, ignore_bool=False, propagate_nan=False)
@@ -856,19 +842,7 @@ def multinomial(*args: Any) -> float:
             vals.append(int(float(value)))
     if any(value < 0 for value in vals):
         return float("nan")
-    # What was wrong: multinomial(1e9, 1e9) did not return. It burned CPU
-    # and memory until the script timeout.
-    # How it happened: math.comb(sum, k) builds a Python int. comb(2e9, 1e9)
-    # is hundreds of millions of bits. The switch off math.factorial(sum)
-    # only made each factor smaller; it did not bound the factor.
-    # getMultinomial (analysis.cxx) multiplies BinomialCoefficient in
-    # double and returns finiteOrThrow. A non-finite result is #NUM!,
-    # which this module reports as NaN.
-    # Why this change fixes it: log-gamma rejects a coefficient that
-    # cannot fit in a float before math.comb runs, and the running
-    # product stops at the same float limit. k < 2 skips log-gamma:
-    # lgamma(1e308) raises OverflowError even when C(n, n) is 1 and
-    # C(n, 1) is n.
+    # getMultinomial (analysis.cxx): reject coefficients exceeding float capacity via log-gamma before math.comb.
     acc = 1
     rest = sum(vals)
     limit = math.log(sys.float_info.max)
@@ -894,7 +868,7 @@ def multinomial(*args: Any) -> float:
 
 def munit(dimension: Any) -> Any:
     # ScEMat (interpr5.cxx): GetUInt32 truncates, then dimension 0 is
-    # IllegalArgument. np.eye(0) used to return []. Above 1024 the identity
+    # IllegalArgument. np.eye(0) must not return []. Above 1024 the identity.
     # is more than a million Python floats. Calc pushes MatrixSize when the
     # square is not allocatable instead of building it.
     try:

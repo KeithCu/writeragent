@@ -36,21 +36,23 @@ def get_api_config() -> dict[str, Any]:
     return _gac()
 
 
-def get_config_int(key: str) -> int:
-    from plugin.framework.config import get_config_int as _gci
-    return _gci(key)
+def get_config(key: str) -> Any:
+    from plugin.framework.config import get_config as _gc
+    return _gc(key)
+
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from plugin.chatbot.sticky_reply import StickyReplySpec
+    from plugin.chatbot.chat_sidebar_mode import SidebarMode
+    from plugin.framework.send_cancellation import SendCancellation
     from plugin.framework.tool import ToolBase
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.smol_agent")
+log = logging.getLogger(__name__)
 
 # Match ``writeragent.specialized`` messages when ``safe=True`` (delegation path).
-_spec_log = logging.getLogger("writeragent.specialized")
+_spec_log = logging.getLogger(__name__ + ".specialized")
 
 SmolInputsStyle = Literal["librarian", "specialized"]
 
@@ -128,17 +130,14 @@ class SmolToolAdapter(SmolTool):
         ctx = self._inner_tctx
 
         # Same schema filter, coercion, validate() and VALIDATION_ERROR payload as
-        # ToolRegistry.execute. forward used to skip them, so a bad enum value
-        # (e.g. position='start') ran the tool instead of returning the valid-value error.
+        # forward mirrors ToolRegistry.execute validation so bad enum values return VALIDATION_ERROR.
         prepared = prepare_tool_call(tool, ctx, self.name, kwargs)
         if prepared.error is not None:
             result = prepared.error
         elif getattr(ctx, "read_only_target", False) is True and tool.detects_mutation():
             # Refuse before dispatch with the same flag, detects_mutation(), and
-            # READ_ONLY_TARGET payload as ToolRegistry.execute. forward used to
-            # call ToolBase.execute and skip that check, so a mutating tool ran
-            # on a read_only_target context. The field is a bool, so only an
-            # explicit True counts.
+            # READ_ONLY_TARGET blocks mutating tools before dispatch, same as ToolRegistry.execute.
+            # Only explicit True on read_only_target triggers the refusal.
             result = make_tool_error(
                 "This document is open for read-only document_research access; writes are not allowed.",
                 code="READ_ONLY_TARGET",
@@ -150,13 +149,13 @@ class SmolToolAdapter(SmolTool):
                 _spec_log.debug("SmolToolAdapter executing async tool '%s' on worker", self.name)
                 result = (tool.execute_safe if self._safe else tool.execute)(ctx, **kwargs)
             else:
-                from plugin.framework.queue_executor import execute_on_main_thread
+                from plugin.framework.queue_executor import main
 
                 # Note: Even tools that do not strictly require UNO (like Librarian's MemoryTool)
                 # are marshalled to the main thread here if they are sync.
                 # This sync-default policy is intentional and the extra hop is acceptable.
                 _spec_log.debug("SmolToolAdapter executing sync tool '%s' on main thread", self.name)
-                result = execute_on_main_thread(tool.execute_safe if self._safe else tool.execute, ctx, **kwargs)
+                result = main.call(tool.execute_safe if self._safe else tool.execute, ctx, **kwargs)
             # Like ToolRegistry.execute: say which arguments were dropped instead of ignoring them silently.
             if prepared.ignored and isinstance(result, dict):
                 result.setdefault("ignored_parameters", prepared.ignored)
@@ -176,14 +175,14 @@ class WriterAgentSmolModel(Model):
     max_tokens: int
     model_id: str | None
     _status_callback: Any
-    _stop_checker: Any
+    _cancel: SendCancellation | None
 
     def __init__(
         self,
         llm_client: LlmClient,
         max_tokens: int = 1024,
         status_callback: Any = None,
-        stop_checker: Any = None,
+        cancel: SendCancellation | None = None,
     ) -> None:
         # Note: Model.kwargs are intentionally ignored; request_with_tools defines wire keys.
         super().__init__()
@@ -191,7 +190,7 @@ class WriterAgentSmolModel(Model):
         self.max_tokens = max_tokens
         self.model_id = self.api.config.get("model")
         self._status_callback = status_callback
-        self._stop_checker = stop_checker
+        self._cancel = cancel
 
     def generate(
         self,
@@ -225,7 +224,7 @@ class WriterAgentSmolModel(Model):
             model=self.model_id,
             response_format=fmt,
             prepend_dev_build_system_prefix=False,
-            stop_checker=self._stop_checker,
+            cancel=self._cancel,
         )
 
         if self._status_callback:
@@ -256,7 +255,9 @@ class SmolAgentExecutor:
         self.ctx = ctx
 
     def _abort_if_stopped(self, agent: Any) -> None:
-        if self.ctx.stop_checker and self.ctx.stop_checker():
+        from plugin.framework.send_cancellation import is_cancelled
+
+        if is_cancelled(self.ctx.send_cancellation):
             agent.interrupt()
             raise ToolExecutionError("Task stopped by user.", code="USER_STOPPED")
 
@@ -363,30 +364,30 @@ def create_smol_model(
     client: LlmClient | None = None,
     max_tokens: int | None = None,
     status_callback: object | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> WriterAgentSmolModel:
     """Construct a WriterAgentSmolModel with configured client, max tokens, and callbacks."""
     if max_tokens is None:
-        max_tokens = get_config_int("chat_max_tokens")
-    if stop_checker is None and ctx is not None:
-        stop_checker = ctx.stop_checker
+        max_tokens = int(get_config("chat_max_tokens"))
+    if cancel is None and ctx is not None:
+        cancel = ctx.send_cancellation
     if status_callback is None and ctx is not None:
         status_callback = ctx.status_callback
     if client is None:
         uno_ctx = ctx.ctx if ctx is not None else None
         config = get_api_config()
-        client = LlmClient(config, uno_ctx, cancellation_scope=ctx.send_cancellation if ctx is not None else None)
+        client = LlmClient(config, uno_ctx, cancel=cancel)
     return WriterAgentSmolModel(
         client,
         max_tokens=max_tokens,
         status_callback=status_callback,
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
 
 
 def build_toolcalling_agent(ctx: ToolContext, tools: Sequence[SmolTool], *, instructions: str, final_answer_tool_name: str, examples_block: str) -> ToolCallingAgent:
     """Shared construction for smolagents runs (same config as main chat: model, max_tokens, max_steps)."""
-    max_steps = get_config_int("chatbot.max_tool_rounds")
+    max_steps = get_config("chatbot.max_tool_rounds")
     smol_model = create_smol_model(ctx)
     return ToolCallingAgent(tools=list(tools), model=smol_model, max_steps=max_steps, instructions=instructions, final_answer_tool_name=final_answer_tool_name, system_prompt_examples=examples_block)
 
@@ -456,7 +457,7 @@ def run_smol_side_turn(
     collector: Callable[[ToolContext], Sequence[ToolBase]],
     instructions: str,
     examples_key: str,
-    reply_spec: StickyReplySpec | None = None,
+    mode: SidebarMode | None = None,
     status_message: str,
     stop_message: str,
     error_prefix: str,
@@ -478,10 +479,10 @@ def run_smol_side_turn(
         status_callback(status_message)
 
     reply_tool: Any | None = None
-    if reply_spec is not None:
+    if mode is not None:
         from plugin.chatbot.sticky_reply import StickyReplyToUserTool
 
-        reply_tool = StickyReplyToUserTool(reply_spec)
+        reply_tool = StickyReplyToUserTool(mode)
 
     collector_tools = collector(ctx)
     on_result = reply_tool.record_tool_result if reply_tool is not None else None
@@ -507,8 +508,8 @@ def run_smol_side_turn(
     )
     if isinstance(res, dict) and res.get("status") == "error":
         return res
-    if reply_spec is not None:
+    if mode is not None and mode.leave_status is not None:
         from plugin.chatbot.sticky_reply import interpret_sticky_final_answer
 
-        return interpret_sticky_final_answer(res, leave_status=reply_spec.leave_status)
+        return interpret_sticky_final_answer(res, leave_status=mode.leave_status)
     return {"status": "ok", "result": str(res)}

@@ -489,7 +489,7 @@ Registered tables are snapshots: a cell that passes `data` and re-registers refr
 
 **Related:** `[WorkerResultSession](../plugin/calc/python/function.py)` is a **separate** thread-local cache for matrix list results within one recalc pass — it does not hold cross-cell Python globals. See [Matrix Formula Optimization](#matrix-formula-optimization-fast-path).
 
-**Implementation:** `[session_manager.py](../plugin/scripting/session_manager.py)`, `[venv/venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` (`_SESSION_EXECUTORS`), `[venv/duckdb_sql.py](../plugin/scripting/venv/duckdb_sql.py)` (session catalog).
+**Implementation:** `[session_manager.py](../plugin/scripting/session_manager.py)`, `[venv/venv_sandbox.py](../plugin/scripting/venv/venv_sandbox.py)` (`SessionStore` / `SESSIONS`), `[venv/duckdb_sql.py](../plugin/scripting/venv/duckdb_sql.py)` (session catalog).
 
 #### `result` vs `print()` (egress model) {#result-vs-print-egress-model}
 
@@ -664,7 +664,7 @@ ASCII `"…"` string literals are **opaque**. Identifiers like `float` and neste
 | **Err:510** | Cell text starts with `=` (e.g. section label `=== normal ===`) | Use plain labels like `[normal]`, not leading `=` |
 | **#NAME?** | XLSX import lowercases the add-in name; lookup failed on display-only name | Prefer `=PY(...)` (uppercase). The add-in also accepts `python` / `PYTHON`. |
 
-Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_calc_compatible`](../plugin/calc/python/function.py) already coerces NumPy scalars and Python `int` to Calc `double`. `#NAME?` on `float` means the call is **outside** quotes (or quotes were lost / became curly). That is not proof the lexer scans inside ASCII strings.
+Do not wrap returns in `float()` / `int()` / `str()` for Calc’s sake — [`to_calc_compatible`](../plugin/calc/python/addin_values.py) already coerces NumPy scalars and Python `int` to Calc `double`. `#NAME?` on `float` means the call is **outside** quotes (or quotes were lost / became curly). That is not proof the lexer scans inside ASCII strings.
 
 ```text
 =PY(float(1))                 → #NAME?   (unquoted float = unknown function)

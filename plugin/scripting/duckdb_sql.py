@@ -12,9 +12,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, deal, str_bounded
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, deal
 from plugin.scripting._lazy_venv import install_lazy_exports, venv_attr
-from plugin.scripting.helper_domain import HelperScriptMeta, header_prefix, is_status_helper_result, parse_helper_script_header
+from plugin.scripting.helper_domain import HelperScriptMeta, ScriptFacts, header_prefix, is_status_helper_result
 
 # --- Constants (host) ---
 
@@ -55,11 +55,7 @@ install_lazy_exports(globals(), "duckdb_sql", _SQL_VENV_EXPORTS)
 # --- Templates for Run Python Script (Calc) ---
 
 def _sql_row_cap_note() -> str:
-    # What was wrong: a module-level import of MAX_TABLE_ROWS loaded
-    # venv/duckdb_sql.py (and coerce, calc_range, payload_codec) on every
-    # import of this host facade, including is_sql_result and header parsing.
-    # How: 2c1a312ce interpolated the constant into an import-time f-string.
-    # Why: only SQL script templates need the number. Load it when a template is built.
+    # MAX_TABLE_ROWS loads lazily via venv_attr so importing this host facade does not pull the full venv SQL stack for simple result checks.
     rows = venv_attr("duckdb_sql", "MAX_TABLE_ROWS")
     return (
         f"Results cap at {rows} rows (MAX_TABLE_ROWS). truncated/warning/flags mean "
@@ -69,10 +65,7 @@ def _sql_row_cap_note() -> str:
 
 def _template_body(helper: str, params: dict[str, Any]) -> str:
     note = _sql_row_cap_note()
-    if UNDER_CROSSHAIR:
-        params_json = "{}"
-    else:
-        params_json = json.dumps(params, separators=(",", ":"))
+    params_json = json.dumps(params, separators=(",", ":"))
     desc = _HELPER_DESCRIPTIONS.get(helper, helper)
     if helper == "query_sheet_sql":
         how_to = "# Set the Data range in the toolbar (or select cells), then Run.\n"
@@ -107,11 +100,7 @@ def _deal_sql_code_ok_pytest(code: object) -> bool:
     return isinstance(code, str)
 
 
-def _deal_sql_code_ok_crosshair(code: object) -> bool:
-    return str_bounded(code, DEAL_MAX_SOURCE)
-
-
-_deal_sql_code_ok = _deal_sql_code_ok_crosshair if UNDER_CROSSHAIR else _deal_sql_code_ok_pytest
+_deal_sql_code_ok = _deal_sql_code_ok_pytest
 
 
 @deal.post(lambda result: isinstance(result, dict) and "query_folder_sql" in result and "query_sheet_sql" in result)
@@ -126,13 +115,13 @@ def parse_sql_script_header(code: str) -> HelperScriptMeta | None:
     """Parse machine header from SQL script template."""
     # Header regex ``params=({.*})`` hangs deep check even via this thin wrapper.
     # crosshair: off
-    return parse_helper_script_header(code, tag="sql", helper_names=SQL_HELPER_NAMES)
+    return ScriptFacts.from_source(code).header(tag="sql", helper_names=SQL_HELPER_NAMES)
 
 
 
 # Dual-profile closed dict for is_sql_result.
-_DEAL_SQL_RESULT_KEYS = 4 if UNDER_CROSSHAIR else 32
-_DEAL_SQL_RESULT_STR = 8 if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
+_DEAL_SQL_RESULT_KEYS = 32
+_DEAL_SQL_RESULT_STR = DEAL_MAX_TOKEN
 
 
 def _deal_sql_result_value_ok_pytest(value: object) -> bool:
@@ -142,22 +131,7 @@ def _deal_sql_result_value_ok_pytest(value: object) -> bool:
     return True
 
 
-def _deal_sql_result_value_ok_crosshair(value: object) -> bool:
-    if not isinstance(value, dict):
-        return True
-    if len(value) > _DEAL_SQL_RESULT_KEYS:
-        return False
-    for k, v in value.items():
-        if not isinstance(k, str) or not str_bounded(k, _DEAL_SQL_RESULT_STR):
-            return False
-        if isinstance(v, str) and not str_bounded(v, _DEAL_SQL_RESULT_STR):
-            return False
-    return True
-
-
-_deal_sql_result_value_ok = (
-    _deal_sql_result_value_ok_crosshair if UNDER_CROSSHAIR else _deal_sql_result_value_ok_pytest
-)
+_deal_sql_result_value_ok = _deal_sql_result_value_ok_pytest
 
 
 @deal.pre(lambda value: _deal_sql_result_value_ok(value))

@@ -35,6 +35,12 @@ def test_deal_pre_present_uses_function_source_not_module_comment() -> None:
     assert deal_pre_present(_merge_reasoning_details) is not is_release_build()
 
 
+def test_is_release_build_false_in_checkout() -> None:
+    """In a development checkout, is_release_build() must evaluate to False."""
+    skip_if_release_build("checkout-only: stripped release tree reports True by design")
+    assert is_release_build() is False
+
+
 def test_skip_if_release_build_is_noop_in_checkout() -> None:
     """Checkout still has ``scripts/``; release pytest must skip, not fail, those tests."""
     if is_release_build():

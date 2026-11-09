@@ -64,20 +64,25 @@ class ToolCalcDocumentResearchBase(ToolCalcSpecialBase):
 
 
 class ToolCalcCommentBase(ToolCalcSpecialBase):
-    specialized_domain: ClassVar[str | None] = "comments"
+    specialized_domain: ClassVar[str | None] = "cell_comments"
     specialized_domain_description: ClassVar[str | None] = "View, add, and manage cell comments and feedback."
 
 
 class ToolCalcConditionalBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "conditional_formatting"
     specialized_domain_description: ClassVar[str | None] = "Apply rules to format cells based on their values."
+    required_core_tools: ClassVar[frozenset[str] | None] = frozenset(
+        {"get_sheet_summary", "read_cell_range", "style_list"}
+    )
 
 
 class ToolCalcSheetBase(ToolCalcSpecialBase):
     """Base for sheet operations and sheet filtering (AutoFilter)."""
 
     specialized_domain: ClassVar[str | None] = "sheets"
-    specialized_domain_description: ClassVar[str | None] = "Create, list, switch, protect, rename, and delete sheets; apply/clear AutoFilter operations."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Create, list, switch, copy, move, hide, protect, rename, and delete sheets; apply/clear AutoFilter operations."
+    )
 
 
 class ToolCalcPivotBase(ToolCalcSpecialBase):
@@ -86,7 +91,7 @@ class ToolCalcPivotBase(ToolCalcSpecialBase):
 
 
 class ToolCalcChartBase(ToolCalcSpecialBase):
-    """Charts domain (``manage_charts``); shared implementation also serves Writer/Draw via union ``uno_services`` on the concrete tool."""
+    """Charts domain (``chart_list``, ``chart_get_info``, ``chart_upsert``, ``chart_delete``); shared implementation also serves Writer/Draw via union ``uno_services`` on the concrete tool."""
 
     specialized_domain: ClassVar[str | None] = "charts"
     specialized_domain_description: ClassVar[str | None] = "Create and edit charts on the active sheet or embedded chart in the document."
@@ -94,7 +99,9 @@ class ToolCalcChartBase(ToolCalcSpecialBase):
 
 class ToolCalcShapeBase(ToolCalcSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
-    specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, connectors, and groups."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Create and edit drawing shapes, connectors, groups, align/distribute layouts, and diagrams."
+    )
 
 
 class ToolCalcRangeBase(ToolCalcSpecialBase):

@@ -20,7 +20,8 @@ import hashlib
 import json
 import logging
 import os
-from contextlib import closing
+import threading
+from contextlib import closing, suppress
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -56,27 +57,22 @@ def _get_db_path() -> str:
 def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str, Any]:
     # Don't persist MBs of base64 audio or images to history db.
     if isinstance(content, list):
-        text_parts = []
+        from plugin.chatbot.chat_session import message_text
+
+        text = message_text(content)
         kinds: set[str] = set()
         for item in content:
             if isinstance(item, dict):
                 t = item.get("type")
-                if t == "text":
-                    # A present "text" of None, or any non-str, used to reach
-                    # " ".join and raise TypeError here. add_message calls
-                    # this before its try, so the turn never saved. str(... or
-                    # "") is always a str (None and missing become "").
-                    text_parts.append(str(item.get("text") or ""))
-                elif t in ("input_audio", "image_url"):
+                if t in ("input_audio", "image_url"):
                     kinds.add(t)
         markers = []
         if "input_audio" in kinds:
             markers.append("[Audio Attached]")
         if "image_url" in kinds:
-            # A vision turn used to reload as ordinary text, with the image
-            # parts dropped and no marker that one had been attached.
+            # Vision turns persist an [Image Attached] marker when image parts are stripped.
             markers.append("[Image Attached]")
-        content = " ".join(p for p in [" ".join(text_parts), *markers] if p)
+        content = " ".join(p for p in [text, *markers] if p)
 
     row: dict[str, Any] = {"role": role, "content": content}
     # tool_calls: null on user and system rows makes strict
@@ -89,6 +85,42 @@ def message_to_dict(role: str, content: Any, tool_calls: Any = None) -> dict[str
 # ---------------------------------------------------------------------------
 # Native SQLite3 Implementation
 # ---------------------------------------------------------------------------
+_keepers: dict[str, Any] = {}
+_keepers_lock = threading.Lock()
+
+
+def reset_history_keepers_for_tests() -> None:
+    """Close and clear keeper connection(s) (for test isolation)."""
+    with _keepers_lock:
+        for conn in _keepers.values():
+            with suppress(Exception):
+                conn.close()
+        _keepers.clear()
+
+
+def _open_wal(db_path: str, **kwargs: Any) -> Any:
+    assert sqlite3 is not None
+    conn = sqlite3.connect(db_path, **kwargs)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+    except BaseException:
+        conn.close()
+        raise
+    return conn
+
+
+def _ensure_keeper(db_path: str) -> None:
+    if db_path in _keepers:
+        return
+    with _keepers_lock:
+        if db_path not in _keepers:
+            # A connection attaches to the WAL only once it has read the database,
+            # and connect or SELECT 1 does not read it. Setting the pragmas joins
+            # the WAL index; the keeper is never used after it opens.
+            _keepers[db_path] = _open_wal(db_path, check_same_thread=False)
+
+
 class SQLite3History:
     session_id: str
     db_path: str
@@ -99,12 +131,24 @@ class SQLite3History:
         self._init_db()
 
     def _connect(self) -> closing[Any]:
-        assert sqlite3 is not None
+        # Default FULL fsyncs every UI/drain commit; WAL persists across connections,
+        # but synchronous does not, so both pragmas run on every connect.
+        # SQLite checkpoints and unlinks the WAL when its last connection closes;
+        # holding a process-lifetime keeper connection per db_path prevents that,
+        # so commits append to the WAL without a checkpoint.
+        # WAL history assumes a single host at a time (multi-host profile sharing is unsupported).
+        # WAL+NORMAL is process-crash consistent and a power loss can drop uncheckpointed commits.
         # sqlite3.Connection's context manager commits or rolls back and does
         # not close. Each history call left a connection until GC. closing()
         # calls close() on the way out, including when execute raises. Every
-        # connect in this file uses the same wrap.
-        return closing(sqlite3.connect(self.db_path))
+        # per-call connect in this file uses the same wrap.
+        conn = _open_wal(self.db_path)
+        try:
+            _ensure_keeper(self.db_path)
+        except BaseException:
+            conn.close()
+            raise
+        return closing(conn)
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -157,8 +201,7 @@ class SQLite3History:
                 try:
                     parsed = json.loads(raw)
                 except json.JSONDecodeError:
-                    # One torn row used to raise out of the whole session, so
-                    # later turns inserted and then vanished on the next open.
+                    # Skip undecodable rows so one corrupt JSON blob does not drop the whole session.
                     log.exception("SQLite3: skipping undecodable message id=%s session=%s", row_id, self.session_id)
                     continue
                 if not isinstance(parsed, dict):
@@ -266,8 +309,7 @@ class JSONHistory:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 msgs = json.load(f)
             if not isinstance(msgs, list) or any(not isinstance(item, dict) for item in msgs):
-                # A JSON object or a bare null used to become session.messages
-                # and then throw on append, or look empty and get overwritten.
+                # Session file must be a JSON list of objects; other top-level shapes are rejected.
                 log.error("JSONHistory: session %s is not a list of objects", self.session_id)
                 raise json.JSONDecodeError("session is not a list of objects", "", 0)
             log.debug(f"JSONHistory: Retrieved {len(msgs)} messages for session {self.session_id}")
@@ -280,7 +322,7 @@ class JSONHistory:
 
     def replace_messages(self, messages: list[dict[str, Any]]) -> None:
         """Replace this session file in one ``os.replace``."""
-        atomic_write_text(self.file_path, json.dumps(messages, indent=2), prefix=".history-", fsync=False)
+        atomic_write_text(self.file_path, json.dumps(messages, indent=2), prefix=".history-")
 
 
 # ---------------------------------------------------------------------------

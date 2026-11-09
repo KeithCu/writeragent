@@ -13,10 +13,10 @@ from typing import Any
 import uno
 import unohelper
 
-from plugin.framework.errors import is_real_disposal, uno_probe
+from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import main_thread_only
-from plugin.framework.uno_listeners import _controller_alive, install_view_doc_listener
+from plugin.framework.uno_listeners import controller_alive, install_view_doc_listener
 
 log = logging.getLogger(__name__)
 
@@ -48,8 +48,8 @@ def _edit_python_cell_url() -> str:
 def _is_calc_controller(controller: Any) -> bool:
     if controller is None:
         return False
-    model = uno_probe(controller.getModel, None)
-    return bool(model and uno_probe(lambda: model.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False))
+    model = uno_read(controller.getModel, None)
+    return bool(model and uno_read(lambda: model.supportsService("com.sun.star.sheet.SpreadsheetDocument"), False))
 
 
 def _looks_like_cell_context_menu(container: Any) -> bool:
@@ -85,12 +85,8 @@ def _get_interceptor() -> Any:
     class _CalcCellContextMenuInterceptor(unohelper.Base, XContextMenuInterceptor):  # type: ignore[misc, valid-type]
         def notifyContextMenuExecute(self, aEvent: Any) -> Any:  # noqa: N802 — UNO API
             try:
-                # Bugfix: SourceWindow is a com.sun.star.awt.XWindow (ContextMenuExecuteEvent.idl),
-                # not a frame. Calling getController() on it always failed with AttributeError,
-                # the exception handler returned false, and "Edit Python in Cell..." never appeared.
-                # Calc document type was already validated during controller registration in
-                # _register_controller. The Cut check below (sc/uiconfig/scalc/popupmenu/cell.xml)
-                # plus a cell-only command (see _CELL_MENU_ONLY_COMMANDS) rejects row/column-header and object menus.
+                # Context menu SourceWindow is XWindow, not a frame—no getController(). Cut check plus
+                # _CELL_MENU_ONLY_COMMANDS limits the item to cell menus (see scalc popupmenu/cell.xml).
                 container = aEvent.ActionTriggerContainer
                 if not _looks_like_cell_context_menu(container):
                     return IGNORED
@@ -128,14 +124,10 @@ def _register_controller(controller: Any) -> None:
         if interception is None:
             return
         with _lock:
-            # Bugfix: PyUNO returns a fresh Python proxy object per call, so id() dedup
-            # failed and registered multiple interceptors on the same controller.
-            # OInterfaceContainerHelper::addInterface appends without deduping,
-            # adding duplicate separators and menu items (see plugin/writer/change_context_menu.py).
-            # We use uno_same to compare UNO identity and prune disposed controllers.
+            # Dedup controllers with uno_same, not id(); PyUNO hands out fresh proxies per call.
             _registered_controllers[:] = [
                 ctrl for ctrl in _registered_controllers
-                if _controller_alive(ctrl)
+                if controller_alive(ctrl)
             ]
             if any(uno_same(controller, existing) for existing in _registered_controllers):
                 return
@@ -143,7 +135,7 @@ def _register_controller(controller: Any) -> None:
             _registered_controllers.append(controller)
         log.debug("python_editor_context_menu: registered on Calc controller")
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         log.warning("python_editor_context_menu: register failed", exc_info=True)
 
@@ -172,7 +164,7 @@ def install_calc_cell_context_menu(ctx: Any) -> None:
                 for i in range(frames.getCount()):
                     try:
                         frame = frames.getByIndex(i)
-                        controller = uno_probe(frame.getController, None)
+                        controller = uno_read(frame.getController, None)
                         _register_controller(controller)
                     except Exception:
                         log.debug("python_editor_context_menu: frame %s skipped", i, exc_info=True)

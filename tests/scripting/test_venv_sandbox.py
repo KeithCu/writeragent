@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import pathlib
+import sys
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from fractions import Fraction
@@ -15,10 +16,10 @@ from typing import Any, cast
 
 import pytest
 
-from plugin.scripting.ipc import read_pickle_frame, write_pickle_frame
+from plugin.framework.ipc import read_pickle_frame, write_pickle_frame
 from plugin.scripting.payload_codec import host_unpack_data
 from plugin.scripting.venv.venv_sandbox import (
-    clear_all_sandbox_sessions,
+    SESSIONS,
     reset_sandbox_session,
     run_sandboxed_code,
     serialize_result,
@@ -32,6 +33,7 @@ def _reset_abandoned_timeout() -> Any:
         import plugin.contrib.smolagents.local_python_executor as lpe
 
         lpe.abandoned_timeout = False
+        lpe.discard_thread_pool_timeout()
     except ImportError:
         pass
     try:
@@ -41,6 +43,7 @@ def _reset_abandoned_timeout() -> Any:
             import plugin.contrib.smolagents.local_python_executor as lpe
 
             lpe.abandoned_timeout = False
+            lpe.discard_thread_pool_timeout()
         except ImportError:
             pass
 
@@ -55,9 +58,9 @@ def _reset_abandoned_timeout() -> Any:
 def test_user_base_exception_does_not_drop_the_shared_session(code: str, label: str):
     """SystemExit and KeyboardInterrupt must stay in the cell.
 
-    What was wrong: both are BaseException. The vendored executor only
-    catches Exception, so they left run_sandboxed_code, the warm worker
-    died after EXEC_STARTED, and the host dropped every shared session.
+    SystemExit and KeyboardInterrupt are BaseException, not Exception.
+    The sandbox must treat them like other user aborts: return an error
+    frame, keep the worker alive, and preserve the shared session.
     """
     sid = f"calc:base-exception-{label}"
     try:
@@ -100,7 +103,7 @@ def test_zero_dim_temporal_ndarray_matches_scalar():
 
 def test_user_stopped_ends_the_cell_even_if_the_script_catches_exception():
     """Stop during a wa.* call must not be a RuntimeError the script can swallow."""
-    from plugin.scripting.ipc import UserStopped
+    from plugin.framework.ipc import UserStopped
 
     def boom() -> None:
         raise UserStopped("Stopped by user.")
@@ -226,17 +229,17 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
     """A shared executor must not treat a previous cell's scoped_dir as the host folder."""
     seen: list[str | None] = []
 
-    def _fake_run_sql(sql, con=None, files=None, scoped_dir=None, **kwargs):
-        del sql, con, files, kwargs
+    def _fake_query_folder_df(sql, files=None, scoped_dir=None, **kwargs):
+        del sql, files, kwargs
         seen.append(scoped_dir)
         return 1
 
-    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.run_sql", _fake_run_sql)
+    monkeypatch.setattr("plugin.scripting.venv.duckdb_sql.query_folder_df", _fake_query_folder_df)
     sid = "calc:scoped-dir-leak"
     host = str(tmp_path)
     try:
         first = run_sandboxed_code(
-            "scoped_dir = '/tmp/not-the-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            "scoped_dir = '/tmp/not-the-host'\nresult = query_folder_df('select 1', files=['a.csv'])",
             bindings={"scoped_dir": host},
             session_id=sid,
             timeout_sec=10,
@@ -245,7 +248,7 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
         assert seen == [host]
 
         second = run_sandboxed_code(
-            "result = run_sql('select 1', files=['a.csv'])",
+            "result = query_folder_df('select 1', files=['a.csv'])",
             session_id=sid,
             timeout_sec=10,
         )
@@ -257,7 +260,7 @@ def test_cell_scoped_dir_does_not_leak_into_unbound_execute(tmp_path, monkeypatc
 
         other = str(tmp_path / "other")
         rebound = run_sandboxed_code(
-            "scoped_dir = '/tmp/still-not-host'\nresult = run_sql('select 1', files=['a.csv'])",
+            "scoped_dir = '/tmp/still-not-host'\nresult = query_folder_df('select 1', files=['a.csv'])",
             bindings={"scoped_dir": other},
             session_id=sid,
             timeout_sec=10,
@@ -294,7 +297,7 @@ def test_optional_module_skips_partially_initialized_module(monkeypatch: pytest.
     import sys
     import types
 
-    from plugin.scripting.venv.venv_sandbox import optional_module
+    from plugin.scripting.venv import optional_import
 
     name = "writeragent_test_partial_mod"
     mod = types.ModuleType(name)
@@ -302,7 +305,7 @@ def test_optional_module_skips_partially_initialized_module(monkeypatch: pytest.
     setattr(spec, "_initializing", True)
     mod.__spec__ = spec
     monkeypatch.setitem(sys.modules, name, mod)
-    assert optional_module(name) is None
+    assert optional_import.optional_module(name) is None
 
 
 def test_serialize_result_rejects_self_referential_list():
@@ -350,17 +353,18 @@ def test_serialize_result_rejects_deep_nesting():
 
 
 def test_serialize_result_allows_shared_sublist():
-    from plugin.scripting.venv.venv_sandbox import _coerce_host_pickle_tree
+    from plugin.scripting.venv.to_wire import to_wire
 
     shared = [1]
-    assert _coerce_host_pickle_tree([shared, shared], None) == [[1], [1]]
+    assert to_wire([shared, shared], target="pickle") == [[1], [1]]
 
 
 def test_serialize_result_set_of_range_falls_back_to_list():
     """range coerces to a list, which cannot live inside a set.
 
-    What was wrong: the set comprehension raised TypeError and a successful
-    value became an error frame.
+    A set containing range must coerce to a list wire value. Otherwise the
+    comprehension raises TypeError and a successful result becomes an error
+    frame.
     """
     assert serialize_result({1}) == {1}
     assert serialize_result(frozenset({1})) == frozenset({1})
@@ -411,14 +415,16 @@ def test_timedelta64_without_pandas_is_fractional_days(monkeypatch: pytest.Monke
     import datetime
     from plugin.scripting.venv import venv_sandbox as vs
 
-    real_opt = vs.optional_module
+    from plugin.scripting.venv import optional_import as oi
+
+    real_opt = oi.optional_module
 
     def fake_opt(name: str) -> Any:
         if name == "pandas":
             return None
         return real_opt(name)
 
-    monkeypatch.setattr(vs, "optional_module", fake_opt)
+    monkeypatch.setattr(oi, "optional_module", fake_opt)
 
     assert vs.serialize_result(np.timedelta64(90, "ns")) == 0.0
     assert vs.serialize_result(np.array(90, dtype="timedelta64[ns]")) == 0.0
@@ -441,6 +447,7 @@ def test_timedelta64_without_pandas_is_fractional_days(monkeypatch: pytest.Monke
 
 def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     import sys
+    from plugin.scripting.venv import optional_import as oi
     from plugin.scripting.venv import venv_sandbox as vs
 
     closed: list[Any] = []
@@ -463,7 +470,7 @@ def test_capture_closes_figures_when_figure_lookup_raises(monkeypatch: pytest.Mo
             return FakePyplot
         return None
 
-    monkeypatch.setattr(vs, "optional_module", fake_opt)
+    monkeypatch.setattr(oi, "optional_module", fake_opt)
     monkeypatch.setitem(sys.modules, "matplotlib.pyplot", cast("Any", FakePyplot))
 
     with pytest.raises(RuntimeError, match="backend gone"):
@@ -506,11 +513,10 @@ def test_unpickleable_init_result_closes_open_figures() -> None:
         assert res["result"] == 5
     finally:
         plt.close("all")
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_init_executor_omits_cell_bindings() -> None:
-    from plugin.scripting.venv import venv_sandbox as vs
 
     try:
         res = run_sandboxed_code(
@@ -523,7 +529,9 @@ def test_init_executor_omits_cell_bindings() -> None:
             init_script_hash="ns",
         )
         assert res["status"] == "ok"
-        init_state = vs._SESSION_EXECUTORS["calc:init-namespace:init"].state
+        init_exec = SESSIONS.executor("calc:init-namespace:init")
+        assert init_exec is not None
+        init_state = init_exec.state
         assert init_state.get("HELPER") == 1
         for name in (
             "data",
@@ -536,7 +544,7 @@ def test_init_executor_omits_cell_bindings() -> None:
         ):
             assert name not in init_state
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_shared_init_import_session_duckdb_shares_catalog() -> None:
@@ -572,7 +580,7 @@ def test_shared_init_import_session_duckdb_shares_catalog() -> None:
         assert r2["status"] == "ok"
         assert r2["result"] == 11
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_isolated_init_import_session_duckdb_does_not_share_catalog() -> None:
@@ -606,11 +614,11 @@ def test_isolated_init_import_session_duckdb_does_not_share_catalog() -> None:
         assert r2["status"] == "error"
         assert "init_marker" in str(r2.get("message", ""))
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_init_result_lambda_is_not_seeded() -> None:
-    from plugin.scripting.venv.venv_sandbox import _new_executor, _seed_executor_from_init
+    from plugin.scripting.venv.venv_sandbox import CellNamespace, _new_executor
 
     init_script = "def helper():\n    return 4\nresult = lambda: 99\n"
     init_sid = "isolated:skip-result:init"
@@ -626,7 +634,7 @@ def test_init_result_lambda_is_not_seeded() -> None:
         assert r1["result"] == 4
 
         exe = _new_executor(5)
-        _seed_executor_from_init(exe, init_sid, copy_values=True)
+        CellNamespace(exe).seed(init_sid, copy=True)
         assert cast("Any", exe.state["helper"])() == 4
         assert "result" not in exe.state
         assert "result" not in exe.custom_tools
@@ -649,38 +657,7 @@ def test_init_result_lambda_is_not_seeded() -> None:
         assert r2["status"] == "ok"
         assert r2["result"] == "absent"
     finally:
-        clear_all_sandbox_sessions()
-
-
-def test_send_cell_owned_rejects_unknown_name() -> None:
-    from plugin.scripting.venv.venv_sandbox import (
-        _INIT_STATE_SKIP_KEYS,
-        _inject_data,
-        _inject_excel_xl,
-        _inject_session_duckdb,
-        _new_executor,
-        _send_cell_owned,
-    )
-
-    try:
-        exe = _new_executor(5)
-        with pytest.raises(RuntimeError, match="not_a_cell_name"):
-            _send_cell_owned(exe, {"not_a_cell_name": 1})
-        assert "not_a_cell_name" not in exe.state
-
-        _send_cell_owned(exe, {"data": None, "ranges": []})
-        assert exe.state.get("data") is None
-        assert exe.state.get("ranges") == []
-
-        _inject_data(exe, None)
-        _inject_excel_xl(exe, ())
-        _inject_session_duckdb(exe)
-
-        for name in ("data", "ranges", "xl"):
-            assert name in _INIT_STATE_SKIP_KEYS
-            assert name in exe.state
-    finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
@@ -698,15 +675,15 @@ def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
             )
             assert r["status"] == "ok"
 
-        assert "isolated:0:init" not in vs._SESSION_EXECUTORS
-        assert "isolated:0:init" not in vs._INIT_SCRIPT_HASH
-        assert "isolated:0:init" not in vs._ISOLATED_INIT_LRU
+        assert SESSIONS.executor("isolated:0:init") is None
+        assert SESSIONS.init_script_hash("isolated:0:init") is None
+        assert not SESSIONS.is_isolated_lru("isolated:0:init")
 
-        assert "isolated:32:init" in vs._SESSION_EXECUTORS
-        assert "isolated:32:init" in vs._INIT_SCRIPT_HASH
-        assert "isolated:32:init" in vs._ISOLATED_INIT_LRU
+        assert SESSIONS.executor("isolated:32:init") is not None
+        assert SESSIONS.init_script_hash("isolated:32:init") is not None
+        assert SESSIONS.is_isolated_lru("isolated:32:init")
 
-        assert len(vs._ISOLATED_INIT_LRU) == 32
+        assert vs.SESSIONS.isolated_lru_len() == 32
 
         # Re-run i == 1 with the same script and hash "h1" (early return, LRU refresh)
         r_refresh = run_sandboxed_code(
@@ -730,51 +707,51 @@ def test_isolated_init_lru_evicts_oldest_and_refreshes_on_reuse() -> None:
         )
         assert r_33["status"] == "ok"
 
-        assert "isolated:1:init" in vs._SESSION_EXECUTORS
-        assert "isolated:1:init" in vs._ISOLATED_INIT_LRU
+        assert SESSIONS.executor("isolated:1:init") is not None
+        assert SESSIONS.is_isolated_lru("isolated:1:init")
 
-        assert "isolated:2:init" not in vs._SESSION_EXECUTORS
-        assert "isolated:2:init" not in vs._INIT_SCRIPT_HASH
-        assert "isolated:2:init" not in vs._ISOLATED_INIT_LRU
+        assert SESSIONS.executor("isolated:2:init") is None
+        assert SESSIONS.init_script_hash("isolated:2:init") is None
+        assert not SESSIONS.is_isolated_lru("isolated:2:init")
 
-        assert len(vs._ISOLATED_INIT_LRU) == 32
+        assert vs.SESSIONS.isolated_lru_len() == 32
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_isolated_init_lru_pops_non_isolated_id() -> None:
     from plugin.scripting.venv import venv_sandbox as vs
 
     try:
-        clear_all_sandbox_sessions()
-        vs._SESSION_EXECUTORS["weird:1"] = vs._new_executor(5)
-        vs._SESSION_EXECUTORS["weird:1:init"] = vs._new_executor(5)
-        vs._INIT_SCRIPT_HASH["weird:1:init"] = "h"
-        vs._CELL_SESSION_INIT_DIGEST["weird:1"] = "h"
+        SESSIONS.clear_all()
+        vs.SESSIONS.get_or_create("weird:1", 5)
+        vs.SESSIONS.get_or_create("weird:1:init", 5)
+        vs.SESSIONS.set_init_hash("weird:1:init", "h")
+        vs.SESSIONS.set_seeded_digest("weird:1", "h")
 
-        vs._record_isolated_init_access_unlocked("weird:1:init")
+        vs.SESSIONS.note_isolated_access("weird:1:init")
         for i in range(32):
-            vs._record_isolated_init_access_unlocked(f"isolated:lru{i}:init")
+            vs.SESSIONS.note_isolated_access(f"isolated:lru{i}:init")
 
-        assert "weird:1:init" not in vs._SESSION_EXECUTORS
-        assert "weird:1" not in vs._SESSION_EXECUTORS
-        assert "weird:1:init" not in vs._INIT_SCRIPT_HASH
-        assert "weird:1:init" not in vs._ISOLATED_INIT_LRU
-        assert "weird:1" not in vs._CELL_SESSION_INIT_DIGEST
-        assert len(vs._ISOLATED_INIT_LRU) == 32
+        assert SESSIONS.executor("weird:1:init") is None
+        assert SESSIONS.executor("weird:1") is None
+        assert SESSIONS.init_script_hash("weird:1:init") is None
+        assert not SESSIONS.is_isolated_lru("weird:1:init")
+        assert SESSIONS.seeded_digest("weird:1") is None
+        assert vs.SESSIONS.isolated_lru_len() == 32
     finally:
-        clear_all_sandbox_sessions()
+        SESSIONS.clear_all()
 
 
 def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     import plugin.scripting.venv.worker_harness as harness
 
     exit_calls: list[int] = []
     monkeypatch.setattr(harness.os, "_exit", lambda code: exit_calls.append(code))
-    monkeypatch.setattr(harness, "_die_with_parent", lambda: None)
+    monkeypatch.setattr(harness, "die_with_parent", lambda: None)
     monkeypatch.setattr(harness, "_init_logging", lambda: None)
 
     req_data = pack_pickle_frame({"id": "req-timeout", "action": "execute", "code": "result = 1"})
@@ -797,6 +774,8 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
 
     assert exit_calls == [1]
     stdout.seek(0)
+    ready = read_pickle_frame(stdout, require_dict=True)
+    assert ready is not None and ready.get("status") == "ready"
     started = read_pickle_frame(stdout, require_dict=True)
     assert started == {"type": "exec_started", "id": "req-timeout"}
     err_frame = read_pickle_frame(stdout, require_dict=True)
@@ -808,13 +787,13 @@ def test_harness_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch
 def test_stdio_loop_calls_exit_on_abandoned_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     import io
     import plugin.contrib.smolagents.local_python_executor as lpe
-    from plugin.scripting.ipc import pack_pickle_frame, read_pickle_frame
+    from plugin.framework.ipc import pack_pickle_frame, read_pickle_frame
     # compute_service/ is not in the OXT bundle that release_verify tests.
     ws = pytest.importorskip("compute_service.worker_stdio")
 
     exit_calls: list[int] = []
     monkeypatch.setattr(ws.os, "_exit", lambda code: exit_calls.append(code))
-    monkeypatch.setattr(ws, "set_pdeathsig", lambda: True)
+    monkeypatch.setattr("plugin.framework.child_runtime.die_with_parent", lambda: False)
 
     req_data = pack_pickle_frame({"id": "req-stdio-timeout", "code": "x = 1"})
     stdin = io.BytesIO(req_data)
@@ -1042,8 +1021,9 @@ result = (p.exitcode == 0)
     assert res["status"] == "ok", res
     assert res["result"] is True
 
-    # 7. pty: works
-    code_pty = """
+    if sys.platform != "win32":
+        # 7. pty: works (termios is Unix-only)
+        code_pty = """
 import os
 import pty
 master, slave = pty.openpty()
@@ -1051,9 +1031,9 @@ os.close(master)
 os.close(slave)
 result = (master > 0 and slave > 0)
 """
-    res = run_sandboxed_code(code_pty, sandbox_policy=policy)
-    assert res["status"] == "ok", res
-    assert res["result"] is True
+        res = run_sandboxed_code(code_pty, sandbox_policy=policy)
+        assert res["status"] == "ok", res
+        assert res["result"] is True
 
 
 def test_sandbox_policy_os_harmless_reads_allowed_by_default():
@@ -1273,12 +1253,21 @@ _FILE_WRITES = [
 ]
 
 
+def _assert_src_fixture_unchanged(src: pathlib.Path) -> None:
+    assert src.read_text() == "fixture"
+    if sys.platform != "win32":
+        assert src.stat().st_mode & 0o777 == 0o644
+
+
 def _file_fixture(tmp_path: pathlib.Path) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path, dict[str, str]]:
     p, src, d = tmp_path / "out", tmp_path / "src.txt", tmp_path / "empty"
     target = tmp_path / "target.txt"
     target.write_text("fixture")
     target.chmod(0o644)
-    src.symlink_to(target)
+    try:
+        src.symlink_to(target)
+    except OSError:
+        src.write_text("fixture")
     d.mkdir()
     return p, src, d, {"p": repr(str(p)), "src": repr(str(src)), "d": repr(str(d))}
 
@@ -1290,7 +1279,7 @@ def test_sandbox_runtime_file_writes_blocked_unless_files(code: str, tmp_path: p
     assert res["status"] == "error"
     assert "Forbidden access to function" in res.get("message", "")
     assert not p.exists() and not p.is_symlink()
-    assert src.read_text() == "fixture" and src.stat().st_mode & 0o777 == 0o644
+    _assert_src_fixture_unchanged(src)
     assert d.is_dir()
 
     res_files = run_sandboxed_code(code.format(**names) + "\nresult = True", sandbox_policy={"files": True})
@@ -1348,6 +1337,8 @@ _FILE_READS = [
 @pytest.mark.parametrize("code", _FILE_READS)
 def test_sandbox_runtime_file_reads_gated(code: str, tmp_path: pathlib.Path) -> None:
     _p, _src, _d, names = _file_fixture(tmp_path)
+    if "readlink" in code and not _src.is_symlink():
+        pytest.skip("symlink fixture unavailable on this host")
     res = run_sandboxed_code(code.format(**names), sandbox_policy=None)
     assert res["status"] == "error"
     if "open({src}).read()" in code:
@@ -1418,10 +1409,10 @@ def test_sandbox_runtime_extra_modules_allows_importlib() -> None:
 
 def test_inject_auto_imports_ignores_nested_scope_bindings() -> None:
     from plugin.scripting.config_limits import python_exec_timeout_default
+    from plugin.scripting.venv import optional_import
     from plugin.scripting.venv.venv_sandbox import (
         _new_executor,
         inject_auto_imports,
-        optional_module,
     )
 
     executor = _new_executor(python_exec_timeout_default())
@@ -1436,7 +1427,7 @@ def test_inject_auto_imports_ignores_nested_scope_bindings() -> None:
 
     executor2 = _new_executor(python_exec_timeout_default())
     inject_auto_imports(executor2, "def f():\n    import numpy as np\nresult = 1")
-    if optional_module("numpy") is not None:
+    if optional_import.optional_module("numpy") is not None:
         assert "np" in executor2.state
 
 
@@ -1486,3 +1477,67 @@ def test_run_sandboxed_code_rejects_non_dict_sandbox_policy() -> None:
 def test_run_sandboxed_code_rejects_non_string_extra_modules() -> None:
     res = run_sandboxed_code("result = 1", sandbox_policy={"extra_modules": [1]})
     assert res["status"] == "error"
+
+
+def test_get_or_create_rebuilds_on_policy_mismatch() -> None:
+    from plugin.scripting.sandbox import build_sandbox_policy
+
+    sid = "calc:get-or-create-policy-mismatch"
+    try:
+        policy_net = build_sandbox_policy(network=True)
+        policy_default = build_sandbox_policy()
+        exec1, created1 = SESSIONS.get_or_create(sid, timeout_sec=10, policy=policy_net)
+        assert created1 is True
+        exec1.send_variables({"MARKER": 42})
+        exec2, created2 = SESSIONS.get_or_create(
+            sid, timeout_sec=10, policy=policy_default
+        )
+        assert created2 is True
+        assert exec2 is not exec1
+        assert exec2.state.get("MARKER") is None
+        exec3, created3 = SESSIONS.get_or_create(
+            sid, timeout_sec=10, policy=policy_default
+        )
+        assert created3 is False
+        assert exec3 is exec2
+        exec4, created4 = SESSIONS.get_or_create(sid, timeout_sec=10, policy=None)
+        assert created4 is False
+        assert exec4 is exec2
+    finally:
+        reset_sandbox_session(sid)
+
+
+def test_shared_policy_change_reruns_init_before_seed() -> None:
+    sid = "calc:policy-init-rerun"
+    init_sid = f"{sid}:init"
+    init_hash = "h-policy-fixed"
+    try:
+        first = run_sandboxed_code(
+            "cell_only = 1\nresult = HELPER",
+            session_id=sid,
+            init_script="HELPER = 1",
+            init_session_id=init_sid,
+            init_script_hash=init_hash,
+            sandbox_policy={"network": True},
+        )
+        assert first["status"] == "ok", first
+        assert first["result"] == 1
+        cell_exec = SESSIONS.executor(sid)
+        assert cell_exec is not None
+        assert cell_exec.state.get("cell_only") == 1
+
+        second = run_sandboxed_code(
+            "result = HELPER",
+            session_id=sid,
+            init_script="HELPER = 2",
+            init_session_id=init_sid,
+            init_script_hash=init_hash,
+            sandbox_policy=None,
+        )
+        assert second["status"] == "ok", second
+        assert second["result"] == 2
+        cell_exec_after = SESSIONS.executor(sid)
+        assert cell_exec_after is not None
+        assert cell_exec_after.state.get("cell_only") is None
+    finally:
+        reset_sandbox_session(sid)

@@ -18,7 +18,8 @@ from typing import Any
 import urllib.parse
 
 from plugin.framework.i18n import _
-from plugin.framework.errors import NetworkError, http_status_message, safe_json_loads
+from plugin.framework.errors import NetworkError, http_status_message
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.client.http_security import redact_secrets
 from .responses_shim import responses_failed_message
 
@@ -64,7 +65,7 @@ def is_local_model_server_crash(text: Any) -> bool:
     )
 
 
-def _format_http_error_response(status: int, reason: str, err_body: str, context_window: int | None = None) -> str:  # pyright: ignore[reportUnusedFunction]  # shared by llm client tests and modality helpers
+def format_http_error_response(status: int, reason: str, err_body: str, context_window: int | None = None) -> str:
     """Build error message including response body for display in chat/UI.
 
     This remains client-specific because it parses provider error JSON bodies
@@ -79,21 +80,31 @@ def _format_http_error_response(status: int, reason: str, err_body: str, context
     become a plain sentence (issue #570). The raw dict stays in ERROR logs.
     Missing ``context_window`` is fine — the sentence still explains overflow.
     """
-    if status == 500 and err_body and is_local_model_server_crash(err_body):
+    if not isinstance(err_body, str):
+        if isinstance(err_body, (bytes, bytearray)):
+            err_body = err_body.decode("utf-8", errors="replace")
+        else:
+            err_body = str(err_body or "")
+    try:
+        status_num = int(status)
+    except (TypeError, ValueError):
+        status_num = 500
+    reason_str = str(reason or "")
+    if status_num == 500 and err_body and is_local_model_server_crash(err_body):
         return local_model_overflow_message(context_window)
-    body = err_body.strip() if err_body else ""
-    mapped = http_status_message(status) if (status == 429 or not body) else None
-    base = mapped if mapped is not None else _("HTTP Error {0} from AI Provider: {1}").format(status, reason)
+    body = err_body.strip()
+    mapped = http_status_message(status_num) if (status_num == 429 or not body) else None
+    base = mapped if mapped is not None else _("HTTP Error {0} from AI Provider: {1}").format(status_num, reason_str)
     if not body:
-        return base
+        return str(base)
     data = safe_json_loads(err_body)
     if isinstance(data, dict):
         err = data.get("error")
         detail = (err.get("message") or err.get("msg") or err.get("error") or "") if isinstance(err, dict) else (str(err) if err else "")
         if detail:
-            return base + ". " + str(detail)
+            return str(base) + ". " + str(detail)
     snippet = body.replace("\n", " ")[:400]
-    return base + ".\nProvider Response:\n" + snippet
+    return str(base) + ".\nProvider Response:\n" + str(snippet)
 
 
 def append_zai_unknown_model_hint(message: str, err_body: Any, path: Any, provider: Any, request_model: Any = None) -> str:
@@ -130,9 +141,7 @@ def is_audio_unsupported_error(e: Any) -> bool:
 
 def is_400_input_validation(err: Any) -> bool:
     """Treat HTTP 400 with 'input validation' or 'bad request' as likely audio-format rejection (e.g. Together AI)."""
-    # Bugfix: "400" in str(err) is true for any payload whose text happens
-    # to contain those digits, including a non-400 body. The HTTP status is
-    # already on details["status"] from handle_http_status via format_error_payload.
+    # Check details["status"] for exact HTTP 400 status.
     details = err.get("details") if isinstance(err, dict) else None
     status = details.get("status") if isinstance(details, dict) else None
     if not isinstance(status, int) or status != 400:
@@ -173,6 +182,95 @@ def stream_error_message(chunk: dict[str, Any]) -> str | None:
     return None
 
 
+# 529 is Anthropic "overloaded". A 200 SSE body that says overload is
+# already retried; the HTTP status was not, so that path never ran.
+RETRYABLE_HTTP_STATUS = frozenset({429, 503, 529})
+
+# We match structured codes first and only narrow phrases here, not bare
+# "too many" / "unavailable", because those also match fatal errors such as
+# "too many tokens" (context overflow) or "model unavailable", which a retry
+# cannot fix. The full HTTP reason phrases for 429 and 503 stay.
+_OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requests", "service unavailable")
+
+# Explicit HTTP status indicator (e.g. "HTTP 429", "status 503", "HTTP status 429", "error code 503").
+# Bare 429 or 503 (such as "limit is 503 tokens" or "4290 tokens") must never match.
+# Overload detection requires structured HTTP status or phrase markers, not bare 429/503 substrings.
+_HTTP_STATUS_OVERLOAD_RE = re.compile(
+    r"\b(?:https?|status(?:\s+code)?|http\s+error|error\s+code)\s*(?:is\s*|:\s*)?(?:429|503)\b",
+    re.IGNORECASE,
+)
+
+
+def _error_code_is_overload(value: Any) -> bool:
+    """True when a structured provider code is itself an overload signal."""
+    if isinstance(value, bool) or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return value in RETRYABLE_HTTP_STATUS
+    text = str(value).strip().lower()
+    if text in {"429", "503", "529"}:
+        return True
+    return any(marker in text for marker in _OVERLOAD_TEXT_MARKERS)
+
+
+def _structured_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """Prefer error.code / type / status over scanning the message text."""
+    if any(_error_code_is_overload(chunk.get(key)) for key in ("code", "status")):
+        return True
+    err = chunk.get("error")
+    if isinstance(err, dict):
+        if any(_error_code_is_overload(err.get(key)) for key in ("code", "type", "status")):
+            return True
+        metadata = err.get("metadata")
+        if isinstance(metadata, dict) and any(_error_code_is_overload(metadata.get(key)) for key in ("code", "status", "http_status")):
+            return True
+    elif _error_code_is_overload(err):
+        return True
+    return False
+
+
+def _text_is_overload(message: Any) -> bool:
+    """Check if an error indicates an overload/rate-limit condition.
+
+    Checks HTTP status / structured error code (including OpenRouter error.code
+    in the body) first; the text fallback matches only phrases like 'overloaded' /
+    'rate limit', no bare 429/503.
+    """
+    if not message or not isinstance(message, str):
+        return False
+
+    # Check for embedded JSON with structured error code (e.g. OpenRouter error payload)
+    if "{" in message and "}" in message:
+        try:
+            start = message.find("{")
+            end = message.rfind("}")
+            parsed = json.loads(message[start : end + 1])
+            if isinstance(parsed, dict) and _structured_error_is_overload(parsed):
+                return True
+        except (ValueError, TypeError):
+            pass
+
+    # Check for explicit HTTP status indicator in text (e.g. "HTTP 429", "status 503")
+    if _HTTP_STATUS_OVERLOAD_RE.search(message):
+        return True
+
+    # Text fallback: matches only phrases like 'overloaded'/'rate limit', no bare 429/503
+    low = message.lower()
+    return any(marker in low for marker in _OVERLOAD_TEXT_MARKERS)
+
+
+def stream_error_is_overload(chunk: dict[str, Any]) -> bool:
+    """True when a mid-stream error is worth one retry before any UI text.
+
+    A structured code (429, 503, rate_limit_exceeded, overloaded_error) wins.
+    Otherwise explicit HTTP status or phrases match; bare numbers like 503 tokens do not.
+    """
+    if _structured_error_is_overload(chunk):
+        return True
+    message = stream_error_message(chunk) or ""
+    return _text_is_overload(message)
+
+
 def _chat_request_payload_from_body(body: Any) -> dict[str, Any]:
     """Parse encoded chat JSON for diagnostics. Empty dict if unreadable."""
     try:
@@ -191,7 +289,7 @@ def _request_payload_byte_length(body: Any) -> int:
     return 0
 
 
-def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+def parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[str, Any]:
     """Parse an HTTP 200 provider body as a JSON object.
 
     ``safe_json_loads`` without ``strict=True`` repairs truncated model text,
@@ -223,8 +321,7 @@ def _parse_provider_envelope(raw: Any, path: str, *, api_key: str = "") -> dict[
 def _full_url_for_request_path(endpoint: str, path: str) -> str:
     """Join stored endpoint host with relative API path for debug logs.
 
-    Query string is dropped so a leftover ``?key=`` never appears in logs
-    (Google image used to put the API key on the URL).
+    Query string is dropped so API keys never appear in logs.
     """
     if not path or not str(path).startswith("/"):
         return path
@@ -238,14 +335,14 @@ def _full_url_for_request_path(endpoint: str, path: str) -> str:
     return path
 
 
-def _path_without_query(path: str) -> str:  # pyright: ignore[reportUnusedFunction]
+def path_without_query(path: str) -> str:
     """Request path for logs. A leftover ``?key=`` must not be printed."""
     if not path or "?" not in path:
         return path
     return path.split("?", 1)[0]
 
 
-def _log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:  # pyright: ignore[reportUnusedFunction]
+def log_chat_request_body_diag(client: Any, path: str, body: Any, headers: Any, tools: Any) -> None:
     """Log wire-level chat fields (no secrets) for provider debugging."""
     payload = _chat_request_payload_from_body(body)
     api_key = str(client.config.get("api_key") or "").strip()
@@ -282,7 +379,7 @@ def _exit_code_from_provider_body(err_body: str) -> str | None:
     return status.group(1) if status else None
 
 
-def _log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "", n_ctx: int | None = None) -> None:  # pyright: ignore[reportUnusedFunction]
+def log_http_500_request_diag(client: Any, response: Any, path: str, body: Any, err_body: str = "", n_ctx: int | None = None) -> None:
     """One ERROR-level safe request shape for HTTP 500. No prompts or secrets.
 
     Local llama-server / Ollama 500 bodies are often opaque. This is the

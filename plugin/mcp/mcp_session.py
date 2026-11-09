@@ -28,18 +28,22 @@ from typing import Any
 import uuid
 
 from plugin.mcp import wire_types
-from plugin.mcp.cors import _drain_request_body, send_cors_headers
+from plugin.mcp.cors import drain_request_body, send_cors_headers
 from plugin.mcp.server import write_http_json
 
-log = logging.getLogger("writeragent.mcp.protocol")
+log = logging.getLogger(__name__)
+
+_mcp_session_id: str | None = None
+_mcp_session_lock = threading.Lock()
+_SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
 
 
-def _get_request_session_id(handler: Any) -> str | None:
+def get_request_session_id(handler: Any) -> str | None:
     value = handler.headers.get("Mcp-Session-Id")
     return value.strip() if value else None
 
 
-def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -> None:
+def send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -> None:
     """CORS plus streamable-HTTP MCP headers on every MCP transport response."""
     send_cors_headers(handler, preflight=False)
     handler.send_header("Mcp-Protocol-Version", wire_types.MCP_PROTOCOL_VERSION)
@@ -47,12 +51,26 @@ def _send_mcp_response_headers(handler: Any, *, session_id: str | None = None) -
         handler.send_header("Mcp-Session-Id", session_id)
 
 
-_mcp_session_id = None
-_mcp_session_lock = threading.Lock()
-_SESSION_EXPIRED_MSG = "Session expired (server restarted). Call initialize again."
+def current_session_id() -> str | None:
+    """Process-wide MCP session id, or None before the first successful initialize."""
+    return _mcp_session_id
 
 
-def _mint_session_id_once() -> str:  # pyright: ignore[reportUnusedFunction]
+def reset_session_id_for_tests() -> None:
+    """Clear the session id (tests simulating LibreOffice restart)."""
+    global _mcp_session_id
+    with _mcp_session_lock:
+        _mcp_session_id = None
+
+
+def set_session_id_for_tests(session_id: str | None) -> None:
+    """Assign the process session id directly (tests only)."""
+    global _mcp_session_id
+    with _mcp_session_lock:
+        _mcp_session_id = session_id
+
+
+def mint_session_id_once() -> str:
     """Assign uuid4 on first successful initialize; later calls keep that id."""
     global _mcp_session_id
     with _mcp_session_lock:
@@ -61,7 +79,7 @@ def _mint_session_id_once() -> str:  # pyright: ignore[reportUnusedFunction]
         return _mcp_session_id
 
 
-def _reject_stale_session(handler: Any, msg: Any = None) -> bool:  # pyright: ignore[reportUnusedFunction]
+def reject_stale_session(handler: Any, msg: Any = None) -> bool:
     """Write HTTP 404 when Mcp-Session-Id is present and not the process id.
 
     Spec clients re-initialize on 404, not 409 or silent success. No header is
@@ -70,7 +88,7 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:  # pyright: ig
     request so we never process some items. The 404 says the client's session is
     gone, so it sends Mcp-Protocol-Version and CORS but not Mcp-Session-Id.
     """
-    incoming = _get_request_session_id(handler)
+    incoming = get_request_session_id(handler)
     current = _mcp_session_id
     if incoming is None or incoming == current:
         return False
@@ -81,11 +99,11 @@ def _reject_stale_session(handler: Any, msg: Any = None) -> bool:  # pyright: ig
     # Drain unread body and send Connection: close so the kernel does
     # not emit TCP RST on close, which manifests as Errno 104 on the client.
     if msg is None:
-        _drain_request_body(handler)
+        drain_request_body(handler)
     handler.close_connection = True
 
     def _headers(h: Any) -> None:
-        _send_mcp_response_headers(h)
+        send_mcp_response_headers(h)
         h.send_header("Connection", "close")
 
     write_http_json(

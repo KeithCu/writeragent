@@ -21,8 +21,10 @@ import pytest
 
 from plugin.chatbot.chat_session import ChatSession
 from plugin.chatbot.panel import SendButtonListener
+from plugin.chatbot.tool_loop_actions import assign_send_outcome
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
+from plugin.framework.send_cancellation import SendCancellation
 from tests.chatbot.test_panel import _make_send_listener
 
 
@@ -34,6 +36,9 @@ class _Rearm:
 
     def post(self, fn: Any) -> None:
         self.pending.append(fn)
+
+    def close(self) -> None:
+        pass
 
     def post_after(self, _delay: float, fn: Any) -> None:
         self.pending.append(fn)
@@ -62,7 +67,7 @@ def _reset_drain_and_watchdog():
 
 def _audio_listener() -> SendButtonListener:
     listener = _make_send_listener()
-    listener._terminal_status = ""
+    assign_send_outcome(listener, None)
     text_part = {"type": "text", "text": "hello"}
     audio_part = {"type": "input_audio", "input_audio": {"data": "YmFzZTY0", "format": "wav"}}
     listener.session.messages = [{"role": "user", "content": [text_part, audio_part]}]
@@ -82,19 +87,19 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
     status_ctrl = MagicMock()
     rearm = _Rearm()
     q: queue.Queue = queue.Queue()
-    stop = [False]
+    stop_scope = SendCancellation()
 
     def _start_turn() -> None:
         logging_mod.update_activity_state("do_send", status_control=status_ctrl)
         run_stream_drain_loop(
             q,
             MagicMock(),
-            [False],
+            DrainOutcome(),
             lambda _text, _thinking: None,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,
             on_error=lambda _e: None,
-            stop_checker=lambda: stop[0],
+            cancel=stop_scope,
             rearm=rearm,
         )
         if ending == "error":
@@ -107,7 +112,7 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         patch("plugin.chatbot.tool_loop_actions.drop_turn") as drop_turn,
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state) as activity,
-        patch("plugin.framework.queue_executor.post_to_main_thread") as post_main,
+        patch("plugin.framework.queue_executor.main.post") as post_main,
     ):
         listener._run_send_drain()
 
@@ -117,18 +122,24 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         act = logging_mod._shared()["activity"]
         assert act["phase"] == "do_send"
         assert act["status_control"] is status_ctrl
-        post_main.assert_not_called()
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert not clear_calls
         drop_turn.assert_not_called()
 
         # A mid-stream slice applies text and returns; still not the end.
         q.put((StreamQueueKind.CHUNK, "partial"))
         rearm.pump()
         assert _has_audio(listener)
-        post_main.assert_not_called()
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert not clear_calls
         drop_turn.assert_not_called()
 
         if ending == "stop":
-            stop[0] = True
+            stop_scope.cancel()
         else:
             q.put((StreamQueueKind.STREAM_DONE, "end"))
         rearm.pump()
@@ -139,7 +150,10 @@ def test_turn_end_hooks_wait_for_the_drain_done_close(ending: str) -> None:
         act = logging_mod._shared()["activity"]
         assert act["phase"] == ""
         assert act["status_control"] is None
-        post_main.assert_called_once_with(logging_mod._clear_hung_status, status_ctrl)
+        clear_calls = [
+            c for c in post_main.call_args_list if c.args[:2] == (logging_mod._clear_hung_status, status_ctrl)
+        ]
+        assert len(clear_calls) == 1
         drop_turn.assert_called_once()
 
         # Nothing left to run: the strip and the Hung clear happened once.
@@ -173,7 +187,7 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
         run_stream_drain_loop(
             q,
             MagicMock(),
-            [False],
+            DrainOutcome(),
             lambda _text, _thinking: None,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,
@@ -188,7 +202,7 @@ def test_dispose_mid_stream_cleans_up_and_drops_turn() -> None:
         patch("plugin.chatbot.tool_loop_actions.drop_turn") as drop_turn,
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state),
-        patch("plugin.framework.queue_executor.post_to_main_thread"),
+        patch("plugin.framework.queue_executor.main.post"),
     ):
         listener._run_send_drain()
 
@@ -228,7 +242,7 @@ def test_do_send_raises_before_drain_cleans_up() -> None:
         patch("plugin.chatbot.tool_loop_actions.drop_turn"),
         patch("plugin.doc.peer_message.kick_pending_peer_starts"),
         patch("plugin.chatbot.panel.update_activity_state", wraps=logging_mod.update_activity_state),
-        patch("plugin.framework.queue_executor.post_to_main_thread"),
+        patch("plugin.framework.queue_executor.main.post"),
     ):
         listener._run_send_drain()
 
@@ -254,7 +268,7 @@ def test_event_drain_slice_is_bounded() -> None:
         run_stream_drain_loop(
             q,
             MagicMock(),
-            [False],
+            DrainOutcome(),
             listener._append_response,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,
@@ -297,7 +311,7 @@ def test_each_slice_that_applies_chunks_notes_watchdog_activity() -> None:
         run_stream_drain_loop(
             q,
             MagicMock(),
-            [False],
+            DrainOutcome(),
             listener._append_response,
             on_stream_done=lambda _item: True,
             on_stopped=lambda: None,

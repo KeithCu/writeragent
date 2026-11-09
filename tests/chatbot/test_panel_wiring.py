@@ -30,8 +30,7 @@ def test_install_thread_violation_propagates() -> None:
 
 def test_install_other_errors_stay_a_debug_log(caplog: pytest.LogCaptureFixture) -> None:
     """A normal attach failure is still logged and does not leave wiring."""
-    # What was wrong: logger.debug calls are stripped in release builds.
-    # Why: skip when running against stripped release bundle.
+    # Release bundles strip log.debug; skip this assertion there.
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.debug stripped in release bundle")
@@ -140,7 +139,7 @@ def test_mode_ui_failure_still_passes_mode_flags_and_toggles_image_controls() ->
         patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
         patch("plugin.chatbot.panel_wiring.get_event_bus"),
         patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
         _wireControls(host, root)
@@ -221,7 +220,7 @@ def test_model_selector_failure_still_wires_chat_mode_ui() -> None:
         patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
         patch("plugin.chatbot.panel_wiring.get_event_bus"),
         patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
         _wireControls(host, root)
@@ -341,7 +340,7 @@ def test_wire_controls_installs_frame_session_when_rich_text_disabled() -> None:
         patch("plugin.chatbot.panel_wiring._PanelResizeListener", return_value=MagicMock()),
         patch("plugin.chatbot.panel_wiring.get_event_bus"),
         patch("plugin.chatbot.panel_wiring.init_logging", side_effect=RuntimeError("skip update schedule")),
-        patch("plugin.framework.config.get_config_bool_safe", return_value=False),
+        patch("plugin.framework.config.get_config", return_value=False),
         patch("plugin.embeddings.embeddings_periodic.schedule_periodic_embeddings_indexer_once"),
     ):
         _wireControls(host, root)

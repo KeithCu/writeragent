@@ -27,7 +27,8 @@ from typing import Any
 
 from plugin.calc.address_utils import A1_CELL_RE, format_address, parse_address, parse_range_string, qualify_a1
 from plugin.calc.bridge import used_range_address
-from plugin.framework.errors import reraise_if_disposed, uno_probe
+from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.uno_context import enum_has_more
 
 try:
     from com.sun.star.sheet.FormulaResult import ERROR as RESULT_ERROR  # type: ignore
@@ -36,7 +37,7 @@ except ImportError:
 
     RESULT_ERROR = cast("Any", 4)
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 # Cap per call, matching the other large-result caps.
 _MAX_EXPLAINED_ERRORS = 50
@@ -74,9 +75,7 @@ ERROR_TYPES = {
     32767: {"code": "#N/A", "name": "#N/A", "description": "The value is not available. A lookup or reference did not find a match."},
 }
 
-# Bugfix: one case-insensitive display-token list. It includes #ERROR! and the
-# Err:NNN forms. "Err:502".upper() is "ERR:502", so the canonical spelling is
-# the dict value, not the key.
+# One case-insensitive map: keys are uppercased tokens; values keep canonical spelling (#ERROR!, Err:502, …).
 _ERROR_PATTERN_BY_UPPER = {token.upper(): token for token in (
     "#REF!", "#NAME?", "#VALUE!", "#DIV/0!", "#NULL!", "#N/A", "#NUM!", "#ERROR!",
     "Err:502", "Err:504", "Err:519", "Err:522", "Err:524", "Err:525", "Err:532",
@@ -162,7 +161,7 @@ class ErrorDetector:
         formula_cells = cell_range.queryFormulaCells(RESULT_ERROR)
 
         enum = formula_cells.getCells().createEnumeration()
-        while enum.hasMoreElements():
+        while enum_has_more(enum):
             cell = enum.nextElement()
             error_info = self.get_error_type(cell)
             if error_info:
@@ -200,7 +199,7 @@ class ErrorDetector:
 
         # Bare refs live on the error cell's sheet, not the active one.
         precedent_details = [
-            uno_probe(
+            uno_read(
                 lambda: self.inspector.read_cell(qualify_a1(sheet_name, prec_addr)),
                 {"address": prec_addr, "value": "UNREADABLE", "type": "unknown"},
             )
@@ -250,6 +249,16 @@ class ErrorDetector:
             "total_error_count": len(errors),
             "error_count": len(detailed),
             "truncated": truncated,
+            **(
+                {
+                    "hint": (
+                        "First %d of %d. Pass a range that starts after the last address in errors."
+                        % (_MAX_EXPLAINED_ERRORS, len(errors))
+                    )
+                }
+                if truncated
+                else {}
+            ),
             "errors": detailed,
         }
 

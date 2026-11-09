@@ -29,7 +29,7 @@ from plugin.calc.base import ToolCalcErrorBase
 
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.inspector import CellInspector
-from plugin.calc.error_detector import ErrorDetector
+from plugin.calc.error_detector import ErrorDetector, _MAX_EXPLAINED_ERRORS
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 class DetectErrors(ToolCalcErrorBase):
     """Detect and explain formula errors in a range."""
 
-    name: str | None = "detect_and_explain_errors"
+    name: str | None = "error_detect"
     description: str = "Detects formula errors in the specified range(s) and provides an explanation and fix suggestion. Supports lists for non-contiguous areas. Explanations are capped at 50 per range; truncated and total_error_count report any remainder."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) to check (e.g. ["A1:Z100"] or ["A1", "B2"]). Omit or use empty list for full sheet.')}}, "required": []}
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -68,13 +68,19 @@ class DetectErrors(ToolCalcErrorBase):
         ]
         total = sum(res.get("total_error_count", res.get("error_count", 0)) for res in results)
         truncated = any(res.get("truncated") for res in results)
+        combined: dict[str, Any] = {
+            "ranges": ranges,
+            "total_error_count": total,
+            "error_count": len(combined_errors),
+            "truncated": truncated,
+            "errors": combined_errors,
+        }
+        if truncated:
+            combined["hint"] = (
+                "First %d of %d. Pass a range that starts after the last address in errors."
+                % (_MAX_EXPLAINED_ERRORS, total)
+            )
         return {
             "status": "ok",
-            "result": {
-                "ranges": ranges,
-                "total_error_count": total,
-                "error_count": len(combined_errors),
-                "truncated": truncated,
-                "errors": combined_errors,
-            },
+            "result": combined,
         }

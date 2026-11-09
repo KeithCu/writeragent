@@ -25,7 +25,7 @@ from plugin.scripting.editor_ipc import (
     target_identity_key,
     write_message,
 )
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameReadError,
     IpcPayloadSizeError,

@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.scripting.config_limits import (
     DOCLING_WORKER_TIMEOUT_SEC,
@@ -36,56 +36,97 @@ def _split_spec(spec: Any) -> tuple[str, dict[str, Any]]:
     return str(spec.get("helper") or ""), params
 
 
-def _make_spec_runner(
-    *,
+def _run_spec_domain(
     domain: str,
-    long_timeout: bool = False,
-) -> Callable[..., dict[str, Any]]:
-    """Build a ``run_*(ctx, spec, data, context=)`` client using run_trusted_action RPC."""
-    # optimize uses "Optimization" for error reporting and docstrings.
-    error_code = f"{domain.upper()}_ERROR"
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    from plugin.scripting.domain_registry import get_domain_wiring
+
+    wiring_id = "math" if domain == "symbolic" else domain
+    row = get_domain_wiring(wiring_id)
+    error_code = row.error_code or f"{domain.upper()}_ERROR"
     error_label = "Optimization" if domain == "optimize" else domain.capitalize()
-
-    def _runner(
-        ctx: Any,
-        spec: dict[str, Any] | str,
-        data: Any = None,
-        *,
-        context: dict[str, Any] | None = None,
-    ) -> dict[str, Any]:
-        timeout_sec = (
-            long_trusted_worker_timeout_sec()
-            if long_timeout
-            else configured_python_exec_timeout()
-        )
-        helper, params = _split_spec(spec)
-        return run_trusted_worker_action(
-            ctx,
-            domain=domain,
-            helper=helper,
-            params=params,
-            data_range=data,
-            context=context,
-            timeout_sec=timeout_sec,
-            error_code=error_code,
-            error_label=error_label,
-            additional_data={
-                key: value
-                for key, value in extract_sheet_layout(spec).items()
-                if value is not None
-            } or None,
-        )
-
-    _runner.__name__ = f"run_{domain}"
-    _runner.__doc__ = f"Execute a trusted {error_label} helper in the user venv."
-    return _runner
+    timeout_sec = (
+        long_trusted_worker_timeout_sec()
+        if row.long_timeout
+        else configured_python_exec_timeout()
+    )
+    helper, params = _split_spec(spec)
+    return run_trusted_worker_action(
+        ctx,
+        domain=domain,
+        helper=helper,
+        params=params,
+        data_range=data,
+        context=context,
+        timeout_sec=timeout_sec,
+        error_code=error_code,
+        error_label=error_label,
+        additional_data={
+            key: value
+            for key, value in extract_sheet_layout(spec).items()
+            if value is not None
+        } or None,
+    )
 
 
-run_analysis = _make_spec_runner(domain="analysis")
-run_viz = _make_spec_runner(domain="viz")
-run_symbolic = _make_spec_runner(domain="symbolic", long_timeout=True)
-run_optimize = _make_spec_runner(domain="optimize")
-run_forecast = _make_spec_runner(domain="forecast")
+def run_analysis(
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a trusted Analysis helper in the user venv."""
+    return _run_spec_domain("analysis", ctx, spec, data, context=context)
+
+
+def run_viz(
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a trusted Viz helper in the user venv."""
+    return _run_spec_domain("viz", ctx, spec, data, context=context)
+
+
+def run_symbolic(
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a trusted Symbolic helper in the user venv."""
+    return _run_spec_domain("symbolic", ctx, spec, data, context=context)
+
+
+def run_optimize(
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a trusted Optimization helper in the user venv."""
+    return _run_spec_domain("optimize", ctx, spec, data, context=context)
+
+
+def run_forecast(
+    ctx: Any,
+    spec: dict[str, Any] | str,
+    data: Any = None,
+    *,
+    context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Execute a trusted Forecast helper in the user venv."""
+    return _run_spec_domain("forecast", ctx, spec, data, context=context)
 
 
 # # --- Vision ---
@@ -93,12 +134,12 @@ run_forecast = _make_spec_runner(domain="forecast")
 
 def _resolve_vision_timeout_sec(params: dict[str, Any]) -> int:
     """Vision uses the long budget, with some engine-specific tuning + user override."""
-    # Read vision.worker_timeout_sec via get_config_int_safe for both engines.
+    # Read vision.worker_timeout_sec via get_config for both engines.
     # A hardcoded 120s for Paddle ignored the user override, and swallowing
     # the lookup hid config errors.
-    from plugin.framework.config import get_config_int_safe
+    from plugin.framework.config import get_config
 
-    custom = get_config_int_safe("vision.worker_timeout_sec")
+    custom = get_config("vision.worker_timeout_sec")
     # DOCLING_WORKER_TIMEOUT_SEC (300) is the schema default in module.yaml.
     # An explicit override (custom != 300 and custom > 0) overrides both engines.
     if custom > 0 and custom != DOCLING_WORKER_TIMEOUT_SEC:
@@ -115,7 +156,7 @@ def run_vision(
     image: Any = None,
     *,
     context: dict[str, Any] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Execute a trusted vision helper in the user venv."""
     helper, params = _split_spec(spec)
@@ -130,7 +171,7 @@ def run_vision(
         error_code="VISION_ERROR",
         error_label="Vision",
         additional_data={"image": image},
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
 
 
@@ -185,9 +226,9 @@ def run_text_analytics(
     For sentiment: uses transformers + a multilingual model (default: XLM-RoBERTa based).
     Requires `spacy` + `textdescriptives` for other helpers; `transformers` + `torch` (CPU) for sentiment.
     """
-    from plugin.framework.config import get_config_dict
+    from plugin.framework.config import get_config
 
-    model = get_config_dict().get("text_analytics_sentiment_model") or None
+    model = get_config("text_analytics_sentiment_model") or None
 
     helper, params = _split_spec(spec)
     if model:

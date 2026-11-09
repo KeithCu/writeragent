@@ -156,7 +156,10 @@ def test_librepy_entry_imports_avoid_writeragent_only_modules():
     import plugin.calc.python.editor  # noqa: F401
     import plugin.calc.python.editor_context_menu  # noqa: F401
     import plugin.calc.python.formula_edit  # noqa: F401
+    import plugin.calc.python.addin_values  # noqa: F401
     import plugin.calc.python.function  # noqa: F401
+    import plugin.calc.python.spill  # noqa: F401
+    import plugin.calc.python.undo  # noqa: F401
     import plugin.calc.python.image_egress  # noqa: F401
     import plugin.calc.python.init_script_editor  # noqa: F401
     import plugin.calc.python.workbook_lifecycle  # noqa: F401
@@ -170,7 +173,6 @@ def test_librepy_entry_imports_avoid_writeragent_only_modules():
     import plugin.scripting.venv_worker  # noqa: F401
     import plugin.vision.vision_availability  # noqa: F401
     import plugin.vision.vision_runner  # noqa: F401
-    import plugin.writer.format  # noqa: F401
     import plugin.writer.images.image_tools  # noqa: F401
     import plugin.writer.math.latex_dialog  # noqa: F401
     import plugin.writer.xhtml_style_postprocess  # noqa: F401
@@ -212,8 +214,6 @@ def test_librepy_shipped_function_level_imports_are_safe():
         "plugin/scripting/venv/worker_harness.py",
         # Image insert page style resolution
         "plugin/writer/images/image_tools.py",
-        # Writer scope selection fallback
-        "plugin/writer/format.py",
         # Undo manager title helper in html_import (next_agent_edit_undo_title)
         "plugin/writer/html_import.py",
     }
@@ -307,6 +307,7 @@ def test_librepy_writer_all_plugin_imports_resolve_to_shipped_files():
         "plugin.writer.page",
         "plugin.writer.review_authors",
         "plugin.writer.search",
+        "plugin.writer.styles",
     }
     missing: list[str] = []
     for rel in writer_shipped:

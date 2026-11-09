@@ -199,7 +199,7 @@ Cross-file reads use **two** ephemeral sub-agent runs (outer, then one or more i
 
 ### Handoff mechanism (implemented)
 
-- [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): dedicated tool — **not** recursive `DelegateToSpecializedBase.execute`. Resolves name off the main thread via [`resolve_path_or_name`](../../plugin/doc/document_research.py), opens via [`open_document_for_read`](../../plugin/doc/document_research.py) on the main thread (`run_on_main`).
+- [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): dedicated tool — **not** recursive `DelegateToSpecializedBase.execute`. Resolves name off the main thread via [`resolve_path_or_name`](../../plugin/doc/document_research.py), opens via [`open_document_for_read`](../../plugin/doc/document_research.py) on the main thread (`main.run`).
 - [`run_inner_read_agent`](../../plugin/doc/document_research_specialized.py): builds `ToolContext(doc=opened_model, read_only_target=True, …)`; runs smol with `READ_TOOLS_BY_DOC_TYPE[doc_type]` + `specialized_workflow_finished`.
 - The tool returns `{status: "ok", path, doc_type, result}`; result is the finish tool's answer string. A plain-string final answer (no finish call: output-limit truncation or max steps) returns `status: "incomplete"`, code `SPECIALIZED_WORKFLOW_INCOMPLETE`, with the text on `message`. Inner error payloads pass through unchanged; a run with no answer returns the coded error `READ_EMPTY_RESULT`.
 - Outer document_research sub-agent is still launched by [`DelegateToSpecializedBase`](../../plugin/doc/specialized_base.py) with `active_domain="document_research"` (tools from [`document_research_tools.py`](../../plugin/doc/document_research_tools.py) + `DelegateReadDocument`).
@@ -236,8 +236,8 @@ Schema omission alone is insufficient; Phase 0 enforces at execution time:
 | Layer | Thread | UNO |
 | ----- | ------ | --- |
 | Main tool loop | Main | Sync tools via `execute_safe` |
-| Outer smol | Worker ([`DelegateToSpecializedBase.is_async`](../../plugin/doc/specialized_base.py)) | List/open via `execute_on_main_thread` or async open tool |
-| Inner smol | Same worker as outer | Sync read tools via `SmolToolAdapter` (always marshals) → [`execute_on_main_thread`](../../plugin/chatbot/smol_agent.py) |
+| Outer smol | Worker ([`DelegateToSpecializedBase.is_async`](../../plugin/doc/specialized_base.py)) | List/open via `main.call` / `main.run` or async open tool |
+| Inner smol | Same worker as outer | Sync read tools via `SmolToolAdapter` (always marshals) → [`main.call`](../../plugin/chatbot/smol_agent.py) |
 
 **Phase 0 tests (implemented):**
 
@@ -344,7 +344,7 @@ flowchart LR
 
 **Outer sub-agent (`specialized_domain="document_research"`):**
 
-- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`list_nearby_files`](../../plugin/doc/document_research.py): `ALL_INDEXABLE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100).
+- [`ListNearbyFiles`](../../plugin/doc/document_research_tools.py) → [`list_nearby_files`](../../plugin/doc/document_research.py): `ALL_INDEXABLE_EXTENSIONS`, newest first, exclude active path, optional `filter`, `truncated` when capped (default 100). When a cap fires, the tool result also carries a one-sentence top-level `hint` (next call or argument). When a named object is missing, errors carry `details.similar` (up to five close names) and `details.hint` (which list tool to call).
 - [`DelegateReadDocument`](../../plugin/doc/document_research_specialized.py): `path_or_name` + `task`; hidden+read-only open (or reuse open); spawns inner; returns `{ path, doc_type, result }`.
 - `specialized_workflow_finished` / final answer to main (same as other specialized domains).
 

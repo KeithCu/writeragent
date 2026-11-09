@@ -6,8 +6,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 from PIL import Image
+import pytest
 
 from plugin.ppt_master.fidelity import (
     ProjectFidelityReport,
@@ -93,7 +97,7 @@ def test_evaluate_slide_fidelity_closes_target_doc_after_read(monkeypatch, tmp_p
         from plugin.ppt_master.fidelity import StructuralMetrics
         return StructuralMetrics()
 
-    monkeypatch.setattr(fidelity, "import_slide_to_odp", mock_import)
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", mock_import)
     monkeypatch.setattr(fidelity, "structural_metrics_pptx", mock_metrics)
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
 
@@ -255,7 +259,7 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
 
     # Case 1: reference deck PDF missing
     doc1 = DummyDoc()
-    monkeypatch.setattr(fidelity, "import_slide_to_odp", lambda *args, **kwargs: (doc1, DummyPage()))
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", lambda *args, **kwargs: (doc1, DummyPage()))
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: tmp_path / "imp.pdf")
 
     res1 = fidelity.evaluate_slide_fidelity(
@@ -276,7 +280,7 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     doc2 = DummyDoc()
     ref_pdf = tmp_path / "ref.pdf"
     ref_pdf.write_bytes(b"%PDF-1.4 test")
-    monkeypatch.setattr(fidelity, "import_slide_to_odp", lambda *args, **kwargs: (doc2, DummyPage()))
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", lambda *args, **kwargs: (doc2, DummyPage()))
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
 
     res2 = fidelity.evaluate_slide_fidelity(
@@ -295,7 +299,7 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
 
     # Case 3: reference PNG rasterize failed
     doc3 = DummyDoc()
-    monkeypatch.setattr(fidelity, "import_slide_to_odp", lambda *args, **kwargs: (doc3, DummyPage()))
+    monkeypatch.setattr(fidelity, "import_pptx_slide_to_odp", lambda *args, **kwargs: (doc3, DummyPage()))
     monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: tmp_path / "imp.pdf")
     monkeypatch.setattr(fidelity, "pdf_page_to_png", lambda *args, **kwargs: False)
 
@@ -313,3 +317,91 @@ def test_evaluate_slide_fidelity_closes_on_early_returns(monkeypatch, tmp_path: 
     assert doc3.closed is True
     assert any("reference PNG rasterize failed" in err for err in res3.errors)
 
+
+def test_soffice_convert_to_pdf_timeout_returns_none(monkeypatch, tmp_path: Path):
+    import subprocess
+
+    from plugin.ppt_master import fidelity
+
+    calls: list[tuple[tuple[object, ...], dict[str, object]]] = []
+
+    def fake_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise subprocess.TimeoutExpired(cmd=list(args[0]), timeout=kwargs["timeout"])
+
+    monkeypatch.setattr(fidelity.ManagedSubprocess, "run", fake_run)
+
+    source = tmp_path / "deck.odp"
+    source.write_text("x", encoding="utf-8")
+    out_dir = tmp_path / "pdf_out"
+
+    assert fidelity.soffice_convert_to_pdf("soffice", source, out_dir, timeout_sec=1) is None
+    assert len(calls) == 1
+    assert calls[0][1]["timeout"] == 1
+    assert calls[0][1]["kill_tree"] is True
+
+
+def test_evaluate_slide_fidelity_marshals_pptx_import_once(monkeypatch, tmp_path: Path) -> None:
+    from plugin.ppt_master import fidelity
+    from plugin.ppt_master.fidelity import StructuralMetrics
+
+    class DummyPage:
+        def getCount(self):
+            return 1
+
+    doc = MagicMock()
+    page = DummyPage()
+    main_calls = 0
+
+    def fake_call(fn, timeout=None):
+        nonlocal main_calls
+        main_calls += 1
+        return fn()
+
+    monkeypatch.setattr(fidelity.main, "call", fake_call)
+    monkeypatch.setattr(fidelity, "structural_metrics_pptx", lambda *args, **kwargs: StructuralMetrics())
+    monkeypatch.setattr(fidelity, "soffice_convert_to_pdf", lambda *args, **kwargs: None)
+
+    with patch.object(fidelity, "import_pptx_slide_to_odp", return_value=(doc, page)) as import_fn:
+        fidelity.evaluate_slide_fidelity(
+            None,
+            project_dir=tmp_path,
+            slide_label="test.svg",
+            slide_index=0,
+            pptx_path=tmp_path / "test.pptx",
+            reference_deck_pdf=tmp_path / "ref.pdf",
+            work_dir=tmp_path,
+            soffice="echo",
+            skip_visual=True,
+        )
+
+    assert main_calls == 1
+    import_fn.assert_called_once()
+
+
+@pytest.mark.parametrize("exc_type", ["timeout", "fnf"])
+def test_read_pdf_info_timeout_returns_size_only(tmp_path: Path, exc_type: str) -> None:
+    from plugin.ppt_master import fidelity
+    from plugin.ppt_master.fidelity import PdfInfo, read_pdf_info
+
+    pdf_file = tmp_path / "sample.pdf"
+    pdf_file.write_bytes(b"%PDF-1.4 sample content 12345")
+    recorded_calls: list[tuple[Any, Any]] = []
+
+    def fake_run(args: Any, **kwargs: Any) -> Any:
+        recorded_calls.append((args, kwargs))
+        if exc_type == "timeout":
+            raise subprocess.TimeoutExpired(cmd=args, timeout=kwargs["timeout"])
+        raise FileNotFoundError("pdfinfo not found")
+
+    with patch.object(fidelity.subprocess, "run", side_effect=fake_run):
+        info = read_pdf_info(pdf_file)
+
+    assert info == PdfInfo(file_bytes=pdf_file.stat().st_size)
+    assert info.pages == 0
+    assert info.page_size_pts == ""
+    assert len(recorded_calls) == 1
+    args, kwargs = recorded_calls[0]
+    assert args == ["pdfinfo", str(pdf_file)]
+    assert kwargs.get("timeout") == 60
+    assert kwargs.get("check") is False

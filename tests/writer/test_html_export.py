@@ -78,7 +78,7 @@ def _range_export(style: str, *, has_style: bool, set_style_raises: bool = False
         patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
@@ -269,7 +269,7 @@ def test_empty_xhtml_export_of_a_document_with_text_falls_back():
 
     with patch.object(html_export, "_export_xhtml", return_value=""), \
          patch.object(html_export, "_autostyle_maps", return_value=({}, {}, None)), \
-         patch("plugin.writer.format._with_temp_buffer") as buf, \
+         patch("plugin.doc.temp_files.with_temp_buffer") as buf, \
          patch("builtins.open") as opener:
         buf.return_value.__enter__.return_value = ("/tmp/x.html", "file:///tmp/x.html")
         opener.return_value.__enter__.return_value.read.return_value = "<p>Texto do documento</p>"
@@ -283,7 +283,7 @@ def test_full_export_fallback_reports_missing_style_tokens():
     warnings: list[str] = []
     with (
         patch.object(html_export, "_export_xhtml", side_effect=PermissionError("Permission denied")),
-        patch("plugin.writer.format._with_temp_buffer") as buf,
+        patch("plugin.doc.temp_files.with_temp_buffer") as buf,
         patch("builtins.open") as opener,
         patch("plugin.writer.html_export.inject_exported_math_tex", side_effect=lambda model, ctx, content: content),
         patch("plugin.writer.html_ruby._inject_ruby_from_model", side_effect=lambda model, content, spans: content),
@@ -599,7 +599,7 @@ def test_range_xhtml_disposal_does_not_fall_back():
         patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
@@ -647,7 +647,7 @@ def test_range_export_does_not_read_para_style_on_a_table():
         patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
@@ -967,7 +967,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),
@@ -991,7 +991,7 @@ def test_range_export_skips_flat_odf_when_no_autostyle():
         patch("plugin.writer.html_export._visible_portions", side_effect=_portions),
         patch("plugin.writer.html_export._element_overlaps", return_value=True),
         patch("plugin.writer.html_export._trim_to_source", side_effect=lambda text, element, para_text, source: (0, len(para_text))),
-        patch("plugin.writer.html_export._starts_at_or_after", return_value=False),
+        patch("plugin.writer.html_export.starts_at_or_after", return_value=False),
         patch("plugin.writer.range_copy._paint_direct_formatting"),
         patch("plugin.writer.html_export._hyperlink_urls", return_value=[]),
         patch("plugin.writer.html_ruby._ruby_spans_in_window", return_value=[]),

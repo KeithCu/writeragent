@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from plugin.calc.base import ToolCalcPythonBase
 from plugin.framework.constants import ALL_DOCUMENT_SERVICES
-from plugin.framework.queue_executor import execute_on_main_thread, run_on_main
+from plugin.framework.queue_executor import main
 from plugin.scripting.import_policy import format_matplotlib_plot_hint
 from plugin.scripting.payload_codec import find_image_payloads, strip_image_payloads, write_image_payload_to_temp
 from plugin.scripting.venv_worker import run_code_in_user_venv
@@ -52,9 +52,9 @@ _IMPORT_NOTE_MARKER = _RESULT_NOTE + " "
 
 def _with_import_note(text: str) -> str:
     """Insert the sandbox import policy when the tool schema is built."""
-    from plugin.framework import prompts
+    from plugin.scripting import import_policy
 
-    note = prompts.PYTHON_VENV_AUTO_IMPORTS_TOOL_NOTE
+    note = import_policy.python_venv_auto_imports_note()
     if _IMPORT_NOTE_MARKER in text:
         return text.replace(_IMPORT_NOTE_MARKER, _IMPORT_NOTE_MARKER + note, 1)
     return text
@@ -130,12 +130,8 @@ class RunVenvPythonScript(ToolCalcPythonBase):
             data = kwargs.get("data")
             from plugin.calc import calc_addin_data
 
-            py_data, err = run_on_main(
-                calc_addin_data._resolve_python_data,
-                ctx.doc,
-                data_range=data_range,
-                data=data,
-            )
+            _resolve = calc_addin_data._resolve_python_data
+            py_data, err = main.run(_resolve, ctx.doc, data_range=data_range, data=data)
             if err:
                 return self._tool_error(err, code="DATA_RESOLUTION_ERROR")
 
@@ -147,16 +143,15 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         from plugin.scripting.session_manager import pin_script_document, release_script_document
 
         script_session_id = pin_script_document(ctx.doc)
+        scope = ctx.send_cancellation
 
         try:
             res = run_code_in_user_venv(
-                ctx.ctx,
                 code,
                 data=py_data,
                 python_tool_domain=ctx.python_tool_domain,
                 script_session_id=script_session_id,
-                stop_checker=ctx.stop_checker,
-                cancellation_scope=ctx.send_cancellation,
+                cancel=scope,
             )
         finally:
             release_script_document(script_session_id)
@@ -165,14 +160,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
         if res.get("status") == "ok":
             images = find_image_payloads(result)
             if images:
-                # Bugfix: What was wrong: a write failure on a later image payload abandoned
-                # earlier temp files and leaked them on disk.
-                # How it happened: the list comprehension aborted on exception, but
-                # write_image_payload_to_temp only unlinks a file whose own write failed,
-                # leaving earlier successes uncollected before out exists.
-                # Why this change fixes it: we append each successful path in a loop and,
-                # on any exception, unlink all paths already written before re-raising.
-                # Paths that later sit on out stay the caller's.
+                # Write image temps in a loop; unlink all paths written so far before re-raising on failure.
                 img_paths: list[str] = []
                 try:
                     for img in images:
@@ -191,6 +179,7 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                 shown = img_paths
                 inserted = 0
                 failure: Exception | None = None
+                failures: list[Exception] = []
                 if ctx.doc_type == "calc":
                     from plugin.calc.python.image_egress import insert_image_result_on_sheet
 
@@ -198,9 +187,13 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     # main-thread call returns. Omitting doc= makes egress
                     # use getCurrentComponent (the front window), and a
                     # silent return was treated as success.
+                    # Keep going past a failed slot so later plots still insert;
+                    # only the failed paths are handed back to the caller.
+                    inserted_paths: list[str] = []
+                    failed_paths: list[str] = []
                     for i, (img, path) in enumerate(zip(images, img_paths, strict=True)):
                         try:
-                            execute_on_main_thread(
+                            main.call(
                                 insert_image_result_on_sheet,
                                 ctx.ctx,
                                 img,
@@ -211,14 +204,15 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                             )
                         except Exception as exc:
                             log.warning("run_venv_python_script: plot insert failed: %s", exc)
-                            failure = exc
-                            break
-                        inserted += 1
-                    # Only embedded plots lose their temp file; a path is handed back
-                    # when its plot was not inserted. Partial failure used to keep
-                    # every file, including the embedded bitmaps.
-                    _unlink_quiet(img_paths[:inserted])
-                    shown = img_paths[inserted:]
+                            failures.append(exc)
+                            failed_paths.append(path)
+                            continue
+                        inserted_paths.append(path)
+                    inserted = len(inserted_paths)
+                    # Unlink only paths for plots actually inserted; failed temps stay for the user.
+                    _unlink_quiet(inserted_paths)
+                    shown = failed_paths
+                    failure = failures[0] if failures else None
 
                 if shown:
                     out["image_paths"] = shown
@@ -227,11 +221,11 @@ class RunVenvPythonScript(ToolCalcPythonBase):
                     if failure is not None and inserted == 0:
                         out["status"] = "error"
                         out["image_inserted"] = False
-                        out["plot_error"] = str(failure)
+                        out["plot_error"] = "; ".join(str(e) for e in failures)
                         out["message"] = f"Plot was not inserted: {failure}"
                     elif failure is not None:
                         out["image_inserted"] = True
-                        out["plot_error"] = str(failure)
+                        out["plot_error"] = "; ".join(str(e) for e in failures)
                         out["message"] = f"{inserted} of {len(images)} plot(s) inserted on active sheet"
                     else:
                         out["message"] = f"{len(images)} plot(s) inserted on active sheet"

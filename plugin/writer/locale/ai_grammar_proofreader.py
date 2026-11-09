@@ -40,6 +40,8 @@ import unohelper
 from com.sun.star.lang import XServiceDisplayName, XServiceInfo, XServiceName
 from com.sun.star.linguistic2 import XProofreader, XSupportedLocales, XLinguServiceEventBroadcaster
 
+from plugin.writer.locale import grammar_settings
+
 log = logging.getLogger("writeragent.grammar")
 
 IMPLEMENTATION_NAME = "org.extension.writeragent.comp.pyuno.AiGrammarProofreader"
@@ -67,7 +69,8 @@ except ImportError:
 _GRAMMAR_DISABLED_NOTICE_LOCK = threading.Lock()
 _GRAMMAR_DISABLED_NOTICE_EMITTED = False
 
-from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence, ignore_rule_add, ignore_rules_clear
+from plugin.writer.locale.grammar_ignore_rules import ignore_rule_add, ignore_rules_clear
+from plugin.writer.locale.grammar_proofread_cache import cache_get_sentence
 from plugin.framework.grammar_rule_ids import (
     GRAMMAR_REGISTRY_LOCALE_TAGS,
     normalize_uno_locale_to_bcp47,
@@ -77,21 +80,20 @@ from plugin.writer.locale.grammar_proofread_locale import (
     filter_sentence_spans_for_thresholds,
     uno_locales_for_tags,
 )
+from plugin.writer.locale.grammar_obs import get_grammar_status, slice_preview_debug
 from plugin.writer.locale.grammar_proofread_text import (
     Utf16OffsetMap,
     calculate_covered_span_end,
     candidate_sentence_spans_for_proofreading,
     reconcile_active_and_paragraph_spans,
     resolve_work_spans,
-    slice_preview_debug,
 )
 from plugin.writer.locale.grammar_work_queue import (
-    emit_grammar_status,
     enqueue_misses,
     grammar_obs,
     grammar_queue,
 )
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import background_if_dummy_thread
 
 BIND_RETRY_SEC: float = 1.5
@@ -144,9 +146,7 @@ def _resolve_proofread_writer_model(ctx: Any, doc_id: str) -> Any | None:
     fallback. Otherwise use the only open Writer. Several Writers and no id match
     is not a guess.
     """
-    from plugin.framework.thread_guard import on_main_thread
-
-    if not on_main_thread():
+    if not main.is_current():
         return None
     from plugin.framework.uno_context import get_desktop, get_runtime_uid, iter_open_models
 
@@ -254,17 +254,15 @@ def _cached_errors_to_uno_tuple(
     doc_id: str,
     u16_map: Utf16OffsetMap,
 ) -> tuple[Any, ...]:
-    from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
-    from plugin.writer.locale.grammar_proofread_cache import ignored_rules_snapshot
+    from plugin.writer.locale.grammar_ignore_rules import IgnoreSet
 
-    doc_ignored = doc_ignored_rules(ctx, doc_id)
-    global_ignored = ignored_rules_snapshot()
+    ignore_set = IgnoreSet.for_document(ctx, doc_id)
     markup_type = _proofreading_markup_type()
 
     out: list[Any] = []
     for d in cached:
         rule_ident = str(d.get("rule_identifier", ""))
-        if is_rule_ignored(rule_ident, doc_ignored, global_ignored):
+        if not ignore_set.allows(rule_ident):
             continue
 
         u16_start, u16_len = u16_map.utf16_span(int(d["n_error_start"]), int(d["n_error_length"]))
@@ -291,7 +289,6 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
     """
     from plugin.framework.logging import init_logging
     from plugin.framework.config import init_config, user_config_dir
-    from plugin.writer.locale.grammar_worker import is_grammar_enabled
 
     init_logging(ctx)
     log.debug("[grammar] ensure_proofreader_selection: entry")
@@ -299,7 +296,7 @@ def ensure_writeragent_proofreader_configured(ctx: Any) -> None:
         init_config(ctx)
     except Exception as e:
         log.debug("[grammar] ensure_proofreader_selection: init_config: %s", e)
-    enabled = is_grammar_enabled()
+    enabled = grammar_settings.is_grammar_enabled()
     if not enabled:
         log.info("[grammar] ensure_proofreader_selection: Doc-tab AI grammar off (enable on Doc tab to use the checker)")
         return
@@ -460,11 +457,13 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     _implementation_name: str = IMPLEMENTATION_NAME
     _supported_service_names: tuple[str, ...] = (SERVICE_NAME,)
     _locales: tuple[Any, ...]
-    _provider: str = ""
-    _checker_identity: str = ""
-    # LibreHarper must not consult is_grammar_enabled() (package id is reset in tests and is not Harper's switch)
-    # and must not clear WriterAgent's one-time disabled notice.
-    _always_enabled: bool = False
+    _profile: grammar_settings.GrammarProfile | None = None
+
+    def _resolved_profile(self) -> grammar_settings.GrammarProfile:
+        if self._profile is not None:
+            return self._profile
+        name = grammar_settings.provider()
+        return grammar_settings.GrammarProfile(name, grammar_settings.checker_identity(name), False)
 
     def __init__(self, ctx: Any, *args: Any) -> None:
         # LibreOffice's Linguistic manager instantiates proofreaders with
@@ -498,7 +497,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def _ensure_document_bound_on_main(self, doc_id: str) -> None:
         # Writer's ignoreRule gets the doc id; Draw's gets only the locale. Map the model's
         # RuntimeUID to the doc id so ignore can find it without guessing the focused doc.
-        # get_runtime_uid is main-thread-only, so this runs via run_on_main.
+        # get_runtime_uid is main-thread-only, so this runs via main.call.
         with self._bind_lock:
             if doc_id in self._bound_docs:
                 return
@@ -532,7 +531,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         try:
             # A busy VCL thread must not stall a Linguistic worker for the 30 s default;
             # a failed hop is already backed off by _failed_bind_deadlines.
-            run_on_main(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
+            main.run(self._ensure_document_bound_on_main, doc_id, timeout=BIND_RETRY_SEC)
         except TimeoutError:
             with self._bind_lock:
                 self._failed_bind_deadlines[doc_id] = time.monotonic() + BIND_RETRY_SEC
@@ -553,6 +552,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     # --- XSupportedLocales ---
     def _normalize_locale(self, a_locale: Any) -> str | None:
         """Return the grammar locale used by this proofreader implementation."""
+        profile = self._resolved_profile()
+        if profile.provider == "harper":
+            # Harper is English-only; keep hasLocale and doProofreading on one path.
+            from plugin.writer.locale.harper_proofreader import normalize_harper_locale_to_bcp47
+
+            return normalize_harper_locale_to_bcp47(a_locale)
         return normalize_uno_locale_to_bcp47(a_locale)
 
     def hasLocale(self, aLocale: Any) -> bool:
@@ -563,15 +568,22 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
     def getLocales(self) -> tuple[Any, ...]:
         return self._locales
 
-    def _check_enabled_and_locale(self, a_doc_id: str, a_text: str, a_locale: Any, n_start: int, n_suggested_end: int) -> str | None:
+    def _check_enabled_and_locale(
+        self,
+        a_doc_id: str,
+        a_text: str,
+        a_locale: Any,
+        n_start: int,
+        n_suggested_end: int,
+        profile: grammar_settings.GrammarProfile,
+    ) -> str | None:
         """Return BCP47 locale if grammar checking is enabled and locale is supported, else None."""
-        if self._always_enabled:
+        if profile.always_enabled:
             loc_raw = getattr(a_locale, "Language", "") or ""
         else:
             loc_raw = f"{a_locale.Language}_{a_locale.Country}_{a_locale.Variant}"
-            from plugin.writer.locale.grammar_worker import is_grammar_enabled
 
-            if not is_grammar_enabled():
+            if not grammar_settings.is_grammar_enabled():
                 if _mark_grammar_disabled_notice():
                     log.info("[grammar] doProofreading: disabled (Doc tab → Enable AI grammar checker)")
                 # do_proofreading_skip for grammar_disabled omitted to avoid log noise
@@ -612,12 +624,6 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
             _append_shifted_errors(cached, sent_start, combined_errors)
         return combined_errors, uncached_spans
 
-    def _active_grammar_provider(self) -> str:
-        """Pinned instance provider (LibreHarper) or current config (WriterAgent)."""
-        from plugin.writer.locale.grammar_worker import get_grammar_provider
-
-        return self._provider or get_grammar_provider()
-
     def _try_harper_fast_path(
         self,
         a_doc_id: str,
@@ -630,37 +636,39 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         if not uncached_spans:
             return
         from plugin.framework.config import user_config_dir
-        from dataclasses import asdict
 
-        from plugin.writer.locale.grammar_ignore_rules import doc_ignored_rules, is_rule_ignored
-        from plugin.writer.locale.grammar_proofread_cache import cache_put_sentence, ignored_rules_snapshot
-        from plugin.writer.locale.grammar_proofread_text import normalize_errors_for_text
+        from plugin.writer.locale.grammar_ignore_rules import IgnoreSet
+        from plugin.writer.locale.grammar_proofread_cache import store_sentence_result
         from plugin.writer.locale.harper import harper_try_lint
 
         cfg_dir = user_config_dir() or ""
         if uncached_spans[0][2]:
-            emit_grammar_status("start", uncached_spans[0][2], result="Harper")
+            get_grammar_status().start(uncached_spans[0][2], result="Harper", routine=True)
         issue_count = 0
-        ignored = doc_ignored_rules(self.ctx, a_doc_id)
-        global_ignored = ignored_rules_snapshot()
+        ignore_set = IgnoreSet.for_document(self.ctx, a_doc_id)
         for sent_start, _sent_end, sent_text in uncached_spans:
             # Pass ctx so READY lint can PE2I; missing ctx blocks typing.
             res = harper_try_lint(sent_text, cfg_dir, bcp47=loc_key, ctx=self.ctx)
             if res is None:
                 grammar_obs("do_proofreading_harper_ensure", doc_id=a_doc_id, grammar_bcp47=loc_key)
-                emit_grammar_status("request", sent_text, result="Starting Harper…")
+                get_grammar_status().request(sent_text, result="Starting Harper…")
                 return
-            emit_grammar_status("request", sent_text, result="Harper check")
+            get_grammar_status().request(sent_text, result="Harper check", routine=True)
             errors = res.get("errors", [])
-            norm_errors = normalize_errors_for_text(sent_text, errors, self.ctx, loc_key)
-            active_errors = [e for e in norm_errors if not is_rule_ignored(e.rule_identifier, ignored, global_ignored)]
-            payload = [asdict(e) for e in norm_errors]
+            active_errors = store_sentence_result(
+                self.ctx,
+                a_doc_id,
+                loc_key,
+                sent_text,
+                errors,
+                checker_identity,
+                ignore_set=ignore_set,
+            )
             issue_count += len(active_errors)
-            cache_put_sentence(loc_key, sent_text, payload, ctx=self.ctx, doc_id=a_doc_id, checker_identity=checker_identity)
-            _append_shifted_errors(payload, sent_start, combined_errors)
+            _append_shifted_errors(active_errors, sent_start, combined_errors)
         if uncached_spans[-1][2]:
             iw = "issue" if issue_count == 1 else "issues"
-            emit_grammar_status("done", uncached_spans[-1][2], result=f"{issue_count} {iw}")
+            get_grammar_status().done(uncached_spans[-1][2], result=f"{issue_count} {iw}", routine=True)
 
     # --- XProofreader ---
     def isSpellChecker(self) -> bool:
@@ -678,26 +686,21 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
             # Build the empty result before the try. A failure here (missing ``uno``,
             # ``createUnoStruct``) must propagate out of ``doProofreading``. The
-            # handler used to call ``_create_empty_result`` again with the same
-            # arguments when ``a_res`` was still None. That second failure left the
-            # Linguistic worker with an unhandled exception and could crash or hang Writer.
+            # ``_create_empty_result`` is called once; a second attempt on failure would
+            # leave the Linguistic worker with an unhandled exception.
             a_res = _create_empty_result(self, aDocumentIdentifier, aText, aLocale, nStartOfSentencePosition, nSuggestedBehindEndOfSentencePosition, u16_map=u16_map)
             try:
                 self._ensure_document_bound(aDocumentIdentifier)
 
-                loc_key = self._check_enabled_and_locale(aDocumentIdentifier, aText, aLocale, py_start, py_suggested_end)
+                profile = self._resolved_profile()
+                loc_key = self._check_enabled_and_locale(
+                    aDocumentIdentifier, aText, aLocale, py_start, py_suggested_end, profile
+                )
                 if not loc_key:
                     return a_res
 
-                provider = self._active_grammar_provider()
-                if self._checker_identity:
-                    checker_identity = self._checker_identity
-                elif provider in ("harper", "languagetool", "vale"):
-                    checker_identity = provider
-                else:
-                    from plugin.writer.locale.grammar_persistence import grammar_checker_identity
-
-                    checker_identity = grammar_checker_identity()
+                provider = profile.provider
+                checker_identity = profile.identity
 
                 # 1. One BreakIterator + dialogue-merge pass for the whole paragraph (memoized per paragraph+locale).
                 split_key = (loc_key, aText)
@@ -814,10 +817,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
                 return a_res
 
     def _resolve_doc_id_for_ignore(self) -> str | None:
-        from plugin.framework.thread_guard import on_main_thread
         from plugin.framework.uno_context import get_desktop, get_runtime_uid
 
-        if not on_main_thread():
+        if not main.is_current():
             return None
 
         try:
@@ -835,7 +837,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
 
     def _run_doc_op(self, op: str, action: Any) -> None:
         try:
-            doc_id = run_on_main(self._resolve_doc_id_for_ignore)
+            doc_id = main.run(self._resolve_doc_id_for_ignore)
             if not doc_id:
                 raise RuntimeError(f"{op} failed: no active document found")
             action(doc_id)
@@ -847,12 +849,12 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         del aLocale
         self._run_doc_op(
             "ignoreRule",
-            lambda doc_id: run_on_main(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier),
+            lambda doc_id: main.run(_ignore_rule_on_main, self.ctx, doc_id, aRuleIdentifier),
         )
 
     def resetIgnoreRules(self) -> None:
         def _action(doc_id: str) -> None:
-            run_on_main(_reset_ignore_rules_on_main, self.ctx, doc_id)
+            main.run(_reset_ignore_rules_on_main, self.ctx, doc_id)
             self.broadcast_proofread_again()
 
         self._run_doc_op("resetIgnoreRules", _action)
@@ -892,9 +894,9 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         ready = False
         if not pending:
             try:
-                from plugin.writer.locale.harper import harper_runtime_is_ready
+                from plugin.writer.locale.harper import runtime
 
-                ready = self._active_grammar_provider() == "harper" and harper_runtime_is_ready()
+                ready = self._resolved_profile().provider == "harper" and runtime.is_ready()
             except Exception:
                 ready = False
         if not pending and not ready:
@@ -902,9 +904,7 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         self._first_listener_proofread_again_done = True
         self._pending_proofread_again = False
         try:
-            from plugin.framework.queue_executor import post_to_main_thread
-
-            post_to_main_thread(self.broadcast_proofread_again)
+            main.post(self.broadcast_proofread_again)
         except Exception:
             self.broadcast_proofread_again()
 
@@ -912,8 +912,8 @@ class WriterAgentAiGrammarProofreader(unohelper.Base, XProofreader, XServiceInfo
         """Ask Writer's grammar iterator to walk the document again (PROOFREAD_AGAIN)."""
         if not self._lingu_listeners:
             # Remember the miss: first addLinguServiceEventListener recovers it.
-            # Dropping this used to leave first-session Harper with a ready
-            # status bar and no grammar marks until LibreOffice restart.
+            # ``_pending_proofread_again`` schedules a later proofread when the first
+            # listener attach fails, so grammar marks are not stuck off until restart.
             self._pending_proofread_again = True
             return
         self._pending_proofread_again = False

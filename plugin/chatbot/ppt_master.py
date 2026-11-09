@@ -22,27 +22,28 @@ def _run_ppt_master_venv_agent(
     topic: str | None = None,
 ) -> dict[str, Any]:
     from plugin.framework.errors import ToolExecutionError, format_error_payload
+    from plugin.framework.send_cancellation import is_cancelled
     from plugin.ppt_master.venv.host import run_ppt_master_venv_turn
     from plugin.scripting.session_manager import ppt_master_session_id
 
     status_callback = ctx.status_callback
     append_thinking_callback = ctx.append_thinking_callback
-    stop_checker = ctx.stop_checker
+    scope = ctx.send_cancellation
 
     if status_callback:
         status_callback("PPT-Master...")
 
     from plugin.framework.uno_context import get_active_document, get_ctx
-    from plugin.framework.queue_executor import run_on_main
+    from plugin.framework.queue_executor import main
 
     # The tool runs on a background thread (is_async=True). ctx.doc and
-    # get_active_document() are main-thread-only; run_on_main keeps
+    # get_active_document() are main-thread-only; main.run keeps
     # that access on VCL.
     def _resolve_session() -> str:
         uno_doc = ctx.doc if hasattr(ctx.doc, "getURL") else get_active_document(get_ctx())
         return ppt_master_session_id(uno_doc)
 
-    session_id = run_on_main(_resolve_session)
+    session_id = main.run(_resolve_session)
 
     def on_worker_event(event: dict[str, Any]) -> None:
         kind = event.get("kind")
@@ -57,7 +58,7 @@ def _run_ppt_master_venv_agent(
             if text:
                 append_thinking_callback(str(text))
 
-    if stop_checker and stop_checker():
+    if is_cancelled(scope):
         return format_error_payload(ToolExecutionError("PPT-Master stopped by user.", code="USER_STOPPED"))
 
     return run_ppt_master_venv_turn(
@@ -68,8 +69,7 @@ def _run_ppt_master_venv_agent(
         model=None,
         session_id=session_id,
         on_worker_event=on_worker_event,
-        stop_checker=stop_checker,
-        cancellation_scope=ctx.send_cancellation,
+        cancel=scope,
     )
 
 

@@ -178,8 +178,9 @@ def test_get_placeholder_text_by_role_returns_index():
         _FakeShape(class_name="OutlinerShape", text="Body")
     ])
 
-    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
-        res = GetPlaceholderText().execute(SimpleNamespace(doc=object()), role="body")
+    with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        res = GetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=None), role="body")
 
     assert res["status"] == "ok"
     assert res["role"] == "body"
@@ -194,8 +195,9 @@ def test_get_placeholder_text_by_role_returns_index():
         _MockShapeWithSetString(class_name="TitleTextShape", text="Title"),
         _MockShapeWithSetString(class_name="OutlinerShape", text="Body")
     ])
-    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page2):
-        res2 = SetPlaceholderText().execute(SimpleNamespace(doc=object()), text="New Body", index=res["index"])
+    with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page2, 0)
+        res2 = SetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=None), text="New Body", index=res["index"])
 
     assert res2["status"] == "ok"
     assert page2.getByIndex(1).getString() == "New Body"
@@ -203,15 +205,16 @@ def test_get_placeholder_text_by_role_returns_index():
 
 def test_set_placeholder_text_empty_role_miss_payload():
     page = _FakePage([])
-    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
-        err = SetPlaceholderText().execute(SimpleNamespace(doc=object()), text="x", role="title")
+    with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        err = SetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=None), text="x", role="title")
     assert err["status"] == "error"
     details = err["details"]
     assert details["available"] == []
     assert details["suggest_layout"] == "text"
     assert details["shape_text_count"] == 0
     assert "slide_layouts" in details["hint"]
-    assert "set_slide_layout" not in details["hint"]
+    assert "slide_layout_set" not in details["hint"]
     assert "Placeholder 'title' not found on this slide." == err["message"]
 
 
@@ -247,8 +250,9 @@ def test_class_on_later_shape_beats_name_on_earlier():
 
 def test_get_placeholder_miss_has_available_no_details():
     page = _FakePage([_FakeShape(class_name="TitleTextShape", text="T")])
-    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
-        res = GetPlaceholderText().execute(SimpleNamespace(doc=object()), role="body")
+    with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        res = GetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=None), role="body")
     assert res["status"] == "error"
     assert "available" in res["details"]
     assert "hint" not in res["details"]
@@ -286,7 +290,8 @@ class _CountingPage(_FakePage):
 
 def test_role_miss_scans_page_once():
     page = _CountingPage([])
-    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=page):
+    with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         SetPlaceholderText().execute(SimpleNamespace(doc=object(), active_page_index=0), text="x", role="title")
     assert page.count_calls == 1
 
@@ -329,13 +334,16 @@ def test_scan_re_raises_disposal_from_shape_property():
             return ""
 
     page = _FakePage([_Disposed()])
-    with pytest.raises(DisposedException):
+    from plugin.framework.errors import DocumentDisposedError
+
+    with pytest.raises(DocumentDisposedError):
         _list_placeholders(page)
 
 
 def test_get_and_set_role_miss_payloads_match_on_empty_page():
     ctx = SimpleNamespace(doc=object(), active_page_index=0)
-    with patch("plugin.draw.placeholders.DrawBridge.get_slide_for_tool", return_value=_FakePage([])):
+    with patch("plugin.draw.placeholders.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (_FakePage([]), 0)
         got = GetPlaceholderText().execute(ctx, role="title")
         want = SetPlaceholderText().execute(ctx, text="x", role="title")
     assert got["message"] == want["message"]

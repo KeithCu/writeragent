@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from compute_service import error_codes as ec
 from compute_service.json_forward import ExecuteRequestError, ExecuteRequestParts, _reject_json_constant, _reject_nonfinite_number
 
 _WS = frozenset({0x09, 0x0A, 0x0D, 0x20})
@@ -99,10 +100,10 @@ def peel_execute_request(body: bytes) -> ExecuteRequestParts:
 
     req_id = fields.get("id")
     if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
-        raise ExecuteRequestError("id must be a scalar", code="INVALID_REQUEST")
+        raise ExecuteRequestError("id must be a scalar", code=ec.INVALID_REQUEST)
     timeout_ms = fields.get("timeout_ms")
     if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
-        raise ExecuteRequestError("timeout_ms must be a scalar", code="INVALID_REQUEST")
+        raise ExecuteRequestError("timeout_ms must be a scalar", code=ec.INVALID_REQUEST)
 
     return ExecuteRequestParts(req_id=req_id, code=fields.get("code"), mode=fields.get("mode"), timeout_ms=timeout_ms, init_script=fields.get("init_script"), data_json=data_json, has_session_id="session_id" in fields)
 

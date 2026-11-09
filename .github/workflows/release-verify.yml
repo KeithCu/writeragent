@@ -6,10 +6,10 @@ on:
       os:
         description: "Operating system runner"
         required: true
-        default: "ubuntu-latest"
+        default: "ubuntu-26.04"
         type: choice
         options:
-          - "ubuntu-latest"
+          - "ubuntu-26.04"
           - "macos-latest"
           - "windows-latest"
           - "all"
@@ -24,8 +24,8 @@ jobs:
       matrix:
         os: >-
           ${{
-            inputs.os == 'all' && fromJSON('["ubuntu-latest", "macos-latest", "windows-latest"]') ||
-            fromJSON(format('["{0}"]', inputs.os || 'ubuntu-latest'))
+            inputs.os == 'all' && fromJSON('["ubuntu-26.04", "macos-latest", "windows-latest"]') ||
+            fromJSON(format('["{0}"]', inputs.os || 'ubuntu-26.04'))
           }}
 
     defaults:
@@ -42,13 +42,24 @@ jobs:
 
       - name: Install LibreOffice and system tools (Ubuntu)
         if: runner.os == 'Linux'
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           sudo rm -f /etc/apt/sources.list.d/google-chrome.list \
                      /etc/apt/sources.list.d/google-chrome.sources \
                      /etc/apt/sources.list.d/google.list
-          sudo add-apt-repository -y ppa:libreoffice/ppa
-          sudo apt-get update
-          sudo apt-get install -y libreoffice libreoffice-dev python3-uno gettext
+          sudo tee /etc/apt/apt.conf.d/99-writeragent-ci <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "20";
+          Acquire::https::Timeout "20";
+          Acquire::ftp::Timeout "20";
+          EOF
+
+      - name: Install LibreOffice (Ubuntu apt cache)
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        uses: ./.github/actions/ubuntu-libreoffice-apt
 
       - name: Install LibreOffice and system tools (macOS)
         if: runner.os == 'macOS'

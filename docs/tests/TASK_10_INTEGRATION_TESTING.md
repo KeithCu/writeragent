@@ -124,7 +124,7 @@ class TestErrorInjection(IntegrationTestBase):
     
     def test_document_disposed_error(self):
         """Test handling of disposed document errors."""
-        from plugin.framework.uno_safety import check_disposed
+        from plugin.framework.errors import UnoObjectError
         from plugin.framework.errors import UnoObjectError
         
         # Create mock disposed object
@@ -134,9 +134,10 @@ class TestErrorInjection(IntegrationTestBase):
         
         disposed_obj = MockDisposedObject()
         
-        # Test check
+        # Test null-object guard (raises UnoObjectError)
         with self.assertRaises(UnoObjectError) as cm:
-            check_disposed(disposed_obj, "Test Object")
+            if disposed_obj is None:
+                raise UnoObjectError("Test Object is null", code="UNO_NULL_OBJECT")
         
         error = cm.exception
         self.assertEqual(error.code, "UNO_OBJECT_DISPOSED")
@@ -225,7 +226,7 @@ class TestPerformance(IntegrationTestBase):
     def test_error_handling_overhead(self):
         """Test that error handling doesn't add excessive overhead."""
         import time
-        from plugin.framework.errors import safe_json_loads
+        from plugin.framework.json_utils import safe_json_loads
         
         # Test data
         test_json = '{"key": "value", "array": [1, 2, 3]}'

@@ -18,7 +18,7 @@ import tempfile
 import threading
 from typing import TYPE_CHECKING, Any, cast
 
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.managed_subprocess import ManagedSubprocess, kill_process_tree
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
 from plugin.scripting.native_binaries import ensure_native_binaries_on_path
@@ -27,8 +27,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from plugin.scripting.audio_silence_detector import SilenceDetectorConfig
-from plugin.scripting.ipc import read_json_line, write_json_line
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.framework.ipc import read_json_line, write_json_line
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ def is_audio_recording_configured() -> bool:
 
 def resolve_recording_python() -> tuple[str | None, str]:
     """Return (venv python executable, error message)."""
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return None, _VENV_NOT_CONFIGURED
     exe = resolve_venv_python(venv_dir)
@@ -103,12 +104,9 @@ def spawn_recording_process(exe: str, output_path: str, *, silence_config: Silen
 
 
 class RecordingStopHandoff:
-    """WAV path stashed by the sole stdout monitor for ``stop_recording_process``.
+    """WAV path stashed by the sole stdout monitor for ``finish_recording_stop``.
 
-    Manual Stop Rec used to call ``read_json_line`` on the same pipe the silence
-    monitor was already reading. The monitor only handled ``silence_progress``,
-    ``auto_stopped``, and ``error``, so it dropped ``{"status":"ok","path":…}``.
-    Stop then timed out, and the panel deleted the temp WAV and sent nothing.
+    The stdout monitor owns the JSON lines so Manual Stop shares the ok/path handoff instead of racing a second reader on the pipe.
     """
 
     _lock: threading.Lock
@@ -163,8 +161,10 @@ class RecordingStopHandoff:
         raise RuntimeError("Recording subprocess did not return a WAV path.")
 
 
-def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float = _RECORDING_READY_TIMEOUT_SEC) -> None:
+def wait_for_recording_ready(managed: ManagedSubprocess, *, timeout_sec: float | None = None) -> None:
     """Block until the child emits ``{\"status\": \"ready\"}`` or fails."""
+    if timeout_sec is None:
+        timeout_sec = _RECORDING_READY_TIMEOUT_SEC
     proc = _recording_popen(managed)
     if proc.stdout is None:
         raise RuntimeError("Recording subprocess stdout is not available.")
@@ -233,41 +233,47 @@ def _reap_recording_process(
     drain = managed.stderr_tail
     if drain is not None:
         drain.join(timeout=1.0)
-    # Bugfix: the monitor closure holds proc, so the fds stayed open until
-    # GC; closing the read end also unblocks a monitor stuck in os.read after
-    # the child is gone.
+    # Close recording pipes when reaping so monitor threads are not stuck on os.read and fds are not held until GC.
     _close_recording_pipe(proc.stdin, "stdin")
     _close_recording_pipe(proc.stdout, "stdout")
     _close_recording_pipe(proc.stderr, "stderr")
 
 
-def stop_recording_process(
+def signal_recording_stop(managed: ManagedSubprocess) -> None:
+    """Send {"command": "stop"} to the recording subprocess if still running.
+
+    Does not wait for the process to exit or reap it.
+    """
+    proc = _recording_popen(managed)
+    if proc.poll() is not None:
+        return
+    if proc.stdin is None:
+        raise RuntimeError("Recording subprocess stdin is not available.")
+    try:
+        write_json_line(proc.stdin, {"command": "stop"})
+    except OSError as exc:
+        raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
+
+
+def finish_recording_stop(
     managed: ManagedSubprocess,
     *,
     handoff: RecordingStopHandoff,
-    timeout_sec: float = _RECORDING_STOP_TIMEOUT_SEC,
+    timeout_sec: float | None = None,
     monitor: BackgroundHandle | None = None,
 ) -> str:
-    """Send the stop line and wait on the handoff for the WAV path.
+    """Wait on the handoff for the WAV path, then reap the recording process.
 
-    The monitor is the sole stdout reader; this function does not read stdout.
+    No second stop line is written.
     """
-    # stop_recording_process can return or raise without reaping the child
-    # (wait_for_path timeout, stdin None, or an already-exited timeout).
-    # try/finally _reap_recording_process reaps it and drops the stderr drain
-    # on every exit.
+    if timeout_sec is None:
+        timeout_sec = _RECORDING_STOP_TIMEOUT_SEC
     proc = _recording_popen(managed)
     try:
         exited = proc.poll() is not None
         try:
             if exited:
                 return handoff.wait_for_path(min(timeout_sec, 1.0))
-            if proc.stdin is None:
-                raise RuntimeError("Recording subprocess stdin is not available.")
-            try:
-                write_json_line(proc.stdin, {"command": "stop"})
-            except OSError as exc:
-                raise RuntimeError(f"Failed to signal recording subprocess: {exc}") from exc
             return handoff.wait_for_path(timeout_sec)
         except RuntimeError:
             known = handoff.snapshot_path()
@@ -279,10 +285,7 @@ def stop_recording_process(
                 ) from None
             raise
     finally:
-        # Bugfix: this used to pass the 15s path timeout again, so Stop on the
-        # VCL thread could block 15s plus another 15s before terminate. The
-        # path wait above is the long timeout. After it returns or raises, 2s
-        # plus the existing kill escalation is enough.
+        # Reap on every exit (success, timeout, or exception) so the process is never leaked.
         _reap_recording_process(managed, _RECORDING_REAP_TIMEOUT_SEC, monitor=monitor, handoff=handoff)
 
 
@@ -309,9 +312,7 @@ def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingSto
     if status == "error":
         raw_msg = payload.get("message")
         message = raw_msg if isinstance(raw_msg, str) and raw_msg else "Audio recording failed."
-        # Bugfix: with no callback, note_error never ran, so wait_for_path sat
-        # for the full stop timeout. AudioRecorder always passes a callback;
-        # other callers do not.
+        # note_error always runs so wait_for_path does not block the full stop timeout when on_error is omitted.
         handoff.note_error(message)
         if on_error is not None:
             on_error(message)
@@ -321,7 +322,7 @@ def _dispatch_recording_stdout(payload: dict[str, Any], *, handoff: RecordingSto
 def monitor_recording_stdout(managed: ManagedSubprocess, *, handoff: RecordingStopHandoff, on_auto_stopped: Callable[[str], None], on_silence_progress: Callable[[int], None] | None = None, on_error: Callable[[str], None] | None = None) -> BackgroundHandle:
     """Sole stdout reader for venv recorder IPC.
 
-    Pass the same *handoff* to ``stop_recording_process``. This thread consumes
+    Pass the same *handoff* to ``finish_recording_stop``. This thread consumes
     ``silence_progress``, ``auto_stopped``, ``error``, and the final ``ok``
     line. Stop must not read the pipe or it races this loop and loses the path.
     """
@@ -330,9 +331,7 @@ def monitor_recording_stdout(managed: ManagedSubprocess, *, handoff: RecordingSt
         proc = cast("subprocess.Popen[str] | None", managed.popen)
         if proc is None or proc.stdout is None:
             return
-        # Poll-first used to exit when the child wrote ``ok`` and exited in the
-        # same moment, leaving that line unread. Read until EOF, and treat a
-        # read timeout as done only after the process has exited.
+        # Read until EOF so an ok line written as the child exits is not missed before the monitor stops.
         while True:
             if handoff.monitor_stop_requested():
                 break
@@ -343,12 +342,7 @@ def monitor_recording_stdout(managed: ManagedSubprocess, *, handoff: RecordingSt
                     break
                 continue
             except (ValueError, RuntimeError, OSError) as exc:
-                # Bugfix: reap closes stdout while this thread is between
-                # select calls. The next read raises ValueError ("I/O
-                # operation on closed file"), and an oversize line raises
-                # "JSON line exceeds …" or "JSON line truncated at EOF" on
-                # every retry, so those three end the loop. Any other
-                # ValueError is a bad line and is skipped.
+                # Closed-pipe and oversize-line ValueErrors end the monitor loop; other ValueErrors skip one bad JSON line.
                 if isinstance(exc, ValueError) and not str(exc).startswith((
                     "I/O operation on closed file",
                     "JSON line exceeds ",
@@ -447,10 +441,6 @@ def clear_pending_audio_wav(host: Any) -> None:
         try:
             os.remove(host.audio_wav_path)
         except OSError as exc:
-            # What was wrong: except Exception: pass hid a failed delete.
-            # How it happened: on Windows the recorder subprocess still
-            # holds the WAV, so os.remove raises PermissionError.
-            # Why this fixes it: OSError is logged and the path is still
-            # dropped. Any other exception propagates.
+            # Log OSError on WAV delete (common on Windows when the child still holds the file) but clear the pending path reference.
             log.debug("clear_pending_audio_wav: failed to remove %s: %s", host.audio_wav_path, exc)
         host.audio_wav_path = None

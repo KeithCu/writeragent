@@ -19,8 +19,7 @@ from plugin.chatbot.dialogs import (
 )
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.i18n import N_, _
-from plugin.framework.queue_executor import post_to_main_thread
-from plugin.framework.thread_guard import on_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_desktop, get_toolkit, process_events_to_idle
 from plugin.framework.worker_pool import run_in_background
 
@@ -86,10 +85,10 @@ class VenvProbeProgressDialog:
             assert dlg is not None
 
             def on_display(text: str) -> None:
-                post_to_main_thread(lambda body=text: self.set_display(body))
+                main.post(lambda body=text: self.set_display(body))
 
             def on_status(text: str) -> None:
-                post_to_main_thread(lambda status=text: self.set_status(status))
+                main.post(lambda status=text: self.set_status(status))
 
             def post_finish(success: bool, body: str | None) -> None:
                 def ui() -> None:
@@ -99,7 +98,7 @@ class VenvProbeProgressDialog:
                             self.set_display(body)
                     self.finish(success_title if success else failure_title, success)
 
-                post_to_main_thread(ui)
+                main.post(ui)
 
             def work() -> None:
                 try:
@@ -113,7 +112,7 @@ class VenvProbeProgressDialog:
                         self.set_display(err_msg)
                         self.finish(failure_title, False)
 
-                    post_to_main_thread(fail_ui)
+                    main.post(fail_ui)
                     if not isinstance(exc, Exception):
                         raise
 
@@ -138,11 +137,7 @@ class VenvProbeProgressDialog:
             dlg.getModel().Title = _(title)
         btn_close = dlg.getControl("BtnClose")
         if btn_close is not None:
-            # Bugfix: Close was clickable during the probe, so execute() returned and
-            # _dispose() ran while the worker was still writing the download.
-            # The programmatic dialog passed enabled=False (5b3496e1). The XDL
-            # conversion (28bb44c1) dropped that and left the stock enabled button.
-            # finish() is what turns the button back on. The title bar stays closeable.
+            # Close stays disabled until finish() so the user cannot dismiss the dialog while the probe worker still runs.
             set_control_enabled(btn_close, False)
             btn_close.addActionListener(_VenvProbeCloseListener(dlg))
         self._parent_progress_dialog(dlg)
@@ -151,14 +146,7 @@ class VenvProbeProgressDialog:
     def _parent_progress_dialog(self, dlg: Any) -> None:
         """Parent this modal to Settings before execute().
 
-        Bugfix: the progress window was an unparented top-level dialog, so it
-        was not anchored to Settings. _parent_dlg was stored and never read.
-        The XDL conversion (28bb44c1) stopped calling createPeer. DialogProvider
-        does not create a peer; execute() then builds one with no parent.
-        setVisible(False) then createPeer matches LibreOffice
-        wizards/ui/UnoDialog.py createWindowPeer; executeDialog runs execute()
-        on that peer. A second createPeer throws, so an existing peer is left
-        alone. Failure here still leaves execute() able to open the dialog.
+        Parents the modal to Settings via createPeer so the progress window is anchored to the settings dialog instead of floating as a separate top-level window.
         """
         parent = _dialog_parent_for_child(self._ctx, self._parent_dlg)
         try:
@@ -176,17 +164,14 @@ class VenvProbeProgressDialog:
             log.debug("venv probe progress createPeer failed", exc_info=True)
 
     def _pump_dialog(self) -> None:
-        # finish() is posted from the probe worker via post_to_main_thread.
+        # finish() is posted from the probe worker via main.post.
         # Opengrep intrafile taint still treats process_events_to_idle in
         # finish() as a worker sink (uno-off-main-thread). A bare
-        # if on_main_thread() is the documented sanitizer; pumping VCL
+        # if main.is_current() is the documented sanitizer; pumping VCL
         # off-main is never correct.
-        if not on_main_thread():
+        if not main.is_current():
             return
-        # Bugfix: processEventsToIdle from inside process_queue dispatches the
-        # next AsyncCallback. Download on_status fires every 64 KB, so the nested
-        # set_display -> pump chain grew with the queue. The flag lets the outer
-        # pump drain those callbacks without entering processEventsToIdle again.
+        # _pumping prevents recursive processEventsToIdle during download status updates, which would stack AsyncCallback dispatches and stall the UI.
         if self._pumping:
             return
         self._pumping = True
@@ -198,12 +183,7 @@ class VenvProbeProgressDialog:
     def set_display(self, text: str) -> None:
         if self._dlg is None:
             return
-        # Bugfix: LogArea showed only the last download line.
-        # run_vec_pack_download and run_audio_download call on_display once per
-        # line. set_control_text replaces. The venv and PPT probes already pass
-        # a full body, so replace stays the default.
-        # append_log concatenates fragments on the dialog. The parts list is the
-        # source of truth so a failed getText cannot wipe earlier lines.
+        # append_log mode concatenates download lines into LogArea; without it, per-chunk set_control_text would show only the latest fragment.
         shown = text
         if self._append_log:
             self._log_parts.append(text)
@@ -223,11 +203,7 @@ class VenvProbeProgressDialog:
     def finish(self, title: str | None, ok: bool) -> None:
         if self._dlg is None:
             return
-        # Bugfix: every caller ended as "Venv OK" / "Venv check failed", including
-        # the audio download, the Cython download, and the PPT-Master test.
-        # run_modal_probe always passed those two strings into finish, and finish
-        # wrote them over the title the caller had set.
-        # None keeps the opening title. A msgid is translated once here.
+        # finish title=None keeps the caller's dialog title so audio/Cython/PPT probes are not forced to "Venv OK" / "Venv check failed".
         if title:
             try:
                 self._dlg.getModel().Title = _(title)

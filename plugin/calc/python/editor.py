@@ -24,20 +24,17 @@ from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_pr
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.python.formula_edit import (
     CALC_PYTHON_FN,
-    PythonFormulaParts,
+    PyFormula,
     build_data_suffix,
     build_editor_formula_save,
-    cell_looks_python_like,
     format_data_binding_display,
     format_data_binding_text,
     parse_data_binding_text,
-    parse_python_formula,
-    py_formula_has_unquoted_code_ref,
 )
 from plugin.calc.python.xl_static_rewrite import apply_xl_static_rewrite
 from plugin.chatbot.dialogs import msgbox, msgbox_with_report
 from plugin.framework.config import get_config
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.i18n import _
 from plugin.framework.thread_guard import guard_uno, main_thread_only
 from plugin.framework.uno_context import get_desktop, product_display_name
@@ -50,17 +47,14 @@ from plugin.scripting.editor_host import (
 )
 from plugin.scripting.editor_errors import editor_error_markers, failure_message
 
-log = logging.getLogger("writeragent.scripting")
+log = logging.getLogger(__name__)
 
 
 def _cell_formula_strings(cell: Any) -> list[str]:
     """Collect formula strings LibreOffice may expose for the cell.
 
-    Bugfix: Text cells containing PY(...) were incorrectly treated as PY formulas
-    because ScCellObj::getFormula (cellsuno.cxx lcl_GetInputString) returns the
-    literal input text for non-formula cells, which normalize_formula_string then
-    prepended '=' to. We now check getType() to return [] for non-formula cells, and
-    for untyped proxies/mocks, drop strings whose lstrip() does not start with '=' or '{'.
+    Non-formula cells can still return PY-looking getFormula() text; require FORMULA getType()
+    (or int stub 3). For untyped mocks, ignore strings that do not start with '=' or '{'.
     """
     content: bool | None = None
     if hasattr(cell, "getType"):
@@ -78,7 +72,7 @@ def _cell_formula_strings(cell: Any) -> list[str]:
     if f:
         out.append(str(f))
     for prop in ("FormulaLocal", "Formula"):
-        val = uno_probe(lambda: cell.getPropertyValue(prop), None)
+        val = uno_read(lambda: cell.getPropertyValue(prop), None)
         if val and str(val) not in out:
             out.append(str(val))
     if content is None:
@@ -108,22 +102,13 @@ def _resolve_code_ref_cell(doc: Any, code_ref: str) -> Any | None:
         return None
 
 
-def _load_cell_editor_code(cell: Any, formulas: list[str]) -> tuple[str, PythonFormulaParts | None, str | None]:
+def _load_cell_editor_code(cell: Any, formulas: list[str]) -> tuple[str, PyFormula | None, str | None]:
     """Return Monaco source: stripped PYTHON code or plain cell text."""
     for raw in formulas:
-        parts = parse_python_formula(raw)
+        parts = PyFormula.parse(raw)
         if parts is not None:
             return parts.code, parts, raw
     return str(cell.getString() or ""), None, None
-
-
-def _cell_has_unparsed_python(cell: Any, formulas: list[str] | None = None) -> bool:
-    """True when the cell looks like PYTHON but strict parse failed (data binding at risk)."""
-    f_list = formulas if formulas is not None else _cell_formula_strings(cell)
-    for raw in f_list:
-        if cell_looks_python_like(raw) and parse_python_formula(raw) is None:
-            return True
-    return False
 
 
 def format_cell_a1(cell: Any) -> str:
@@ -179,7 +164,7 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     # no cell was selected.
     sheet_idx = int(addr.Sheet)
     sheets = model.getSheets()
-    sheet = uno_probe(lambda: sheets.getByIndex(sheet_idx), None)
+    sheet = uno_read(lambda: sheets.getByIndex(sheet_idx), None)
     if sheet is None:
         log.warning("python_editor: selection sheet missing")
         return None
@@ -187,15 +172,15 @@ def _get_active_calc_cell(ctx: Any) -> tuple[Any, Any] | None:
     return model, cell
 
 
-def _data_binding_display(parts: PythonFormulaParts | None) -> str:
+def _data_binding_display(parts: PyFormula | None) -> str:
     return "" if parts is None else format_data_binding_display(parts.data_suffix)
 
 
-def _existing_data_args(parsed_parts: PythonFormulaParts | None) -> list[str]:
-    return parse_data_binding_text(_data_binding_display(parsed_parts))
+def _existing_data_args(parsed_parts: PyFormula | None) -> list[str]:
+    return [] if parsed_parts is None else parsed_parts.data_args()
 
 
-def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None, *, parsed_parts: PythonFormulaParts | None = None) -> tuple[str, str | None] | dict[str, Any]:
+def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None, *, parsed_parts: PyFormula | None = None) -> tuple[str, str | None] | dict[str, Any]:
     """When ``scripting.xl_static_rewrite`` is on, lift ``xl("A1")`` into data args.
 
     Returns ``(code, data_binding_text)`` or an error dict for the Monaco save path.
@@ -216,7 +201,7 @@ def _maybe_apply_xl_static_rewrite(new_code: str, data_binding_text: str | None,
     return result.code, format_data_binding_text(result.data_args)
 
 
-def _apply_formula_save(cell: Any, *, parsed_parts: PythonFormulaParts | None, new_code: str, data_binding_text: str | None = None) -> dict[str, Any]:
+def _apply_formula_save(cell: Any, *, parsed_parts: PyFormula | None, new_code: str, data_binding_text: str | None = None) -> dict[str, Any]:
     rewritten = _maybe_apply_xl_static_rewrite(new_code, data_binding_text, parsed_parts=parsed_parts)
     if isinstance(rewritten, dict):
         return rewritten
@@ -224,51 +209,45 @@ def _apply_formula_save(cell: Any, *, parsed_parts: PythonFormulaParts | None, n
     new_formula = build_editor_formula_save(
         parsed_parts=parsed_parts,
         new_code=new_code,
-        cell_has_unparsed_python=data_binding_text is None and _cell_has_unparsed_python(cell),
         data_binding_text=data_binding_text,
     )
-    if isinstance(new_formula, dict):
-        return new_formula
     cell.setFormula(new_formula)
     return {"type": "saved", "ok": True, "save_as_plain": False}
 
 
-def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str, new_code: str, data_binding_text: str | None, parsed_parts: PythonFormulaParts | None = None) -> dict[str, Any]:
+def _apply_followed_ref_save(formula_cell: Any, *, code_cell: Any, code_ref: str, new_code: str, data_binding_text: str | None, parsed_parts: PyFormula | None = None) -> dict[str, Any]:
     """Write Python to the referenced code cell; keep ``=PY($A$1; …)`` as a ref."""
     code_cell.setString(new_code)
     if data_binding_text is not None:
         data_args = parse_data_binding_text(data_binding_text)
         old_args = _existing_data_args(parsed_parts)
         # Leave the formula cell alone when only the code changed. Native follow
-        # save always sends Data: '' — rewriting =PY($A$1) used to emit =PY($A$1))
-        # (Err:508) and is unnecessary when the ranges did not change.
+        # Empty Data on save must not rewrite =PY($A$1) (Err:508) when ranges are unchanged.
         if data_args != old_args:
             # Keep the original ref token ($A$1). format_py_data_range strips $
             # which would make an absolute code ref relative after save.
             # build_data_suffix already includes the closing ')'.
-            # Bugfix: hardcoding PY rewrote =PYTHON( / =py( / add-in prefixes
-            # on a data change; rebuild_python_formula already keeps parts.prefix;
-            # this branch did not.
+            # Keep parsed_parts.prefix (=PYTHON(, add-in names, etc.) instead of hardcoding =PY(.
             prefix = parsed_parts.prefix if parsed_parts is not None and parsed_parts.prefix else f"={CALC_PYTHON_FN}("
             formula_cell.setFormula(f"{prefix}{code_ref.strip()}{build_data_suffix(data_args)}")
     return {"type": "saved", "ok": True, "save_as_plain": False, "status_ok_text": _("Saved code in {0}.").format(code_ref)}
 
 
-def editor_load_save_as_plain(*, parsed_parts: PythonFormulaParts | None, initial_code: str, follow_code_ref: bool = False) -> bool:
+def editor_load_save_as_plain(*, parsed_parts: PyFormula | None, initial_code: str, follow_code_ref: bool = False) -> bool:
     """Default plain-text checkbox on editor load: on for plain cells, off for ``=PY()`` or empty."""
     if follow_code_ref:
         return True
     return parsed_parts is None and bool(initial_code.strip())
 
 
-def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
-    # Bugfix: Follow saves rewrite both code and formula cells (plus geometric
-    # recalc) without grouping, so undo only reverted the last write. Wrapping
-    # in WriterCompoundUndo groups all writes into a single undo step.
+def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PyFormula | None, new_code: str, save_as_plain: bool, data_binding_text: str | None = None, code_cell: Any | None = None, code_ref: str | None = None) -> dict[str, Any]:
+    # Follow saves touch code and formula cells plus geometric recalc; compound undo groups one undo step.
     from plugin.doc.compound_undo import WriterCompoundUndo
 
     with WriterCompoundUndo(doc, _("WriterAgent: Save Python cell")):
-        if code_cell is not None and code_ref:
+        # A self-ref (=PY(A1) in A1) is not a follow: writing it as one would
+        # overwrite the cell's own formula with the code text.
+        if code_cell is not None and code_ref and not _same_calc_cell(code_cell, cell):
             result = _apply_followed_ref_save(cell, code_cell=code_cell, code_ref=code_ref, new_code=new_code, data_binding_text=data_binding_text, parsed_parts=parsed_parts)
         elif save_as_plain:
             cell.setString(new_code)
@@ -276,9 +255,7 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
         else:
             result = _apply_formula_save(cell, parsed_parts=parsed_parts, new_code=new_code, data_binding_text=data_binding_text)
         if result.get("type") == "saved":
-            # Bugfix: Plain text saves previously skipped after_py_cell_save, leaving
-            # stale geometric registry records for downgraded =PY() cells. Reconciling
-            # here prunes them.
+            # Plain-text downgrades must run after_py_cell_save to prune stale geometric registry rows.
             from plugin.calc.python.geometric_recalc import after_py_cell_save
 
             after_py_cell_save(doc, cell)
@@ -286,8 +263,8 @@ def _apply_cell_save(doc: Any, cell: Any, *, parsed_parts: PythonFormulaParts | 
         return result
 
 
-def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PythonFormulaParts | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:
-    follow = bool(code_ref and code_cell is not None)
+def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str, parsed_parts: PyFormula | None, exe: str, code_cell: Any | None = None, code_ref: str | None = None) -> None:
+    follow = bool(code_ref and code_cell is not None and not _same_calc_cell(code_cell, cell))
     data_binding = _data_binding_display(parsed_parts)
     display_cell = code_cell if follow else cell
 
@@ -299,8 +276,8 @@ def _launch_editor_with_code(ctx: Any, doc: Any, cell: Any, *, initial_code: str
             new_code=code,
             save_as_plain=save_as_plain,
             data_binding_text=data_binding,
-            code_cell=code_cell,
-            code_ref=code_ref,
+            code_cell=code_cell if follow else None,
+            code_ref=code_ref if follow else None,
         )
 
     label = format_cell_a1(display_cell)
@@ -370,7 +347,7 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
     initial_code, parsed_parts, source_formula = _load_cell_editor_code(cell, formulas=formulas)
     code_cell: Any | None = None
     code_ref: str | None = None
-    if parsed_parts is not None and source_formula and py_formula_has_unquoted_code_ref(source_formula):
+    if parsed_parts is not None and parsed_parts.code_is_ref:
         followed = _resolve_code_ref_cell(doc, parsed_parts.code)
         if followed is None:
             msgbox(ctx, product_display_name(ctx), _("Could not open the code cell {0}.").format(parsed_parts.code))
@@ -381,10 +358,6 @@ def _open_python_cell_editor_impl(ctx: Any) -> None:
             code_ref = parsed_parts.code
 
     log.info("python_editor: initial_code len=%s parsed=%s source=%r follow=%s", len(initial_code), parsed_parts is not None, (source_formula or "")[:80], code_ref)
-
-    if parsed_parts is None and _cell_has_unparsed_python(cell, formulas=formulas):
-        msgbox(ctx, product_display_name(ctx), _('This PY formula uses a form the editor cannot safely rewrite (e.g. code in another cell). Edit it in the formula bar, or use =PY("code"; range) with quoted code.'))
-        return
 
     exe, monaco_available = monaco_editor_available(ctx)
     if not monaco_available or exe is None:

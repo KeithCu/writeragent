@@ -252,7 +252,7 @@ def test_reraise_native_open_failure_names_previous_test(capsys, monkeypatch):
     from plugin.tests.testing_utils import _reraise_native_open_failure
 
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "7")
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
     tr.record_test_end("draw.test_draw_uno.test_duplicate_slide_copies_shapes", "OK")
     tr.record_test_start("draw.test_draw_uno.test_duplicate_rename_move_slide")
 
@@ -267,7 +267,7 @@ def test_reraise_native_open_failure_names_previous_test(capsys, monkeypatch):
     err = capsys.readouterr().err
     assert "LIFECYCLE native_doc open FAIL" in err
     assert "previous=draw.test_draw_uno.test_duplicate_slide_copies_shapes" in err
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_reraise_native_open_failure_passthrough_non_urp():
@@ -1444,10 +1444,13 @@ def test_native_doc_impress_teardown_skips_close_when_windows_leftovers(
         "_log_office_health_after_close",
         lambda _ctx, doc_type: events.append(("health", doc_type)),
     )
+    import plugin.testing_runner as tr
+
     recycle_calls = []
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
-        "plugin.testing_runner.request_office_recycle_after_suite",
+        tr.current_office(),
+        "request_recycle",
         lambda: recycle_calls.append("recycle"),
     )
     saved = tu._windows_leftover_open()
@@ -1490,10 +1493,13 @@ def test_native_doc_draw_teardown_skips_close_when_windows_leftovers(
         "_log_office_health_after_close",
         lambda _ctx, doc_type: events.append(("health", doc_type)),
     )
+    import plugin.testing_runner as tr
+
     recycle_calls = []
     monkeypatch.setattr(tu.sys, "platform", "win32")
     monkeypatch.setattr(
-        "plugin.testing_runner.request_office_recycle_after_suite",
+        tr.current_office(),
+        "request_recycle",
         lambda: recycle_calls.append("recycle"),
     )
     saved = tu._windows_leftover_open()
@@ -1688,7 +1694,7 @@ def test_create_native_doc_skips_load_when_bridge_already_dead(monkeypatch):
     import plugin.testing_runner as tr
     from plugin.tests.testing_utils import TestingFactory
 
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
     tr.record_test_end("draw.test_draw_uno.test_duplicate_slide_copies_shapes", "OK")
     tr.record_test_start("draw.test_draw_uno.test_duplicate_rename_move_slide")
 
@@ -1706,7 +1712,7 @@ def test_create_native_doc_skips_load_when_bridge_already_dead(monkeypatch):
     assert "already disposed before loadComponentFromURL" in str(caught.value)
     assert "previous=draw.test_draw_uno.test_duplicate_slide_copies_shapes" in str(caught.value)
     desktop.loadComponentFromURL.assert_not_called()
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_create_native_doc_wraps_disposed_exception(monkeypatch):
@@ -1715,7 +1721,7 @@ def test_create_native_doc_wraps_disposed_exception(monkeypatch):
     import plugin.testing_runner as tr
     from plugin.tests.testing_utils import TestingFactory
 
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
     tr.record_test_end("draw.test_draw_uno.test_get_draw_tree", "OK")
     tr.record_test_start("draw.test_draw_uno.test_insert_math_draw")
 
@@ -1727,7 +1733,7 @@ def test_create_native_doc_wraps_disposed_exception(monkeypatch):
         pytest.raises(RuntimeError, match="previous=draw.test_draw_uno.test_get_draw_tree"),
     ):
         TestingFactory.create_native_doc(object(), "draw")
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_log_close_doc_failure_and_office_health(capsys, monkeypatch):
@@ -1737,7 +1743,7 @@ def test_log_close_doc_failure_and_office_health(capsys, monkeypatch):
     from plugin.tests.testing_utils import _log_close_doc_failure, _log_office_health_after_close
 
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "-")
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
     tr.record_test_end("draw.test_draw_uno.test_get_draw_tree", "OK")
 
     _log_close_doc_failure(RuntimeError("Binary URP bridge disposed during call"))
@@ -1752,7 +1758,7 @@ def test_log_close_doc_failure_and_office_health(capsys, monkeypatch):
     err = capsys.readouterr().err
     assert "LIFECYCLE office dead after close doc_type=draw" in err
     assert "previous=draw.test_draw_uno.test_get_draw_tree" in err
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_close_doc_logs_urp_dispose(capsys, monkeypatch):
@@ -1765,7 +1771,7 @@ def test_close_doc_logs_urp_dispose(capsys, monkeypatch):
     # GHA 34609539461: prepare left leftover=1; MagicMock looked like Writer
     # and Windows skip-close hid the dispose breadcrumb.
     monkeypatch.setattr(tr, "_soffice_pids", lambda: "8")
-    tr.reset_lifecycle_breadcrumb()
+    tr.current_office().reset_lifecycle_breadcrumb()
     tr.record_test_start("draw.test_draw_uno.test_get_draw_tree")
     saved = tu._WINDOWS_LEFTOVER_OPEN
     tu._set_windows_leftover_open(0)
@@ -1777,7 +1783,7 @@ def test_close_doc_logs_urp_dispose(capsys, monkeypatch):
         assert "LIFECYCLE close_doc dispose" in err
     finally:
         tu._set_windows_leftover_open(saved)
-        tr.reset_lifecycle_breadcrumb()
+        tr.current_office().reset_lifecycle_breadcrumb()
 
 
 def test_close_doc_windows_untyped_mock_still_logs_dispose(capsys, monkeypatch):
@@ -2126,9 +2132,12 @@ def test_teardown_peer_pair_windows_closes_impress_skips_writer(monkeypatch):
     writer = MagicMock(name="writer")
     impress = MagicMock(name="impress")
     ctx = MagicMock(name="ctx")
+    import plugin.testing_runner as tr
+
     recycle_calls = []
     monkeypatch.setattr(
-        "plugin.testing_runner.request_office_recycle_after_suite",
+        tr.current_office(),
+        "request_recycle",
         lambda: recycle_calls.append("recycle"),
     )
     try:
@@ -2175,9 +2184,12 @@ def test_teardown_peer_pair_windows_skips_second_impress_close(capsys, monkeypat
         "tests.chatbot.test_peer_message_uno._reactivate_writer_after_impress",
         lambda ctx, doc: order.append(("reactivate", ctx, doc)),
     )
+    import plugin.testing_runner as tr
+
     recycle_calls = []
     monkeypatch.setattr(
-        "plugin.testing_runner.request_office_recycle_after_suite",
+        tr.current_office(),
+        "request_recycle",
         lambda: recycle_calls.append("recycle"),
     )
     writer1 = MagicMock(name="writer1")
@@ -2240,13 +2252,16 @@ def test_close_skips_on_windows(capsys, monkeypatch):
     doc = MagicMock()
     doc.RuntimeUID = "uid-later"
     calls = []
+    import plugin.testing_runner as tr
+
     recycle_calls = []
     monkeypatch.setattr(peer, "_windows_skip_doc_close", lambda: True)
     monkeypatch.setattr(
         TestingFactory, "close_doc", lambda _doc: calls.append("close_doc")
     )
     monkeypatch.setattr(
-        "plugin.testing_runner.request_office_recycle_after_suite",
+        tr.current_office(),
+        "request_recycle",
         lambda: recycle_calls.append("recycle"),
     )
     assert peer._close(doc) is None
@@ -2320,8 +2335,8 @@ def test_testing_factory_execute_tool_unknown_name():
     fake_tools = MagicMock()
     fake_tools.execute.side_effect = KeyError("bad_tool")
     with (
-        patch("plugin.main.get_tools", return_value=fake_tools),
-        patch("plugin.main.get_services", return_value={}),
+        patch("plugin.app.get_tools", return_value=fake_tools),
+        patch("plugin.app.get_services", return_value={}),
     ):
         res = TestingFactory.execute_tool(doc, ctx, "bad_tool", {}, doc_type="calc")
     assert res["status"] == "error"

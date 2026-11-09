@@ -24,16 +24,14 @@ from plugin.chatbot.chat_sidebar_mode import (
     LIBRARIAN_HISTORY_SESSION_ID,
     SidebarModeFlags,
     SidebarModeController,
-    _clear_mode_topic_session,
     _modes_for,
-    clear_brainstorming_session,
-    clear_librarian_session,
     get_mode_labels,
     librarian_default_mode,
     mark_librarian_invoked,
     mode_from_label,
     mode_from_selector_with_flags,
     populate_mode_selector_with_flags,
+    release_sticky_session,
     set_selector_mode_with_flags,
     sidebar_mode_flags_for_doc_type,
 )
@@ -79,20 +77,22 @@ def test_calc_sidebar_omits_writing_plan():
     flags = sidebar_mode_flags_for_doc_type("calc")
     assert flags.include_writing_plan is False
     assert "Writing Plan" not in get_mode_labels(flags)
+    assert "Deep Research" in get_mode_labels(flags)
 
 
 def test_mode_labels_ppt_master_for_impress():
     flags = sidebar_mode_flags_for_doc_type("impress")
     labels = get_mode_labels(flags)
-    assert len(labels) == 5
-    assert mode_from_label(labels[3], flags) == CHAT_MODE_PPT_MASTER
+    assert len(labels) == 6
+    assert mode_from_label(labels[3], flags) == CHAT_MODE_DEEP_RESEARCH
+    assert mode_from_label(labels[-2], flags) == CHAT_MODE_PPT_MASTER
     assert mode_from_label(labels[-1], flags) == CHAT_MODE_LIBRARIAN
 
 
-def test_deep_research_hidden_outside_writer():
-    for app in ("calc", "draw", "impress"):
-        assert "Deep Research" not in get_mode_labels(sidebar_mode_flags_for_doc_type(app))
-    assert "Deep Research" in get_mode_labels(sidebar_mode_flags_for_doc_type("writer"))
+def test_deep_research_in_all_product_apps():
+    for app in ("calc", "draw", "impress", "writer"):
+        assert "Deep Research" in get_mode_labels(sidebar_mode_flags_for_doc_type(app))
+    assert "Deep Research" not in get_mode_labels(sidebar_mode_flags_for_doc_type("unknown"))
 
 
 def test_mode_from_selector_reads_combobox_text():
@@ -149,79 +149,56 @@ def test_set_selector_mode_selects_by_index():
     ctrl.setText.assert_called_once_with(labels[2])
 
 
-def test_populate_mode_selector_sets_string_item_list_on_model():
+def test_populate_mode_selector_sets_items_on_control():
     ctrl = MagicMock()
-    model = MagicMock()
-    ctrl.getModel.return_value = model
     ctrl.getItemCount.return_value = 0
     flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True)
     populate_mode_selector_with_flags(ctrl, flags)
     labels = tuple(str(x) for x in get_mode_labels(flags))
-    assert model.StringItemList == labels
     ctrl.addItems.assert_called_once_with(labels, 0)
 
 
-def test_clear_brainstorming_session_resets_flags():
+def test_release_sticky_session_brainstorming_to_chat_clears_topic():
     listener = MagicMock()
     listener._active_mode = CHAT_MODE_BRAINSTORMING
     listener._mode_topic = "topic"
-    clear_brainstorming_session(listener)
+    release_sticky_session(listener, CHAT_MODE_CHAT)
     assert listener._active_mode == ""
     assert listener._mode_topic == ""
 
 
-def test_clear_brainstorming_session_skips_when_in_writing_plan():
+def test_release_sticky_session_active_writing_plan_leaves_mode_and_topic():
     listener = MagicMock()
     listener._active_mode = CHAT_MODE_WRITING_PLAN
     listener._mode_topic = "plan topic"
-    clear_brainstorming_session(listener)
+    release_sticky_session(listener, CHAT_MODE_CHAT)
     assert listener._active_mode == CHAT_MODE_WRITING_PLAN
     assert listener._mode_topic == "plan topic"
 
 
-def test_clear_writing_plan_session_resets_flags():
-    listener = MagicMock()
-    listener._active_mode = CHAT_MODE_WRITING_PLAN
-    listener._mode_topic = "topic"
-    _clear_mode_topic_session(listener, CHAT_MODE_WRITING_PLAN)
-    assert listener._active_mode == ""
-    assert listener._mode_topic == ""
-
-
-def test_clear_ppt_master_session_resets_flags():
-    from plugin.chatbot.chat_sidebar_mode import clear_ppt_master_session
-
-    listener = MagicMock()
-    listener._active_mode = CHAT_MODE_PPT_MASTER
-    listener._mode_topic = "topic"
-    clear_ppt_master_session(listener)
-    assert listener._active_mode == ""
-    assert listener._mode_topic == ""
-
-
-def test_clear_librarian_session_resets_flag_only():
+def test_release_sticky_session_librarian_clears_active_mode_only():
     listener = MagicMock()
     listener._active_mode = CHAT_MODE_LIBRARIAN
     listener._mode_topic = "preserved topic"
-    clear_librarian_session(listener)
+    release_sticky_session(listener, CHAT_MODE_CHAT)
     assert listener._active_mode == ""
     assert listener._mode_topic == "preserved topic"
 
 
 def test_librarian_default_mode_first_then_chat():
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False), patch(
+    with patch("plugin.framework.config.get_config", return_value=False), patch(
         "plugin.chatbot.memory.user_profile_exists", return_value=False
     ):
         assert librarian_default_mode() == CHAT_MODE_LIBRARIAN
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True):
+    with patch("plugin.framework.config.get_config", return_value=True):
         assert librarian_default_mode() == CHAT_MODE_CHAT
-    with patch("plugin.framework.config.set_config") as mock_set:
+    with patch("plugin.framework.config.save") as mock_set:
         mark_librarian_invoked()
-        mock_set.assert_called_once_with("chatbot.librarian_invoked", True)
+        mock_set.assert_called_once_with({"chatbot.librarian_invoked": True})
 
 
 def test_librarian_default_mode_existing_profile_skips_and_sets_flag():
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=False), patch(
+    with patch("plugin.framework.config.get_config", return_value=False), patch(
         "plugin.chatbot.memory.user_profile_exists", return_value=True
     ), patch("plugin.chatbot.chat_sidebar_mode.mark_librarian_invoked") as mock_mark:
         assert librarian_default_mode() == CHAT_MODE_CHAT
@@ -265,7 +242,7 @@ def test_sidebar_mode_controller_brainstorming_finished():
 
     controller = SidebarModeController(panel)
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
-        controller.on_brainstorming_session_finished(spec_saved=True)
+        controller.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": True})
     assert panel._mode_topic == "Implement the saved spec: Kitchen remodel"
     assert panel._active_mode == CHAT_MODE_WRITING_PLAN
     assert mock_set.call_args[0][1] == CHAT_MODE_WRITING_PLAN
@@ -276,21 +253,21 @@ def test_sidebar_mode_controller_brainstorming_finished():
     panel._active_mode = CHAT_MODE_BRAINSTORMING
     panel._apply_sidebar_mode_fn.reset_mock()
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
-        controller.on_brainstorming_session_finished(spec_saved=False)
+        controller.on_mode_finished(CHAT_MODE_BRAINSTORMING, {"spec_saved": False})
     panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
 
 def test_sidebar_mode_controller_other_modes_finished():
-    for meth_name in ("on_librarian_session_finished", "on_writing_plan_session_finished", "on_ppt_master_session_finished"):
+    for mode_key in (CHAT_MODE_LIBRARIAN, CHAT_MODE_WRITING_PLAN, CHAT_MODE_PPT_MASTER):
         panel = MagicMock()
         panel.sidebar_mode_flags = SidebarModeFlags(include_brainstorming=True, include_writing_plan=True, include_ppt_master=True)
         panel.chat_mode_selector = MagicMock()
         panel._apply_sidebar_mode_fn = MagicMock()
-        panel._active_mode = "something"
+        panel._active_mode = mode_key
 
         controller = SidebarModeController(panel)
         with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags"):
-            getattr(controller, meth_name)()
+            controller.on_mode_finished(mode_key, {})
         panel._apply_sidebar_mode_fn.assert_called_once_with(CHAT_MODE_CHAT)
 
 

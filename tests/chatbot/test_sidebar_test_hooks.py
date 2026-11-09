@@ -32,7 +32,7 @@ pytestmark = pytest.mark.xdist_group("audio_recorder_control")
 from plugin.chatbot.audio_recorder_state import AudioRecorderState, AudioStatus
 from plugin.chatbot.send_state import ButtonAction, SendButtonState, SendEventKind, SendMode
 from plugin.chatbot.sidebar_state import SidebarCompositeState
-from plugin.chatbot.rich_text_control import _debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.sidebar_test_hooks import (
     approval_active,
     audio_status,
@@ -183,7 +183,15 @@ def fake_listener() -> _FakeListener:
 
 
 def test_debug_hooks_available_in_dev_tree() -> None:
-    assert _debug_env_active() is True
+    assert debug_env_active() is True
+
+
+def test_debug_env_active_follows_is_dev_build_when_dev_guard_off(monkeypatch) -> None:
+    monkeypatch.setattr("plugin.framework.thread_guard.DEV_GUARD", False, raising=False)
+    monkeypatch.delenv("WRITERAGENT_TESTING", raising=False)
+    assert debug_env_active() is False
+    monkeypatch.setenv("WRITERAGENT_TESTING", "1")
+    assert debug_env_active() is True
 
 
 class _Panel:
@@ -254,10 +262,8 @@ def test_slash_popup_hooks_read_state_and_consume_enter(fake_listener: _FakeList
     assert state["items"] == ["help", "clear"]
     assert state["selected"] == "help"
     assert state["available"] is True
-    # Parked ENABLE_SLASH skips handle_key, so Enter falls through to Send.
-    # Match panel.py QueryKeyListener: enable slash so Enter is consumed.
-    with patch("plugin.chatbot.slash_popup.ENABLE_SLASH", True):
-        press_query_key(1280, listener=fake_listener)
+    # Match panel.py QueryKeyListener: open popup consumes Enter (no Send).
+    press_query_key(1280, listener=fake_listener)
     assert not any(isinstance(e, tuple) and e and e[0] == "action" for e in fake_listener.events)
 
 
@@ -613,7 +619,7 @@ def test_sidebar_panel_off_thread_wrapper_does_not_call_uno_same(monkeypatch) ->
     writer_frame = object()
     only = SimpleNamespace(xFrame=writer_frame, send_listener="sl")
     monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [only])
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     def uno_same(left: object, right: object) -> bool:
         raise AssertionError("uno_same off the main thread")
@@ -648,7 +654,7 @@ def test_frames_match_does_not_call_uno_same_off_main_thread(monkeypatch) -> Non
         called.append((left, right))
         return left is writer_frame
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     monkeypatch.setattr("plugin.framework.uno_context.uno_same", uno_same)
     assert hooks.sidebar_panel() is None
     assert called == []
@@ -663,7 +669,7 @@ def test_send_listener_for_uid_matches_registered_panel_uid(monkeypatch) -> None
     calc = SimpleNamespace(_live_panel_uid="calc-uid", send_listener=calc_sl)
     monkeypatch.setattr(hooks, "iter_live_chat_panels", lambda: [calc, writer])
     monkeypatch.setattr("plugin.doc.live_panels.get_live_panel", lambda uid: None)
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
     assert hooks.send_listener_for_uid("writer-uid") is writer_sl
     writer_sl._panel_teardown = True
     assert hooks.send_listener_for_uid("writer-uid") is None
@@ -1434,12 +1440,12 @@ def _setup_mock_config(monkeypatch: Any) -> tuple[dict[str, Any], dict[str, Any]
     def fake_get_config(key: str, default: Any = None) -> Any:
         return store.get(key, default)
 
-    def fake_set_config(key: str, value: Any) -> None:
-        store[key] = value
-        recorded[key] = value
+    def fake_save(patch: dict[str, Any]) -> None:
+        store.update(patch)
+        recorded.update(patch)
 
     monkeypatch.setattr("plugin.framework.config.get_config", fake_get_config)
-    monkeypatch.setattr("plugin.framework.config.set_config", fake_set_config)
+    monkeypatch.setattr("plugin.framework.config.save", fake_save)
     return store, recorded
 
 
@@ -1754,14 +1760,16 @@ class _TextCtl:
 def test_urp_slash_host_help_appends_output() -> None:
     # CI 40839406030: /help passed role= to the real _UrpSlashHost.append_output
     # (TypeError). MagicMock hosts accept any kwargs, so drive the real class.
-    from plugin.chatbot.slash_commands import run_slash_command
+    from plugin.chatbot.slash_commands import SLASH_COMMANDS, SlashResult, run_slash_command
     from plugin.chatbot.sidebar_test_hooks import _UrpSlashHost
+
+    help_cmd = next(c for c in SLASH_COMMANDS if c.name == "help")
 
     query = _TextCtl("/help")
     response = _TextCtl("earlier\n")
     host = _UrpSlashHost(query, response, None, None)
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
-        assert run_slash_command("help", host) is True
+        assert run_slash_command(help_cmd, host) is SlashResult.HANDLED
     assert query.text == ""
     assert response.text.startswith("earlier\n")
     assert "/help" in response.text and "/clear" in response.text

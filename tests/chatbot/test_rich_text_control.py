@@ -13,10 +13,10 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 
+from plugin.chatbot.dialogs import set_prop
 from plugin.chatbot.rich_text_control import (
     _apply_rich_control_geometry,
     _is_automatic_char_color,
-    _set_model_property,
     append_text_chunk,
     clear_control,
     reveal_rich_control_caret,
@@ -138,22 +138,20 @@ class TestRichControlHelpers:
         assert "TextColor" not in model.props
 
     def test_set_model_property_swallows_unknown(self):
-        from plugin.chatbot.rich_text_control import _set_model_property
-
         class _Model:
             __slots__ = ()
 
             def setPropertyValue(self, name, value):
                 raise RuntimeError("UnknownPropertyException")
 
-        assert _set_model_property(_Model(), "BackgroundColor", 0xFFFFFF) is False
+        assert set_prop(_Model(), "BackgroundColor", 0xFFFFFF) is False
 
     def test_set_model_property_on_plain_object(self):
         class _Model:
             pass
 
         model = _Model()
-        _set_model_property(model, "PositionX", 42)
+        set_prop(model, "PositionX", 42)
         assert getattr(model, "PositionX") == 42
 
     def test_set_model_property_falls_back_to_setPropertyValue(self):
@@ -167,7 +165,7 @@ class TestRichControlHelpers:
                 object.__setattr__(self, name, value)
 
         model = _Model()
-        _set_model_property(model, "PositionX", 42)
+        set_prop(model, "PositionX", 42)
         assert model.last == ("PositionX", 42)
 
 
@@ -245,7 +243,7 @@ class TestAppendTextChunk:
 
         with patch("plugin.chatbot.rich_text_control._insert_string_at_rich_cursor") as mock_insert, \
              patch("plugin.chatbot.rich_text_control.process_events_to_idle") as mock_idle, \
-             patch("plugin.chatbot.rich_text_control._set_model_property") as mock_prop, \
+             patch("plugin.chatbot.rich_text_control.set_prop") as mock_prop, \
              patch("plugin.chatbot.rich_text_control.focus_preserved", _immediate_focus):
             reveal_rich_control_caret(control, ctx=MagicMock(), reason="unit")
 
@@ -719,13 +717,30 @@ class TestRichTextChatWidget:
         from plugin.chatbot.rich_text_control import RichTextChatWidget
 
         widget = RichTextChatWidget(MagicMock(), MagicMock())
-        session = MagicMock()
+        session = MagicMock(history_notice="")
         session.messages = [{"role": "user", "content": "q"}]
         with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10), \
              patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
             widget.paint_session(session, "Hi there")
             widget.paint_session(session)
         assert paint.call_args[0][2] == [("assistant", "Hi there"), ("user", "q")]
+
+    def test_paint_session_with_history_notice_after_clear(self):
+        """paint_session on a cleared session with a history warning includes the notice row."""
+        from plugin.chatbot.chat_session import ChatSession
+        from plugin.chatbot.rich_text_control import RichTextChatWidget
+        from plugin.framework.errors import WriterAgentException
+
+        with patch("plugin.chatbot.chat_session.get_chat_history", side_effect=WriterAgentException("db down")):
+            session = ChatSession(session_id="failed-db")
+        session.clear()
+
+        widget = RichTextChatWidget(MagicMock(), MagicMock())
+        with patch("plugin.chatbot.rich_text_control.get_control_text_length", return_value=10), \
+             patch("plugin.chatbot.rich_text_paste.paint_message_items") as paint:
+            widget.paint_session(session, "Welcome")
+
+        assert paint.call_args[0][2] == [("assistant", "Welcome"), ("assistant", session.history_notice)]
 
     def test_rerender_reformats_before_the_final_scroll(self):
         """One reformat per turn at Ready, then stick to the end."""
@@ -819,13 +834,18 @@ class TestRichControlListenerInit:
 
         rtc._CONTROL_INIT_STARTED.clear()
 
+    def teardown_method(self):
+        import plugin.chatbot.rich_text_control as rtc
+
+        rtc._CONTROL_INIT_STARTED.clear()
+
     def test_window_shown_no_peer_does_not_init(self):
         from plugin.chatbot.rich_text_control import RichTextControlListener
 
         root = MagicMock()
         root.getPeer.return_value = None
         listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post, \
+        with patch("plugin.framework.queue_executor.main.post") as mock_post, \
              patch.object(listener, "_begin_deferred_init") as mock_begin:
             listener.on_window_shown(MagicMock())
         mock_post.assert_not_called()
@@ -849,7 +869,7 @@ class TestRichControlListenerInit:
         root.getPeer.return_value = MagicMock()
         rtc._CONTROL_INIT_STARTED.add(id(root))
         listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post, \
+        with patch("plugin.framework.queue_executor.main.post") as mock_post, \
              patch.object(rtc.log, "warning") as mock_warn:
             listener.on_window_shown(MagicMock())
         mock_post.assert_not_called()
@@ -882,12 +902,12 @@ class TestRichControlListenerInit:
         root = MagicMock()
         root.getPeer.return_value = MagicMock()
         first = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.post_to_main_thread"):
+        with patch("plugin.framework.queue_executor.main.post"):
             first._begin_deferred_init()
         assert id(root) in rtc._CONTROL_INIT_STARTED
         first.disposing(MagicMock())
         second = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-        with patch("plugin.framework.queue_executor.post_to_main_thread") as mock_post:
+        with patch("plugin.framework.queue_executor.main.post") as mock_post:
             second._begin_deferred_init()
         mock_post.assert_called_once()
 
@@ -963,9 +983,10 @@ def test_deferred_init_failure_clears_init_flags():
     import plugin.chatbot.rich_text_control as rtc
     from plugin.chatbot.rich_text_control import RichTextControlListener
 
+    rtc._CONTROL_INIT_STARTED.clear()
     root = MagicMock()
     listener = RichTextControlListener(MagicMock(), root, MagicMock(), MagicMock())
-    with patch("plugin.framework.queue_executor.post_to_main_thread"):
+    with patch("plugin.framework.queue_executor.main.post"):
         listener._begin_deferred_init()
     assert listener.initialized is True
     assert id(root) in rtc._CONTROL_INIT_STARTED

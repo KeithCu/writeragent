@@ -54,15 +54,15 @@ def _setup_peer(ctx):
     init_config(ctx)
     from plugin.chatbot.chat_sidebar_mode import mark_librarian_invoked
     from plugin.chatbot.memory import MemoryStore
-    from plugin.framework.config import get_config_bool, set_config
+    from plugin.framework.config import get_config, save
 
     mark_librarian_invoked()
     try:
         MemoryStore().write("# Test User Profile\n")
     except Exception:
         pass
-    if get_config_bool("chatbot.prompt_for_web_research"):
-        set_config("chatbot.prompt_for_web_research", False)
+    if get_config("chatbot.prompt_for_web_research"):
+        save({"chatbot.prompt_for_web_research": False})
 
     import plugin.chatbot.sidebar_test_hooks  # noqa: F401
 
@@ -71,14 +71,14 @@ def _setup_peer(ctx):
         desktop_from_ctx,
         ensure_sidebar_chat_mode,
     )
-    from plugin.doc.doc_type import is_writer
+    from plugin.framework.doc_type import is_writer
     from plugin.framework.uno_context import get_runtime_uid
 
     # Point JSON at the mock before showing either deck.
     _session = start_mock_sidebar_session(delay_ms=20, offline=True)
     _session.prompt_research_cleared = True
 
-    # #674 recipe: Writer deck first so OPEN_CALC posts onto that QueueExecutor.
+    # #674 recipe: Writer deck first so OPEN_CALC posts onto that MainThread.
     writer = find_open_writer(ctx)
     if writer is None:
         writer = desktop_from_ctx(ctx).loadComponentFromURL("private:factory/swriter", "_default", 0, ())
@@ -136,6 +136,22 @@ def _teardown_peer():
             wait_idle(listener=sl, timeout=15.0)
         except Exception:
             pass
+    # Clear leftover peer transcript so Packet F (sidebar suite, runs after peer
+    # alphabetically) does not start with BudgetPeer / apply_document_content residue.
+    for which in ("writer", "calc"):
+        try:
+            _clear_chat(which)
+        except Exception:
+            pass
+    try:
+        from plugin.chatbot.sidebar_test_hooks import wait_idle
+
+        for doc in (_writer_doc, _calc_doc):
+            sl = send_listener_for_doc(doc) if doc is not None else None
+            if sl is not None:
+                wait_idle(listener=sl, timeout=8.0)
+    except Exception:
+        pass
     stop_mock_sidebar_session(_session)
     from plugin.chatbot.sidebar_test_hooks import close_component
 

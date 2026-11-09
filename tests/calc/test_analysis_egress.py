@@ -6,27 +6,30 @@
 
 from __future__ import annotations
 
-from plugin.calc.analysis_egress import format_analysis_for_calc, is_analysis_result
+from plugin.calc.analysis_egress import format_analysis_for_calc
+from plugin.scripting.domain_registry import get_domain_wiring
 
 
 def test_is_analysis_result():
-    assert is_analysis_result({"status": "ok", "helper": "describe_data", "metrics": {}})
-    assert is_analysis_result({"status": "ok", "helper": "quick_stats", "metrics": {"rows": 3}})
-    assert is_analysis_result({"status": "error", "code": "ANALYSIS_ERROR", "message": "fail"})
-    assert is_analysis_result({"status": "error", "helper": "kpi_summary", "code": "MISSING_PARAM", "message": "kpi_summary requires metrics"})
-    assert not is_analysis_result({"status": "error", "helper": "linear_programming", "code": "MISSING_PARAM", "message": "linear_programming requires c_col, a_cols, and b_col"})
-    assert not is_analysis_result({"status": "error", "code": "MISSING_PARAM", "message": "need metrics"})
-    assert not is_analysis_result({"status": "ok", "helper": "extract_text", "html": "<p>x</p>"})
-    assert not is_analysis_result({"title": "x"})
-    assert not is_analysis_result(None)
+    is_res = get_domain_wiring("analysis").is_result
+    assert is_res({"status": "ok", "helper": "describe_data", "metrics": {}})
+    assert is_res({"status": "ok", "helper": "quick_stats", "metrics": {"rows": 3}})
+    assert is_res({"status": "error", "code": "ANALYSIS_ERROR", "message": "fail"})
+    assert is_res({"status": "error", "helper": "kpi_summary", "code": "MISSING_PARAM", "message": "kpi_summary requires metrics"})
+    assert not is_res({"status": "error", "helper": "linear_programming", "code": "MISSING_PARAM", "message": "linear_programming requires c_col, a_cols, and b_col"})
+    assert not is_res({"status": "error", "code": "MISSING_PARAM", "message": "need metrics"})
+    assert not is_res({"status": "ok", "helper": "extract_text", "html": "<p>x</p>"})
+    assert not is_res({"title": "x"})
+    assert not is_res(None)
 
 
 def test_optimize_missing_param_is_not_analysis():
-    from plugin.scripting.optimize import is_optimize_result
+    is_analysis_res = get_domain_wiring("analysis").is_result
+    is_optimize_res = get_domain_wiring("optimize").is_result
 
     result = {"status": "error", "helper": "linear_programming", "code": "MISSING_PARAM", "message": "linear_programming requires c_col, a_cols, and b_col"}
-    assert not is_analysis_result(result)
-    assert is_optimize_result(result)
+    assert not is_analysis_res(result)
+    assert is_optimize_res(result)
 
 
 def test_format_error_result():

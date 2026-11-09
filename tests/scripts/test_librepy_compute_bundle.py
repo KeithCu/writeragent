@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from scripts.build_compute_bundle import (  # noqa: E402
     COMPUTE_PLUGIN_EXTRAS,
+    COMPUTE_PLUGIN_FILES,
     assemble_compute_bundle,
     collect_compute_plugin_paths,
 )
@@ -24,6 +26,98 @@ from scripts.librepy_bundle_paths import (  # noqa: E402
     LIBREPY_SMOLAGENTS_INIT,
     collect_librepy_plugin_paths,
 )
+
+
+def _collect_plugin_import_modules(compute_service_dir: Path) -> set[str]:
+    """Every plugin.* target from Import/ImportFrom anywhere in compute_service/*.py."""
+    modules: set[str] = set()
+    for path in sorted(compute_service_dir.glob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    name = alias.name
+                    if name == "plugin" or name.startswith("plugin."):
+                        modules.add(name)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                mod = node.module
+                if mod == "plugin" or mod.startswith("plugin."):
+                    modules.add(mod)
+    return modules
+
+
+def _plugin_module_to_rel_path(module: str) -> str:
+    return "/".join(module.split(".")) + ".py"
+
+
+def test_compute_plugin_files_cover_compute_service_imports() -> None:
+    """Every plugin.* import in compute_service must ship in COMPUTE_PLUGIN_FILES."""
+    cs_dir = _REPO_ROOT / "compute_service"
+    plugin_modules = _collect_plugin_import_modules(cs_dir)
+    bundled = set(COMPUTE_PLUGIN_FILES)
+    missing: list[str] = []
+    for mod in sorted(plugin_modules):
+        rel = _plugin_module_to_rel_path(mod)
+        full = _REPO_ROOT / rel
+        assert full.is_file(), f"compute_service imports {mod} but {rel} is missing on disk"
+        if rel not in bundled:
+            missing.append(rel)
+    assert not missing, "COMPUTE_PLUGIN_FILES missing paths required by compute_service imports: " + ", ".join(missing)
+
+
+def test_compute_bundle_imports_all_compute_service_plugin_modules(tmp_path: Path) -> None:
+    """Assembled bundle must satisfy every plugin.* import reachable from compute_service."""
+    dest = tmp_path / "bundle-compute"
+    assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
+
+    cs_dir = _REPO_ROOT / "compute_service"
+    plugin_modules = sorted(_collect_plugin_import_modules(cs_dir))
+    modules_literal = repr(plugin_modules)
+
+    import_code = f"""
+import os
+import sys
+
+staged = sys.argv[1]
+repo_real = os.path.realpath(sys.argv[2])
+
+sys.meta_path = [
+    finder for finder in sys.meta_path
+    if "editable" not in finder.__class__.__name__.lower()
+    and "editable" not in getattr(finder, "__module__", "").lower()
+]
+sys.path_hooks = [
+    h for h in sys.path_hooks
+    if "editable" not in h.__class__.__name__.lower()
+    and "editable" not in getattr(h, "__module__", "").lower()
+]
+
+filtered_path = []
+for p in sys.path:
+    if not p:
+        continue
+    p_real = os.path.realpath(p)
+    if p_real == repo_real or "editable" in p.lower():
+        continue
+    filtered_path.append(p)
+sys.path = [staged] + filtered_path
+
+import importlib
+
+plugin_modules = {modules_literal}
+for mod in plugin_modules:
+    importlib.import_module(mod)
+
+import compute_service.worker_stdio
+"""
+
+    res = subprocess.run(
+        [sys.executable, "-c", import_code, str(dest), str(_REPO_ROOT)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, f"Bundle plugin import test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"
 
 
 def test_compute_plugin_paths_subset_of_librepy():
@@ -55,17 +149,34 @@ def test_compute_bundle_assembly_and_execution(tmp_path: Path):
         "plugin/scripting/venv/duckdb_sql.py",
         "plugin/scripting/writeragent_api.py",
         "plugin/scripting/calc_functions_common.py",
-        "plugin/scripting/sheet_layout.py",
-        "plugin/scripting/venv/trusted_dispatch.py",
         "plugin/vision/vision_tools.py",
-        "plugin/vision/vision_docling.py",
-        "plugin/vision/vision_paddle.py",
+        "plugin/vision/venv/vision_docling.py",
+        "plugin/vision/venv/vision_paddle.py",
+        "plugin/vision/venv/vision_html_export.py",
+        "plugin/vision/venv/vision_layout_html.py",
         "plugin/contrib/vec_pack",
         "plugin/contrib/smolagents/agents.py",
     ]
     for rel in forbidden:
         p = dest / rel
         assert not p.exists(), f"Forbidden file or directory present in compute bundle: {rel}"
+
+    bundled_domains = [
+        "plugin/scripting/_lazy_venv.py",
+        "plugin/scripting/sheet_layout.py",
+        "plugin/scripting/viz.py",
+        "plugin/scripting/symbolic.py",
+        "plugin/scripting/units.py",
+        "plugin/scripting/quant.py",
+        "plugin/scripting/venv/map_range.py",
+        "plugin/scripting/venv/trusted_dispatch.py",
+        "plugin/scripting/venv/viz.py",
+        "plugin/scripting/venv/symbolic.py",
+        "plugin/scripting/venv/units.py",
+        "plugin/scripting/venv/quant.py",
+    ]
+    for rel in bundled_domains:
+        assert (dest / rel).is_file(), f"Expected domain module in compute bundle: {rel}"
 
     # First subprocess: verify clean hermetic imports and worker cell executions
     worker_test_code = """
@@ -243,3 +354,68 @@ assert res.get("result") == 1, res
         check=False,
     )
     assert res2.returncode == 0, f"Deal blocker test failed:\nSTDOUT:\n{res2.stdout}\nSTDERR:\n{res2.stderr}"
+
+
+def test_compute_bundle_helper_domains(tmp_path: Path):
+    dest = tmp_path / "bundle-compute"
+    assemble_compute_bundle(str(_REPO_ROOT), str(dest), strip=True)
+
+    worker_test_code = """
+import sys, os, json
+
+staged = sys.argv[1]
+repo_real = os.path.realpath(sys.argv[2])
+
+sys.meta_path = [
+    finder for finder in sys.meta_path
+    if "editable" not in finder.__class__.__name__.lower()
+    and "editable" not in getattr(finder, "__module__", "").lower()
+]
+sys.path_hooks = [
+    h for h in sys.path_hooks
+    if "editable" not in h.__class__.__name__.lower()
+    and "editable" not in getattr(h, "__module__", "").lower()
+]
+
+filtered_path = []
+for p in sys.path:
+    if not p:
+        continue
+    p_real = os.path.realpath(p)
+    if p_real == repo_real or "editable" in p.lower():
+        continue
+    filtered_path.append(p)
+sys.path = [staged] + filtered_path
+
+from compute_service.formula_worker import _handle_request
+
+def run_cell(code):
+    return json.loads(_handle_request({"code": code})["result_json"])
+
+sym = run_cell('''
+from writeragent.scripting.symbolic import run_symbolic
+result = run_symbolic({"helper": "symbolic_simplify", "params": {"expression": "x+x"}}, None, {})["text"]
+''')
+assert sym.get("status") == "ok", sym
+assert sym.get("result") == "2*x", sym
+
+run_cell("import writeragent.scripting.viz")
+run_cell("import writeragent.scripting.quant")
+
+units = run_cell('''
+from writeragent.scripting.units import run_units
+result = run_units({"helper": "convert_quantity", "params": {"value": 1, "from_unit": "m", "to_unit": "ft"}}, None, {})["text"]
+''')
+assert units.get("status") == "ok", units
+assert units.get("result"), units
+
+assert "uno" not in sys.modules
+"""
+
+    res = subprocess.run(
+        [sys.executable, "-c", worker_test_code, str(dest), str(_REPO_ROOT)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode == 0, f"Helper domain test failed:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}"

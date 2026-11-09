@@ -37,10 +37,13 @@ import logging
 import shutil
 import subprocess
 import threading
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.errors import best_effort
 from plugin.framework.i18n import _
+from plugin.framework.send_cancellation import is_cancelled
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 log = logging.getLogger(__name__)
 
@@ -223,12 +226,6 @@ def _emit(on_status: Callable[[str], None] | None, message: str) -> None:
     on_status(message)
 
 
-def _cancelled(cancelled: Callable[[], bool] | None) -> bool:
-    if cancelled is None:
-        return False
-    return bool(best_effort(cancelled, "Kokoro phonemizer cancel check failed", False))
-
-
 RunCmd = Callable[[list[str], float], subprocess.CompletedProcess[str] | None]
 
 
@@ -289,7 +286,7 @@ def ensure_kokoro_misaki(
     py_exe: str,
     lang: str,
     on_status: Callable[[str], None] | None = None,
-    cancelled: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     *,
     run_cmd: RunCmd,
 ) -> bool | None:
@@ -300,7 +297,7 @@ def ensure_kokoro_misaki(
     the venv script falls back to espeak-ng. Returns None when speech was
     cancelled so the caller does not start synthesis.
     """
-    if _cancelled(cancelled):
+    if is_cancelled(cancel):
         return None
     with _probe_ok_lock:
         if (py_exe, lang) in _probe_ok_keys:
@@ -311,11 +308,11 @@ def ensure_kokoro_misaki(
 
     ok = _venv_probe_ok(py_exe, lang, run_cmd=run_cmd)
     if not ok:
-        if _cancelled(cancelled):
+        if is_cancelled(cancel):
             return None
         _emit(on_status, _("Installing Kokoro phonemizer…"))
         if _pip_install(py_exe, spec.packages, run_cmd=run_cmd):
-            if _cancelled(cancelled):
+            if is_cancelled(cancel):
                 return None
             ok = _venv_probe_ok(py_exe, lang, run_cmd=run_cmd)
             if not ok and spec.needs_unidic:

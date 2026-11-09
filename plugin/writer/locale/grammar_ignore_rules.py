@@ -7,12 +7,12 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, final
 
-from .grammar_proofread_cache import ignored_rules_snapshot
+from .grammar_persistence import grammar_registry
 
 # The venv LanguageTool checker imports this leaf, not this module, because
-# this module imports grammar_proofread_cache, which imports config.
+# this module imports grammar_persistence, which imports config.
 from plugin.framework.grammar_rule_ids import (
     STABLE_RULE_PREFIXES as _STABLE_RULE_PREFIXES,
     WA_G_RULE_PREFIX,
@@ -20,13 +20,32 @@ from plugin.framework.grammar_rule_ids import (
 )
 
 __all__ = [
+    "IgnoreSet",
     "WA_G_RULE_PREFIX",
     "canonical_rule_key",
     "collect_ignored_reasons",
     "doc_ignored_rules",
+    "ignore_rule_add",
+    "ignore_rules_clear",
+    "ignored_rules_snapshot",
     "is_rule_ignored",
     "normalize_reason",
 ]
+
+
+def ignore_rules_clear() -> None:
+    with grammar_registry.lock:
+        grammar_registry.ignored_rules.clear()
+
+
+def ignore_rule_add(rule_id: str) -> None:
+    with grammar_registry.lock:
+        grammar_registry.ignored_rules.add(str(rule_id))
+
+
+def ignored_rules_snapshot() -> set[str]:
+    with grammar_registry.lock:
+        return set(grammar_registry.ignored_rules)
 
 GRAMMAR_NORMALIZE_REASON_RE = re.compile(r"[^\w\s]")
 
@@ -63,6 +82,30 @@ def is_rule_ignored(rule_identifier: str, doc_ignored: set[str], global_ignored:
         return True
     key = canonical_rule_key(rule_identifier)
     return key is not None and (key in doc_ignored or key in global_ignored)
+
+
+@final
+class IgnoreSet:
+    """Document + global ignored rule filter."""
+
+    __slots__ = ("_doc_ignored", "_global_ignored")
+
+    _doc_ignored: set[str]
+    _global_ignored: set[str]
+
+    def __init__(self, doc_ignored: set[str], global_ignored: set[str]) -> None:
+        self._doc_ignored = doc_ignored
+        self._global_ignored = global_ignored
+
+    @classmethod
+    def for_document(cls, ctx: Any, doc_id: str) -> IgnoreSet:
+        doc_ignored = doc_ignored_rules(ctx, doc_id) if (ctx and doc_id) else set()
+        global_ignored = ignored_rules_snapshot()
+        return cls(doc_ignored, global_ignored)
+
+    def allows(self, rule_identifier: str) -> bool:
+        """True if the rule is NOT ignored."""
+        return not is_rule_ignored(rule_identifier, self._doc_ignored, self._global_ignored)
 
 
 def doc_ignored_rules(ctx: Any, doc_id: str) -> set[str]:

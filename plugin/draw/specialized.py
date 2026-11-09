@@ -21,7 +21,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, ClassVar, Type
 
 from plugin.doc.specialized_base import DelegateToSpecializedBase
-from plugin.draw.base import ToolDrawSpecialBase
+from plugin.draw.base import DRAW_AND_IMPRESS, ToolDrawSpecialBase
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 
 if TYPE_CHECKING:
@@ -36,8 +36,8 @@ class DelegateToSpecializedDraw(DelegateToSpecializedBase):
     """
 
     name: str | None = "delegate_to_specialized_draw_toolset"
-    description: str = f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: shapes, tables, images, charts, forms, math, python, and (Impress only) slide layouts, slide transitions, slide masters, speaker notes, headers/footers."
+    description: str = f"Delegates a specialized Draw task. document_research {DELEGATION_USER_FILE_DATA_HINT}; web_research {DELEGATION_PUBLIC_WEB_HINT}. Also: shapes, tables, images, charts, forms, math, python, page comments, vision (return-only OCR), and (Impress only) slide layouts, slide transitions, slide masters, speaker notes, headers/footers."
 
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     _special_base_class: ClassVar[Type[ToolBase]] = ToolDrawSpecialBase  # type: ignore[type-abstract]
     _agent_label: ClassVar[str] = "Draw"

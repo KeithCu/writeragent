@@ -29,21 +29,19 @@ docs/framework/threading.md.
 from __future__ import annotations
 
 import logging
-import sys
 import threading
 import weakref
-from typing import Any, cast
+from typing import Any
+
+from plugin.framework.process_global import process_global
 
 log = logging.getLogger("writeragent.events")
 
 
 def _reentry_token(event: str, data: dict[str, Any]) -> str:
-    """Identity used to drop a nested emit. config:changed includes the key set."""
+    """Identity for dropping nested emits. config:changed includes the key set."""
     if event == "config:changed":
-        # Bugfix: Batch saves pass key="" plus the full key set (config._emit_pending).
-        # Keying on key alone made every nested batch collide on "config:changed:",
-        # dropping nested batch emits for different key sets. Including the keys
-        # tuple distinguishes distinct batches while still dropping re-entrant dupes.
+        # Include keys tuple to distinguish distinct batch changes while dropping re-entrant duplicates.
         return f"config:changed:{data.get('key')!r}:{tuple(data.get('keys') or ())!r}"
     return event
 
@@ -63,7 +61,7 @@ class EventBus:
 
     Re-entrant ``emit`` of the *same* event on the same thread is dropped
     (warning logged). That stops the sidebar config-refresh loop where
-    ``config:changed`` → control ``setText`` → listener → ``set_config`` →
+    ``config:changed`` → control ``setText`` → listener → ``save`` →
     ``config:changed`` for the same key. A nested change of a different key
     still runs. Nested *different* events still run. Concurrent
     emits of the same name on *other* threads are not dropped (thread-local
@@ -160,11 +158,14 @@ class EventBus:
                 entry for entry, live in zip(kept, resolved) if live != callback
             ]
 
-    # Bugfix: A payload key 'event' or 'self' previously bound the parameter
-    # and raised TypeError ("got multiple values for argument 'event'" or
-    # "... unexpected keyword argument 'self'") before any subscriber ran.
-    # Making self and event positional-only ensures that payload keys named
-    # 'event' or 'self' land safely in **data.
+    def has_subscribers(self, event: str) -> bool:
+        """True when at least one live subscriber is registered for *event*."""
+        with self._lock:
+            kept, resolved = self._live_entries(event)
+            if len(kept) != len(self._subscribers.get(event, [])):
+                self._subscribers[event] = kept
+            return bool(resolved)
+
     def emit(self, event: str, /, **data: Any) -> None:
         """Emit *event*, calling all subscribers with **data as kwargs.
 
@@ -203,6 +204,4 @@ def get_event_bus() -> EventBus:
 
     All callers call this at the point of use; there is deliberately no module-level alias.
     """
-    if not hasattr(sys, "_writeragent_event_bus"):
-        setattr(sys, "_writeragent_event_bus", EventBus())
-    return cast("EventBus", getattr(sys, "_writeragent_event_bus"))
+    return process_global("event_bus", EventBus)

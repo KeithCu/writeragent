@@ -19,22 +19,22 @@ per controller, UNO-identity dedup.
 
 from __future__ import annotations
 
-import logging
-import threading
-import time
-from typing import Any
+# pyright: reportUnusedFunction=false
 
-import unohelper
+import logging
+import time
+from typing import TYPE_CHECKING, Any
+
+from plugin.framework.uno_listeners import BaseMouseClickHandler
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 log = logging.getLogger(__name__)
 
 _CLICK_SLOP = 4
-# Wait out the double-click window before opening the modal popup: opening it on the
-# first release swallowed the second click, so double-click no longer selected a word.
 _DOUBLE_CLICK_SEC = 0.5
 
-_lock = threading.RLock()
-_attached: list[tuple[Any, Any]] = []  # (controller, handler); strong refs until the view is disposed
 _handler_cls: Any = None
 
 
@@ -44,17 +44,7 @@ def _same_click_point(pressed: tuple[int, int] | None, x: int, y: int) -> bool:
     return abs(x - pressed[0]) <= _CLICK_SLOP and abs(y - pressed[1]) <= _CLICK_SLOP
 
 
-def _detach(handler: Any) -> Any | None:
-    with _lock:
-        for idx, (c, h) in enumerate(_attached):
-            if h is handler:
-                _attached.pop(idx)
-                return c
-    return None
-
-
 def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> None:
-    """Runs on the main thread AFTER the click was processed by the view."""
     try:
         from plugin.framework.i18n import _
         from plugin.framework.uno_context import get_ctx
@@ -91,8 +81,6 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
 
         smgr = ctx.getServiceManager()
         popup = smgr.createInstanceWithContext("com.sun.star.awt.PopupMenu", ctx)
-        # Per-change only: Accept / Reject the change under the pointer. Bulk accept/reject ALL
-        # intentionally lives on the review toolbar, not in this per-click popup.
         popup.insertItem(1, "✓ " + _("Accept this change"), 0, 0)
         popup.insertItem(2, "✗ " + _("Reject this change"), 0, 1)
         rect = Rectangle()
@@ -110,58 +98,61 @@ def _show_popup_and_resolve(model: Any, source_window: Any, x: int, y: int) -> N
         log.warning("review_click_popup: popup failed", exc_info=True)
 
 
-def _make_handler(model: Any) -> Any:
+def _make_handler(model: Any, detach: Callable[[Any], Any | None]) -> Any:
     global _handler_cls
     if _handler_cls is None:
-        from com.sun.star.awt import XMouseClickHandler
 
-        class _ClickReviewHandler(unohelper.Base, XMouseClickHandler):  # type: ignore[misc, valid-type]
+        class _ClickReviewHandler(BaseMouseClickHandler):
             _model: Any
+            _detach: Callable[[Any], Any | None]
             _press: tuple[int, int] | None
             _click_gen: int
 
-            def __init__(self, model: Any) -> None:
+            def __init__(self, model: Any, detach: Callable[[Any], Any | None]) -> None:
                 super().__init__()
                 self._model = model
+                self._detach = detach
                 self._press = None
                 self._click_gen = 0
 
             def _deferred(self, gen: int, source: Any, x: int, y: int) -> None:
-                """Background: sleep out the double-click window, then post to main thread."""
                 time.sleep(_DOUBLE_CLICK_SEC)
-                from plugin.framework.queue_executor import post_to_main_thread
+                from plugin.framework.queue_executor import main
 
                 def _fire() -> None:
                     if gen != self._click_gen:
                         return
                     _show_popup_and_resolve(self._model, source, x, y)
 
-                post_to_main_thread(_fire)
+                main.post(_fire)
 
-            def mousePressed(self, e: Any) -> bool:  # noqa: N802 -- UNO API
+            def on_mouse_pressed(self, e: Any) -> bool:
+                # Reset coordinates on unreadable event attributes so release does not match a stale press.
                 try:
                     self._press = (e.X, e.Y)
-                    self._click_gen += 1  # a new press cancels any pending popup
-                except Exception:
+                    self._click_gen += 1
+                except AttributeError:
                     self._press = None
-                return False  # never consume
+                return False
 
-            def mouseReleased(self, e: Any) -> bool:  # noqa: N802 -- UNO API
-                try:
-                    if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:  # plain left click
-                        if not _same_click_point(self._press, e.X, e.Y):
-                            return False
-                        from plugin.framework.worker_pool import run_in_background
+            def on_mouse_released(self, e: Any) -> bool:
+                if e.ClickCount == 1 and e.Buttons == 1 and not e.PopupTrigger:
+                    if not _same_click_point(self._press, e.X, e.Y):
+                        return False
+                    from plugin.framework.worker_pool import run_in_background
 
-                        # Defer past the double-click window (a second press bumps _click_gen
-                        # and cancels), so the view finishes caret placement / word select first.
-                        run_in_background(self._deferred, self._click_gen, e.Source, e.X, e.Y, name="review-click-popup")
-                except Exception:
-                    log.debug("review_click_popup: mouseReleased failed", exc_info=True)
-                return False  # never consume
+                    run_in_background(
+                        self._deferred,
+                        self._click_gen,
+                        e.Source,
+                        e.X,
+                        e.Y,
+                        name="review-click-popup",
+                    )
+                return False
 
-            def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO API
-                controller = _detach(self)
+            def on_disposing(self, Source: Any) -> None:  # noqa: N803 -- UNO API
+                controller = self._detach(self)
                 if controller is None:
                     return
                 try:
@@ -171,37 +162,4 @@ def _make_handler(model: Any) -> Any:
                     pass
 
         _handler_cls = _ClickReviewHandler
-    return _handler_cls(model)
-
-
-def cleanup_disposed_controllers() -> None:
-    """Passively remove any disposed controllers/handlers from tracking lists."""
-    with _lock:
-        alive: list[tuple[Any, Any]] = []
-        for ctrl, handler in _attached:
-            try:
-                if ctrl.getModel() is not None:
-                    alive.append((ctrl, handler))
-            except Exception:  # noqa: S110 - disposed controller; getModel() failing is the liveness check
-                pass
-        _attached[:] = alive
-
-
-def register_click_review(controller: Any) -> None:
-    """Attach the click handler to one Writer view controller (idempotent per controller)."""
-    if controller is None:
-        return
-    cleanup_disposed_controllers()
-    try:
-        if not hasattr(controller, "addMouseClickHandler"):
-            return
-        model = controller.getModel()
-        handler = _make_handler(model)
-        with _lock:
-            if any(c == controller for c, _h in _attached):
-                return
-            controller.addMouseClickHandler(handler)
-            _attached.append((controller, handler))
-        log.debug("review_click_popup: registered on Writer controller")
-    except Exception:
-        log.warning("review_click_popup: register failed", exc_info=True)
+    return _handler_cls(model, detach)

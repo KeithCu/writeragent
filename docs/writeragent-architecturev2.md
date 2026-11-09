@@ -37,7 +37,6 @@ This pattern is applied to the hardest orchestration paths, each with its own ty
 |---------|------|-----------------|
 | Tool loop | `plugin/chatbot/tool_loop_state.py` | `ToolLoopState` (`round_num`, `pending_tools`, `is_stopped`, `max_rounds`), `EventKind` (`STOP_REQUESTED`, `STREAM_DONE`, `NEXT_TOOL`, `TOOL_RESULT`, `FINAL_DONE`, `ERROR`) |
 | Send button | `plugin/chatbot/send_state.py` | `SendButtonState` (`mode`, `has_text`, `has_audio`, `audio_supported`; `is_busy` / `is_recording` are properties), events for text/record/send/stop lifecycle |
-| Send handler | `plugin/chatbot/state_machine.py` | Chat-send orchestration |
 | Audio recorder | `plugin/chatbot/audio_recorder_state.py` | Record/stop/auto-stop lifecycle |
 | MCP tunnel | `plugin/mcp/tunnel_state.py` | Reconnection with explicit `StartProcessEffect`/`ScheduleRetryTimerEffect`/`NotifyUrlAcquiredEffect` |
 
@@ -66,12 +65,12 @@ To run AI generation, network I/O, and sub-agents asynchronously without violati
 
 - **Daemon pool** — a fixed pool of 2 daemon threads (`wa-bg-0…1`, `BACKGROUND_POOL_MAX_WORKERS`) over an unbounded `queue.SimpleQueue`. Bounded in *worker count*, not queue length; pooled threads are daemon so they never block `soffice` exit (CPython `ThreadPoolExecutor` workers are non-daemon since 3.9).
 - **Dedicated threads** — `dedicated=True` (or `daemon=False`) spawns a single `threading.Thread` for servers, pipe drains, infinite loops, and any job another thread will `join()`. The rule: never `join()` a pooled job from another pooled job.
-- **`AsyncProcess` & pipe safety** — wraps `subprocess.Popen` with dedicated stdout/stderr drain threads; `terminate()` degrades to `kill()` on timeout. Every long-lived child with `stderr=PIPE` needs a continuous drain (`start_stderr_drain`/`AsyncProcess`) or stderr redirected, or the ~64 KiB kernel pipe buffer fills and deadlocks the parent. `StderrTail` keeps a bounded tail; `optimize_popen_pipes` expands Linux pipe size via `F_SETPIPE_SZ`.
+- **`AsyncProcess` & pipe safety** — starts its child through `ManagedSubprocess` and reads it with dedicated stdout/stderr threads; `terminate()` degrades to `kill()` on timeout. Every long-lived child with `stderr=PIPE` needs a continuous drain (`start_stderr_drain`/`AsyncProcess`) or stderr redirected, or the ~64 KiB kernel pipe buffer fills and deadlocks the parent. `StderrTail` keeps a bounded tail; `optimize_popen_pipes` expands Linux pipe size via `F_SETPIPE_SZ`.
 
 ##### Main-Thread Marshalling & Async Streaming: The Drain Loop
 Marshalling results and UI updates back to the RED main thread relies on two coordinated mechanisms:
 
-- **`QueueExecutor`** (`execute_on_main_thread` / `post_to_main_thread`) — pokes the VCL main thread via `com.sun.star.awt.AsyncCallback` and blocks workers on a per-item `threading.Event` with timeout. It **refuses** blocking marshal from YELLOW context (deadlock hazard #402).
+- **`MainThread`** (`main.call` / `main.post` / `main.run`) — pokes the VCL main thread via `com.sun.star.awt.AsyncCallback` and blocks workers on a per-item `threading.Event` with timeout. It **refuses** blocking marshal from YELLOW context (deadlock hazard #402).
 - **The Stream Drain Loop** — streaming AI tokens works by a strict **worker produces, UI drains** split. Background work pushes tuples onto a `queue.Queue` whose first element is always a `StreamQueueKind` enum member (`CHUNK`, `THINKING`, `TOOL_CALL`, `TOOL_RESULT`, `APPROVAL_REQUIRED`, `STREAM_DONE`, `ERROR`, …). When `AsyncCallback` exists, `run_stream_drain_loop` takes the items already queued and returns to the VCL loop, re-arming with `addCallback` or a ~100 ms idle delay. It must not block in `Queue.get` inside that callback (that holds SolarMutex for the whole wait). Without a callback, it keeps the blocking loop: wait up to 0.1 s, then `pump_ui_idle`.
   - **`job_done[0]` ownership**: Owned exclusively by the drain loop. The worker's `finally` posts the `(STREAM_DONE, None)` sentinel but never writes `job_done` directly, preventing the loop from exiting before `on_done` runs (which would skip `leaveUndoContext()` and corrupt the undo stack).
   - **`BatchingStreamQueue`**: Batches `CHUNK`/`THINKING` deltas on the producer side for up to 250 ms (one reusable timer per batcher, armed on the first fragment of each burst), flushing before any control item to keep the UI smooth without main-thread sleeps.
@@ -81,8 +80,8 @@ Marshalling results and UI updates back to the RED main thread relies on two coo
 Architectural rules alone are conventions—nothing in Python natively stops an engineer or tool from accidentally invoking `doc.getText()` inside a BLUE background worker. WriterAgent enforces thread affinity across three concentric layers:
 
 - **Layer A (Runtime tripwire, shipped):** `thread_guard.py` wraps every UNO object in a viral `_UnoThreadGuardProxy` via `guard_uno()`, which asserts the main thread on every attribute access, call, and property write. `assert_main_thread` raises (dev) or logs (release stub) on violation; enabled by default (`WRITERAGENT_UNO_THREAD_GUARD=1`), stubbed off in release OXTs. The proxy unwraps for `__setattr__`/`__call__`/`queryInterface` so proxies never leak into C++.
-- **Layer B (Test-time verification):** `ThreadAffineMock` and `set_designated_main_thread`/`set_force_marshal_mode` let affinity tests run under `make lo-test-threadguard` to prove marshal boundaries hold before code touches a real office build.
-- **Layer C (Static analysis):** Opengrep taint rules (`tests/semgrep/uno_thread_safety.yml`, `--taint-intrafile`) trace BLUE roots to RED sinks with sanitizers (`execute_on_main_thread`, `post_to_main_thread`, `if on_main_thread():`); a custom AST linter (`scripts/lint_thread_safety.py`) and a call-graph deadlock analyzer (`scripts/analyze_thread_deadlocks.py`) catch `blocking-marshal-in-sync-dispatch`.
+- **Layer B (Test-time verification):** `ThreadAffineMock` and `MainThread.install(Policy.test_marshal, designated=...)` let affinity tests run under `make lo-test-threadguard` to prove marshal boundaries hold before code touches a real office build.
+- **Layer C (Static analysis):** Opengrep taint rules (`tests/semgrep/uno_thread_safety.yml`, `--taint-intrafile`) trace BLUE roots to RED sinks with sanitizers (`main.call`, `main.post`, `if main.is_current():`); a custom AST linter (`scripts/lint_thread_safety.py`) and a call-graph deadlock analyzer (`scripts/analyze_thread_deadlocks.py`) catch `blocking-marshal-in-sync-dispatch`.
 
 The context discipline is equally strict: use the extension's `self.ctx` / `get_ctx()` (a cached, wrapped context), never a fresh `uno.getComponentContext()` — a fresh call can return a *different* context that quietly breaks package/dialog lookups or segfaults test runners.
 
@@ -111,7 +110,7 @@ Most AI tools see a document as a flat "wall of text." WriterAgent sees the **st
 - **Writer `writer_tree`** builds a navigable index of headings/body paragraphs from `OutlineLevel`, letting the model "skim" a TOC and zoom into sections rather than read 100 pages linearly.
 - **Writer `get_page_objects`** jumps the view cursor to a specific physical page and returns a multimodal snapshot: exact visible paragraph text, anchored images/tables, and embedded draw shapes (cross-referenced from Writer's hidden draw page against physical page boundaries). This solves the "what am I looking at on page 12?" needle-in-a-haystack problem.
 
-**Proximity awareness** lets the agent navigate by headings, sections, and bookmarks; **tracked-changes integration** (`track_changes_start/stop/list`, `manage_tracked_changes`) respects the editorial process — and `get_string_without_tracked_deletions()` in `text_helpers` ensures prompts and edits never see text the author has already deleted.
+**Proximity awareness** lets the agent navigate by headings, sections, and bookmarks; **tracked-changes integration** (`tracking_start/stop/list`, `tracking_manage`) respects the editorial process — and `get_string_without_tracked_deletions()` in `text_helpers` ensures prompts and edits never see text the author has already deleted.
 
 ### 3. Advanced AI Pipelines (The Specialized Skills)
 
@@ -177,7 +176,7 @@ The quality of a product is hidden in the details. WriterAgent includes:
 
 #### A Disciplined Exception Policy
 
-Errors flow through a typed `WriterAgentException` hierarchy (24+ codes, from `CONFIG_ERROR` to `DOCUMENT_DISPOSED` and `PAYLOAD_CODEC_ERROR`) and `format_error_payload`. Tools fail via `_tool_error`/`make_tool_error`. The subtle rule that protects document integrity: **never catch `com.sun.star.uno.Exception` to "avoid" `DisposedException`** — disposal subclasses `RuntimeException` → `uno.Exception`, so such a catch still swallows it. UI lifecycle uses `suppress_disposed`; document tools re-raise via `is_disposed_exception`/`DocumentDisposedError`.
+Errors flow through a typed `WriterAgentException` hierarchy (24+ codes, from `CONFIG_ERROR` to `DOCUMENT_DISPOSED` and `PAYLOAD_CODEC_ERROR`) and `format_error_payload`. Tools fail via `_tool_error`/`make_tool_error`. The subtle rule that protects document integrity: **never catch `com.sun.star.uno.Exception` to "avoid" `DisposedException`** — disposal subclasses `RuntimeException` → `uno.Exception`, so such a catch still swallows it. UI lifecycle uses `suppress_disposed`; document tools re-raise via `is_disposal`/`DocumentDisposedError`.
 
 #### Automated Localization
 

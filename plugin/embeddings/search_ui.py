@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import time
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.queue_executor import main
 from typing import Any
 
 from plugin.chatbot.dialogs import load_writeragent_dialog_detail, msgbox
@@ -27,6 +27,26 @@ import plugin.embeddings.embeddings_service as embeddings_service
 from plugin.scripting.venv_worker import warm_venv_worker
 
 log = logging.getLogger(__name__)
+
+
+def format_index_heartbeat_line(
+    filename: str,
+    *,
+    paragraphs: int,
+    chunks: int,
+    elapsed_sec: float,
+) -> str:
+    """Format one per-file rebuild progress line (native paragraphs + embed chunks)."""
+    para_label = "paragraph" if int(paragraphs) == 1 else "paragraphs"
+    chunk_label = "chunk" if int(chunks) == 1 else "chunks"
+    return f"{filename}: {int(paragraphs)} {para_label}, {int(chunks)} {chunk_label}, {elapsed_sec:.2f}s"
+
+
+def heartbeat_counts_from_payload(payload: dict[str, Any]) -> tuple[int, int]:
+    """Return (paragraphs, chunks) from a maintain heartbeat payload."""
+    paragraphs = int(payload.get("paragraphs") or 0)
+    chunks = int(payload.get("upserted") or payload.get("chunks") or paragraphs)
+    return paragraphs, chunks
 
 # UNO Key.RETURN (same code as chat sidebar; single-line edits have no newline use for Shift+Enter)
 _SEARCH_KEY_RETURN = 1280
@@ -114,7 +134,7 @@ class SearchDialog:
 
             # Pre-warm the venv worker in the background asynchronously after the dialog is visible
             from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
-            run_in_background(warm_venv_worker, ctx, WORKER_POOL_EMBEDDINGS, name="warm-venv-worker", dedicated=True)
+            run_in_background(warm_venv_worker, WORKER_POOL_EMBEDDINGS, name="warm-venv-worker", dedicated=True)
 
         except Exception:
             log.exception("SearchDialog._open failed")
@@ -175,15 +195,9 @@ class SearchDialog:
             def _get_status() -> str:
                 try:
                     from plugin.embeddings.embeddings_cache import (
-                        index_is_empty,
-                        read_corpus_meta,
+                        folder_store,
                         resolve_index_context,
-                        zvec_collection_looks_populated,
-                        zvec_collection_path,
-                        lancedb_collection_looks_populated,
-                        lancedb_collection_path,
                     )
-                    from plugin.embeddings.embeddings_service import _folder_search_mode
 
                     doc = get_active_document(ctx)
                     if not doc:
@@ -193,21 +207,15 @@ class SearchDialog:
                     if folder_key is None or db_path is None or meta_path is None:
                         return _("Cache Status: Folder not resolved")
 
-                    # Mode-aware for zvec/lancedb side-by-side store
-                    mode = _folder_search_mode()
-                    if mode == "zvec":
-                        zpath = zvec_collection_path(listing_root, create_parent=False) if listing_root else None
-                        if not zpath or not zvec_collection_looks_populated(zpath):
+                    store = folder_store(listing_root, meta_path, db_path)
+                    if store.is_empty:
+                        if store.mode == "zvec":
                             return _("Cache Status: Not built (zvec)")
-                    elif mode == "lancedb":
-                        lpath = lancedb_collection_path(listing_root, create_parent=False) if listing_root else None
-                        if not lpath or not lancedb_collection_looks_populated(lpath):
+                        if store.mode == "lancedb":
                             return _("Cache Status: Not built (lancedb)")
-                    elif index_is_empty(meta_path, db_path):
                         return _("Cache Status: Not built")
 
-                    meta = read_corpus_meta(meta_path)
-                    updated_at_str = meta.get("updated_at")
+                    updated_at_str = store.meta.data.get("updated_at")
                     if updated_at_str:
                         try:
                             updated_at = float(updated_at_str)
@@ -223,7 +231,7 @@ class SearchDialog:
 
             status_lbl.getModel().Label = _get_status()
 
-        execute_on_main_thread(_apply_cache_status)
+        main.call(_apply_cache_status)
 
     def _run_search(self, dlg: Any) -> None:
         ctx = self._ctx
@@ -255,12 +263,12 @@ class SearchDialog:
         def _do_background_search() -> None:
             try:
                 from plugin.framework.constants import folder_search_enabled
-                from plugin.embeddings.embeddings_cache import query_blocked_for_model, ready_search_path
+                from plugin.embeddings.embeddings_cache import folder_store
                 from plugin.embeddings.embeddings_indexer import ensure_index_wakeup
                 from plugin.embeddings.embedding_client import get_embedding_model
-                from plugin.embeddings.embeddings_service import hybrid_search, _folder_search_mode
+                from plugin.embeddings.embeddings_service import hybrid_search
 
-                resolved = execute_on_main_thread(self._resolve_doc_index_context)
+                resolved = main.call(self._resolve_doc_index_context)
                 if resolved is None:
                     self._update_results_ui(_("No active document found."), enable_search_btn=True)
                     return
@@ -277,16 +285,16 @@ class SearchDialog:
                     self._update_results_ui(_("Error: ") + str(listing_root), enable_search_btn=True)
                     return
 
-                mode = _folder_search_mode()
-                search_path = ready_search_path(mode, listing_root, meta_path, db_path)
+                store = folder_store(listing_root, meta_path, db_path)
+                search_path = store.search_path
                 model = ""
                 if search_path is not None:
                     model = get_embedding_model()
                     # Do not query a vec store built for a different model.
-                    if mode != "fts" and query_blocked_for_model(meta_path, model):
+                    if store.mode != "fts" and store.meta.query_blocked_for_model(model):
                         search_path = None
                 if search_path is None:
-                    execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
+                    main.call(ensure_index_wakeup, ctx, doc)
                     self._update_results_ui(
                         _("Folder index is building in the background. Please retry search shortly."),
                         enable_search_btn=True,
@@ -303,7 +311,7 @@ class SearchDialog:
                     doc_url_filter=None,
                 )
                 hits = list(result.get("hits") or [])
-                execute_on_main_thread(ensure_index_wakeup, ctx, None, doc)
+                main.call(ensure_index_wakeup, ctx, doc)
 
                 if not hits:
                     self._update_results_ui(_("No matches found."), enable_search_btn=True)
@@ -326,12 +334,12 @@ class SearchDialog:
                     dlg = self._dlg
                     if dlg:
                         self._refresh_cache_status(dlg)
-                execute_on_main_thread(_do_refresh)
+                main.call(_do_refresh)
             except Exception as e:
                 log.exception("Background search failed")
                 self._update_results_ui(_("Error running search: ") + str(e), enable_search_btn=True)
 
-        run_in_background(_do_background_search, name="search-dialog-query")
+        run_in_background(_do_background_search, name="search-dialog-query", dedicated=True)
 
     def _run_rebuild(self, dlg: Any) -> None:
         ctx = self._ctx
@@ -345,11 +353,10 @@ class SearchDialog:
         def _do_rebuild() -> None:
             try:
                 from plugin.embeddings.embeddings_cache import clear_folder_cache
-                from plugin.embeddings.embeddings_heartbeat import format_index_heartbeat_line, heartbeat_counts_from_payload
+                from plugin.framework.constants import configured_folder_search_mode
                 from plugin.embeddings.embedding_client import get_embedding_model
-                from plugin.embeddings.embeddings_service import _folder_search_mode
 
-                resolved = execute_on_main_thread(self._resolve_doc_index_context)
+                resolved = main.call(self._resolve_doc_index_context)
                 if resolved is None:
                     self._update_rebuild_ui(_("No active document found."), enable_rebuild_btn=True)
                     return
@@ -403,7 +410,13 @@ class SearchDialog:
                             except Exception as exc:
                                 log.debug("search rebuild heartbeat UI update failed (%s)", type(exc).__name__)
 
-                        execute_on_main_thread(ui_update)
+                        # The return value is unused, and call blocks this pipe holder
+                        # for up to 30s when the UI thread is not pumping;
+                        # bound_scope=None because run_in_background copies the caller
+                        # context (worker_pool.py:217-219) and a chat SendCancellation
+                        # must not drop the progress paint (is_cancelled(None) is false;
+                        # cancel_pending_work(scope) keeps a different scope).
+                        main.post(ui_update, bound_scope=None)
                         del hb_data[file]
 
                 # Use the service function (mocked in tests) to rebuild the cache
@@ -413,7 +426,7 @@ class SearchDialog:
                         listing_root,
                         model=model,
                         mode="cold",
-                        search_mode=_folder_search_mode(),
+                        search_mode=configured_folder_search_mode(),
                         heartbeat_fn=heartbeat_fn,
                     )
                     self._update_rebuild_ui(_("Cache rebuild completed successfully."), enable_rebuild_btn=True)
@@ -425,15 +438,15 @@ class SearchDialog:
                     d = self._dlg
                     if d:
                         self._refresh_cache_status(d)
-                execute_on_main_thread(_do_refresh)
+                main.call(_do_refresh)
             except Exception as e:
                 log.exception("Cache rebuild failed")
                 self._update_rebuild_ui(_("Rebuild failed: ") + str(e), enable_rebuild_btn=True)
 
-        run_in_background(_do_rebuild, name="search-dialog-rebuild")
+        run_in_background(_do_rebuild, name="search-dialog-rebuild", dedicated=True)
 
     def _update_results_ui(self, text: str, enable_search_btn: bool = False) -> None:
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
 
         def _update() -> None:
             try:
@@ -450,10 +463,10 @@ class SearchDialog:
             except Exception as exc:
                 log.debug("search results UI update failed (%s)", type(exc).__name__)
 
-        execute_on_main_thread(_update)
+        main.call(_update)
 
     def _update_rebuild_ui(self, text: str, enable_rebuild_btn: bool = False) -> None:
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
 
         def _update() -> None:
             try:
@@ -470,7 +483,7 @@ class SearchDialog:
             except Exception as exc:
                 log.debug("search rebuild UI update failed (%s)", type(exc).__name__)
 
-        execute_on_main_thread(_update)
+        main.call(_update)
 
 
 def show_search_dialog(ctx: Any) -> None:

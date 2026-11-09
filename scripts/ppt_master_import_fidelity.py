@@ -47,6 +47,9 @@ def _bootstrap_ctx():
         print("ERROR: officehelper not available; use LibreOffice's Python or install UNO bindings.", file=sys.stderr)
         raise SystemExit(2) from exc
     os.environ.setdefault("WRITERAGENT_TESTING", "1")
+    from plugin.framework.queue_executor import install_from_environ
+
+    install_from_environ()
     try:
         ctx = officehelper.bootstrap()
     except Exception as exc:

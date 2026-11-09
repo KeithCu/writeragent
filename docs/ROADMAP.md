@@ -1,6 +1,6 @@
 # WriterAgent Roadmap
 
-**Last Updated**: 2026-08-30
+**Last Updated**: 2026-11-07
 **Status**: Active Development
 
 Backlog of *still-open* work. Day-to-day orientation: [`AGENTS.md`](../AGENTS.md).
@@ -17,23 +17,22 @@ Do not duplicate those catalogs here.
 
 ## Product gaps
 
-Primary product focus: features the agent still cannot drive. Shipped domains (shapes, fields, indexes, track changes, mail merge, styles list/create/update/import) stay in [`features.md`](features.md) and the toolset docs — not here.
+Primary product focus: features the agent still cannot drive. Shipped domains (shapes, fields, indexes including bibliography via `indexes_create(kind="bibliography")`, track changes, mail merge, styles list/create/update/import) stay in [`features.md`](features.md) and the toolset docs — not here.
 
 **Writer** — [`writer/specialized-toolsets.md`](writer/specialized-toolsets.md)
 
-- Bibliographies
 - Watermarks
 - Sections lifecycle (create, multi-column, conditional visibility, password); read-only inspection exists
-- Style preview
+- Style preview (deferred 2026-11-05)
 - Batch section rewriting (heading-based whole-document processing)
 
 **Calc** — [`calc/specialized-toolsets.md`](calc/specialized-toolsets.md)
 
 - Macros and VBA compatibility
 - Scenarios
-- External data (SQL / web)
-- Table slicers
-- Sheet protection
+- External data — DB links and web queries (`query_folder_sql` on sibling files is shipped)
+- Table slicers (LibreOffice has no slicer object; AutoFilter via `sheet_filter_*` is shipped)
+- Per-cell unlock under sheet protection (`sheet_protect` is shipped; no `CellProtection` tool)
 
 **Draw / Impress** — [`draw/impress-specialized-toolsets.md`](draw/impress-specialized-toolsets.md)
 
@@ -52,13 +51,13 @@ Open work already has a topic doc. Do not copy those Open lists here.
 | Doc | Remaining (one line) |
 |-----|----------------------|
 | [chat/multi-document-dev-plan.md](chat/multi-document-dev-plan.md) | Prompt integration, hidden-open hardening, `@` mentions |
-| [chat/peer-messaging.md](chat/peer-messaging.md) | A1 on master; specialized-inner experiment (document_research only); later: A2 / multiplex / waiting chrome / Impress |
+| [chat/peer-messaging.md](chat/peer-messaging.md) | A1 on master; specialized-inner experiment (document_research only); later: A2 / multiplex / waiting chrome |
 | [chat/responses-api-plan.md](chat/responses-api-plan.md) | Opt-in Responses API + `previous_response_id` (unstarted) |
 | [scripting/monaco-editor-dev-plan.md](scripting/monaco-editor-dev-plan.md) | Syntax squiggles, range picker, Flatpak extra windows |
 | [eval/eval-dev-plan.md](eval/eval-dev-plan.md) | Live 17-task ranking run; multimodal eval; LO ranking still out of scope |
 | [eval/benchmark-cli-dev-plan.md](eval/benchmark-cli-dev-plan.md) | Ad-hoc `--task` / `--document` examples |
 | [eval/dspy-prompt-optimization-plan.md](eval/dspy-prompt-optimization-plan.md) | Run MIPROv2; apply winning instruction |
-| [writer/grammar-checker-plan.md](writer/grammar-checker-plan.md) | Invalidation, non-English locales, logging leftovers |
+| [writer/grammar-checker-plan.md](writer/grammar-checker-plan.md) | Invalidation, logging leftovers |
 | [writer/html-style-model-plan.md](writer/html-style-model-plan.md) | Post-v1: UNO paragraph-style index (drop dual XHTML+FODT export) |
 | [images/diffusers-comfyui-dev-plan.md](images/diffusers-comfyui-dev-plan.md) | ComfyUI backend unstarted |
 | [framework/robustness-roadmap.md](framework/robustness-roadmap.md) | Recovery/retries, user-visible resilience, adversarial verification |
@@ -77,6 +76,8 @@ Shipped and removed from this table: Stop/cancel, missing-API-key 401, drain-han
 
 Visible so they are not re-invented as high-priority programs:
 
+- Hang diagnostics: a watchdog that dumps every thread stack to `writeragent_debug.log` when the UI thread stalls
+- Surviving a hard kill: config, the history DB, `corpus_meta`, and grammar persistence stay valid after a crash (mainly atomic writes)
 - Agent personality system; voice interface; real-time collaborative editing
 - Usage analytics dashboard; in-app rating / feedback product
 - UI theme editor; document template marketplace; offline mode

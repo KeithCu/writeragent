@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.writer import search as search_mod
-from .format import plain_text_if_markup
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -24,7 +23,13 @@ def _span_cursor(rng: Any, fail: str) -> Any:
         raise ValueError(fail % e)
 
 
-def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> Any:
+def resolve_target_cursor(
+    ctx: ToolContext,
+    target: str,
+    old_content: Any,
+    *,
+    case_sensitive: bool | None = None,
+) -> Any:
     """
     Resolves the `target` ("beginning", "end", "selection", "search")
     and returns a valid TextCursor pointing to the desired location.
@@ -77,20 +82,21 @@ def resolve_target_cursor(ctx: ToolContext, target: str, old_content: Any) -> An
     if target != "search":
         raise ValueError(f"Unknown target {target!r}; use end, selection, beginning, full_document or search.")
 
-    search_string = str(old_content).strip() if old_content is not None else ""
-    search_string = plain_text_if_markup(search_string)
-
-    search_string = search_mod.normalize_search_string_for_find(search_string)
+    search_string = search_mod.prepare_old_content(old_content)
     if not search_string:
         raise ValueError("old_content is empty after normalization.")
 
-    found = search_mod.find_first_range(doc, search_string)
+    find_kw: dict[str, Any] = {}
+    if case_sensitive is not None:
+        find_kw["case_sensitive"] = search_mod.resolve_case_sensitive(case_sensitive)
+
+    found = search_mod.find_first_range(doc, search_string, **find_kw)
 
     if found is None:
-        shape_name = search_mod.drawing_shape_containing(doc, search_string)
-        if shape_name:
-            raise ValueError(search_mod.shape_only_search_message("old_content", shape_name))
-        raise ValueError("old_content not found in document. Try a shorter, unique substring.")
+        shape_name = search_mod.drawing_shape_containing(doc, search_string, **find_kw)
+        raise ValueError(
+            search_mod.search_miss_message(doc, search_string, shape_name=shape_name)
+        )
 
     # Build the cursor in the MATCH's own text object, not the body: a match inside a table cell
     # or text frame is a different XText, and gotoRange across text objects raises (format.py

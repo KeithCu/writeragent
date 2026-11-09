@@ -40,8 +40,7 @@ __all__ = [
     "is_port_in_use_error",
 ]
 
-# Shared with log.error on bind failure and the Toggle/Status/Settings msgbox so users
-# see the same actionable text that used to live only in writeragent_debug.log (#379).
+# Guidance shown in log.error and msgbox on port bind failure.
 _PORT_IN_USE_GUIDANCE = (
     "The port is in use by another process. Close whatever is holding it, "
     "or set mcp.mcp_port in Settings (or writeragent.json) to a free port, then try again. "
@@ -83,18 +82,8 @@ class _AcceptQueueFull(Exception):
 class _RequestThreads:
     """Bounded daemon pool for accepted connections.
 
-    What was wrong: ``daemon_threads = True`` had no effect. Requests were
-    submitted to ``ThreadPoolExecutor``. Since Python 3.9 those workers are
-    non-daemon, and ``concurrent.futures.thread._python_exit`` joins every
-    one of them even if ``daemon`` is set.
-    How it happened: the accept loop replaced ``ThreadingMixIn`` with an
-    executor so the pool stayed bounded. The atexit join came with that
-    executor. A handler blocked in SSE ``select`` or on the UI queue then
-    held LibreOffice open. ``HttpServer.stop`` does not join POST workers,
-    because a worker waiting for the UI thread deadlocks if the UI joins it.
-    Why this change: these threads are daemon and are not registered with
-    that atexit hook. The worker count is still bounded. Unfinished calls are
-    capped at ``max_workers + max_queued``.
+    Threads are daemon and avoid ThreadPoolExecutor's atexit join to keep LibreOffice exit clean.
+    The worker count is bounded and unfinished calls are capped at ``max_workers + max_queued``.
     The shared ``wa-bg`` pool is not used: one SSE connection would hold a
     UI worker until the client left.
 
@@ -131,9 +120,7 @@ class _RequestThreads:
         with self._lock:
             if self._shutdown:
                 raise RuntimeError("request pool is shut down")
-            # The queue used to grow by one fd per accept after every worker was busy.
-            # The listen backlog only counts sockets not yet accepted. Closing past
-            # workers + 128 bounds that without turning a normal burst into an HTTP 503.
+            # Closing past workers + 128 bounds queue growth without rejecting normal bursts.
             # established: the fd is already accepted (parked or ready_now).
             # The cap bounds new fds. Thread count stays at _max_workers.
             if not established and self._pending >= self._max_workers + self._max_queued:
@@ -291,9 +278,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     executor: _RequestThreads
     _queued_lock: threading.Lock
     _last_queue_full_warn: float = 0.0
-    _park_lock: threading.Lock
-    _park_queue: queue.SimpleQueue[Any]
-    _parking_closed: bool
     address_family: int
     server_address: tuple[str | bytes | bytearray, int] | tuple[str | bytes | bytearray, int, int, int]
     sockets: list[Socket]
@@ -319,9 +303,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._accept_backoff_sec = 0.05
         self._last_accept_error_warn = 0.0
         self._last_queue_full_warn = 0.0
-        self._park_lock = threading.Lock()
-        self._park_queue = queue.SimpleQueue()
-        self._parking_closed = False
         # Keyed by the connection object, not id(conn). CPython reuses ids
         # after the socket is freed, so an id key could read a later accept's
         # timestamp. shutdown_request pops the entry on every path that
@@ -366,12 +347,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             sock: socket.socket | None = None
             try:
                 sock = socket.socket(family, socket.SOCK_STREAM)
-                # What was wrong: SO_REUSEADDR was set on every listener.
-                # allow_reuse_address is False on Windows and was never read.
-                # How: on Windows that option lets a second process bind the
-                # same port, so a busy port looks free and can be taken over.
-                # Why: set it only when the flag is true. POSIX keeps it so a
-                # restart during TIME_WAIT still binds. Windows does not.
+                # Set SO_REUSEADDR only when allowed (enabled on POSIX, disabled on Windows).
                 if self.allow_reuse_address:
                     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 if family == socket.AF_INET6:
@@ -429,15 +405,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
     def server_close(self) -> None:
         self.close_sockets()
         self._accept_times.clear()
-        # What was wrong: shutdown(cancel_futures=False) still ran connections
-        # already queued after the listeners closed. MCP stop does not drain
-        # first, so a stop kept handling those requests.
-        # How: Future.cancel() never calls process_request_thread, so the
-        # socket would also leak if we only cancelled.
-        # Why: cancel work that has not started and close those sockets.
-        # A future that already started still finishes and closes itself.
-        # drain_executor waits with cancel_futures=False before this, so the
-        # compute 30s grace still finishes queued work.
+        # Cancel unstarted queued work and close those sockets on shutdown.
         with self._queued_lock:
             pending = list(self._queued.items())
         self.executor.shutdown(wait=False, cancel_futures=True)
@@ -474,39 +442,20 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             except OSError:
                 pass
 
-    def _park_poll_timeout(self, timeout: float) -> float:
-        return timeout
+    # Keep-alive parking hooks; used only when park_idle_connections is set.
+    def _park_register(self, request: Any, client_address: Any) -> bool:
+        """Take an idle connection (new, or after a response) from the caller; False leaves it with the caller."""
+        return False
 
-    def _park_on_readable(self, state: Any, fileobj: Any, selector: selectors.BaseSelector) -> None:
-        pass
-
-    def _park_service_loop(self, selector: selectors.BaseSelector) -> None:
-        pass
-
-    def _park_close_one_on_select_overflow(self, selector: selectors.BaseSelector) -> None:
-        pass
+    def _park_tick(self, selector: selectors.BaseSelector, ready: list[tuple[Any, int]]) -> float | None:
+        """Accept thread, once per loop: service parked connections; return seconds until the next one expires."""
+        return None
 
     def _park_shutdown(self, selector: selectors.BaseSelector) -> None:
-        pass
-
-    def _park_accepted(self, conn: Socket, client_address: Any, selector: selectors.BaseSelector) -> bool:
-        return False
-
-    def _park_hand_off(self, request: Any, client_address: Any) -> bool:
-        return False
-
-    def _on_queue_full(self, request: Any) -> None:
-        pass
+        """Accept thread, on exit: close every parked connection."""
 
     def handle_error(self, request: Any, client_address: Any) -> None:
-        """A stalled read is a closed request, not a traceback on the console.
-
-        What was wrong: only ``TimeoutError`` was treated as a stall.
-        How: before Python 3.10, ``socket.timeout`` is a different class, so
-        a timed-out ``recv`` still printed a traceback. On 3.10+ the names
-        are one class. ``errors.py`` already catches both.
-        Why: one tuple covers the older runtime this extension still claims.
-        """
+        """A stalled read is a closed request, not a traceback on the console."""
         _typ, exc, _tb = sys.exc_info()
         # The pre-run() read is outside wsgiref's catch, and ConnectionError is the same disconnect MCP already ignores.
         host = client_address[0] if isinstance(client_address, tuple) and client_address else client_address
@@ -522,7 +471,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             return
         super().handle_error(request, client_address)
 
-    def _accept_one(self, ready_sock: Socket, selector: selectors.BaseSelector | None = None) -> None:
+    def _accept_one(self, ready_sock: Socket) -> None:
         """Accept one connection, wrap it, and hand it to the pool."""
         try:
             raw_conn, client_address = ready_sock.accept()
@@ -538,12 +487,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
         self._accept_backoff_sec = 0.05
         self._accept_pause_until = 0.0
         conn = raw_conn
-        # What was wrong: conn.setsockopt was unguarded. If the client reset the
-        # connection between accept() and this call, setsockopt raised OSError and broke
-        # the accept path.
-        # How: setsockopt was called directly without catching OSError.
-        # Why: wrap in try/except OSError: pass so early client disconnects or socket
-        # resets do not crash the accept path.
+        # Ignore socket configuration errors if client disconnected before setsockopt.
         try:
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Tip: small JSON/SSE replies must not wait on Nagle.
         except OSError:
@@ -560,11 +504,11 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             self.shutdown_request(conn)
             return
         self._accept_times[conn] = time.monotonic()
-        if self.park_idle_connections and selector is not None and self._park_accepted(conn, client_address, selector):
+        if self.park_idle_connections and self._park_register(conn, client_address):
             return
         self.process_request(conn, client_address)
 
-    def _serve_ready(self, ready: list[tuple[Any, int]], selector: selectors.BaseSelector, wake_read: Socket | None) -> None:
+    def _serve_ready(self, ready: list[tuple[Any, int]], wake_read: Socket | None) -> None:
         for key, _unused in ready:
             if self._dual_shutdown_request:
                 break
@@ -572,12 +516,10 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             if fileobj is wake_read:
                 assert wake_read is not None
                 _drain_wake_socket(wake_read)
-            elif key.data is not None:
-                self._park_on_readable(key.data, fileobj, selector)
-            elif isinstance(fileobj, socket.socket):
+            elif key.data is None and isinstance(fileobj, socket.socket):
                 if time.monotonic() < self._accept_pause_until:
                     continue
-                self._accept_one(fileobj, selector)
+                self._accept_one(fileobj)
 
     def serve_forever(self, poll_interval: float = 0.5) -> None:
         self._serving = True
@@ -596,6 +538,7 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
             with selectors.DefaultSelector() as selector:
                 selector.register(wake_read, selectors.EVENT_READ)
                 listeners_registered = False
+                park_wait: float | None = None
 
                 try:
                     while not self._dual_shutdown_request:
@@ -620,22 +563,15 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                                 listeners_registered = True
                             timeout = poll_interval
 
-                        if self.park_idle_connections:
-                            timeout = self._park_poll_timeout(timeout)
+                        if park_wait is not None:
+                            timeout = min(timeout, max(0.0, park_wait))
 
-                        try:
-                            ready = selector.select(timeout)
-                        except ValueError as exc:
-                            if self.park_idle_connections and "too many file descriptors" in str(exc).lower():
-                                self._park_close_one_on_select_overflow(selector)
-                                continue
-                            raise
-
+                        ready = selector.select(timeout)
                         if self._dual_shutdown_request:
                             break
-                        self._serve_ready(ready, selector, wake_read)
+                        self._serve_ready(ready, wake_read)
                         if self.park_idle_connections:
-                            self._park_service_loop(selector)
+                            park_wait = self._park_tick(selector, ready)
                         self.service_actions()
                 finally:
                     if self.park_idle_connections:
@@ -678,7 +614,6 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
                         exc.pending,
                         exc.limit,
                     )
-                self._on_queue_full(request)
             else:
                 log.exception("Failed to submit accepted connection")
             try:
@@ -698,12 +633,9 @@ class DualStackThreadPoolHTTPServer(HTTPServer):
 
     def process_request_thread(self, request: Any, client_address: Any) -> None:
         """Process incoming request inside a pooled worker thread."""
-        failed = False
         try:
             self.finish_request(request, client_address)
         except Exception:
-            failed = True
             self.handle_error(request, client_address)
         finally:
-            if not (self.park_idle_connections and not failed and self._park_hand_off(request, client_address)):
-                self.shutdown_request(request)
+            self.shutdown_request(request)

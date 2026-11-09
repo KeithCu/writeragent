@@ -2,7 +2,16 @@
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Monaco editor host: spawn child process, pipe bridge, and session launch."""
+"""Monaco editor host: spawn child process, pipe bridge, and session launch.
+
+Concurrency:
+_PROBE_LOCK guards the webview probe caches (_PROBE_CACHE, _PROBE_FAILURE_CACHE),
+_probe_generation, _probe_wanted, and _probe_running. UI thread code only reads
+cached results via cached_webview_probe and arms checks via _ensure_webview_probe.
+The webview-probe worker thread is the only caller that runs ManagedSubprocess.run
+for this probe and the only writer that stores results into the probe caches.
+_PROBE_LOCK is never held across ManagedSubprocess.run.
+"""
 
 # =========================================================================================
 # WARNING: PARITY INVARIANT WITH MONACO JAVASCRIPT FRONTEND
@@ -29,8 +38,9 @@ from typing import IO, Any, Callable, cast
 from plugin.framework.thread_guard import background, main_thread_only
 from plugin.framework.event_bus import get_event_bus
 from plugin.framework.i18n import _
-from plugin.framework.queue_executor import QueueExecutor, default_executor
+from plugin.framework.queue_executor import MainThread, main
 from plugin.framework.worker_pool import BackgroundHandle, run_in_background
+from plugin.scripting.config_limits import VENV_IPC_WRITE_TIMEOUT_SEC
 from plugin.scripting.editor_errors import (
     exception_traceback,
     failure_detail,
@@ -39,15 +49,20 @@ from plugin.scripting.editor_errors import (
 from plugin.scripting.editor_ipc import (
     PARENT_TO_CHILD_TYPES,
     message_type,
+    pack_message,
     session_id_of,
     stamp_session,
     target_from_load,
     target_identity_key,
-    write_message,
 )
 from plugin.scripting.document_scripts import SCRIPT_PICKER_MESSAGE_TYPES, handle_editor_script_message
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, read_pickle_frame
-from plugin.scripting.sandbox import resolve_venv_python, scrub_subprocess_env, wrap_command_for_sandbox
+from plugin.framework.ipc import (
+    DEFAULT_MAX_PAYLOAD_BYTES,
+    read_pickle_frame,
+    write_packed_frame_with_timeout,
+)
+from plugin.framework.subprocess_env import scrub_subprocess_env
+from plugin.scripting.sandbox import resolve_venv_python, wrap_command_for_sandbox
 from plugin.scripting.venv_worker import (
     warm_venv_worker,
 )
@@ -90,15 +105,15 @@ EDITOR_BACKENDS = ("monaco", "codemirror")
 
 def selected_editor_backend() -> str:
     """Return the configured web editor (scripting.python_editor): "monaco" or "codemirror"."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    value = get_config_str("scripting.python_editor").strip().lower()
+    value = str(get_config("scripting.python_editor") or "").strip().lower()
     return value if value in EDITOR_BACKENDS else "monaco"
 
 
 def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
     """Environment for editor subprocess (venv python + GUI session variables)."""
-    env = scrub_subprocess_env(dict(os.environ))
+    env = scrub_subprocess_env(dict(os.environ), keep=("LD_LIBRARY_PATH",))
     env["WRITERAGENT_EDITOR_ASSETS"] = assets_dir or _ASSETS_DIR
     env["WRITERAGENT_EDITOR_BACKEND"] = selected_editor_backend()
     for key in (
@@ -107,7 +122,6 @@ def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
         "WAYLAND_DISPLAY",
         "XDG_RUNTIME_DIR",
         "DBUS_SESSION_BUS_ADDRESS",
-        "LD_LIBRARY_PATH",
     ):
         if key in os.environ and key not in env:
             env[key] = os.environ[key]
@@ -116,9 +130,9 @@ def build_editor_child_env(*, assets_dir: str | None = None) -> dict[str, str]:
 
 def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
     """Return (venv python executable, error message). Monaco requires a user venv."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
 
-    venv_dir = get_config_str("scripting.python_venv_path").strip()
+    venv_dir = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv_dir:
         return (
             None,
@@ -139,6 +153,11 @@ def resolve_editor_python(uno_ctx: Any) -> tuple[str | None, str]:
     return exe, ""
 
 
+_PROBE_LOCK = threading.Lock()
+_probe_generation: int = 0
+_probe_wanted: str | None = None
+_probe_running: bool = False
+
 _PROBE_CACHE: dict[str, tuple[bool, str]] = {}
 # Failures only: (monotonic expiry, result). Successes stay in _PROBE_CACHE
 # until the venv path changes.
@@ -149,13 +168,7 @@ _PROBE_FAILURE_CACHE: dict[str, tuple[float, tuple[bool, str]]] = {}
 _PROBE_FAILURE_TTL_SEC = 30.0
 
 
-def probe_webview_import(exe: str) -> tuple[bool, str]:
-    """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics.
-
-    Monaco also needs ``rocher`` (Monaco's files); CodeMirror does not.
-    Successes stay cached until the venv path or scripting.python_editor changes. Failures are remembered
-    for ``_PROBE_FAILURE_TTL_SEC``.
-    """
+def _cached_probe_locked(exe: str) -> tuple[bool, str] | None:
     cached = _PROBE_CACHE.get(exe)
     if cached is not None and cached[0]:
         return cached
@@ -165,14 +178,45 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         if time.monotonic() < expires_at:
             return result
         _PROBE_FAILURE_CACHE.pop(exe, None)
+    return None
+
+
+def reset_webview_probe_state() -> None:
+    """Reset webview probe caches and worker state (testing only)."""
+    global _probe_generation, _probe_wanted, _probe_running
+    with _PROBE_LOCK:
+        _PROBE_CACHE.clear()
+        _PROBE_FAILURE_CACHE.clear()
+        _probe_generation = 0
+        _probe_wanted = None
+        _probe_running = False
+
+
+def cached_webview_probe(exe: str) -> tuple[bool, str] | None:
+    """Return cached webview probe result for *exe*, or None if not cached or expired."""
+    with _PROBE_LOCK:
+        return _cached_probe_locked(exe)
+
+
+def probe_webview_import(exe: str, *, apply_generation: int) -> tuple[bool, str]:
+    """Return whether *exe* can ``import webview`` (pywebview package), with diagnostics.
+
+    Blocks up to 30 s; call only from the ``webview-probe`` worker.
+    Monaco also needs ``rocher`` (Monaco's files); CodeMirror does not.
+    Successes stay cached until the venv path or scripting.python_editor changes. Failures are remembered
+    for ``_PROBE_FAILURE_TTL_SEC``.
+    """
+    cached = cached_webview_probe(exe)
+    if cached is not None:
+        return cached
 
     def _remember_failure(result: tuple[bool, str]) -> tuple[bool, str]:
-        # Only successes used to be cached. monaco_editor_available calls this
-        # on the UI thread, and subprocess.run waits up to 30s. A slow or hung
-        # venv blocked every editor open for that full timeout. Cache the
-        # failure until the TTL, then probe again, so installing pywebview
-        # still becomes visible without freezing the dialog forever.
-        _PROBE_FAILURE_CACHE[exe] = (time.monotonic() + _PROBE_FAILURE_TTL_SEC, result)
+        # Failed probes are cached for a TTL so a broken or slow venv does not repeatedly trigger
+        # background subprocess probes on every editor check. Once the TTL expires, the next check
+        # can arm a fresh probe if the user has installed the missing packages.
+        with _PROBE_LOCK:
+            if apply_generation == _probe_generation:
+                _PROBE_FAILURE_CACHE[exe] = (time.monotonic() + _PROBE_FAILURE_TTL_SEC, result)
         return result
 
     env = build_editor_child_env()
@@ -193,8 +237,10 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
         detail = f"{detail}\n{r.stderr}".strip() if detail else r.stderr.strip()
     if r.returncode == 0:
         res = (True, detail)
-        _PROBE_CACHE[exe] = res
-        _PROBE_FAILURE_CACHE.pop(exe, None)
+        with _PROBE_LOCK:
+            if apply_generation == _probe_generation:
+                _PROBE_CACHE[exe] = res
+                _PROBE_FAILURE_CACHE.pop(exe, None)
         return res
     if not detail:
         detail = f"exit code {r.returncode}"
@@ -202,11 +248,72 @@ def probe_webview_import(exe: str) -> tuple[bool, str]:
     return _remember_failure((False, detail))
 
 
+def _spawn_probe_worker(exe: str) -> None:
+    """Schedule the background probe worker outside the lock, rolling back on failure."""
+    global _probe_running, _probe_wanted
+    try:
+        run_in_background(_webview_probe_worker, name="webview-probe", dedicated=False)
+    except Exception:
+        with _PROBE_LOCK:
+            _probe_running = False
+            if _probe_wanted == exe:
+                _probe_wanted = None
+        raise
+
+
+def _ensure_webview_probe(exe: str) -> None:
+    """Arm a background probe for *exe* if no cached result exists and no probe is running."""
+    global _probe_wanted, _probe_running
+    with _PROBE_LOCK:
+        if _cached_probe_locked(exe) is not None:
+            return
+        if _probe_running or _probe_wanted is not None:
+            return
+        _probe_wanted = exe
+        _probe_running = True
+
+    _spawn_probe_worker(exe)
+
+
+def _invalidate_webview_probe(exe: str | None) -> None:
+    """Clear probe caches, invalidate in-flight probe generation, and queue *exe* if not None."""
+    global _probe_generation, _probe_wanted, _probe_running
+    start_worker = False
+    with _PROBE_LOCK:
+        _PROBE_CACHE.clear()
+        _PROBE_FAILURE_CACHE.clear()
+        _probe_generation += 1
+        _probe_wanted = exe
+        if exe is not None and not _probe_running:
+            _probe_running = True
+            start_worker = True
+
+    if start_worker and exe is not None:
+        _spawn_probe_worker(exe)
+
+
+def _webview_probe_worker() -> None:
+    """Worker loop that drains requested webview probes outside the lock."""
+    global _probe_wanted, _probe_running
+    while True:
+        with _PROBE_LOCK:
+            exe = _probe_wanted
+            _probe_wanted = None
+            gen = _probe_generation
+            if exe is None:
+                _probe_running = False
+                return
+        try:
+            probe_webview_import(exe, apply_generation=gen)
+        except Exception:
+            log.exception("Unexpected error in webview-probe worker for %s", exe)
+
+
 def spawn_editor_process(exe: str, *, assets_dir: str | None = None) -> subprocess.Popen[bytes]:
     """Start editor_main.py through ManagedSubprocess.start and return that Popen; the host stderr thread is the drain; terminate owns shutdown."""
     # base_env is the full child environment from build_editor_child_env.
     # env= would overlay that onto os.environ and put scrubbed secrets back.
-    # scrub_env=True would drop LD_LIBRARY_PATH, which that builder restores.
+    # scrub_env=True is not used: build_editor_child_env already scrubbed the environment while keeping LD_LIBRARY_PATH.
     # drain_stderr stays false: _stderr_drain_loop is already the stderr reader.
     # register stays false: shutdown_all must not kill_tree this child.
     # log_start_failure stays false: launch_monaco_editor catches the original OSError.
@@ -251,9 +358,7 @@ def error_frame(message: str, exc: BaseException | None = None) -> dict[str, Any
 class DeferredEditorResult:
     """A save whose Monaco frame is delivered later, on the main thread.
 
-    Monaco Run used to call the venv wait inside the UI-thread save handler.
-    ``start(deliver)`` schedules that work. ``deliver`` is called once with the
-    same dict a synchronous ``on_save`` would have returned.
+    ``start(deliver)`` runs the venv wait off the UI-thread save path so the dialog stays responsive. ``deliver`` is called once with the same dict a synchronous ``on_save`` would have returned.
     """
 
     _start: _EditorStart
@@ -330,7 +435,7 @@ class PersistentEditor:
 
         self.sessions: dict[str, EditorSessionState] = {}
         self.focused_id: str | None = None
-        self.executor: QueueExecutor = default_executor
+        self.executor: MainThread = main
         self.ctx: Any = None
         self.run_script_doc: Any = None
         self.run_script_doc_url: str | None = None
@@ -419,27 +524,14 @@ class PersistentEditor:
         ManagedSubprocess.close() (SIGTERM, 3s, reaper) and kill_tree() (no wait, no pipe close) are a different shutdown.
         ``kill_process_tree`` runs even when ``poll()`` is already set. ``wait`` / ``proc.kill`` run only if the leader was alive before the tree kill.
         """
-        # Bugfix: send read self._proc three times under _stdin_lock while terminate
-        # nulled it and closed the pipes without the lock, so a concurrent config-thread
-        # terminate_persistent_editor, reader finally, or UI send raised AttributeError
-        # on None.poll or wrote a closed stdin. One local proc inside the lock, and
-        # terminate publishing None before it closes, makes send either finish the write
-        # on the pipes it captured or see None and raise RuntimeError. The lock is not
-        # held across kill/wait because the reader timeout path is inside send.
+        # terminate() clears self._proc under _stdin_lock before closing pipes so concurrent send/reader paths capture a stable proc reference or see None safely. Without that ordering, one thread can call poll() on None or write to a closed stdin.
         with self._stdin_lock:
             proc = self._proc
             self._proc = None
         if proc is None:
             return
         try:
-            # What was wrong: the group kill was skipped once the leader had
-            # exited. How it happened: terminate() gated kill_process_tree on
-            # poll() is None, so a crashed editor_main left Qt/WebEngine
-            # grandchildren in the session (start_new_session). Why this
-            # change fixes it: always signal the group. kill_process_tree
-            # already killpg's a reaped session leader. Sample liveness first
-            # so wait/kill still reap a leader this call killed, and an
-            # already-reaped leader is not waited.
+            # kill_process_tree runs even when the leader already exited so Qt/WebEngine children from start_new_session do not survive a crash. Liveness is sampled first so we still wait/kill a leader this call terminated.
             leader_alive = proc.poll() is None
             kill_process_tree(proc)
             if leader_alive:
@@ -469,6 +561,7 @@ class PersistentEditor:
                 mode=state.mode or str(message.get("mode") or ""),
                 target=state.target,
             )
+        timed_out = False
         with self._stdin_lock:
             proc = self._proc
             if proc is None:
@@ -479,11 +572,26 @@ class PersistentEditor:
                 raise RuntimeError(f"Editor process already exited (code={exit_code}). {detail}")
             if proc.stdin is None:
                 raise RuntimeError("Editor process stdin is closed")
+            frame = pack_message(message)
             try:
-                write_message(proc.stdin, message)
+                write_packed_frame_with_timeout(
+                    proc.stdin,
+                    frame,
+                    VENV_IPC_WRITE_TIMEOUT_SEC,
+                    is_alive=lambda: proc.poll() is None,
+                )
             except BrokenPipeError as e:
                 detail = self.read_stderr_tail()
                 raise RuntimeError(f"Editor process closed stdin. {detail}") from e
+            except subprocess.TimeoutExpired:
+                timed_out = True
+
+        if timed_out:
+            log.warning("editor_host: stdin write timed out after %ss; editor unresponsive", VENV_IPC_WRITE_TIMEOUT_SEC)
+            # write_packed_frame_with_timeout caps stdin writes so a child that stops reading cannot block the UI thread indefinitely; a timed-out write tears down the editor because partial frames must not be reused.
+            terminate_persistent_editor()
+            detail = self.read_stderr_tail()
+            raise RuntimeError(f"Editor unresponsive. {detail}")
 
     def read_stderr_tail(self) -> str:
         """Return stderr already captured by the drain thread."""
@@ -547,11 +655,11 @@ class PersistentEditor:
 
     def wait_for_ready(self, ctx: Any, timeout_sec: float = 30.0) -> bool:
         """Wait for ``ready`` while pumping LibreOffice UI events."""
-        from plugin.framework.uno_context import process_events_to_idle
+        from plugin.framework.uno_context import wait_while_pumping
 
         deadline = time.monotonic() + timeout_sec
         proc = self._proc
-        while time.monotonic() < deadline:
+        while True:
             if self._ready_event.is_set():
                 return True
             proc = self._proc
@@ -561,8 +669,10 @@ class PersistentEditor:
             if exit_code is not None:
                 log.error("Editor child exited before ready (code=%s). stderr=%s", exit_code, self.read_stderr_tail())
                 return False
-            process_events_to_idle(ctx)
-            time.sleep(0.05)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            wait_while_pumping(self._ready_event, ctx, timeout=min(0.25, remaining))
         if not self._ready_event.is_set():
             log.error("Editor ready timeout (%ss). child_running=%s stderr=%s", timeout_sec, proc is not None, self.read_stderr_tail())
         return self._ready_event.is_set()
@@ -584,13 +694,7 @@ class PersistentEditor:
                 self._handle_disconnect()
             else:
                 log.info("editor_host: old reader loop ignored disconnect (superseded by new process)")
-            # terminate() used to run only when the reader raised. A clean EOF
-            # (child closed stdout) while poll() was still None dropped the
-            # session via _handle_disconnect but left the process on self._proc.
-            # is_running stayed True, so the next launch reused a child with no
-            # reader. Any exit of this loop that still owns a live process kills
-            # it. A child that already exited, or a reader superseded by a new
-            # spawn, is left alone.
+            # If this loop still owns a live process after EOF or disconnect, terminate() clears it so is_running does not keep a leader with no reader. Superseded or already-exited children are left alone.
             if still_ours and proc.poll() is None:
                 self.terminate()
 
@@ -630,7 +734,7 @@ class PersistentEditor:
                 log.warning("editor_host: ignored incoming message from old process")
 
     def _marshal_timeout(self) -> float:
-        """UI wait for a save/close. The script budget can be 600s; 60s used to overlap it."""
+        """UI wait for a save/close. Matches configured_python_exec_timeout plus slack so long script budgets are not cut off at a fixed 60s."""
         from plugin.scripting.config_limits import configured_python_exec_timeout
 
         return float(configured_python_exec_timeout()) + 5.0
@@ -638,7 +742,7 @@ class PersistentEditor:
     def _run_on_main(self, fn: Callable[[], None], label: str) -> Exception | None:
         """Queue *fn* on the UI thread. Return the marshal failure, else None."""
         try:
-            self.executor.execute(fn, timeout=self._marshal_timeout(), bound_scope=None)
+            self.executor.call(fn, timeout=self._marshal_timeout(), bound_scope=None)
         except Exception as exc:
             log.exception("%s timed out" if isinstance(exc, TimeoutError) else "%s marshal failed", label)
             return exc
@@ -737,7 +841,8 @@ class PersistentEditor:
                     return
                 if payload.get("type") == "saved" or payload.get("ok"):
                     captured.dirty = False
-                self.send(payload, session=captured)
+            # self.send() runs outside _save_lock so a write timeout can terminate the child without deadlocking the pipe reader, which also needs _save_lock in _on_save.
+            self.send(payload, session=captured)
 
         def _handle_save() -> None:
             with self._save_lock:
@@ -905,14 +1010,7 @@ class EditorSession:
             # replaces on_save when the same target is reused. A wrapper whose callback
             # is no longer the state's must not end_session it.
             if live is not None and live.on_save is self._on_save:
-                # Every session switch used to call _finish, which called
-                # end_session(call_closed=False). When _register_load_session ran
-                # later, the old session was already gone, so on_closed never
-                # fired for clean buffers during a target switch. When switching
-                # to another session (clearing=False), _finish does not end the
-                # session; _register_load_session ends the previous one with
-                # call_closed=True. _finish ends the session (call_closed=True)
-                # only when clearing=True (session is None) or the subprocess died.
+                # On a target switch (clearing=False), _finish does not end the session; _register_load_session ends the prior one with call_closed=True so on_closed still runs. Session end here happens only when clearing or the subprocess died.
                 if clearing or not _PERSISTENT_EDITOR.is_running:
                     _PERSISTENT_EDITOR.end_session(self.session_id, call_closed=True)
 
@@ -982,8 +1080,11 @@ def _on_config_changed(**kwargs: Any) -> None:
     if venv_changed or editor_changed:
         # The probe checks different packages per editor (rocher only for Monaco).
         log.info("editor_host: venv path or python_editor changed, terminating background editor process")
-        _PROBE_CACHE.clear()
-        _PROBE_FAILURE_CACHE.clear()
+        exe = resolve_probeable_editor_python(None)
+        try:
+            _invalidate_webview_probe(exe)
+        except Exception:
+            log.exception("editor_host: failed to schedule webview probe on config change")
 
     if force_changed:
         log.info("editor_host: scripting.force_internal_script_editor changed, terminating background editor process")
@@ -994,28 +1095,45 @@ def _on_config_changed(**kwargs: Any) -> None:
 get_event_bus().subscribe("config:changed", _on_config_changed)
 
 
+def resolve_probeable_editor_python(ctx: Any = None) -> str | None:
+    """Return configured venv Python executable if Monaco is enabled and configured, else None."""
+    from plugin.framework.config import get_config
+
+    if get_config("scripting.force_internal_script_editor"):
+        log.debug("monaco editor bypassed by scripting.force_internal_script_editor")
+        return None
+    exe, err = resolve_editor_python(ctx)
+    if not exe:
+        log.debug("monaco editor venv python unavailable (%s)", err)
+        return None
+    return exe
+
+
+def arm_webview_probe_at_startup(ctx: Any = None) -> None:
+    """Arm the webview probe on the background pool at startup if configured."""
+    exe = resolve_probeable_editor_python(ctx)
+    if exe is not None:
+        _ensure_webview_probe(exe)
+
+
 # --- Session launch ---
 
 
 def monaco_editor_available(ctx: Any) -> tuple[str | None, bool]:
     """Return (venv python exe, True) when Monaco can launch, else (exe or None, False)."""
-    from plugin.framework.config import get_config
-    if get_config("scripting.force_internal_script_editor"):
-        log.debug("monaco_editor_available: bypassed by scripting.force_internal_script_editor")
-        return None, False
-
-    exe, err = resolve_editor_python(ctx)
+    exe = resolve_probeable_editor_python(ctx)
     if not exe:
-        log.debug("monaco_editor_available: no venv python (%s)", err)
         return None, False
     if _PERSISTENT_EDITOR.is_running:
         log.debug("monaco_editor_available: editor process already running, skipping probe")
         return exe, True
-    webview_ok, detail = probe_webview_import(exe)
-    if not webview_ok:
-        log.debug("monaco_editor_available: webview probe failed for %s: %s", exe, detail[:200] if detail else "")
+    cached = cached_webview_probe(exe)
+    if cached is None:
+        _ensure_webview_probe(exe)
         return exe, False
-    return exe, True
+    if not cached[0]:
+        log.debug("monaco_editor_available: webview probe failed for %s: %s", exe, cached[1][:200] if cached[1] else "")
+    return exe, cached[0]
 
 
 def monaco_session_needs_flush() -> bool:
@@ -1150,15 +1268,7 @@ def _register_load_session(
     if blocked is None and existing is None and focused is not None and _dirty_blocks_replace(focused):
         blocked = focused
     if blocked is not None:
-        # Switching modes used to end the focused session and let the load
-        # overwrite the buffer. The only confirm covered calc_cell, and only
-        # when opening another cell, so Run Script, init, and LaTeX edits were
-        # dropped (and Run Script dropped a dirty cell). set_active_session →
-        # _finish used call_closed=False, so neither on_save nor on_closed ran
-        # before the new code replaced the editor. launch_monaco_editor asks
-        # first. Save queues request_save and does not reach here until that
-        # save clears dirty. Discard sets replace_confirmed. Anything else
-        # keeps the buffer.
+        # Dirty buffers must not be replaced silently when switching mode or target; launch_monaco_editor must confirm or save first. Without this check, Run Script, init, and LaTeX edits could be overwritten without on_save or on_closed.
         raise DirtyBufferError(
             f"Refusing to replace dirty Monaco session {blocked.session_id} ({blocked.mode})"
         )
@@ -1334,7 +1444,7 @@ def launch_monaco_editor(
         # Finite pre-warm, same as the native script dialog; the shared daemon pool
         # is for this; dedicated=True is for servers, pipe drains, and jobs another
         # thread joins.
-        run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+        run_in_background(warm_venv_worker, name="warm-venv-worker", dedicated=False)
 
     if not session.is_running:
         detail = _PERSISTENT_EDITOR.read_stderr_tail()

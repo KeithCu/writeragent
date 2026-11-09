@@ -17,17 +17,13 @@ import logging
 from dataclasses import dataclass
 from typing import Literal, Mapping
 
-from plugin.calc.address_utils import format_address, parse_address, parse_range_string, split_sheet_prefix
+from plugin.calc.address_utils import format_address, local_a1, parse_address, parse_local, parse_range_string, split_sheet_prefix
 from plugin.calc.python.formula_edit import (
-    PythonFormulaParts,
+    PyFormula,
     assemble_python_formula,
     escape_code_for_formula,
-    format_data_binding_display,
     format_py_data_range,
-    parse_data_binding_text,
-    parse_python_formula,
     py_code_arg_is_cell_ref,
-    py_formula_has_unquoted_code_ref,
 )
 
 log = logging.getLogger(__name__)
@@ -76,22 +72,6 @@ class EvalIndexKey:
     n_args: int
 
 
-def local_a1(address: str) -> str:
-    """``Sheet1.A1`` / ``$A$1`` / ``A1`` → ``A1`` (no ``$``)."""
-    _sheet, rest = split_sheet_prefix(address or "")
-    return rest.replace("$", "").strip().upper()
-
-
-def _parse_local(address: str) -> tuple[int, int] | None:
-    local = local_a1(address)
-    if not local:
-        return None
-    try:
-        return parse_address(local)
-    except (TypeError, ValueError):
-        return None
-
-
 def same_cell_ref(left: str, right: str) -> bool:
     """True when two formula tokens name the same cell (``$`` / sheet ignored)."""
     return bool(left) and bool(right) and local_a1(left) == local_a1(right)
@@ -115,16 +95,12 @@ def _arg_covers_cell(arg: str, target_a1: str, *, sheet_name: str | None = None)
     return c_lo <= tcol <= c_hi and r_lo <= trow <= r_hi
 
 
-def _args_of(parts: PythonFormulaParts) -> list[str]:
-    return parse_data_binding_text(format_data_binding_display(parts.data_suffix))
-
-
 def formula_data_args(formula: str) -> list[str] | None:
     """Trailing ``=PY`` data args, or None if the formula does not parse."""
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     if parts is None:
         return None
-    return _args_of(parts)
+    return parts.data_args()
 
 
 def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | None:
@@ -133,10 +109,10 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
     Quoted code is quote-escaped only (``"`` → ``""``). Code-in-cell keeps
     the unquoted ref (``$A$1``).
     """
-    parts = parse_python_formula(formula)
+    parts = PyFormula.parse(formula)
     if parts is None:
         return None
-    old_args = _args_of(parts)
+    old_args = parts.data_args()
     # Join existing user args verbatim; format only a new/replaced last pred.
     # ``build_data_suffix`` / ``_format_py_data_range_body`` strip ``$`` from
     # every token. Keep the parsed original spelling; only the appended/replaced
@@ -154,7 +130,7 @@ def rebuild_formula_with_data_args(formula: str, data_args: list[str]) -> str | 
             else:
                 emitted.append(tok)
         suffix = f";{';'.join(emitted)})"
-    if py_formula_has_unquoted_code_ref(formula):
+    if parts.code_is_ref:
         return assemble_python_formula(parts.prefix, parts.code, suffix, quoted=False)
     return assemble_python_formula(parts.prefix, escape_code_for_formula(parts.code), suffix, quoted=True)
 
@@ -178,10 +154,9 @@ def _adj_for(
     sheet_name: str,
 ) -> set[str]:
     tokens = list(args or [])
-    if py_formula_has_unquoted_code_ref(formula):
-        parts = parse_python_formula(formula)
-        if parts is not None and parts.code:
-            tokens.append(parts.code)
+    parts = PyFormula.parse(formula)
+    if parts is not None and parts.code_is_ref and parts.code:
+        tokens.append(parts.code)
     return {
         live for live in live_keys
         if any(_arg_covers_cell(token, live, sheet_name=sheet_name) for token in tokens)
@@ -228,8 +203,8 @@ def _plan_cell(
 
 def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: str) -> tuple[int, int] | None:
     """``pred + (live − old)`` equals *desired* — the cell moved with its formula."""
-    parsed_old = _parse_local(old)
-    parsed_live = _parse_local(live)
+    parsed_old = parse_local(old)
+    parsed_live = parse_local(live)
     if parsed_old is None or parsed_live is None:
         return None
     ocol, orow = parsed_old
@@ -237,7 +212,7 @@ def _rule2_candidate_score(old: str, rec: GeometricRecord, live: str, desired: s
     dcol, drow = lcol - ocol, lrow - orow
     if not (dcol or drow):
         return None
-    parsed_pred = _parse_local(rec.predecessor)
+    parsed_pred = parse_local(rec.predecessor)
     if parsed_pred is None:
         return None
     pcol, prow = parsed_pred
@@ -339,10 +314,8 @@ def compute_eval_index(
     """Strip-safe iff every discovered cell with that triple is attached and ours.
 
     The cell's trailing single-cell argument must match rec.predecessor
-    via same_cell_ref. compute_eval_index used to accept any address that
-    was already in records. A leftover from an edit between passes would
-    then mark the group strip-safe after the user replaced the attached
-    predecessor with real data, and that data would be stripped.
+    via same_cell_ref. compute_eval_index ignores addresses merely present in
+    records from an earlier pass—otherwise replaced predecessor data can be stripped.
     """
     seen: set[EvalIndexKey] = set()
     bad: set[EvalIndexKey] = set()

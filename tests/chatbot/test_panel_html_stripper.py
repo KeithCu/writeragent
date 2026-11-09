@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 from unittest.mock import MagicMock, patch
 
-from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response
+from plugin.chatbot.tool_loop_actions import finalize_sidebar_assistant_response, assign_send_outcome
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK
 from plugin.framework.html_stripper import StreamingHTMLStripper
 
@@ -123,7 +123,7 @@ class TestPanelHTMLStripper:
         """Packet F: HTTP 429/500 must not be replaced by the previous HTML reply."""
         send = _make_plain_send_listener()
         send.rerender_rich_text_session = MagicMock()
-        send._terminal_status = "Error"
+        assign_send_outcome(send, "error")
         _turn(send).stripper = StreamingHTMLStripper()
         finalize_sidebar_assistant_response(send)
         send.rerender_rich_text_session.assert_not_called()
@@ -151,7 +151,7 @@ class TestPanelHTMLStripper:
     def test_finalize_on_error_flushes_leftover_without_rerender(self):
         send = _make_plain_send_listener()
         send.rerender_rich_text_session = MagicMock(return_value=True)
-        send._terminal_status = "Error"
+        assign_send_outcome(send, "error")
         send._append_response = MagicMock()
         _turn(send).stripper.feed("tail <i")
         finalize_sidebar_assistant_response(send)
@@ -162,7 +162,7 @@ class TestPanelHTMLStripper:
     def test_finalize_rerenders_when_stopped_status(self):
         send = _make_plain_send_listener()
         send.rerender_rich_text_session = MagicMock()
-        send._terminal_status = "Stopped"
+        assign_send_outcome(send, "stopped")
         _turn(send).stripper = None
         finalize_sidebar_assistant_response(send)
         send.rerender_rich_text_session.assert_called_once()

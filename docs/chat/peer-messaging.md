@@ -61,7 +61,7 @@ A user (or an eval harness) has two or three windows open in the same LibreOffic
 | Draw sidebar | That Draw model (`com.sun.star.drawing.DrawingDocument`) | Draw **core** tools + `delegate_to_specialized_draw_toolset` | A **third** `ChatSession` + `ToolCallingMixin` |
 | Impress sidebar | That Impress model (`com.sun.star.presentation.PresentationDocument`; also supports `DrawingDocument`) | Same Draw **core** tools + `delegate_to_specialized_draw_toolset` | A **fourth** `ChatSession` + `ToolCallingMixin` |
 
-They already share the process: one `ToolRegistry` (`plugin.main.get_tools()`), one `ServiceRegistry` (`get_services()`), one UNO Desktop, one `LlmClient` stack, one history DB file, one memory/skills directory. What they do **not** share is a conversation or a tool schema. Each send builds schemas for **that** `doc_type` and executes tools against **that** `ToolContext.doc`.
+They already share the process: one `ToolRegistry` (`plugin.app.get_tools()`), one `ServiceRegistry` (`get_services()`), one UNO Desktop, one `LlmClient` stack, one history DB file, one memory/skills directory. What they do **not** share is a conversation or a tool schema. Each send builds schemas for **that** `doc_type` and executes tools against **that** `ToolContext.doc`.
 
 **What the user wants:** the Writer agent can send the Calc agent Calc work, or the Draw agent Draw work (and any reverse), in natural language. The other sidebar **shows the message and runs it**. A reply comes back later on the caller’s transcript as a **new user turn**. Writer never advertises `write_formula_range` or `shape_upsert`; Calc never advertises `apply_document_content`.
 
@@ -346,7 +346,7 @@ GDPval GMP change-control ([`docs/eval/gdpval/58ac1cc5-…`](../eval/gdpval/58ac
 
 **Staging fact, not a product claim:** LibreOffice File → Open on a PDF often imports as **editable Draw text and shapes**, not live AcroForm widgets. A headed poke may land the gold PDF in Draw. That is eval/harness staging. It is **not** “WriterAgent edits PDFs” and **not** an AcroForm API.
 
-The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty boxes as fill targets; `delegate_to_specialized_draw_toolset` → `fill_draw_fields` / `shape_upsert` by name from the tree; shared `form_*` only for live ControlShapes). Do not spawn new ControlShapes for paper-form blanks. Then it `send_peer_result`s back.
+The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty boxes as fill targets; `delegate_to_specialized_draw_toolset` → `shape_fill_fields` / `shape_upsert` by name from the tree; shared `form_*` only for live ControlShapes). Do not spawn new ControlShapes for paper-form blanks. Then it `send_peer_result`s back.
 
 ### 4.8 Worked scenarios
 
@@ -355,7 +355,7 @@ The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty
 1. Writer **outer** schemas stay Writer-only and do **not** list peer send tools. The outer turn stays high-level and delegates `document_research`.
 2. The document_research subagent sees both peer send tools because the budget `.ods` is a resolvable other peer; it calls `send_peer_work(document_url=<budget uid>, message="Compute Q4 revenue by region and reply with an HTML table plus the ranges you used.")` → `{ok, accepted}`. It does **not** put the Writer URL in `message`.
 3. Gateway prepends `[Peer work from: Risk memo.odt | uid=… | url=…]` on the **Calc** session. The inner agent finishes (`specialized_workflow_finished`); Writer **Readys** (no further document_research / python / query in that turn). Caller drain exits.
-4. Calc **main** sees the `[Peer work from: …]` envelope (plus delivery footer), does the local work (`write_formula_range` / Total row / `ranges`→`sort_range`) **on the Calc model only**, then `delegate_to_specialized_calc_toolset(domain="document_research")` with a task to reply (Writer uid/url from the envelope, HTML/table). Calc main does **not** call a peer send tool on the outer loop.
+4. Calc **main** sees the `[Peer work from: …]` envelope (plus delivery footer), does the local work (`write_formula_range` / Total row / `ranges`→`range_sort`) **on the Calc model only**, then `delegate_to_specialized_calc_toolset(domain="document_research")` with a task to reply (Writer uid/url from the envelope, HTML/table). Calc main does **not** call a peer send tool on the outer loop.
 5. Calc document_research calls `send_peer_result(document_url=<Writer uid or url from the envelope>, message=<table + ranges>)``, then **must** `specialized_workflow_finished` immediately. Host wraps with Calc’s `ctx.doc` envelope and queues/injects onto **Writer**.
 6. Writer follow-up turn: `apply_document_content` on the Writer doc and **stop**. This envelope is a data/result reply, not a new ask — do **not** delegate an ack specialize.
 
@@ -363,7 +363,7 @@ The Draw sidebar fills the stand-in with Draw tools (`get_draw_tree` marks empty
 
 1. Writer drafts the memo with Writer tools.
 2. Writer document_research `send_peer_work(document_url=<stand-in uid>, message="Fill the change-control fields from this discrepancy summary: … Reply with a short confirmation.")` → `{ok, accepted}` then `specialized_workflow_finished`. Writer Readys.
-3. Draw **main** sees the Writer envelope, runs `get_draw_tree` then `fill_draw_fields` (or `shape_upsert` by name) **on the Draw model only**, then `delegate_to_specialized_draw_toolset(domain="document_research")` to reply. Empty text boxes are the fill targets; use the name from the tree. `form_*` is only for live ControlShapes.
+3. Draw **main** sees the Writer envelope, runs `get_draw_tree` then `shape_fill_fields` (or `shape_upsert` by name) **on the Draw model only**, then `delegate_to_specialized_draw_toolset(domain="document_research")` to reply. Empty text boxes are the fill targets; use the name from the tree. `form_*` is only for live ControlShapes.
 4. Draw document_research `send_peer_result(document_url=<Writer uid or url from the envelope>, message=<confirmation>)`` then `specialized_workflow_finished`. Writer follow-up cites the form in the memo.
 
 Reverse (Draw asks Writer for a paragraph) is the same tool with a Writer uid.
@@ -443,7 +443,7 @@ Recorded after #814 landed and Scrolly ran headed cross-doc proves on tip (`cc28
 | Scenario | Pair | Verdict |
 | -------- | ---- | ------- |
 | **2** | Writer ↔ Calc (column headers) | **HAPPY** — work → result; Writer got `[Peer result from: table_fixture…]`. |
-| **4** | Writer ↔ Calc (sort revenue) | **HAPPY** — nested `ranges`/`sort_range` then `send_peer_result`; delivery-pending stamp used. |
+| **4** | Writer ↔ Calc (sort revenue) | **HAPPY** — nested `ranges`/`range_sort` then `send_peer_result`; delivery-pending stamp used. |
 | **5** | Writer ↔ Impress (Risks slide) | **HAPPY** — slide + `[Peer result from: blank.odp…]` in log. |
 | **8** | Writer ↔ Calc (+ Impress KPI) | **PARTIAL** — Calc total **254** peer result OK; Impress confirm weak (below). |
 

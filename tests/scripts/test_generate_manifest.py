@@ -364,6 +364,20 @@ def test_generate_manifest_py_emits_only_modules_table(tmp_path):
         assert isinstance(mod, dict)
         assert "actions" not in mod
         assert "action_icons" in mod
+        assert "action_titles" in mod
+
+
+def test_generate_manifest_py_emits_action_titles_with_n_gettext(tmp_path):
+    out = tmp_path / "_manifest.py"
+    manifests = find_modules(str(_PLUGIN_DIR))
+    generate_manifest_py(manifests, str(out))
+    source = out.read_text(encoding="utf-8")
+    assert 'N_("Extend Selection")' in source
+    code = compile(source, str(out), "exec")
+    ns: dict[str, object] = {}
+    exec(code, ns)
+    chatbot_mod = next(m for m in ns["MODULES"] if isinstance(m, dict) and m.get("name") == "chatbot")
+    assert chatbot_mod["action_titles"]["extend_selection"] == "Extend Selection"
 
 
 def test_generate_settings_dialog_tabs_missing_template(tmp_path):

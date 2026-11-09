@@ -14,11 +14,18 @@ import threading
 import uuid
 from typing import Any
 
-from plugin.doc.doc_type import is_calc, is_draw, is_writer
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.udprops import get_document_property, set_document_property
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_desktop, iter_desktop_models
+from plugin.framework.uno_context import get_desktop, iter_open_models
+from plugin.scripting.session_key import (
+    DOCUMENT_KINDS,
+    SessionKey,
+    SessionKind,
+    is_unsaved_document_key,
+    new_unsaved_document_key,
+)
 
 log = logging.getLogger(__name__)
 
@@ -43,11 +50,11 @@ def _msgbox_reset_failure(ctx: Any, res: dict[str, Any], default: str) -> bool:
     return True
 
 
-def _call_reset_python_session(ctx: Any, session_id: str) -> dict[str, Any]:
+def _call_reset_python_session(session_id: str) -> dict[str, Any]:
     """Lazy: LibrePy sidebar and document_scripts import this module for ids only."""
     from plugin.scripting.venv_worker import reset_python_session
 
-    return reset_python_session(ctx, session_id)
+    return reset_python_session(session_id)
 
 
 def _has_notebook_registry(doc: Any) -> bool:
@@ -71,13 +78,11 @@ def _reset_notebook_exec_count(target: Any) -> None:
 
 PYTHON_WORKBOOK_SESSION_PROP = "WriterAgentPythonSessionId"
 _SESSION_MODE_KEY = "scripting.python_session_mode"
-_SESSION_PREFIXES = ("calc", "rps", "notebook", "ppt_master")
-_INIT_SUFFIX = ":init"
 
 
 def python_session_mode() -> str:
     """Return ``isolated`` or ``shared`` from config (default ``isolated``)."""
-    raw = (get_config_str(_SESSION_MODE_KEY) or "isolated").strip().lower()
+    raw = str(get_config(_SESSION_MODE_KEY) or "isolated").strip().lower()
     return "shared" if raw == "shared" else "isolated"
 
 
@@ -91,7 +96,7 @@ def _enumerated_matching_models(ctx: Any, predicate: Any, *, label: str = "sessi
 
     matches: list[Any] = []
     try:
-        for model in iter_desktop_models(ctx, label=label):
+        for model in iter_open_models(get_desktop(ctx), strict=False, label=label):
             try:
                 if predicate(model):
                     matches.append(guard_uno(model))
@@ -108,16 +113,17 @@ def _find_document_by_predicate(ctx: Any, predicate: Any) -> Any | None:
     # Bugfix (#411): In headless mode or when focus is outside the frame, getCurrentComponent()
     # returns None. Fall back to desktop.getComponents() enumeration so UI commands
     # (session reset) still resolve the document model. =PY() never comes here.
-    from plugin.framework.errors import check_disposed, reraise_if_disposed
-    from plugin.framework.thread_guard import guard_uno, _unwrap_uno
+    from plugin.framework.errors import UnoObjectError, reraise_if_disposed
+    from plugin.framework.thread_guard import guard_uno, unwrap_uno
 
     desktop = get_desktop(ctx)
     doc = desktop.getCurrentComponent() if desktop else None
     if doc is not None:
         try:
-            # check_disposed is a None check; get_desktop is already @main_thread_only.
+            # None check; get_desktop is already @main_thread_only.
             # Unwrap so PropertyBag-style None tests see the real object, then re-wrap on return.
-            check_disposed(_unwrap_uno(doc))
+            if unwrap_uno(doc) is None:
+                raise UnoObjectError("Object is null", code="UNO_NULL_OBJECT")
             ctrl = getattr(doc, "getCurrentController", lambda: None)()
             # Headless soffice returns None from getCurrentController().
             # Requiring a controller skipped the open model, so session reset
@@ -147,10 +153,10 @@ _SCRIPT_DOC_PIN_LOCK = threading.Lock()
 
 def existing_calc_session_id(doc: Any) -> str | None:
     """``calc:`` id from a URL or stored prop. Does not mint a new prop."""
-    key = _existing_workbook_session_key(doc)
+    key = document_key(doc)
     if not key:
         return None
-    return f"calc:{key}"
+    return SessionKey.of(SessionKind.CALC, key).wire()
 
 
 def _calc_document(ctx: Any) -> Any | None:
@@ -179,11 +185,7 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
         from plugin.doc.udprops import remove_document_property
 
         remove_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
-        # What was wrong: a swallowed remove leaves the unsaved: property,
-        # and every later key lookup fired three worker resets.
-        # How: remove_document_property uses except Exception: pass.
-        # Why: a second read that is still truthy means the id is not orphaned
-        # yet, so skip IPC until a later call actually removes it.
+        # If the session property is still present after a failed remove, skip worker reset until removal actually succeeds and avoid triple resets on every lookup.
         still_present = get_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP)
     except Exception:
         log.debug("session_manager: removing session property failed", exc_info=True)
@@ -191,47 +193,44 @@ def _retire_orphaned_unsaved_session(raw_doc: Any, url: str, existing: str | Non
     if still_present:
         log.debug("session_manager: session property still present after remove; skipping reset")
         return
-    if not str(existing).startswith("unsaved:"):
+    if not is_unsaved_document_key(str(existing)):
         return
     try:
-        from plugin.framework.uno_context import get_ctx
-
-        ctx = get_ctx()
-        for prefix in _SESSION_PREFIXES:
-            _call_reset_python_session(ctx, f"{prefix}:{existing}")
+        for kind in DOCUMENT_KINDS:
+            _call_reset_python_session(SessionKey.of(kind, str(existing)).wire())
     except Exception:
         log.debug("session_manager: cleanup of unsaved session failed", exc_info=True)
 
 
-def _existing_workbook_session_key(doc: Any) -> str | None:
+def document_key(doc: Any) -> str | None:
     """URL or already-stored session prop. Does not create a prop."""
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
-    raw_doc = _unwrap_uno(doc)
+    raw_doc = unwrap_uno(doc)
     url = _doc_url(raw_doc)
     if url:
         return url
     return _stored_session_prop(raw_doc)
 
 
-def _session_key_for_reset(doc: Any) -> str | None:
-    from plugin.framework.thread_guard import _unwrap_uno
+def document_key_for_reset(doc: Any) -> str | None:
+    from plugin.framework.thread_guard import unwrap_uno
 
-    raw_doc = _unwrap_uno(doc)
+    raw_doc = unwrap_uno(doc)
     url = _doc_url(raw_doc)
     existing = _stored_session_prop(raw_doc)
     _retire_orphaned_unsaved_session(raw_doc, url, existing)
     return url or existing
 
 
-def _workbook_session_key(doc: Any) -> str:
-    key = _session_key_for_reset(doc)
+def mint_document_key(doc: Any) -> str:
+    key = document_key_for_reset(doc)
     if key:
         return key
-    from plugin.framework.thread_guard import _unwrap_uno
+    from plugin.framework.thread_guard import unwrap_uno
 
-    raw_doc = _unwrap_uno(doc)
-    new_id = f"unsaved:{uuid.uuid4()}"
+    raw_doc = unwrap_uno(doc)
+    new_id = new_unsaved_document_key()
     try:
         set_document_property(raw_doc, PYTHON_WORKBOOK_SESSION_PROP, new_id)
         # set_document_property returns without writing when the document has
@@ -245,17 +244,17 @@ def _workbook_session_key(doc: Any) -> str:
         log.debug("session_manager: writing session property failed", exc_info=True)
     # Do not use id(raw_doc): CPython recycles ids after GC, so two unsaved
     # docs opened in sequence could collide on a stale worker session.
-    return f"unsaved:{uuid.uuid4()}"
+    return new_unsaved_document_key()
 
 
 def calc_workbook_base_session_id(doc: Any) -> str:
     """Worker session id for shared-kernel ``=PY()`` (not the ``:init`` session)."""
-    return f"calc:{_workbook_session_key(doc)}"
+    return SessionKey.of(SessionKind.CALC, mint_document_key(doc)).wire()
 
 
 def calc_init_session_id(doc: Any) -> str:
     """Persistent worker session that runs the workbook init script once."""
-    return f"{calc_workbook_base_session_id(doc)}{_INIT_SUFFIX}"
+    return SessionKey.parse(calc_workbook_base_session_id(doc)).with_init_suffix().wire()
 
 
 def workbook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
@@ -290,7 +289,7 @@ def rps_session_id(ctx: Any, doc: Any | None = None) -> str | None:
         return None
     if is_calc(doc):
         return workbook_session_id(ctx, doc)
-    return f"rps:{_workbook_session_key(doc)}"
+    return SessionKey.of(SessionKind.RPS, mint_document_key(doc)).wire()
 
 
 def pin_script_document(doc: Any) -> str | None:
@@ -303,7 +302,7 @@ def pin_script_document(doc: Any) -> str | None:
     """
     if doc is None:
         return None
-    token = f"doc:{uuid.uuid4()}"
+    token = SessionKey.of(SessionKind.DOC, str(uuid.uuid4())).wire()
     with _SCRIPT_DOC_PIN_LOCK:
         _SCRIPT_DOC_PINS[token] = doc
     return token
@@ -311,7 +310,10 @@ def pin_script_document(doc: Any) -> str | None:
 
 def release_script_document(session_id: str | None) -> None:
     """Drop a pin from :func:`pin_script_document`. Other session ids are ignored."""
-    if not isinstance(session_id, str) or not session_id.startswith("doc:"):
+    if not isinstance(session_id, str):
+        return
+    parsed = SessionKey.parse(session_id)
+    if parsed.kind is not SessionKind.DOC:
         return
     with _SCRIPT_DOC_PIN_LOCK:
         _SCRIPT_DOC_PINS.pop(session_id, None)
@@ -320,9 +322,7 @@ def release_script_document(session_id: str | None) -> None:
 def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     """Open document whose workbook key matches *session_id*.
 
-    ``wa.doc`` used to call ``get_active_document``, so with two files open the
-    focused library was eval'd into whichever executor was running. The host
-    is single-flight and already has the in-flight session id.
+    ``wa.doc`` resolves the in-flight script session document, not whichever window is focused, so two open files cannot cross-wire library eval.
 
     ``ppt_master:{url}`` uses that same URL key. A long PPT-Master turn then
     exports into the sidebar frame's deck. ``ppt_master:active`` (no URL)
@@ -334,27 +334,25 @@ def document_for_script_session(ctx: Any, session_id: str | None) -> Any | None:
     """
     from plugin.framework.thread_guard import guard_uno
 
-    if isinstance(session_id, str) and session_id.startswith("doc:"):
+    if not isinstance(session_id, str):
+        return None
+    parsed = SessionKey.parse(session_id)
+    if parsed.kind is SessionKind.DOC:
         with _SCRIPT_DOC_PIN_LOCK:
             pinned = _SCRIPT_DOC_PINS.get(session_id)
         if pinned is None:
             return None
         # Same main-thread wrap as the desktop enumeration path below.
         return guard_uno(pinned)
-    if not isinstance(session_id, str) or ":" not in session_id:
+
+    lookup_key = parsed.document_lookup_key()
+    if not lookup_key:
         return None
-    prefix, key = session_id.split(":", 1)
-    if prefix not in _SESSION_PREFIXES:
-        return None
-    if prefix == "calc" and key.endswith(_INIT_SUFFIX):
-        key = key[: -len(_INIT_SUFFIX)]
-    if not key:
-        return None
-    # Read-only key: _workbook_session_key would mint a UDProp on docs
+    # Read-only key: mint_document_key would mint a UDProp on docs
     # that have never run Python. The enumerator applies guard_uno.
     matches = _enumerated_matching_models(
         ctx,
-        lambda model: _existing_workbook_session_key(model) == key,
+        lambda model: document_key(model) == lookup_key,
         label="document_for_script_session",
     )
     return matches[0] if matches else None
@@ -365,12 +363,12 @@ def notebook_session_id(ctx: Any, doc: Any | None = None) -> str | None:
     target = doc if doc is not None else _writer_document(ctx)
     if target is None or not is_writer(target):
         return None
-    return f"notebook:{_workbook_session_key(target)}"
+    return SessionKey.of(SessionKind.NOTEBOOK, mint_document_key(target)).wire()
 
 
 def ppt_master_session_id(doc: Any) -> str:
     """Return ``ppt_master:…`` session ID for an Impress presentation."""
-    return f"ppt_master:{_workbook_session_key(doc)}"
+    return SessionKey.of(SessionKind.PPT_MASTER, mint_document_key(doc)).wire()
 
 
 def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
@@ -383,13 +381,13 @@ def reset_notebook_python_session(ctx: Any, doc: Any | None = None) -> None:
         _msgbox(ctx, _("This Writer document has no imported notebook registry. File → Open a Jupyter notebook (.ipynb) first."))
         return
 
-    key = _session_key_for_reset(target)
+    key = document_key_for_reset(target)
     if key is None:
         _reset_notebook_exec_count(target)
         _msgbox(ctx, _("This notebook has no Python worker session yet. The execution counter was reset."))
         return
 
-    res = _call_reset_python_session(ctx, f"notebook:{key}")
+    res = _call_reset_python_session(SessionKey.of(SessionKind.NOTEBOOK, key).wire())
     # Restart Kernel: next In count is 1 even if the worker reset fails (timeout).
     _reset_notebook_exec_count(target)
     if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):
@@ -403,25 +401,22 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
         _msgbox(ctx, _("Reset Python Session applies to Calc spreadsheets. Open a Calc workbook and try again."))
         return
 
-    key = _session_key_for_reset(target)
+    key = document_key_for_reset(target)
     if not key:
         _msgbox(ctx, _("This spreadsheet has no Python worker session yet."))
         return
 
     from plugin.scripting.document_scripts import build_python_eval_init_kwargs, get_calc_init_script
 
-    session_id = f"calc:{key}"
-    res = _call_reset_python_session(ctx, session_id)
+    base_key = SessionKey.of(SessionKind.CALC, key)
+    session_id = base_key.wire()
+    res = _call_reset_python_session(session_id)
     # Also reset the persistent :init session so worker state from previous init script is cleared
-    res_init = _call_reset_python_session(ctx, f"{session_id}{_INIT_SUFFIX}")
+    res_init = _call_reset_python_session(base_key.with_init_suffix().wire())
     from plugin.calc.python.function import clear_python_addin_cache
 
     clear_python_addin_cache()
-    # What was wrong: only the base res was tested, so a failed :init reset still
-    # reseeded and showed "Python session reset" / the isolated-mode text.
-    # How: the :init call's return value was discarded.
-    # Why: init state lives in the :init session, and a non-ok reset means that
-    # state is still there, so the dialog must be the error and the reseed must not run.
+    # Treat either the main reset or :init reset failure as failure so a broken :init does not show success or reseed stale init state.
     failed = next((r for r in (res, res_init) if r.get("status") != "ok"), None)
     if failed is not None and _msgbox_reset_failure(ctx, failed, _("Could not reset Python session.")):
         return
@@ -432,7 +427,7 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
     if init_kwargs:
         from plugin.scripting.venv_worker import run_code_in_user_venv
 
-        seed = run_code_in_user_venv(ctx, "None", session_id=session_id if python_session_mode() == "shared" else None, **init_kwargs)
+        seed = run_code_in_user_venv("None", session_id=session_id if python_session_mode() == "shared" else None, **init_kwargs)
         if _msgbox_reset_failure(ctx, seed, _("Could not restore the initialization script.")):
             return
 
@@ -447,13 +442,13 @@ def _reset_calc_python_sessions(ctx: Any, doc: Any | None = None) -> None:
 
 def _reset_rps_python_session(ctx: Any, doc: Any, *, notify: bool = True) -> None:
     """Drop the Run Python Script shared executor (``rps:`` / Writer-Draw library cache)."""
-    key = _session_key_for_reset(doc)
+    key = document_key_for_reset(doc)
     if not key:
         if notify:
             _msgbox(ctx, _("This document has no Python worker session yet."))
         return
-    sid = f"rps:{key}"
-    res = _call_reset_python_session(ctx, sid)
+    sid = SessionKey.of(SessionKind.RPS, key).wire()
+    res = _call_reset_python_session(sid)
     if not notify:
         return
     if _msgbox_reset_failure(ctx, res, _("Could not reset Python session.")):
@@ -472,12 +467,10 @@ def _reset_writer_sessions(ctx: Any, doc: Any) -> None:
 
 def reset_workbook_python_session(ctx: Any, doc: Any | None = None) -> None:
     """Menubar handler: reset notebook kernel (Writer) or shared Calc workbook session."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
-        from plugin.framework.queue_executor import execute_on_main_thread
-
-        execute_on_main_thread(_reset_on_main, ctx, doc)
+    if not main.is_current():
+        main.call(_reset_on_main, ctx, doc)
         return
     _reset_on_main(ctx, doc)
 

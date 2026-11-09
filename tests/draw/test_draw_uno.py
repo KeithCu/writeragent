@@ -21,7 +21,7 @@ from plugin.tests.testing_utils import with_native_doc
 
 
 def _exec_tool(doc, ctx, name, args):
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     from plugin.framework.tool import ToolContext
     
     active_idx = _active_draw_page_index(doc)
@@ -329,7 +329,7 @@ def test_align_and_insert_table(ctx, doc):
         "x": 5000, "y": 4000, "width": 2000, "height": 1000, "text": "R",
     })
     n = page.getCount()
-    result = _exec_tool(doc, ctx, "align_shapes", {
+    result = _exec_tool(doc, ctx, "shape_align", {
         "indices": [n - 2, n - 1], "alignment": "top",
     })
     data = json.loads(result)
@@ -350,9 +350,9 @@ def test_align_and_insert_table(ctx, doc):
 @with_native_doc("draw")
 def test_master_slides(ctx, doc):
     # 1. List master slides
-    result = _exec_tool(doc, ctx, "list_master_slides", {})
+    result = _exec_tool(doc, ctx, "slide_master_list", {})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"list_master_slides failed: {result}"
+    assert data.get("status") == "ok", f"slide_master_list failed: {result}"
     master_slides = data.get("master_slides", [])
     assert len(master_slides) > 0, "No master slides found"
 
@@ -360,19 +360,19 @@ def test_master_slides(ctx, doc):
     assert first_master_name is not None, "Master slide name is missing"
 
     # 2. Get slide master for page 0
-    result = _exec_tool(doc, ctx, "get_slide_master", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_master_get", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"get_slide_master failed: {result}"
+    assert data.get("status") == "ok", f"slide_master_get failed: {result}"
 
     # 3. Set slide master for page 0 to the first master we found
-    result = _exec_tool(doc, ctx, "set_slide_master", {"page": 0, "master": first_master_name})
+    result = _exec_tool(doc, ctx, "slide_master_set", {"page": 0, "master": first_master_name})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"set_slide_master failed: {result}"
+    assert data.get("status") == "ok", f"slide_master_set failed: {result}"
 
     # 4. Verify it was set
-    result = _exec_tool(doc, ctx, "get_slide_master", {"page": 0})
+    result = _exec_tool(doc, ctx, "slide_master_get", {"page": 0})
     data = json.loads(result)
-    assert data.get("status") == "ok", f"get_slide_master verify failed: {result}"
+    assert data.get("status") == "ok", f"slide_master_get verify failed: {result}"
     assert data.get("master") == first_master_name, f"Master name mismatch: {data.get('master')}"
 
 
@@ -485,7 +485,7 @@ def test_shape_upsert_edit_by_name(ctx, doc):
 
 @native_test
 def test_shape_upsert_validation():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     shape_upsert_tool = get_tools().get("shape_upsert")
     assert shape_upsert_tool is not None
 
@@ -556,9 +556,9 @@ def test_insert_math_draw(ctx, doc):
     from plugin.tests.testing_utils import mark_windows_math_ole_doc
 
     # GHA 34606276107: load done uid=48 then ~8s later close_doc dispose
-    # and soffice exited 0. Name insert_math vs close_doc teardown.
-    _progress("insert_math_draw: insert_math start")
-    result = _exec_tool(doc, ctx, "insert_math", {
+    # and soffice exited 0. Name math_insert vs close_doc teardown.
+    _progress("insert_math_draw: math_insert start")
+    result = _exec_tool(doc, ctx, "math_insert", {
         "formula_type": "latex",
         "formula": "E = mc^2",
         "page": 0,
@@ -567,10 +567,10 @@ def test_insert_math_draw(ctx, doc):
     })
 
     data = json.loads(result)
-    _progress("insert_math_draw: insert_math done status=%s" % data.get("status"))
-    assert data.get("status") == "ok", f"insert_math failed: {result}"
+    _progress("insert_math_draw: math_insert done status=%s" % data.get("status"))
+    assert data.get("status") == "ok", f"math_insert failed: {result}"
 
-    # insert_math used page_index 0 — read shape from that page (current slide may differ after prior tests).
+    # math_insert used page_index 0 — read shape from that page (current slide may differ after prior tests).
     target_page = doc.getDrawPages().getByIndex(0)
     shape = target_page.getByIndex(data.get("index"))
 

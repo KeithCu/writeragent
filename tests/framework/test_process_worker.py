@@ -12,9 +12,9 @@ from typing import Any
 
 import pytest
 
-from plugin.framework import process_worker
 from plugin.framework.managed_subprocess import ManagedSubprocess, _instances
-from plugin.framework.process_worker import BaseProcessWorker, Child
+from plugin.framework.process_worker import BaseProcessWorker
+from plugin.framework.warm_child import Child
 from plugin.framework.worker_pool import StderrTail
 
 
@@ -257,8 +257,7 @@ def test_respawn_adopt_refusal_signals_the_unadopted_child(
     worker = BaseProcessWorker(7, "unused.py", worker_name="Formula", start=False)
     read_calls: list[Any] = []
     monkeypatch.setattr(
-        process_worker,
-        "read_pickle_frame",
+        "plugin.framework.warm_child.read_pickle_frame",
         lambda *args, **kwargs: (read_calls.append(args), {"status": "ready"})[1],
     )
     monkeypatch.setattr(

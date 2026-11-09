@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from html import escape as _html_escape
 from typing import Any, Iterator
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import get_desktop, uno_same
 from plugin.framework.url_utils import path_to_file_url
@@ -90,7 +91,7 @@ def convert_mathml_to_latex(mathml_fragment: str) -> MathExportResult:
 
 
 def _export_doc_to_mathml(doc: Any, starmath: str, path: str) -> str | None:
-    from plugin.writer.format import create_property_value
+    from plugin.framework.uno_context import create_property_value
 
     stripped = starmath.strip()
     try:
@@ -113,7 +114,8 @@ def convert_starmath_to_mathml(ctx: Any, starmath: str) -> MathExportResult:
     if not starmath or not starmath.strip():
         return MathExportResult(False, None, None, "empty_starmath")
 
-    from plugin.writer.format import _with_temp_buffer, create_property_value
+    from plugin.doc.temp_files import with_temp_buffer
+    from plugin.framework.uno_context import create_property_value
 
     desktop = get_desktop(ctx)
     hidden = (create_property_value("Hidden", True),)
@@ -122,7 +124,7 @@ def convert_starmath_to_mathml(ctx: Any, starmath: str) -> MathExportResult:
         return MathExportResult(False, None, None, "smath_factory_returned_none")
 
     try:
-        with _with_temp_buffer(ext=".mml") as (path, _url):
+        with with_temp_buffer(ext=".mml") as (path, _url):
             try:
                 mathml = _export_doc_to_mathml(doc, starmath, path)
                 if not mathml:
@@ -436,11 +438,7 @@ def portion_math_embed(portion: Any) -> Any | None:
         enum = portion.createContentEnumeration("com.sun.star.text.TextContent")
     except Exception:
         return None
-    while enum is not None and enum.hasMoreElements() is True:
-        try:
-            obj = enum.nextElement()
-        except Exception:
-            break
+    for obj in iter_elements(enum):
         if obj is not None and _is_math_embed(obj):
             return obj
     return None
@@ -465,11 +463,7 @@ def _iter_body_paragraphs(text_obj: Any) -> Iterator[Any]:
         enum = text_obj.createEnumeration()
     except Exception:
         return
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
+    for el in iter_elements(enum):
         if uno_read(lambda: bool(el.supportsService("com.sun.star.text.TextTable")), False):
             try:
                 names = el.getCellNames() or ()
@@ -499,7 +493,7 @@ class _MathExportBatch:
 
     def _ensure_doc(self) -> Any:
         if self._doc is None:
-            from plugin.writer.format import create_property_value
+            from plugin.framework.uno_context import create_property_value
 
             desktop = get_desktop(self.ctx)
             hidden = (create_property_value("Hidden", True),)
@@ -519,15 +513,19 @@ class _MathExportBatch:
         return cached
 
     def _convert_uncached(self, starmath: str) -> MathExportResult:
+        if not starmath or not starmath.strip():
+            return MathExportResult(False, None, None, "empty_starmath")
         doc = self._ensure_doc()
-        res = None
-        if self._temp_path:
-            try:
-                mml = _export_doc_to_mathml(doc, starmath, self._temp_path)
-                res = convert_mathml_to_latex(mml) if mml else None
-            except Exception:
-                res = None
-        return res if res and res.ok else convert_starmath_to_latex(self.ctx, starmath)
+        if doc is None or not self._temp_path:
+            return MathExportResult(False, None, None, "smath_factory_returned_none")
+        try:
+            mml = _export_doc_to_mathml(doc, starmath, self._temp_path)
+            if not mml:
+                return MathExportResult(False, None, None, "empty_mathml_export")
+            return convert_mathml_to_latex(mml)
+        except Exception as exc:
+            log.debug("math batch convert failed: %s", exc)
+            return MathExportResult(False, None, None, _exception_message(exc))
 
     def close(self) -> None:
         if self._doc is not None:
@@ -551,8 +549,7 @@ def _math_hits_in_paragraph(para: Any) -> list[WriterMathHit]:
         portion_enum = para.createEnumeration()
     except Exception:
         return []
-    while portion_enum.hasMoreElements() is True:
-        portion = portion_enum.nextElement()
+    for portion in iter_elements(portion_enum):
         emb = portion_math_embed(portion)
         if emb is not None:
             # Writer can report one as-character object in two portions; count it once.

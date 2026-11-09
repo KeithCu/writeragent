@@ -14,8 +14,7 @@ import pytest
     ],
 )
 def test_literal_eval_logs_stage_name_not_payload(monkeypatch, value, value_2, value_3, value_4) -> None:
-    # What was wrong: logger.debug calls are stripped in release builds.
-    # Why: skip when running against stripped release bundle.
+    # Release bundles strip log.debug; skip this assertion there.
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.debug stripped in release bundle")
@@ -62,9 +61,9 @@ def test_safe_json_loads_long_valid_json() -> None:
 def test_safe_json_loads_keeps_json_escapes_that_look_like_latex() -> None:
     """A dotted abbreviation is a newline, not the short LaTeX command.
 
-    What was wrong: ``\\ne`` inside ``\\ne.g.`` was doubled, so json.loads
-    kept a literal backslash instead of the newline. The same false word
-    boundary applies to ``\\ni.e.`` and to a newline already in the text.
+    ``\\ne`` inside ``\\ne.g.`` must decode as a newline, not double the escape.
+    The same word-boundary rule applies to ``\\ni.e.`` and to newlines already
+    in the text.
     """
     assert safe_json_loads('{"x": "line\\ne.g. more"}') == {"x": "line\ne.g. more"}
     assert safe_json_loads('{"x": "see\\ni.e. more"}') == {"x": "see\ni.e. more"}
@@ -75,9 +74,9 @@ def test_safe_json_loads_keeps_json_escapes_that_look_like_latex() -> None:
 def test_safe_json_loads_repairs_bfnrt_latex_clash_commands() -> None:
     """Commands that start with a JSON escape are doubled before loads.
 
-    What was wrong: #1046 skipped every clash word starting with b/f/n/r/t.
-    json.loads turned ``\\nabla`` into a newline plus ``abla`` and returned,
-    so step 2 never saw a control character.
+    LaTeX commands that start with a JSON escape (``\\nabla``, ``\\times``, …)
+    must be doubled before ``json.loads``. Otherwise loads emits a control
+    character and later repair steps never run.
     """
     assert safe_json_loads('{"a": "\\nabla x"}') == {"a": "\\nabla x"}
     assert safe_json_loads('{"a": "\\times"}') == {"a": "\\times"}
@@ -93,11 +92,9 @@ def test_safe_json_loads_repairs_bfnrt_latex_clash_commands() -> None:
 def test_safe_json_loads_repairs_latex_clash_before_subscript_or_digit() -> None:
     """A clash command followed by ``_`` or a digit keeps its backslash.
 
-    What was wrong: ``_LATEX_CLASH_RE`` ended in ``\\b``. ``_`` and digits
-    are word characters, so the repair never matched. json.loads then kept
-    the control escape and dropped the backslash (``\\beta_i`` became
-    backspace + ``eta_i``). A following letter (``\\alphax``) is still not
-    the command.
+    ``_LATEX_CLASH_RE`` must match clash commands before ``_`` or digits
+    (word characters after ``\\b``). Without that, ``json.loads`` turns
+    ``\\beta_i`` into a control character plus ``eta_i``.
     """
     cases = {
         r'{"x": "\alpha_1"}': "\\alpha_1",

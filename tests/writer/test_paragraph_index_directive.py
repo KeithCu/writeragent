@@ -28,7 +28,7 @@ def test_index_tools_warn_against_citing_paragraph_numbers():
 
 
 def test_get_page_objects_uses_the_central_directive_constant():
-    # The previously-uncovered tool now carries the canonical constant verbatim (single source).
+    # GetPageObjects must embed the canonical constant verbatim (single source of truth).
     assert PARAGRAPH_INDEX_DIRECTIVE in GetPageObjects.description
 
 

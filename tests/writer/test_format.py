@@ -5,46 +5,19 @@
 # it under the terms of the GNU General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-"""Unit tests for plugin.writer.format helpers (no UNO)."""
+"""Unit tests for plugin.writer format helpers (html_export/html_import, no UNO)."""
 
 import base64
-import os
-import sys
-import tempfile as tempfile_mod
 
 import pytest
 
-from plugin.writer.format import (
+from plugin.writer.html_import import (
     _content_has_block_markup,
-    _resolve_temp_dir,
-    _with_temp_buffer,
 )
 from plugin.writer.html_export import (
     _apply_image_export_options,
     strip_embedded_image_data,
 )
-
-
-def test_with_temp_buffer_yields_three_slash_file_url():
-    with _with_temp_buffer(content="x", ext=".html") as (_path, url):
-        assert url.startswith("file:///")
-
-
-def test_resolve_temp_dir_avoids_gettempdir_under_crosshair(monkeypatch):
-    """CrossHair FQN cover must not call gettempdir (auditwall SideEffectDetected)."""
-    monkeypatch.setitem(sys.modules, "crosshair", object())
-    monkeypatch.delenv("TMPDIR", raising=False)
-    monkeypatch.delenv("TEMP", raising=False)
-    monkeypatch.delenv("TMP", raising=False)
-    monkeypatch.setattr(tempfile_mod, "tempdir", None)
-
-    def boom() -> str:
-        raise AssertionError("gettempdir must not be called under CrossHair")
-
-    monkeypatch.setattr(tempfile_mod, "gettempdir", boom)
-    assert _resolve_temp_dir() == os.curdir
-    monkeypatch.setenv("TMPDIR", "/custom/tmp")
-    assert _resolve_temp_dir() == "/custom/tmp"
 
 
 def test_strip_embedded_image_data_removes_base64_keeps_external_url():
@@ -124,11 +97,11 @@ def test_replace_preserving_format_restores_original_on_insert_failure():
     import contextlib
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     text = _FakeText()
     target = _FakeRange(text)
-    with patch("plugin.writer.image_placeholders._is_recording_changes", return_value=True), \
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
          patch("plugin.writer.review_authors.deletion_author", lambda: contextlib.nullcontext()), \
          pytest.raises(RuntimeError, match="insert boom"):
         fmt.replace_preserving_format(object(), target, "NEW TEXT", in_undo_context=True)
@@ -146,11 +119,11 @@ def test_replace_preserving_format_atomic_setstring_when_not_in_undo_context():
     # manager merely EXISTS is irrelevant; only an actually-open context makes the two-step safe.
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     text = _FakeText()
     target = _FakeRange(text)
-    with patch("plugin.writer.image_placeholders._is_recording_changes", return_value=True):
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
         fmt.replace_preserving_format(object(), target, "NEW TEXT")  # in_undo_context defaults to False
 
     assert text.cursor.getString() == "NEW TEXT"  # single atomic replace
@@ -161,7 +134,7 @@ def test_insert_content_at_position_text_selection_clears_range():
     from unittest.mock import MagicMock, patch
 
     from plugin.doc import visual_helpers
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
     text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
@@ -193,7 +166,7 @@ def test_insert_content_at_position_two_ranges_clears_non_collapsed_range():
     from unittest.mock import MagicMock, patch
 
     from plugin.doc import visual_helpers
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     rng0 = MagicMock()
     rng0.getStart.return_value = MagicMock()
@@ -234,7 +207,7 @@ def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
     """After shape.upsert, controller selects the Draw shape — HTML insert must not use it."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     shape = MagicMock()
     # LibreOffice often returns 1 rather than True
@@ -271,7 +244,7 @@ def test_insert_content_at_position_shape_selection_falls_back_to_doc_end():
 def test_insert_content_at_position_empty_selection_uses_doc_end():
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     sel = MagicMock()
     sel.getCount.return_value = 0
@@ -304,7 +277,7 @@ def test_insert_content_at_position_beginning_applies_styles():
     """beginning path passes apply_styles=True (no PARAGRAPH_BREAK prep needed at para start)."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     body_cursor = MagicMock()
     body_text = MagicMock()
@@ -329,7 +302,7 @@ def test_insert_content_at_position_end_preps_then_applies_styles():
     """end path runs absorb prep then passes apply_styles=True."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     body_cursor = MagicMock()
     body_text = MagicMock()
@@ -350,10 +323,10 @@ def test_insert_content_at_position_end_preps_then_applies_styles():
     assert mock_insert.call_args.kwargs.get("apply_styles") is True
 
 
-def test_insert_content_at_position_selection_still_skips_styles():
+def test_insert_content_at_position_empty_selection_skips_styles():
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     sel = MagicMock()
     sel.getCount.return_value = 0
@@ -374,6 +347,33 @@ def test_insert_content_at_position_selection_still_skips_styles():
 
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs.get("apply_styles") is False
+
+
+def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+    from tests.writer.test_html_import import make_paragraph_edge_range
+
+    rng = make_paragraph_edge_range(True, True)
+
+    controller = MagicMock()
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=rng), \
+         patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
+         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
+         patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
+         patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
+        note = insert_content_at_position(
+            model, MagicMock(), '<p data-lo-style="Heading1">x</p>', "selection"
+        )
+
+    rng.setString.assert_called_once_with("")
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs.get("apply_styles") is True
+    assert note is None
 
 
 def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():
@@ -468,7 +468,7 @@ def test_insert_content_at_position_nested_table_is_not_appended_at_end():
 
     from plugin.doc import visual_helpers
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
     text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
@@ -499,7 +499,7 @@ def test_insert_content_at_position_clear_failure_is_not_moved_to_end():
     from unittest.mock import MagicMock, patch
 
     from plugin.doc import visual_helpers
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
     text_rng.getText.return_value.createTextCursorByRange.return_value = MagicMock()
@@ -530,7 +530,7 @@ def test_insert_content_at_position_attribute_error_still_uses_doc_end():
     from unittest.mock import MagicMock, patch
 
     from plugin.doc import visual_helpers
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     text_rng = MagicMock()
     text_rng.getText.side_effect = AttributeError("insertDocumentFromURL")
@@ -578,7 +578,7 @@ def test_replace_preserving_format_raises_when_go_right_stops():
     from unittest.mock import MagicMock, patch
 
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import as hi, image_placeholders
+    from plugin.writer import html_import as hi, record_changes
 
     class _Cursor:
         def __init__(self):
@@ -625,7 +625,7 @@ def test_replace_preserving_format_raises_when_go_right_stops():
 
     text = _Text()
     ctx = MagicMock()
-    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
             hi.replace_preserving_format(MagicMock(), _Range(text), "XY", ctx=ctx)
     assert text.cursor.writes == []
@@ -635,7 +635,7 @@ def test_replace_preserving_format_raises_when_go_right_stops():
 
 def test_replace_preserving_format_skips_equal_runs():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, image_placeholders
+    from plugin.writer import html_import as hi, record_changes
 
     moves = []
     writes = []
@@ -678,7 +678,7 @@ def test_replace_preserving_format_skips_equal_runs():
             return object()
 
     text = _Text()
-    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(text, "AAAAAX"), "AAAAAY")
 
     assert moves == [(5, False), (1, True)]
@@ -687,7 +687,7 @@ def test_replace_preserving_format_skips_equal_runs():
 
 def test_replace_preserving_format_special_portion_keeps_one_step_loop():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, image_placeholders
+    from plugin.writer import html_import as hi, record_changes
 
     moves = []
     writes = []
@@ -748,7 +748,7 @@ def test_replace_preserving_format_special_portion_keeps_one_step_loop():
             return _Enum([_Para()])
 
     text = _Text()
-    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(text, "AAAAAX"), "AAAAAY")
 
     # Special portion: each character is checked 1-by-1
@@ -758,7 +758,7 @@ def test_replace_preserving_format_special_portion_keeps_one_step_loop():
 
 def test_replace_preserving_format_200_char_plain_issues_one_setstring():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, image_placeholders
+    from plugin.writer import html_import as hi, record_changes
 
     writes = []
     moves = []
@@ -814,7 +814,7 @@ def test_replace_preserving_format_200_char_plain_issues_one_setstring():
         def createEnumeration(self):
             return _Enum([_Para([_Portion(old_str)])])
 
-    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(), new_str)
 
     assert writes == [new_str]
@@ -823,7 +823,7 @@ def test_replace_preserving_format_200_char_plain_issues_one_setstring():
 
 def test_replace_preserving_format_two_portions_issue_two_setstrings():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, image_placeholders
+    from plugin.writer import html_import as hi, record_changes
 
     writes = []
 
@@ -878,7 +878,7 @@ def test_replace_preserving_format_two_portions_issue_two_setstrings():
         def createEnumeration(self):
             return _Enum([_Para()])
 
-    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(), new_str)
 
     assert len(writes) == 2
@@ -887,7 +887,7 @@ def test_replace_preserving_format_two_portions_issue_two_setstrings():
 
 def test_replace_preserving_format_equal_string_is_noop():
     from unittest.mock import MagicMock, patch
-    from plugin.writer import html_import as hi, image_placeholders
+    from plugin.writer import html_import as hi, record_changes
 
     moves = []
     writes = []
@@ -916,7 +916,7 @@ def test_replace_preserving_format_equal_string_is_noop():
         def getStart(self):
             return object()
 
-    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
         hi.replace_preserving_format(MagicMock(), _Range(), "IDENTICAL")
 
     assert moves == []
@@ -926,7 +926,7 @@ def test_replace_preserving_format_equal_string_is_noop():
 def test_replace_preserving_format_equal_run_go_right_false_raises():
     from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import as hi, image_placeholders
+    from plugin.writer import html_import as hi, record_changes
 
     writes = []
 
@@ -953,7 +953,7 @@ def test_replace_preserving_format_equal_run_go_right_false_raises():
         def getStart(self):
             return object()
 
-    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
             hi.replace_preserving_format(MagicMock(), _Range(), "AAAAAY")
 
@@ -964,7 +964,7 @@ def test_replace_preserving_format_shrink_go_right_false_raises():
     import pytest
     from unittest.mock import MagicMock, patch
     from plugin.framework.errors import ToolExecutionError
-    from plugin.writer import html_import as hi, image_placeholders
+    from plugin.writer import html_import as hi, record_changes
 
     writes = []
 
@@ -1001,7 +1001,7 @@ def test_replace_preserving_format_shrink_go_right_false_raises():
         def getStart(self):
             return object()
 
-    with patch.object(image_placeholders, "_is_recording_changes", return_value=False):
+    with patch.object(record_changes, "is_recording_changes", return_value=False):
         with pytest.raises(ToolExecutionError, match="did not advance"):
             hi.replace_preserving_format(MagicMock(), _Range(), "AB")
 
@@ -1016,11 +1016,11 @@ def test_replace_preserving_format_atomic_when_split_author_false_even_in_undo_c
     # all-or-nothing.
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     text = _FakeText()
     target = _FakeRange(text)
-    with patch("plugin.writer.image_placeholders._is_recording_changes", return_value=True):
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
         fmt.replace_preserving_format(object(), target, "NEW TEXT",
                                       in_undo_context=True, split_author=False)
 
@@ -1035,7 +1035,7 @@ def test_replace_preserving_format_two_step_when_split_author_true_in_undo_conte
     import contextlib
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     class _OkText(_FakeText):
         def insertString(self, _cursor, s, _sel):  # never fails -> no restore
@@ -1043,7 +1043,7 @@ def test_replace_preserving_format_two_step_when_split_author_true_in_undo_conte
 
     text = _OkText()
     target = _FakeRange(text)
-    with patch("plugin.writer.image_placeholders._is_recording_changes", return_value=True), \
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True), \
          patch("plugin.writer.review_authors.deletion_author", lambda: contextlib.nullcontext()):
         fmt.replace_preserving_format(object(), target, "NEW TEXT", in_undo_context=True)
 
@@ -1055,7 +1055,7 @@ def test_run_writer_mutation_with_optional_review_import_error():
     """LibrePy omits edit_review; helper must apply the mutation directly."""
     from unittest.mock import MagicMock, patch
 
-    from plugin.writer.format import run_writer_mutation_with_optional_review
+    from plugin.writer.html_import import run_writer_mutation_with_optional_review
 
     apply_fn = MagicMock()
     real_import = __import__
@@ -1074,7 +1074,7 @@ def test_document_to_content_full_timing_path_with_mocks():
     """Phase timing logs must not change the full-scope export result."""
     from unittest.mock import patch
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_export as fmt
     import plugin.writer.html_export as html_export
 
     xhtml = '<html><body><p class="paragraph-Text_20_body">hello</p></body></html>'
@@ -1092,11 +1092,11 @@ def test_document_to_content_full_timing_path_with_mocks():
 
 
 def test_format_module_avoids_document_helpers_ops_review_authors():
-    """LibrePy RPS insert loads format.py; chat export/replace stay local imports."""
+    """LibrePy RPS insert loads html_import.py; chat export/replace stay local imports."""
     import ast
     from pathlib import Path
 
-    import plugin.writer.format as fmt
+    import plugin.writer.html_import as fmt
 
     tree = ast.parse(Path(fmt.__file__).read_text(encoding="utf-8"))
     mods: list[str] = []
@@ -1139,20 +1139,20 @@ class _SingleStateCursor:
 
 
 def test_clear_direct_paragraph_properties_uses_multi_variant():
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    cleared = fmt._reset_properties_to_default(cursor, fmt.CLEARABLE_PARA_PROPERTIES)
+    cleared = st._reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
 
-    assert cursor.cleared == fmt.CLEARABLE_PARA_PROPERTIES
-    assert cleared == list(fmt.CLEARABLE_PARA_PROPERTIES)
+    assert cursor.cleared == st.CLEARABLE_PARA_PROPERTIES
+    assert cleared == list(st.CLEARABLE_PARA_PROPERTIES)
 
 
 def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     cursor = _SingleStateCursor(unsupported={"ParaSplit"})
-    cleared = fmt._reset_properties_to_default(cursor, fmt.CLEARABLE_PARA_PROPERTIES)
+    cleared = st._reset_properties_to_default(cursor, st.CLEARABLE_PARA_PROPERTIES)
 
     assert "ParaLeftMargin" in cleared and "ParaFirstLineIndent" in cleared
     assert "ParaSplit" not in cleared  # reported honestly as not cleared
@@ -1161,24 +1161,23 @@ def test_clear_direct_paragraph_properties_falls_back_one_at_a_time():
 def test_clear_direct_never_touches_non_paragraph_properties():
     """Deliberately narrower than setAllPropertiesToDefault: numbering, borders and language are
     not the caller's to lose."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
-    assert all(name.startswith("Para") for name in fmt.CLEARABLE_PARA_PROPERTIES)
+    assert all(name.startswith("Para") for name in st.CLEARABLE_PARA_PROPERTIES)
     for unwanted in ("NumberingRules", "ParaStyleName", "CharLocale"):
-        assert unwanted not in fmt.CLEARABLE_PARA_PROPERTIES
+        assert unwanted not in st.CLEARABLE_PARA_PROPERTIES
 
 
 def test_clearable_para_properties_are_the_single_source_for_styles_schema():
-    """styles.py used to duplicate the name list (stale 'cycle' comment). format owns it."""
-    from plugin.writer import format as fmt
+    """styles.py owns the name list."""
     from plugin.writer import styles as st
 
-    assert tuple(st._KNOWN_PARAGRAPH_PROPERTIES) == fmt.CLEARABLE_PARA_PROPERTIES
-    assert set(st._PARA_PROPERTY_SCHEMA) == set(fmt.CLEARABLE_PARA_PROPERTIES)
+    assert tuple(st._KNOWN_PARAGRAPH_PROPERTIES) == st.CLEARABLE_PARA_PROPERTIES
+    assert set(st._PARA_PROPERTY_SCHEMA) == set(st.CLEARABLE_PARA_PROPERTIES)
 
 
 def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     posture = type("FontSlant", (), {"__module__": "uno", "value": "ITALIC"})()
 
@@ -1186,7 +1185,7 @@ def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
         (object(), {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharLocale": object(), "CharPosture": posture}),
         (object(), {"CharFontName": "Courier"}),
     ]
-    summary = fmt._summarize_char_overrides(overrides)
+    summary = st._summarize_char_overrides(overrides)
 
     assert summary == {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharPosture": 2}
     assert "CharLocale" not in summary  # UNO struct -> not serialisable, left out
@@ -1194,7 +1193,7 @@ def test_summarize_char_overrides_is_json_safe_and_first_portion_wins():
 
 def test_summarize_char_overrides_reports_asian_complex():
     """style_props clears Asian/Complex font slots; the report must say so (honest, not silent)."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     overrides = [(object(), {
         "CharFontName": "Times New Roman",
@@ -1204,7 +1203,7 @@ def test_summarize_char_overrides_reports_asian_complex():
         "CharHeightAsian": 10.5,
         "CharHeightComplex": 11.0,
     })]
-    summary = fmt._summarize_char_overrides(overrides)
+    summary = st._summarize_char_overrides(overrides)
 
     assert summary["CharFontNameAsian"] == "SimSun"
     assert summary["CharFontNameComplex"] == "Tahoma"
@@ -1214,15 +1213,15 @@ def test_summarize_char_overrides_reports_asian_complex():
 
 def test_reported_char_properties_cover_style_governed():
     """Keep the clear-set and the report-set aligned: every slot style_props wipes is echoed."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
-    for name in fmt.STYLE_GOVERNED_CHAR_PROPERTIES:
-        assert name in fmt.REPORTED_CHAR_PROPERTIES
+    for name in st.STYLE_GOVERNED_CHAR_PROPERTIES:
+        assert name in st.REPORTED_CHAR_PROPERTIES
 
 
 def test_enum_hit_walk_cap_and_warning_are_honest():
     from unittest.mock import MagicMock
-    from plugin.writer import format as fmt
+    from plugin.doc import text_helpers as fmt
 
     more = MagicMock()
     more.hasMoreElements.return_value = True
@@ -1243,29 +1242,29 @@ def test_apply_style_origin_limitation_still_value_compare() -> None:
     """GHA 34683742049 canary FAIL was leftover reuse, not a product fix."""
     from pathlib import Path
 
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
-    src = Path(fmt.__file__).read_text(encoding="utf-8")
+    src = Path(st.__file__).read_text(encoding="utf-8")
     assert "KNOWN LIMITATION: a direct override whose value equals the old style default" in src
     assert "differs from the paragraph's current style default" in src
 
 
 def test_style_governed_char_properties_spare_bold_and_italic():
     """style_props drops the font the style owns; hand-set emphasis is the user's, not the style's."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
-    assert "CharFontName" in fmt.STYLE_GOVERNED_CHAR_PROPERTIES
-    assert "CharHeight" in fmt.STYLE_GOVERNED_CHAR_PROPERTIES
-    assert "CharWeight" not in fmt.STYLE_GOVERNED_CHAR_PROPERTIES   # bold survives
-    assert "CharPosture" not in fmt.STYLE_GOVERNED_CHAR_PROPERTIES  # italic survives
+    assert "CharFontName" in st.STYLE_GOVERNED_CHAR_PROPERTIES
+    assert "CharHeight" in st.STYLE_GOVERNED_CHAR_PROPERTIES
+    assert "CharWeight" not in st.STYLE_GOVERNED_CHAR_PROPERTIES   # bold survives
+    assert "CharPosture" not in st.STYLE_GOVERNED_CHAR_PROPERTIES  # italic survives
 
 
 def test_report_lists_only_the_overrides_actually_removed():
     """Under style_props, bold/italic are restored — listing them as removed would be wrong."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     found = {"CharFontName": "Times New Roman", "CharHeight": 12.0, "CharWeight": 150.0}
-    skip = set(fmt.STYLE_GOVERNED_CHAR_PROPERTIES)
+    skip = set(st.STYLE_GOVERNED_CHAR_PROPERTIES)
     removed = {k: v for k, v in found.items() if k in skip}
 
     assert removed == {"CharFontName": "Times New Roman", "CharHeight": 12.0}
@@ -1273,21 +1272,21 @@ def test_report_lists_only_the_overrides_actually_removed():
 
 
 def test_reset_properties_to_default_is_a_noop_on_empty_names():
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    assert fmt._reset_properties_to_default(cursor, ()) == []
+    assert st._reset_properties_to_default(cursor, ()) == []
     assert cursor.cleared is None  # never call UNO with an empty set
 
 
 def test_reset_properties_to_default_takes_the_caller_s_names():
     """The clear is scoped by the caller — style_props clears the font, all clears what was found."""
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as st
 
     cursor = _MultiStatesCursor()
-    fmt._reset_properties_to_default(cursor, fmt.STYLE_GOVERNED_CHAR_PROPERTIES)
+    st._reset_properties_to_default(cursor, st.STYLE_GOVERNED_CHAR_PROPERTIES)
 
-    assert cursor.cleared == fmt.STYLE_GOVERNED_CHAR_PROPERTIES
+    assert cursor.cleared == st.STYLE_GOVERNED_CHAR_PROPERTIES
 
 
 # --- range copy: carrying direct formatting into the temp document -------------------------
@@ -1509,7 +1508,7 @@ def test_heading_is_block():
 
 def test_apply_paragraph_style_preserving_direct_char_caches_style_and_props():
     from unittest.mock import MagicMock
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()
@@ -1587,7 +1586,7 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
     from unittest.mock import MagicMock
     import pytest
     from plugin.framework.errors import DocumentDisposedError
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()
@@ -1665,7 +1664,7 @@ def test_apply_paragraph_style_capture_failure_and_disposal():
 
 def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
     from unittest.mock import MagicMock
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()
@@ -1712,7 +1711,7 @@ def test_apply_paragraph_style_restore_failure_is_not_capture_incomplete():
 
 def test_apply_paragraph_style_negative_caches_failed_property_set_info():
     from unittest.mock import MagicMock
-    from plugin.writer import format as fmt
+    from plugin.writer import styles as fmt
 
     doc = MagicMock()
     para_styles = MagicMock()

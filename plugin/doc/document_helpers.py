@@ -36,18 +36,17 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-from plugin.doc import doc_type as _doc_type
+from plugin.framework import doc_type as _doc_type
 from plugin.doc import text_helpers as _text_helpers
 from plugin.doc.paragraph_search import (
-    find_paragraph_for_range as _find_paragraph_for_range,
+    paragraph_index_for_anchor as _paragraph_index_for_anchor,
     get_paragraph_ranges as _get_paragraph_ranges,
 )
 from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS
 from plugin.framework.errors import (
     ToolExecutionError,
     DocumentDisposedError, UnoObjectError,
-    check_disposed,
-    safe_call,
+    uno_call,
 )
 from plugin.framework.service import ServiceBase
 from plugin.framework.thread_guard import main_thread_only
@@ -133,14 +132,14 @@ def _writer_excerpt_overlaps_selection(
         return False
     if not _text_helpers._position_text_is_body(model, sel_start_pos, "Get selection text"):
         # Different XText (table, frame, header). compareRegionStarts
-        # against the body raises and used to fail the whole chat context.
+        # Nested text vs body compareRegionStarts raises; treat as non-overlapping instead of failing chat context.
         return False
-    text = safe_call(model.getText, "Get document text")
-    exc_start = safe_call(exc_cursor.getStart, "Excerpt getStart")
-    exc_end = safe_call(exc_cursor.getEnd, "Excerpt getEnd")
-    if safe_call(text.compareRegionStarts, "compareRegionStarts sel_end exc_start", sel_end_pos, exc_start) > 0:
+    text = uno_call(model.getText, "Get document text")
+    exc_start = uno_call(exc_cursor.getStart, "Excerpt getStart")
+    exc_end = uno_call(exc_cursor.getEnd, "Excerpt getEnd")
+    if uno_call(lambda: text.compareRegionStarts(sel_end_pos, exc_start), "compareRegionStarts sel_end exc_start") > 0:
         return False
-    if safe_call(text.compareRegionStarts, "compareRegionStarts exc_end sel_start", exc_end, sel_start_pos) > 0:
+    if uno_call(lambda: text.compareRegionStarts(exc_end, sel_start_pos), "compareRegionStarts exc_end sel_start") > 0:
         return False
     return True
 
@@ -183,7 +182,8 @@ def get_document_context_for_chat(
         # in getString(); we only hint to call get_document_content.
         if doc_type == _doc_type.DocumentType.WRITER:
             try:
-                check_disposed(model, "Document Model")
+                if model is None:
+                    raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
                 doc_len = _text_helpers._writer_char_count(model)
             except UnoObjectError:
                 logging.getLogger(__name__).exception("get_document_context_for_chat Writer failed, trying fallback to selection-only")
@@ -236,7 +236,8 @@ def get_document_context_for_chat(
                 start_excerpt = _text_helpers._read_writer_text_slice(model, 0, start_chars)
                 end_excerpt = _text_helpers._read_writer_text_slice(model, tail_start, end_chars)
                 start_excerpt = _inject_selection_markers(model, start_excerpt, 0, start_chars, start_offset, end_offset, "[DOCUMENT START]\n", "\n[DOCUMENT END]")
-                end_excerpt = _inject_selection_markers(model, end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "\n[END DOCUMENT]")
+                # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
+                end_excerpt = _inject_selection_markers(model, end_excerpt, tail_start, doc_len, start_offset, end_offset, "[DOCUMENT CONTINUE]\n", "")
                 middle_note = "\n\n[... middle of document omitted ...]\n\n"
                 return _with_math_ole_chat_hint(
                     model,
@@ -247,7 +248,8 @@ def get_document_context_for_chat(
             excerpt = _text_helpers._read_writer_text_slice(model, 0, take)
             if doc_len > max_context:
                 excerpt += "\n\n[... document truncated ...]"
-            excerpt = _inject_selection_markers(model, excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "\n[END DOCUMENT]")
+            # Note: snapshot_text is now the only [END DOCUMENT] closer; do not add a trailing closer here.
+            excerpt = _inject_selection_markers(model, excerpt, 0, take, start_offset, end_offset, "[DOCUMENT START]\n", "")
             return _with_math_ole_chat_hint(
                 model,
                 "Document length: %d characters.\n\n%s" % (shown_len, excerpt),
@@ -306,7 +308,7 @@ def _inject_selection_markers(
     )
 
 
-# Resolver-only TreeService used when plugin.main has not registered writer_tree
+# Resolver-only TreeService used when WriterAgent has not registered writer_tree
 # (unit tests, and any call before WriterModule.initialize). One instance so
 # repeated misses do not subscribe a new cache listener each time.
 _FALLBACK_WRITER_TREE: Any = None
@@ -329,12 +331,11 @@ def _writer_tree_service() -> Any:
     this function runs outside bootstrap (pytest, or before the writer
     module loads). Its document service is a plain DocumentService.
     """
-    import sys
+    import plugin.app as app
 
     global _FALLBACK_WRITER_TREE
 
-    main_mod = sys.modules.get("plugin.main")
-    services = getattr(main_mod, "_services", None) if main_mod is not None else None
+    services = app._services
     if services is not None:
         getter = getattr(services, "get", None)
         if callable(getter):
@@ -407,7 +408,7 @@ def is_cacheable_doc_key(key: str) -> bool:
     return bool(key) and key != UNKNOWN_DOC_KEY
 
 
-def _compute_doc_key(doc: Any) -> str:
+def compute_doc_key(doc: Any) -> str:
     """uid:<RuntimeUID> then url:<normalized>; never id(doc)."""
     if doc is None:
         return UNKNOWN_DOC_KEY
@@ -508,7 +509,7 @@ def _teardown_cache_listener(key: str, owner_modify: Any | None = None, owner_un
     if pair is None:
         return
     # Recycled RuntimeUID: a late disposing() from the old listener must not
-    # evict the newer pair (review_toolbar._ReviewModifyListener).
+    # evict the newer pair (review_view_attachment.ReviewModifyListener).
     if owner_modify is not None and pair.modify is not owner_modify:
         return
     if owner_unload is not None and pair.unload is not owner_unload:
@@ -587,14 +588,14 @@ class DocumentService(ServiceBase):
 
     def open_documents(self) -> list[Any]:
         """Every open real document (Start Center excluded), in desktop order. Main-thread only."""
-        from plugin.framework.uno_context import get_desktop
+        from plugin.framework.uno_context import enum_has_more, get_desktop
 
         docs = []
         try:
             desktop = get_desktop()
             comps = desktop.getComponents() if desktop is not None else None
             enum = comps.createEnumeration() if comps else None
-            while enum and enum.hasMoreElements():
+            while enum is not None and enum_has_more(enum):
                 doc = enum.nextElement()
                 try:
                     if doc.supportsService("com.sun.star.document.OfficeDocument"):
@@ -613,12 +614,8 @@ class DocumentService(ServiceBase):
         and wrong for anything that needs to know how many documents are open (use
         open_documents for that).
 
-        tools/list used to be filtered by the *active* document alone, so with a
-        spreadsheet in front the Writer tools vanished from the catalog even
-        though a Writer document was open beside it -- the single most reported
-        WriterAgent failure ("no editing tools in this session"). The tools all
-        accept ``document_url``, so what is open, not what has focus, is the
-        honest basis for the catalog.
+        Catalog tools by open documents, not the active window—Calc focus must not hide Writer tools.
+        Every tool accepts ``document_url``, so the open set is the honest catalog basis.
         """
         found: dict[str, Any] = {}
         for doc in self.open_documents():
@@ -638,7 +635,8 @@ class DocumentService(ServiceBase):
         Uses with_view_cursor_left_body_locked to leave nested XText and prevent visible viewport jumping.
         """
         # See text_helpers.with_view_cursor_left_body_locked.
-        check_disposed(model, "Document Model")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         element = self.find_paragraph_element(model, para_index)
         if element is None:
             raise ToolExecutionError("Paragraph index %d not found in document" % para_index)
@@ -646,24 +644,24 @@ class DocumentService(ServiceBase):
         get_anchor = getattr(element, "getAnchor", None)
         anchor = get_anchor() if callable(get_anchor) else element
 
-        controller = safe_call(model.getCurrentController, "Get current controller")
-        vc = safe_call(controller.getViewCursor, "Get view cursor")
+        controller = uno_call(model.getCurrentController, "Get current controller")
+        vc = uno_call(controller.getViewCursor, "Get view cursor")
 
         def _resolve_page() -> int:
-            safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
-            page = safe_call(vc.getPage, "Get page")
+            uno_call(lambda: vc.gotoRange(anchor, False), "View cursor gotoRange")
+            page = uno_call(vc.getPage, "Get page")
             if page == 0:
                 # Layout stall for tables/frames under lockControllers.
                 has_locked = getattr(model, "hasControllersLocked", None)
                 was_locked = has_locked() if callable(has_locked) else True
                 if was_locked:
-                    safe_call(model.unlockControllers, "Unlock controllers")
+                    uno_call(model.unlockControllers, "Unlock controllers")
                 try:
-                    safe_call(vc.gotoRange, "View cursor gotoRange", anchor, False)
-                    page = safe_call(vc.getPage, "Get page")
+                    uno_call(lambda: vc.gotoRange(anchor, False), "View cursor gotoRange")
+                    page = uno_call(vc.getPage, "Get page")
                 finally:
                     if was_locked:
-                        safe_call(model.lockControllers, "Lock controllers")
+                        uno_call(model.lockControllers, "Lock controllers")
             if page == 0:
                 raise ToolExecutionError(
                     "Cannot resolve page for paragraph %d: getPage returned 0" % para_index
@@ -676,13 +674,14 @@ class DocumentService(ServiceBase):
         """Return page count of a Writer document."""
         # See text_helpers.with_view_cursor_left_body_locked.
         try:
-            check_disposed(model, "Document Model")
-            controller = safe_call(model.getCurrentController, "Get current controller")
-            vc = safe_call(controller.getViewCursor, "Get view cursor")
+            if model is None:
+                raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
+            controller = uno_call(model.getCurrentController, "Get current controller")
+            vc = uno_call(controller.getViewCursor, "Get view cursor")
 
             def _get_count() -> int:
-                safe_call(vc.jumpToLastPage, "Jump to last page")
-                return safe_call(vc.getPage, "Get page")
+                uno_call(vc.jumpToLastPage, "Jump to last page")
+                return uno_call(vc.getPage, "Get page")
 
             return _text_helpers.with_view_cursor_left_body_locked(model, vc, _get_count)
         except (UnoObjectError, ToolExecutionError):
@@ -700,7 +699,7 @@ class DocumentService(ServiceBase):
         ``_resolve_mcp_doc_key``. Empty both → ``UNKNOWN_DOC_KEY`` (do not
         cache). First call lazily attaches one modify + OnUnload listener.
         """
-        key = _compute_doc_key(doc)
+        key = compute_doc_key(doc)
         if is_cacheable_doc_key(key):
             _ensure_cache_listener(doc, key)
         return key
@@ -732,7 +731,7 @@ class DocumentService(ServiceBase):
         entries: list[tuple[int, Any]] | None = None,
     ) -> int | None:
         """Return the 0-based paragraph index that contains anchor, or None when it cannot be placed."""
-        return _find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+        return _paragraph_index_for_anchor(anchor, para_ranges, text_obj, entries=entries)
 
     def resolve_locator(self, doc: Any, locator: str) -> dict[str, Any]:
         """Resolve a locator string to a paragraph index.

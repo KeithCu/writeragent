@@ -169,7 +169,7 @@ def test_selection_export_returns_the_outline_entry_uno(ctx: Any, doc: Any) -> N
     """
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
     from plugin.writer.html_export import _range_to_content_via_temp_doc
 
@@ -223,7 +223,7 @@ def test_split_outline_run_does_not_shift_the_next_href_uno(ctx: Any, doc: Any) 
     """
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
 
     left = "#1.Left.|outline"
@@ -267,7 +267,7 @@ def test_content_index_selection_exports_the_entry_uno(ctx: Any, doc: Any) -> No
     """A selection inside a real content index exports that entry, not the body sentence."""
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
     from tests.testing_utils import TestingFactory
     from plugin.writer.get_document_content import GetDocumentContent
     from plugin.writer.specialized.indexes import IndexesCreate
@@ -379,7 +379,7 @@ def test_range_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: An
 def test_selection_get_document_content_preserves_ruby_reading_uno(ctx: Any, doc: Any) -> None:
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
 
     _seed_ruby_paragraph(doc)
@@ -418,7 +418,7 @@ def test_export_table_cell_selection_uno(ctx: Any, doc: Any) -> None:
     """A selection inside a table cell must export correctly instead of returning empty."""
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
 
     text = doc.getText()
@@ -452,7 +452,7 @@ def test_selection_and_range_export_includes_math_tex_uno(ctx: Any, doc: Any) ->
     skip_windows_leftover_hidden_load("html_export Hidden _default temp_doc")
     skip_windows_leftover_hidden_load("math export Hidden _blank smath")
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.writer.get_document_content import GetDocumentContent
     from plugin.writer.math.math_mml_convert import insert_writer_math_formula
 

@@ -504,9 +504,7 @@ def test_rowspan_past_max_table_rows_is_clipped(monkeypatch):
 
 
 def test_cell_text_empty_returns_empty_string():
-    # What was wrong: getattr(cell, "text", None) or cell fell through to cell when text was "",
-    # evaluating truthy TableCell object and returning its pydantic repr string in tables and full_text.
-    # Why this change: verify str(getattr(cell, "text", "") or "").strip() returns "" cleanly.
+    # Empty cell.text must not fall through to the TableCell object; _cell_text returns "" not repr.
     from plugin.vision import vision_common
 
     class FakeTableCell:
@@ -522,9 +520,7 @@ def test_cell_text_empty_returns_empty_string():
 @patch("plugin.vision.venv.vision_docling.export_docling_to_html", return_value="<p>Doc</p>")
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_extract_text_includes_table_text_and_omits_mean_confidence(mock_convert, _mock_html):
-    # What was wrong: extract_text took full_text only from paragraphs, omitting table text,
-    # and reported mean_confidence: 0.0 because Docling has no confidence scores.
-    # Why this change: full_text includes table TSV and mean_confidence is omitted from metrics.
+    # full_text must include table TSV, not paragraphs only; Docling has no scores so mean_confidence stays out of metrics.
     mock_convert.return_value = _mock_document(
         texts=[{"text": "Headline", "prov": []}],
         tables=[

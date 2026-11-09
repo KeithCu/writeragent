@@ -24,9 +24,19 @@ from compute_service.formula_pool import (
     shutdown_formula_pool,
 )
 from compute_service.server import WSGIDualStackServer, create_wsgi_app
+from plugin.framework.child_runtime import Deadline
 from compute_service.vision import get_vision_pool, shutdown_vision_pool
-import plugin.framework.process_worker as process_worker
 from tests.compute_service.conftest import get_free_port
+
+
+def _wait_until_not_alive(worker: Any, timeout: float = 5.0) -> None:
+    """Windows may lag after taskkill before is_alive() goes false."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if not worker.is_alive():
+            return
+        time.sleep(0.05)
+    assert not worker.is_alive()
 
 
 @pytest.fixture(autouse=True)
@@ -35,29 +45,14 @@ def cleanup_formula_pool():
     shutdown_formula_pool()
 
 
-def test_shared_mode_without_session_id_does_not_run(monkeypatch: pytest.MonkeyPatch) -> None:
-    """mode=shared with no session id must not run as an isolated cell.
-
-    HTTP already rejects this. The pool used to lease a worker, and the
-    child treated a missing id as isolated.
-    """
-    spawns = {"n": 0}
-
-    def _no_spawn(self: object, timeout_sec: float = 0.0) -> None:
-        del self, timeout_sec
-        spawns["n"] += 1
-
-    monkeypatch.setattr("compute_service.worker_base.BaseProcessWorker.respawn", _no_spawn)
+def test_shared_mode_without_session_id_runs_isolated() -> None:
+    """Leftover mode=shared without a session id is one-shot isolated (no sticky state)."""
     pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0)
     try:
-        spawned_at_init = spawns["n"]
-        for sid in (None, "", "   "):
-            res = pool.execute(code="result = 1", session_id=sid, mode="shared", req_id="nosid")
-            assert res.get("status") == "error"
-            assert res.get("code") == "INVALID_REQUEST"
-            assert res.get("id") == "nosid"
-            assert "session_id" in str(res.get("error"))
-        assert spawns["n"] == spawned_at_init
+        r1 = pool.execute(code="a = 5\nresult = a", mode="shared", req_id="iso-1")
+        assert r1.get("status") == "ok" and r1.get("result") == 5
+        r2 = pool.execute(code="result = a", mode="shared", req_id="iso-2")
+        assert r2.get("status") == "error"
     finally:
         pool.shutdown()
 
@@ -70,7 +65,7 @@ def test_replaced_child_drops_only_that_workers_session(monkeypatch: pytest.Monk
     Sessions store the Child. A reservation has no child yet and stays.
     """
     from compute_service.formula_pool import _Session
-    from plugin.framework.process_worker import Child
+    from plugin.framework.warm_child import Child
 
     class _Running:
         def __init__(self) -> None:
@@ -131,7 +126,7 @@ def test_dead_managed_child_drops_its_session(monkeypatch: pytest.MonkeyPatch) -
     """A session whose Child is dead drops even when it is still the slot's child."""
     from compute_service.formula_pool import _Session
     from plugin.framework.managed_subprocess import ManagedSubprocess
-    from plugin.framework.process_worker import Child
+    from plugin.framework.warm_child import Child
 
     class _Dead:
         def poll(self) -> int | None:
@@ -332,9 +327,9 @@ class TestFormulaPoolSupervisor:
         try:
             res = pool.execute(
                 code=(
-                    "from plugin.scripting.writeragent_api import _rpc_call\n"
+                    "from plugin.scripting.host_tool_call import call_host_tool\n"
                     "try:\n"
-                    "    _rpc_call('list_open_documents')\n"
+                    "    call_host_tool('list_open_documents')\n"
                     "    result = 'called'\n"
                     "except Exception as exc:\n"
                     "    result = str(exc)\n"
@@ -377,10 +372,10 @@ class TestFormulaPoolSupervisor:
 
     def test_spawn_timeout_logs_stderr_snippet(self, tmp_path, caplog, monkeypatch) -> None:
         """Handshake TimeoutExpired must log child stderr (H2), not a bare one-liner."""
-        from plugin.framework import process_worker
+        from plugin.framework import warm_child as wc
         from compute_service.worker_base import BaseProcessWorker
 
-        monkeypatch.setattr(process_worker, "_SPAWN_READY_TIMEOUT_SEC", 0.5)
+        monkeypatch.setattr(wc, "SPAWN_READY_TIMEOUT_SEC", 0.5)
         script = tmp_path / "hang_worker.py"
         script.write_text(
             "\n".join(
@@ -463,7 +458,7 @@ class TestFormulaPoolSupervisor:
                 [
                     "import sys, time",
                     f"sys.path.insert(0, {root!r})",
-                    "from plugin.scripting.ipc import write_pickle_frame",
+                    "from plugin.framework.ipc import write_pickle_frame",
                     "write_pickle_frame(sys.stdout.buffer, {'status': 'booting'})",
                     "sys.stdout.buffer.flush()",
                     "time.sleep(30)",
@@ -1214,7 +1209,7 @@ class TestFormulaPoolSupervisor:
             pool.shutdown()
 
     def test_deadline_left_is_negative_when_spent(self) -> None:
-        from compute_service.worker_base import Deadline
+        from plugin.framework.child_runtime import Deadline
 
         future = Deadline.from_absolute(10.0, time.monotonic() + 10.0)
         assert future.left() > 0.0
@@ -1278,14 +1273,13 @@ class TestFormulaPoolSupervisor:
             owner = pool.live_session_worker("doc-keep")
             assert owner is not None and owner.process is not None
             pid = owner.process.pid
-            # timeout_sec is the original 30s budget. The deadline is only
-            # about a second from now, which is what the child must honor.
+            # The budget is the original 30s. The deadline is only about a
+            # second from now, which is what the child must honor.
             hung = pool.execute(
                 code="import time\ntime.sleep(8)\nresult = 1",
                 session_id="doc-hang",
                 mode="shared",
-                timeout_sec=30,
-                deadline=time.monotonic() + 1.2,
+                deadline=Deadline.from_absolute(30.0, time.monotonic() + 1.2),
                 req_id="budget-hang",
             )
             assert hung.get("status") == "error"
@@ -1298,13 +1292,12 @@ class TestFormulaPoolSupervisor:
         finally:
             pool.shutdown()
 
-    def test_bad_mode_does_not_run(self) -> None:
+    def test_bad_client_mode_runs_isolated(self) -> None:
         pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
         try:
             res = pool.execute(code="result = 1", mode="Shared", req_id="bad-mode")
-            assert res.get("status") == "error"
-            assert res.get("code") == "INVALID_REQUEST"
-            assert res.get("result") != 1
+            assert res.get("status") == "ok"
+            assert res.get("result") == 1
         finally:
             pool.shutdown()
 
@@ -1588,7 +1581,7 @@ class TestFormulaHttpEndpoint:
             setattr(worker, "execute", spy_execute)
             res = pool.execute(
                 code="result = 42",
-                deadline=time.monotonic() + 0.5,
+                deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.5),
                 req_id="subsecond-test",
             )
             assert res.get("code") == "QUEUE_TIMEOUT"
@@ -1658,6 +1651,36 @@ class TestFormulaHttpEndpoint:
             nxt = pool.execute(code="result = 2", session_id=sid, mode="shared", req_id="after")
             assert nxt.get("status") == "ok"
             assert nxt.get("session_reset") is True
+        finally:
+            pool.shutdown()
+
+    def test_lease_miss_keeps_session_reset(self) -> None:
+        """A lease failure preserves the session binding so a later call still reports session_reset."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "lost-lease-miss"
+            created = pool.execute(code="x = 42\nresult = x", session_id=sid, mode="shared")
+            assert created.get("status") == "ok"
+            assert created.get("result") == 42
+
+            worker = pool.live_session_worker(sid)
+            assert worker is not None
+            worker.kill()
+            assert not worker.is_alive()
+
+            with patch.object(pool, "lease_specific", return_value=None):
+                res = pool.execute(code="result = 1", session_id=sid, mode="shared")
+                assert res.get("code") == "WORKER_POOL_BUSY"
+
+            # The session binding is preserved across the lease miss, so the next sticky call reports session_reset
+            again = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            assert again.get("status") == "ok"
+            assert again.get("session_reset") is True
+
+            # Third call on same session does not report session_reset again
+            third = pool.execute(code="result = 1", session_id=sid, mode="shared")
+            assert third.get("status") == "ok"
+            assert third.get("session_reset") is not True
         finally:
             pool.shutdown()
 
@@ -1803,12 +1826,12 @@ class TestFormulaHttpEndpoint:
             same_lock_verified = False
 
             def caller1() -> None:
-                with pool._session_gate(sid):
+                with pool._session_gate(sid, 30.0):
                     gate1_entered.set()
                     gate1_proceed.wait(timeout=10.0)
 
             def caller2() -> None:
-                with pool._session_gate(sid):
+                with pool._session_gate(sid, 30.0):
                     gate2_entered.set()
 
             t1 = threading.Thread(target=caller1)
@@ -1840,6 +1863,57 @@ class TestFormulaHttpEndpoint:
             t2.join(timeout=10.0)
 
             assert not pool._session_locks
+        finally:
+            pool.shutdown()
+
+    def test_session_gate_timeout_returns_busy(self) -> None:
+        """Shared execute and reset time out waiting for the session gate and return WORKER_POOL_BUSY."""
+        pool = FormulaProcessPool(num_workers=1, default_timeout_sec=15)
+        try:
+            sid = "gate-busy"
+            gate_held = threading.Event()
+            gate_proceed = threading.Event()
+
+            def holder() -> None:
+                with pool._session_gate(sid, 30.0):
+                    gate_held.set()
+                    gate_proceed.wait(timeout=10.0)
+
+            t = threading.Thread(target=holder)
+            t.start()
+            assert gate_held.wait(timeout=5.0)
+
+            with pool._cond:
+                entry = pool._session_locks.get(sid)
+                assert entry is not None
+
+            t0 = time.monotonic()
+            res_exec = pool.execute(code="result = 1", session_id=sid, timeout_sec=1, req_id="gate-busy")
+            exec_duration = time.monotonic() - t0
+            assert exec_duration < 8.0
+            assert res_exec.get("status") == "error"
+            assert res_exec.get("code") == "WORKER_POOL_BUSY"
+            assert res_exec.get("id") == "gate-busy"
+
+            t0 = time.monotonic()
+            res_reset = pool.reset_session(sid, timeout_sec=1)
+            reset_duration = time.monotonic() - t0
+            assert reset_duration < 8.0
+            assert res_reset.get("status") == "error"
+            assert res_reset.get("code") == "WORKER_POOL_BUSY"
+
+            # Before releasing the holder, pool._session_locks["gate-busy"].users == 1 and the same entry object is still mapped.
+            with pool._cond:
+                assert pool._session_locks.get(sid) is entry
+                assert pool._session_locks[sid].users == 1
+
+            gate_proceed.set()
+            t.join(timeout=5.0)
+
+            # After join, that id is absent from _session_locks and from _sessions.
+            with pool._cond:
+                assert sid not in pool._session_locks
+                assert sid not in pool._sessions
         finally:
             pool.shutdown()
 
@@ -1898,7 +1972,7 @@ class TestFormulaHttpEndpoint:
             # Wait for worker idle TTL to elapse, then evict
             time.sleep(0.3)
             pool._evict_idle_workers()
-            assert not worker.is_alive()
+            _wait_until_not_alive(worker)
 
             # Second pass occurs well after eviction but before TTL elapses since eviction
             time.sleep(0.05)
@@ -1933,7 +2007,7 @@ class TestFormulaHttpEndpoint:
             # Idle evict the worker
             time.sleep(0.3)
             pool._evict_idle_workers()
-            assert not worker.is_alive()
+            _wait_until_not_alive(worker)
 
             # Record that it is stale on the first reaper pass
             pool._evict_idle_workers()
@@ -1967,7 +2041,7 @@ class TestFormulaHttpEndpoint:
 
     def test_post_lease_queue_timeout_drops_new_session(self) -> None:
         """When deadline expires right after leasing, new session reservation is dropped."""
-        from compute_service.worker_base import Deadline
+        from plugin.framework.child_runtime import Deadline
 
         pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0)
         try:
@@ -1994,7 +2068,7 @@ class TestFormulaHttpEndpoint:
 
     def test_post_lease_queue_timeout_keeps_existing_session(self) -> None:
         """When deadline expires right after leasing, an existing session is preserved."""
-        from compute_service.worker_base import Deadline
+        from plugin.framework.child_runtime import Deadline
 
         pool = FormulaProcessPool(num_workers=1, idle_worker_ttl_sec=0)
         try:
@@ -2119,7 +2193,7 @@ class TestFormulaHttpEndpoint:
                 code="result = 2",
                 session_id="budget-sid",
                 mode="shared",
-                deadline=time.monotonic() + 0.05,
+                deadline=Deadline.from_absolute(30.0, time.monotonic() + 0.05),
             )
             assert res.get("code") == "QUEUE_TIMEOUT"
             assert called == []
@@ -2162,7 +2236,7 @@ def test_idle_ttl_zero_or_none_does_not_start_reaper() -> None:
 
 def test_run_execution_alarm_keeps_full_remaining_second(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression: a 2 s budget must arm a 2 s child alarm, not int() floor it to 1 s."""
-    from compute_service.worker_base import BaseProcessWorker, Deadline
+    from compute_service.worker_base import BaseProcessWorker
     from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
@@ -2191,7 +2265,7 @@ def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.Monkey
     The pickle frame was already consumed, so killing the child would drop
     shared sessions for a bad inner blob.
     """
-    from compute_service.worker_base import BaseProcessWorker, Deadline
+    from compute_service.worker_base import BaseProcessWorker
 
     monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
     worker = BaseProcessWorker(1, "unused.py")
@@ -2253,7 +2327,9 @@ def test_bad_result_json_is_decode_error_without_kill(monkeypatch: pytest.Monkey
 
 
 def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch: pytest.MonkeyPatch) -> None:
-    real_read = process_worker.read_pickle_frame
+    from plugin.framework import warm_child
+
+    real_read = warm_child.read_pickle_frame
     armed = False
     read_entered = threading.Event()
 
@@ -2264,7 +2340,7 @@ def test_drain_timeout_then_pool_teardown_unblocks_inflight_formula(monkeypatch:
             read_entered.set()
         return real_read(*args, **kwargs)
 
-    monkeypatch.setattr(process_worker, "read_pickle_frame", _read)
+    monkeypatch.setattr(warm_child, "read_pickle_frame", _read)
 
     settings = ComputeSettings(host="127.0.0.1", port=get_free_port(), workers=1, ocr_workers=0, idle_worker_ttl_sec=3600.0)
     pool = get_formula_pool(settings)
@@ -2615,3 +2691,29 @@ def test_check_dependencies_does_not_import_packages(tmp_path: Any, monkeypatch:
     missing = _handle_request({"id": "deps-2", "action": "check_dependencies", "packages": ["nonexistent_pkg_xyz_12345", "nonexistent_parent_xyz.child"]})
     assert missing["code"] == "MISSING_DEPENDENCIES"
     assert missing["missing"] == ["nonexistent_pkg_xyz_12345", "nonexistent_parent_xyz.child"]
+
+
+def test_run_execution_lifts_one_second_budget_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A one-second request with 0.3s left still arms a 1 s child alarm: run_for() is the only lift."""
+    from compute_service.worker_base import BaseProcessWorker
+    from plugin.scripting.config_limits import HOST_IPC_READ_GRACE_SEC
+
+    monkeypatch.setattr(BaseProcessWorker, "respawn", lambda self, timeout_sec=0.0, deadline=None: None)
+    worker = BaseProcessWorker(1, "unused.py")
+    seen: dict[str, Any] = {}
+
+    def _capture(payload: dict[str, Any], timeout_sec: float, *, req_id: Any = None) -> dict[str, Any]:
+        seen["alarm"] = payload["timeout_sec"]
+        seen["host"] = timeout_sec
+        return {"status": "ok", "result": 1, "id": req_id}
+
+    worker.execute = _capture  # type: ignore[method-assign]
+    pool = FormulaProcessPool(num_workers=0, idle_worker_ttl_sec=0)
+    try:
+        clock = Deadline.from_absolute(1.0, time.monotonic() + 0.3)
+        assert clock.usable() is not None
+        pool._run_execution(worker, {}, clock, "t", False)
+        assert seen["alarm"] == 1
+        assert seen["host"] == 1 + HOST_IPC_READ_GRACE_SEC
+    finally:
+        pool.shutdown()

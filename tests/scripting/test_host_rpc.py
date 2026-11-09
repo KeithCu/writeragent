@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from plugin.scripting.ipc import read_pickle_frame
+from plugin.framework.ipc import read_pickle_frame
 from plugin.scripting.host_rpc import (
     TOOL_RPC_DISABLED,
     execute_tool,
@@ -95,7 +95,7 @@ def test_shape_group_proxy_docstring_says_why_to_group():
     assert "Pass every related shape index" in doc
     assert "shape_upsert (action edit)" in doc
     # Args stay the generated schema text.
-    assert "indices (required): List of shape indices to group." in doc
+    assert "indices (required): List of shape indices or Names to group." in doc
     assert "page (optional): Page index containing the shapes." in doc
     # Writer and Calc re-export Draw's class and do not own a second description.
     assert WriterGroupShapes.description == GroupShapes.description
@@ -205,7 +205,7 @@ def test_resolve_allowed_tools_shapes_and_multi_domain_union():
     assert union is not None
     assert "shape_upsert" in union
     assert "footnotes_insert" in union
-    assert "sort_range" not in union
+    assert "range_sort" not in union
     assert "list_open_documents" in union
     assert union == shapes | resolve_allowed_tools("footnotes")
 
@@ -275,14 +275,14 @@ def test_execute_tool_prefers_script_session_document():
     registry._services = {}
     registry.execute.return_value = {"status": "ok"}
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound) as mock_session,
-        patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.app.get_tools", return_value=registry),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         execute_tool(
             "export_presentation_project",
@@ -306,14 +306,14 @@ def test_execute_tool_uses_pinned_document_not_front_window():
     token = pin_script_document(bound)
     try:
         with (
-            patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
             patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
             patch("plugin.framework.uno_context.get_active_document", return_value=focused) as mock_active,
             patch("plugin.scripting.session_manager.get_desktop") as mock_desktop,
-            patch("plugin.main.get_tools", return_value=registry),
-            patch("plugin.doc.doc_type.is_draw", return_value=True),
-            patch("plugin.doc.doc_type.is_calc", return_value=False),
-            patch("plugin.doc.doc_type.is_writer", return_value=False),
+            patch("plugin.app.get_tools", return_value=registry),
+            patch("plugin.framework.doc_type.is_draw", return_value=True),
+            patch("plugin.framework.doc_type.is_calc", return_value=False),
+            patch("plugin.framework.doc_type.is_writer", return_value=False),
         ):
             execute_tool("shape_upsert", {"action": "create"}, script_session_id=token)
         mock_desktop.assert_not_called()
@@ -324,12 +324,16 @@ def test_execute_tool_uses_pinned_document_not_front_window():
 
 
 def test_handle_tool_call_frame_refuses_when_stopped():
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool") as mock_tool:
         handled = handle_tool_call_frame(
             {"type": "tool_call", "id": "stop1", "tool": "export_presentation_project", "args": {}},
             stdin_write=written.append,
-            stop_checker=lambda: True,
+            cancel=scope,
         )
     assert handled is True
     mock_tool.assert_not_called()
@@ -342,6 +346,10 @@ def test_handle_tool_call_frame_refuses_when_stopped():
 
 def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
     """A dead worker pipe must not escape the USER_STOPPED or result write."""
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
 
     def _broken(_blob: bytes) -> None:
         raise BrokenPipeError("stdin closed")
@@ -350,7 +358,7 @@ def test_handle_tool_call_frame_broken_pipe_does_not_abort_stop_or_reply():
         stopped = handle_tool_call_frame(
             {"type": "tool_call", "id": "stop1", "tool": "export_presentation_project", "args": {}},
             stdin_write=_broken,
-            stop_checker=lambda: True,
+            cancel=scope,
         )
     assert stopped is True
     mock_tool.assert_not_called()
@@ -398,6 +406,82 @@ def test_handle_tool_call_frame_writes_error_response():
     assert "code" not in resp
 
 
+def test_handle_tool_call_frame_uno_message_skips_str():
+    import plugin.framework.logging  # noqa: F401  # ensures the log-record factory is installed
+
+    calls: list[str] = []
+
+    class HostileUno(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+        Message = "boom"
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("str() called on hostile UNO exception")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("repr() called on hostile UNO exception")
+
+    written: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool", side_effect=HostileUno()):
+        handled = handle_tool_call_frame(
+            {"type": "tool_call", "id": "e_uno", "tool": "apply_document_content", "args": {}},
+            stdin_write=written.append,
+        )
+    assert handled is True
+    resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
+    assert resp is not None
+    assert resp["status"] == "error"
+    assert resp["id"] == "e_uno"
+    assert resp["message"] == "boom"
+    assert "code" not in resp
+    assert calls == []
+
+    class HostileUnoEmptyMessage(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+        Message = ""
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("str() called on hostile UNO exception with empty message")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("repr() called on hostile UNO exception with empty message")
+
+    written_empty: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool", side_effect=HostileUnoEmptyMessage()):
+        handled_empty = handle_tool_call_frame(
+            {"type": "tool_call", "id": "e_uno_empty", "tool": "apply_document_content", "args": {}},
+            stdin_write=written_empty.append,
+        )
+    assert handled_empty is True
+    resp_empty = read_pickle_frame(io.BytesIO(written_empty[0]), require_dict=True)
+    assert resp_empty is not None
+    assert resp_empty["status"] == "error"
+    assert resp_empty["id"] == "e_uno_empty"
+    assert resp_empty["message"] == "HostileUnoEmptyMessage"
+    assert "code" not in resp_empty
+    assert calls == []
+
+
+def test_handle_tool_call_frame_blank_message_uses_type_name():
+    written_blank: list[bytes] = []
+    with patch("plugin.scripting.host_rpc.execute_tool", side_effect=RuntimeError("")):
+        handled_blank = handle_tool_call_frame(
+            {"type": "tool_call", "id": "e_blank", "tool": "apply_document_content", "args": {}},
+            stdin_write=written_blank.append,
+        )
+    assert handled_blank is True
+    resp_blank = read_pickle_frame(io.BytesIO(written_blank[0]), require_dict=True)
+    assert resp_blank is not None
+    assert resp_blank["status"] == "error"
+    assert resp_blank["id"] == "e_blank"
+    assert resp_blank["message"] == "RuntimeError"
+    assert "code" not in resp_blank
+
+
 def test_handle_tool_call_frame_includes_error_code():
     from plugin.framework.errors import ToolExecutionError
 
@@ -435,7 +519,7 @@ def test_handle_tool_call_frame_rejects_non_dict_args():
     assert handled is True
     mock_tool.assert_not_called()
     assert len(written) == 1
-    from plugin.scripting.ipc import read_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame
     import io
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -457,7 +541,7 @@ def test_handle_tool_call_frame_unpicklable_result():
         )
     assert handled is True
     assert len(written) == 1
-    from plugin.scripting.ipc import read_pickle_frame
+    from plugin.framework.ipc import read_pickle_frame
     import io
     resp = read_pickle_frame(io.BytesIO(written[0]), require_dict=True)
     assert resp is not None
@@ -469,10 +553,10 @@ def test_handle_tool_call_frame_unpicklable_result():
 def test_rpc_call_drops_none_kwargs():
     import plugin.scripting.writeragent_api as api
 
-    with patch.object(api, "IS_WORKER", True), patch(
-        "plugin.scripting.ipc.exchange_tool_call", return_value={}
+    with patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}), patch(
+        "plugin.framework.ipc.exchange_tool_call", return_value={}
     ) as mock_exchange:
-        api._rpc_call("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
+        api.call_host_tool("apply_document_content", content=["<p>Hi</p>"], target="end", dry_run=None, regex=None)
     mock_exchange.assert_called_once_with(
         "apply_document_content",
         {"content": ["<p>Hi</p>"], "target": "end"},
@@ -482,12 +566,13 @@ def test_rpc_call_drops_none_kwargs():
 def test_run_code_in_user_venv_forwards_python_tool_domain():
     from plugin.scripting.venv_worker import run_code_in_user_venv
 
-    ctx = MagicMock()
-    with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr:
+    with patch("plugin.scripting.venv_worker._get_worker_manager") as mock_mgr, patch(
+        "plugin.scripting.venv_worker.get_config", return_value=""
+    ):
         manager = MagicMock()
         mock_mgr.return_value = (manager, None)
         manager.execute.return_value = {"status": "ok", "result": 1}
-        run_code_in_user_venv(ctx, "result = 1", python_tool_domain="writer")
+        run_code_in_user_venv("result = 1", python_tool_domain="writer")
         assert manager.execute.call_args.kwargs.get("python_tool_domain") == "writer"
 
 
@@ -549,7 +634,7 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
 
     # We simulate ToolRegistry.execute's thread behavior loosely for tests,
     # but more importantly we test that host_rpc does not wrap the final `registry.execute`
-    # in `execute_on_main_thread` directly anymore since we split it.
+    # in `main.call` directly anymore since we split it.
 
     # ToolRegistry.execute is actually what executes. Let's make sure it receives ToolContext properly.
     def mock_registry_execute(tool_name, tctx, **kwargs):
@@ -562,14 +647,14 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
     bound = MagicMock()
 
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()) as mock_exec_main,
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()) as mock_exec_main,
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
-        patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.app.get_tools", return_value=registry),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         res = execute_tool("async_mock_tool", {}, allowed_tools=frozenset({"async_mock_tool"}), caller="test_caller")
 
@@ -577,7 +662,7 @@ def test_execute_tool_async_tool_runs_on_caller_thread():
     assert res["caller_tctx"] == "test_caller"
     registry.execute.assert_called_once()
 
-    # execute_on_main_thread should only be called once, for `_run`
+    # main.call should only be called once, for `_run`
     mock_exec_main.assert_called_once()
     assert mock_exec_main.call_args[0][0].__name__ == "_run"
 
@@ -588,6 +673,7 @@ def test_singularize_domain():
     for plural, singular in (
         ("bookmarks", "bookmark"),
         ("charts", "chart"),
+        ("cell_comments", "cell_comment"),
         ("comments", "comment"),
         ("errors", "error"),
         ("fields", "field"),
@@ -602,6 +688,7 @@ def test_singularize_domain():
         ("slide_masters", "slide_master"),
         ("slide_transitions", "slide_transition"),
         ("speaker_notes", "speaker_note"),
+        ("page_comments", "page_comment"),
         ("tables", "table"),
         ("textframes", "textframe"),
     ):
@@ -622,6 +709,7 @@ def test_singularize_domain():
     [
         ("bookmarks", "bookmark"),
         ("charts", "chart"),
+        ("cell_comments", "cell_comment"),
         ("comments", "comment"),
         ("errors", "error"),
         ("fields", "field"),
@@ -636,6 +724,7 @@ def test_singularize_domain():
         ("slide_masters", "slide_master"),
         ("slide_transitions", "slide_transition"),
         ("speaker_notes", "speaker_note"),
+        ("page_comments", "page_comment"),
         ("tables", "table"),
         ("textframes", "textframe"),
     ],
@@ -679,15 +768,17 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
         code = "USER_STOPPED"
 
     with (
-        patch.object(api, "IS_WORKER", False),
-        patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "0"}),
+        patch.dict(os.environ, {"WRITERAGENT_IS_WORKER": "0", "WRITERAGENT_COMPUTE_WORKER": "0"}),
     ):
+        from plugin.scripting.host_tool_call import set_process_role
+
+        set_process_role(None)
         with patch(
             "plugin.scripting.host_rpc.execute_tool",
             side_effect=StoppedError("operation stopped"),
         ):
             try:
-                api._rpc_call("test_tool")
+                api.call_host_tool("test_tool")
             except RuntimeError as exc:
                 assert "operation stopped" in str(exc)
                 assert getattr(exc, "code", None) == "USER_STOPPED"
@@ -699,7 +790,7 @@ def test_writeragent_api_in_process_rpc_call_preserves_error_code():
 
         with patch("plugin.scripting.host_rpc.execute_tool", side_effect=CustomError("denied")):
             try:
-                api._rpc_call("test_tool")
+                api.call_host_tool("test_tool")
             except RuntimeError as exc:
                 assert "denied" in str(exc)
                 assert getattr(exc, "code", None) == "PERMISSION_DENIED"
@@ -713,6 +804,11 @@ def test_writeragent_api_exports_and_tool_methods():
     assert hasattr(api, "TOOL_METHODS")
     assert isinstance(api.TOOL_METHODS, dict)
     assert api.TOOL_METHODS["shape_upsert"] == ("shape", "upsert")
+    assert api.TOOL_METHODS["tracking_start"] == ("tracking", "start")
+    assert api.TOOL_METHODS["tracking_stop"] == ("tracking", "stop")
+    assert api.TOOL_METHODS["tracking_list"] == ("tracking", "list")
+    assert api.TOOL_METHODS["tracking_show"] == ("tracking", "show")
+    assert api.TOOL_METHODS["tracking_manage"] == ("tracking", "manage")
     assert hasattr(api, "__all__")
     assert "shape" in api.__all__
     assert "core" in api.__all__
@@ -722,6 +818,8 @@ def test_writeragent_api_exports_and_tool_methods():
 
 
 def test_execute_tool_copies_stop_onto_tool_context():
+    from plugin.framework.send_cancellation import SendCancellation
+
     focused = MagicMock()
     bound = MagicMock()
     registry = MagicMock()
@@ -731,52 +829,44 @@ def test_execute_tool_copies_stop_onto_tool_context():
     registry.get.return_value = tool
     registry.execute.return_value = {"status": "ok"}
 
-    def checker() -> bool:
-        return False
-
-    sentinel = object()
+    scope = SendCancellation()
     with (
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=focused),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=bound),
-        patch("plugin.main.get_tools", return_value=registry),
-        patch("plugin.doc.doc_type.is_draw", return_value=True),
-        patch("plugin.doc.doc_type.is_calc", return_value=False),
-        patch("plugin.doc.doc_type.is_writer", return_value=False),
+        patch("plugin.app.get_tools", return_value=registry),
+        patch("plugin.framework.doc_type.is_draw", return_value=True),
+        patch("plugin.framework.doc_type.is_calc", return_value=False),
+        patch("plugin.framework.doc_type.is_writer", return_value=False),
     ):
         execute_tool(
             "export_presentation_project",
             {"project_path": "/p"},
-            stop_checker=checker,
-            send_cancellation=sentinel,
+            send_cancellation=scope,
         )
     tctx = registry.execute.call_args.args[1]
-    assert tctx.stop_checker is checker
-    assert tctx.send_cancellation is sentinel
+    assert tctx.send_cancellation is scope
 
 
-def test_handle_tool_call_frame_forwards_stop_to_execute_tool():
-    def checker() -> bool:
-        return False
+def test_handle_tool_call_frame_forwards_cancel_to_execute_tool():
+    from plugin.framework.send_cancellation import SendCancellation
 
-    sentinel = object()
+    scope = SendCancellation()
     written: list[bytes] = []
     with patch("plugin.scripting.host_rpc.execute_tool", return_value={"status": "ok"}) as mock_tool:
         handled = handle_tool_call_frame(
             {"type": "tool_call", "id": "fwd1", "tool": "apply_document_content", "args": {}},
             stdin_write=written.append,
-            stop_checker=checker,
-            send_cancellation=sentinel,
+            cancel=scope,
         )
     assert handled is True
-    assert mock_tool.call_args.kwargs["stop_checker"] is checker
-    assert mock_tool.call_args.kwargs["send_cancellation"] is sentinel
+    assert mock_tool.call_args.kwargs["send_cancellation"] is scope
 
 
 def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
     import io
-    from plugin.scripting.ipc import IpcPayloadSizeError, pack_pickle_frame as real_pack
+    from plugin.framework.ipc import IpcPayloadSizeError, pack_pickle_frame as real_pack
 
     first = True
 
@@ -805,7 +895,7 @@ def test_handle_tool_call_frame_oversized_result_is_error_frame(monkeypatch):
 
 def test_handle_tool_call_frame_second_pack_failure_propagates(monkeypatch):
     import pytest
-    from plugin.scripting.ipc import IpcPayloadSizeError
+    from plugin.framework.ipc import IpcPayloadSizeError
 
     def mock_pack(payload, **kwargs):
         raise IpcPayloadSizeError("Pickle frame exceeds maximum payload size: 99")
@@ -835,8 +925,13 @@ def test_handle_tool_call_frame_write_timeout_propagates():
 
 
 def test_every_domain_tool_resolves_to_a_proxy_method():
-    from plugin.scripting.host_rpc import _proxy_methods_by_tool
+    import importlib
+
     import plugin.scripting.writeragent_api as api
+
+    # Alias/sandbox tests can repoint writeragent.vision; reload keeps TOOL_METHODS and proxies aligned.
+    importlib.reload(api)
+    from plugin.scripting.host_rpc import _proxy_methods_by_tool
 
     methods = _proxy_methods_by_tool()
     assert methods is not None

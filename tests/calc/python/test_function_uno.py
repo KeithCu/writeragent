@@ -11,29 +11,26 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from types import SimpleNamespace
 
 import uno
 from com.sun.star.table import CellAddress
 
 from plugin.calc.calc_addin_data import calc_addin_data_to_python
 from plugin.calc.python.function import (
-    SPILL_REGISTRY,
-    CalcSpillModifyListener,
+    clear_python_addin_cache,
+)
+from plugin.calc.python.workbook_state import WorkbookState
+from plugin.calc.python.spill import (
     SpillCell,
     SpillRecord,
-    _py_scoped_dir_bindings,
-    _spill_registry_doc_key,
-    clear_in_memory_spill_state,
-    clear_python_addin_cache,
     perform_deferred_spill,
 )
-from plugin.calc.python.workbook_lifecycle import _lifecycle_key
-from plugin.doc.doc_type import is_calc
+from tests.calc.python.calc_workbook_test_access import SPILL_REGISTRY, reset_calc_workbook_states
+from plugin.framework.doc_type import is_calc
 from plugin.framework.uno_context import get_desktop
 from plugin.testing_runner import native_test, teardown
 from plugin.tests.testing_utils import with_native_doc
-from plugin.writer.format import create_property_value
+from plugin.framework.uno_context import create_property_value
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures"
 _XLSX = _FIXTURE_DIR / "python_showcase_demo.xlsx"
@@ -121,19 +118,13 @@ def _wait_spill_settled(doc, timeout: float = 10.0) -> None:
 
     Tip: closing while a deferred spill write is still pending hangs close() on Windows.
     """
-    from plugin.calc.python import function as python_function
     from plugin.framework.queue_executor import pump_main_thread_work_queue
 
-    key = _lifecycle_key(doc)
+    st = WorkbookState.for_doc(doc)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         pump_main_thread_work_queue(max_items=20)
-        with python_function._PENDING_SPILL_LOCK:
-            pending = [
-                t for t, (k, _tok) in python_function._PENDING_SPILL_TIMERS.items()
-                if k == key and not python_function._spill_timer_finished(t)
-            ]
-        if not pending:
+        if st is None or len(st.debounce) == 0:
             break
         time.sleep(0.05)
     # A timer that just fired may still have its write queued for the UI thread.
@@ -219,7 +210,9 @@ def test_py_scoped_dir_bindings_saved_showcase_workbook(ctx):
         shutil.copy2(_ZIP_CSV, dest_csv)
         doc = _open_showcase(ctx, Path(dest_xlsx), xlsx=True)
         try:
-            bindings = _py_scoped_dir_bindings(doc)
+            from plugin.calc.python.function import build_cell_context
+
+            bindings = {"scoped_dir": build_cell_context(ctx, doc, "").scoped_dir}
             folder = bindings.get("scoped_dir")
             assert folder, bindings
             assert os.path.samefile(folder, temp_dir), bindings
@@ -260,7 +253,7 @@ def test_py_multi_document_spill_and_plot(ctx):
     import glob
     import json
     from plugin.framework.config import _resolve_config_path_from_ctx
-    from plugin.scripting.venv_worker import PythonWorkerManager
+    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
     repo_venv = _project_venv()
     profile_cfgs = set(glob.glob("/tmp/writeragent-lo-test-profile-*/user/config/writeragent.json"))
@@ -281,7 +274,7 @@ def test_py_multi_document_spill_and_plot(ctx):
                     json.dump(d, f, indent=2)
             except Exception:
                 pass
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
 
     desktop = get_desktop(ctx)
     doc_blank = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
@@ -298,8 +291,11 @@ def test_py_multi_document_spill_and_plot(ctx):
         doc_second.calculateAll()
 
         # Wait for spill and image insertion
+        from plugin.framework.queue_executor import pump_main_thread_work_queue
+
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
+            pump_main_thread_work_queue(max_items=20)
             b1_val = sheet_second.getCellByPosition(1, 0).getValue()
             dp = sheet_second.getDrawPage()
             has_shape = False
@@ -351,15 +347,30 @@ def test_py_multi_document_spill_and_plot(ctx):
                     json.dump(old_d, f, indent=2)
             except Exception:
                 pass
-        PythonWorkerManager.shutdown_all()
+        shutdown_venv_workers_for_tests()
+
 
 
 @native_test
 def test_row_insert_does_not_clear_moved_spill(ctx):
     """Row insertion shifts =PY() formula and its spill; modify listener remaps without clearing."""
+    from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
+    from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests, reset_sheet_modify_runtime_for_tests
+    from plugin.framework.queue_executor import pump_main_thread_work_queue
+
+    # Prior =PY() UNO tests schedule 0.1s sheet/spill debounces; drain before this case.
+    pump_main_thread_work_queue(max_items=50)
+    time.sleep(0.35)
+    pump_main_thread_work_queue(max_items=50)
+    reset_sheet_modify_runtime_for_tests()
+    reset_geometric_runtime_for_tests()
+    reset_calc_workbook_states()
+
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, _hidden_props())
-    doc_key = _spill_registry_doc_key(doc)
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    doc_key = st.key
     try:
         sheet = doc.getSheets().getByIndex(0)
         if sheet.getName() != "Sheet1":
@@ -372,9 +383,11 @@ def test_row_insert_does_not_clear_moved_spill(ctx):
         cells = [SpillCell(row=r, col=0, kind="n", value=float(r - 4)) for r in range(5, 10)]
         SPILL_REGISTRY[(doc_key, "Sheet1", 4, 0)] = SpillRecord(code=code, cells=cells)
 
+        from plugin.calc.python.sheet_modify import flush_sheet_modify_pass_for_tests
+
         sheet.getRows().insertByIndex(0, 1)
 
-        CalcSpillModifyListener(ctx, doc_key, "Sheet1").modified(SimpleNamespace(Source=sheet))
+        flush_sheet_modify_pass_for_tests(ctx, doc, sheet, sheet_name="Sheet1")
 
         a6_formula = sheet.getCellByPosition(0, 5).getFormula()
         assert "PY" in a6_formula, f"Expected PY in A6 formula, got {a6_formula!r}"
@@ -417,7 +430,9 @@ def test_py_addin_worker_exception_formula_error(ctx, doc):
             assert cell.getError() == 519
             assert "Error: Code execution failed" not in cell.getString()
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
 
 
 @native_test
@@ -436,7 +451,9 @@ def test_py_addin_div0_token_formula_error(ctx, doc):
             doc.calculateAll()
             assert cell.getError() == 532
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
 
 
 @native_test
@@ -455,7 +472,9 @@ def test_py_addin_na_token_formula_error(ctx, doc):
             doc.calculateAll()
             assert cell.getError() == 32767
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)
 
 
 @native_test
@@ -475,7 +494,6 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
             cell_a1.setFormula(f'=PY("{code}")')
             grid = [[1, "#VALUE!"], ["#N/A", "#DIV/0!"]]
             perform_deferred_spill(
-                doc.getURL(),
                 sheet_name,
                 0,
                 0,
@@ -483,6 +501,7 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
                 doc=doc,
                 sheet=sheet,
                 code=code,
+                key=WorkbookState.for_doc(doc).key,
             )
             doc.calculateAll()
 
@@ -503,4 +522,6 @@ def test_py_spill_neighbors_formula_error(ctx, doc):
             # A1 is still the =PY() formula
             assert "PY" in cell_a1.getFormula()
     finally:
-        clear_in_memory_spill_state(lifecycle_key=_lifecycle_key(doc))
+        st = WorkbookState.known(doc)
+        if st is not None:
+            WorkbookState.forget_key(st.key)

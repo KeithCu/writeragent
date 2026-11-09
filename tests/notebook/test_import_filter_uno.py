@@ -10,7 +10,7 @@ import os
 
 import uno
 
-from plugin.doc.doc_type import is_writer
+from plugin.framework.doc_type import is_writer
 from plugin.framework.uno_context import get_desktop
 from plugin.notebook.cell_registry import load_registry
 from plugin.testing_runner import _progress_verbose as _progress, native_test

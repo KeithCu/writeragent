@@ -57,6 +57,7 @@ def test_specialized_writer_tools_mutation_and_uno_services_contract():
         comments.AddComment: True,
         comments.CommentDelete: True,
         comments.CommentResolve: True,
+        comments.CommentEdit: True,
         comments.CommentWorkflowSet: True,
         # Bookmarks
         bookmarks.BookmarkList: False,
@@ -543,6 +544,7 @@ def test_comment_resolve_miss_returns_error():
         "status": "error",
         "code": "COMMENT_NOT_FOUND",
         "message": "Comment 'missing' not found. Call comment_list to see the current names.",
+        "details": {"hint": "Call comment_list to list names."},
     }
 
 
@@ -633,8 +635,44 @@ def test_add_comment_search_uses_find_occurrence_range():
         res = AddComment().execute(ctx, content="test note", search="find me", occurrence=1)
 
     assert res["status"] == "ok"
-    mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive_order=(True, False))
+    mock_find.assert_called_once_with(doc, "find me", occurrence=1, case_sensitive=False)
     mock_find_all.assert_not_called()
+
+
+def test_add_comment_case_sensitive_distinguishes_cased_occurrences():
+    """Two occurrences differing only by case: omitted case_sensitive hits the first
+    case-insensitive match, while case_sensitive=True hits the exact-case occurrence."""
+    from plugin.writer.specialized.comments import AddComment
+
+    doc = MagicMock()
+    ctx = SimpleNamespace(doc=doc)
+
+    range_insensitive = MagicMock()
+    range_insensitive.getString.return_value = "The board approved"
+    range_insensitive.getText.return_value = MagicMock()
+
+    range_exact = MagicMock()
+    range_exact.getString.return_value = "the board approved"
+    range_exact.getText.return_value = MagicMock()
+
+    def fake_find(d, text, *, occurrence=0, case_sensitive=False):
+        if case_sensitive:
+            return range_exact if text == "the board approved" else None
+        return range_insensitive
+
+    with patch("plugin.writer.search.find_occurrence_range", side_effect=fake_find), \
+         patch("plugin.writer.specialized.comments._set_annotation_date"):
+        # Omitted case_sensitive hits the first case-insensitive match ("The board approved")
+        doc.getTextFields.return_value = _fields_that_grow()
+        res_default = AddComment().execute(ctx, content="note", search="the board approved")
+        assert res_default["status"] == "ok"
+        assert res_default["anchor_text"] == "The board approved"
+
+        # Explicit case_sensitive=True hits the exact-case occurrence ("the board approved")
+        doc.getTextFields.return_value = _fields_that_grow()
+        res_exact = AddComment().execute(ctx, content="note", search="the board approved", case_sensitive=True)
+        assert res_exact["status"] == "ok"
+        assert res_exact["anchor_text"] == "the board approved"
 
 
 def test_add_comment_search_index_error_and_none_return_not_found():
@@ -804,11 +842,10 @@ def test_read_annotation_unconfirmed_zero_omits_paragraph_index():
         "DateTimeValue": SimpleNamespace(Year=2026, Month=1, Day=2, Hours=3, Minutes=4),
     }.get(p, "")
     doc_svc = MagicMock()
-    doc_svc.find_paragraph_for_range.return_value = 0
+    doc_svc.find_paragraph_for_range.return_value = None
 
     with patch("plugin.writer.search.describe_match_location", return_value="body"), \
-         patch("plugin.framework.uno_context.uno_same", return_value=True), \
-         patch("plugin.doc.paragraph_search.confirm_paragraph_index", return_value=None):
+         patch("plugin.framework.uno_context.uno_same", return_value=True):
         entry = _read_annotation(field, [], text_obj, doc_svc)
 
     assert "paragraph_index" not in entry
@@ -1182,7 +1219,13 @@ def test_comment_list_without_annotations_skips_paragraph_scan():
     doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
     ctx = MagicMock(doc=doc)
     res = CommentList().execute(ctx, author_filter="Rev")
-    assert res == {"status": "ok", "comments": [], "count": 0, "filtered_by": "Rev"}
+    assert res == {
+        "status": "ok",
+        "comments": [],
+        "count": 0,
+        "has_more": False,
+        "filtered_by": "Rev",
+    }
     ctx.services.document.get_paragraph_ranges.assert_not_called()
 
 
@@ -1246,4 +1289,90 @@ def test_add_comment_reply_uses_three_annotation_scans():
     assert res["status"] == "ok", res
     assert res["name"] == "R"
     assert calls["n"] == 3
+
+
+def test_comment_list_paging_and_author_filter_order():
+    from plugin.writer.specialized import comments as comments_mod
+    from plugin.writer.specialized.comments import CommentList
+
+    fields = [
+        _make_comment_field("n0", author="Bot"),
+        _make_comment_field("n1", author="Other"),
+        _make_comment_field("n2", author="Other"),
+    ]
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum(fields)
+    ctx = MagicMock(doc=doc)
+
+    def _reader(field: Any) -> dict[str, Any]:
+        return {
+            "name": field.getPropertyValue("Name"),
+            "author": field.getPropertyValue("Author"),
+        }
+
+    with patch.object(comments_mod, "_annotation_reader", lambda _ctx: _reader):
+        page1 = CommentList().execute(ctx, start_index=0, max_comments=2)
+        assert page1["count"] == 2
+        assert page1["has_more"] is True
+        assert page1["next_index"] == 2
+
+        page2 = CommentList().execute(ctx, start_index=2, max_comments=2)
+        assert page2["count"] == 1
+        assert page2["has_more"] is False
+        assert "next_index" not in page2
+
+        filtered = CommentList().execute(ctx, author_filter="Bot", max_comments=1)
+        assert filtered["count"] == 1
+        assert filtered["comments"][0]["author"] == "Bot"
+        assert filtered["has_more"] is False
+
+        clamped = CommentList().execute(ctx, start_index=-5, max_comments=0)
+        assert clamped["count"] == 1
+
+        bad_page = CommentList().execute(ctx, max_comments="nope")
+        assert bad_page["status"] == "error"
+        assert bad_page["code"] == "INVALID_PARAMETER"
+
+
+def test_comment_edit_sets_content_only():
+    from plugin.writer.specialized.comments import CommentEdit
+
+    field = _make_comment_field("C1", author="A")
+    doc = MagicMock()
+    _setup_mock_undo_manager(doc)
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    ctx = MagicMock(doc=doc)
+
+    res = CommentEdit().execute(ctx, name="C1", content="Updated")
+    assert res["status"] == "ok"
+    field.setPropertyValue.assert_called_with("Content", "Updated")
+
+
+def test_comment_edit_miss_and_empty_content():
+    from plugin.writer.specialized.comments import CommentEdit
+
+    doc = MagicMock()
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([])
+    ctx = MagicMock(doc=doc)
+
+    miss = CommentEdit().execute(ctx, name="missing", content="x")
+    assert miss["code"] == "COMMENT_NOT_FOUND"
+
+    empty = CommentEdit().execute(ctx, name="C1", content="")
+    assert empty["status"] == "error"
+
+
+def test_comment_edit_locked_undo_manager():
+    from plugin.writer.specialized.comments import CommentEdit
+
+    doc = MagicMock()
+    mgr = _setup_mock_undo_manager(doc)
+    mgr.isLocked.return_value = True
+    field = _make_comment_field("target")
+    doc.getTextFields.return_value.createEnumeration.side_effect = lambda: _FiniteEnum([field])
+    ctx = MagicMock(doc=doc)
+
+    res = CommentEdit().execute(ctx, name="target", content="new")
+    assert res["code"] == "UNDO_UNAVAILABLE"
+    field.setPropertyValue.assert_not_called()
 

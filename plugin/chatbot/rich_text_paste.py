@@ -42,6 +42,8 @@ import unicodedata
 from html import unescape
 from typing import Any, Sequence, cast
 
+from plugin.chatbot.chat_session import message_text
+
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
     ChatTheme,
@@ -69,7 +71,7 @@ from plugin.calc.navigation import (
     normalize_cell_address,
     register_cell_link_span,
 )
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.html_stripper import strip_html_tags
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import focus_preserved, process_events_to_idle
@@ -176,7 +178,7 @@ def _text_table_cell_rows(table: Any) -> list[list[str]]:
     rows: list[list[str]] = []
     for row_idx in range(n_rows):
         cells: list[str] = [
-            uno_probe(lambda: table.getCellByPosition(col_idx, row_idx).getString() or "", "")
+            uno_read(lambda: table.getCellByPosition(col_idx, row_idx).getString() or "", "")
             for col_idx in range(n_cols)
         ]
         rows.append(cells)
@@ -386,7 +388,7 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: int
         def _copy(p: str = prop) -> None:
             setattr(dest_cursor, p, getattr(src_portion, p))
 
-        uno_probe(_copy, None)
+        best_effort(_copy, f"copy {prop}")
     dest_cursor.CharColor = char_color
     if bg_color is not None:
         dest_cursor.CharBackColor = bg_color
@@ -395,6 +397,20 @@ def _apply_cursor_char_props(dest_cursor: Any, src_portion: Any, char_color: int
 # Streamed tokens live here until the committed assistant message replaces the row.
 # Not a history write. add_assistant_message pops a trailing row with this key.
 OPEN_TRANSCRIPT = "_open_transcript"
+# Sidebar-only slash output (/help, /remember). Kept in session.messages for repaint,
+# omitted from messages_for_llm (see compaction.sanitize_tool_pairs).
+SLASH_LOCAL = "_slash_local"
+
+
+def append_slash_local_message(session: Any, text: str) -> bool:
+    """Persist a closed assistant row for local slash output (not an LLM turn)."""
+    messages = getattr(session, "messages", None)
+    if not isinstance(messages, list):
+        return False
+    if not text or not str(text).strip():
+        return False
+    messages.append({"role": "assistant", "content": text, SLASH_LOCAL: True})
+    return True
 
 
 def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> bool:
@@ -427,23 +443,6 @@ def fold_transcript_chunk(session: Any, text: str, role: str = "assistant") -> b
     return True
 
 
-def _visible_message_text(content: Any) -> str:
-    """Text the paint can import. A multimodal user row keeps its text parts."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for part in content:
-            if isinstance(part, str):
-                parts.append(part)
-            elif isinstance(part, dict) and isinstance(part.get("text"), str):
-                parts.append(part["text"])
-        return "\n".join(part for part in parts if part)
-    if content is None:
-        return ""
-    return str(content)
-
-
 def plain_transcript_text(session: Any, greeting: str = "") -> str:
     """Plain sidebar text for ``session.messages``. The control is this string."""
     # The plain box is a text field. Panel wiring paints history before the
@@ -451,6 +450,9 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
     # "Assistant <p>done</p>" after File > Reload until the rich control
     # takes over. Give it the same stripped text the stream stripper shows.
     text = (_plain_fallback_text(greeting) + "\n") if greeting else ""
+    notice = getattr(session, "history_notice", "")
+    if isinstance(notice, str) and notice:
+        text += "\n%s %s\n" % (_("Assistant:"), _plain_fallback_text(notice))
     messages = getattr(session, "messages", None)
     if not isinstance(messages, list):
         return text
@@ -458,7 +460,7 @@ def plain_transcript_text(session: Any, greeting: str = "") -> str:
         if not isinstance(msg, dict):
             continue
         role = msg.get("role", "")
-        content = _plain_fallback_text(_visible_message_text(msg.get("content", "")))
+        content = _plain_fallback_text(message_text(msg.get("content", "")))
         if role == "user":
             text += "\nYou: %s\n" % content
         elif role == "assistant":
@@ -479,14 +481,18 @@ def session_history_items(session: Any, greeting: str = "") -> list[tuple[str, s
     items: list[tuple[str, str]] = []
     if greeting:
         items.append(("assistant", greeting))
+    notice = session.history_notice
+    if isinstance(notice, str) and notice:
+        items.append(("assistant", notice))
     for msg in session.messages:
         role = msg.get("role", "")
         content = msg.get("content", "")
         if role == "user":
-            items.append(("user", _visible_message_text(content)))
+            transcript = msg.get("_transcript_text")
+            items.append(("user", transcript if isinstance(transcript, str) and transcript else message_text(content)))
         elif role == "assistant":
             if content:
-                text = _visible_message_text(content)
+                text = message_text(content)
                 if text.strip() == _STOP_BANNER:
                     _append_stop_banner(items, text)
                 else:
@@ -719,7 +725,9 @@ def _copy_formatted_from_hidden_doc_to_control(
             order_counters: dict[Any, int] = {}
             pending_links = list(cell_link_targets or [])
             pending_link_idx = 0
-            while para_enum.hasMoreElements():
+            from plugin.framework.uno_context import enum_has_more
+
+            while enum_has_more(para_enum):
                 para = para_enum.nextElement()
                 element_inserted = False
                 try:
@@ -765,7 +773,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                     line_prefix = _list_prefix_for_paragraph(para, order_counters)
                     prefix_inserted = not line_prefix
                     portion_enum = para.createEnumeration()
-                    while portion_enum.hasMoreElements():
+                    while enum_has_more(portion_enum):
                         portion = portion_enum.nextElement()
                         txt = portion.getString()
                         if not txt:
@@ -798,7 +806,7 @@ def _copy_formatted_from_hidden_doc_to_control(
                             addr = normalize_cell_address(href) if href else None
                             if is_pending:
                                 # Pop the matched queue head even when href supplied the address.
-                                # An href used to leave the queue head, so the next same label reused it.
+                                # Pop the pending link queue when href supplies the address.
                                 pending_addr = pending_links[pending_link_idx][1]
                                 pending_link_idx += 1
                                 if not addr:
@@ -879,8 +887,7 @@ def _plain_fallback_text(text: str) -> str:
 
 def _row_separator_suffix(text: str | None) -> str:
     """Return the newline suffix needed to leave one blank line after *text*."""
-    # The separator used to append \n\n after a single trailing newline,
-    # so the gap became two blank lines.
+    # One blank line between rows: a single trailing newline needs only one more \\n.
     if not text or not text.strip():
         return ""
     if text.endswith("\n\n"):
@@ -1106,10 +1113,7 @@ def append_formatted_row(
         _finish_append_row()
         return True
 
-    # Remember the length before the separator. A failed copy used to leave
-    # that blank gap, and a missing Writer returned False so the message
-    # never appeared. Roll back, then plain-append only when there is no
-    # Writer: a False copy still lets the caller restore its own tail.
+    # Roll back separator on failed formatted copy; plain-append when Writer is unavailable.
     before = get_control_text_length(control)
     if before is None:
         log.warning("append_formatted_row: control length unavailable")

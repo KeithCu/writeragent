@@ -117,7 +117,7 @@ Completed `web_research` / delegate `web_research` reports can be cached in the 
 **Fuzzy match** ([`plugin/chatbot/web_research_cache.py`](../../plugin/chatbot/web_research_cache.py)):
 
 - Stems use the same Snowball algorithms as writer full-text search ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py) `_ISO_TO_SNOWBALL`). The cached pure-Python stemmer mutates cursor state inside `stemWord`; `stem_word` holds a lock around that call so concurrent research threads can share the cache.
-- Language: document `CharLocale` → LibreOffice UI locale → `english`. Both UNO reads are marshalled to the main thread via `execute_on_main_thread` because `web_research` runs on an async worker. A disposed document (`is_disposed_exception`, including `DocumentDisposedError` from the UNO thread guard) aborts that lookup instead of caching the run as `en_US` / `english`. Send cancellation and a main-thread timeout still use that fallback.
+- Language: document `CharLocale` → LibreOffice UI locale → `english`. Both UNO reads are marshalled to the main thread via `execute_on_main_thread` because `web_research` runs on an async worker. A disposed document (`is_disposal`, including `DocumentDisposedError` from the UNO thread guard) aborts that lookup instead of caching the run as `en_US` / `english`. Send cancellation and a main-thread timeout still use that fallback.
 - Similarity = `max(union Jaccard, overlap / min(|A|, |B|))` so repeat prompts with extra words still match.
 - Gates: similarity ≥ **Research Cache Fuzzy Match (%)** (default 60) and shared stem count ≥ **Min Stem Overlap** (default 8).
 
@@ -129,7 +129,7 @@ Settings UI: `web_research_cache_enabled` only. Cache matching tuning (`web_rese
 
 ### Deep Research (sidebar mode)
 
-Choose **Deep Research** in the sidebar mode dropdown to run a **breadth/depth multi-query loop** via a dedicated sub-agent that can **`apply_document_content`** after synthesis. The main agent and specialized delegates **always** use shallow web research — they never pass `deep=True`; only the sidebar Deep Research session does.
+Choose **Deep Research** in the sidebar mode dropdown (Writer, Calc, Draw, and Impress) to run a **breadth/depth multi-query loop** via a dedicated sub-agent. On Writer it can **`apply_document_content`** after synthesis when that tool is in the sub-agent tool list; on Calc, Draw, and Impress the session exposes web research only.
 
 Shallow **Web Research** sidebar mode streams results to chat only and does not expose document editing tools.
 
@@ -149,7 +149,7 @@ The loop is ported from [gpt-researcher](https://github.com/assafelovic/gpt-rese
 
 Implementation: [`plugin/chatbot/web_research_deep.py`](../../plugin/chatbot/web_research_deep.py) (adaptive orchestrator + JSON parsers); sidebar session [`plugin/chatbot/deep_research_session.py`](../../plugin/chatbot/deep_research_session.py) (`deep_research_web` → `apply_document_content`); shallow agent helper [`_run_web_agent`](../../plugin/chatbot/web_research.py).
 
-**Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_max_rounds`, `chatbot.deep_research_depth` (legacy alias when `max_rounds` is 0), `chatbot.deep_research_concurrency`, `chatbot.deep_research_max_sub_queries`, `chatbot.deep_research_quality_threshold`, `chatbot.deep_research_sub_agent_steps`.
+**Config (internal, JSON override):** `chatbot.deep_research_breadth`, `chatbot.deep_research_max_rounds`, `chatbot.deep_research_concurrency`, `chatbot.deep_research_max_sub_queries`, `chatbot.deep_research_quality_threshold`, `chatbot.deep_research_sub_agent_steps`.
 
 ---
 
@@ -175,7 +175,7 @@ Firefox deprecated CDP in favor of WebDriver BiDi (v129+).
 
 ## 7. Document full-text index (`advanced_search`)
 
-`IndexService` ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py), service `writer_index`) backs the Writer `advanced_search` and `get_index_stats` tools.
+`IndexService` ([`linguistic_index.py`](../../plugin/writer/locale/linguistic_index.py), service `writer_index`) backs the Writer **`advanced_search`** and **`get_index_stats`** tool names in older docs. Those classes are **`ToolBaseDummy`** only ([`search.py`](../../plugin/writer/search.py)) — **parked 2026-11-05**; use **`search_in_document`** (no second search tool).
 
 - Coverage is body paragraphs of the top-level text enumeration. A table keeps its slot as the literal text `"[Table]"` and its cell text is not indexed; text frames, headers/footers, and drawing shapes are not walked. Use `search_in_document` for text in those places.
 - Language: the document-level `CharLocale` wins; otherwise the first non-empty body paragraph with a usable locale (tables and blank paragraphs are skipped, `zxx` is ignored). The response reports `detected_language` (the tag as read), `language` (the Snowball algorithm actually used; still `english` when unsupported) and `stem_fallback: true` when the detected tag has no Snowball algorithm.

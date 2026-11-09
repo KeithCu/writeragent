@@ -64,7 +64,7 @@ def test_apply_design_current_doc_metropolis(ctx, doc):
     assert design, listed
     added = _exec(doc, ctx, "add_slide", {})
     assert added.get("status") == "ok", added
-    layout0 = _exec(doc, ctx, "set_slide_layout", {"page": 0, "layout": "text"})
+    layout0 = _exec(doc, ctx, "slide_layout_set", {"page": 0, "layout": "text"})
     assert layout0.get("status") == "ok", layout0
     title0 = _exec(doc, ctx, "set_placeholder_text", {"page": 0, "role": "title", "text": "Keep Title 0"})
     if title0.get("status") != "ok":

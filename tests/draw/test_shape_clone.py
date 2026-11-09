@@ -1,0 +1,285 @@
+# WriterAgent - AI Writing Assistant for LibreOffice
+# Copyright (c) 2026 KeithCu
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+from __future__ import annotations
+
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from plugin.draw.shape_clone import (
+    clone_shape,
+    copy_prop,
+    reimport_graphic,
+)
+
+
+def test_clone_shape_sets_geometry_after_add():
+    calls: list[str] = []
+    dest_doc = MagicMock()
+    clone = MagicMock()
+    dest_doc.createInstance.return_value = clone
+    dest_master = MagicMock()
+    dest_master.add.side_effect = lambda _unused: calls.append("add")
+    src = MagicMock()
+    src.ShapeType = "com.sun.star.drawing.GraphicObjectShape"
+    with patch(
+        "plugin.draw.shape_clone.copy_prop",
+        side_effect=lambda _dest, _src, name: calls.append(name) or True,
+    ):
+        out = clone_shape(dest_doc, dest_master, src)
+    assert out.shape_type == "com.sun.star.drawing.GraphicObjectShape"
+    assert calls[0] == "add"
+    assert calls[-2:] == ["Position", "Size"]
+    dest_doc.createInstance.assert_called_once_with("com.sun.star.drawing.GraphicObjectShape")
+
+
+def test_clone_shape_rejects_non_uno_type():
+    src = MagicMock()
+    src.ShapeType = "not.a.sun.star.shape"
+    with pytest.raises(RuntimeError, match="Unsupported shape type"):
+        clone_shape(MagicMock(), MagicMock(), src)
+
+
+def test_copy_prop_falls_back_to_attribute_access():
+    class ShapeStub:
+        def __init__(self, pos=None):
+            self.Position = pos
+
+        def getPropertyValue(self, name):
+            raise RuntimeError("UnknownPropertyException")
+
+        def setPropertyValue(self, name, val):
+            raise RuntimeError("UnknownPropertyException")
+
+    src = ShapeStub((100, 200))
+    dest = ShapeStub((0, 0))
+    assert copy_prop(dest, src, "Position") == "copied"
+    assert dest.Position == (100, 200)
+
+    # Missing attribute returns "missing"
+    assert copy_prop(dest, src, "NoSuchProp") == "missing"
+
+    # Destination rejecting a property returns "rejected"
+    class RejectDest:
+        def getPropertyValue(self, name):
+            raise RuntimeError("UnknownPropertyException")
+
+        def setPropertyValue(self, name, val):
+            raise RuntimeError("CannotSet")
+
+        def __setattr__(self, name, val):
+            if name == "ZOrder":
+                raise RuntimeError("CannotSetAttr")
+            super().__setattr__(name, val)
+
+    reject_dest = RejectDest()
+    src_prop = MagicMock()
+    src_prop.getPropertyValue.return_value = 5
+    assert copy_prop(reject_dest, src_prop, "ZOrder") == "rejected"
+
+
+def test_copy_prop_disposal_propagates():
+    class DisposedException(Exception):
+        pass
+
+    src = MagicMock()
+    src.getPropertyValue.side_effect = DisposedException("disposed")
+    dest = MagicMock()
+
+    with pytest.raises(DisposedException):
+        copy_prop(dest, src, "Position")
+
+    src_missing = MagicMock(spec=["getPropertyValue"])
+    src_missing.getPropertyValue.side_effect = AttributeError("missing")
+    assert copy_prop(dest, src_missing, "NoSuchProp") == "missing"
+
+
+def test_copy_prop_geometry_failure_raises():
+    class BrokenDest:
+        def setPropertyValue(self, name, val):
+            raise RuntimeError("cannot set property")
+
+        def __setattr__(self, name, val):
+            if name in ("Position", "Size"):
+                raise RuntimeError("cannot set attr")
+            super().__setattr__(name, val)
+
+    src = MagicMock()
+    src.getPropertyValue.return_value = (10, 20)
+    dest = BrokenDest()
+
+    with pytest.raises(RuntimeError, match="Failed to set Position"):
+        copy_prop(dest, src, "Position")
+
+
+def test_clone_shape_rejected_prop_records_warning():
+    dest_doc = MagicMock()
+
+    class RejectingShape:
+        def getPropertyValue(self, name):
+            raise RuntimeError("UnknownPropertyException")
+
+        def setPropertyValue(self, name, val):
+            if name in ("ZOrder", "Position", "Size"):
+                raise RuntimeError("CannotSet")
+
+        def __setattr__(self, name, val):
+            if name in ("ZOrder", "Position", "Size"):
+                raise RuntimeError("CannotSetAttr")
+            super().__setattr__(name, val)
+
+    clone = RejectingShape()
+    dest_doc.createInstance.return_value = clone
+    dest_master = MagicMock()
+
+    src_shape = MagicMock()
+    src_shape.ShapeType = "com.sun.star.drawing.RectangleShape"
+    src_shape.getPropertyValue.side_effect = lambda n: 1 if n == "ZOrder" else (0, 0)
+
+    warnings: list[str] = []
+    # Position / Size still raise
+    with pytest.raises(RuntimeError, match="Failed to set Position"):
+        clone_shape(dest_doc, dest_master, src_shape, shape_index=2, warnings=warnings)
+    # ZOrder was attempted before Position / Size and recorded its warning
+    assert "rejected ZOrder on shape 2" in warnings
+
+
+def test_clone_fill_gradient_success_copies_gradient_no_warning():
+    dest_doc = MagicMock()
+    clone = MagicMock()
+    dest_doc.createInstance.return_value = clone
+    dest_master = MagicMock()
+
+    src_shape = MagicMock()
+    src_shape.ShapeType = "com.sun.star.drawing.CustomShape"
+    grad_enum = MagicMock()
+    grad_enum.value = "GRADIENT"
+    gradient_struct = MagicMock()
+
+    def get_prop(n):
+        if n == "FillStyle":
+            return grad_enum
+        if n == "FillGradient":
+            return gradient_struct
+        return None
+
+    src_shape.getPropertyValue.side_effect = get_prop
+
+    warnings: list[str] = []
+    clone_shape(dest_doc, dest_master, src_shape, shape_index=0, warnings=warnings)
+
+    clone.setPropertyValue.assert_any_call("FillGradient", gradient_struct)
+    assert not any("fill gradient not copied" in w for w in warnings)
+
+
+def test_clone_group_shape_with_children():
+    dest_doc = MagicMock()
+    group_clone = MagicMock()
+    group_children: list[Any] = []
+    group_clone.add.side_effect = group_children.append
+    group_clone.getCount.side_effect = lambda: len(group_children)
+
+    child1_clone = MagicMock()
+    child2_clone = MagicMock()
+    created_shapes = [group_clone, child1_clone, child2_clone]
+    dest_doc.createInstance.side_effect = lambda t: created_shapes.pop(0)
+
+    dest_master = MagicMock()
+
+    src_child1 = MagicMock()
+    src_child1.ShapeType = "com.sun.star.drawing.CustomShape"
+    src_child1.CustomShapeGeometry = {"geom": 1}
+    src_child1.PolyPolygon = ((0, 0), (1, 1))
+    src_child1.RotateAngle = 4500
+    src_child1.getPropertyValue.side_effect = lambda n: getattr(src_child1, n, None)
+
+    src_child2 = MagicMock()
+    src_child2.ShapeType = "com.sun.star.drawing.RectangleShape"
+    src_child2.getPropertyValue.side_effect = lambda n: getattr(src_child2, n, None)
+
+    src_group = MagicMock()
+    src_group.ShapeType = "com.sun.star.drawing.GroupShape"
+    src_group.getCount.return_value = 2
+    src_group.getByIndex.side_effect = lambda i: src_child1 if i == 0 else src_child2
+
+    warnings: list[str] = []
+    clone_shape(dest_doc, dest_master, src_group, shape_index=0, warnings=warnings)
+
+    dest_master.add.assert_called_once_with(group_clone)
+    assert group_children == [child1_clone, child2_clone]
+
+    props_set = [call.args[0] for call in child1_clone.setPropertyValue.call_args_list]
+    assert "CustomShapeGeometry" in props_set
+    assert "PolyPolygon" in props_set
+    assert "RotateAngle" in props_set
+    assert "FillBitmap" not in props_set
+
+
+def test_reimport_graphic_disposed_propagates():
+    class DisposedException(Exception):
+        pass
+
+    ctx = MagicMock()
+    src_shape = MagicMock()
+    src_shape.getPropertyValue.side_effect = DisposedException("disposed")
+    dest_shape = MagicMock()
+
+    with pytest.raises(DisposedException):
+        reimport_graphic(ctx, src_shape, dest_shape)
+
+
+def test_reimport_graphic_rejected_file_url_fallback(tmp_path):
+    pic = tmp_path / "img.png"
+    pic.write_bytes(b"\x89PNG\r\n\x1a\n")
+
+    ctx = MagicMock()
+    src_shape = MagicMock()
+    src_shape.Graphic = MagicMock()
+    dest_shape = MagicMock()
+
+    first_spv = True
+    first_attr = True
+
+    def spv(name, val):
+        nonlocal first_spv
+        if name == "Graphic" and first_spv:
+            first_spv = False
+            raise RuntimeError("cannot setProperty Graphic from file")
+        dest_shape._g = val
+
+    dest_shape.setPropertyValue.side_effect = spv
+
+    def assign_graphic(self, val):
+        nonlocal first_attr
+        if first_attr:
+            first_attr = False
+            raise RuntimeError("cannot setattr Graphic from file")
+        dest_shape._g = val
+
+    type(dest_shape).Graphic = property(lambda self: getattr(self, "_g", None), assign_graphic)
+
+    provider = MagicMock()
+    provider.queryGraphic.return_value = MagicMock()
+    ctx.ServiceManager.createInstanceWithContext.return_value = provider
+
+    ok = reimport_graphic(ctx, src_shape, dest_shape, image_path=str(pic))
+    assert ok is True
+    provider.storeGraphic.assert_called_once()
+
+    # Both assigns failing returns False and source graphic object is absent from dest
+    fail_dest = MagicMock()
+    fail_dest.setPropertyValue.side_effect = RuntimeError("never setProperty")
+    type(fail_dest).Graphic = property(
+        lambda self: getattr(self, "_g", None),
+        lambda self, val: (_ for _ in ()).throw(RuntimeError("never setattr")),
+    )
+    src_obj = MagicMock()
+    src_shape2 = MagicMock()
+    src_shape2.Graphic = src_obj
+    ok_fail = reimport_graphic(ctx, src_shape2, fail_dest)
+    assert ok_fail is False
+    assert getattr(fail_dest, "_g", None) is not src_obj

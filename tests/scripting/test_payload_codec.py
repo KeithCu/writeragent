@@ -465,7 +465,7 @@ def test_round_trip_split_grid_1d():
 
 
 def test_child_unpack_single_entry_auto_scalar_and_integer_coercion():
-    """Single-cell floats stay floats. A longer float64 column already did; 1×1 used to become int."""
+    """Single-cell float64 columns must unpack as float, same as multi-cell float columns."""
     np = pytest.importorskip("numpy")
 
     # 1. 1-element numeric list representing a whole-number float
@@ -557,8 +557,8 @@ def test_rectangular_tuple_rows_egress_as_lists() -> None:
 def test_non_sequence_row_raises_valueerror() -> None:
     """A scalar or string row is ValueError, not TypeError from len().
 
-    Deal's pre rejects the grid before the body. The release build strips
-    deal, and that path used to raise TypeError.
+    Deal's pre rejects the grid before the body. Release builds strip deal,
+    so the body must still raise ValueError for non-sequence rows, not TypeError.
     """
     from tests.harness.strip_bundle import expect_pre_or_body
 
@@ -597,8 +597,8 @@ def test_child_unpack_non_sequence_row_raises_valueerror() -> None:
 def test_split_grid_bad_b64_raises_valueerror() -> None:
     """A bad legacy b64 is ValueError, not binascii.Error or UnicodeEncodeError.
 
-    What was wrong: both subclass ValueError, and deal.raises matches exact
-    types, so the failure became RaisesContractError (AssertionError).
+    binascii and Unicode failures subclass ValueError. Unpack must raise plain
+    ValueError so deal.raises and release builds agree on the error type.
     """
     import base64
 
@@ -627,7 +627,7 @@ def test_split_grid_bad_b64_raises_valueerror() -> None:
 
 
 def test_envelope_detectors_reject_bool_shape_dims() -> None:
-    """bool is an int subclass. True used to pass as a shape extent."""
+    """Shape extents must be true integers; bool values must not pass as dimensions."""
     from plugin.scripting.payload_codec import is_calc_range_payload
 
     assert is_split_grid(
@@ -850,7 +850,8 @@ class _WeirdFloat:
 def test_unknown_dtype_kind_promotes_column_like_cython() -> None:
     """kind 'O' that float() accepts is a float column on both packers.
 
-    The pure path used to leave the column bool while Cython set float.
+    Pure Python and Cython flatteners must agree on column kind float when
+    float() accepts the object kind.
     """
     from plugin.scripting.payload_codec import _flatten_grid_to_components
 
@@ -933,8 +934,8 @@ def test_int_subclass_column_kind_matches_cython() -> None:
 def test_unknown_dtype_kind_numeric_regardless_of_string_position() -> None:
     """The same object is a float before or after a text cell.
 
-    The slow path used to str() an unknown dtype kind, so ['x', Weird()]
-    became the text 'W' while [Weird(), 'x'] stayed 1.5.
+    Unknown object kinds must classify the same whether the text cell comes
+    before or after the value; position must not change float vs text column kind.
     """
     from plugin.scripting.payload_codec import host_pack_split_grid
 
@@ -1094,8 +1095,8 @@ def test_split_grid_flat_row_10_shape() -> None:
 def test_child_pack_below_threshold_returns_list() -> None:
     """Small ndarray egress below threshold is a nested list, not an ndarray or split_grid.
 
-    Bugfix: returning the ndarray made a DataFrame under 100 cells spill only its
-    header, and a bare multi-cell array become one Calc string.
+    Below BINARY_MIN_CELLS, child_pack must return a nested list, not an ndarray.
+    Otherwise small DataFrames and arrays reach Calc as a single header or one string.
     """
     np = pytest.importorskip("numpy")
     n = max(1, BINARY_MIN_CELLS - 1)
@@ -1109,7 +1110,7 @@ def test_child_pack_below_threshold_returns_list() -> None:
 
 
 def test_split_grid_unpack_rejects_non_dict_strings() -> None:
-    """strings must be a dict before .items(); a list used to raise AttributeError."""
+    """The strings sidecar must be a dict; non-dicts raise ValueError, not AttributeError."""
     pytest.importorskip("numpy")
     envelope = {
         "__wa_payload__": PAYLOAD_SPLIT_GRID,
@@ -1127,9 +1128,8 @@ def test_split_grid_unpack_rejects_non_dict_strings() -> None:
 def test_split_grid_rejects_non_integer_string_keys(key: object) -> None:
     """Float, inf, and bool keys must not truncate into another cell.
 
-    What was wrong: ``int(1.5)`` stored the string at index 1, and
-    ``int(float("inf"))`` raised OverflowError. The child contract only
-    declares ValueError, so under deal that became RaisesContractError.
+    String keys must be integral without truncating floats or accepting bool.
+    Reject non-integer keys with ValueError so host and child contracts match under deal.
     """
     envelope = {
         "__wa_payload__": PAYLOAD_SPLIT_GRID,
@@ -1205,8 +1205,8 @@ def test_host_unpack_split_grid_rejects_short_buffer() -> None:
 def test_child_unpack_split_grid_mixed_rejects_size_mismatch() -> None:
     """Mixed-string child unpack must reject a buffer that does not match shape.
 
-    The numeric path already did. 1D mixed grids skip reshape, so a short
-    buffer used to come back as a shorter list and a long one kept extra cells.
+    The numeric path already enforces shape. For 1D mixed grids that skip
+    reshape, a buffer length mismatch must raise ValueError, not return a partial grid.
     """
     pytest.importorskip("numpy")
     short = {
@@ -1994,7 +1994,7 @@ def test_child_pack_split_grid_rejects_rank_and_complex() -> None:
 
 
 def test_child_pack_complex_keeps_imaginary_part() -> None:
-    """astype(float64) used to keep only the real part."""
+    """Complex ndarray egress must stringify the full complex literal, not float64 real parts only."""
     np = pytest.importorskip("numpy")
     arr = np.array([[1 + 2j, 3 + 4j], [5 + 6j, 7 + 8j]])
     wire = child_pack_result(arr, force="always")
@@ -2029,10 +2029,10 @@ def test_host_unpack_nonuniform_bool_two_is_false() -> None:
 
 
 def test_flatten_overflow_int_is_text_on_both_paths() -> None:
-    """A plain int past ~1e308 is text. float() used to raise OverflowError.
+    """Integers past float64 range must become text cells, not raise OverflowError.
 
     The fast lane is a numeric cell with no earlier string. An earlier string
-    forces the slow lane. Both ranks, both signs, stdlib and the accelerator.
+    forces the slow lane. Both paths must agree for both signs, stdlib and Cython.
     """
     from plugin.scripting.payload_codec import host_pack_split_grid
 
@@ -2081,7 +2081,7 @@ def test_huge_int_list_serializes_as_text() -> None:
 
 
 def test_numpy_complex_scalar_keeps_imaginary_part() -> None:
-    """NumPy complex scalars are text. float() used to keep only the real part.
+    """NumPy complex scalars must stringify as text, not lose the imaginary part via float().
 
     np.complex128 is a builtin complex; complex64 and clongdouble are not, so
     the check is dtype.kind == "c". np.full(dtype=object) unboxes complex128
@@ -2140,7 +2140,7 @@ def test_flatten_overflow_fraction_is_text_without_accelerator() -> None:
     """A huge Fraction is text on the stdlib path, matching Cython _flatten_cell.
 
     The fast path catches OverflowError and retries the slow helper. An earlier
-    text cell forces the slow path directly. Both used to raise.
+    text cell forces the slow path directly. Both paths must encode huge Fraction as text.
     """
     from fractions import Fraction
 
@@ -2277,7 +2277,7 @@ def test_strip_image_payloads_cycle_shared_subtree_and_colliding_keys() -> None:
 
 
 def test_write_image_payload_to_temp_unlinks_when_write_fails() -> None:
-    """delete=False used to leave the file when data was not bytes."""
+    """When payload bytes are invalid, delete=False temps must still be unlinked."""
     import os
     import tempfile
 

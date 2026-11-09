@@ -20,12 +20,11 @@ import re
 import uuid
 from typing import Any
 
+from plugin.doc.text_helpers import FAILED, iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
 from plugin.framework.uno_context import uno_same
 
 log = logging.getLogger("writeragent.writer")
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
 
 
 # XHTML export of Writer fields (body and copied header XText) is a titled
@@ -107,7 +106,7 @@ def _matching_span_end(html: str, start_pos: int) -> int | None:
 
 
 def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
-    from . import format as format_mod
+    from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS
 
     props = []
     if title == "page-number":
@@ -131,10 +130,10 @@ def _field_token(field_nonce: str, title: str, attrs: dict[str, str]) -> str:
         num_raw = attrs.get("data-numbering-type")
         if num_raw is not None:
             nt_raw = num_raw.strip().upper()
-            if nt_raw in format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS:
+            if nt_raw in PAGE_NUMBER_NUMBERING_TYPE_VALS:
                 nt_name = nt_raw
-            elif nt_raw.isdigit() and int(nt_raw) in format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES:
-                nt_name = format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(nt_raw)]
+            elif nt_raw.isdigit() and int(nt_raw) in PAGE_NUMBER_NUMBERING_TYPE_NAMES:
+                nt_name = PAGE_NUMBER_NUMBERING_TYPE_NAMES[int(nt_raw)]
             else:
                 log.warning("Unknown PageNumber NumberingType attribute %r, defaulting to ARABIC", num_raw)
                 nt_name = "ARABIC"
@@ -188,13 +187,13 @@ def rewrite_exported_field_spans(html: str, nonce: str | None = None) -> str:
 
 
 def _page_number_properties(props: dict[str, str]) -> list[tuple[str, Any]]:
-    from . import format as format_mod
+    from .html_export import PAGE_NUMBER_NUMBERING_TYPE_VALS
     import uno
 
     return [
         ("SubType", uno.Enum("com.sun.star.text.PageNumberType", props.get("subtype", "CURRENT"))),
         ("Offset", int(props.get("offset", "0"))),
-        ("NumberingType", format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS[props.get("numbering_type", "ARABIC")]),
+        ("NumberingType", PAGE_NUMBER_NUMBERING_TYPE_VALS[props.get("numbering_type", "ARABIC")]),
     ]
 
 
@@ -263,8 +262,7 @@ def _iter_field_texts(xtext: Any, depth: int = 0):
     enum = uno_read(lambda: xtext.createEnumeration(), None)
     if enum is None:
         return
-    while enum.hasMoreElements() is True:
-        el = uno_read(lambda: enum.nextElement(), None)
+    for el in iter_elements(enum):
         if el is None:
             break
         # Table cells have their own XText
@@ -289,11 +287,11 @@ def _iter_field_texts(xtext: Any, depth: int = 0):
 
 
 def _first_remaining_field_token(text_obj: Any, nonce: str) -> Any:
-    """Return the first remaining token as str, None if none, or _FAILED if read failed."""
+    """Return the first remaining token as str, None if none, or FAILED if read failed."""
     for xtext in _iter_field_texts(text_obj):
-        plain = uno_read(lambda: xtext.getString() or "", _FAILED)
-        if plain is _FAILED:
-            return _FAILED
+        plain = uno_read(lambda: xtext.getString() or "", FAILED)
+        if plain is FAILED:
+            return FAILED
         if not isinstance(plain, str):
             plain = str(plain)
         for m in _FIELD_TOKEN_RE.finditer(plain):
@@ -324,12 +322,7 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
             continue
 
         try:
-            while enum.hasMoreElements() is True:
-                try:
-                    para = enum.nextElement()
-                except Exception as exc:
-                    reraise_if_disposed(exc)
-                    break
+            for para in iter_elements(enum):
                 try:
                     portions = para.createEnumeration()
                 except Exception as exc:
@@ -337,9 +330,8 @@ def _restore_fields_by_cursor(model: Any, text_obj: Any, nonce: str) -> int:
                     continue
                 if portions is None:
                     continue
-                while portions.hasMoreElements() is True:
+                for portion in iter_elements(portions):
                     try:
-                        portion = portions.nextElement()
                         kind = portion.getPropertyValue("TextPortionType")
                     except Exception as exc:
                         reraise_if_disposed(exc)

@@ -63,10 +63,7 @@ def test_run_in_background_exception_in_error_callback():
 def test_async_process_init():
     ap = AsyncProcess(["ls", "-l"], stdout_cb=lambda x: None)
     assert ap.args == ["ls", "-l"]
-    assert ap._popen_kwargs["stdout"] == subprocess.PIPE
-    assert ap._popen_kwargs["stderr"] == subprocess.PIPE
-    assert ap._popen_kwargs["text"] is False
-    assert ap._popen_kwargs["bufsize"] == 0
+    assert ap.process is None
     assert ap.is_running is False
 
 def test_async_process_start_success():
@@ -154,6 +151,7 @@ def test_async_process_start_error():
     with pytest.raises(ToolExecutionError) as exc:
         ap.start()
     assert "Failed to start process" in str(exc.value)
+    assert isinstance(exc.value.__cause__, FileNotFoundError)
 
 def test_async_process_start_reader_spawn_failure_kills_child(monkeypatch: pytest.MonkeyPatch):
     captured: list[subprocess.Popen[Any]] = []
@@ -164,7 +162,7 @@ def test_async_process_start_reader_spawn_failure_kills_child(monkeypatch: pytes
         captured.append(proc)
         return proc
 
-    monkeypatch.setattr(subprocess, "Popen", capturing_popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", capturing_popen)
 
     on_exit_called = False
 
@@ -186,8 +184,9 @@ def test_async_process_start_reader_spawn_failure_kills_child(monkeypatch: pytes
         assert ap._stderr_thread is None
         assert ap._wait_thread is None
         assert not on_exit_called
-        assert len(captured) == 1
-        assert captured[0].poll() is not None
+        child_procs = [p for p in captured if p.args and p.args[0] == sys.executable]
+        assert len(child_procs) == 1
+        assert child_procs[0].poll() is not None
     finally:
         for proc in captured:
             if proc.poll() is None:
@@ -206,7 +205,7 @@ def test_async_process_start_wait_spawn_failure_kills_child_and_clears_handles(m
         captured.append(proc)
         return proc
 
-    monkeypatch.setattr(subprocess, "Popen", capturing_popen)
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", capturing_popen)
 
     on_exit_called = False
 
@@ -233,8 +232,9 @@ def test_async_process_start_wait_spawn_failure_kills_child_and_clears_handles(m
         assert ap._stderr_thread is None
         assert ap._wait_thread is None
         assert not on_exit_called
-        assert len(captured) == 1
-        assert captured[0].poll() is not None
+        child_procs = [p for p in captured if p.args and p.args[0] == sys.executable]
+        assert len(child_procs) == 1
+        assert child_procs[0].poll() is not None
     finally:
         for proc in captured:
             if proc.poll() is None:
@@ -607,7 +607,7 @@ class TestWorkerPoolErrorHandling():
 
 
 class TestReadStreamStripsNewlines:
-    """Regression test for Bug 1: rstrip("\\n\\r") used literal chars, not newlines."""
+    """``_read_stream`` must strip real newline bytes, not the two-char ``\\n\\r`` literal."""
 
     def _make_stream(self, lines):
         """Return a closeable text stream that yields the given strings."""
@@ -676,26 +676,58 @@ class TestReadStreamStripsNewlines:
         assert received == ["hel", "lo"]
 
     def test_feed_line_buffer_holds_crlf_and_does_not_join_until_a_line(self):
+        import io
         from plugin.framework.worker_pool import _feed_line_buffer
 
-        lines, parts, length = _feed_line_buffer([], 0, "hi\r")
+        decoder = io.IncrementalNewlineDecoder(None, translate=True)
+        lines, parts, length = _feed_line_buffer([], 0, decoder.decode("hi\r"))
         assert lines == []
-        assert length == 3
-        assert len(parts) >= 1
-        assert parts[-1].endswith("\r")
+        assert "".join(parts) == "hi"
+        assert length == 2
 
-        lines, parts, length = _feed_line_buffer(parts, length, "\nrest\n")
-        assert lines == ["hi\r\n", "rest\n"]
+        lines, parts, length = _feed_line_buffer(parts, length, decoder.decode("\nrest\n"))
+        assert lines == ["hi", "rest"]
+        assert parts == []
+        assert length == 0
+
+        lines, parts, length = _feed_line_buffer(parts, length, decoder.decode("", final=True))
+        assert lines == []
         assert parts == []
         assert length == 0
 
     def test_feed_line_buffer_held_cr_then_non_lf(self):
-        from plugin.framework.worker_pool import _feed_line_buffer
+        ap = AsyncProcess(["dummy"])
+        received: list[str] = []
+        ap._read_stream(_ChunkStream([b"hi\r", b"Z"]), received.append)
+        assert received == ["hi", "Z"]
 
-        lines, parts, length = _feed_line_buffer(["\r"], 1, "Z")
-        assert lines == ["\r"]
-        assert parts == ["Z"]
-        assert length == 1
+        received.clear()
+        ap._read_stream(_ChunkStream([b"hello\n\r"]), received.append)
+        assert received == ["hello", ""]
+
+    def test_read_stream_exact_cap_trailing_cr_is_not_an_extra_line(self, caplog):
+        from plugin.framework.worker_pool import _MAX_STREAM_LINE_CHARS
+
+        ap = AsyncProcess(["dummy"])
+        received: list[str] = []
+
+        with caplog.at_level("WARNING"):
+            ap._read_stream(
+                _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r", b"\nnext\n"]),
+                received.append,
+            )
+        assert received == ["y" * _MAX_STREAM_LINE_CHARS, "next"]
+
+        received.clear()
+        with caplog.at_level("WARNING"):
+            ap._read_stream(
+                _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r"]),
+                received.append,
+            )
+        assert received == ["y" * _MAX_STREAM_LINE_CHARS]
+
+        warning_records = [r for r in caplog.records if "delivering a partial line" in r.message]
+        assert len(warning_records) == 0
 
     def test_read_stream_flushes_partial_line_at_cap(self, caplog):
         from plugin.framework.worker_pool import _MAX_STREAM_LINE_CHARS
@@ -719,8 +751,8 @@ class TestReadStreamStripsNewlines:
 def test_stderr_drain_short_read_before_eof():
     """A buffered pipe must surface a short burst while the child is still alive.
 
-    BufferedReader.read(4096) waits for 4096 bytes or EOF, so this used to
-    stay empty for the whole sleep.
+    ``BufferedReader.read(4096)`` waits for 4096 bytes or EOF. Without a
+    short-read drain, stderr stays empty while the child is still alive.
     """
     script = (
         "import sys, time\n"
@@ -788,27 +820,175 @@ def test_async_process_replaces_undecodable_stderr():
     assert any("\ufffd" in line for line in stderr_lines)
 
 
-def test_async_process_does_not_mutate_caller_kwargs():
-    kwargs: dict[str, object] = {"close_fds": True}
-    AsyncProcess(["dummy"], **kwargs)
-    assert kwargs == {"close_fds": True}
+def test_async_process_spawn_uses_managed_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: list[tuple[Any, dict[str, Any]]] = []
+
+    def fake_popen(cmd: Any, **kwargs: Any) -> MagicMock:
+        captured.append((cmd, kwargs))
+        m = MagicMock()
+        m.stdout = None
+        m.stderr = None
+        m.stdin = None
+        m.pid = 99999
+        m.poll.return_value = None
+        m.wait.return_value = 0
+        return m
+
+    monkeypatch.setattr("plugin.framework.managed_subprocess.subprocess.Popen", fake_popen)
+
+    def fail_drain(*_args: Any, **_kwargs: Any) -> Any:
+        raise AssertionError("start_stderr_drain should not be called")
+
+    monkeypatch.setattr("plugin.framework.managed_subprocess.start_stderr_drain", fail_drain)
+    monkeypatch.setattr("plugin.scripting.sandbox.detect_sandbox", lambda: "flatpak")
+    monkeypatch.setenv("WA_SENTINEL_AFTER", "leak")
+
+    caller_env = {"WA_MARK": "yes", "TUNNEL_TOKEN": "sekrit"}
+    ap = AsyncProcess(["cloudflared", "tunnel"], env=caller_env)
+    ap.start()
+
+    assert len(captured) == 1
+    cmd, kwargs = captured[0]
+    assert cmd == ["cloudflared", "tunnel"]
+    assert kwargs["stdin"] == subprocess.DEVNULL
+    assert kwargs["stdout"] == subprocess.PIPE
+    assert kwargs["stderr"] == subprocess.PIPE
+    assert kwargs["bufsize"] == 0
+    assert "text" not in kwargs
+    assert kwargs["env"] == {"WA_MARK": "yes", "TUNNEL_TOKEN": "sekrit"}
+    assert kwargs["env"] is not caller_env
+    assert "WA_SENTINEL_AFTER" not in kwargs["env"]
+    assert caller_env == {"WA_MARK": "yes", "TUNNEL_TOKEN": "sekrit"}
+    if sys.platform != "win32":
+        assert kwargs.get("start_new_session") is True
+    else:
+        from plugin.framework.subprocess_env import get_subprocess_creationflags
+
+        assert kwargs.get("creationflags") == get_subprocess_creationflags()["creationflags"]
+
+    ap2 = AsyncProcess(["cloudflared", "tunnel"], env=None)
+    ap2.start()
+    assert len(captured) == 2
+    assert captured[1][1]["env"] is None
+
+    with pytest.raises(TypeError):
+        AsyncProcess(["dummy"], creationflags=0)  # type: ignore[call-arg]
 
 
-def test_async_process_forces_binary_pipes():
-    """text=True used to keep encoding while the reader still decoded UTF-8 bytes."""
-    ap = AsyncProcess(["dummy"], text=True, encoding="latin-1", errors="strict", universal_newlines=True)
-    assert ap._popen_kwargs["text"] is False
-    assert "encoding" not in ap._popen_kwargs
-    assert "errors" not in ap._popen_kwargs
-    assert "universal_newlines" not in ap._popen_kwargs
+def test_async_process_die_with_parent() -> None:
+    """AsyncProcess(die_with_parent=True) forks on the supervisor thread and survives caller thread exit."""
+    if sys.platform != "linux":
+        pytest.skip("Linux-only PDEATHSIG test")
+
+    ap: AsyncProcess | None = None
+    helper_err: BaseException | None = None
+
+    def _start_from_thread() -> None:
+        nonlocal ap, helper_err
+        try:
+            ap = AsyncProcess([sys.executable, "-c", "import time; time.sleep(60)"], die_with_parent=True)
+            ap.start()
+        except BaseException as exc:
+            helper_err = exc
+
+    try:
+        t = threading.Thread(target=_start_from_thread)
+        t.start()
+        t.join()
+        if helper_err is not None:
+            raise helper_err
+        assert ap is not None
+        assert ap.is_running is True
+        # Kernel delivers SIGKILL when the creating thread terminates;
+        # verify the child remains alive after caller thread exit.
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            assert ap.process is not None
+            assert ap.process.poll() is None
+            time.sleep(0.05)
+    finally:
+        if ap is not None and ap.is_running:
+            ap.terminate()
+
+
+def test_async_process_die_with_parent_off_linux(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.warm_child import supervisor
+
+    def forbid_spawn(*args: object, **kwargs: object) -> None:
+        raise AssertionError("supervisor.spawn must not run off Linux")
+
+    class FakePopen:
+        def __init__(self, cmd: list[str], **kwargs: object) -> None:
+            self.pid = 4242
+            self.stdin = None
+            self.stdout = None
+            self.stderr = None
+
+        def poll(self) -> int:
+            return 0
+
+        def wait(self, timeout: float | None = None) -> int:
+            return 0
+
+    monkeypatch.setattr(subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)
+    monkeypatch.setattr(supervisor, "spawn", forbid_spawn)
+    monkeypatch.setattr("sys.platform", "win32")
+
+    ap = AsyncProcess(["echo", "hi"], die_with_parent=True)
+    ap.start()
+    assert ap.process is not None
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="PDEATHSIG is Linux-only")
+def test_async_process_pr_get_pdeathsig_armed() -> None:
+    """die_with_parent arms PR_SET_PDEATHSIG (PR_GET_PDEATHSIG reads 9)."""
+    script = (
+        "import ctypes\n"
+        "v = ctypes.c_int()\n"
+        "ctypes.CDLL('libc.so.6').prctl(2, ctypes.byref(v), 0, 0, 0)\n"
+        "print(v.value, flush=True)\n"
+    )
+    lines: list[str] = []
+    ap: AsyncProcess | None = None
+    helper_err: BaseException | None = None
+
+    def _start_from_thread() -> None:
+        nonlocal ap, helper_err
+        try:
+            ap = AsyncProcess(
+                [sys.executable, "-c", script],
+                die_with_parent=True,
+                stdout_cb=lambda line: lines.append(line),
+            )
+            ap.start()
+        except BaseException as exc:
+            helper_err = exc
+
+    try:
+        t = threading.Thread(target=_start_from_thread)
+        t.start()
+        t.join()
+        if helper_err is not None:
+            raise helper_err
+        assert ap is not None
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not lines:
+            time.sleep(0.05)
+        assert lines, "child produced no stdout"
+        assert lines[-1].strip() == "9"
+    finally:
+        if ap is not None and ap.is_running:
+            ap.terminate()
+
 
 
 def test_second_start_wait_does_not_report_new_child(monkeypatch: pytest.MonkeyPatch) -> None:
     """The first wait thread must report the child it was started for.
 
-    _wait_for_exit used to read self.process at wait time. A second start()
-    replaced that child, so the first waiter blocked on the new process and
-    delivered its exit.
+    The waiter must capture ``self.process`` at start time. Reading it again at
+    wait time lets a second ``start()`` replace the child, so the first waiter
+    blocks on the new process and reports the wrong exit.
     """
     from collections.abc import Callable
 
@@ -881,11 +1061,6 @@ def test_superseded_child_does_not_notify_and_latest_does() -> None:
     proc.wait.return_value = 5
     ap._wait_for_exit(proc, None, None, 1)
     assert exits == [5]
-
-
-def test_async_process_keeps_caller_creationflags() -> None:
-    ap = AsyncProcess(["dummy"], creationflags=0)
-    assert ap._popen_kwargs["creationflags"] == 0
 
 
 def test_is_current_thread_is_false_for_pooled_handle() -> None:

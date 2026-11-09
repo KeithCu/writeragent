@@ -13,7 +13,8 @@ import logging
 import re as re_mod
 from typing import Any
 
-from plugin.framework.errors import reraise_if_disposed, uno_probe
+from plugin.framework.errors import reraise_if_disposed, uno_read
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 
 def compile_search_pattern(
@@ -28,9 +29,7 @@ def compile_search_pattern(
     """
     flags = 0 if case_sensitive else re_mod.IGNORECASE
     try:
-        # Literal mode previously used str.lower() and sliced original text by lowercased
-        # offsets, which drifted on characters like 'İ'. Compiling both literal (via re.escape)
-        # and regex patterns into a single matcher keeps offsets matched directly to original text.
+        # Case-insensitive literals use re.IGNORECASE on escaped patterns so offsets stay on original text.
         return re_mod.compile(pattern if regex else re_mod.escape(pattern), flags)
     except re_mod.error as e:
         raise ValueError(f"Invalid regex: {e}") from e
@@ -44,12 +43,12 @@ def search_paragraph_texts(
     case_sensitive: bool = False,
     max_results: int = 20,
     context_paragraphs: int = 1,
-    stop_checker: Any = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Search *para_texts* for *pattern*; return (matches up to max_results, truncated).
 
     truncated is True when another hit exists beyond the returned matches.
-    The scan stops on that extra hit. A stop_checker break is not truncation.
+    The scan stops on that extra hit. A cancel break is not truncation.
     """
     if not pattern:
         return [], False
@@ -59,7 +58,7 @@ def search_paragraph_texts(
     matches: list[dict[str, Any]] = []
 
     for i, ptext in enumerate(para_texts):
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             break
         if not ptext:
             continue
@@ -102,10 +101,9 @@ def get_paragraph_ranges(model: Any) -> list[Any]:
     """
     text = model.getText()
     enum = text.createEnumeration()
-    ranges = []
-    while enum.hasMoreElements() is True:  # a MagicMock return never stops a plain truth test
-        ranges.append(enum.nextElement())
-    return ranges
+    from plugin.doc.text_helpers import iter_elements
+
+    return list(iter_elements(enum))
 
 
 def _anchor_contains_point(text_obj: Any, match_start: Any, element: Any) -> bool:
@@ -123,7 +121,7 @@ def _anchor_contains_point(text_obj: Any, match_start: Any, element: Any) -> boo
         cmp_end = text_obj.compareRegionStarts(match_start, anchor.getEnd())
         return cmp_end >= 0
 
-    return uno_probe(_check, False)
+    return uno_read(_check, False)
 
 
 def _index_outside_paragraphs(
@@ -203,7 +201,23 @@ def find_paragraph_for_range(
         return None
 
 
-def confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
+def paragraph_index_for_anchor(
+    anchor: Any,
+    para_ranges: list[Any],
+    text_obj: Any = None,
+    entries: list[tuple[int, Any]] | None = None,
+) -> int | None:
+    """Return the confirmed 0-based paragraph index for *anchor*, or None when unplaced."""
+    if text_obj is None:
+        try:
+            text_obj = anchor.getText()
+        except Exception:
+            text_obj = None
+    raw_idx = find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
+    return _confirm_paragraph_index(text_obj, anchor, para_ranges, raw_idx)
+
+
+def _confirm_paragraph_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para_idx: Any) -> int | None:
     """Return *para_idx* when it is a real hit, or None for the unplaced fallback.
 
     ``find_paragraph_for_range`` returns None when unplaced; this guard
@@ -253,4 +267,4 @@ def _anchor_is_at_index(text_obj: Any, anchor: Any, para_ranges: list[Any], para
             return cmp_end >= 0
         return _anchor_contains_point(text_obj, match_start, element)
 
-    return uno_probe(_test, False)
+    return uno_read(_test, False)

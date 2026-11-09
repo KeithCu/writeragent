@@ -17,7 +17,7 @@ import uno  # noqa: F401
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import native_writer_tool_context, with_native_doc
 from plugin.writer.apply_document_content import ApplyDocumentContent
-import plugin.writer.format as fmt
+import plugin.writer.html_export as fmt
 
 
 def _tool_ctx(doc, ctx):
@@ -308,6 +308,11 @@ def _para_pairs(doc):
     return out
 
 
+def _accept_all(doc, ctx):
+    helper = ctx.getServiceManager().createInstanceWithContext("com.sun.star.frame.DispatchHelper", ctx)
+    helper.executeDispatch(doc.getCurrentController().getFrame(), ".uno:AcceptAllTrackedChanges", "", 0, ())
+
+
 @native_test
 @with_native_doc("writer")
 def test_write_blank_beginning_applies_heading1_uno(ctx, doc):
@@ -381,8 +386,8 @@ def test_write_end_styles_new_paras_keeps_existing_body_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_write_search_does_not_restyle_surrounding_text_uno(ctx, doc):
-    """target=search: a replace splits the matched paragraph, so applying data-lo-style would
-    restyle the surrounding text. We don't apply on search; the surrounding text stays Standard."""
+    """target=search: a partial replace leaves neighbor text in the host paragraph, so data-lo-style
+    is skipped and the tool warns. Surrounding text stays Standard."""
     text = doc.getText()
     text.setString("MARKER tail")
     _baseline = text.createTextCursor()
@@ -393,8 +398,200 @@ def test_write_search_does_not_restyle_surrounding_text_uno(ctx, doc):
         _tool_ctx(doc, ctx), target="search", old_content="MARKER",
         content=['<p data-lo-style="Caption">CAPX</p>', '<p data-lo-style="Heading2">HEADX</p>'])
     assert res.get("status") == "ok", res
+    assert "warning" in res and "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "apply_style(target='search', old_content=...)" in res["message"]
     pairs = _para_pairs(doc)
-    # Nothing got restyled to Caption/Heading 2 (styles are not applied on search).
+    # Nothing got restyled to Caption/Heading 2 (styles are not applied on partial search).
     assert all(s not in ("Caption", "Heading 2") for s, _ in pairs), pairs
-    # The content was still inserted.
+    # The content was still inserted and tail is still present.
     assert any("CAPX" in t for _, t in pairs), pairs
+    assert any("tail" in t for _, t in pairs), pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_search_whole_paragraph_applies_heading2_uno(ctx, doc):
+    """Whole-paragraph search replace: Heading 2 applies; neighbor paragraphs stay Standard."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="search", old_content="Replace me",
+        content='<p data-lo-style="Heading2">New heading</p>')
+    assert res.get("status") == "ok", res
+    assert "warning" not in res, res.get("warning")
+    pairs = _para_pairs(doc)
+    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
+    new_head = next(((s, t) for s, t in pairs if "New heading" in t), None)
+    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+    assert before is not None and before[0] == "Standard", pairs
+    assert new_head is not None and new_head[0] == "Heading 2", pairs
+    assert after is not None and after[0] == "Standard", pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_selection_whole_paragraph_applies_heading2_uno(ctx, doc):
+    """Whole-paragraph selection replace: Heading 2 applies; neighbor paragraphs stay Standard."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    # Select the middle paragraph without including the following break
+    cur.gotoStart(False)
+    cur.gotoNextParagraph(False)
+    cur.gotoStartOfParagraph(False)
+    cur.gotoEndOfParagraph(True)
+    doc.getCurrentController().select(cur)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="selection",
+        content='<p data-lo-style="Heading2">New heading</p>')
+    assert res.get("status") == "ok", res
+    assert "warning" not in res, res.get("warning")
+    pairs = _para_pairs(doc)
+    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
+    new_head = next(((s, t) for s, t in pairs if "New heading" in t), None)
+    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+    assert before is not None and before[0] == "Standard", pairs
+    assert new_head is not None and new_head[0] == "Heading 2", pairs
+    assert after is not None and after[0] == "Standard", pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_selection_partial_paragraph_warns_and_skips_style_uno(ctx, doc):
+    """Partial selection replace: style skipped and warning returned; neighbor stays Standard."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "MARKER tail", False)
+
+    # Select only "MARKER"
+    cur.gotoStart(False)
+    cur.goRight(len("MARKER"), True)
+    doc.getCurrentController().select(cur)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="selection",
+        content='<p data-lo-style="Heading2">New heading</p>')
+    assert res.get("status") == "ok", res
+    assert "warning" in res
+    assert "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "apply_style(target='search', old_content=...)" in res["message"]
+    pairs = _para_pairs(doc)
+    assert all(s != "Heading 2" for s, _ in pairs), pairs
+    assert any("tail" in t for _, t in pairs), pairs
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_search_whole_paragraph_recording_warns_uno(ctx, doc):
+    """Whole-paragraph search replace while RecordChanges is True skips style and warns.
+
+    Applying paragraph styles on a paragraph containing tracked deletions can turn
+    the deletion into a format change or corrupt redlines. While recording, style
+    must be skipped, a warning emitted, and accepting changes leaves only the new text.
+    """
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Replace me", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    doc.setPropertyValue("RecordChanges", True)
+    try:
+        res = ApplyDocumentContent().execute(
+            _tool_ctx(doc, ctx), target="search", old_content="Replace me",
+            content='<p data-lo-style="Heading2">New heading</p>')
+        assert res.get("status") == "ok", res
+        assert "warning" in res
+        assert "tracked changes are recording" in res["warning"]
+        assert "tracked changes are recording" in res["message"]
+    finally:
+        doc.setPropertyValue("RecordChanges", False)
+
+    _accept_all(doc, ctx)
+
+    pairs = _para_pairs(doc)
+    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
+    new_head = next(((s, t) for s, t in pairs if "New heading" in t), None)
+    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+    assert before is not None and before[0] == "Standard", pairs
+    assert new_head is not None and new_head[0] == "Standard", pairs
+    assert after is not None and after[0] == "Standard", pairs
+    assert "Replace me" not in text.getString(), text.getString()
+    assert "New heading" in text.getString(), text.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_write_search_all_matches_mixed_whole_and_partial_uno(ctx, doc):
+    """all_matches with one whole-paragraph and one partial match applies style only to whole."""
+    text = doc.getText()
+    text.setString("")
+    cur = text.createTextCursor()
+    cur.gotoStart(False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep before", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Target", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Target tail", False)
+    text.insertControlCharacter(cur, 0, False)
+    cur.setPropertyValue("ParaStyleName", "Standard")
+    text.insertString(cur, "Keep after", False)
+
+    res = ApplyDocumentContent().execute(
+        _tool_ctx(doc, ctx), target="search", old_content="Target", all_matches=True,
+        content='<p data-lo-style="Heading2">Replacement</p>')
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 2, res
+    assert "warning" in res
+    assert "1 of 2 matches" in res["warning"]
+    assert "1 of 2 matches" in res["message"]
+
+    pairs = _para_pairs(doc)
+    before = next(((s, t) for s, t in pairs if "Keep before" in t), None)
+    after = next(((s, t) for s, t in pairs if "Keep after" in t), None)
+    tail_para = next(((s, t) for s, t in pairs if "tail" in t), None)
+
+    assert before is not None and before[0] == "Standard", pairs
+    assert after is not None and after[0] == "Standard", pairs
+    # Neighbor text in the partial match paragraph stays Standard (not Heading 2)
+    assert tail_para is not None and tail_para[0] == "Standard", pairs
+    # Whole-paragraph match was styled Heading 2
+    assert any(s == "Heading 2" and "Replacement" in t for s, t in pairs), pairs
+    # Exactly one paragraph got Heading 2 (the whole-paragraph match, not the partial one)
+    assert sum(1 for s, _ in pairs if s == "Heading 2") == 1, pairs
+    assert any("tail" in t for _, t in pairs), pairs

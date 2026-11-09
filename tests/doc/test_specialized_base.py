@@ -106,7 +106,7 @@ def test_delegate_status_workflow_finished_ok(
     ctx.services = {"tools": reg}
     ctx.stop_checker = lambda: False
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent") as mock_run_inner:
             mock_run_inner.return_value = {
                 "status": "ok",
@@ -153,7 +153,7 @@ def test_delegate_status_inner_tool_error(
         tool_map["failing_structural_tool"]()
         return tool_map["specialized_workflow_finished"](answer="Final attempted answer")
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
             result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
 
@@ -193,7 +193,7 @@ def test_delegate_status_incomplete_no_finish_no_tool_error(
     ctx.services = {"tools": reg}
     ctx.stop_checker = lambda: False
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", return_value="I searched but could not find the heading."):
             result = writer_gateway.execute(ctx, domain="structural", task="Find heading")
 
@@ -249,8 +249,8 @@ def test_delegate_length_truncated_reply_is_incomplete_not_finished(
     }
     ctx = _structural_registry(writer_gateway)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
-        with patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)), patch("plugin.chatbot.smol_agent.get_config_int", return_value=5):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+        with patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)), patch("plugin.chatbot.smol_agent.get_config", return_value=5):
             result = writer_gateway.execute(ctx, domain="structural", task="Build the delivery")
 
     assert client.request_with_tools.call_count == 1
@@ -271,7 +271,7 @@ def test_delegate_plain_text_answer_appears_once(
     text = "PLAIN-" + "y" * 5000
     ctx = _structural_registry(writer_gateway)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", return_value=text):
             result = writer_gateway.execute(ctx, domain="structural", task="Summarize headings")
 
@@ -295,7 +295,7 @@ def test_delegate_finished_payload_does_not_duplicate_answer(
         tool_map = {t.name: t for t in tools}
         return tool_map["specialized_workflow_finished"](answer=answer)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
             result = writer_gateway.execute(ctx, domain="structural", task="Deliver entries")
 
@@ -334,7 +334,7 @@ def test_delegate_status_user_stopped_left_unchanged(
     ctx.services = {"tools": reg}
     ctx.stop_checker = lambda: False
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent") as mock_run_inner:
             mock_run_inner.return_value = {
                 "status": "error",
@@ -387,7 +387,7 @@ def test_delegate_completed_message_uses_static_msgid(
         tool_map["specialized_workflow_finished"](answer="Done")
         return "All done."
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)):
         with patch("plugin.doc.specialized_base.run_inner_tool_agent", side_effect=fake_run_inner):
             result = writer_gateway.execute(ctx, domain="structural", task="Inspect page")
 
@@ -399,7 +399,8 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     """Impress and Draw both carry doc_type "draw"; only PresentationDocument keeps slide domains."""
     import plugin.draw.headers_footers  # noqa: F401
     import plugin.draw.notes  # noqa: F401
-    from plugin.doc.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
+    import plugin.draw.comments  # noqa: F401
+    from plugin.framework.doc_type import DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE
     from plugin.doc.specialized_base import narrow_delegate_domain_enums
     from plugin.draw.specialized import DelegateToSpecializedDraw
     from plugin.framework.tool_schema import to_mcp_schema, to_openai_schema
@@ -413,6 +414,9 @@ def test_draw_gateway_enum_narrowed_by_uno_services_not_doc_type_label() -> None
     impress = frozenset({DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE})
     assert not impress_only & set(gateway.domains_for_services(draw))
     assert "shapes" in gateway.domains_for_services(draw)
+    assert "page_comments" in gateway.domains_for_services(draw)
+    assert "page_comments" in gateway.domains_for_services(impress)
+    assert "page_comments" not in impress_only
     assert impress_only <= set(gateway.domains_for_services(impress))
 
     oa = to_openai_schema(gateway, doc_type="draw")

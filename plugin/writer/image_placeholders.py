@@ -24,22 +24,10 @@ import uuid
 from typing import Any, Generator, NamedTuple
 
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
+from plugin.framework.uno_context import enum_has_more
+from .record_changes import is_recording_changes
 
 log = logging.getLogger("writeragent.writer")
-
-
-def _is_recording_changes(model: Any) -> bool:
-    """True if *model* is currently recording Track Changes (redlines).
-
-    Agent edits made while recording must land as a clean tracked Delete + Insert so the
-    user can accept (-> new text) or reject (-> old text) each one. The format-preserving
-    replace paths (the char-by-char diff in ``replace_preserving_format`` and the
-    paragraph-style restore below) corrupt that into a per-character mess or a FORMAT
-    redline that keeps the old text on Accept -- so those steps are skipped while recording.
-    """
-    # RecordChanges does not fail on a live document. Returning False hid a
-    # closed document and took the review-off path.
-    return bool(model.getPropertyValue("RecordChanges"))
 
 
 # --- images that come back without their data ------------------------------------------------
@@ -124,12 +112,8 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
     (review off), or its anchor -- for a paragraph anchor, the paragraph's break -- inside
     a pending tracked deletion (review on). Anything else is still in place and must not be
     duplicated, e.g. a search replace of the text of the paragraph a picture is anchored to."""
-    # Bugfix: Calling original.getAnchor() crashes soffice with a null pointer dereference
-    # inside SwXFrame::getSwAnchor (sw/source/core/unocore/unoframe.cxx) when a review-off
-    # delete leaves SwXTextGraphicObject alive with an empty/null anchor. Check whether
-    # doc.getGraphicObjects().hasByName(name) still has it before calling getAnchor(). If missing,
-    # it was deleted by the edit so return True. Non-disposal lookup errors are logged and
-    # treated as deleted (reraise_if_disposed first).
+    # hasByName is tested before getAnchor() because a deleted graphic can remain in
+    # getGraphicObjects with a null anchor that crashes SwXFrame::getSwAnchor.
     try:
         graphics = model.getGraphicObjects()
         if not graphics.hasByName(name):
@@ -143,7 +127,7 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
     except Exception as exc:
         reraise_if_disposed(exc)
         return True
-    if not _is_recording_changes(model):
+    if not is_recording_changes(model):
         return False
     point = anchor
     if getattr(original.getPropertyValue("AnchorType"), "value", "") == "AT_PARAGRAPH":
@@ -165,7 +149,7 @@ def _deleted_by_the_edit(model: Any, original: Any, name: str) -> bool:
         reraise_if_disposed(exc)
         return False
     for _unused in range(total):
-        if enum.hasMoreElements() is not True:
+        if not enum_has_more(enum):
             break
         redline = enum.nextElement()
         try:

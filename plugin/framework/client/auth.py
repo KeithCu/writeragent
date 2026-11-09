@@ -25,7 +25,7 @@ from plugin.framework.constants import APP_REFERER, APP_TITLE
 from plugin.framework.url_utils import normalize_endpoint_url
 from plugin.framework.client.provider_detection import get_provider_from_endpoint, is_openrouter_endpoint
 from plugin.framework.errors import ConfigError
-from plugin.framework.deal_shim import DEAL_MAX_TOKEN, UNDER_CROSSHAIR, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, str_bounded, deal
 
 
 class AuthError(ConfigError):
@@ -87,11 +87,7 @@ def _deal_provider_id_ok_pytest(provider_id: object) -> bool:
     return provider_id is None or str_bounded(provider_id, DEAL_MAX_TOKEN)
 
 
-def _deal_provider_id_ok_crosshair(provider_id: object) -> bool:
-    return provider_id is None or provider_id in _PROVIDER_HINTS
-
-
-_deal_provider_id_ok = _deal_provider_id_ok_crosshair if UNDER_CROSSHAIR else _deal_provider_id_ok_pytest
+_deal_provider_id_ok = _deal_provider_id_ok_pytest
 
 
 @deal.pre(lambda provider_id: _deal_provider_id_ok(provider_id))
@@ -146,7 +142,7 @@ def resolve_auth_for_config(api_config: dict[str, Any]) -> dict[str, Any]:
     if is_openrouter_endpoint(endpoint, explicit_is_openrouter=api_config.get("is_openrouter")):
         provider_id = "openrouter"
     else:
-        # Hostname equality, not a substring. "ollama" inside notollama.example used to match and skip a required API key.
+        # Match provider by hostname equality, not substring.
         provider_id = get_provider_from_endpoint(endpoint) or "custom"
     provider_cfg = PROVIDERS.get(provider_id, PROVIDERS["custom"])
 
@@ -174,21 +170,13 @@ def build_auth_headers(auth_info: dict[str, Any]) -> dict[str, str]:
     style = str(auth_info.get("header_style") or "bearer").lower().strip()
     api_key = str(auth_info.get("api_key") or "").strip()
     if api_key:
-        # What was wrong: Checking only ord(c) < 32 let DEL (\x7f), NBSP (\xa0),
-        # and unicode chars like smart quotes through. Smart quotes caused
-        # http.client putheader to fail with a confusing latin-1 UnicodeEncodeError.
-        # Why this fixes it: Enforce printable ASCII (33 to 126), disallowing interior
-        # spaces, DEL, and non-ASCII chars while code stays invalid_api_key.
+        # API key must consist of printable ASCII characters (33 to 126).
         if any(ord(c) < 33 or ord(c) > 126 for c in api_key):
             raise AuthError("API key must be printable ASCII", code="invalid_api_key")
         if style == "x-api-key":
             headers["x-api-key"] = api_key
         else:
-            # What was wrong: Style "none" providers (Ollama / LM Studio) dropped the API
-            # key on model fetching and /api/show because the fallback was previously only
-            # in LlmClient._headers.
-            # Why this fixes it: Consolidate here so all HTTP paths (chat, catalog
-            # fetch, and /api/show probes) send the key. Null/empty keys remain header-less.
+            # Send Authorization header across all HTTP paths when an API key is provided.
             headers["Authorization"] = f"Bearer {api_key}"
 
     # Merge any provider-specific static headers (e.g., version pins).

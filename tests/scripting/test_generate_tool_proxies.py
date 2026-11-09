@@ -100,7 +100,7 @@ def test_generate_module_output_is_valid_python():
     
     assert "class _FootnoteProxy:" in code
     assert "def insert(self, text: str) -> dict[str, Any]:" in code
-    assert 'return _rpc_call("footnotes_insert", text=text)' in code
+    assert 'return call_host_tool("footnotes_insert", text=text)' in code
     assert "footnote = _FootnoteProxy()" in code
     assert "DOMAIN_TOOLS =" in code
 
@@ -151,7 +151,7 @@ def test_generate_module_escapes_python_keyword_method_names():
     code = generate_module(tools)
     compile(code, "<generated>", "exec")
     assert "def import_(self, file_path: str) -> dict[str, Any]:" in code
-    assert 'return _rpc_call("style_import", file_path=file_path)' in code
+    assert 'return call_host_tool("style_import", file_path=file_path)' in code
     assert "def import(self" not in code
     ns: dict[str, Any] = {}
     exec(code, ns)
@@ -306,7 +306,7 @@ def test_group_tools_drops_llm_orchestration_tools():
     tools.append(
         _as_tool(
             MockTool(
-                "apply_sheet_filter",
+                "sheet_filter_apply",
                 "Hide rows. delegate_to_specialized_calc_toolset(domain='sheets').",
                 {
                     "type": "object",
@@ -328,9 +328,128 @@ def test_group_tools_drops_llm_orchestration_tools():
     for name in API_EXCLUDED_TOOLS:
         assert f"def {name}(" not in code
         assert f"'{name}'" not in code
-        assert f'_rpc_call("{name}"' not in code
+        assert f'call_host_tool("{name}"' not in code
     assert "delegate_to_specialized_calc_toolset(domain='sheets')" in code
-    assert "def apply_sheet_filter(" in code
+    assert "def filter_apply(" in code
+
+
+def test_rename_calc_writer_specialized_tools_strip_to_short_proxy_methods():
+    """RENAME-CALC1: domain_verb tool ids group to wa.<domain>.<short> methods."""
+    renamed = [
+        ("sheet_list", "sheet", "list"),
+        ("sheet_switch", "sheet", "switch"),
+        ("sheet_create", "sheet", "create"),
+        ("sheet_rename", "sheet", "rename"),
+        ("sheet_delete", "sheet", "delete"),
+        ("sheet_protect", "sheet", "protect"),
+        ("sheet_filter_apply", "sheet", "filter_apply"),
+        ("sheet_filter_clear", "sheet", "filter_clear"),
+        ("sheet_filter_get", "sheet", "filter_get"),
+        ("search_cells", "search", "cells"),
+        ("search_replace", "search", "replace"),
+        ("range_sort", "range", "sort"),
+        ("error_detect", "error", "detect"),
+        ("table_manage_structure", "table", "manage_structure"),
+        ("tracking_start", "tracking", "start"),
+        ("tracking_stop", "tracking", "stop"),
+        ("tracking_list", "tracking", "list"),
+        ("tracking_show", "tracking", "show"),
+        ("tracking_manage", "tracking", "manage"),
+        ("pivot_table_create", "pivot_table", "create"),
+        ("pivot_table_refresh", "pivot_table", "refresh"),
+        ("pivot_table_delete", "pivot_table", "delete"),
+        ("pivot_table_list", "pivot_table", "list"),
+        ("conditional_formatting_list", "conditional_formatting", "list"),
+        ("conditional_formatting_add", "conditional_formatting", "add"),
+        ("conditional_formatting_remove", "conditional_formatting", "remove"),
+        ("cell_comment_list", "cell_comment", "list"),
+        ("cell_comment_add", "cell_comment", "add"),
+        ("cell_comment_delete", "cell_comment", "delete"),
+    ]
+    tools = []
+    domain_map = {
+        "sheet": "sheets",
+        "search": "search",
+        "range": "ranges",
+        "error": "errors",
+        "table": "tables",
+        "tracking": "tracking",
+        "pivot_table": "pivot_tables",
+        "conditional_formatting": "conditional_formatting",
+        "cell_comment": "cell_comments",
+    }
+    for tool_name, ns, method in renamed:
+        domain = domain_map[ns]
+        tools.append(
+            _as_tool(
+                MockTool(
+                    tool_name,
+                    f"Tool {tool_name}.",
+                    {"type": "object", "properties": {}},
+                    specialized_domain=domain,
+                )
+            )
+        )
+    groups = group_tools(tools)
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    ns_exec: dict[str, Any] = {}
+    exec(code, ns_exec)
+    for tool_name, proxy_ns, method in renamed:
+        found = False
+        for short, tool in groups.get(proxy_ns, []):
+            if tool.name == tool_name:
+                assert short == method, f"{tool_name} -> {short}, expected {method}"
+                found = True
+                break
+        assert found, f"{tool_name} missing from groups[{proxy_ns}]"
+        assert ns_exec["TOOL_METHODS"][tool_name] == (proxy_ns, method)
+
+
+def test_rename_draw_specialized_tools_strip_to_short_proxy_methods():
+    """RENAME-DRAW1: shape_* and math_insert tool ids group to wa.<domain>.<short> methods."""
+    renamed = [
+        ("shape_align", "shape", "align"),
+        ("shape_distribute", "shape", "distribute"),
+        ("shape_diagram", "shape", "diagram"),
+        ("shape_fill_fields", "shape", "fill_fields"),
+        ("math_insert", "math", "insert"),
+        ("page_comment_list", "page_comment", "list"),
+        ("page_comment_add", "page_comment", "add"),
+        ("page_comment_delete", "page_comment", "delete"),
+    ]
+    domain_map = {
+        "shape": "shapes",
+        "math": "math",
+        "page_comment": "page_comments",
+    }
+    tools = []
+    for tool_name, ns, method in renamed:
+        domain = domain_map[ns]
+        tools.append(
+            _as_tool(
+                MockTool(
+                    tool_name,
+                    f"Tool {tool_name}.",
+                    {"type": "object", "properties": {}},
+                    specialized_domain=domain,
+                )
+            )
+        )
+    groups = group_tools(tools)
+    code = generate_module(tools)
+    compile(code, "<generated>", "exec")
+    ns_exec: dict[str, Any] = {}
+    exec(code, ns_exec)
+    for tool_name, proxy_ns, method in renamed:
+        found = False
+        for short, tool in groups.get(proxy_ns, []):
+            if tool.name == tool_name:
+                assert short == method, f"{tool_name} -> {short}, expected {method}"
+                found = True
+                break
+        assert found, f"{tool_name} missing from groups[{proxy_ns}]"
+        assert ns_exec["TOOL_METHODS"][tool_name] == (proxy_ns, method)
 
 
 def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
@@ -391,9 +510,32 @@ def test_shipped_writeragent_api_rich_docs_and_omitted_chat_domains():
     for name in orchestration:
         assert f"def {name}(" not in source
         assert f"'{name}'" not in source
-        assert f'_rpc_call("{name}"' not in source
+        assert f'call_host_tool("{name}"' not in source
     # Copied sheet-filter descriptions; not a method.
     assert "delegate_to_specialized_calc_toolset(domain='sheets')" in source
+    for draw_tool in (
+        "shape_align",
+        "shape_distribute",
+        "shape_diagram",
+        "shape_fill_fields",
+        "math_insert",
+    ):
+        assert f'call_host_tool("{draw_tool}"' in source
+    for old_method in (
+        "def " + "align" + "_shapes(",
+        "def " + "distribute" + "_shapes(",
+        "def " + "create" + "_diagram(",
+        "def " + "fill" + "_draw_fields(",
+        "def " + "insert" + "_math(",
+    ):
+        assert old_method not in source
+    for ppt_tool in (
+        "export_presentation_project",
+        "validate_ppt_master_project",
+        "apply_ppt_master_template_fill",
+        "apply_ppt_master_native_enhance",
+    ):
+        assert ppt_tool not in source
 
 
 def test_range_schema_becomes_range_name_python_param():
@@ -402,17 +544,20 @@ def test_range_schema_becomes_range_name_python_param():
         "Read cells.",
         {
             "type": "object",
-            "properties": {"range": {"type": "array", "items": {"type": "string"}}},
+            "properties": {
+                "range": {"type": "array", "items": {"type": "string"}},
+                "format": {"type": "string", "enum": ["rows", "cells"], "default": "rows"},
+            },
             "required": ["range"],
         },
     )
     pos, kw = schema_to_signature(_as_tool(tool))
     assert pos == ["range_name: list[str]"]
-    assert kw == []
+    assert kw == ["format: str = 'rows'"]
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
-    assert "def read_cell_range(self, range_name: list[str]) -> dict[str, Any]:" in code
-    assert 'return _rpc_call("read_cell_range", range=range_name)' in code
+    assert "def read_cell_range(self, range_name: list[str], *, format: str = 'rows') -> dict[str, Any]:" in code
+    assert 'return call_host_tool("read_cell_range", range=range_name, format=format)' in code
 
 
 def test_schema_to_signature_parameterizes_object_and_array():
@@ -438,11 +583,8 @@ def test_schema_to_signature_parameterizes_object_and_array():
 def test_rpc_call_logic_in_generated_code():
     tools = [_as_tool(MockTool("t", "d", {}))]
     code = generate_module(tools)
-    assert "def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:" in code
-    assert "kwargs = {k: v for k, v in kwargs.items() if v is not None}" in code
-    assert "from plugin.scripting.host_rpc import execute_tool" in code
-    assert "from plugin.scripting.ipc import exchange_tool_call" in code
-    assert "return exchange_tool_call(tool_name, kwargs)" in code
+    assert "from plugin.scripting.host_tool_call import call_host_tool" in code
+    assert "call_host_tool(" in code
 
 
 def test_indexes_domain_becomes_index():
@@ -503,7 +645,7 @@ class _DummyRegistry:
 def test_main_fails_closed_on_empty_registry(monkeypatch, tmp_path):
     from scripts import generate_tool_proxies
 
-    monkeypatch.setattr("plugin.main.get_tools", lambda: _DummyRegistry([]))
+    monkeypatch.setattr("plugin.app.get_tools", lambda: _DummyRegistry([]))
     out_file = tmp_path / "writeragent_api.py"
     with pytest.raises(SystemExit) as exc_info:
         generate_tool_proxies.main(["--output", str(out_file)])
@@ -515,7 +657,7 @@ def test_main_fails_closed_when_core_missing_list_open_documents(monkeypatch, tm
     from scripts import generate_tool_proxies
 
     dummy_tool = _as_tool(MockTool("dummy_tool", "desc", {}, specialized_domain="footnotes"))
-    monkeypatch.setattr("plugin.main.get_tools", lambda: _DummyRegistry([dummy_tool]))
+    monkeypatch.setattr("plugin.app.get_tools", lambda: _DummyRegistry([dummy_tool]))
     out_file = tmp_path / "writeragent_api.py"
     with pytest.raises(SystemExit) as exc_info:
         generate_tool_proxies.main(["--output", str(out_file)])
@@ -581,7 +723,7 @@ def test_keyword_parameter_compiles_and_uses_splat():
     code = generate_module([_as_tool(tool)])
     compile(code, "<generated>", "exec")
     assert "def keyword_tool(self, class_: str, *, reg: int | None = None) -> dict[str, Any]:" in code
-    assert 'return _rpc_call("keyword_tool", **{"class": class_}, reg=reg)' in code
+    assert 'return call_host_tool("keyword_tool", **{"class": class_}, reg=reg)' in code
 
 
 def test_namespace_collision_raises():
@@ -651,5 +793,40 @@ def test_scripting_only_extra_in_signature_doc_and_rpc():
     compile(code, "<generated>", "exec")
     assert "def set_style(self, range_name: str, *, number_format: str | None = None) -> dict[str, Any]:" in code
     assert "number_format (optional): Scripting-only parameter." in code
-    assert 'return _rpc_call("set_style", range_name=range_name, number_format=number_format)' in code
+    assert 'return call_host_tool("set_style", range_name=range_name, number_format=number_format)' in code
+
+
+def test_proxy_qualifies_list_annotation_when_list_method_present():
+    chart_upsert = MockTool(
+        "chart_upsert",
+        "Upsert chart.",
+        {
+            "type": "object",
+            "properties": {
+                "headers": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        specialized_domain="charts",
+    )
+    chart_list = MockTool(
+        "chart_list",
+        "List charts.",
+        {"type": "object", "properties": {}},
+        specialized_domain="charts",
+    )
+    no_list = MockTool(
+        "bookmark_add",
+        "Add bookmark.",
+        {
+            "type": "object",
+            "properties": {"tags": {"type": "array", "items": {"type": "string"}}},
+            "required": ["tags"],
+        },
+        specialized_domain="bookmarks",
+    )
+    code = generate_module([_as_tool(chart_upsert), _as_tool(chart_list), _as_tool(no_list)])
+    compile(code, "<generated>", "exec")
+    assert "headers: builtins.list[str]" in code
+    assert "def add(self, tags: list[str]" in code
+    assert "tags: builtins.list[str]" not in code
 

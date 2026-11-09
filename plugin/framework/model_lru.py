@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.framework.config import LRU_MAX_ITEMS, get_config, set_config
+from plugin.framework.config import LRU_MAX_ITEMS, get_config, save
 from plugin.framework.i18n import _
 
 _MODEL_COMBO_PLACEHOLDER_MSGIDS = (
@@ -27,7 +27,7 @@ def _is_model_combobox_placeholder(val: str) -> bool:
     return False
 
 
-def _sanitize_model_combobox_value(val: str) -> str:  # pyright: ignore[reportUnusedFunction]
+def sanitize_model_combobox_value(val: str) -> str:
     """Drop Settings combobox placeholder strings; they are not real model ids."""
     cleaned = str(val or "").strip()
     return "" if _is_model_combobox_placeholder(cleaned) else cleaned
@@ -50,7 +50,7 @@ def next_lru_list(current: Any, val: Any) -> list[str] | None:
         return None
     # LRU entries are model id strings; get_config is JSON-shaped so normalize explicitly.
     lru: list[str] = [str(item) for item in current] if isinstance(current, list) else []
-    # Already at the head: a set_config here would rewrite the file and emit
+    # Already at the head: a save here would rewrite the file and emit
     # config:changed for a list the UI already shows first.
     if lru and lru[0] == val_str:
         return None
@@ -62,10 +62,10 @@ def update_lru_history(val: Any, lru_key: str, endpoint: str) -> None:
 
     No write when the value is blank or already the first item. Settings OK
     and the sidebar model sync do not call this once per key: they merge
-    ``next_lru_list`` into the same ``set_configs`` as the field change.
+    ``next_lru_list`` into the same ``save`` as the field change.
     """
     scoped_key = lru_config_key(lru_key, endpoint)
     new_lru = next_lru_list(get_config(scoped_key), val)
     if new_lru is None:
         return
-    set_config(scoped_key, new_lru)
+    save({scoped_key: new_lru})

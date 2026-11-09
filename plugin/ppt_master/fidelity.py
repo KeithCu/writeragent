@@ -20,6 +20,8 @@ from typing import Any, cast
 from plugin.contrib.ppt_master.upstream import collect_svg_files
 from plugin.embeddings.embeddings_soffice_convert import resolve_soffice_executable
 from plugin.framework.errors import best_effort
+from plugin.framework.managed_subprocess import ManagedSubprocess
+from plugin.framework.queue_executor import main
 from plugin.ppt_master.adapter.uno_pptx_import import import_pptx_slide_to_odp
 from plugin.ppt_master.paths import data_root_status
 from plugin.ppt_master.pptx_build import ensure_project_pptx, find_project_pptx
@@ -240,7 +242,11 @@ def read_pdf_info(pdf_path: Path) -> PdfInfo:
         return PdfInfo(file_bytes=0)
     info = PdfInfo(file_bytes=pdf_path.stat().st_size)
     # Argv list (no shell); path is a local fidelity helper input.
-    proc = subprocess.run(["pdfinfo", str(pdf_path)], capture_output=True, text=True, check=False)
+    # An unbounded pdfinfo hung this dev helper; a timeout or a missing binary leaves the size already captured, same as a nonzero exit.
+    try:
+        proc = subprocess.run(["pdfinfo", str(pdf_path)], capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return info
     if proc.returncode != 0:
         return info
     for line in proc.stdout.splitlines():
@@ -291,7 +297,14 @@ def soffice_convert_to_pdf(soffice: str, source: Path, out_dir: Path, *, timeout
         str(source),
     ]
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout_sec, check=False)
+        proc = ManagedSubprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            check=False,
+            kill_tree=True,
+        )
     except (OSError, subprocess.TimeoutExpired) as exc:
         log.warning("soffice pdf convert failed for %s: %s", source, exc)
         return None
@@ -361,19 +374,6 @@ def pdf_page_to_png(pdf_path: Path, png_path: Path, *, page_1based: int, dpi: in
     return False
 
 
-def import_slide_to_odp(
-    ctx: Any,
-    pptx_path: Path,
-    slide_index: int,
-    odp_path: Path,
-) -> tuple[Any, Any] | None:
-    """Import one PPTX slide via the shipped pipeline; save a one-slide Impress doc."""
-    imported = import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
-    if imported is None:
-        return None
-    return imported
-
-
 def evaluate_slide_fidelity(
     ctx: Any,
     *,
@@ -400,7 +400,8 @@ def evaluate_slide_fidelity(
     )
 
     odp_path = slide_dir / "imported.odp"
-    imported = import_slide_to_odp(ctx, pptx_path, slide_index, odp_path)
+    # Script path's single marshal; on the process main thread main.call runs inline.
+    imported = main.call(lambda: import_pptx_slide_to_odp(ctx, pptx_path, slide_index, odp_path))
     if imported is None:
         result.errors.append("import_pptx_slide_to_odp failed")
         return result

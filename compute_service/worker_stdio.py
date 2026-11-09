@@ -19,8 +19,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from compute_service import error_codes as ec
 from compute_service.json_forward import COMPUTE_MAX_PAYLOAD_BYTES
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, AllowlistUnpickler, IpcFrameError, _PICKLE_LOAD_ERRORS, claim_ipc_channel, read_pickle_frame, write_pickle_frame
+from plugin.framework.child_runtime import error_dict
 
 log = logging.getLogger("compute_service.worker")
 
@@ -55,23 +57,6 @@ def unpack_restricted_pickle_frame(payload: bytes) -> Any:
         raise ValueError(str(exc)) from exc
 
 
-def set_pdeathsig() -> bool:
-    """Set parent death signal on Linux via prctl so child worker terminates on hard host exit.
-
-    Guarded so non-Linux platforms (macOS/Windows) safely return False without error.
-    SIGKILL is read only inside this Linux branch. Windows has no SIGKILL.
-    """
-    if sys.platform != "linux":
-        return False
-    try:
-        import ctypes
-
-        res = ctypes.CDLL(None).prctl(1, ctypes.c_ulong(signal.SIGKILL), 0, 0, 0)
-        return res == 0
-    except Exception:
-        return False
-
-
 COMPUTE_THREAD_ENV_VARS: tuple[str, ...] = (
     "OPENBLAS_NUM_THREADS",
     "OMP_NUM_THREADS",
@@ -99,18 +84,7 @@ def configure_compute_worker_env() -> None:
 
 
 def run_compute_worker(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> int:
-    """Stdio loop for a formula or vision child.
-
-    Before the loop. writeragent_api treats a missing ``WRITERAGENT_IS_WORKER``
-    as the LibreOffice host and calls ``execute_tool`` → ``get_ctx()``. This
-    process has no office and no tool-call pipe. ``WRITERAGENT_COMPUTE_WORKER``
-    makes that call fail before either path.
-
-    The parent pool reads and writes ``COMPUTE_MAX_PAYLOAD_BYTES`` (33 MiB).
-    The stdio default is 16 MiB, so a request the parent had accepted failed
-    in the child, and a result over 16 MiB broke this loop (host saw
-    ``EMPTY_RESPONSE``).
-    """
+    """Stdio loop for a formula or vision child: marked as a compute worker (no office, no tool pipe), framed at the pool's payload cap."""
     os.environ["WRITERAGENT_IS_WORKER"] = "1"
     os.environ["WRITERAGENT_COMPUTE_WORKER"] = "1"
     configure_compute_worker_env()
@@ -119,8 +93,9 @@ def run_compute_worker(handler: Callable[[dict[str, Any]], dict[str, Any]]) -> i
 
 def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *, max_payload_bytes: int = DEFAULT_MAX_PAYLOAD_BYTES) -> int:
     """Standard binary Pickle 5 stdio worker loop for child subprocesses."""
-    # Ensure worker subprocess terminates immediately if master HTTP process dies abruptly
-    set_pdeathsig()
+    from plugin.framework.child_runtime import die_with_parent
+
+    die_with_parent()
 
     stdin_bin = sys.stdin.buffer
 
@@ -129,7 +104,9 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
     stdout_bin = claim_ipc_channel()
 
     # Signal readiness to supervisor
-    write_pickle_frame(stdout_bin, {"status": "ready", "pid": os.getpid()})
+    from plugin.framework.child_runtime import announce_ready
+
+    announce_ready(stdout_bin)
 
     _shutdown_requested = False
 
@@ -170,12 +147,9 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
         except BaseException as exc:
             if _shutdown_requested:
                 break
-            res = {"id": req.get("id"), "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": f"Unhandled error: {exc}"}
+            res = error_dict(ec.WORKER_EXECUTION_ERROR, f"Unhandled error: {exc}", req_id=req.get("id"))
 
-        # Bugfix: when abandoned_timeout was set, the frame used to be a normal
-        # error dict, _finish_release saw is_alive(), and the next lease got
-        # WORKER_PIPE_BROKEN or WORKER_CRASHED. The "exiting" key tells the host
-        # to recycle the slot; os._exit(1) runs only after the frame is written.
+        # After an abandoned timeout the frame carries "exiting" and os._exit(1) follows the write.
         should_exit = _lpe is not None and getattr(_lpe, "abandoned_timeout", False)
         if should_exit:
             assert _lpe is not None
@@ -187,7 +161,7 @@ def run_worker_stdio_loop(handler: Callable[[dict[str, Any]], dict[str, Any]], *
             write_pickle_frame(stdout_bin, res, max_payload_bytes=max_payload_bytes)
             wrote = True
         except IpcFrameError as exc:
-            out = {"id": req.get("id"), "status": "error", "code": "RESULT_TOO_LARGE", "error": f"Result exceeds maximum payload size: {exc}"}
+            out = error_dict(ec.RESULT_TOO_LARGE, f"Result exceeds maximum payload size: {exc}", req_id=req.get("id"))
             if should_exit:
                 out["exiting"] = True
             try:

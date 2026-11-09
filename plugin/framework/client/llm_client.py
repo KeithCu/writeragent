@@ -44,7 +44,7 @@ import json
 import logging
 import re
 import urllib.parse
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from .base_provider_shim import BaseProviderShim
@@ -57,34 +57,31 @@ from .response_normalizers import normalize_message_content, prepare_chat_messag
 # accumulate_delta merges streaming deltas into message_snapshot; coalesce_split_tool_calls repairs OpenRouter empty-name split tool_calls.
 from plugin.framework.stream_delta import accumulate_delta, coalesce_split_tool_calls
 from plugin.framework.constants import USER_AGENT
-from plugin.framework.send_cancellation import get_current_send_cancellation
+from plugin.framework.send_cancellation import SendCancellation, get_current_send_cancellation, is_cancelled
 
-from plugin.framework.logging import init_logging, redact_sensitive_payload_for_log
+from plugin.framework.logging import redact_sensitive_payload_for_log
 from plugin.framework.client.auth import AuthError, resolve_auth_for_config, build_auth_headers
-from plugin.framework.errors import NetworkError, WriterAgentException, is_disposed_exception
+from plugin.framework.errors import NetworkError, WriterAgentException, is_disposal
 from plugin.framework.url_utils import get_api_version_suffix, get_url_path_and_query, normalize_endpoint_url
 
 from plugin.framework.errors import format_error_message
 from .errors import (
-    _format_http_error_response,
-    _log_chat_request_body_diag,
-    _log_http_500_request_diag,
-    _parse_provider_envelope,
-    _path_without_query,
+    format_http_error_response,
+    log_chat_request_body_diag,
+    log_http_500_request_diag,
+    parse_provider_envelope,
+    path_without_query,
     append_zai_unknown_model_hint,
+    stream_error_is_overload,
     stream_error_message,
 )
 from .http_security import redact_secrets
-from .http_transport import CONNECTION_ERRORS, LlmHttpTransport, parse_strict_json
+from .http_transport import LlmHttpTransport, parse_strict_json
 from .request_controls import (
-    RETRY_MAX_ATTEMPTS,
-    backoff_delay_sec,
-    clear_host_gap,
-    emit_retry_status,
-    remember_host_gap,
+    RetryBudget,
+    StreamOverload,
     request_model_from_body,
-    stream_error_is_overload,
-    wait_abortable,
+    stopped_error,
 )
 from .stream_normalizer import (
     THINKING_DELTA_KEYS,
@@ -97,6 +94,7 @@ from .stream_normalizer import (
     strip_think_tags,
 )
 from .provider_detection import is_openrouter_endpoint
+from .shim_helpers import cache_read_count
 
 log = logging.getLogger(__name__)
 
@@ -212,21 +210,67 @@ class LlmClient:
     config: dict[str, Any]
     ctx: Any
     _transport: LlmHttpTransport
-    _stopped: bool
+    _owned: SendCancellation
 
-    def __init__(self, config: dict[str, Any], ctx: Any, cancellation_scope: Any | None = None, *, register_with_send: bool = True) -> None:
+    def __init__(self, config: dict[str, Any], ctx: Any, cancel: SendCancellation | None = None, *, register_with_send: bool = True) -> None:
         self.config = config
         self.ctx = ctx
         self._transport = LlmHttpTransport(self._endpoint, self._timeout, openrouter_getter=lambda: bool(self.config.get("is_openrouter")))
         self._shims: dict[str, BaseProviderShim] = {}
         # Stop before the first byte: close() alone is a no-op when sock is None;
         # the worker must not open a new connection (B13 / llm_request_lane).
-        self._stopped = False
-        scope = cancellation_scope
+        self._owned = SendCancellation()
+        scope = cancel
         if scope is None and register_with_send:
             scope = get_current_send_cancellation()
         if scope is not None and register_with_send:
             scope.register_client(self)
+
+    def stopped(self) -> bool:
+        return self._owned.is_cancelled()
+
+    def _stop_latched(self, cancel: SendCancellation | None) -> bool:
+        return is_cancelled(cancel) or self.stopped()
+
+    def _request_scope(self, cancel: SendCancellation | None) -> SendCancellation:
+        """Link caller's cancellation scope with this client's owned scope.
+
+        stop() cancels both owned and caller scopes via a hook on _owned, even before _inflight is set.
+        """
+        owned = self._owned
+        if cancel is None or cancel is owned:
+            return owned
+        # stop() cancels owned. The hook below cancels the caller's scope in that
+        # same cancel(), including when stop() already ran (late hook).
+        # Do not register self.stop on cancel: scope.cancel() must not latch the client.
+        owned.register_on_cancel(cancel.cancel)
+        if owned.is_cancelled():
+            return owned
+        return cancel
+
+    def _release_request_scope(self, cancel: SendCancellation | None) -> None:
+        """Unregister caller cancellation hook when request ends."""
+        if cancel is not None and cancel is not self._owned:
+            self._owned.unregister_on_cancel(cancel.cancel)
+
+    def _effort_on_bad_request(self, scope: SendCancellation, slot: dict[str, Any]) -> Callable[[bytes], bytes | None]:
+        """On HTTP 400 that names effort, return the next fallback body, or None to keep the error."""
+        def on_bad_request(body_bytes: bytes) -> bytes | None:
+            if scope.is_cancelled():
+                return None
+            if slot["pending"] is None:
+                from .base_provider_shim import effort_retry_bodies
+
+                slot["pending"] = effort_retry_bodies(self._get_shim()._reasoning_provider(), body_bytes)
+            if not slot["pending"]:
+                return None
+            log.warning("HTTP 400 rejected reasoning effort; retrying with another effort")
+            slot["used"] = True
+            next_body = slot["pending"].pop(0)
+            slot["body"] = next_body
+            return next_body
+
+        return on_bad_request
 
     def _get_shim(self) -> BaseProviderShim:
         """Get the provider shim for this client."""
@@ -248,7 +292,7 @@ class LlmClient:
         a later ``read()`` would block until ``request_timeout`` and hold
         ``llm_request_lane``.
         """
-        if self._stopped or not hasattr(response, "getheader"):
+        if self.stopped() or not hasattr(response, "getheader"):
             return
         conn_hdr = (response.getheader("Connection") or "").strip().lower()
         if conn_hdr == "close":
@@ -262,98 +306,40 @@ class LlmClient:
         # a provider (or proxy) reflected it in the error text.
         # A leftover ``?key=`` on the path must not land in the log. Strip the
         # query and redact any echoed secret before logging.
-        safe_path = redact_secrets(_path_without_query(path), [api_key])
-        log.error("Provider API Error %d: %s (provider=%s path=%s request_model=%r)", response.status, redact_secrets(err_body, [api_key]), self._get_provider(), safe_path, request_model)
+        safe_path = redact_secrets(path_without_query(path), [api_key])
+        st_raw = getattr(response, "status", 500)
+        try:
+            st = int(st_raw)
+        except (TypeError, ValueError):
+            st = 500
+        log.error("Provider API Error %s: %s (provider=%s path=%s request_model=%r)", str(st_raw), redact_secrets(str(err_body), [api_key]), self._get_provider(), safe_path, request_model)
         n_ctx = None
-        if response.status == 500:
+        if st == 500:
             from .model_fetcher import peek_live_ollama_num_ctx
 
             n_ctx = peek_live_ollama_num_ctx(self)
-        if response.status == 500:
-            _log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
-        err_msg = _format_http_error_response(response.status, response.reason, err_body, context_window=n_ctx)
+        if st == 500:
+            log_http_500_request_diag(self, response, path, body, err_body, n_ctx=n_ctx)
+        err_msg = format_http_error_response(st, str(getattr(response, "reason", "") or ""), str(err_body), context_window=n_ctx)
         return append_zai_unknown_model_hint(err_msg, err_body, path, self._get_provider(), request_model)
 
     def _wire_secrets(self) -> list[str]:
         api_key = str(self.config.get("api_key") or "").strip()
         return [api_key] if api_key else []
 
-    def _retry_or_raise_http_error(self, response: Any, body: Any, path: str, *, retries_left: int, emitted_any: bool, stop_checker: Any, status_callback: Any = None, attempt: int = 1) -> str | None:
-        """On non-200: shared transport retry. Never after tokens already reached the UI."""
-        action = self._transport.handle_http_status(
-            response,
-            request_body=body,
-            path=path,
-            retries_left=retries_left,
-            emitted_any=emitted_any,
-            stop_checker=stop_checker,
-            status_callback=status_callback,
-            attempt=attempt,
-            secrets=self._wire_secrets(),
-            observe_http_error=self._observe_provider_http_error,
-        )
-        if action == "stop":
-            self._stopped = True
-        return action
-
-    def _send_http_attempt(self, method: str, path: str, body: Any, headers: dict[str, str], *, sends_left: int, wait_index: int, emitted_any: bool, stop_checker: Any, status_callback: Any) -> tuple[str, Any, int, int]:
-        """One send. ``('ok', response, ...)`` on HTTP 200.
-
-        ``('retry', None, ...)`` after a bounded 429/503 wait.
-        ``('stop', None, ...)`` when Stop aborted that wait.
-        Raises ``NetworkError`` on a terminal HTTP status.
-
-        Connection errors stay with the caller: a mid-stream reset is caught
-        around the body read, not only around this send.
-        """
-        response = self._send_request(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
-        if response.status != 200:
-            sends_left -= 1
-            wait_index += 1
-            action = self._retry_or_raise_http_error(response, body, path, retries_left=sends_left, emitted_any=emitted_any, stop_checker=stop_checker, status_callback=status_callback, attempt=wait_index)
-            if action == "stop":
-                return "stop", None, sends_left, wait_index
-            return "retry", None, sends_left, wait_index
-        if wait_index == 0:
-            clear_host_gap(self._transport.pacing_key_for_model(request_model_from_body(body)))
-        return "ok", response, sends_left, wait_index
-
-    def _after_connection_error(self, err: Exception, *, path: str, body: Any, sends_left: int, wait_index: int, stop_checker: Any, status_callback: Any, retry_log_message: str) -> tuple[str, int, int]:
-        """Shared connection-error budget. Returns ``('retry'|'stop', sends_left, wait_index)``."""
-        sends_left -= 1
-        wait_index += 1
-        action = self._transport.handle_connection_error(err, path=path, retries_left=sends_left, retry_log_message=retry_log_message, stop_checker=stop_checker, status_callback=status_callback, attempt=wait_index, model=request_model_from_body(body), secrets=self._wire_secrets())
-        return action, sends_left, wait_index
-
     def stop(self) -> None:
         """Abort the in-flight request: latch + close socket (even if not open yet).
 
-        Packet B13: Stop can fire before ``get_connection``. Without ``_stopped``,
-        the worker opens a fresh socket and holds ``llm_request_lane`` until timeout.
+        Packet B13: Stop can fire before ``get_connection``. Without a latched
+        scope, the worker opens a fresh socket and holds ``llm_request_lane`` until timeout.
         """
         log.debug("LlmClient.stop() called")
-        self._stopped = True
+        self._owned.cancel()
         self._close_connection()
 
     def clear_stop(self) -> None:
         """Allow a reused client to send again (call on the UI thread at send start)."""
-        self._stopped = False
-
-    def _abort_checker(self, stop_checker: Any) -> Any:
-        """Checker for retry sleeps: ``stop()`` or the caller's predicate.
-
-        ``wait_abortable`` returns early only when its checker is true.
-        Streaming and sync tool requests passed the caller's checker alone, so
-        ``stop()`` (which only sets ``_stopped``) slept out a backoff of up to
-        ``RETRY_MAX_DELAY_SEC`` when the caller passed no checker.
-        """
-
-        def _aborted() -> bool:
-            if self._stopped:
-                return True
-            return bool(stop_checker and stop_checker())
-
-        return _aborted
+        self._owned = SendCancellation()
 
     def _endpoint(self) -> str:
         raw = self.config.get("endpoint", "http://localhost:11434")
@@ -375,14 +361,7 @@ class LlmClient:
         return h
 
     def _resolve_auth(self) -> dict[str, Any]:
-        """Resolve auth info from config.
-
-        Swallowing ``AuthError`` here used to return ``{}``, so hosted missing
-        keys looked like provider ``custom`` and the HTTP layer reported 401.
-        Let ``missing_api_key`` / ``missing_endpoint`` / ``invalid_api_key``
-        propagate. Ollama and custom empty keys never raise in
-        ``resolve_auth_for_config``.
-        """
+        """Resolve auth info from config, propagating any AuthError."""
         return resolve_auth_for_config(self.config)
 
     def _get_provider(self) -> str:
@@ -394,14 +373,29 @@ class LlmClient:
         """Settings read/stall budget. Connect uses ``LLM_CONNECT_TIMEOUT_SEC``."""
         return self.config.get("request_timeout", 120)
 
-    def _send_request(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
-        """Send through the transport with stop check."""
-        if self._stopped:
-            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
+    def _send_request(self, method: str, path: str, body: Any, headers: dict[str, str], *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
+        """Send through the transport with cancellation scope."""
+        # The caller already resolved the scope; a second _request_scope registers
+        # the hook twice and the inner finally drops one copy.
+        if self._stop_latched(cancel):
+            raise stopped_error()
 
-        return self._transport.send(method, path, body, headers, stop_checker=self._abort_checker(stop_checker), status_callback=status_callback)
+        return self._transport.send(method, path, body, headers, cancel=cancel, status_callback=status_callback)
 
-    def make_chat_request(self, messages: list[Any], max_tokens: int = 512, tools: Any = None, stream: bool = False, model: str | None = None, response_format: Any = None, chat_extra: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> tuple[str, str, Any, dict[str, str]]:
+    def make_chat_request(
+        self,
+        messages: list[Any],
+        max_tokens: int = 512,
+        tools: Any = None,
+        stream: bool = False,
+        model: str | None = None,
+        response_format: Any = None,
+        chat_extra: Any = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
+        prepend_dev_build_system_prefix: bool = True,
+    ) -> tuple[str, str, Any, dict[str, str]]:
         """Build a chat completions request from a full messages array (provider-aware)."""
         try:
             max_tokens = int(max_tokens)
@@ -424,105 +418,97 @@ class LlmClient:
         temperature = self.config.get("temperature")
 
         shim = self._get_shim()
-        method, path, body, headers = shim.build_chat_request(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+        method, path, body, headers = shim.build_chat_request(
+            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice, cache_session_id=cache_session_id,
+        )
 
-        init_logging(self.ctx)
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
-        log.debug("URL: %s" % _path_without_query(path))
+        log.debug("URL: %s" % path_without_query(path))
         if log.isEnabledFor(logging.DEBUG):
             log.debug("Messages: %s" % json.dumps(redact_sensitive_payload_for_log(messages), indent=2))
-        _log_chat_request_body_diag(self, path, body, headers, tools)
+        log_chat_request_body_diag(self, path, body, headers, tools)
 
         return method, path, body, headers
 
-    def _effort_retries(self, exc: Exception, body: Any, pending: list[bytes] | None, stop_checker: Any = None) -> list[bytes] | None:
-        """Bodies still to try after an effort-related HTTP 400, or None to re-raise.
-
-        *pending* is the list from the previous call (None on the first 400).
-        """
-        if self._stopped or (stop_checker and stop_checker()):
-            return None
-        if not isinstance(exc, NetworkError):
-            return None
-        details = getattr(exc, "details", None)
-        if not isinstance(details, dict) or details.get("status") != 400:
-            return None
-        if "effort" not in str(exc).lower():
-            return None
-        if pending is None:
-            from .base_provider_shim import effort_retry_bodies
-
-            pending = effort_retry_bodies(self._get_shim()._reasoning_provider(), body)
-        if not pending:
-            return None
-        log.warning("HTTP 400 rejected reasoning effort (%s); retrying with another effort", exc)
-        return pending
-
-    def _exchange_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None, retry_log_message: str, on_retry: Any = None, wrap_unexpected: bool = False, failure_log: str = "JSON request failed") -> tuple[str, Any]:
-        """One non-streaming JSON exchange with the shared retry budget.
-
-        Returns ``("ok", parsed)`` or ``("stop", None)``. The stream loop stays
-        separate: it tracks ``emitted_any`` and parses SSE.
-
-        ``_request_json`` and the sync half of ``request_with_tools`` each
-        owned this loop. Image and speech only watched ``self._stopped``, so
-        a caller's stop checker slept out a 429 and never got a retry status.
-        A connection error after ``read()`` had already returned the body
-        re-posted the request. One loop: Stop is a result the caller maps
-        (raise vs stop dict). Bytes already in hand are not sent again.
-        """
-        abort_checker = self._abort_checker(stop_checker)
-        if self._stopped or (stop_checker and stop_checker()):
-            self._stopped = True
-            self._close_connection()
-            return "stop", None
-        api_key = str(self.config.get("api_key") or "").strip()
-
+    def _exchange_json(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        *,
+        cancel: SendCancellation | None = None,
+        status_callback: Any = None,
+        retry_log_message: str,
+        on_retry: Any = None,
+        wrap_unexpected: bool = False,
+        failure_log: str = "JSON request failed",
+    ) -> Any:
+        """One non-streaming JSON exchange with the shared retry budget."""
+        active = self._request_scope(cancel)
         try:
-            # Same exchange as catalog and speech. Stop, timeout, retry, and
-            # redaction are not a second loop here.
-            result = self._transport.exchange(
-                method,
-                path,
-                body,
-                headers,
-                stop_checker=abort_checker,
-                status_callback=status_callback,
-                parse_json=False,
-                sender=self._send_request,
-                secrets=self._wire_secrets(),
-                on_retry=on_retry,
-                after_read=self._close_if_connection_close,
-                observe_http_error=self._observe_provider_http_error,
-                retry_log_message=retry_log_message,
-            )
-        except NetworkError as exc:
-            if getattr(exc, "code", None) == "STOPPED":
-                self._stopped = True
-                return "stop", None
-            raise
-        except Exception as exc:
-            if not wrap_unexpected:
-                raise
-            err_msg = format_error_message(exc)
-            log.exception(failure_log)
-            raise NetworkError(err_msg, details={"url": path}) from exc
-        return "ok", _parse_provider_envelope(result.body, path, api_key=api_key)
+            if is_cancelled(active):
+                self._close_connection()
+                raise stopped_error()
+            api_key = str(self.config.get("api_key") or "").strip()
+            first_body = body if isinstance(body, (bytes, bytearray)) else body
+            slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
+            on_bad_request = self._effort_on_bad_request(active, slot)
 
-    def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, stop_checker: Any = None, status_callback: Any = None) -> Any:
+            try:
+                # Same exchange as catalog and speech. Stop, timeout, retry, and
+                # redaction are not a second loop here.
+                result = self._transport.exchange(
+                    method,
+                    path,
+                    body,
+                    headers,
+                    cancel=active,
+                    status_callback=status_callback,
+                    parse_json=False,
+                    sender=self._send_request,
+                    secrets=self._wire_secrets(),
+                    on_retry=on_retry,
+                    after_read=self._close_if_connection_close,
+                    observe_http_error=self._observe_provider_http_error,
+                    retry_log_message=retry_log_message,
+                    on_bad_request=on_bad_request,
+                )
+            except NetworkError:
+                raise
+            except Exception as exc:
+                if not wrap_unexpected:
+                    raise
+                err_msg = format_error_message(exc)
+                log.exception(failure_log)
+                raise NetworkError(err_msg, details={"url": path}) from exc
+            if slot["used"] and isinstance(first_body, (bytes, bytearray)):
+                fb = bytes(first_body) if isinstance(first_body, bytearray) else first_body
+                lb = bytes(slot["body"]) if isinstance(slot["body"], bytearray) else slot["body"]
+                remember_accepted_effort(self._endpoint(), fb, lb)
+            return parse_provider_envelope(result.body, path, api_key=api_key)
+        finally:
+            self._release_request_scope(cancel)
+
+    def _request_json(self, method: str, path: str, body: Any, headers: dict[str, str], *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Blocking JSON call on the persistent transport.
 
         Image and speech used ``sync_request``, which ignored Stop and 429/503
         backoff. This shares the chat transport so ``stop()`` closes the socket.
-        ``stop_checker`` / ``status_callback`` match the sync chat path: a 429
+        ``cancel`` / ``status_callback`` match the sync chat path: a 429
         wait ends when the caller stops, and the sidebar sees the retry line.
         """
-        action, parsed = self._exchange_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying JSON request on fresh connection")
-        if action == "stop":
-            raise NetworkError("LLM request aborted by Stop", code="STOPPED")
-        return parsed
+        return self._exchange_json(
+            method,
+            path,
+            body,
+            headers,
+            cancel=cancel,
+            status_callback=status_callback,
+            retry_log_message="Retrying JSON request on fresh connection",
+        )
 
-    def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None, *, stop_checker: Any = None, status_callback: Any = None) -> Any:
+    def image_completion(self, prompt: str, model: str | None = None, width: int = 1024, height: int = 1024, steps: int | None = None, source_image: str | None = None, image_url: str | None = None, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> Any:
         """Generate images using the configured provider. Returns list of base64 strings."""
         method, path, body, headers = self._get_shim().build_image_request(prompt, model, width, height, steps=steps, source_image=source_image, image_url=image_url)
         endpoint = self._endpoint()
@@ -533,25 +519,23 @@ class LlmClient:
             url = path
 
         # log.debug...
-        init_logging(self.ctx)
         log.debug("=== Image Request ===")
-        # Path/query must not include API keys (Google image used to put ?key= here).
+        # Path/query must not include API keys.
         log.debug("URL: %s" % urllib.parse.urlunparse(urllib.parse.urlparse(url)._replace(query="", fragment="")))
 
-        # Image generate/edit used sync_request, which Stop cannot abort and
-        # which does not retry 429/503. The persistent transport does both.
+        # Persistent transport supports cancellation and 429/503 retries.
         try:
-            res = self._request_json(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback)
+            res = self._request_json(method, path, body, headers, cancel=cancel, status_callback=status_callback)
         except NetworkError as e:
             if "not supported" in str(e):
                 new_body = adjust_image_body_for_rejection(body, str(e))
-                if new_body and (stop_checker is None or not stop_checker()):
+                if new_body and not is_cancelled(cancel):
                     # The adjusted body is multi-MB base64. Log a 500-character
                     # preview plus the total length, not the whole payload.
                     body_text = new_body.decode("utf-8", errors="replace")
                     body_preview = f"{body_text[:500]}... [total {len(body_text)} chars]" if len(body_text) > 500 else body_text
                     log.warning("Image API rejected params, retrying with adjusted body: %s", body_preview)
-                    res = self._request_json(method, path, new_body, headers, stop_checker=stop_checker, status_callback=status_callback)
+                    res = self._request_json(method, path, new_body, headers, cancel=cancel, status_callback=status_callback)
                 else:
                     raise
             else:
@@ -563,7 +547,7 @@ class LlmClient:
         shim = self._get_shim()
         return shim.parse_image_responses(res)
 
-    def transcribe_audio(self, wav_path: str, model: str | None = None, *, stop_checker: Any = None, status_callback: Any = None) -> str:
+    def transcribe_audio(self, wav_path: str, model: str | None = None, *, cancel: SendCancellation | None = None, status_callback: Any = None) -> str:
         """Transcribe audio via POST /v1/audio/transcriptions (or chat if STT model supports input_audio).
 
         STT-only models use the transcription endpoint only; chat+audio STT models may
@@ -595,13 +579,13 @@ class LlmClient:
                     messages,
                     max_tokens=16384,
                     model=model_name,
-                    stop_checker=stop_checker,
+                    cancel=cancel,
                     status_callback=status_callback,
                 )
             except AuthError:
                 raise
             except NetworkError as e:
-                if self._stopped or getattr(e, "code", None) == "STOPPED":
+                if self.stopped() or getattr(e, "code", None) == "STOPPED":
                     raise
                 # Only a transport failure is a reason to try
                 # /audio/transcriptions. chat_completion_sync raises ValueError,
@@ -652,39 +636,38 @@ class LlmClient:
         # Passing api_path alone drops the endpoint's own path prefix.
         # get_url_path_and_query keeps both.
         req_path = get_url_path_and_query(url)
-        res = self._request_json("POST", req_path, body_bytes, headers, stop_checker=stop_checker, status_callback=status_callback)
+        res = self._request_json("POST", req_path, body_bytes, headers, cancel=cancel, status_callback=status_callback)
         return res.get("text", "") if isinstance(res, dict) else str(res)
 
-    def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None) -> None:
-        """Stream a chat completions response via callbacks."""
+    def stream_completion(self, prompt: str, system_prompt: str, max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None) -> str | None:
+        """Stream a chat completions response via callbacks; returns finish_reason."""
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
-        self.stream_chat_response(messages, max_tokens, append_callback, append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
+        return self.stream_chat_response(messages, max_tokens, append_callback, append_thinking_callback, cancel=cancel, status_callback=status_callback)
 
-    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, stop_checker: Any = None, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
+    def _run_streaming_loop(self, method: str, path: str, body: Any, headers: dict[str, str], on_content: Any, on_thinking: Any = None, on_delta: Any = None, cancel: SendCancellation | None = None, status_callback: Any = None, reset_unemitted_attempt: Any = None) -> Any:
         """Common low-level streaming engine."""
-        init_logging(self.ctx)
         log.info("=== Starting streaming loop (persistent) ===")
         log.debug("Request Path: %s" % path)
 
-        # Do not clear ``_stopped`` here — that races with stop() on another thread
+        # Do not clear cancellation here — that races with stop() on another thread
         # (B13). UI clears via ``clear_stop()`` at the start of a new send.
-        if self._stopped or (stop_checker and stop_checker()):
-            log.debug("streaming_loop: Stop already requested before connect")
-            self._stopped = True
-            self._close_connection()
-            return "stop"
+        active = self._request_scope(cancel)
 
-        abort_checker = self._abort_checker(stop_checker)
-        sends_left = RETRY_MAX_ATTEMPTS
-        wait_index = 0
-        emitted_any = False
-        effort_pending: list[bytes] | None = None
         first_body = body
-        body = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
-        while True:
+        slot: dict[str, Any] = {"pending": None, "body": body, "used": False}
+        on_bad_request = self._effort_on_bad_request(active, slot)
+
+        prepared = accepted_effort_body(
+            self._get_shim()._reasoning_provider(),
+            self._endpoint(),
+            bytes(body) if isinstance(body, bytearray) else body,
+        )
+        body = prepared if isinstance(prepared, bytes) else prepared.encode("utf-8")
+
+        def consume(response: Any, budget: RetryBudget) -> str | None:
             # on_delta writes role, usage, and a buffered "<think" prefix into
             # the caller's snapshot before any callback runs. emitted_any stays
             # false for a usage-only chunk and a partial tag, so an overload or
@@ -694,304 +677,311 @@ class LlmClient:
             # Once emitted_any is set this does not run, so shown text stays.
             # The first call clears an empty snapshot; a later call drops the
             # failed attempt before the next send.
-            if not emitted_any and reset_unemitted_attempt is not None:
+            if not budget.emitted_any and reset_unemitted_attempt is not None:
                 reset_unemitted_attempt()
-            last_finish_reason = None
-
+            last_finish_reason: str | None = None
+            # Set only when the SSE loop finishes without an error or Stop.
+            # The finally block drains solely in that case.
+            clean_finish = False
             try:
-                if self._stopped or (stop_checker and stop_checker()):
-                    log.debug("streaming_loop: Stop before send")
-                    self._stopped = True
-                    self._close_connection()
-                    return "stop"
-                action, response, sends_left, wait_index = self._send_http_attempt(method, path, body, headers, sends_left=sends_left, wait_index=wait_index, emitted_any=emitted_any, stop_checker=abort_checker, status_callback=status_callback)
-                if action == "stop":
-                    return "stop"
-                if action == "retry":
-                    continue
-                if effort_pending is not None:
-                    remember_accepted_effort(self._endpoint(), first_body, body)
-                    effort_pending = None
+                # Use a flag to stop logical processing but keep reading to exhaust the stream
+                content_finished = False
+                # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
+                last_contents: collections.deque[str] = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
+                think_tag_splitter = ThinkTagStreamSplitter()
+                requested_model = request_model_from_body(body)
+                used_model = None
+                stream_state: dict[str, Any] = {}
+                last_usage_obj: dict[str, Any] | None = None
 
-                # Set only when the SSE loop finishes without an error or Stop.
-                # The finally block drains solely in that case.
-                clean_finish = False
-                try:
-                    # Use a flag to stop logical processing but keep reading to exhaust the stream
-                    content_finished = False
-                    # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
-                    last_contents: collections.deque[str] = collections.deque(maxlen=REPEATED_STREAMING_CHUNK_LIMIT)
-                    think_tag_splitter = ThinkTagStreamSplitter()
-                    requested_model = request_model_from_body(body)
-                    used_model = None
-                    retry_outer = False
-                    stream_state: dict[str, Any] = {}
-
-                    for payload in iterate_sse(response):
-                        if payload == "[DONE]":
-                            log.info("streaming_loop: [DONE] received")
-                            content_finished = True
-                            continue
-
-                        try:
-                            # Same strict parser as sync chat and catalog. A
-                            # truncated SSE line is skipped, not repaired into
-                            # a finished chunk.
-                            chunk = parse_strict_json(payload)
-                        except NetworkError as decode_err:
-                            if getattr(decode_err, "code", None) != "BAD_RESPONSE":
-                                raise
-                            if payload and payload != "{}":
-                                log.exception("streaming_loop: JSON decode error in payload: %s", payload)
-                            continue
-
-                        # Valid JSON that is not an object (array / string / number) is not a
-                        # chat chunk. .get would raise and abort the stream; skip so later
-                        # well-formed chunks can still apply.
-                        if type(chunk) is not dict:
-                            continue
-
-                        chunk_model = chunk.get("model")
-                        if chunk_model and used_model is None:
-                            used_model = str(chunk_model)
-                            log.info("LLM response stream started: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
-
-                        usage_obj = chunk.get("usage")
-                        if not isinstance(usage_obj, dict) or not usage_obj:
-                            usage_obj = None
-                        elif "usage" in chunk:
-                            log.debug("streaming_loop: received usage: %s" % chunk["usage"])
-
-                        if content_finished:
-                            continue
-
-                        # stop() sets _stopped and closes the socket, but http.client
-                        # can already have buffered SSE lines. Checking only the
-                        # caller's stop_checker still parsed those and passed
-                        # them to on_content when the caller passed no checker.
-                        # abort_checker includes the latch, same as the pre-send
-                        # and retry-sleep paths.
-                        if abort_checker():
-                            log.debug("streaming_loop: Stop requested.")
-                            last_finish_reason = "stop"
-                            content_finished = True
-                            self._stopped = True
-                            # Kill the socket; do not keep reading (continue used to
-                            # fall into finally:response.read() and block ~request_timeout —
-                            # B13 held llm_request_lane for 60s after Stop).
-                            self._close_connection()
-                            break
-
-                        # A 200 stream can still carry a provider error object. Skipping it
-                        # used to look like a short successful answer.
-                        stream_err = stream_error_message(chunk)
-                        if stream_err is not None:
-                            # Chat HTTP errors already redact an echoed key. A 200
-                            # SSE error used to raise the raw provider string, which
-                            # the sidebar and the debug log then showed.
-                            api_key = str(self.config.get("api_key") or "").strip()
-                            stream_err = redact_secrets(stream_err, [api_key])
-                            if (not emitted_any) and stream_error_is_overload(chunk) and sends_left > 1:
-                                self._close_connection()
-                                sends_left -= 1
-                                wait_index += 1
-                                delay = backoff_delay_sec(attempt=wait_index)
-                                remember_host_gap(self._transport.pacing_key_for_model(requested_model), delay)
-                                log.warning("Retrying mid-stream error after %.3fs (%s)", delay, stream_err)
-                                emit_retry_status(status_callback, delay)
-                                if not wait_abortable(delay, abort_checker):
-                                    self._stopped = True
-                                    return "stop"
-                                retry_outer = True
-                                break
-                            raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
-
-                        # Grok/xAI sends a final chunk with empty choices + usage.
-                        # Anthropic SSE events have no choices array; dropping them
-                        # discarded text_delta and tool_use before the shim could parse.
-                        # Usage-only chunks still reach on_delta so request_with_tools
-                        # can fill its usage field. They are not emitted text.
-                        if not _chunk_should_parse(chunk):
-                            if usage_obj and on_delta:
-                                on_delta({"usage": usage_obj})
-                            continue
-
-                        content, finish_reason, thinking, delta = self._get_shim().parse_response_chunk(chunk, stream_state)
-
-                        # Keep the provider's parsed SSE shape before normalization. Some
-                        # OpenAI-compatible routes have appeared to continue one function's
-                        # arguments under a new tool-call index; the completed snapshot alone
-                        # cannot tell whether that index came from the wire or our accumulator.
-                        raw_tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
-                        if raw_tool_calls is not None:
-                            log.debug("streaming_loop: raw tool_call delta route_provider=%s chunk_provider=%r chunk_model=%r chunk_id=%r tool_calls=%s", self._get_provider(), chunk.get("provider"), chunk.get("model"), chunk.get("id"), json.dumps(raw_tool_calls, ensure_ascii=False))
-
-                        # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
-                        if finish_reason == "error":
-                            from plugin.framework.i18n import _
-
-                            raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
-
-                        if thinking:
-                            # A reasoning delta still reaches on_delta even when
-                            # on_thinking is missing. Count those bytes, or a
-                            # socket drop retries text the UI already has.
-                            emitted_any = True
-                            if on_thinking:
-                                on_thinking(thinking)
-                        if content:
-                            pieces = think_tag_splitter.feed(content)
-                            for is_think, text_piece in pieces:
-                                if is_think:
-                                    # <think> text must set emitted_any. A drop during
-                                    # the reasoning block would otherwise retry
-                                    # and duplicate it.
-                                    if text_piece:
-                                        emitted_any = True
-                                        if on_thinking:
-                                            on_thinking(text_piece)
-                                else:
-                                    if text_piece:
-                                        emitted_any = True
-                                    if on_content:
-                                        on_content(text_piece)
-                                    # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
-                                    last_contents.append(text_piece)
-                                    if len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT and len(text_piece) > 2 and all(c == last_contents[0] for c in last_contents):
-                                        from plugin.framework.i18n import _
-
-                                        raise NetworkError(_("The model is repeating the same chunk (infinite loop). Try again or use a different model."), code="INFINITE_LOOP")
-                        if raw_tool_calls:
-                            # Tool-call deltas still call on_delta, and
-                            # accumulate_delta concatenates function.name and
-                            # arguments onto a snapshot created outside the
-                            # retry loop. A socket drop after those chunks would
-                            # merge a second copy of the call. Count tool-call
-                            # bytes like emitted text so the retry branch raises
-                            # CONNECTION_LOST. Do not clear or replay the
-                            # snapshot; callbacks have already run.
-                            emitted_any = True
-                        outgoing: dict[str, Any] | None = delta if isinstance(delta, dict) else None
-                        # The Anthropic shim already put normalized usage on the
-                        # delta (input_tokens → prompt_tokens). Raw chunk usage
-                        # on message_delta used to overwrite those aliases.
-                        # OpenAI and Grok put usage only on the chunk, and their
-                        # delta has no usage key, so this still fills it.
-                        shim_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
-                        if usage_obj and not (isinstance(shim_usage, dict) and shim_usage):
-                            outgoing = dict(outgoing or {})
-                            outgoing["usage"] = usage_obj
-                        if outgoing and on_delta:
-                            # on_delta receives this normalized delta; do not normalize twice.
-                            normalize_delta(outgoing)
-                            if chunk_model and "model" not in outgoing:
-                                outgoing["model"] = str(chunk_model)
-                            on_delta(outgoing)
-
-                        if finish_reason:
-                            log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
-                            last_finish_reason = finish_reason
-
-                    if retry_outer:
+                for payload in iterate_sse(response):
+                    if payload == "[DONE]":
+                        log.info("streaming_loop: [DONE] received")
+                        content_finished = True
                         continue
 
-                    if not content_finished and not last_finish_reason:
-                        # iterate_sse finishes quietly on EOF, so a socket that
-                        # closed early looked like a successful answer with
-                        # finish_reason None. A missing [DONE] / finish_reason
-                        # is a drop. Raise a real connection error so the outer
-                        # loop can retry (if nothing was emitted) or surface
-                        # CONNECTION_LOST.
+                    try:
+                        # Same strict parser as sync chat and catalog. A
+                        # truncated SSE line is skipped, not repaired into
+                        # a finished chunk.
+                        chunk = parse_strict_json(payload)
+                    except NetworkError as decode_err:
+                        if getattr(decode_err, "code", None) != "BAD_RESPONSE":
+                            raise
+                        if payload and payload != "{}":
+                            log.exception("streaming_loop: JSON decode error in payload: %s", payload)
+                        continue
+
+                    # Valid JSON that is not an object (array / string / number) is not a
+                    # chat chunk. .get would raise and abort the stream; skip so later
+                    # well-formed chunks can still apply.
+                    if type(chunk) is not dict:
+                        continue
+
+                    chunk_model = chunk.get("model")
+                    if chunk_model and used_model is None:
+                        used_model = str(chunk_model)
+                        log.info("LLM response stream started: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
+
+                    usage_obj = chunk.get("usage")
+                    if not isinstance(usage_obj, dict) or not usage_obj:
+                        usage_obj = None
+                    elif "usage" in chunk:
+                        log.debug("streaming_loop: received usage: %s" % chunk["usage"])
+
+                    if content_finished:
+                        continue
+
+                    # stop() cancels the scope and closes the socket, but http.client
+                    # can already have buffered SSE lines. Checking is_cancelled here
+                    # avoids parsing buffered lines and passing them to on_content.
+                    if self._stop_latched(active):
+                        log.debug("streaming_loop: Stop requested.")
+                        last_finish_reason = "stop"
+                        content_finished = True
+                        # Close connection immediately on stop so response.read() does not block.
+                        self._close_connection()
+                        break
+
+                    # Check for mid-stream provider error objects inside a 200 stream.
+                    stream_err = stream_error_message(chunk)
+                    if stream_err is not None:
+                        api_key = str(self.config.get("api_key") or "").strip()
+                        stream_err = redact_secrets(stream_err, [api_key])
+                        if (not budget.emitted_any) and stream_error_is_overload(chunk) and budget.sends_left > 1:
+                            self._close_connection()
+                            raise StreamOverload(stream_err)
+                        raise NetworkError(stream_err, code="STREAM_ERROR", details={"url": path})
+
+                    # Grok/xAI sends a final chunk with empty choices + usage.
+                    # Anthropic SSE events have no choices array; dropping them
+                    # discarded text_delta and tool_use before the shim could parse.
+                    # Usage-only chunks still reach on_delta so request_with_tools
+                    # can fill its usage field. They are not emitted text.
+                    if not _chunk_should_parse(chunk):
+                        if usage_obj and on_delta:
+                            on_delta({"usage": usage_obj})
+                        continue
+
+                    content, finish_reason, thinking, delta = self._get_shim().parse_response_chunk(chunk, stream_state)
+                    # Keep the provider's parsed SSE shape before normalization. Some
+                    # OpenAI-compatible routes have appeared to continue one function's
+                    # arguments under a new tool-call index; the completed snapshot alone
+                    # cannot tell whether that index came from the wire or our accumulator.
+                    raw_tool_calls = delta.get("tool_calls") if isinstance(delta, dict) else None
+                    if raw_tool_calls is not None:
+                        log.debug(
+                            "streaming_loop: raw tool_call delta route_provider=%s chunk_provider=%r chunk_model=%r chunk_id=%r tool_calls=%s",
+                            self._get_provider(),
+                            chunk.get("provider"),
+                            chunk.get("model"),
+                            chunk.get("id"),
+                            json.dumps(raw_tool_calls, ensure_ascii=False),
+                        )
+
+                    # LiteLLM: streaming_handler.py ~L736 "finish_reason: error, no content string given"
+                    if finish_reason == "error":
+                        from plugin.framework.i18n import _
+
+                        raise NetworkError(_("Stream ended with finish_reason=error"), code="STREAM_ERROR")
+
+                    if thinking:
+                        # A reasoning delta still reaches on_delta even when
+                        # on_thinking is missing. Count those bytes, or a
+                        # socket drop retries text the UI already has.
+                        budget.emitted_any = True
+                        if on_thinking:
+                            on_thinking(thinking)
+                    if content:
+                        pieces = think_tag_splitter.feed(content)
+                        for is_think, text_piece in pieces:
+                            if is_think:
+                                # <think> text must set emitted_any. A drop during
+                                # the reasoning block would otherwise retry
+                                # and duplicate it.
+                                if text_piece:
+                                    budget.emitted_any = True
+                                    if on_thinking:
+                                        on_thinking(text_piece)
+                            else:
+                                if text_piece:
+                                    budget.emitted_any = True
+                                if on_content:
+                                    on_content(text_piece)
+                                # LiteLLM: streaming_handler.py ~L198 safety_checker(), issue #5158
+                                last_contents.append(text_piece)
+                                if (
+                                    len(last_contents) == REPEATED_STREAMING_CHUNK_LIMIT
+                                    and len(text_piece) > 2
+                                    and all(c == last_contents[0] for c in last_contents)
+                                ):
+                                    from plugin.framework.i18n import _
+
+                                    raise NetworkError(
+                                        _("The model is repeating the same chunk (infinite loop). Try again or use a different model."),
+                                        code="INFINITE_LOOP",
+                                    )
+                    if raw_tool_calls:
+                        # Tool-call deltas still call on_delta, and
+                        # accumulate_delta concatenates function.name and
+                        # arguments onto a snapshot created outside the
+                        # retry loop. A socket drop after those chunks would
+                        # merge a second copy of the call. Count tool-call
+                        # bytes like emitted text so the retry branch raises
+                        # CONNECTION_LOST. Do not clear or replay the
+                        # snapshot; callbacks have already run.
+                        budget.emitted_any = True
+                    outgoing: dict[str, Any] | None = delta if isinstance(delta, dict) else None
+                    # Preserve normalized usage already present on the delta before checking chunk usage.
+                    shim_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
+                    if usage_obj and not (isinstance(shim_usage, dict) and shim_usage):
+                        outgoing = dict(outgoing or {})
+                        outgoing["usage"] = usage_obj
+                    cur_usage = outgoing.get("usage") if isinstance(outgoing, dict) else None
+                    if not isinstance(cur_usage, dict):
+                        cur_usage = usage_obj
+                    if isinstance(cur_usage, dict):
+                        if last_usage_obj is None:
+                            last_usage_obj = dict(cur_usage)
+                        else:
+                            last_usage_obj.update(cur_usage)
+                    if outgoing and on_delta:
+                        # on_delta receives this normalized delta; do not normalize twice.
+                        normalize_delta(outgoing)
+                        if chunk_model and "model" not in outgoing:
+                            outgoing["model"] = str(chunk_model)
+                        on_delta(outgoing)
+
+                    if self._stop_latched(active):
+                        log.debug("streaming_loop: Stop requested after delta.")
+                        last_finish_reason = "stop"
+                        content_finished = True
+                        self._close_connection()
+                        break
+
+                    if finish_reason:
+                        log.debug("streaming_loop: logical finish_reason=%s" % finish_reason)
+                        last_finish_reason = finish_reason
+
+                # iterate_sse finishes quietly on EOF, so a socket that
+                # closed early looked like a successful answer with
+                # finish_reason None. A missing [DONE] / finish_reason
+                # is a drop. Raise a real connection error so the outer
+                # loop can retry (if nothing was emitted) or surface
+                # CONNECTION_LOST.
+                if not content_finished and not last_finish_reason:
+                    if self._stop_latched(active):
+                        last_finish_reason = "stop"
+                        content_finished = True
+                    else:
                         raise ConnectionResetError("Stream truncated without [DONE] or finish_reason")
 
-                    log.info("LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s", self._get_provider(), requested_model, used_model or requested_model, last_finish_reason)
+                log.info(
+                    "LLM response stream finished: provider=%s requested_model=%r used_model=%r finish_reason=%s cache_read=%s",
+                    self._get_provider(),
+                    requested_model,
+                    used_model or requested_model,
+                    last_finish_reason,
+                    cache_read_count(last_usage_obj),
+                )
 
-                    # Flush any trailing buffered text from the think tag splitter
-                    # (trailing buffer contains small tag prefix remnants like '<' at EOF).
-                    # The splitter holds at most a tag prefix. Flushing after Stop
-                    # would still call on_content for a partial "<think". A
-                    # completed stream still needs the flush; Stop must not
-                    # paint that prefix into the sidebar.
-                    if not self._stopped:
-                        for is_think, text_piece in think_tag_splitter.flush():
-                            if is_think and text_piece:
-                                emitted_any = True
-                                if on_thinking:
-                                    on_thinking(text_piece)
-                            elif not is_think and on_content:
-                                if text_piece:
-                                    emitted_any = True
-                                on_content(text_piece)
-                    clean_finish = not self._stopped
-                finally:
-                    # STREAM_ERROR, INFINITE_LOOP, finish_reason error, and any
-                    # other raised stream exception must not fall into
-                    # response.read(). That waits out the rest of the generation
-                    # (up to request_timeout, holding llm_request_lane). Drain
-                    # only after a clean finish so the keep-alive socket can be
-                    # reused. Every other exit closes. Stop still skips the
-                    # drain (B13).
-                    if clean_finish:
-                        try:
-                            remaining = response.read()
-                            if remaining:
-                                log.debug("Consumed extra %d bytes after loop" % len(remaining))
-                        except Exception:
-                            log.debug("stream trailing read failed", exc_info=True)
-                        # Honor Connection: close so we don't try to reuse when the server closed.
-                        self._close_if_connection_close(response)
-                    else:
-                        try:
-                            self._close_connection()
-                        except Exception:
-                            log.debug("stream close after non-clean finish failed", exc_info=True)
-
-            except CONNECTION_ERRORS as e:
-                # stop() closes the socket, so the blocked read raises here.
-                # Looking only at emitted_any reported Stop after the first
-                # token as CONNECTION_LOST. A latched Stop (or the abort
-                # checker) is a user cancel, same as the pre-token path. A
-                # real drop still refuses retry once any token reached the UI.
-                if self._stopped or abort_checker():
-                    self._stopped = True
-                    self._close_connection()
-                    return "stop"
-                # A retry after tokens already reached the UI would duplicate text.
-                if emitted_any:
-                    self._close_connection()
-                    raise NetworkError(format_error_message(e), code="CONNECTION_LOST", details={"url": path}) from e
-                action, sends_left, wait_index = self._after_connection_error(e, path=path, body=body, sends_left=sends_left, wait_index=wait_index, stop_checker=abort_checker, status_callback=status_callback, retry_log_message="Retrying streaming request on fresh connection")
-                if action == "stop":
-                    # Same latch as the pre-send and in-loop Stop paths. Without it
-                    # the shared post-processing saw finish_reason "stop" plus any
-                    # tool_calls already accumulated and rewrote it to "tool_calls".
-                    self._stopped = True
-                    return "stop"
-                continue
-            except NetworkError as e:
-                if getattr(e, "code", None) == "STOPPED":
-                    self._stopped = True
-                    return "stop"
-                if not emitted_any:
-                    effort_pending = self._effort_retries(e, body, effort_pending, stop_checker=abort_checker)
-                    if effort_pending:
-                        body = effort_pending.pop(0)
-                        continue
-                raise
-            except Exception as e:
-                if isinstance(e, WriterAgentException) or is_disposed_exception(e):
-                    raise
-                err_msg = format_error_message(e)
-                log.exception("streaming_loop: Unexpected error")
-                raise NetworkError(err_msg, details={"url": path}) from e
-
-            # If we completed successfully without retry, return
+                # Flush any trailing buffered text from the think tag splitter
+                # (trailing buffer contains small tag prefix remnants like '<' at EOF).
+                # The splitter holds at most a tag prefix. Flushing after Stop
+                # would still call on_content for a partial "<think". A
+                # completed stream still needs the flush; Stop must not
+                # paint that prefix into the sidebar.
+                if not self._stop_latched(active):
+                    for is_think, text_piece in think_tag_splitter.flush():
+                        if is_think and text_piece:
+                            budget.emitted_any = True
+                            if on_thinking:
+                                on_thinking(text_piece)
+                        elif not is_think and on_content:
+                            if text_piece:
+                                budget.emitted_any = True
+                            on_content(text_piece)
+                clean_finish = not self._stop_latched(active)
+            finally:
+                # STREAM_ERROR, INFINITE_LOOP, finish_reason error, and any
+                # other raised stream exception must not fall into
+                # response.read(). That waits out the rest of the generation
+                # (up to request_timeout, holding llm_request_lane). Drain
+                # only after a clean finish so the keep-alive socket can be
+                # reused. Every other exit closes. Stop still skips the
+                # drain (B13).
+                if clean_finish:
+                    try:
+                        remaining = response.read()
+                        if remaining:
+                            log.debug("Consumed extra %d bytes after loop" % len(remaining))
+                    except Exception:
+                        log.debug("stream trailing read failed", exc_info=True)
+                    # Honor Connection: close so we don't try to reuse when the server closed.
+                    self._close_if_connection_close(response)
+                else:
+                    try:
+                        self._close_connection()
+                    except Exception:
+                        log.debug("stream close after non-clean finish failed", exc_info=True)
+            if slot["pending"] is not None:
+                remember_accepted_effort(self._endpoint(), first_body, slot["body"])
+            if last_finish_reason is None and self._stop_latched(active):
+                last_finish_reason = "stop"
             return last_finish_reason
 
-    def stream_chat_response(self, messages: list[Any], max_tokens: int, append_callback: Any, append_thinking_callback: Any = None, stop_checker: Any = None, status_callback: Any = None, *, prepend_dev_build_system_prefix: bool = True) -> None:
-        """Stream a final chat response (no tools) using the messages array."""
-        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=None, stream=True, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
-        self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, stop_checker=stop_checker, status_callback=status_callback)
+        try:
+            return self._transport.stream(
+                method,
+                path,
+                body,
+                headers,
+                consume,
+                cancel=active,
+                status_callback=status_callback,
+                wire_secrets=self._wire_secrets(),
+                on_bad_request=on_bad_request,
+            )
+        except NetworkError as exc:
+            if getattr(exc, "code", None) == "STOPPED":
+                log.debug("streaming_loop: Stop requested")
+                return "stop"
+            raise
+        except Exception as e:
+            if isinstance(e, WriterAgentException) or is_disposal(e):
+                raise
+            err_msg = format_error_message(e)
+            log.exception("streaming_loop: Unexpected error")
+            raise NetworkError(err_msg, details={"url": path}) from e
+        finally:
+            self._release_request_scope(cancel)
+
+
+    def stream_chat_response(
+        self,
+        messages: list[Any],
+        max_tokens: int,
+        append_callback: Any,
+        append_thinking_callback: Any = None,
+        cancel: SendCancellation | None = None,
+        status_callback: Any = None,
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | None = None,
+        prepend_dev_build_system_prefix: bool = True,
+        cache_session_id: str | None = None,
+    ) -> str | None:
+        """Stream a chat response using the messages array; returns finish_reason."""
+        method, path, body, headers = self.make_chat_request(
+            messages,
+            max_tokens,
+            tools=tools,
+            tool_choice=tool_choice,
+            stream=True,
+            prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
+            cache_session_id=cache_session_id,
+        )
+        return self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, cancel=cancel, status_callback=status_callback)
 
     def request_with_tools(
         self,
@@ -1000,7 +990,7 @@ class LlmClient:
         tools: Any = None,
         append_callback: Any = None,
         append_thinking_callback: Any = None,
-        stop_checker: Any = None,
+        cancel: SendCancellation | None = None,
         status_callback: Any = None,
         body_override: Any = None,
         model: str | None = None,
@@ -1008,6 +998,8 @@ class LlmClient:
         response_format: Any = None,
         chat_extra: Any = None,
         prepend_dev_build_system_prefix: bool = True,
+        *,
+        cache_session_id: str | None = None,
     ) -> dict[str, Any]:
         """Chat request with support for tools and streaming.
 
@@ -1016,11 +1008,10 @@ class LlmClient:
 
         Returns a dict: {role, content, tool_calls, finish_reason, images, usage}
         """
-        init_logging(self.ctx)
         requested_model = model or self.config.get("model") or "default"
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
         log.info("Sending LLM chat request: provider=%s requested_model=%r stream=%s n_messages=%d n_tool_defs=%d", self._get_provider(), requested_model, stream, len(messages), n_tool_defs)
-        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix, cache_session_id=cache_session_id)
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 
@@ -1066,15 +1057,17 @@ class LlmClient:
 
             log.debug("stream_request_with_tools: building request (%d messages)..." % len(messages))
             try:
-                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, stop_checker=stop_checker, status_callback=status_callback, reset_unemitted_attempt=_reset_unemitted_attempt)
+                last_finish_reason = self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, on_delta=on_delta, cancel=cancel, status_callback=status_callback, reset_unemitted_attempt=_reset_unemitted_attempt)
             except NetworkError:
                 raise
             except Exception as e:
-                if isinstance(e, WriterAgentException) or is_disposed_exception(e):
+                if isinstance(e, WriterAgentException) or is_disposal(e):
                     raise
                 err_msg = format_error_message(e)
                 log.exception("stream_request_with_tools failed")
                 raise NetworkError(err_msg, details={"url": path}) from e
+            if last_finish_reason is None and self._stop_latched(cancel):
+                last_finish_reason = "stop"
 
             raw_content = message_snapshot.get("content")
             normalized_content = normalize_message_content(raw_content)
@@ -1092,9 +1085,8 @@ class LlmClient:
         else:
             # Sync path (nested smol / specialized). Same Stop-before-connect latch as stream.
             stopped_result: dict[str, Any] = {"role": "assistant", "content": "", "tool_calls": None, "finish_reason": "stop", "images": [], "usage": {}, "model": requested_model}
-            if self._stopped or (stop_checker and stop_checker()):
+            if self._stop_latched(cancel):
                 log.debug("request_with_tools sync: Stop already requested before connect")
-                self._stopped = True
                 self._close_connection()
                 return stopped_result
             def _log_outgoing_on_retry() -> None:
@@ -1104,30 +1096,29 @@ class LlmClient:
                 except Exception as log_exc:
                     log.warning("Could not log redacted outgoing messages: %s", log_exc)
 
-            effort_pending: list[bytes] | None = None
-            first_body = body
             body = accepted_effort_body(self._get_shim()._reasoning_provider(), self._endpoint(), body)
-            while True:
-                try:
-                    action, result = self._exchange_json(
-                        method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, retry_log_message="Retrying request_with_tools on fresh connection", on_retry=_log_outgoing_on_retry, wrap_unexpected=True, failure_log="request_with_tools failed"
-                    )
-                    if action != "stop" and effort_pending is not None:
-                        remember_accepted_effort(self._endpoint(), first_body, body)
-                    break
-                except NetworkError as exc:
-                    effort_pending = self._effort_retries(exc, body, effort_pending, stop_checker=stop_checker)
-                    if not effort_pending:
-                        raise
-                    body = effort_pending.pop(0)
-            if action == "stop":
-                return stopped_result
+            try:
+                result = self._exchange_json(
+                    method,
+                    path,
+                    body,
+                    headers,
+                    cancel=cancel,
+                    status_callback=status_callback,
+                    retry_log_message="Retrying request_with_tools on fresh connection",
+                    on_retry=_log_outgoing_on_retry,
+                    wrap_unexpected=True,
+                    failure_log="request_with_tools failed",
+                )
+            except NetworkError as exc:
+                if getattr(exc, "code", None) == "STOPPED":
+                    return stopped_result
+                raise
 
             if log.isEnabledFor(logging.DEBUG):
                 log.debug("=== Sync response: %s" % json.dumps(redact_sensitive_payload_for_log(result), indent=2))
 
             used_model = str(result.get("model") or requested_model) if isinstance(result, dict) else requested_model
-            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r", self._get_provider(), requested_model, used_model)
 
             # Use unified extraction for shims/native providers
             try:
@@ -1140,11 +1131,13 @@ class LlmClient:
                 # in NetworkError(code="BAD_RESPONSE") so callers that handle
                 # NetworkError see them. WriterAgentException and disposal
                 # still propagate.
-                if isinstance(e, WriterAgentException) or is_disposed_exception(e):
+                if isinstance(e, WriterAgentException) or is_disposal(e):
                     raise
                 err_msg = format_error_message(e)
                 log.exception("parse_sync_response failed")
                 raise NetworkError(err_msg, code="BAD_RESPONSE", details={"url": path}) from e
+
+            log.info("LLM sync response received: provider=%s requested_model=%r used_model=%r cache_read=%s", self._get_provider(), requested_model, used_model, cache_read_count(usage))
             content, extracted_thinking = strip_think_tags(raw_parsed_content)
             if extracted_thinking and "reasoning" not in message:
                 message["reasoning"] = extracted_thinking
@@ -1153,13 +1146,16 @@ class LlmClient:
 
         # Shared post-processing.
         # A model that finishes with stop plus a complete tool_calls list
-        # remaps to tool_calls. Skip that when this client latched Stop
-        # (_stopped): a Stop/abort that already delivered a partial tool-call
-        # delta must not look like a call the UI should run. The in-loop abort
-        # checker and the streaming connection-error 'stop' path both set
-        # _stopped before returning.
-        if last_finish_reason == "stop" and tool_calls and not self._stopped:
-            last_finish_reason = "tool_calls"
+        # remaps to tool_calls. Skip that when the request scope is cancelled
+        # (caller cancel= or this client's owned scope): a Stop that already
+        # delivered a partial tool-call delta must not look like a call the UI
+        # should run.
+        request_cancelled = self._stop_latched(cancel)
+        if last_finish_reason == "stop" and tool_calls:
+            if request_cancelled:
+                tool_calls = None
+            else:
+                last_finish_reason = "tool_calls"
 
         if content:
             cleaned = strip_leaked_chat_template_control_tokens(content)
@@ -1201,7 +1197,7 @@ class LlmClient:
         chat_extra: Any = None,
         *,
         prepend_dev_build_system_prefix: bool = True,
-        stop_checker: Any = None,
+        cancel: SendCancellation | None = None,
         status_callback: Any = None,
     ) -> str:
         """
@@ -1209,10 +1205,11 @@ class LlmClient:
         Returns the assistant message content string.
 
         ``finish_reason == "stop"`` is a normal completion. When
-        ``stop_checker`` is passed, a user stop (checker true, or this
-        client's stop latch) raises ``ToolExecutionError(code="USER_STOPPED")``
-        instead of ``""``. Callers that omit the checker keep the string return.
+        a cancellation scope is passed, a user stop raises
+        ``ToolExecutionError(code="USER_STOPPED")`` instead of ``""``.
+        Callers that omit the scope keep the string return.
         """
+        scope = cancel
         result = self.request_with_tools(
             messages,
             max_tokens=max_tokens,
@@ -1221,16 +1218,16 @@ class LlmClient:
             response_format=response_format,
             chat_extra=chat_extra,
             prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
-            stop_checker=stop_checker,
+            cancel=cancel,
             status_callback=status_callback,
         )
         # request_with_tools reports Stop as an empty assistant message whose
         # finish_reason is also "stop" — the same finish_reason a normal
         # completion uses. Deep-research planning treated that "" as a finished
-        # plan and later cached a partial report. Only the checker or the
-        # client latch means the user stopped. No checker: grammar and forms
+        # plan and later cached a partial report. Only the cancel scope or the
+        # client latch means the user stopped. No cancel scope: grammar and forms
         # still receive the historical string, including "".
-        if stop_checker is not None and (self._stopped or stop_checker()):
+        if scope is not None and self._stop_latched(scope):
             from plugin.framework.errors import ToolExecutionError
 
             raise ToolExecutionError("LLM request stopped by user.", code="USER_STOPPED")

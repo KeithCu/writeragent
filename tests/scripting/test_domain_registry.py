@@ -28,7 +28,9 @@ def test_registry_module_attr_targets_resolve():
 
     targets: list[str] = []
     for w in WIRING_TABLE:
-        targets.extend([w.insert_ref, w.is_result_ref])
+        targets.append(w.insert_ref)
+        if w.is_result_ref is not None:
+            targets.append(w.is_result_ref)
         if w.insert_kwargs_from_code is not None:
             targets.append(w.insert_kwargs_from_code)
     for p in PICKER_WIRING:
@@ -42,6 +44,14 @@ def test_registry_module_attr_targets_resolve():
         assert attr_name.isidentifier(), target
         fn = _resolve_module_attr(target)
         assert callable(fn), target
+
+
+def test_helper_rows_have_registered_names():
+    from plugin.scripting.helper_registry import names
+
+    for w in WIRING_TABLE:
+        if w.helper_domain is not None:
+            assert len(names(w.helper_domain)) > 0, f"Expected non-empty names for {w.id} (helper_domain={w.helper_domain})"
 
 
 def test_rps_domain_order():
@@ -169,8 +179,7 @@ def test_picker_order_starts_with_vision_math_units_analysis():
 
 
 def test_picker_supports_logs_when_the_check_raises(caplog):
-    # What was wrong: logger.debug calls are stripped in release builds.
-    # Why: skip when running against stripped release bundle.
+    # Release bundles strip logger.debug; skip this test when log sites are absent.
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.debug stripped in release bundle")
@@ -191,9 +200,8 @@ def test_picker_supports_logs_when_the_check_raises(caplog):
 
 
 def test_sql_is_result_handles_missing_duckdb_sql(caplog):
-    # What was wrong: LibrePy bundle excludes duckdb_sql.py, causing is_result check
-    # to raise ImportError and break Calc result insertions for non-sql scripts.
-    # Why this change: Catch ImportError, log at debug, and treat as not this domain (return False).
+    # When duckdb_sql is absent (LibrePy bundle), is_result must catch ImportError,
+    # log at debug, and return False so other domains still insert Calc results.
     import logging
     from plugin.scripting.domain_registry import WIRING_TABLE
 
@@ -227,9 +235,7 @@ def test_is_reserved_script_name():
 
 
 def test_rps_spec_insert_returns_int_only_when_int():
-    # What was wrong: bool is an instance of int in Python, so returning True could
-    # leak as cell count 1 or mask an integer return check.
-    # Why this change: Explicitly check isinstance(ret, int) and not isinstance(ret, bool).
+    # Insert helpers must accept only int returns, not bool, because bool is a subclass of int.
     from plugin.scripting.domain_registry import WIRING_TABLE
 
     wiring = next(w for w in WIRING_TABLE if w.id == "viz")
@@ -257,9 +263,9 @@ def test_picker_supports_matches_post_venv_calc_only():
     for row in PICKER_WIRING:
         assert row.origin in by_id
         if by_id[row.origin].post_venv_calc_only:
-            assert row.supports_ref == "plugin.doc.doc_type:is_calc"
+            assert row.supports_ref == "plugin.framework.doc_type:is_calc"
         else:
-            assert row.supports_ref != "plugin.doc.doc_type:is_calc"
+            assert row.supports_ref != "plugin.framework.doc_type:is_calc"
             assert row.supports_ref.count(":") == 1
     assert set(by_id) - {row.origin for row in PICKER_WIRING} == {"text"}
 
@@ -268,7 +274,7 @@ def test_quant_picker_is_calc_only():
     quant_spec = next(d for d in PICKER_WIRING if d.origin == "quant")
     calc_doc = object()
     writer_doc = object()
-    with patch("plugin.doc.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
+    with patch("plugin.framework.doc_type.is_calc", side_effect=lambda doc: doc is calc_doc):
         assert quant_spec.supports(calc_doc) is True
         assert quant_spec.supports(writer_doc) is False
         assert quant_spec.supports(None) is False

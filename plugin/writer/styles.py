@@ -22,9 +22,10 @@ Property updates use UNO property names; struct-valued properties take a dict of
 from __future__ import annotations
 
 from collections import deque
+import copy
 import logging
 import os
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Iterable, Literal, TypedDict, cast
 
 if TYPE_CHECKING:
     import uno
@@ -47,40 +48,363 @@ else:
                 self.Name = Name
                 self.Value = Value
 
+from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.doc.visual_helpers import parse_color_to_uno_int
-from plugin.framework.errors import is_disposed_exception, reraise_if_disposed
+from plugin.framework.errors import is_disposal, name_miss_details, reraise_if_disposed, similar_names
+from plugin.framework.doc_type import CALC_DOCUMENT_SERVICE, TEXT_DOCUMENT_SERVICE
 from plugin.framework.tool import ToolBase as FrameworkToolBase
 from plugin.writer.edit_review import flag_style_unreviewed
-from plugin.writer.html_import import _rollback_undo_action
-from .format import CLEARABLE_PARA_PROPERTIES, FONT_SLANT_TO_INT, ParagraphStyleApplyReport, apply_paragraph_style_preserving_direct_char
 from .page import get_page_style_properties
 from plugin.writer.specialized_base import INSERT_TARGETS, ToolWriterStyleBase, enum_param
+from .search import CASE_SENSITIVE_DESCRIPTION
 from .target_resolver import cursor_spanning_range, resolve_target_cursor
 
 
 log = logging.getLogger("writeragent.writer")
 
-# What was wrong: StyleCreate / paragraph and character StyleClone drop the
-# createInstance proxy when the function returns. insertByName adopts that
-# SwXStyle as the sheet listener FindStyle returns.
-# How it happened: the last Python ref sends a oneway URP release. The
-# destructor blocks on the SolarMutex at refcount 0. The next getByName
-# already holds the mutex, queryInterfaces that dying listener, and soffice
-# aborts (Signal 6). Seen at test_styles_uno.py test_para_back_color_hex_uno
-# line 207, after StyleCreate had returned ok. Same race as
-# _PAGE_STYLE_KEEPALIVE in page.py (SwXPageStyle). The property written
-# beforehand (ParaBackColor or FillStyle) is not the abort.
-# Why this: keeping one proxy alive holds the refcount above 0, so that
-# release never overlaps FindStyle. maxlen only bounds memory. An evicted
-# entry is many creates old, and its destructor no longer races this lookup.
-_CREATED_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
+STYLE_GOVERNED_CHAR_PROPERTIES = (
+    "CharFontName", "CharFontNameAsian", "CharFontNameComplex",
+    "CharHeight", "CharHeightAsian", "CharHeightComplex",
+)
 
-_TEXT_STYLE_FAMILIES = ["ParagraphStyles", "CharacterStyles"]
+CLEARABLE_PARA_PROPERTIES = (
+    "ParaTopMargin", "ParaBottomMargin", "ParaLeftMargin", "ParaRightMargin",
+    "ParaFirstLineIndent", "ParaAdjust", "ParaBackColor", "ParaKeepTogether", "ParaSplit",
+)
+
+REPORTED_CHAR_PROPERTIES = (
+    "CharFontName", "CharFontNameAsian", "CharFontNameComplex",
+    "CharHeight", "CharHeightAsian", "CharHeightComplex",
+    "CharWeight", "CharPosture", "CharColor",
+)
+
+_CAPTURE_PARA_LIMIT = 200000
+_CAPTURE_PORTION_LIMIT = 50000
+
+_STYLE_PROP_FAILED = object()
+_CHAR_PROPS_FAILED = object()
+_CHAR_PROPS_KEY = "__writable_char_props__"
+FONT_SLANT_TO_INT: dict[str, int] = {
+    "none": 0,
+    "oblique": 1,
+    "italic": 2,
+}
+
+
+def _reset_properties_to_default(cursor: Any, names: Iterable[str]) -> list[str]:
+    """Drop *names* as direct attributes on *cursor* so they fall back to the paragraph style."""
+    names = tuple(names)
+    if not names:
+        return []
+    try:
+        cursor.setPropertiesToDefault(names)
+        return list(names)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        pass  # no XMultiPropertyStates on this range — fall back to one at a time
+    cleared = []
+    for name in names:
+        try:
+            cursor.setPropertyToDefault(name)
+            cleared.append(name)
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            continue
+    return cleared
+
+
+def _summarize_char_overrides(overrides: Any) -> dict[str, Any]:
+    """Flat, JSON-safe {prop: value} of the captured direct Char* overrides (first portion wins)."""
+    summary = {}
+    for _pc, props in overrides:
+        for name in REPORTED_CHAR_PROPERTIES:
+            if name in props and name not in summary:
+                val = props[name]
+                if getattr(type(val), "__module__", None) in ("uno", "pyuno"):
+                    inner = getattr(val, "value", None)
+                    if inner is not None:
+                        val = inner
+                if name == "CharPosture" and isinstance(val, str):
+                    low = val.strip().lower()
+                    if low in FONT_SLANT_TO_INT:
+                        val = FONT_SLANT_TO_INT[low]
+                if isinstance(val, (str, int, float, bool)):
+                    summary[name] = val
+    return summary
+
+
+class ParagraphStyleApplyReport(TypedDict, total=False):
+    direct_formatting: str
+    clear_direct: str
+    preserved_char_overrides: dict[str, Any]
+    removed_char_overrides: dict[str, Any]
+    cleared_char_properties: list[str]
+    cleared_paragraph_properties: list[str]
+    warning: str
+    capture_incomplete: bool
+
+
+def apply_paragraph_style_preserving_direct_char(
+    doc: Any,
+    cursor: Any,
+    style_name: str,
+    clear_direct: Literal["none", "style_props", "all"] = "none",
+    style_cache: dict[Any, Any] | None = None,
+) -> ParagraphStyleApplyReport:
+    """Set *cursor*'s ParaStyleName to *style_name*, deciding what happens to direct formatting.
+
+    Setting ParaStyleName to a DIFFERENT style resets hand-set Char* properties to that style's
+    defaults — across the WHOLE paragraph, even for a sub-range cursor — which is what the capture
+    below exists to undo. Re-applying the style a paragraph already has does not reset Char*
+    (LibreOffice 26.2). It *does* drop the paragraph's direct Para* (margins, alignment, first-line
+    indent) — so re-applying Standard does not keep a hand-set quote indent. Clearing a Char*
+    override is never a side effect to rely on; see _reset_properties_to_default.
+    ``getPropertyState`` is unreliable at the text-portion level, so overrides are
+    detected by VALUE (Char* differs from the paragraph's current style default).
+
+    *clear_direct* decides what happens to those captured overrides. The helper default is
+    ``"none"`` so HTML import / style-restore callers keep inline fonts; ``apply_style``
+    defaults to ``"style_props"`` so a house-font update is visible without a retry:
+      ``"style_props"`` restores everything except STYLE_GOVERNED_CHAR_PROPERTIES and clears
+      CLEARABLE_PARA_PROPERTIES, so font/size/indent obey the style and bold/italic/colour survive;
+      ``"none"`` restores all captured Char* — keeps a hand-set font (the style can look like a
+      no-op). Does not restore Para*; LibreOffice already dropped those when ParaStyleName was set;
+      ``"all"`` restores nothing and clears the paragraph properties too (Ctrl+M semantics).
+
+    A result with a ``warning`` and ``capture_incomplete=True`` means later runs were not read
+    back, so the override dict may be short. A warning without ``capture_incomplete`` means
+    some captured overrides could not be re-applied; the style still applied.
+
+    Returns a report dict so callers can tell the agent what actually happened.
+
+    KNOWN LIMITATION: a direct override whose value equals the old style default is not
+    captured; applying a style with a different default can change that property visibly.
+    """
+    walk_notes: list[str] = []
+    capture_failures = 0
+    restore_failures = 0
+    if style_cache is None:
+        style_cache = {}
+
+    def _expand_to_full_paragraphs(cur: Any) -> Any:
+        text = cur.getText()
+        start = text.createTextCursorByRange(cur.getStart())
+        end = text.createTextCursorByRange(cur.getEnd())
+        start.gotoStartOfParagraph(False)
+        end.gotoEndOfParagraph(True)
+        expanded = text.createTextCursorByRange(start.getStart())
+        expanded.gotoRange(end.getEnd(), True)
+        return expanded
+
+    def _capture_direct_char_overrides(capture_cursor: Any) -> list[Any]:
+        nonlocal capture_failures
+        overrides: list[Any] = []
+        try:
+            para_styles = doc.getStyleFamilies().getByName("ParagraphStyles")
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            capture_failures += 1
+            return overrides
+
+        READONLY = uno.getConstantByName("com.sun.star.beans.PropertyAttribute.READONLY")
+        if not isinstance(READONLY, int):
+            READONLY = 16
+        try:
+            para_enum = capture_cursor.createEnumeration()
+        except Exception as exc:
+            reraise_if_disposed(exc)
+            capture_failures += 1
+            return overrides
+
+        _paras = 0
+        for para in iter_elements_limited(para_enum, _CAPTURE_PARA_LIMIT):
+            _paras += 1
+            if not (hasattr(para, "supportsService") and para.supportsService("com.sun.star.text.Paragraph")):
+                continue
+
+            try:
+                cur_style_name = para.getPropertyValue("ParaStyleName")
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                capture_failures += 1
+                continue
+
+            if cur_style_name in style_cache:
+                old_style = style_cache[cur_style_name]
+            else:
+                try:
+                    old_style = para_styles.getByName(cur_style_name)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    capture_failures += 1
+                    old_style = None
+                style_cache[cur_style_name] = old_style
+
+            if old_style is None:
+                continue
+
+            try:
+                portion_enum = para.createEnumeration()
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                capture_failures += 1
+                continue
+
+            _portions = 0
+            for portion in iter_elements_limited(portion_enum, _CAPTURE_PORTION_LIMIT):
+                _portions += 1
+
+                try:
+                    portion_type = portion.getPropertyValue("TextPortionType")
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    capture_failures += 1
+                    continue
+                if portion_type != "Text":
+                    continue
+
+                if _CHAR_PROPS_KEY not in style_cache:
+                    try:
+                        info = portion.getPropertySetInfo()
+                        if info is None:
+                            style_cache[_CHAR_PROPS_KEY] = _CHAR_PROPS_FAILED
+                        else:
+                            style_cache[_CHAR_PROPS_KEY] = [
+                                p.Name for p in info.getProperties()
+                                if p.Name.startswith("Char") and not (getattr(p, "Attributes", 0) & READONLY)
+                            ]
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        style_cache[_CHAR_PROPS_KEY] = _CHAR_PROPS_FAILED
+
+                char_names = style_cache[_CHAR_PROPS_KEY]
+                if char_names is _CHAR_PROPS_FAILED:
+                    capture_failures += 1
+                    continue
+                if not char_names:
+                    continue
+
+                props = {}
+                for name in char_names:
+                    try:
+                        val = portion.getPropertyValue(name)
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        capture_failures += 1
+                        continue
+
+                    cache_key = (cur_style_name, name)
+                    if cache_key in style_cache:
+                        style_val = style_cache[cache_key]
+                    else:
+                        try:
+                            style_val = old_style.getPropertyValue(name)
+                        except Exception as exc:
+                            reraise_if_disposed(exc)
+                            capture_failures += 1
+                            style_val = _STYLE_PROP_FAILED
+                        style_cache[cache_key] = style_val
+
+                    if style_val is _STYLE_PROP_FAILED:
+                        continue
+                    if val == style_val:
+                        continue
+                    props[name] = val
+
+                if props:
+                    try:
+                        pc = portion.getText().createTextCursorByRange(portion.getStart())
+                        pc.gotoRange(portion.getEnd(), True)
+                        overrides.append((pc, props))
+                    except Exception as exc:
+                        reraise_if_disposed(exc)
+                        capture_failures += 1
+                        continue
+
+            record_walk_cap(portion_enum, _portions, _CAPTURE_PORTION_LIMIT, "text portions", walk_notes)
+        record_walk_cap(para_enum, _paras, _CAPTURE_PARA_LIMIT, "paragraphs", walk_notes)
+        return overrides
+
+    capture_cursor = _expand_to_full_paragraphs(cursor)
+    overrides = _capture_direct_char_overrides(capture_cursor)
+    found = _summarize_char_overrides(overrides)
+    try:
+        cursor.setPropertyValue("ParaStyleName", style_name)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        raise
+
+    skip = STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props" else ()
+    if clear_direct != "all":
+        for pc, props in overrides:
+            for name, val in props.items():
+                if name in skip:
+                    continue
+                try:
+                    pc.setPropertyValue(name, val)
+                except Exception as exc:
+                    reraise_if_disposed(exc)
+                    restore_failures += 1
+
+    report: ParagraphStyleApplyReport = {
+        "direct_formatting": "preserved" if clear_direct == "none" else "cleared",
+        "clear_direct": clear_direct,
+    }
+    if clear_direct == "none":
+        if found:
+            report["preserved_char_overrides"] = found
+    else:
+        removed = {k: v for k, v in found.items() if clear_direct == "all" or k in skip}
+        if removed:
+            report["removed_char_overrides"] = removed
+        char_targets = (
+            STYLE_GOVERNED_CHAR_PROPERTIES if clear_direct == "style_props"
+            else sorted({n for _pc, props in overrides for n in props})
+        )
+        report["cleared_char_properties"] = _reset_properties_to_default(capture_cursor, char_targets)
+        report["cleared_paragraph_properties"] = _reset_properties_to_default(capture_cursor, CLEARABLE_PARA_PROPERTIES)
+
+    if capture_failures > 0:
+        walk_notes.append("Some direct formatting overrides could not be read; the capture may be incomplete.")
+    if restore_failures > 0:
+        walk_notes.append("Some direct formatting overrides could not be re-applied.")
+    if walk_notes:
+        report["warning"] = " ".join(walk_notes)
+    if capture_failures > 0:
+        report["capture_incomplete"] = True
+    return report
+
+_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
+
+
+def keep_style_alive(style: Any) -> None:
+    """Hold a reference to *style* so SwXStyle destructor does not race SwXStyleFamily FindStyle.
+
+    The last Python ref sends a oneway URP release. The destructor blocks on
+    the SolarMutex at refcount 0. A concurrent or subsequent getByName that
+    holds the mutex queryInterfaces that dying listener, and soffice aborts.
+    Keeping proxies alive in a bounded deque ensures destruction never overlaps lookup.
+    """
+    if style is not None:
+        _STYLE_KEEPALIVE.append(style)
+
+_CLONE_TEXT_SERVICES = {
+    "ParagraphStyles": "com.sun.star.style.ParagraphStyle",
+    "CharacterStyles": "com.sun.star.style.CharacterStyle",
+}
+_TEXT_STYLE_FAMILIES = list(_CLONE_TEXT_SERVICES)
 
 # Families style_list will report and enumerate. PageStyles is listed because the page tools take
 # a page-style NAME and a document converted from .docx rarely uses "Standard" — without it the
 # only way to learn the real names was to guess one and read them off the error.
-_STYLE_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles"]
+_STYLE_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles", "CellStyles"]
+_WRITER_STYLE_LIST_FAMILIES = [*_TEXT_STYLE_FAMILIES, "PageStyles"]
+
+
+def _style_list_families_for_doc_type(doc_type: str | None) -> list[str]:
+    if doc_type == "calc":
+        return ["CellStyles"]
+    return list(_WRITER_STYLE_LIST_FAMILIES)
 
 _CONDITIONAL_CONTEXTS = [
     "TableHeader", "Table", "Frame", "Section", "Footnote", "Endnote",
@@ -98,7 +422,7 @@ _KNOWN_CHARACTER_PROPERTIES = {
     "CharFontName": {"type": "string", "description": "Font family name (e.g., 'Arial')."},
     "CharStrikeout": {"type": "integer", "description": "Strikeout type (0=None, 1=Single, 2=Double)."},
     "CharCaseMap": {"type": "integer", "description": "Case mapping (0=None, 1=Uppercase, 2=Lowercase, 3=Title, 4=SmallCaps)."},
-    # com.sun.star.awt.FontSlant defines NONE=0, OBLIQUE=1, ITALIC=2. Schema previously inverted 1 and 2.
+    # CharPosture follows com.sun.star.awt.FontSlant (0=None, 1=Oblique, 2=Italic). The schema must match that mapping or italic/oblique requests set the wrong UNO constant.
     "CharPosture": {"type": "integer", "description": "Font slant (com.sun.star.awt.FontSlant: 0=None, 1=Oblique, 2=Italic)."},
     "CharShadowed": {"type": "boolean", "description": "Whether text is shadowed."},
     # "CharRelief": {"type": "integer", "description": "Relief style (0=None, 1=Embossed, 2=Engraved)."},
@@ -172,7 +496,9 @@ def _close_style_names(wanted: str, names: list[str]) -> list[str]:
         return prefix
     contains = [n for n in names if low in n.lower()]
     contains.sort(key=len)
-    return contains
+    if contains:
+        return contains
+    return similar_names(wanted, names)
 
 
 def _missing_style_error(tool: Any, style_name: str, family: str, style_family: Any, *, label: str = "Style") -> dict[str, Any]:
@@ -185,11 +511,18 @@ def _missing_style_error(tool: Any, style_name: str, family: str, style_family: 
     close = _close_style_names(style_name, names) if names else []
     hint = (" Did you mean '%s'?" % close[0]) if close else ""
     sample = (" Available styles include: %s." % ", ".join(sorted(names)[:15])) if names else ""
+    miss_details: dict[str, Any] = {"hint": "Call style_list with family=%s." % family}
+    if close:
+        miss_details["similar"] = close[:5]
     if label == "parent_style":
         return tool._tool_error(
-            "parent_style '%s' is not a %s style.%s%s" % (style_name, family, hint, sample))
+            "parent_style '%s' is not a %s style.%s%s" % (style_name, family, hint, sample),
+            **miss_details,
+        )
     return tool._tool_error(
-        "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample))
+        "Style '%s' not found in %s.%s%s" % (style_name, family, hint, sample),
+        **miss_details,
+    )
 
 
 def _para_adjust_to_uno(value: Any) -> int:
@@ -459,7 +792,7 @@ def _apply_style_updates(style: Any, updates: dict[str, Any]) -> tuple[dict[str,
             _set_style_property(style, prop_name, prop_val)
             applied[prop_name] = _schema_prop_value(prop_name, prop_val)
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.warning("Failed to set property %s: %s", prop_name, e, exc_info=True)
             hint = ""
@@ -519,11 +852,6 @@ _CLONE_SKIP_PROPS = frozenset({
     "HeaderText", "HeaderTextLeft", "HeaderTextRight", "HeaderTextFirst",
     "FooterText", "FooterTextLeft", "FooterTextRight", "FooterTextFirst",
 })
-
-_CLONE_TEXT_SERVICES = {
-    "ParagraphStyles": "com.sun.star.style.ParagraphStyle",
-    "CharacterStyles": "com.sun.star.style.CharacterStyle",
-}
 
 
 def _copy_direct_style_properties(source: Any, dest: Any) -> tuple[list[str], list[str]]:
@@ -598,7 +926,7 @@ def _clone_text_style(
             clone.setPropertyValue("FollowStyle", follow)
     copied, skipped = _copy_direct_style_properties(source, clone)
     style_family.insertByName(new_name, clone)
-    _CREATED_STYLE_KEEPALIVE.append(clone)
+    keep_style_alive(clone)
     return {
         "properties_copied": len(copied),
         "skipped_properties": skipped,
@@ -655,9 +983,9 @@ _installed_font_names_cache: set[str] | None = None
 def _installed_font_names(ctx: ToolContext) -> set[str] | None:
     """Casefolded names LibreOffice can use, or None if the list is unavailable.
 
-    A successful list is reused. style_update / style_create used to build a
-    VCL device and walk every font on each CharFontName write. None is not
-    cached: a headless toolkit can appear later.
+    A successful font-name list is cached and reused so CharFontName updates do not
+    rebuild a VCL device font walk every time. None is never cached so a headless
+    toolkit that appears later can still populate installed fonts.
     """
     global _installed_font_names_cache
     if _installed_font_names_cache is not None:
@@ -700,34 +1028,59 @@ def _style_family(tool: Any, doc: Any, family: str) -> Any:
         family,
         missing_msg="Document does not support style families.",
         not_found_msg="Unknown style family: %s" % family,
+        list_tool="style_list",
     )
-
-
-def _get_style_family(tool: Any, doc: Any, family: str) -> Any:
-    style_families = doc.getStyleFamilies()
-    if not style_families.hasByName(family):
-        return tool._tool_error("Document does not support style family: %s" % family)
-    return style_families.getByName(family)
 
 
 class StyleList(ToolWriterStyleBase):
     """List available styles in a given family."""
 
     name: str | None = "style_list"
-    description: str = "List available styles in the document. Omit family to list all style family names; set family to list styles in that family."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"family": enum_param(_STYLE_FAMILIES, "Omit to list family names. Otherwise ParagraphStyles, CharacterStyles, or PageStyles.")}, "required": []}
+    uno_services: list[str] | None = [TEXT_DOCUMENT_SERVICE, CALC_DOCUMENT_SERVICE]
+    description: str = (
+        "List available styles in the document. Omit family to list style family names; "
+        "set family to list styles in that family (Writer: paragraph, character, and page styles; "
+        "Calc: cell styles only)."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "family": enum_param(
+                _STYLE_FAMILIES,
+                "Omit to list family names. On Writer: ParagraphStyles, CharacterStyles, or PageStyles. On Calc: CellStyles.",
+            )
+        },
+        "required": [],
+    }
+
+    def get_parameters(self, doc_type: str | None = None) -> dict[str, Any] | None:
+        params = copy.deepcopy(cast("dict[str, Any]", self.parameters))
+        family_prop = cast("dict[str, Any]", params["properties"]["family"])
+        family_prop["enum"] = _style_list_families_for_doc_type(doc_type)
+        return params
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         family = kwargs.get("family")
         doc = ctx.doc
-
         families = doc.getStyleFamilies()
+        list_families = _style_list_families_for_doc_type(ctx.doc_type)
+
         if not family or not str(family).strip():
-            # Only return the families we officially support in this tool.
-            available = [f for f in families.getElementNames() if f in _STYLE_FAMILIES]
+            if ctx.doc_type == "calc":
+                available = ["CellStyles"] if families.hasByName("CellStyles") else []
+            else:
+                available = [f for f in families.getElementNames() if f in list_families]
             return {"status": "ok", "families": available, "count": len(available)}
 
         family = str(family).strip()
+        if ctx.doc_type == "calc" and family != "CellStyles":
+            available = ["CellStyles"] if families.hasByName("CellStyles") else []
+            return self._tool_error(
+                "Unknown style family: %s" % family,
+                code="UNO_OBJECT_ERROR",
+                **name_miss_details(family, available, "style_list"),
+            )
+
         style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             return style_family
@@ -835,7 +1188,7 @@ class StyleGetInfo(ToolWriterStyleBase):
             return style_family
 
         if not style_family.hasByName(style_name):
-            return self._tool_error("Style '%s' not found in %s." % (style_name, family))
+            return _missing_style_error(self, style_name, family, style_family)
 
         style = style_family.getByName(style_name)
         info = {"name": style_name, "family": family, "is_user_defined": style.isUserDefined(), "is_in_use": style.isInUse()}
@@ -872,6 +1225,7 @@ class ApplyStyle(FrameworkToolBase):
             "family": enum_param(_TEXT_STYLE_FAMILIES, ("Style family. Default: ParagraphStyles.")),
             "target": enum_param(INSERT_TARGETS, "Where to apply the style."),
             "old_content": {"type": "string", "description": "Text to find and apply style to if target = 'search'."},
+            "case_sensitive": {"type": "boolean", "description": f"For target='search': {CASE_SENSITIVE_DESCRIPTION}"},
             "all_matches": {"type": "boolean", "description": "For target='search': apply to EVERY occurrence of old_content (default false = first only)."},
             "occurrence": {"type": "integer", "description": "For target='search': apply to this single 0-based occurrence instead of the first."},
             "clear_direct": {"type": "string", "enum": ["none", "style_props", "all"], "default": "style_props", "description": (
@@ -945,6 +1299,14 @@ class ApplyStyle(FrameworkToolBase):
         return val
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        result = self._execute(ctx, **kwargs)
+        if kwargs.get("target") == "search":
+            from plugin.writer.search import prepare_old_content
+
+            result.setdefault("normalized_old_content", prepare_old_content(kwargs.get("old_content")))
+        return result
+
+    def _execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         style_name = kwargs["style"].strip()
         if not style_name:
             return self._tool_error("style is required.")
@@ -955,16 +1317,16 @@ class ApplyStyle(FrameworkToolBase):
         # CharStyleName to an empty string.
         uno_value = "" if (family == "CharacterStyles" and style_name == "No Character Style") else style_name
 
-        # Validate the style EXISTS before touching the document: a near-miss name ('heading 1',
-        # 'Body Text') used to dead-end in a raw UNO IllegalArgumentException with no hint. Offer
-        # the case-insensitive match when there is one, plus a sample of valid names.
+        # Resolve the style name before any document write so near-miss names return a guided
+        # tool error with case-insensitive suggestions instead of an opaque UNO
+        # IllegalArgumentException.
         if uno_value:
             try:
                 fam = ctx.doc.getStyleFamilies().getByName(family)
                 if not fam.hasByName(uno_value):
                     return _missing_style_error(self, style_name, family, fam)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 pass  # can't enumerate styles (exotic doc) -> let the apply path report
 
@@ -999,18 +1361,24 @@ class ApplyStyle(FrameworkToolBase):
         # styled everywhere. Each match gets a cursor in its OWN text object (cell/frame safe).
         all_matches = bool(kwargs.get("all_matches"))
         occ_raw = kwargs.get("occurrence")
+        case_sensitive = kwargs.get("case_sensitive")
         if target == "search" and (all_matches or occ_raw is not None):
-            from plugin.writer.search import find_all_ranges, normalize_search_string_for_find
-            from plugin.writer.format import plain_text_if_markup
+            from plugin.writer.search import (
+                build_search_not_found_response,
+                find_all_ranges,
+                prepare_old_content,
+                resolve_case_sensitive,
+            )
 
-            s = str(old_content).strip() if old_content is not None else ""
+            s = prepare_old_content(old_content)
             if not s:
                 return {"status": "error", "message": "target='search' requires old_content.", "applied": False, "matched": False}
-            s = plain_text_if_markup(s)
-            s = normalize_search_string_for_find(s)
-            ranges = find_all_ranges(ctx.doc, s) if s else []
+            cs = resolve_case_sensitive(case_sensitive)
+            ranges = find_all_ranges(ctx.doc, s, case_sensitive=cs) if s else []
             if not ranges:
-                return {"status": "error", "message": "old_content not found in document.", "target": "search", "applied": False, "matched": False}
+                res = build_search_not_found_response(ctx.doc, s, all_matches=True)
+                res.update({"target": "search", "applied": False, "matched": False})
+                return res
             if occ_raw is not None:
                 # Schema type integer (bool fails). validate has no min/max.
                 if occ_raw < 0 or occ_raw >= len(ranges):
@@ -1018,67 +1386,48 @@ class ApplyStyle(FrameworkToolBase):
                 ranges = [ranges[occ_raw]]
             reports = []
 
-            mgr = None
-            title = ""
             if len(ranges) > 1:
                 from .edit_review import next_agent_edit_undo_title
-                try:
-                    candidate = ctx.doc.getUndoManager()
-                    # `is True`: MagicMock isLocked() is truthy and must not look locked.
-                    if candidate is not None and candidate.isLocked() is not True:
-                        mgr = candidate
-                except Exception as e:
-                    if is_disposed_exception(e):
-                        raise
-                if mgr is None:
-                    return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
+                from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
                 title = next_agent_edit_undo_title()
-                mgr.enterUndoContext(title)
 
-            error: Exception | None = None
-            for found in ranges:
-                try:
-                    c = cursor_spanning_range(found)
-                    reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
-                except Exception as e:
-                    if mgr is None:
-                        raise
-                    error = e
-                    break
+                def mutate() -> None:
+                    for found in ranges:
+                        c = cursor_spanning_range(found)
+                        reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
 
-            if mgr is not None:
-                undone = False
-                leave_error: Exception | None = None
                 try:
-                    mgr.leaveUndoContext()
-                except Exception as leave_exc:
-                    log.exception("apply_style: leaveUndoContext failed")
-                    reraise_if_disposed(leave_exc)
-                    leave_error = leave_exc
-                else:
-                    if error is not None:
-                        undone = _rollback_undo_action(mgr, title, "apply_style rollback failed")
-                if error is not None:
-                    if is_disposed_exception(error):
-                        raise error
-                    if undone:
+                    outcome = commit_or_rollback(ctx.doc, title, mutate)
+                except UndoUnavailable:
+                    return self._tool_error("Cannot apply the style to every match in one undo step. Nothing was changed.")
+                if outcome.mutate_error is not None:
+                    error = outcome.mutate_error
+                    if outcome.rolled_back:
                         return self._tool_error("Nothing was changed: %s" % (error,))
                     return self._tool_error(
                         "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
                         % (len(reports), len(ranges), error)
                     )
-                if leave_error is not None:
-                    # What was wrong: a failed leave with no apply error returned ok
-                    # and left the undo context open, so the next edit folded into it.
-                    # How it happened: leaveUndoContext's exception was only logged.
-                    # Why this fixes it: disposal propagates; any other failed leave
-                    # is an error after the matches were styled.
-                    return self._tool_error(
-                        "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
-                        "The changes are in the document and the undo context is still open."
-                        % (style_name, len(reports), leave_error)
-                    )
+
+                err = outcome.error
+                if err is not None:
+                    if err.get("code") == "UNDO_CONTEXT_LEAK":
+                        return self._tool_error(
+                            "Applied style '%s' to %d match(es), but the undo step could not be closed (%s). "
+                            "The changes are in the document and the undo context is still open."
+                            % (style_name, len(reports), err.get("message")),
+                            code="TOOL_EXECUTION_ERROR",
+                        )
+                    if err.get("code") == "ROLLBACK_FAILED":
+                        return self._tool_error(
+                            "Applied to %d of %d; failed on one match: %s. Earlier matches stay applied."
+                            % (len(reports), len(ranges), err.get("message"))
+                        )
+            else:
+                for found in ranges:
+                    c = cursor_spanning_range(found)
+                    reports.append(self._apply_one(ctx, family, uno_value, c, clear_direct))
 
             return _finish_success({
                 "status": "ok",
@@ -1092,7 +1441,7 @@ class ApplyStyle(FrameworkToolBase):
             }, reports)
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=case_sensitive)
         except ValueError as ve:
             if target == "search":
                 # Surface the search-miss as a structured (top-level) failure, like
@@ -1203,7 +1552,7 @@ class StyleUpdate(ToolWriterStyleBase):
                 style.setParentStyle(parent_style)
                 applied["ParentStyle"] = parent_style
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 log.warning("Failed to set ParentStyle on %s: %s", style_name, e, exc_info=True)
                 failed["ParentStyle"] = str(e)
@@ -1280,7 +1629,7 @@ class StyleCreate(ToolWriterStyleBase):
         conditional_rules = kwargs.get("conditional_rules")
 
         doc = ctx.doc
-        style_family = _get_style_family(self, doc, family)
+        style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             return style_family
         if style_family.hasByName(style_name):
@@ -1310,7 +1659,7 @@ class StyleCreate(ToolWriterStyleBase):
             try:
                 new_style.setParentStyle(actual_parent)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 log.warning("Failed to set parent_style '%s' on new style", actual_parent, exc_info=True)
                 return self._tool_error(f"Failed to set parent_style '{actual_parent}': {e}")
@@ -1338,7 +1687,7 @@ class StyleCreate(ToolWriterStyleBase):
                     conditions.append(nv)
                 new_style.setPropertyValue("ParaStyleConditions", tuple(conditions))
             except Exception as cond_err:
-                if is_disposed_exception(cond_err):
+                if is_disposal(cond_err):
                     raise
                 log.warning("Failed to set ParaStyleConditions on new style", exc_info=True)
                 # ParaStyleConditions is read-only at the UNO level; fail loudly and rollback the created style.
@@ -1349,7 +1698,7 @@ class StyleCreate(ToolWriterStyleBase):
                     log.warning("Failed to rollback created style '%s' after condition failure: %s", style_name, rb_err)
                 return self._tool_error(f"Failed to apply conditional rules to style: {cond_err}")
 
-        _CREATED_STYLE_KEEPALIVE.append(new_style)
+        keep_style_alive(new_style)
 
         result = {"status": "ok", "style_name": style_name, "family": family, "service": service}
         if "CharFontName" in applied:
@@ -1404,7 +1753,7 @@ class StyleClone(ToolWriterStyleBase):
         doc = ctx.doc
         # getStyleFamilies does not fail on a live document. execute_safe
         # reports a closed document.
-        style_family = _get_style_family(self, doc, family)
+        style_family = _style_family(self, doc, family)
         if isinstance(style_family, dict):
             return style_family
         if not style_family.hasByName(style_name):

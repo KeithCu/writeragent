@@ -12,8 +12,8 @@ from typing import Any
 
 from plugin.scripting.calc_functions_common import (
     ANALYSIS_DATA_TABLE_ROWS,
-    OPTIMIZE_HELPER_NAMES as HELPER_NAMES,
 )
+from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.coerce import (
     auto_numeric,
     coerce_bool,
@@ -22,20 +22,12 @@ from plugin.scripting.venv.coerce import (
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
 )
+from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    dispatch_common_kwargs,
-    error_result as _error_result,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    run_trusted_spec,
+    run_domain,
 )
-
-# A typo in a param name used to be ignored and the helper auto-selected columns.
-_ALLOWED_PARAMS: dict[str, frozenset[str]] = {
-    "optimize_portfolio": frozenset({"returns_col", "target_return", "risk_free_rate"}),
-    "linear_programming": frozenset({"c_col", "a_cols", "b_col", "bounds", "maximize"}),
-    "solve_scheduling_problem": frozenset({"cost_cols"}),
-}
 
 
 _BOUNDS_ERROR = "bounds must be one [low, high] pair or a list of one pair per variable"
@@ -106,6 +98,7 @@ def _with_flags(result: dict[str, Any], flags: list[str]) -> dict[str, Any]:
     return result
 
 
+@helper("optimize")
 def linear_programming(
     data: Any,
     *,
@@ -246,6 +239,7 @@ def linear_programming(
     return _ok_result(helper, metrics=metrics, tables=[table], metadata=coerced.metadata)
 
 
+@helper("optimize")
 def optimize_portfolio(
     data: Any,
     *,
@@ -392,6 +386,7 @@ def optimize_portfolio(
     )
 
 
+@helper("optimize")
 def solve_scheduling_problem(
     data: Any,
     *,
@@ -482,57 +477,10 @@ def solve_scheduling_problem(
     )
 
 
-def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
-
-    allowed = _ALLOWED_PARAMS.get(name)
-    if allowed is not None:
-        unknown = sorted(set(params) - allowed)
-        if unknown:
-            return _error_result(
-                "INVALID_PARAM",
-                f"{name} does not accept {', '.join(unknown)}. Allowed: {', '.join(sorted(allowed))}.",
-                helper=name,
-            )
-
-    if name == "optimize_portfolio":
-        return optimize_portfolio(
-            data,
-            returns_col=params.get("returns_col"),
-            target_return=params.get("target_return"),
-            risk_free_rate=params.get("risk_free_rate", 0.0),
-            **common,
-        )
-    if name == "linear_programming":
-        if "c_col" not in params or "a_cols" not in params or "b_col" not in params:
-            return _error_result("MISSING_PARAM", "linear_programming requires c_col, a_cols, and b_col", helper=name)
-        return linear_programming(
-            data,
-            c_col=params.get("c_col"),
-            a_cols=params.get("a_cols"),
-            b_col=params.get("b_col"),
-            bounds=params.get("bounds", (0, None)),
-            maximize=params.get("maximize", False),
-            **common,
-        )
-    if name == "solve_scheduling_problem":
-        return solve_scheduling_problem(data, cost_cols=params.get("cost_cols"), **common)
-
-    return _error_result("UNKNOWN_HELPER", f"Optimization helper {name!r} not found", helper=name)
-
-
 def run_optimize(
     spec: dict[str, Any] | str,
     data: Any,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC."""
-    return run_trusted_spec(
-        spec,
-        data,
-        context,
-        helper_names=HELPER_NAMES,
-        dispatch_fn=_dispatch_helper,
-        domain="Optimization",
-        error_code="OPTIMIZATION_FAILED",
-    )
+    return run_domain("optimize", spec, data, context=context)

@@ -22,8 +22,9 @@ from unittest.mock import MagicMock, patch
 from plugin.writer.page import PageGetStyleProperties
 from plugin.writer.styles import (
     StyleList, StyleGetInfo, ApplyStyle, StyleCreate, StyleClone, StyleImport, StyleUpdate,
-    _close_style_names, _CREATED_STYLE_KEEPALIVE,
+    _close_style_names, _STYLE_KEEPALIVE, keep_style_alive,
 )
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.tests.testing_utils import TestingFactory, WriterDocStub
 
 
@@ -475,6 +476,21 @@ def test_update_style_unknown_suggests_close_name():
 
     assert res["status"] == "error"
     assert "Did you mean 'Heading 1'" in res["message"]
+    assert "Heading 1" in res["details"]["similar"]
+    assert "style_list" in res["details"]["hint"]
+
+
+def test_style_get_info_unknown_uses_missing_style_error():
+    style = MagicMock()
+    family = _style_family({"Heading 1": style, "Text body": style})
+    mock_ctx = _ctx_with_families(ParagraphStyles=family)
+
+    res = StyleGetInfo().execute(mock_ctx, style="heading 1", family="ParagraphStyles")
+
+    assert res["status"] == "error"
+    assert "Did you mean 'Heading 1'" in res["message"]
+    assert "Heading 1" in res["details"]["similar"]
+    assert "style_list" in res["details"]["hint"]
 
 
 def test_update_style_warns_when_font_not_installed():
@@ -505,7 +521,7 @@ def test_create_style_standard():
     new_style.setParentStyle.assert_called_once_with("Standard")
     new_style.setPropertyValue.assert_any_call("CharColor", 0xFF0000)
     family.insertByName.assert_called_once_with("NewStyle", new_style)
-    assert _CREATED_STYLE_KEEPALIVE[-1] is new_style
+    assert _STYLE_KEEPALIVE[-1] is new_style
 
 
 def test_create_style_parent_not_found_suggests():
@@ -699,7 +715,7 @@ def test_clone_paragraph_style_copies_parent_follow_and_direct():
     assert "CharDiffHeight" not in set_names
     assert "CharDiffHeight" not in res["skipped_properties"]
     family.insertByName.assert_called_once_with("Dst", new_style)
-    assert _CREATED_STYLE_KEEPALIVE[-1] is new_style
+    assert _STYLE_KEEPALIVE[-1] is new_style
 
 
 def test_apply_style_uno_skips_windows_leftover_origin_canary() -> None:
@@ -860,13 +876,13 @@ def test_plain_properties_use_set_property_value():
 
 # ---- D2: apply_style all_matches / occurrence -------------------------------
 
-def _style_ctx(stop_checker=None):
+def _style_ctx(send_cancellation=None):
     ctx = MagicMock()
     fam = MagicMock()
     fam.hasByName.return_value = True
     ctx.doc.getStyleFamilies.return_value.getByName.return_value = fam
-    if stop_checker is not None:
-        ctx.stop_checker = stop_checker
+    if send_cancellation is not None:
+        ctx.send_cancellation = send_cancellation
     return ctx
 
 
@@ -876,29 +892,28 @@ def test_apply_style_all_matches_applies_to_each():
     ranges = [MagicMock(), MagicMock(), MagicMock()]
     with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-        res = ApplyStyle().execute(_style_ctx(stop_checker=lambda: False), style="Heading 1", target="search",
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok" and res["applied_count"] == 3
+    assert res["normalized_old_content"] == "Title"
     assert ap.call_count == 3
 
 def test_apply_style_all_matches_does_not_abort_on_stop_checker():
     from plugin.writer.styles import ApplyStyle
 
     ranges = [MagicMock(), MagicMock(), MagicMock()]
-    calls = []
-    def _stop():
-        calls.append(1)
-        return len(calls) > 1
+    stop_scope = SendCancellation()
+    stop_scope.cancel()
 
     with patch("plugin.writer.search.find_all_ranges", return_value=ranges), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as ap, \
          patch("plugin.writer.edit_review.review_recording_enabled", return_value=False):
-        res = ApplyStyle().execute(_style_ctx(stop_checker=_stop), style="Heading 1", target="search",
+        res = ApplyStyle().execute(_style_ctx(send_cancellation=stop_scope), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok"
     assert res["applied_count"] == 3
@@ -911,10 +926,41 @@ def test_apply_style_occurrence_out_of_range():
 
     with patch("plugin.writer.search.find_all_ranges", return_value=[MagicMock()]), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", occurrence=5)
     assert res["status"] == "error" and "out of range" in res["message"]
+    assert res["normalized_old_content"] == "Title"
+
+
+def test_apply_style_search_miss_reports_normalized_and_closest():
+    from plugin.writer.styles import ApplyStyle
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.search.search_closest_mismatch", return_value={"message": "closest match starts 'Title…', differs at character 4: e vs x", "closest_match": "Title…", "diff_at": 4}), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "error"
+    assert res["normalized_old_content"] == "Title"
+    assert "closest match starts 'Title…', differs at character 4: e vs x" in res["message"]
+    assert res["closest_match"] == "Title…"
+    assert res["diff_at"] == 4
+
+
+def test_apply_style_search_oversized_refused():
+    from plugin.writer.styles import ApplyStyle
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+         patch("plugin.writer.search.old_content_covers_most", return_value=True), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "error"
+    assert res["normalized_old_content"] == "Title"
+    assert "target='full_document'" in res["message"]
 
 # ---- 8) recoverable error messages ----------------------------------------------
 
@@ -943,14 +989,13 @@ def test_apply_style_all_matches_does_not_stop_early() -> None:
     undo_mgr.isLocked.return_value = False
     doc.getUndoManager = MagicMock(return_value=undo_mgr)
 
-    ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test")
+    stop_scope = SendCancellation()
+    stop_scope.cancel()
+    ctx = ToolContext(doc, MagicMock(), "writer", MagicMock(), "test", send_cancellation=stop_scope)
     ctx.services.get = MagicMock(return_value=None)
 
-    # Stop checker returns True, but document mutation must not abort early
+    # Stop scope is cancelled, but document mutation must not abort early
     applied_count = 0
-    def stop_checker():
-        return True
-    ctx.stop_checker = stop_checker
 
     # Fake 4 find results
     ranges = [MagicMock(), MagicMock(), MagicMock(), MagicMock()]
@@ -1080,7 +1125,17 @@ def test_create_style_does_not_insert_when_a_property_fails():
     assert res["status"] == "error"
     assert "CharWeight" in res.get("failed_properties", {})
     fam.insertByName.assert_not_called()
-    assert style_instance not in _CREATED_STYLE_KEEPALIVE
+    assert style_instance not in _STYLE_KEEPALIVE
+
+
+def test_keep_style_alive_records_proxies():
+    mock_style = MagicMock()
+    keep_style_alive(mock_style)
+    assert _STYLE_KEEPALIVE[-1] is mock_style
+    # None is ignored
+    before_len = len(_STYLE_KEEPALIVE)
+    keep_style_alive(None)
+    assert len(_STYLE_KEEPALIVE) == before_len
 
 
 def test_create_style_bad_conditional_rule_inserts_nothing():
@@ -1176,7 +1231,7 @@ def test_apply_style_all_matches_rolls_back():
     mgr = MagicMock()
     mgr.isLocked.return_value = False
     doc.getUndoManager.return_value = mgr
-    mgr.getAllUndoActionTitles.return_value = ["Agent Edit"]
+    mgr.getAllUndoActionTitles.side_effect = [[], ["Agent Edit"]]
     ctx = TestingFactory.create_context(doc=doc, doc_type="writer")
 
     call_count = 0
@@ -1474,6 +1529,7 @@ def test_style_list_reraises_disposed_on_category_and_parent():
         StyleList().execute(ctx, family="CharacterStyles")
 
 
+@pytest.mark.xdist_group("styles_disposed_helpers")
 def test_read_helpers_reraise_disposed():
     from plugin.framework.errors import DocumentDisposedError
     from plugin.writer.styles import _get_style_prop, _missing_style_error, _struct_to_json
@@ -1500,4 +1556,82 @@ def test_read_helpers_reraise_disposed():
 
     with pytest.raises(DocumentDisposedError):
         _struct_to_json("com.sun.star.table.BorderLine2", _BoomStruct())
+
+
+def test_style_list_calc_omit_returns_cell_styles_only():
+    families = MagicMock()
+    families.hasByName.return_value = True
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value = families
+    ctx = TestingFactory.create_context(doc=doc, doc_type="calc")
+    res = StyleList().execute(ctx)
+    assert res["families"] == ["CellStyles"]
+
+
+def test_style_list_calc_paragraph_family_errors_with_available():
+    families = MagicMock()
+    families.hasByName.return_value = True
+    doc = MagicMock()
+    doc.getStyleFamilies.return_value = families
+    ctx = TestingFactory.create_context(doc=doc, doc_type="calc")
+    res = StyleList().execute(ctx, family="ParagraphStyles")
+    assert res["status"] == "error"
+    assert res.get("details", {}).get("similar") == ["CellStyles"]
+
+
+def test_style_list_calc_cell_styles_returns_entries():
+    cell_style = create_mock_style("Good", is_in_use=True)
+    ctx = _ctx_with_families(CellStyles=_style_family({"Good": cell_style}))
+    ctx.doc_type = "calc"
+    res = StyleList().execute(ctx, family="CellStyles")
+    assert res["status"] == "ok"
+    assert res["count"] == 1
+    assert res["styles"][0]["name"] == "Good"
+
+
+def test_apply_style_case_sensitive_target_search():
+    """ApplyStyle target='search' threads case_sensitive to resolve_target_cursor."""
+    from plugin.writer.styles import ApplyStyle
+
+    ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
+    cursor = MagicMock()
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor) as mock_resolve, \
+         patch.object(ApplyStyle, "_apply_one", return_value=None):
+        # Default omitted case_sensitive
+        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple")
+        assert res_default["status"] == "ok"
+        mock_resolve.assert_called_with(ctx, "search", "apple", case_sensitive=None)
+
+        # Explicit case_sensitive=True
+        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", case_sensitive=True)
+        assert res_cs["status"] == "ok"
+        mock_resolve.assert_called_with(ctx, "search", "apple", case_sensitive=True)
+
+
+def test_apply_style_case_sensitive_occurrence():
+    """ApplyStyle target='search' with occurrence threads case_sensitive to find_all_ranges."""
+    from plugin.writer.styles import ApplyStyle
+
+    ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
+    r1 = MagicMock()
+    r2 = MagicMock()
+
+    calls = []
+
+    def fake_find_all(doc, s, *, case_sensitive=False):
+        calls.append((s, case_sensitive))
+        return [r1, r2]
+
+    with patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+         patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
+         patch.object(ApplyStyle, "_apply_one", return_value=None):
+        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", occurrence=0)
+        assert res_default["status"] == "ok"
+        assert calls[-1] == ("apple", False)
+
+        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", occurrence=0, case_sensitive=True)
+        assert res_cs["status"] == "ok"
+        assert calls[-1] == ("apple", True)
+
 

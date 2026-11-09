@@ -10,7 +10,7 @@
 
 import unittest
 
-from plugin.testing_runner import native_test, show_window
+from plugin.testing_runner import current_office, native_test
 from tests.testing_utils import TestingFactory, with_native_doc
 
 
@@ -19,14 +19,13 @@ def _execute(doc, ctx, name, args, domain="calc"):
 
 
 @native_test
-@with_native_doc("calc", hidden=not show_window)
+@with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_enhanced_chart(ctx, doc):
     # 1. Setup data
     _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
     
     # 2. Create 3D Stacked Chart
-    res = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res = _execute(doc, ctx, "chart_upsert", {
         "data_range": "A1:B3",
         "chart_type": "column",
         "is_3d": True,
@@ -40,7 +39,7 @@ def test_calc_enhanced_chart(ctx, doc):
     chart_name = res.get("name")
     
     # 3. Verify Info
-    info = _execute(doc, ctx, "manage_charts", {"action": "get_info", "name": chart_name})
+    info = _execute(doc, ctx, "chart_get_info", {"name": chart_name})
     assert info.get("status") == "ok"
     assert info.get("is_3d") is True
     assert info.get("stacked") is True
@@ -49,8 +48,7 @@ def test_calc_enhanced_chart(ctx, doc):
     assert info.get("y_axis_title") == "Y Axis"
     
     # 4. Edit properties
-    edit_res = _execute(doc, ctx, "manage_charts", {
-        "action": "edit",
+    edit_res = _execute(doc, ctx, "chart_upsert", {
         "name": chart_name,
         "is_3d": False,
         "legend_position": "top",
@@ -58,20 +56,19 @@ def test_calc_enhanced_chart(ctx, doc):
     })
     assert edit_res.get("status") == "ok"
     
-    info2 = _execute(doc, ctx, "manage_charts", {"action": "get_info", "name": chart_name})
+    info2 = _execute(doc, ctx, "chart_get_info", {"name": chart_name})
     assert info2.get("is_3d") is False
     assert info2.get("y_axis_title") == "New Y"
 
 
 @native_test
-@with_native_doc("calc", hidden=not show_window)
+@with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_chart_colors(ctx, doc):
     # 1. Setup data
     _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 1], ["B", 2], ["C", 3]]})
 
     # 2. Create Chart with custom/arbitrary colors (RGB and hex)
-    res = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res = _execute(doc, ctx, "chart_upsert", {
         "data_range": "A1:B3",
         "chart_type": "column",
         "bg_color": "rgba(255, 0, 0, 0.5)",  # Red background via functional rgb
@@ -99,8 +96,7 @@ def test_calc_chart_colors(ctx, doc):
                             break
 
     # 3. Edit chart with another color (e.g. shorthand hex and CSS name)
-    edit_res = _execute(doc, ctx, "manage_charts", {
-        "action": "edit",
+    edit_res = _execute(doc, ctx, "chart_upsert", {
         "name": chart_name,
         "bg_color": "yellow",
         "colors": ["#0f0"]
@@ -110,45 +106,43 @@ def test_calc_chart_colors(ctx, doc):
 
 @unittest.skip("Disabled as per user request: internal test causing problems")
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_writer_chart_polymorphic(ctx, doc):
     # 1. Create in Writer
-    res = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res = _execute(doc, ctx, "chart_upsert", {
         "chart_type": "pie",
         "title": "Writer Pie"
     }, domain="writer")
     assert res.get("status") == "ok", f"Writer create failed: {res}"
     name = res.get("name")
 
-    probe = _execute(doc, ctx, "manage_charts", {"action": "get_info", "name": name}, domain="writer")
+    probe = _execute(doc, ctx, "chart_get_info", {"name": name}, domain="writer")
     if probe.get("status") != "ok":
         raise unittest.SkipTest(
             "Writer chart embed not available in this LibreOffice runtime "
-            f"(manage_charts get_info: {probe!r}). OLE insert may be disabled in headless/pyuno."
+            f"(chart tools get_info: {probe!r}). OLE insert may be disabled in headless/pyuno."
         )
 
     # 2. List in Writer
-    list_res = _execute(doc, ctx, "manage_charts", {"action": "list"}, domain="writer")
-    assert list_res.get("status") == "ok", f"manage_charts list failed: {list_res}"
+    list_res = _execute(doc, ctx, "chart_list", {}, domain="writer")
+    assert list_res.get("status") == "ok", f"chart tools list failed: {list_res}"
     names = [c["name"] for c in list_res.get("charts", [])]
     assert name in names, (
-        f"chart name {name!r} not in manage_charts list names {names!r}; full list_res={list_res!r}"
+        f"chart name {name!r} not in chart tools list names {names!r}; full list_res={list_res!r}"
     )
     
     # 3. Info
-    info = _execute(doc, ctx, "manage_charts", {"action": "get_info", "name": name}, domain="writer")
+    info = _execute(doc, ctx, "chart_get_info", {"name": name}, domain="writer")
     assert info.get("title") == "Writer Pie"
     assert "PieDiagram" in info.get("diagram_type", "")
 
 
-@unittest.skipIf(not show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
+@unittest.skipIf(not current_office().options.show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
 @native_test
-@with_native_doc("impress", hidden=not show_window)
+@with_native_doc("impress", hidden=not current_office().options.show_window)
 def test_draw_chart_polymorphic(ctx, doc):
     # 1. Create in Draw
-    res = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res = _execute(doc, ctx, "chart_upsert", {
         "chart_type": "line",
         "title": "Slide Chart",
         "is_3d": True
@@ -157,20 +151,20 @@ def test_draw_chart_polymorphic(ctx, doc):
     name = res.get("name")
     
     # 2. Info
-    info = _execute(doc, ctx, "manage_charts", {"action": "get_info", "name": name}, domain="draw")
+    info = _execute(doc, ctx, "chart_get_info", {"name": name}, domain="draw")
     assert info.get("is_3d") is True
     assert info.get("title") == "Slide Chart"
     
     # 3. Delete
-    del_res = _execute(doc, ctx, "manage_charts", {"action": "delete", "name": name}, domain="draw")
+    del_res = _execute(doc, ctx, "chart_delete", {"name": name}, domain="draw")
     assert del_res.get("status") == "ok"
     
-    list_res = _execute(doc, ctx, "manage_charts", {"action": "list"}, domain="draw")
+    list_res = _execute(doc, ctx, "chart_list", {}, domain="draw")
     assert len(list_res.get("charts", [])) == 0
 
 
 @native_test
-@with_native_doc("calc", hidden=not show_window)
+@with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_calc_multisheet_charts(ctx, doc):
     # 1. Setup data on active sheet (Sheet1)
     _execute(doc, ctx, "write_formula_range", {"range": "A1:B3", "values": [["A", 10], ["B", 20], ["C", 30]]})
@@ -180,8 +174,7 @@ def test_calc_multisheet_charts(ctx, doc):
         doc.getSheets().insertNewByName("Dashboard", 1)
 
     # 3. Create Chart 0 on active sheet (Sheet1)
-    res1 = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res1 = _execute(doc, ctx, "chart_upsert", {
         "data_range": "A1:B3",
         "chart_type": "column",
         "title": "Sheet1 Chart"
@@ -192,8 +185,7 @@ def test_calc_multisheet_charts(ctx, doc):
     assert res1.get("sheet") == "Sheet1"
 
     # 4. Create Chart 1 placed on "Dashboard" with data from Sheet1
-    res2 = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res2 = _execute(doc, ctx, "chart_upsert", {
         "sheet": "Dashboard",
         "data_range": "'Sheet1'.A1:B3",
         "chart_type": "line",
@@ -205,7 +197,7 @@ def test_calc_multisheet_charts(ctx, doc):
     assert res2.get("sheet") == "Dashboard"
 
     # 5. List charts across entire document
-    list_res = _execute(doc, ctx, "manage_charts", {"action": "list"})
+    list_res = _execute(doc, ctx, "chart_list", {})
     assert list_res.get("status") == "ok"
     charts_by_name = {c["name"]: c for c in list_res.get("charts", [])}
     assert "Chart_0" in charts_by_name
@@ -214,16 +206,14 @@ def test_calc_multisheet_charts(ctx, doc):
     assert charts_by_name["Chart_1"].get("sheet_name") == "Dashboard"
 
     # 6. Edit chart on non-active sheet (Dashboard) WITHOUT passing sheet_name (auto-resolution fallback test)
-    edit_res = _execute(doc, ctx, "manage_charts", {
-        "action": "edit",
+    edit_res = _execute(doc, ctx, "chart_upsert", {
         "name": "Chart_1",
         "title": "Updated Dashboard Chart"
     })
     assert edit_res.get("status") == "ok"
 
     # Edit data_range and verify get_info data_ranges matches _range_to_str
-    edit_data_res = _execute(doc, ctx, "manage_charts", {
-        "action": "edit",
+    edit_data_res = _execute(doc, ctx, "chart_upsert", {
         "name": "Chart_1",
         "data_range": "'Sheet1'.A1:B2",
     })
@@ -231,12 +221,11 @@ def test_calc_multisheet_charts(ctx, doc):
     from plugin.calc.address_utils import format_range_address
     sheet1 = doc.getSheets().getByName("Sheet1")
     expected_range_str = format_range_address(sheet1.getCellRangeByName("A1:B2").getRangeAddress())
-    info_c1 = _execute(doc, ctx, "manage_charts", {"action": "get_info", "name": "Chart_1"})
+    info_c1 = _execute(doc, ctx, "chart_get_info", {"name": "Chart_1"})
     assert info_c1.get("data_ranges") == [expected_range_str]
 
     # 7. Create Chart 2 with has_header=False
-    res3 = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res3 = _execute(doc, ctx, "chart_upsert", {
         "sheet": "Dashboard",
         "data_range": "'Sheet1'.A1:B3",
         "chart_type": "pie",
@@ -252,8 +241,7 @@ def test_calc_multisheet_charts(ctx, doc):
     assert c2_chart.getHasRowHeaders() is False
 
     # Edit Chart_0 with has_header=False and read back flags
-    edit_hdr_res = _execute(doc, ctx, "manage_charts", {
-        "action": "edit",
+    edit_hdr_res = _execute(doc, ctx, "chart_upsert", {
         "name": "Chart_0",
         "has_header": False,
     })
@@ -262,28 +250,26 @@ def test_calc_multisheet_charts(ctx, doc):
     assert sheet1_chart.getHasColumnHeaders() is False
     assert sheet1_chart.getHasRowHeaders() is False
 
-    del_res = _execute(doc, ctx, "manage_charts", {
-        "action": "delete",
+    del_res = _execute(doc, ctx, "chart_delete", {
         "name": "Chart_1"
     })
     assert del_res.get("status") == "ok"
     assert del_res.get("sheet") == "Dashboard"
 
     # Verify remaining charts
-    list_res2 = _execute(doc, ctx, "manage_charts", {"action": "list"})
+    list_res2 = _execute(doc, ctx, "chart_list", {})
     remaining_names = [c["name"] for c in list_res2.get("charts", [])]
     assert "Chart_0" in remaining_names
     assert "Chart_2" in remaining_names
     assert "Chart_1" not in remaining_names
 
 
-@unittest.skipIf(not show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
+@unittest.skipIf(not current_office().options.show_window, "Draw/Impress chart create_chart hangs in headless testing_runner (processEventsToIdle in charts.py)")
 @native_test
-@with_native_doc("impress", hidden=not show_window)
+@with_native_doc("impress", hidden=not current_office().options.show_window)
 def test_impress_grouped_and_multipage_chart(ctx, doc):
     # 1. Create chart on first slide (Chart_0)
-    res0 = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res0 = _execute(doc, ctx, "chart_upsert", {
         "chart_type": "column",
         "title": "Slide 1 Chart",
     }, domain="draw")
@@ -310,15 +296,14 @@ def test_impress_grouped_and_multipage_chart(ctx, doc):
     assert group is not None
 
     # 3. Delete Chart_0 by name; verify Chart_0 is gone and group remains
-    del_res = _execute(doc, ctx, "manage_charts", {"action": "delete", "name": "Chart_0"}, domain="draw")
+    del_res = _execute(doc, ctx, "chart_delete", {"name": "Chart_0"}, domain="draw")
     assert del_res.get("status") == "ok", f"Delete grouped chart failed: {del_res}"
     page_shapes = [page0.getByIndex(i) for i in range(page0.getCount())]
     assert group in page_shapes
     assert group.getCount() == 1
 
     # 4. Create another chart on slide 0 (will be Chart_0 again since previous was deleted)
-    res_s0 = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res_s0 = _execute(doc, ctx, "chart_upsert", {
         "chart_type": "bar",
         "title": "Page 0 Bar",
     }, domain="draw")
@@ -332,8 +317,7 @@ def test_impress_grouped_and_multipage_chart(ctx, doc):
     if controller is not None and hasattr(controller, "setCurrentPage"):
         controller.setCurrentPage(page1)
 
-    res_s1 = _execute(doc, ctx, "manage_charts", {
-        "action": "create",
+    res_s1 = _execute(doc, ctx, "chart_upsert", {
         "chart_type": "pie",
         "title": "Page 1 Pie",
     }, domain="draw")
@@ -341,7 +325,7 @@ def test_impress_grouped_and_multipage_chart(ctx, doc):
     assert res_s1.get("name") == "Chart_0"
 
     # 6. List charts: should show Chart_0 on both page 0 and page 1
-    list_res = _execute(doc, ctx, "manage_charts", {"action": "list"}, domain="draw")
+    list_res = _execute(doc, ctx, "chart_list", {}, domain="draw")
     assert list_res.get("status") == "ok"
     charts = list_res.get("charts", [])
     assert len(charts) == 2
@@ -350,18 +334,17 @@ def test_impress_grouped_and_multipage_chart(ctx, doc):
     assert 1 in pages_with_chart_0
 
     # 7. Delete without page should error with CHART_AMBIGUOUS
-    del_ambig = _execute(doc, ctx, "manage_charts", {"action": "delete", "name": "Chart_0"}, domain="draw")
+    del_ambig = _execute(doc, ctx, "chart_delete", {"name": "Chart_0"}, domain="draw")
     assert del_ambig.get("status") == "error"
     assert del_ambig.get("code") == "CHART_AMBIGUOUS"
 
     # 8. Delete with page=1 removes only slide 1 chart
-    del_p1 = _execute(doc, ctx, "manage_charts", {"action": "delete", "name": "Chart_0", "page": 1}, domain="draw")
+    del_p1 = _execute(doc, ctx, "chart_delete", {"name": "Chart_0", "page": 1}, domain="draw")
     assert del_p1.get("status") == "ok"
 
-    list_after = _execute(doc, ctx, "manage_charts", {"action": "list"}, domain="draw")
+    list_after = _execute(doc, ctx, "chart_list", {}, domain="draw")
     assert list_after.get("status") == "ok"
     remaining = list_after.get("charts", [])
     assert len(remaining) == 1
     assert remaining[0]["page"] == 0
     assert remaining[0]["name"] == "Chart_0"
-

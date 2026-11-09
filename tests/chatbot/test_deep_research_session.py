@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from plugin.chatbot.deep_research_session import (
     DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS,
+    compose_deep_research_mode_instructions,
     DeepResearchSessionTool,
     DeepResearchWebTool,
 )
@@ -24,10 +25,24 @@ def test_deep_research_not_in_writer_delegate_enum():
     assert "deep_research" not in domains
 
 
-def test_deep_research_instructions_include_apply_document_content():
-    text = get_sub_agent_instructions(DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS)
+def test_deep_research_instructions_include_apply_document_content_when_writer_tools():
+    tool_names = ["deep_research_web", "apply_document_content", "reply_to_user"]
+    mode = compose_deep_research_mode_instructions(tool_names)
+    text = get_sub_agent_instructions(mode, tool_names=tool_names)
     assert "apply_document_content" in text
     assert "deep_research_web" in text
+
+
+def test_deep_research_calc_instructions_omit_apply_document_content():
+    tool_names = ["deep_research_web", "reply_to_user", "get_document_content"]
+    mode = compose_deep_research_mode_instructions(tool_names)
+    text = get_sub_agent_instructions(mode, tool_names=tool_names)
+    assert "apply_document_content" not in text
+    assert "only output the user receives" in text
+
+
+def test_deep_research_base_instructions_omit_apply_document_content():
+    assert "apply_document_content" not in DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS
 
 
 def test_deep_research_examples_include_apply_document_content():
@@ -66,6 +81,38 @@ class _GetDocumentContentStub(ToolBase):
 
     def execute(self, ctx, **kwargs):
         return {"status": "ok", "content": ""}
+
+
+def test_deep_research_instructions_mention_active_document_not_writer_only():
+    first_line = DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS.split("\n", 2)[1]
+    assert "active document" in first_line
+    assert "Writer document" not in first_line
+
+
+def test_collect_deep_research_tools_calc_omits_apply_document_content():
+    class _ApplyStub(ToolBase):
+        name = "apply_document_content"
+        description = "stub"
+        tier = "core"
+        uno_services = ["com.sun.star.text.TextDocument"]
+        parameters = {"type": "object", "properties": {}, "required": []}
+
+        def execute(self, ctx, **kwargs):
+            return {"status": "ok"}
+
+    registry = ToolRegistry(services={})
+    registry.register(DeepResearchWebTool())
+    registry.register(_ApplyStub())
+
+    ctx = ToolContext(
+        doc=MagicMock(),
+        ctx=MagicMock(),
+        doc_type="calc",
+        services={"tools": registry},
+    )
+    names = {t.name for t in collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)}
+    assert "deep_research_web" in names
+    assert "apply_document_content" not in names
 
 
 def test_collect_deep_research_tools_includes_apply_on_writer():

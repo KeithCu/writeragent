@@ -77,12 +77,12 @@ def test_cold_build_ingests_one_file_at_a_time(tmp_path):
 
     with (
         patch.object(maintain, "clear_folder_cache"),
-        patch.object(maintain, "ensure_corpus_meta"),
+        patch.object(maintain.CorpusMeta, "ensure"),
         patch.object(maintain, "indexable_chunks_from_path", side_effect=[(1, [_chunk("file:///a.odt", 0, "a")]), (1, [_chunk("file:///b.odt", 0, "b")])]),
         patch.object(maintain, "_ingest_rows", side_effect=_fake_ingest_rows),
-        patch.object(maintain, "sync_file_paragraph_state") as sync_mock,
+        patch.object(maintain, "sync_file_paragraph_state_in_db") as sync_mock,
         patch.object(maintain, "corpus_db_path", return_value=db_path),
-        patch.object(maintain, "write_row_count_meta"),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
     ):
         result = maintain._cold_build(
             listing_root,
@@ -107,12 +107,12 @@ def test_cold_build_skips_ingest_for_empty_files(tmp_path):
 
     with (
         patch.object(maintain, "clear_folder_cache"),
-        patch.object(maintain, "ensure_corpus_meta"),
+        patch.object(maintain.CorpusMeta, "ensure"),
         patch.object(maintain, "indexable_chunks_from_path", return_value=(0, [])),
         patch.object(maintain, "_ingest_rows") as ingest_mock,
-        patch.object(maintain, "sync_file_paragraph_state") as sync_mock,
+        patch.object(maintain, "sync_file_paragraph_state_in_db") as sync_mock,
         patch.object(maintain, "corpus_db_path", return_value=tmp_path / "writeragent_embeddings" / "corpus.db"),
-        patch.object(maintain, "write_row_count_meta"),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
     ):
         result = maintain._cold_build(
             listing_root,
@@ -244,12 +244,12 @@ def test_resolve_mode_zvec_uses_collection_not_corpus_db(tmp_path):
 def test_incremental_same_model_vector_gap_requests_backfill(tmp_path):
     """has_missing must embed. An empty ingest with no flag returns before the graph."""
     conn = MagicMock()
-    conn.execute.return_value.fetchone.return_value = None
     with (
         patch.object(maintain, "connect_corpus_db", return_value=conn),
-        patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
+        patch.object(maintain, "ensure_schema"),
+        patch.object(maintain, "has_missing_vector_chunks", return_value=True),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
-        patch.object(maintain, "write_row_count_meta"),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
         patch.object(maintain, "_ingest_rows", return_value={"indexed": 2, "upserted": 2}) as ingest,
     ):
         maintain._incremental_refresh(
@@ -269,17 +269,38 @@ def test_incremental_same_model_vector_gap_requests_backfill(tmp_path):
 
 def test_incremental_skips_backfill_when_vectors_present(tmp_path):
     conn = MagicMock()
-    has_table = MagicMock()
-    has_table.fetchone.return_value = (1,)
-    no_gap = MagicMock()
-    no_gap.fetchone.return_value = None
-    conn.execute.side_effect = [has_table, no_gap]
     with (
         patch.object(maintain, "connect_corpus_db", return_value=conn),
-        patch("plugin.embeddings.venv.embeddings_sqlite._load_vec_extension"),
+        patch.object(maintain, "ensure_schema"),
+        patch.object(maintain, "get_all_indexed_urls_in_db", return_value=[]),
+        patch.object(maintain, "has_missing_vector_chunks", return_value=False),
         patch.object(maintain, "corpus_chunk_count", return_value=2),
-        patch.object(maintain, "write_row_count_meta"),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
         patch.object(maintain, "_ingest_rows") as ingest,
+    ):
+        maintain._incremental_refresh(
+            str(tmp_path),
+            "all-MiniLM-L6-v2",
+            [],
+            HeartbeatThrottle(None),
+            build_fts=False,
+            build_vectors=True,
+            search_mode="embeddings",
+        )
+    ingest.assert_not_called()
+
+
+def test_incremental_gap_probe_empty_corpus_without_vec_table(tmp_path):
+    """No vec table and no chunk rows: gap probe must not load sqlite-vec or start gap-fill."""
+    with (
+        patch.object(maintain, "get_all_indexed_urls_in_db", return_value=[]),
+        patch.object(maintain, "corpus_chunk_count", return_value=0),
+        patch.object(maintain.CorpusMeta, "write_row_count"),
+        patch.object(maintain, "_ingest_rows") as ingest,
+        patch(
+            "plugin.embeddings.venv.embeddings_sqlite._load_vec_extension",
+            side_effect=AssertionError("must not load vec when vec table is absent"),
+        ),
     ):
         maintain._incremental_refresh(
             str(tmp_path),

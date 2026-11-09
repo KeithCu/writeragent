@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
     get_child_ipc_stdin,
@@ -20,21 +20,12 @@ from plugin.scripting.ipc import (
 
 
 def _write_frame(payload: dict[str, Any]) -> None:
-    # What was wrong: sys.stdout.buffer writes fd 1, and claim_ipc_channel has
-    # dup2'd fd 1 onto stderr, so worker_event / tool_call / llm_request never
-    # reach proc.stdout and the child blocks in _read_host_response until the
-    # host read budget.
-    # How it happened: b476c6899 claimed stdout in the harness and did not
-    # update this file.
-    # Why this change: get_child_ipc_stream is the dup of the original stdout,
-    # same as exchange_tool_call.
+    # After claim_ipc_channel, fd 1 is stderr—write frames on get_child_ipc_stream (dup of real stdout).
     stream = get_child_ipc_stream()
     try:
         write_pickle_frame(stream, payload)
     except IpcFrameError as exc:
-        # write_pickle_frame now defaults to the read cap. An omitted write
-        # used to be uncapped, so a too-large child frame left unread bytes
-        # on the host pipe. Reply with a small error frame instead.
+        # Oversized outbound frames get a small error reply so the host pipe does not retain garbage bytes.
         error_frame: dict[str, Any] = {
             "status": "error",
             "message": str(exc),

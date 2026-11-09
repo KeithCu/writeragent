@@ -14,291 +14,73 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-"""One persistent child process: spawn, handshake, framed request, and reap.
+"""Compute pool adapter: ``BaseProcessWorker`` delegates spawn/IPC core to ``warm_child``.
 
-Formula and vision use this supervisor. Kokoro's warm worker is
-``ManagedSubprocess`` inside ``kokoro_pool._KokoroWorker``, not this class.
-The pool that leases several slots stays in ``compute_service.worker_base``.
-This module does not import ``compute_service``: that package is not part of
-the WriterAgent OXT.
-
-The slot holds at most one :class:`Child`. Adopt is one pointer swap.
-Another thread may only signal that child. The thread inside the ready
-read or the request closes stdin and stdout, then waits. A child still
-alive after one 1s wait is handed to the five-pass reaper in
-``managed_subprocess`` and the slot can spawn again. The signal is
-``kill_tree`` (process group), not ``Popen.kill``. Stderr is still a pipe.
-The drain is started by ``ManagedSubprocess.start``.
-
-``tasks_executed`` counts a response dict that was consumed. A timeout, a
-crash, or a spawn failure does not. A ready handshake resets the count.
-
-``Deadline.left`` is the true remainder and may be negative. ``usable``
-is the gate before a write, and before a pool lifts a short remainder.
-A dead slot also refuses to spawn once less than
-``_MIN_SPAWN_REMAINING_SEC`` is left. The 0.01s floor that keeps
-``select`` off zero lives in ``plugin.scripting.ipc``.
+Shared handshake and framed request logic live in ``plugin.framework.warm_child``.
+This module is the multi-slot compute worker slot (``BaseProcessWorker``) only.
 """
 
 from __future__ import annotations
 
+import functools
 import logging
 import pickle
-import subprocess
 import sys
 import threading
-import time
 from typing import IO, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+from plugin.framework.child_runtime import Deadline, error_dict
 from plugin.framework.managed_subprocess import ManagedSubprocess
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcFrameError,
-    IpcPartialFrameTimeout,
     pack_pickle_frame,
-    read_pickle_frame,
-    write_packed_frame_with_timeout,
+)
+from plugin.framework.warm_child import (
+    Child,
+    FailPhase,
+    SPAWN_READY_TIMEOUT_SEC,
+    STDERR_LOG_CAP,
+    framed_request_roundtrip,
+    spawn_budget,
+    spawn_managed_child_with_handshake,
+    supervisor,
 )
 
-__all__ = ["BaseProcessWorker", "Child", "Deadline", "MIN_REQUEST_SEC", "error_dict"]
+__all__ = ["BaseProcessWorker"]
 
 # Same logger the compute tests capture. The class moved; the log name did not.
 log = logging.getLogger("compute_service.worker")
 
-_SPAWN_READY_TIMEOUT_SEC = 15.0
-_STDERR_SNIPPET = 500
-# One child writes stderr for its whole life. The drain keeps this many
-# characters. The snippet attached to an error is the last _STDERR_SNIPPET.
-_STDERR_LOG_CAP = 64 * 1024
-# A write, and a pool's decision to lift, is refused below one second.
-# The 0.01s select floor lives in plugin.scripting.ipc, and only for a
-# remainder that is already positive. formula_pool and vision import this.
-MIN_REQUEST_SEC = 1.0
-# usable() still lets a one-second budget through with a short remainder
-# so those pools can lift it. A dead slot will not Popen below this:
-# the handshake would be given the leftover and the child killed.
-_MIN_SPAWN_REMAINING_SEC = 0.25
 
-# Distinct from id=None, which is stored. A missing req_id omits the key.
-_OMIT_ID = object()
+def _compute_slot_fail_message(
+    code: str,
+    detail: str,
+    *,
+    worker_name: str,
+    worker_id: int,
+) -> str:
+    """User-facing error text for a compute slot ``framed_request_roundtrip`` failure."""
+    if code == "WORKER_PIPE_BROKEN":
+        return f"Failed to send request to {worker_name} #{worker_id}: {detail}"
+    if code == "WORKER_IPC_ERROR":
+        return f"{worker_name} rejected a response frame: {detail}"
+    if code == "EMPTY_RESPONSE":
+        return f"No response returned from {worker_name}."
+    if code == "WORKER_CRASHED":
+        return f"{worker_name} error: {detail}"
+    raise AssertionError(f"unhandled fail code {code!r}")
 
-
-def error_dict(code: str, error: str, *, req_id: Any = _OMIT_ID, message: str | None = None) -> dict[str, Any]:
-    """Build ``{"status": "error", "code", "error"}``.
-
-    ``id`` is set when the caller passes ``req_id``, including ``None``.
-    ``message`` is set only when passed. Pool execute methods pass ``req_id``.
-    The worker's ``_fail_request`` passes ``message`` for the two codes
-    callers already read from both keys.
-    """
-    res: dict[str, Any] = {"status": "error", "code": code, "error": error}
-    if req_id is not _OMIT_ID:
-        res["id"] = req_id
-    if message is not None:
-        res["message"] = message
-    return res
-
-
-# These codes copy the text onto ``message`` as well as ``error``.
 # ``kill`` stays a call-site choice. Nothing here increments
 # ``tasks_executed``: only a consumed response does, and a ready
 # handshake resets that count.
-_MIRROR_MESSAGE = frozenset({"EXECUTION_TIMEOUT", "WORKER_CRASHED"})
-
 # A killing failure while the slot is stopping. _fail_request reports
 # SERVICE_SHUTDOWN instead, and does not kill again. A spent clock passes
 # kill=False and stays EXECUTION_TIMEOUT. HTTP 500 or 200 here would hide a stop.
 _SHUTDOWN_INSTEAD = frozenset({"WORKER_PIPE_BROKEN", "WORKER_CRASHED", "WORKER_IPC_ERROR", "EMPTY_RESPONSE", "EXECUTION_TIMEOUT"})
-
-
-class Deadline:
-    """Accept-time budget for a pool, or the worker clock started under its lock.
-
-    ``__init__`` starts at now unless ``end`` is passed. ``execute`` builds
-    that under ``self.lock`` so the wait for the lock is not part of the
-    budget. ``from_absolute`` keeps the original requested seconds and an
-    end the HTTP handler already chose. Formula and vision use that one.
-
-    ``left()`` is the true remainder and may be negative. ``usable()``
-    is the gate before a write, and before a pool lifts a short remainder:
-    None when that work must not start, otherwise ``left()``. A one-second
-    request still passes after the clock has moved. A longer request with
-    under one second left does not. Spawning a dead slot is tighter: see
-    ``_spawn_budget``. The 0.01s floor that keeps ``select`` off zero
-    is applied in ``plugin.scripting.ipc`` to a remainder that is already
-    positive.
-    """
-
-    __slots__: tuple[str, ...] = ("budget_sec", "_end")
-    budget_sec: float
-    _end: float
-
-    def __init__(self, timeout_sec: float, *, end: float | None = None) -> None:
-        """Start a clock of *timeout_sec* seconds, or one that already ends at *end*.
-
-        *end* is keyword-only so ``Deadline(5)`` still starts at now.
-        The budget stays *timeout_sec*, not ``end - now``.
-        """
-        self.budget_sec = float(timeout_sec)
-        self._end = float(end) if end is not None else time.monotonic() + self.budget_sec
-
-    @classmethod
-    def from_absolute(cls, requested_sec: float, end: float) -> Deadline:
-        """Clock whose end is already fixed and whose budget is the original request.
-
-        ``requested_sec`` is not ``end - now``. A one-second request whose
-        clock has already moved still starts; rebuilding the budget from
-        the time left would refuse it.
-        """
-        return cls(requested_sec, end=end)
-
-    def left(self) -> float:
-        """Seconds until ``_end``. Negative once the clock has passed it.
-
-        No floor and no one-second lift. Callers that must not start pass
-        this through ``usable()``. ``select`` lifts a positive remainder
-        off zero itself.
-        """
-        return self._end - time.monotonic()
-
-    def usable(self) -> float | None:
-        """Seconds left to start a spawn or a write, or None when it must not.
-
-        A one-second request may start: it is the minimum budget, and the
-        clock has already moved. A longer request with under one second
-        left must not. A spent clock must not. The returned number is
-        ``left()``.
-        """
-        remaining = self.left()
-        if remaining <= 0 or self.budget_sec < MIN_REQUEST_SEC:
-            return None
-        # A one-second budget is the minimum and may start with less than
-        # that left. A longer budget with under one second left must not.
-        # Spawning is a separate check: a few milliseconds is not a handshake.
-        if self.budget_sec > MIN_REQUEST_SEC and remaining < MIN_REQUEST_SEC:
-            return None
-        return remaining
-
-
-def _spawn_budget(deadline: Deadline) -> float | None:
-    """Seconds for a new handshake, or None when a child must not start.
-
-    ``usable()`` still returns a short remainder for a one-second budget
-    so formula and vision can lift it to ``MIN_REQUEST_SEC``. Starting a
-    process on that remainder does not.
-
-    What was wrong: a one-second clock with about 20ms left passed
-    ``usable()``, ``Popen`` ran, and the ready read was given those 20ms.
-    The child was then killed. The lift belongs in the pool, before
-    ``execute`` builds a fresh clock. This floor is only the spawn.
-    """
-    remaining = deadline.usable()
-    if remaining is None or remaining < _MIN_SPAWN_REMAINING_SEC:
-        return None
-    return remaining
-
-
-class Child:
-    """One spawned process: pipes, stderr tail, and a single reap.
-
-    The slot publishes this object or not at all. A spawn that loses the
-    adopt closes its own instance. ``signal_from`` is safe from any thread:
-    it only sends SIGKILL. Stdin and stdout close on the thread that was
-    inside the read or write, or on the caller when nobody is. Stderr stays
-    open for the drain thread, which closes it at EOF.
-
-    ``_signaled`` and ``_io_owner`` are plain attributes. The handshake is
-    correct while those reads and writes stay sequentially consistent,
-    which CPython's GIL provides. A free-threaded build would need a lock.
-    """
-
-    def __init__(self, managed: ManagedSubprocess, *, worker_name: str, worker_id: int) -> None:
-        self.managed: ManagedSubprocess = managed
-        self.worker_name: str = worker_name
-        self.worker_id: int = worker_id
-        self._io_owner: int | None = None
-        self._signaled: bool = False
-        self._settled: bool = False
-        self._once: threading.Lock = threading.Lock()
-
-    def begin_io(self) -> None:
-        """Mark this thread as the one inside a ready read or a request."""
-        self._io_owner = threading.get_ident()
-
-    def end_io(self) -> bool:
-        """Drop the owner mark. True when the slot should drop this child.
-
-        The mark is cleared before the signaled flag is read. A kill that
-        lands in that gap sees no owner and reaps here. A kill that already
-        saw the owner returns without waiting, and this call reaps.
-        """
-        if self._io_owner != threading.get_ident():
-            return self._settled
-        self._io_owner = None
-        if not self._signaled:
-            return False
-        return self._finish()
-
-    def signal_from(self) -> bool:
-        """SIGKILL. Close and wait only when this thread owns the pipes, or nobody does.
-
-        True when the slot should drop this child (reaped, or abandoned to
-        the module reaper). False when another thread is inside the read or
-        write: that thread's ``end_io`` does the close and the wait.
-        """
-        self._signaled = True
-        self.managed.kill_tree()
-        me = threading.get_ident()
-        # Two loads of _io_owner. The flag is already set, and end_io reads
-        # it after clearing the mark, so the owner still finishes if we
-        # return on the first look. The second load is a new read: the
-        # owner may have cleared between them, and this thread then reaps.
-        # _once keeps the two _finish calls to one.
-        owner = self._io_owner
-        if owner not in (None, me):
-            owner = self._io_owner
-            if owner not in (None, me):
-                return False
-        return self._finish()
-
-    def diagnostic_tail(self) -> str:
-        """Last stderr characters from the child's diagnostic drain."""
-        if self.managed.stderr_tail is None:
-            return ""
-        text = self.managed.stderr_text().strip()
-        if not text:
-            return ""
-        return text[-_STDERR_SNIPPET:]
-
-    def _finish(self) -> bool:
-        """Close stdio and wait once. True when the slot should drop this child.
-
-        What was wrong: kill() on another thread closed stdin and stdout
-        while this thread was between select and read. The next call raised
-        ValueError or EBADF, and a reused fd number could be read as the
-        response. The non-owner now only signals. This method runs after
-        the owner has left, or when there is no owner.
-        """
-        with self._once:
-            if self._settled:
-                return True
-            me = threading.get_ident()
-            if self._io_owner not in (None, me):
-                return False
-            self.managed.close_stdio()
-            reaped = self.managed.wait_once()
-            self._settled = True
-            if reaped:
-                self.managed.join_stderr(1.0)
-                self.managed.unregister()
-                return True
-            pid = getattr(self.managed.popen, "pid", None)
-            log.warning("%s #%s pid=%s still alive after SIGKILL; abandoning", self.worker_name, self.worker_id, pid)
-            self.managed.abandon()
-            return True
 
 
 class BaseProcessWorker:
@@ -365,12 +147,7 @@ class BaseProcessWorker:
         )
 
     def _drain_name(self) -> str:
-        """Thread name so a log line shows which pool owns the drain.
-
-        What was wrong: every child used a generic compute prefix, including
-        Kokoro and vision. A stuck drain could not be told apart from a
-        formula worker.
-        """
+        """Thread name so a log line shows which pool owns the drain."""
         parts = "".join(ch if ch.isalnum() else "-" for ch in self.worker_name.lower()).split("-")
         cleaned = "-".join(part for part in parts if part)
         if not cleaned:
@@ -411,9 +188,6 @@ class BaseProcessWorker:
         re-entrant, so ``respawn`` cannot take it. Two calls can both pass
         the previous reap and both ``Popen``. The loser closes its own
         ``Child`` and does not touch the one already published.
-
-        What was wrong: the second adopt assigned over a child the first
-        call had already published. That Popen was dropped with no kill.
         """
         with self._lifecycle_lock:
             if self._shutting_down or self.child is not None:
@@ -436,106 +210,92 @@ class BaseProcessWorker:
         a call run about a second past its timeout. ``None`` is startup, which
         has no request clock.
         """
-        timeout_sec = _SPAWN_READY_TIMEOUT_SEC
         if self._shutting_down:
             return
         if not self.kill():
             return
         if self._shutting_down or self.child is not None:
             return
-        # What was wrong: spawn_budget was fixed before this wait, and
-        # _REAP_WAIT_SEC can block for a second. A longer request with under
-        # a second left still started a child. The handshake timeout is
-        # computed after Popen, which can itself spend the clock.
-        # A one-second budget with a few milliseconds left also used to
-        # pass usable() and spawn. _spawn_budget refuses that.
-        if deadline is not None and _spawn_budget(deadline) is None:
+        # Refuse spawn when the remaining budget is insufficient for the handshake.
+        budget = spawn_budget(deadline) if deadline is not None else None
+        if deadline is not None and budget is None:
             return
         managed = ManagedSubprocess(
             [sys.executable, self.script_path],
             base_env=None,
             scrub_env=True,
             optimize_pipes=True,
-            stderr_tail_chars=_STDERR_LOG_CAP,
+            stderr_tail_chars=STDERR_LOG_CAP,
             stderr_name=self._drain_name(),
             label=f"{self.worker_name} #{self.worker_id}",
         )
         spawned: Child | None = None
         published = False
-        try:
-            managed.start()
-            spawned = Child(managed, worker_name=self.worker_name, worker_id=self.worker_id)
-            # Do not hold _lifecycle_lock across start() or the handshake read.
-            # kill() takes that lock only to drop the pointer, and the
-            # handshake can block for the spawn budget.
-            if not self._adopt(spawned):
-                spawned.signal_from()
-                return
+        cap_sec = SPAWN_READY_TIMEOUT_SEC
+
+        def _publish(child: Child) -> bool:
+            nonlocal published
+            if not self._adopt(child):
+                return False
             published = True
-            proc = managed.popen
-            # Popen itself is not on the clock. If it ran past the deadline,
-            # or left less than the spawn floor, kill the child here. A
-            # handshake read of a spent clock used to floor at 0.01s and
-            # then SIGKILL.
-            if deadline is not None:
-                spawn_for = _spawn_budget(deadline)
-                if spawn_for is None:
-                    self.kill()
-                    return
-                timeout_sec = min(_SPAWN_READY_TIMEOUT_SEC, spawn_for)
-            # The ready read is the pipe owner. Stop can signal during it.
-            # end_io closes after the read returns, including on timeout.
-            spawned.begin_io()
+            return True
+
+        try:
+            tag, extra, handshake_child = spawn_managed_child_with_handshake(
+                managed,
+                worker_name=self.worker_name,
+                worker_id=self.worker_id,
+                is_alive=self.is_alive,
+                max_payload_bytes=self.max_payload_bytes,
+                unpacker=self._unpacker,
+                # Not the caller thread: an HTTP worker exits at shutdown and
+                # PDEATHSIG would kill this child with it.
+                start=functools.partial(supervisor.spawn, timeout_sec=budget),
+                publish=_publish,
+                deadline=deadline,
+                cap_sec=cap_sec,
+            )
+            spawned = handshake_child
+            if tag == "refused":
+                return
+            if tag == "budget_exhausted":
+                self.kill()
+                return
             try:
-                ready_data: Any = None
-                if proc is not None and proc.stdout is not None:
-                    ready_data = read_pickle_frame(
-                        proc.stdout,
-                        timeout_sec,
-                        is_alive=self.is_alive,
-                        max_payload_bytes=self.max_payload_bytes,
-                        require_dict=True,
-                        unpacker=self._unpacker,
+                proc = managed.popen
+                if tag == "ready":
+                    ready_data = extra
+                    log.info(
+                        "%s #%d spawned (pid=%s, status=%s)",
+                        self.worker_name,
+                        self.worker_id,
+                        ready_data.get("pid", getattr(proc, "pid", None)),
+                        ready_data.get("status"),
                     )
-                # Only status "ready" counts. EOF or any other dict would mark the
-                # worker idle, and the next execute would wait out the full
-                # timeout before EMPTY_RESPONSE.
-                if not isinstance(ready_data, dict) or ready_data.get("status") != "ready":
-                    status = ready_data.get("status") if isinstance(ready_data, dict) else None
+                    self.tasks_executed = 0
+                    self.pending_exit = False
+                elif tag == "interrupted":
+                    self._drop_child(spawned)
+                elif tag == "not_ready":
+                    status = extra
                     self.kill()
                     self._log_spawn_outcome(
                         f"{self.worker_name} #{self.worker_id} spawn handshake was not ready (status={status!r})",
                         spawned,
                     )
-                    return
-                log.info(
-                    "%s #%d spawned (pid=%s, status=%s)",
-                    self.worker_name,
-                    self.worker_id,
-                    ready_data.get("pid", getattr(proc, "pid", None)),
-                    ready_data.get("status"),
-                )
-                self.tasks_executed = 0
-                self.pending_exit = False
-            except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
-                # No-byte hang is TimeoutExpired. A deadline after the first
-                # handshake byte is IpcPartialFrameTimeout (a ConnectionError).
-                # That used to be logged as "Failed to spawn". The child is
-                # killed either way; the next lease respawns the slot.
-                rc = proc.poll() if proc is not None else None
-                self.kill()
-                self._log_spawn_outcome(
-                    f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})",
-                    spawned,
-                )
+                elif tag == "timeout":
+                    rc = proc.poll() if proc is not None else None
+                    self.kill()
+                    self._log_spawn_outcome(
+                        f"{self.worker_name} #{self.worker_id} spawn handshake timed out (returncode={rc})",
+                        spawned,
+                    )
             finally:
                 self._end_child_io(spawned)
         except Exception as exc:
+            if spawned is not None:
+                self._end_child_io(spawned)
             message = f"Failed to spawn {self.worker_name} #{self.worker_id}: {exc}"
-            # What was wrong: this kill() reaped self.child. A second respawn
-            # can raise before adopt while the first call's child is already
-            # published, and that child was healthy. Only the Child this call
-            # constructed is signaled on that path.
             if not published:
                 if spawned is not None:
                     spawned.signal_from()
@@ -610,21 +370,10 @@ class BaseProcessWorker:
         # back to 0, so counting the failure cannot retire a dying slot
         # across processes. Counting a timeout that never ran can retire
         # a healthy one. ``kill`` stays a call-site choice.
-        # What was wrong: a read ValueError, ConnectionResetError, or
-        # TimeoutExpired while the pool was stopping was WORKER_IPC_ERROR,
-        # WORKER_CRASHED, or EXECUTION_TIMEOUT. Windows raises
-        # TimeoutExpired from is_alive before the read sees EOF. The
-        # child is already being reaped, so this must not kill again.
-        # kill=False stays put: the clock was spent before a frame was sent.
+        # Map worker errors to shutdown error if the pool is stopping.
         if kill and self._shutting_down and code in _SHUTDOWN_INSTEAD:
             return self._shutdown_error()
-        # What was wrong: kill=False still read the stderr tail. That is
-        # shutdown, a clock spent before the frame was sent, or a spawn
-        # that already logged its own tail. The read could attach a
-        # previous child's text to an unrelated error. The tail belongs
-        # on the failure that is about to kill the child that wrote it.
-        # The drain is joined by kill() when the reap finishes, so the
-        # snippet is taken after that.
+        # Attach diagnostic tail only when killing the failed child.
         child = self.child
         if kill:
             self.kill()
@@ -632,8 +381,7 @@ class BaseProcessWorker:
             if snippet:
                 msg = f"{msg}\n{snippet}"
             log.warning("%s request failed (%s) on worker #%d; terminating pid=%s", self.worker_name, code, self.worker_id, pid)
-        message = msg if code in _MIRROR_MESSAGE else None
-        return error_dict(code, msg, message=message)
+        return error_dict(code, msg)
 
     def _shutdown_error(self) -> dict[str, Any]:
         """The slot is stopping. Do not kill, and do not read stderr.
@@ -644,11 +392,7 @@ class BaseProcessWorker:
         return error_dict("SERVICE_SHUTDOWN", f"{self.worker_name} #{self.worker_id} is shutting down.")
 
     def _timeout_message(self, deadline: Deadline) -> str:
-        """Error text for a spent budget. Sub-second budgets are refused, not reported as 0.
-
-        ``int`` of a 1.9s budget used to report "1 seconds". A whole 1s
-        budget used to say "1 seconds" as well.
-        """
+        """Error text for a spent budget. Sub-second budgets are refused, not reported as 0."""
         seconds = deadline.budget_sec
         if seconds < 1:
             return "Execution timeout must be at least 1 second."
@@ -701,7 +445,7 @@ class BaseProcessWorker:
             pid = proc.pid if proc is not None else None
             if self._shutting_down:
                 return self._shutdown_error()
-            if _spawn_budget(deadline) is None:
+            if spawn_budget(deadline) is None:
                 return self._fail_timeout(deadline, pid, kill=False)
             return None
 
@@ -709,7 +453,7 @@ class BaseProcessWorker:
             refused = _refused_dead_slot()
             if refused is not None:
                 return refused
-            # respawn recomputes the handshake timeout from _spawn_budget
+            # respawn recomputes the handshake timeout from spawn_budget
             # after Popen. A budget taken before the reap wait can disagree
             # with the time left, and the argument is unused when deadline is set.
             self.respawn(deadline=deadline)
@@ -730,8 +474,6 @@ class BaseProcessWorker:
         """Send request to worker process and await response with timeout.
 
         ``req_id`` is copied onto the returned dict when it is not None.
-        Pools used to patch ``id`` afterward, so an error frame could leave
-        without it. ``None`` still omits the key.
         """
         res = self._execute(payload, timeout_sec)
         if req_id is not None and isinstance(res, dict):
@@ -750,12 +492,7 @@ class BaseProcessWorker:
             if spent is not None:
                 return spent
             try:
-                # Pack before spawn and before any pipe write. An oversized or
-                # unpicklable payload used to start a child and then return.
-                # IpcFrameError and pickle errors mean no byte was written.
-                # What was wrong: ValueError and TypeError were caught around
-                # the whole write. A pipe that raised them was reported as
-                # REQUEST_NOT_SERIALIZABLE and left alive on a desynced frame.
+                # Pack before spawn and before any pipe write to ensure frame alignment.
                 frame = pack_pickle_frame(payload, max_payload_bytes=self.max_payload_bytes)
             except IpcFrameError as exc:
                 # Raised before any byte is written. No child was started for
@@ -763,12 +500,7 @@ class BaseProcessWorker:
                 # drop every shared session.
                 return error_dict("PAYLOAD_TOO_LARGE", str(exc))
             except (pickle.PicklingError, TypeError, ValueError, RecursionError) as exc:
-                # pickle.dumps used to escape execute. ValueError and
-                # RecursionError did too, and the HTTP handler turned them
-                # into an unhandled 500. The child is still frame-aligned, so
-                # it stays. AttributeError is not included: a shutdown race on
-                # self.process used to land here and skip the kill.
-                # MemoryError is not included: the process may be out of memory.
+                # Serialization error occurred before any byte was written; child stays alive.
                 return error_dict("REQUEST_NOT_SERIALIZABLE", str(exc))
             spent = self._fail_if_unusable(deadline, self.process)
             if spent is not None:
@@ -782,64 +514,42 @@ class BaseProcessWorker:
             # proc is live here. The nullable pid helper stays in
             # _ensure_live_process, where the slot may still be empty.
             pid = proc.pid
-            # Spawn or packing spent the clock. Writing the floored 0.01s
-            # used to time out and kill a child that was sent nothing.
-            # One usable() call: the float is the write budget.
             ready = deadline.usable()
             if ready is None:
                 return self._fail_timeout(deadline, pid, kill=False)
-            # Owner for the write and the read. Shutdown may only signal
-            # until this finally closes. A successful response leaves the
-            # pipes open: end_io closes only after a signal.
             child = self.child
             if child is not None and child.managed.popen is proc:
                 child.begin_io()
             else:
                 child = None
-            try:
-                try:
-                    # The write shares the request deadline. It holds self.lock, so a
-                    # child that stopped reading stdin would never return and the
-                    # slot would stay leased. A partial frame is desynchronized,
-                    # so the child is killed.
-                    write_packed_frame_with_timeout(stdin, frame, ready, is_alive=self.is_alive)
-                except subprocess.TimeoutExpired:
-                    return self._fail_timeout(deadline, pid)
-                except (OSError, TypeError, ValueError) as exc:
-                    # TypeError and ValueError are no longer pickle failures. A
-                    # pipe that raises them may already have written part of the
-                    # frame, so the child is killed. During shutdown
-                    # _fail_request reports SERVICE_SHUTDOWN and does not kill
-                    # again: the child is already being reaped.
-                    return self._fail_request("WORKER_PIPE_BROKEN", f"Failed to send request to {self.worker_name} #{self.worker_id}: {exc}", pid=pid)
 
-                remaining = deadline.left()
-                if remaining <= 0:
-                    # The frame was written. Do not start a read on a spent clock.
-                    return self._fail_timeout(deadline, pid)
-                try:
-                    resp = read_pickle_frame(stdout, remaining, is_alive=self.is_alive, max_payload_bytes=self.max_payload_bytes, unpacker=self._unpacker)
-                except (subprocess.TimeoutExpired, IpcPartialFrameTimeout):
-                    # No frame or partial frame arrival before deadline is a timeout.
-                    # Kill rather than read it later: the next caller would consume
-                    # leftover bytes or this response as its own.
-                    return self._fail_timeout(deadline, pid)
-                except ValueError as exc:
-                    # What was wrong: an invalid or oversized response frame was
-                    # WORKER_CRASHED. IpcFrameError is a ValueError. The
-                    # restricted unpickler raises ValueError after those bytes
-                    # were consumed. The pipe is not on a frame the next request
-                    # can read, so the child is killed. During shutdown this is
-                    # SERVICE_SHUTDOWN, from _fail_request.
-                    return self._fail_request("WORKER_IPC_ERROR", f"{self.worker_name} rejected a response frame: {exc}", pid=pid)
-                except Exception as exc:
-                    return self._fail_request("WORKER_CRASHED", f"{self.worker_name} error: {exc}", pid=pid)
-                if not isinstance(resp, dict):
-                    # Shutdown kills the child while this read is in flight. EOF
-                    # used to be EMPTY_RESPONSE, which counts a task and looks
-                    # like a crash. _fail_request maps that to SERVICE_SHUTDOWN
-                    # when the slot is stopping. The child is already being reaped.
-                    return self._fail_request("EMPTY_RESPONSE", f"No response returned from {self.worker_name}.", pid=pid)
+            def _on_fail(code: str, detail: str, *, phase: FailPhase) -> dict[str, Any]:
+                if code == "EXECUTION_TIMEOUT":
+                    # before_send: nothing was written. after_send/write/read: the child
+                    # already has the frame or is mid-I/O — kill so the slot respawns clean.
+                    kill = phase != "before_send"
+                    return self._fail_timeout(deadline, pid, kill=kill)
+                msg = _compute_slot_fail_message(
+                    code,
+                    detail,
+                    worker_name=self.worker_name,
+                    worker_id=self.worker_id,
+                )
+                return self._fail_request(code, msg, pid=pid)
+
+            try:
+                resp = framed_request_roundtrip(
+                    stdin,
+                    stdout,
+                    frame,
+                    deadline,
+                    is_alive=self.is_alive,
+                    max_payload_bytes=self.max_payload_bytes,
+                    unpacker=self._unpacker,
+                    on_fail=_on_fail,
+                )
+                if resp.get("status") == "error":
+                    return resp
                 if resp.get("exiting") is True:
                     self.pending_exit = True
                     resp.pop("exiting", None)

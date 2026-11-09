@@ -32,7 +32,7 @@ Why bother (measured 2026-08-10 under ``plugin/``, excluding tests):
   keep-list preserves stderr fallbacks, subprocess IPC, and CLI UX)
 * ``@deal.*`` — ~364 decorators, ~34 KB (shim already no-ops; strip skips def-time wrappers)
 
-Imports, logger setup, ``grammar_obs.py``, ``emit_grammar_status``, and
+Imports, logger setup, ``grammar_obs.py``, ``GrammarStatus``, and
 ``from plugin.framework.deal_shim import deal`` stay intact.
 
 Line edits / empty-suite ``pass`` live in
@@ -493,22 +493,16 @@ def set_background_task(name: str | None) -> None:
 def get_background_task_name() -> str | None:
     return getattr(_bg, "task_name", None)
 
-def set_designated_main_thread(thread: Any) -> None:
+# What was wrong: release/LibrePy install ImportError on set_thread_violation_ui
+# when bootstrap_ui_hooks.register_framework_ui_hooks() ran after strip.
+# How it happened: THREAD_GUARD_RELEASE_STUB omitted the setter while the real
+# module and bootstrap still import it.
+# Why this change fixes it: no-op stub so registration is a no-op under GUARD_ON=False.
+def set_thread_violation_ui(fn: Any) -> None:
     pass
 
-def get_designated_main_thread() -> Any:
-    return None
-
-# Bugfix: on_main_thread() previously returned True unconditionally.
-# This caused background threads (e.g. Writer linguistic worker Dummy-21) calling
-# wait_while_pumping to falsely believe they were on the main thread and skip
-# posting PE2I events to the main thread. Checking threading.current_thread()
-# is threading.main_thread() correctly identifies background worker threads in release bundles.
-def on_main_thread() -> bool:
-    return threading.current_thread() is threading.main_thread()
-
-def on_python_main_thread() -> bool:
-    return threading.current_thread() is threading.main_thread()
+# In release bundles untagged Dummy-N is not current so linguistic worker Dummy-21 does not skip PE2I posts.
+UNTAGGED_DUMMY_IS_CURRENT = False
 
 
 def _wrap_uno(obj: Any) -> Any:
@@ -539,11 +533,11 @@ class _UnoThreadGuardProxy:
         return self._target(*args, **kwargs)
 
     def __eq__(self, other: object) -> bool:
-        return self._target == _unwrap_uno(other)
+        return self._target == unwrap_uno(other)
 
-def _unwrap_uno(obj: Any) -> Any:
+def unwrap_uno(obj: Any) -> Any:
     # Do not walk list/tuple/dict: _wrap_uno never wraps, and copying
-    # containers would change identity (_unwrap_uno(doc) is doc). If _wrap_uno
+    # containers would change identity (unwrap_uno(doc) is doc). If _wrap_uno
     # ever wraps, copy the dev recursion in the same change.
     if isinstance(obj, _UnoThreadGuardProxy):
         return obj._target
@@ -562,12 +556,10 @@ __all__ = [
     "in_sync_host_dispatch",
     "set_background_task",
     "get_background_task_name",
-    "set_designated_main_thread",
-    "get_designated_main_thread",
-    "on_main_thread",
-    "on_python_main_thread",
+    "set_thread_violation_ui",
+    "UNTAGGED_DUMMY_IS_CURRENT",
     "_wrap_uno",
-    "_unwrap_uno",
+    "unwrap_uno",
     "GUARD_ON",
     "THREAD_VIOLATION_MARK",
 ]

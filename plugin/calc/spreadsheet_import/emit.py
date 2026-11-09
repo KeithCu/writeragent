@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.framework.errors import best_effort
 from plugin.calc.address_utils import parse_address
-from plugin.calc.python.formula_edit import rebuild_python_formula_with_data
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.spreadsheet_import.models import (
     CellRecord,
     ConversionReport,
@@ -59,7 +59,7 @@ def _parsed_has_function(formula: str | None, what: str) -> bool | None:
 def emit_py_formula(code: str, data_ranges: list[str], *, sheet_bounds: dict[str, tuple[int, int]] | None = None, current_sheet: str | None = None) -> str:
     """Build canonical ``=PY("…"; ranges…)``."""
     clipped = clip_workbook_data_ranges(data_ranges, sheet_bounds=sheet_bounds, current_sheet=current_sheet)
-    return rebuild_python_formula_with_data(code, clipped)
+    return PyFormula.compose(code, clipped)
 
 
 def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, sheet_bounds: dict[str, tuple[int, int]] | None = None) -> tuple[OutputSheetModel, ConversionReport]:
@@ -141,11 +141,9 @@ def build_converted_output_model(model: SheetModel, *, vectorize: bool = False, 
             else:
                 _pass_through(addr, record, translation.reason or "UNSUPPORTED_FUNCTION")
         except Exception:
-            # Bugfix: one pathological formula aborted the whole sheet. parse/_emit
-            # recurse the AST, so a formula deeper than Python's recursion limit
-            # raises RecursionError out of translate_formula (it catches only
-            # ValueError/TypeError/IndexError/TranslationError). Keep the original
-            # formula and report this cell instead.
+            # parse/_emit recurse the AST; RecursionError escapes translate_formula
+            # (it catches only ValueError/TypeError/IndexError/TranslationError).
+            # Per-cell failure must not abort the whole sheet—keep the formula and report this cell.
             log.exception("build_converted_output_model: cell %s failed", addr)
             _pass_through(addr, record, "EMIT_ERROR")
 

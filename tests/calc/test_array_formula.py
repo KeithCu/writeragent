@@ -85,3 +85,17 @@ def test_result_range_clamps_bounds():
 )
 def test_missing_array_returners(func_name):
     assert returns_array(f"={func_name}(A1:B2)") is True
+
+
+def test_plan_target_rejects_explicit_range_over_cell_limit():
+    import pytest
+
+    from plugin.calc.array_formula import MAX_ARRAY_CELLS, plan_target
+    from plugin.framework.errors import CalcError
+
+    rows = MAX_ARRAY_CELLS // 10 + 1
+    with pytest.raises(CalcError, match="cell limit"):
+        plan_target(0, 0, 9, rows - 1, 1, 1)
+    # At the limit is still accepted.
+    target, _notes = plan_target(0, 0, 9, MAX_ARRAY_CELLS // 10 - 1, 1, 1)
+    assert (target.right, target.bottom) == (9, MAX_ARRAY_CELLS // 10 - 1)

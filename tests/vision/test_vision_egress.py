@@ -64,8 +64,8 @@ def test_insert_vision_result_writer(mock_writer):
     doc = MagicMock()
     result = {"status": "ok", "helper": "extract_text", "html": "<p>hi</p>"}
 
-    with patch("plugin.doc.doc_type.is_writer", return_value=True), patch(
-        "plugin.doc.doc_type.is_calc", return_value=False
+    with patch("plugin.framework.doc_type.is_writer", return_value=True), patch(
+        "plugin.framework.doc_type.is_calc", return_value=False
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
         insert_vision_result(ctx, doc, result)
 
@@ -78,8 +78,8 @@ def test_insert_vision_result_calc(mock_calc):
     doc = MagicMock()
     result = {"status": "ok", "helper": "extract_text", "html": "<p>hi</p>"}
 
-    with patch("plugin.doc.doc_type.is_writer", return_value=False), patch(
-        "plugin.doc.doc_type.is_calc", return_value=True
+    with patch("plugin.framework.doc_type.is_writer", return_value=False), patch(
+        "plugin.framework.doc_type.is_calc", return_value=True
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
         insert_vision_result(ctx, doc, result)
 
@@ -98,8 +98,8 @@ def test_insert_vision_result_calc_structured(mock_structured, mock_html):
         "tables": [{"name": "table_1", "columns": ["A"], "rows": [["1"]]}],
     }
 
-    with patch("plugin.doc.doc_type.is_writer", return_value=False), patch(
-        "plugin.doc.doc_type.is_calc", return_value=True
+    with patch("plugin.framework.doc_type.is_writer", return_value=False), patch(
+        "plugin.framework.doc_type.is_calc", return_value=True
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="structured"):
         insert_vision_result(ctx, doc, result, params={"insert_mode": "structured"})
 
@@ -245,8 +245,8 @@ def test_insert_vision_result_calc_passes_image_name(mock_calc):
     ctx = MagicMock()
     doc = MagicMock()
     result = {"status": "ok", "helper": "extract_text", "html": "<p>hi</p>"}
-    with patch("plugin.doc.doc_type.is_writer", return_value=False), patch(
-        "plugin.doc.doc_type.is_calc", return_value=True
+    with patch("plugin.framework.doc_type.is_writer", return_value=False), patch(
+        "plugin.framework.doc_type.is_calc", return_value=True
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="html"):
         insert_vision_result(ctx, doc, result, params={"image_name": "Photo1"})
     mock_calc.assert_called_once_with(doc, ctx, "<p>hi</p>", image_name="Photo1")
@@ -267,8 +267,8 @@ def test_calc_structured_fallback_uses_html_docling(mock_structured, mock_html):
         "html_docling": "<p>original docling</p>",
         "tables": [],
     }
-    with patch("plugin.doc.doc_type.is_writer", return_value=False), patch(
-        "plugin.doc.doc_type.is_calc", return_value=True
+    with patch("plugin.framework.doc_type.is_writer", return_value=False), patch(
+        "plugin.framework.doc_type.is_calc", return_value=True
     ), patch("plugin.vision.vision_egress.resolve_vision_insert_mode", return_value="structured"):
         insert_vision_result(ctx, doc, result, params={"insert_mode": "structured", "image_name": "Photo1"})
     mock_structured.assert_called_once()

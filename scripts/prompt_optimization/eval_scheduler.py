@@ -108,6 +108,9 @@ def select_pack(
     ``--student scripted`` only replays tasks that have a script. The flag
     has none — it has to be a live model on LO.
     """
+    from eval_prompts import ensure_eval_prompt_hooks
+
+    ensure_eval_prompt_hooks()
     notes: list[str] = []
     rows = list(examples)
     if cli_backend == BACKEND_STRING:
@@ -246,6 +249,9 @@ def run_dual_lane(
     ``lo_workers`` sizes a lane this function creates. A caller-supplied
     ``lo_lane`` keeps its own width (one shared pool across model workers).
     """
+    from eval_prompts import ensure_eval_prompt_hooks
+
+    ensure_eval_prompt_hooks()
     n = len(jobs)
     results: list[Any] = [None] * n
     lo_indexes = [i for i, (backend, _fn) in enumerate(jobs) if backend == BACKEND_LO]

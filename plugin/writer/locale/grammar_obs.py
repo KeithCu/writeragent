@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import logging
-import re
+import threading
 from typing import Any, cast
 
 from plugin.framework.event_bus import get_event_bus
@@ -24,33 +24,37 @@ def grammar_obs(event: str, **fields: Any) -> None:
     log.debug("[grammar] obs %s %s", event, kv)
 
 
-_last_status_indicator: Any = None
+def slice_preview_debug(text: str, max_len: int = 72) -> str:
+    """Compact one-line preview for DEBUG logs (avoid dumping huge paragraphs)."""
+    if not text:
+        return ""
+    chars: list[str] = []
+    in_whitespace = False
+    started = False
+    limit = max_len + 1
+    for ch in text:
+        if ch.isspace():
+            if started and not in_whitespace:
+                chars.append(" ")
+                in_whitespace = True
+                if len(chars) == limit:
+                    break
+        else:
+            started = True
+            in_whitespace = False
+            chars.append(ch)
+            if len(chars) == limit:
+                break
+    if not chars:
+        return ""
+    if len(chars) > max_len:
+        return f"{''.join(chars[:max_len])}\u2026"
+    if chars[-1] == " ":
+        chars.pop()
+    return "".join(chars)
 
-# Per-keystroke Harper / enqueue strings. Painting these via XStatusIndicator
-# replaces the Writer status bar on every doProofreading (issue #768).
-_ROUTINE_LIBREHARPER_STATUS_RESULTS = frozenset({
-    "harper",
-    "harper check",
-    "queued",
-})
-_ISSUE_COUNT_RESULT = re.compile(r"^\d+ issues?$", re.IGNORECASE)
-_DONE_PHASES = ("done", "complete")
-_TERMINAL_STATUS_PHASES = _DONE_PHASES + ("failed",)
 
-
-def is_routine_libreharper_status(phase: str, result: str) -> bool:
-    """True for steady-state LibreHarper strings that must not paint the status bar.
-
-    Failures always paint. Progress text (download, starting harper-ls) is not routine.
-    """
-    if phase == "failed":
-        return False
-    normalized = (result or "").strip().lower()
-    if not normalized:
-        return True
-    if normalized in _ROUTINE_LIBREHARPER_STATUS_RESULTS:
-        return True
-    return _ISSUE_COUNT_RESULT.fullmatch(normalized) is not None
+_TERMINAL_STATUS_PHASES = ("done", "failed")
 
 
 def _frame_from_controller(obj: Any) -> Any | None:
@@ -114,100 +118,154 @@ def resolve_status_bar_frame(ctx: Any) -> Any | None:
     return _frame_from_existing_desktop_singleton(ctx)
 
 
-def update_libreoffice_status_bar(phase: str, result: str) -> None:
-    """Update the LibreOffice window status bar using XStatusIndicator."""
-    global _last_status_indicator
-    routine = is_routine_libreharper_status(phase, result)
+class GrammarStatus:
+    """Base sink for grammar proofreading status updates."""
 
-    msg = f"LibreHarper: {result or 'Checking...'}"
-    if phase in _DONE_PHASES:
-        msg = "LibreHarper: Grammar check complete"
-    elif phase == "failed":
-        msg = f"LibreHarper: Failed ({result})" if result else "LibreHarper: Grammar check failed"
+    _lock: threading.Lock
+    _status_inflight: int
+    _pending_done: tuple[str, dict[str, Any]] | None
 
-    try:
-        if routine:
-            # Routine terminal ("2 issues"): finish the lifecycle but keep
-            # the visible text. Skipping it left the indicator stuck.
-            if _last_status_indicator is not None:
-                _last_status_indicator.end()
-                _last_status_indicator = None
-            return
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._status_inflight = 0
+        self._pending_done = None
 
-        from plugin.framework.uno_context import get_ctx
+    def _deliver(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        """Deliver a status update. ``routine=True`` marks steady-state per-keystroke text; the
+        LibreHarper status-bar sink must not paint it unless the phase is terminal and an
+        indicator is already active (issue #768).
+        """
+        pass
 
-        # Never create Desktop here: uno.bin register ctx has no VCL (issue #768).
-        frame = resolve_status_bar_frame(get_ctx())
-        if frame is None:
-            return
+    def start(self, text: str, *, result: str = "", routine: bool = False) -> None:
+        self._deliver("start", text, result=result, routine=routine)
 
-        if phase in _DONE_PHASES:
-            if _last_status_indicator is not None:
-                _last_status_indicator.setText(msg)
-                _last_status_indicator.setValue(100)
-                _last_status_indicator.end()
-                _last_status_indicator = None
-        elif _last_status_indicator is None:
-            indicator = frame.createStatusIndicator()
-            if indicator is not None:
-                indicator.start(msg, 100)
-            _last_status_indicator = indicator
-        else:
-            # What was wrong: setText/setValue on a disposed indicator was
-            # swallowed, so _last_status_indicator stayed set. Later
-            # start/request paints hit that dead object and did nothing
-            # until a done phase.
-            # How: the frame that owned the indicator closed during
-            # proofreading; the inner except pass kept the reference.
-            # Why: this raise reaches the outer handler, which clears the
-            # indicator so the next progress paint creates a new one.
-            _last_status_indicator.setText(msg)
-            _last_status_indicator.setValue(100 if phase == "failed" else 50)
-    except Exception as e:
-        log.debug("[grammar] update_libreoffice_status_bar failed: %s", e)
-        _last_status_indicator = None
+    def request(
+        self,
+        text: str,
+        *,
+        result: str = "",
+        preview_source: str | None = None,
+        routine: bool = False,
+    ) -> None:
+        self._deliver("request", text, result=result, preview_source=preview_source, routine=routine)
+
+    def done(
+        self,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        self._deliver(
+            "done",
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+            routine=routine,
+        )
+
+    def failed(self, text: str, *, result: str = "") -> None:
+        self._deliver("failed", text, result=result)
+
+    def relay_status_update(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        """Deliver one status phase without touching begin/end cycle counters (composite sinks)."""
+        self._deliver(
+            phase,
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+            routine=routine,
+        )
+
+    def begin_status_cycle(self) -> None:
+        """Mark one batch in flight (sidebar/status-bar done is deferred)."""
+        with self._lock:
+            self._status_inflight += 1
+
+    def record_done_status(
+        self,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        """Remember the latest chunk result; emitted when the last in-flight batch finishes."""
+        with self._lock:
+            self._pending_done = (
+                text,
+                {
+                    "result": result,
+                    "elapsed_ms": elapsed_ms,
+                    "preview_source": preview_source,
+                    "length_hint": length_hint,
+                    "routine": routine,
+                },
+            )
+
+    def end_status_cycle(self) -> None:
+        """Drop in-flight count; emit one terminal done when all parallel batches finish."""
+        pending: tuple[str, dict[str, Any]] | None = None
+        with self._lock:
+            had_cycle = self._status_inflight > 0
+            if had_cycle:
+                self._status_inflight -= 1
+            last = self._status_inflight == 0
+            if last:
+                pending = self._pending_done
+                self._pending_done = None
+        if pending is not None:
+            text, kw = pending
+            self.done(text, **kw)
+        elif had_cycle and last:
+            self.done("batch", result="skipped")
 
 
-def emit_grammar_status(
-    phase: str,
-    text: str,
-    *,
-    result: str = "",
-    elapsed_ms: int | None = None,
-    preview_source: str | None = None,
-    length_hint: int | None = None,
-) -> None:
-    """Emit status to the LibreOffice status bar (for LibreHarper) or sidebar event bus (for WriterAgent)."""
-    from .grammar_proofread_text import slice_preview_debug
-    from plugin.framework.uno_context import is_libreharper
+class SidebarGrammarStatus(GrammarStatus):
+    """WriterAgent: relay status to the sidebar event bus."""
 
-    try:
-        if is_libreharper():
-            # Skip main-thread posts for per-keystroke strings so typing does not
-            # thrash XStatusIndicator (issue #768 status-bar flash / stalls).
-            routine = is_routine_libreharper_status(phase, result)
-            # A routine terminal result ("2 issues") still posts while an
-            # indicator is up: it has to end that indicator (stuck-status bug).
-            if routine and (
-                phase not in _TERMINAL_STATUS_PHASES or _last_status_indicator is None
-            ):
-                return
-            # pythonloader in uno.bin can rewrite argv; do not post a status
-            # paint that would look up theDesktop on a no-VCL ctx (#768).
-            if desktop_create_is_unsafe():
-                return
-            from plugin.framework.queue_executor import post_to_main_thread
-
-            # Always post. Linguistic doProofreading can look like VCL
-            # (on_main_thread True) while still being the proofreading worker
-            # that holds _HARPER_LOCK. Inline XStatusIndicator there freezes
-            # or kills Writer. Progress strings (Starting Harper…, download)
-            # still paint — just never on this thread.
-            try:
-                post_to_main_thread(update_libreoffice_status_bar, phase, result)
-            except Exception:
-                log.debug("Failed to post status bar update to main thread", exc_info=True)
-        else:
+    def _deliver(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        try:
             if preview_source is not None:
                 raw = preview_source.strip() or "(empty)"
                 preview = slice_preview_debug(raw, 10)
@@ -215,11 +273,203 @@ def emit_grammar_status(
             else:
                 preview = slice_preview_debug(text.strip() or "(empty)", 10)
                 length = len(text)
-            get_event_bus().emit("grammar:status", phase=phase, preview=preview, length=length, result=result, elapsed_ms=elapsed_ms)
-    except Exception as e:
-        log.debug("[grammar] status emit failed: %s", e, exc_info=True)
+            get_event_bus().emit(
+                "grammar:status",
+                phase=phase,
+                preview=preview,
+                length=length,
+                result=result,
+                elapsed_ms=elapsed_ms,
+            )
+        except Exception as e:
+            log.debug("[grammar] sidebar status emit failed: %s", e, exc_info=True)
 
 
-def emit_harper_worker_status(sentence_text: str, message: str) -> None:
-    """Relay Harper venv-worker progress to the sidebar grammar status field."""
-    emit_grammar_status("request", sentence_text, result=message, preview_source=sentence_text)
+class StatusBarGrammarStatus(GrammarStatus):
+    """LibreHarper: update the LibreOffice window status bar using XStatusIndicator."""
+
+    _indicator: Any
+    _label: str
+
+    def __init__(self, label: str = "LibreHarper") -> None:
+        super().__init__()
+        self._indicator = None
+        self._label = label
+
+    def is_active(self) -> bool:
+        """True when an XStatusIndicator session is open on the status bar."""
+        return self._indicator is not None
+
+    def _deliver(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        try:
+            if routine and (
+                phase not in _TERMINAL_STATUS_PHASES or self._indicator is None
+            ):
+                return
+            if desktop_create_is_unsafe():
+                return
+            from plugin.framework.queue_executor import main, pump_main_thread_work_queue
+            from plugin.framework.uno_context import get_ctx, process_events_to_idle
+
+            try:
+                main.post(self._paint, phase, result, routine)
+            except Exception:
+                log.debug("Failed to post status bar update to main thread", exc_info=True)
+                return
+
+            # The grammar worker is blocked in harper-ls, so the queued setText paints only after main drains its queue and idles VCL.
+            # VCL idle pumping uses main.post, not main.call, so a blocked grammar worker
+            # does not time out and abort the lint; force=False respects chat drain ownership.
+            def _pump() -> None:
+                pump_main_thread_work_queue(max_items=8)
+                process_events_to_idle(get_ctx(), force=False)
+
+            try:
+                main.post(_pump)
+            except Exception as e:
+                log.warning("[grammar] Harper status UI pump skipped: %s", e)
+        except Exception as e:
+            log.debug("[grammar] status bar emit failed: %s", e, exc_info=True)
+
+    def _paint(self, phase: str, result: str = "", routine: bool = False) -> None:
+        """Update the LibreOffice window status bar using XStatusIndicator."""
+        prefix = self._label
+        msg = f"{prefix}: {result or 'Checking...'}"
+        if phase == "done":
+            msg = f"{prefix}: Grammar check complete"
+        elif phase == "failed":
+            msg = f"{prefix}: Failed ({result})" if result else f"{prefix}: Grammar check failed"
+
+        try:
+            if routine:
+                if self._indicator is not None:
+                    self._indicator.end()
+                    self._indicator = None
+                return
+
+            from plugin.framework.uno_context import get_ctx
+
+            frame = resolve_status_bar_frame(get_ctx())
+            if frame is None:
+                return
+
+            if phase == "done":
+                if self._indicator is not None:
+                    self._indicator.setText(msg)
+                    self._indicator.setValue(100)
+                    self._indicator.end()
+                    self._indicator = None
+            elif self._indicator is None:
+                indicator = frame.createStatusIndicator()
+                if indicator is not None:
+                    indicator.start(msg, 100)
+                self._indicator = indicator
+            else:
+                self._indicator.setText(msg)
+                self._indicator.setValue(100 if phase == "failed" else 50)
+        except Exception as e:
+            log.debug("[grammar] _paint failed: %s", e)
+            self._indicator = None
+
+
+def _should_paint_writeragent_status_bar(
+    phase: str,
+    routine: bool,
+    status_bar: StatusBarGrammarStatus,
+    *,
+    bus_has_subscribers: bool,
+) -> bool:
+    """Whether WriterAgent should mirror this grammar update on the LO status bar.
+
+    Failures always paint. When nobody listens on ``grammar:status`` (e.g. Calc
+    sidebar drops the event), paint so progress is still visible. For routine
+    terminal phases, paint only when a bar indicator is already active so a
+    progress line can end cleanly instead of leaving a stale bar (issue #768).
+
+    ``bus_has_subscribers`` can change before delivery; an extra or missed bar
+    paint is benign.
+    """
+    if phase == "failed":
+        return True
+    if not bus_has_subscribers:
+        return True
+    if routine and phase in _TERMINAL_STATUS_PHASES and status_bar.is_active():
+        return True
+    return False
+
+
+class WriterAgentGrammarStatus(GrammarStatus):
+    """WriterAgent: sidebar bus plus optional status-bar fallback."""
+
+    _sidebar: SidebarGrammarStatus
+    _status_bar: StatusBarGrammarStatus
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._sidebar = SidebarGrammarStatus()
+        self._status_bar = StatusBarGrammarStatus(label="Grammar")
+
+    def _deliver(
+        self,
+        phase: str,
+        text: str,
+        *,
+        result: str = "",
+        elapsed_ms: int | None = None,
+        preview_source: str | None = None,
+        length_hint: int | None = None,
+        routine: bool = False,
+    ) -> None:
+        self._sidebar.relay_status_update(
+            phase,
+            text,
+            result=result,
+            elapsed_ms=elapsed_ms,
+            preview_source=preview_source,
+            length_hint=length_hint,
+            routine=routine,
+        )
+        if _should_paint_writeragent_status_bar(
+            phase,
+            routine,
+            self._status_bar,
+            bus_has_subscribers=get_event_bus().has_subscribers("grammar:status"),
+        ):
+            self._status_bar.relay_status_update(
+                phase,
+                text,
+                result=result,
+                elapsed_ms=elapsed_ms,
+                preview_source=preview_source,
+                length_hint=length_hint,
+                routine=routine,
+            )
+
+
+_STATUS_SINK: GrammarStatus | None = None
+
+
+def get_grammar_status() -> GrammarStatus:
+    """Return the active GrammarStatus sink (chosen once per product)."""
+    global _STATUS_SINK
+    if _STATUS_SINK is None:
+        from plugin.framework.uno_context import is_libreharper
+
+        _STATUS_SINK = StatusBarGrammarStatus() if is_libreharper() else WriterAgentGrammarStatus()
+    return _STATUS_SINK
+
+
+def set_grammar_status(sink: GrammarStatus | None) -> None:
+    """Override or reset status sink (for tests and teardown)."""
+    global _STATUS_SINK
+    _STATUS_SINK = sink

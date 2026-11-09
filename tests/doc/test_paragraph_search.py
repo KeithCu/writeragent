@@ -1,12 +1,14 @@
 """Unit tests for paragraph range helpers moved out of document_helpers."""
 
 import logging
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.doc.paragraph_search import (
-    confirm_paragraph_index,
+    _confirm_paragraph_index,
+    paragraph_index_for_anchor,
     find_paragraph_for_range,
     get_paragraph_ranges,
     search_paragraph_texts,
@@ -151,18 +153,22 @@ def test_confirm_paragraph_index_keeps_real_zero_and_rejects_unplaced():
     at_start = _Para(0, 0)
     past_end = _Para(100, 100)
     assert find_paragraph_for_range(at_start, elements, text) == 0
-    assert confirm_paragraph_index(text, at_start, elements, 0) == 0
+    assert _confirm_paragraph_index(text, at_start, elements, 0) == 0
+    assert paragraph_index_for_anchor(at_start, elements, text) == 0
     # The finder returns None when the point is past the last paragraph.
     assert find_paragraph_for_range(past_end, elements, text) is None
-    assert confirm_paragraph_index(text, past_end, elements, 0) is None
-    assert confirm_paragraph_index(text, past_end, elements, None) is None
-    assert confirm_paragraph_index(text, _Para(24, 24), elements, 1) == 1
+    assert _confirm_paragraph_index(text, past_end, elements, 0) is None
+    assert _confirm_paragraph_index(text, past_end, elements, None) is None
+    assert _confirm_paragraph_index(text, _Para(24, 24), elements, 1) == 1
+    assert paragraph_index_for_anchor(past_end, elements, text) is None
+    assert paragraph_index_for_anchor(_Para(24, 24), elements, text) == 1
 
     class _Broken:
         def getStart(self):
             raise RuntimeError("stale anchor")
 
-    assert confirm_paragraph_index(text, _Broken(), elements, 0) is None
+    assert _confirm_paragraph_index(text, _Broken(), elements, 0) is None
+    assert paragraph_index_for_anchor(_Broken(), elements, text) is None
 
 
 def test_find_paragraph_for_range_unplaced_returns_none():
@@ -288,26 +294,39 @@ def test_search_paragraph_texts_exact_fit_is_not_truncated():
 
 
 def test_search_paragraph_texts_does_not_scan_past_cap():
-    scans = []
+    cancel_calls: list[int] = []
 
-    def check_stop():
-        scans.append(1)
+    def fake_is_cancelled(_cancel):
+        cancel_calls.append(1)
         return False
 
-    matches, truncated = search_paragraph_texts(
-        "foo",
-        ["foo foo foo", "foo"],
-        max_results=2,
-        stop_checker=check_stop,
-    )
+    with patch("plugin.doc.paragraph_search.is_cancelled", side_effect=fake_is_cancelled):
+        matches, truncated = search_paragraph_texts(
+            "foo",
+            ["foo foo foo", "foo"],
+            max_results=2,
+            cancel=SendCancellation(),
+        )
     assert len(matches) == 2
     assert truncated is True
-    assert len(scans) == 1
+    assert len(cancel_calls) == 1
 
 
 def test_search_paragraph_texts_stop_checker_returns_nothing():
-    matches, truncated = search_paragraph_texts("foo", ["foo"], stop_checker=lambda: True)
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
+    matches, truncated = search_paragraph_texts("foo", ["foo"], cancel=scope)
     assert matches == []
+    assert truncated is False
+
+
+def test_search_paragraph_texts_truthy_non_bool_is_not_stop():
+    scope = MagicMock()
+    scope.is_cancelled.return_value = 1
+    matches, truncated = search_paragraph_texts("foo", ["foo bar"], cancel=scope)
+    assert matches
     assert truncated is False
 
 

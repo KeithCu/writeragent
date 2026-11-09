@@ -22,14 +22,11 @@ Also: redaction helpers for debug logs that would otherwise embed large base64 (
 Concurrency: ``init_logging`` may run from bootstrap while workers already
 log. The debug log path, ``enable_agent_log``, the init lock, the activity dict,
 the activity lock, and the watchdog hung_shown / stacks_dumped flags live in
-``sys._writeragent_logging_shared``, for the same reason as the debug-file handler,
-the exception-hook flag, and the watchdog-started flag (``_writeragent_debug_file_handler``,
-``_writeragent_exception_hooks_installed``, ``_writeragent_watchdog_started``):
-LibreOffice can import this module twice, and a module global is a different
-object in each copy. ``_shared`` installs that dict with ``sys.__dict__.setdefault``
-on the first miss so two threads cannot replace each other's box. ``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
+``sys._writeragent_logging_shared``, accessed via ``process_global``.
+``_debug_log_flush_lock`` rate-limits ``flush()`` so every log
 line does not fsync. Actual line writes go through Python’s ``logging`` handler lock;
 you do not need another mutex around ``log.info``.
+``init_lock`` covers ``debug_log_path``, ``enable_agent_log``, and debug-handler install only. ``init_config``, ``get_config``, excepthook, and ``audit_plugin_roots`` stay outside it.
 """
 
 from __future__ import annotations
@@ -42,10 +39,12 @@ import traceback
 import threading
 import logging
 from copy import deepcopy
-from typing import Any, TypedDict, cast
+from types import TracebackType
+from typing import Any, TypedDict
 
 from plugin.framework.errors import ConfigError, format_error_payload
 from plugin.framework.json_utils import safe_json_loads
+from plugin.framework.process_global import process_global
 from plugin.framework import config
 
 
@@ -59,36 +58,25 @@ class _LoggingShared(TypedDict):
     stacks_dumped: bool
 
 
+def _create_logging_shared() -> _LoggingShared:
+    return {
+        "debug_log_path": None,
+        "enable_agent_log": False,
+        "init_lock": threading.Lock(),
+        "activity": {
+            "phase": "",
+            "round_num": -1,
+            "tool_name": None,
+            "last_activity": 0.0,
+        },
+        "activity_lock": threading.Lock(),
+        "hung_shown": False,
+        "stacks_dumped": False,
+    }
+
+
 def _shared() -> _LoggingShared:
-    box = getattr(sys, "_writeragent_logging_shared", None)
-    if not isinstance(box, dict):
-        fresh: dict[str, Any] = {
-            "debug_log_path": None,
-            "enable_agent_log": False,
-            "init_lock": threading.Lock(),
-            "activity": {
-                "phase": "",
-                "round_num": -1,
-                "tool_name": None,
-                "last_activity": 0.0,
-            },
-            "activity_lock": threading.Lock(),
-            "hung_shown": False,
-            "stacks_dumped": False,
-        }
-        # What was wrong: the later setattr replaced the box init_logging was filling,
-        # so debug_log_path stayed None and the locks diverged.
-        # How it happened: check-then-set while workers already log.
-        # Why this change fixes it: setdefault is one dict operation; the common path
-        # returns the existing dict and does not build locks.
-        stored = sys.__dict__.setdefault("_writeragent_logging_shared", fresh)
-        if isinstance(stored, dict):
-            box = stored
-        else:
-            setattr(sys, "_writeragent_logging_shared", fresh)
-            box = fresh
-    raw: Any = box
-    return cast("_LoggingShared", raw)
+    return process_global("logging_shared", _create_logging_shared)
 
 
 log = logging.getLogger("writeragent")
@@ -217,7 +205,6 @@ class OptionalFlushFileHandler(logging.FileHandler):
 
     # FileHandler assigns stream in __init__ with no annotation basedpyright can see.
     stream: Any
-    _writeragent_debug_handler: bool = True
 
     def emit(self, record: logging.LogRecord) -> None:
         super().emit(record)
@@ -241,12 +228,7 @@ class OptionalFlushFileHandler(logging.FileHandler):
         except RecursionError:
             raise
         except Exception:
-            # What was wrong: stream.flush and a failed rotate escaped flush.
-            # How it happened: emit force-flushes WARNING+ outside StreamHandler.emit's
-            # try, and _flush_debug_log calls flush directly, so Handler.handle on
-            # Python 3.14 does not catch it.
-            # Why this change fixes it: swallow every Exception except RecursionError,
-            # which logging re-raises to avoid a logging-error loop.
+            # Swallows flush exceptions except RecursionError to avoid logging-error loops.
             return
 
     def _rotate_if_large(self) -> None:
@@ -285,11 +267,7 @@ class OptionalFlushFileHandler(logging.FileHandler):
                 try:
                     self.stream = self._open()
                 except OSError:
-                    # What was wrong: a second OSError from _open() replaced the
-                    # caught rotation error and left flush.
-                    # How it happened: disk full or a bad path during reopen.
-                    # Why this change fixes it: leave stream None and return;
-                    # the next FileHandler.emit opens or handleErrors.
+                    # Leave stream as None on reopen failure; subsequent emits will handle errors.
                     pass
         finally:
             self.release()
@@ -314,12 +292,16 @@ class OptionalFlushFileHandler(logging.FileHandler):
 # a second import of this package does not open another fd.
 
 
+class _DebugHandlerSlot(TypedDict):
+    handler: OptionalFlushFileHandler | None
+
+
+def _debug_slot() -> _DebugHandlerSlot:
+    return process_global("debug_file_handler", lambda: _DebugHandlerSlot(handler=None))
+
+
 def _debug_file_handler_from_sys() -> OptionalFlushFileHandler | None:
-    # Class attribute, so a handler built by a second import of this module still matches.
-    handler = getattr(sys, "_writeragent_debug_file_handler", None)
-    if getattr(handler, "_writeragent_debug_handler", False):
-        return cast("OptionalFlushFileHandler", handler)
-    return None
+    return _debug_slot()["handler"]
 
 
 def _shared_debug_file_handler() -> OptionalFlushFileHandler:
@@ -344,7 +326,7 @@ def _shared_debug_file_handler() -> OptionalFlushFileHandler:
             pass
     handler = OptionalFlushFileHandler(path, encoding="utf-8")
     handler.setFormatter(logging.Formatter("%(asctime)s | %(name)s | %(levelname)s | %(message)s"))
-    setattr(sys, "_writeragent_debug_file_handler", handler)
+    _debug_slot()["handler"] = handler
     return handler
 
 
@@ -401,40 +383,72 @@ def _ensure_debug_file_handler(logger: logging.Logger) -> None:
 
 def init_logging(ctx: Any | None = None) -> None:
     """Set global debug log path (LO user config dir) and enable_agent_log from ctx. Idempotent."""
+    # Config reads and path checks run outside init_lock. init_config/get_config
+    # can take queue_executor._init_lock and _order_lock, call
+    # createInstanceWithContext while posts wait, and query PathSettings while
+    # the config path is unset. UI dispatch can wait on init_lock while holding
+    # SolarMutex, so holding init_lock across these calls can deadlock.
+    # The lock covers only shared state updates and debug handler installation.
+    # Excepthooks and the plugin-root audit run after the lock is released.
+    config_exc: Exception | None = None
+    prefetched_path: str | None = None
+    prefetched_enable_agent_log: Any = None
+    has_real_dir = False
+    try:
+        if ctx is not None:
+            try:
+                config.init_config(ctx)
+            except ConfigError:
+                pass
+        udir = config.user_config_dir()
+        # Eval uses MagicMock ctx; skip file logging unless the dir is real.
+        if udir and os.path.isdir(udir):
+            prefetched_path = os.path.join(udir, DEBUG_LOG_FILENAME)
+            prefetched_enable_agent_log = config.get_config("enable_agent_log")
+            has_real_dir = True
+    except (OSError, ImportError, ValueError, ConfigError) as exc:
+        config_exc = exc
+
+    level_str = "WARN"
+    level_os_error: OSError | None = None
+    try:
+        level_str = config.get_config("core.log_level") or "WARN"
+    except OSError as exc:
+        level_os_error = exc
+
     shared = _shared()
     with shared["init_lock"]:
         current_path = shared["debug_log_path"]
         had_path = bool(isinstance(current_path, str) and current_path)
         first_init = current_path is None
-        try:
-            if ctx is not None:
-                try:
-                    config.init_config(ctx)
-                except ConfigError:
-                    pass
-            udir = config.user_config_dir()
-            # Eval uses MagicMock ctx; skip file logging unless the dir is real.
-            if udir and os.path.isdir(udir):
-                shared["debug_log_path"] = os.path.join(udir, DEBUG_LOG_FILENAME)
-                shared["enable_agent_log"] = config.get_config_bool("enable_agent_log")
-            else:
-                if not had_path:
-                    shared["debug_log_path"] = None
-        except (OSError, ImportError, ValueError, ConfigError) as exc:
+
+        if config_exc is not None:
             if first_init:
-                print(f"WriterAgent: init_logging config unavailable: {exc}", file=sys.stderr)
+                print(f"WriterAgent: init_logging config unavailable: {config_exc}", file=sys.stderr)
             if not had_path:
                 shared["debug_log_path"] = None
                 shared["enable_agent_log"] = False
+        elif has_real_dir:
+            shared["debug_log_path"] = prefetched_path
+            shared["enable_agent_log"] = prefetched_enable_agent_log
+        else:
+            if not had_path:
+                shared["debug_log_path"] = None
 
-        level_str = "WARN"
         try:
-            level_str = config.get_config_str("log_level") or "WARN"
+            if level_os_error is not None:
+                raise level_os_error
             numeric_level = resolve_log_level(level_str)
 
             logger = log
             plugin_logger = logging.getLogger("plugin")
-            logger.setLevel(numeric_level)
+            # Logger.setLevel always calls manager._clear_cache(), even for the same level.
+            # That takes logging._lock and empties every logger's level cache.
+            # llm_client called init_logging per request on the worker, so every thread's
+            # next log call missed the cache and took _lock. Under SolarMutex that was half of
+            # the mr1_t6 deadlock. Only touch the level when it actually changes.
+            if logger.level != numeric_level:
+                logger.setLevel(numeric_level)
 
             active_path = shared["debug_log_path"]
             if isinstance(active_path, str) and active_path:
@@ -443,7 +457,8 @@ def init_logging(ctx: Any | None = None) -> None:
                 # Both share one file handler so rotation has a single fd.
                 # The handler is not on the root logger: at DEBUG that pulled
                 # third-party records (full URLs) into writeragent_debug.log.
-                plugin_logger.setLevel(numeric_level)
+                if plugin_logger.level != numeric_level:
+                    plugin_logger.setLevel(numeric_level)
                 _ensure_debug_file_handler(logger)
                 _ensure_debug_file_handler(plugin_logger)
                 # writeragent has its own handler. plugin.* keeps propagating so
@@ -462,80 +477,70 @@ def init_logging(ctx: Any | None = None) -> None:
             if first_init:
                 print(f"WriterAgent: init_logging file handler failed: {exc}", file=sys.stderr)
 
-        if first_init:
-            _install_global_exception_hooks()
-            try:
-                from plugin import audit_plugin_roots
+    if first_init:
+        _install_global_exception_hooks()
+        try:
+            from plugin import audit_plugin_roots
 
-                audit_plugin_roots()
-            except Exception:
-                log.exception("plugin path audit failed")
+            audit_plugin_roots()
+        except Exception:
+            log.exception("plugin path audit failed")
 
 
 def _install_global_exception_hooks() -> None:
-    """Install sys.excepthook and threading.excepthook to log unhandled exceptions.
+    """Install sys.excepthook and threading.excepthook to log unhandled exceptions."""
+    def _install() -> bool:
+        current_hook = sys.excepthook
+        _original_excepthook = current_hook
 
-    The installed flag lives on sys, and we also return when the current hook
-    is already ours. A module global let LibreOffice import this package
-    twice and wrap sys.excepthook again.
-    """
-    current_hook = sys.excepthook
-    if getattr(current_hook, "_writeragent_hook", False):
-        setattr(sys, "_writeragent_exception_hooks_installed", True)
-        return
-    if getattr(sys, "_writeragent_exception_hooks_installed", False):
-        return
-    setattr(sys, "_writeragent_exception_hooks_installed", True)
-
-    _original_excepthook = current_hook
-
-    def _writeragent_excepthook(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
-        try:
-            tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
-            msg = "Unhandled exception:\n" + "".join(tb_lines)
+        def _writeragent_excepthook(exc_type: Any, exc_value: Any, exc_tb: Any) -> None:
             try:
-                payload = format_error_payload(exc_value)
-                msg += f"\nPayload context: {payload.get('details', {})}"
-            except Exception:
-                log.debug("excepthook: format_error_payload failed", exc_info=True)
-            log.error(f"[Excepthook] {msg.strip()}")
-        except Exception:  # noqa: S110  excepthook log.error failed; another log call can recurse
-            pass
-        try:
-            _original_excepthook(exc_type, exc_value, exc_tb)
-        except Exception:
-            log.debug("original sys.excepthook failed", exc_info=True)
-
-    setattr(_writeragent_excepthook, "_writeragent_hook", True)
-    sys.excepthook = _writeragent_excepthook
-
-    if getattr(threading, "excepthook", None) is None:
-        return
-    # Same marker as the sys hook. Resetting only sys.excepthook (tests, or
-    # a second import that already wrapped sys) must not wrap
-    # threading.excepthook again.
-    if getattr(threading.excepthook, "_writeragent_hook", False):
-        return
-    _original_threading_excepthook = threading.excepthook
-
-    def _writeragent_threading_excepthook(args: Any) -> None:
-        try:
-            msg = "Unhandled exception in thread %s: %s\n%s" % (getattr(args, "thread", None), getattr(args, "exc_type", args), "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)) if getattr(args, "exc_type", None) else "")
+                tb_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+                msg = "Unhandled exception:\n" + "".join(tb_lines)
+                try:
+                    payload = format_error_payload(exc_value)
+                    msg += f"\nPayload context: {payload.get('details', {})}"
+                except Exception:
+                    log.debug("excepthook: format_error_payload failed", exc_info=True)
+                log.error(f"[Excepthook] {msg.strip()}")
+            except Exception:  # noqa: S110  excepthook log.error failed; another log call can recurse
+                pass
             try:
-                payload = format_error_payload(args.exc_value)
-                msg += f"\nPayload context: {payload.get('details', {})}"
+                _original_excepthook(exc_type, exc_value, exc_tb)
             except Exception:
-                log.debug("threading excepthook: format_error_payload failed", exc_info=True)
-            log.error(f"[Excepthook] {msg.strip()}")
-        except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
-            pass
-        try:
-            _original_threading_excepthook(args)
-        except Exception:
-            log.debug("original threading.excepthook failed", exc_info=True)
+                log.debug("original sys.excepthook failed", exc_info=True)
 
-    setattr(_writeragent_threading_excepthook, "_writeragent_hook", True)
-    threading.excepthook = _writeragent_threading_excepthook
+        sys.excepthook = _writeragent_excepthook
+
+        if getattr(threading, "excepthook", None) is not None:
+            _original_threading_excepthook = threading.excepthook
+
+            def _writeragent_threading_excepthook(args: Any) -> None:
+                try:
+                    msg = "Unhandled exception in thread %s: %s\n%s" % (
+                        getattr(args, "thread", None),
+                        getattr(args, "exc_type", args),
+                        "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+                        if getattr(args, "exc_type", None)
+                        else "",
+                    )
+                    try:
+                        payload = format_error_payload(args.exc_value)
+                        msg += f"\nPayload context: {payload.get('details', {})}"
+                    except Exception:
+                        log.debug("threading excepthook: format_error_payload failed", exc_info=True)
+                    log.error(f"[Excepthook] {msg.strip()}")
+                except Exception:  # noqa: S110  threading excepthook log.error failed; another log call can recurse
+                    pass
+                try:
+                    _original_threading_excepthook(args)
+                except Exception:
+                    log.debug("original threading.excepthook failed", exc_info=True)
+
+            threading.excepthook = _writeragent_threading_excepthook
+        return True
+
+    process_global("excepthook", _install)
 
 
 def log_exception(ex: BaseException, context: str = "WriterAgent") -> None:
@@ -627,11 +632,7 @@ def agent_log(location: str, message: str, data: Any = None, hypothesis_id: Any 
             payload["hypothesisId"] = hypothesis_id
         if run_id is not None:
             payload["runId"] = run_id
-        # Bugfix: Release stripping deleted this .debug call, so enable_agent_log
-        # wrote nothing in a shipped OXT. Calling Logger.log(logging.DEBUG, ...)
-        # fixes this because 'log' is outside LOGGER_STRIP_ATTRS, while the level
-        # remains DEBUG so the agent logger's own level still admits the line
-        # when the parent log_level is set to WARN.
+        # Call Logger.log directly so release build stripping preserves this statement.
         _agent_logger.log(logging.DEBUG, "[Agent] %s", json.dumps(payload, ensure_ascii=False))
     except Exception as exc:
         log.debug("agent_log dropped payload (%s)", type(exc).__name__)
@@ -646,9 +647,9 @@ def note_activity() -> None:
 
 def _post_main(fn: Any, *args: Any, fail_msg: str) -> bool:
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(fn, *args)
+        main.post(fn, *args)
     except Exception:
         log.debug(fail_msg, exc_info=True)
         return False
@@ -669,12 +670,7 @@ def update_activity_state(phase: str, round_num: Any = None, tool_name: str | No
         act["last_activity"] = time.monotonic()
         if round_num is not None:
             act["round_num"] = round_num
-        # What was wrong: previously tool_name was only overwritten when not None.
-        # How it happened: callers such as tool_loop and exhausted_rounds omit
-        # tool_name, causing round 2 to still display round 1's tool.
-        # Why this change fixes it: always assign tool_name so omitted tool_name
-        # (default None) properly clears it; the only caller that has an active
-        # tool already passes tool_name explicitly.
+        # Always assign tool_name so omitting it clears any previous tool.
         act["tool_name"] = tool_name
         if status_control is not None:
             act["status_control"] = status_control
@@ -775,11 +771,7 @@ def _watchdog_loop(status_control: Any) -> None:
         except RecursionError:
             raise
         except Exception:
-            # What was wrong: one OSError from _watchdog_check ended the dedicated thread.
-            # How it happened: run_in_background's _worker logs the exception and
-            # returns; dedicated=True does not respawn.
-            # Why this change fixes it: the next sleep still runs the check; the tick
-            # log is itself guarded so a broken handler cannot end the thread.
+            # Catch tick errors so a failed check does not terminate the watchdog thread.
             try:
                 log.exception("watchdog tick failed")
             except Exception:  # noqa: S110  watchdog tick logger failed; a nested log can kill this dedicated thread
@@ -787,19 +779,10 @@ def _watchdog_loop(status_control: Any) -> None:
 
 
 def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
-    """Start the hang-detection watchdog (idempotent). Pass status_control to set Hung: ... in UI.
-
-    The flag is on sys. A module global let a second import start another
-    job, and the pool imports ran at module import (LibrePy imports logging
-    and never starts the watchdog). The job is a dedicated pool task, not a
-    raw thread. ctx is unused; callers still pass the component context.
-    """
+    """Start the hang-detection watchdog (idempotent). Pass status_control to set Hung: ... in UI."""
     del ctx
-    with _shared()["activity_lock"]:
-        if getattr(sys, "_writeragent_watchdog_started", False):
-            return
-        setattr(sys, "_writeragent_watchdog_started", True)
-    try:
+
+    def _start() -> bool:
         from plugin.framework.thread_guard import background
         from plugin.framework.worker_pool import run_in_background
 
@@ -808,65 +791,188 @@ def start_watchdog_thread(ctx: Any, status_control: Any = None) -> None:
             _watchdog_loop(status)
 
         run_in_background(_watchdog_job, status_control, name="watchdog", daemon=True, dedicated=True)
-    except Exception:
-        # What was wrong: the flag was set before run_in_background, so an import
-        # or start failure left _writeragent_watchdog_started true.
-        # How it happened: panel_factory calls this on each sidebar wire and
-        # would otherwise no-op for the rest of the process.
-        # Why this change fixes it: clear and re-raise so the next wire can start
-        # it; the flag is still set before start so two callers cannot both launch.
-        with _shared()["activity_lock"]:
-            setattr(sys, "_writeragent_watchdog_started", False)
-        raise
+        return True
+
+    process_global("watchdog", _start)
+
+
+def _logged_uno_label(value: Any) -> str | None:
+    # LibreOffice UNO structs and exceptions are not the type named "pyuno".
+    # Their class names look like com.sun.star.uno.RuntimeException, and they
+    # carry a __pyunostruct__ mark. Asking Python to print one walks every
+    # field (including interface objects such as Context) and calls methods
+    # that need LibreOffice's UI lock (SolarMutex). If a background worker
+    # does that while the UI thread is waiting, both sides can freeze.
+    # This helper copies only the Message text and never calls str() or
+    # repr() on the object, so the log still names the error without
+    # walking those fields or taking that lock.
+    if type(value).__name__ == "pyuno":
+        return "<pyuno>"
+    if getattr(type(value), "__pyunostruct__", None) is not None:
+        message = getattr(value, "Message", "")
+        if not isinstance(message, str):
+            message = ""
+        return f"<UNO {type(value).__name__}: {message}>"
+    return None
+
+
+def _coerce_logged_value(value: Any) -> tuple[Any, bool]:
+    """Return a logging-safe copy and whether it differs from ``value``.
+
+    ``PyUNO_str`` runs in deep mode and calls ``getImplementationName``,
+    ``getSupportedServiceNames``, and ``getTypes``. Those take SolarMutex.
+    ``Handler.handle`` holds the handler lock across ``LogRecord.getMessage``,
+    which evaluates ``str(msg) % args``. A proxy or UNO struct left in the
+    record deadlocks the UI thread, which already holds SolarMutex, on that
+    handler lock. Replace the proxy or struct with a safe string label and do
+    not call into it. Lists, tuples, and dicts are walked because ``%s`` on a
+    container stringifies their items.
+    """
+    label = _logged_uno_label(value)
+    if label is not None:
+        return label, True
+    if isinstance(value, dict):
+        changed = False
+        rebuilt: dict[Any, Any] = {}
+        for key, item in value.items():
+            new_key = key
+            key_changed = False
+            key_label = _logged_uno_label(key)
+            if key_label is not None:
+                new_key = key_label
+                key_changed = True
+            new_item, item_changed = _coerce_logged_value(item)
+            changed = changed or key_changed or item_changed
+            rebuilt[new_key] = new_item
+        if changed:
+            return rebuilt, True
+        return value, False
+    if isinstance(value, (tuple, list)):
+        changed = False
+        items: list[Any] = []
+        for item in value:
+            new_item, item_changed = _coerce_logged_value(item)
+            changed = changed or item_changed
+            items.append(new_item)
+        if not changed:
+            return value, False
+        if isinstance(value, tuple):
+            return tuple(items), True
+        return items, True
+    return value, False
+
+
+def _coerce_factory_slot(slots: list[Any] | dict[str, Any], key: int | str) -> bool:
+    """Replace ``slots[key]`` when it contains a PyUNO proxy. Keep the object otherwise."""
+    if isinstance(slots, list):
+        if not isinstance(key, int) or key >= len(slots):
+            return False
+        new_value, changed = _coerce_logged_value(slots[key])
+        if changed:
+            slots[key] = new_value
+        return changed
+    if not isinstance(key, str) or key not in slots:
+        return False
+    new_value, changed = _coerce_logged_value(slots[key])
+    if changed:
+        slots[key] = new_value
+    return changed
+
+
+_ExcInfo = tuple[type[BaseException], BaseException, TracebackType | None] | tuple[None, None, None]
+
+
+def _preformat_exc_text(exc_info: _ExcInfo) -> str:
+    _, exc, tb = exc_info
+    if exc is None:
+        return logging.Formatter().formatException(exc_info)
+
+    current: BaseException | None = exc
+    chain: list[tuple[str | None, BaseException]] = []
+    seen: set[int] = set()
+    has_uno = False
+
+    while current is not None:
+        seen.add(id(current))
+        if getattr(type(current), "__pyunostruct__", None) is not None:
+            has_uno = True
+        cause = getattr(current, "__cause__", None)
+        context = getattr(current, "__context__", None)
+        suppress = getattr(current, "__suppress_context__", False)
+        if cause is not None and id(cause) not in seen:
+            chained_msg = "\n\nThe above exception was the direct cause of the following exception:\n\n"
+            chained_exc = cause
+        elif context is not None and not suppress and id(context) not in seen:
+            chained_msg = "\n\nDuring handling of the above exception, another exception occurred:\n\n"
+            chained_exc = context
+        else:
+            chained_msg = None
+            chained_exc = None
+        chain.append((chained_msg, current))
+        current = chained_exc
+
+    if not has_uno:
+        return logging.Formatter().formatException(exc_info)
+
+    parts: list[str] = []
+    for msg, link in reversed(chain):
+        if msg is not None:
+            parts.append(msg)
+        cur_tb = tb if link is exc else getattr(link, "__traceback__", None)
+        if cur_tb is not None:
+            tb_lines = "".join(traceback.format_tb(cur_tb))
+            if tb_lines:
+                parts.append("Traceback (most recent call last):\n")
+                parts.append(tb_lines)
+        label = _logged_uno_label(link)
+        if label is not None:
+            parts.append(label)
+        else:
+            link_msg = str(link)
+            parts.append(f"{type(link).__name__}: {link_msg}" if link_msg else type(link).__name__)
+    return "".join(parts)
 
 
 def _install_safe_log_record_factory() -> None:
-    """Install a custom LogRecord factory to prevent TypeError in Python 3.12+
-    when logging a single PyUNO proxy object.
+    """Install a log-record factory that never calls into a PyUNO proxy or UNO struct/exception.
 
-    A marker on the factory and a sys flag make a second import a no-op.
-    A module global wrapped the factory again.
+    PyUNO proxies in log args deadlock under Handler.lock on Python 3.12+.
+    ``str(proxy)`` is also a UNO call (deep ``val2str``), so formatting it
+    under that lock deadlocks against the UI thread's SolarMutex. The factory
+    replaces proxies and UNO structs/exceptions, including ones nested in
+    lists, tuples, and dicts, and formats ``exc_text`` here, outside that lock.
+    ``Formatter.format`` skips ``formatException`` when ``exc_text`` is already set.
     """
-    current = logging.getLogRecordFactory()
-    if getattr(current, "_writeragent_safe_factory", False):
-        setattr(sys, "_writeragent_log_record_factory_installed", True)
-        return
-    if getattr(sys, "_writeragent_log_record_factory_installed", False):
-        return
 
-    _original_factory = current
+    def _install() -> bool:
+        current = logging.getLogRecordFactory()
+        _original_factory = current
 
-    def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
-        def _coerce_logged_arg(x: Any) -> Any:
-            if type(x).__name__ == "pyuno":
-                try:
-                    return str(x)
-                except Exception:
-                    # What was wrong: str(x) on a disposed proxy raised out of record creation.
-                    # How it happened: the factory runs inside the logging call.
-                    # Why this change fixes it: fall back to "<pyuno>" so the log call still returns.
-                    return "<pyuno>"
-            return x
+        def safe_logRecordFactory(*args: Any, **kwargs: Any) -> Any:
+            # makeRecord passes (name, level, fn, lno, msg, args, exc_info, func, sinfo).
+            # msg is index 4, the interpolation args are index 5.
+            # Do not compare the copies with !=: a log arg may not implement equality.
+            if args:
+                args_list = list(args)
+                msg_changed = _coerce_factory_slot(args_list, 4)
+                args_changed = _coerce_factory_slot(args_list, 5)
+                if msg_changed or args_changed:
+                    args = tuple(args_list)
+            if kwargs:
+                kwargs_copy = dict(kwargs)
+                msg_changed = _coerce_factory_slot(kwargs_copy, "msg")
+                args_changed = _coerce_factory_slot(kwargs_copy, "args")
+                if msg_changed or args_changed:
+                    kwargs = kwargs_copy
+            record = _original_factory(*args, **kwargs)
+            if record.exc_info and not record.exc_text:
+                record.exc_text = _preformat_exc_text(record.exc_info)
+            return record
 
-        # args contains (name, level, fn, lno, msg, args, exc_info, func, sinfo)
-        # args is at index 5.
-        if len(args) > 5:
-            log_args = args[5]
-            if isinstance(log_args, tuple):
-                if any(type(x).__name__ == "pyuno" for x in log_args):
-                    new_args = list(args)
-                    new_args[5] = tuple(_coerce_logged_arg(x) for x in log_args)
-                    args = tuple(new_args)
-        if "args" in kwargs:
-            log_args = kwargs["args"]
-            if isinstance(log_args, tuple):
-                if any(type(x).__name__ == "pyuno" for x in log_args):
-                    kwargs["args"] = tuple(_coerce_logged_arg(x) for x in log_args)
-        return _original_factory(*args, **kwargs)
+        logging.setLogRecordFactory(safe_logRecordFactory)
+        return True
 
-    setattr(safe_logRecordFactory, "_writeragent_safe_factory", True)
-    logging.setLogRecordFactory(safe_logRecordFactory)
-    setattr(sys, "_writeragent_log_record_factory_installed", True)
+    process_global("safe_log_record_factory", _install)
 
 
 _install_safe_log_record_factory()

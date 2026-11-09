@@ -7,7 +7,7 @@ from plugin.chatbot.panel_resize import _set_pos_size_if_changed
 from plugin.chatbot.send_state import ButtonAction
 from plugin.framework.errors import suppress_disposed
 
-log = logging.getLogger("plugin.chatbot.panel")
+log = logging.getLogger(__name__)
 
 
 def _relabel_button(ctrl: Any, label: str, mnemonics: dict[str, str]) -> None:
@@ -52,29 +52,24 @@ class PanelEventsController:
     @staticmethod
     def _mcp_subscribe_must_defer() -> bool:
         """True when get_tools() could need bootstrap and this is not the Python main thread."""
-        import sys
+        from plugin.framework.queue_executor import MainThread
+        from plugin.app import bootstrap_complete
 
-        from plugin.framework.thread_guard import on_python_main_thread
-
-        # Read the same module object that ``from plugin.main import get_tools`` resolves.
-        main_mod = sys.modules.get("plugin.main")
-        if main_mod is not None:
-            bootstrap_state = getattr(main_mod, "_bootstrap_state", None)
-            if getattr(bootstrap_state, "name", None) == "INITIALIZED":
-                return False
-        return not on_python_main_thread()
+        if bootstrap_complete():
+            return False
+        return not MainThread.on_python_main_thread()
 
     @staticmethod
-    def _post_to_main_thread(fn: Any) -> None:
-        from plugin.framework.queue_executor import post_to_main_thread
+    def _post_to_main(fn: Any) -> None:
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(fn)
+        main.post(fn)
 
     def _subscribe_mcp_events(self) -> None:
         """Join services.events for mcp:request / mcp:result (may bootstrap; main thread)."""
         if self._panel._panel_teardown:
             return
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         event_bus = getattr(get_tools()._services, "events", None)
         if event_bus:
@@ -210,7 +205,7 @@ class PanelEventsController:
                 return
             self._panel._set_status(text)
 
-        self._post_to_main_thread(_write)
+        self._post_to_main(_write)
 
     def _on_mcp_request(self, tool: str = "", args: Any = None, method: Any = None, **kwargs: Any) -> None:
         """Handle MCP request events from the bus (background thread)."""
@@ -219,11 +214,7 @@ class PanelEventsController:
 
         from plugin.chatbot.tool_loop_actions import current_turn
 
-        # Bugfix: parallel tools/call requests rebuilt _last_mcp_turn while other
-        # threads called pop or disposing cleared on the UI thread, causing race conditions.
-        # EventBus runs mcp:request / mcp:result on HTTP workers, while disposing clears
-        # on the UI thread. Mutating under _mcp_turn_lock with a second teardown check
-        # prevents data races and stops late requests from storing turns after teardown.
+        # MCP events run on HTTP workers; _mcp_turn_lock guards _last_mcp_turn against UI teardown.
         rid = str(kwargs.get("req_id", ""))
         turn = current_turn(self._panel)
         with self._panel._mcp_turn_lock:
@@ -274,11 +265,11 @@ class PanelEventsController:
                 log.exception("_on_mcp_result UI update error")
 
         try:
-            # The send drain pumps default_executor only. A post on the panel
+            # The send drain pumps main only. A post on an unpumped
             # queue sits until the drain ends, so an MCP result during Send
             # never reaches the sidebar until the turn is over.
-            from plugin.framework.queue_executor import on_main_thread_or_post
+            from plugin.framework.queue_executor import main
 
-            on_main_thread_or_post(_update_ui)
+            main.post_or_run(_update_ui)
         except Exception:
             log.exception("_on_mcp_result post error")

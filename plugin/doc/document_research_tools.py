@@ -12,16 +12,18 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from plugin.chatbot.agent_manual import (
+    calc_topic_list_text,
+    draw_topic_list_text,
     get_section,
     list_topics,
     manual_index,
     normalize_topic,
     writer_topic_list_text,
 )
-from plugin.doc.doc_type import doc_type_of
+from plugin.framework.doc_type import doc_type_of
 from plugin.doc.document_research import get_open_documents, list_nearby_files
 from plugin.framework.errors import user_stopped_payload
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.send_cancellation import SendCancelled
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -59,12 +61,13 @@ class ListNearbyFiles(ToolBase):
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Execute off main thread because listing directory scans can take time.
         # list_nearby_files handles marshaling UNO requests to the main thread internally.
+        scope = ctx.send_cancellation
         return list_nearby_files(
             ctx.ctx,
             ctx.doc,
             filter=kwargs.get("filter"),
             file_kind=kwargs.get("file_kind", "documents"),
-            stop_checker=ctx.stop_checker,
+            cancel=scope,
         )
 
 
@@ -99,7 +102,7 @@ class ListOpenDocuments(ToolBase):
             return {"status": "ok", "documents": docs, "current_local_datetime": _format_mcp_clock_context()}
 
         try:
-            return run_on_main(_run)
+            return main.run(_run)
         except SendCancelled:
             return user_stopped_payload()
 
@@ -111,7 +114,9 @@ class GetGuidance(ToolBase):
     description: str = (
         "Read WriterAgent's how-to-use manual on demand. Call with no topic to get the list of topics; "
         "call with a topic to read just that section (so you don't load everything). Topics follow the "
-        f"open document's type (for Writer: {writer_topic_list_text()}). Use this when unsure how an edit, the review modes, search, or image ops work. "
+        f"open document's type (for Writer: {writer_topic_list_text()}). "
+        f"Calc: {calc_topic_list_text()}. Draw and Impress: {draw_topic_list_text()}. "
+        "Use this when unsure how an edit, the review modes, search, or image ops work. "
         "The no-topic index also returns current_local_datetime."
     )
     # Core, not mcp-exclusive: the sidebar's HYBRID prompt keeps search/navigation/images out of

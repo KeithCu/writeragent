@@ -31,10 +31,10 @@ from plugin.calc.datetime_wire import (
     is_elapsed_format_string,
 )
 from plugin.calc.calc_utils import cell_value_and_type
-from plugin.framework.errors import CalcError, is_disposed_exception
+from plugin.framework.errors import CalcError, is_disposal
 from plugin.scripting.config_limits import configured_python_max_data_cells
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _CELL_FLAG_DATETIME = 2
 FormatSpan: TypeAlias = tuple[int, int, str, str | None]
@@ -130,7 +130,7 @@ class CellInspector:
             if date_cells is not None:
                 date_addresses = tuple(date_cells.getRangeAddresses() or ())
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.debug("queryContentCells(DATETIME) preflight failed", exc_info=True)
         if not date_addresses:
@@ -158,7 +158,7 @@ class CellInspector:
                     continue
                 addresses = tuple(group.getRangeAddresses())
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 log.debug("Skipping unreadable cell format group %d", group_idx, exc_info=True)
                 continue
@@ -212,9 +212,9 @@ class CellInspector:
             try:
                 self._enrich_cell_format(info, cell)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
-                # Format metadata must never turn a previously valid core read into an error.
+                # Format enrichment failure must not replace an otherwise valid cell payload with an error.
                 log.exception("Date/time format enrichment failed for cell %s; returning the raw value", address)
         return info
 
@@ -251,7 +251,7 @@ class CellInspector:
             try:
                 format_rows, null_date = self._range_format_rows(cell_range, formula_array)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 # Some older/embedded Calc builds may not expose format-range queries.
                 # Preserve the old raw response instead of failing read_cell_range.
@@ -295,3 +295,44 @@ class CellInspector:
             result.append(row_data)
 
         return result
+
+
+_WIRE_TEMPORAL_TYPES = frozenset({"date", "time", "datetime", "duration"})
+
+
+def grid_to_rows(
+    grid: list[list[dict[str, Any]]],
+    *,
+    range_name: str | None = None,
+) -> dict[str, Any]:
+    """Project an enriched ``read_range`` grid into the compact chat/MCP wire shape.
+
+    Per-cell address/formula/type objects are about 10× the values alone; keep
+    one enrichment path and serialize here for tools. ``format_category``,
+    ``format_code``, and non-temporal ``type`` values (``formula``/``value``/
+    ``text``/``empty``) are omitted — use ``read_cell_range`` with
+    ``format=cells`` for the full per-cell grid.
+    """
+    origin = grid[0][0]["address"]
+    rows: list[list[Any]] = []
+    formulas: dict[str, str] = {}
+    types: dict[str, str] = {}
+    for row in grid:
+        row_values: list[Any] = []
+        for cell in row:
+            row_values.append(cell["value"])
+            formula = cell.get("formula")
+            if isinstance(formula, str) and formula.startswith("="):
+                formulas[cell["address"]] = formula
+            cell_type = cell.get("type")
+            if cell_type in _WIRE_TEMPORAL_TYPES:
+                types[cell["address"]] = cell_type
+        rows.append(row_values)
+    payload: dict[str, Any] = {"origin": origin, "rows": rows}
+    if range_name is not None:
+        payload["range"] = range_name
+    if formulas:
+        payload["formulas"] = formulas
+    if types:
+        payload["types"] = types
+    return payload

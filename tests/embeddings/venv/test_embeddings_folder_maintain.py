@@ -31,19 +31,18 @@ def test_maintain_cold_calls_heartbeat_and_ingest(tmp_path: Path):
     _write_min_odt(doc)
     heartbeats: list[dict] = []
 
-    with patch("plugin.embeddings.venv.embeddings_folder_maintain.index_is_empty", return_value=True):
-        with patch("plugin.embeddings.venv.embeddings_folder_maintain.needs_cold_rebuild", return_value=True):
-            with patch("plugin.embeddings.venv.embeddings_folder_maintain.clear_folder_cache") as clear_mock:
-                with patch(
-                    "plugin.embeddings.venv.embeddings_folder_maintain._ingest_rows",
-                    return_value={"upserted": 1},
-                ) as ingest_mock:
-                    result = embeddings_folder_maintain.maintain_folder_index(
-                        str(tmp_path),
-                        embedding_model="all-MiniLM-L6-v2",
-                        mode="cold",
-                        heartbeat_fn=heartbeats.append,
-                    )
+    with patch.object(embeddings_folder_maintain.CorpusMeta, "load", return_value=MagicMock(needs_cold_rebuild=MagicMock(return_value=True))):
+        with patch("plugin.embeddings.venv.embeddings_folder_maintain.clear_folder_cache") as clear_mock:
+            with patch(
+                "plugin.embeddings.venv.embeddings_folder_maintain._ingest_rows",
+                return_value={"upserted": 1},
+            ) as ingest_mock:
+                result = embeddings_folder_maintain.maintain_folder_index(
+                    str(tmp_path),
+                    embedding_model="all-MiniLM-L6-v2",
+                    mode="cold",
+                    heartbeat_fn=heartbeats.append,
+                )
     clear_mock.assert_called_once()
     ingest_mock.assert_called_once()
     assert result["mode"] == "cold"
@@ -66,7 +65,7 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
         encoding="utf-8",
     )
 
-    from plugin.embeddings.venv.embeddings_sqlite import mark_file_indexed
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, mark_file_indexed_in_db
     from plugin.embeddings.embeddings_fs import content_hash
     from plugin.framework.url_utils import path_to_file_url
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, upsert_chunk_with_vector
@@ -92,14 +91,14 @@ def test_maintain_incremental_skips_fresh_file(tmp_path: Path):
             with_vec=True,
         )
         conn.commit()
+        mark_file_indexed_in_db(
+            conn,
+            doc_url,
+            doc.stat().st_mtime,
+            indexed_at=doc.stat().st_mtime,
+        )
     finally:
         conn.close()
-    mark_file_indexed(
-        db_path,
-        doc_url,
-        doc.stat().st_mtime,
-        indexed_at=doc.stat().st_mtime,
-    )
 
     with patch("plugin.embeddings.venv.embeddings_folder_maintain._ingest_rows") as ingest_mock:
         result = embeddings_folder_maintain.maintain_folder_index(
@@ -335,8 +334,8 @@ def test_zvec_maintain_stale_purge_failed_delete_skips_sqlite_removal(tmp_path: 
          patch("plugin.embeddings.venv.embeddings_zvec.zvec", MagicMock()), \
          patch("plugin.embeddings.venv.embeddings_zvec._COLL_CACHE", {str(meta_dir / "zvec_collection"): mock_coll}), \
          patch("plugin.embeddings.embeddings_cache.zvec_collection_path", return_value=meta_dir / "zvec_collection"), \
-         patch("plugin.embeddings.venv.embeddings_sqlite.get_all_indexed_urls", return_value=["file:///tmp/removed.odt"]), \
-         patch("plugin.embeddings.venv.embeddings_sqlite.remove_file_from_index") as mock_remove:
+         patch("plugin.embeddings.venv.embeddings_sqlite.get_all_indexed_urls_in_db", return_value=["file:///tmp/removed.odt"]), \
+         patch("plugin.embeddings.venv.embeddings_sqlite.remove_file_from_index_in_db") as mock_remove:
         res = maintain_folder_zvec(str(tmp_path), "m", mode="incremental")
         assert res["mode"] == "zvec"
         mock_coll.delete_by_filter.assert_called_once()

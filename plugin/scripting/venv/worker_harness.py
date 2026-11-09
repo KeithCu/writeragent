@@ -17,7 +17,6 @@ from functools import partial
 import logging
 import os
 import sys
-import traceback
 from typing import Any, BinaryIO
 
 # Standalone entry (venv python worker_harness.py): repo root must be on sys.path for plugin.* imports.
@@ -28,7 +27,7 @@ if _SCRIPT_DIR in sys.path:
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     DEFAULT_MAX_PAYLOAD_BYTES,
     EXEC_STARTED,
     FRAME_HEARTBEAT,
@@ -42,31 +41,23 @@ from plugin.scripting.ipc import (
     write_child_ipc_frame,
     write_pickle_frame,
 )
+from plugin.framework.child_runtime import die_with_parent
 
-# What was wrong: venv_sandbox was imported at module scope, and
-# claim_ipc_channel ran later in main(). The claim flushes sys.stdout onto
-# fd 1 before dup2, so an import-time print landed on the protocol pipe.
-# How it happened: b476c6899 claimed inside main() and left the sandbox
-# import above that call. Smolagents already shipped one such banner.
-# Why this change: the process entry claims before later imports. A library
-# import (tests) must not dup fd 1.
+# claim_ipc_channel runs before other scripting imports when this file is the main entry so stdout is not dup'd onto the IPC pipe before the claim. Library imports (tests) skip this block.
 if __name__ == "__main__":
     claim_ipc_channel()
 
 from plugin.framework.uno_bootstrap import register_alias_importer
+from plugin.scripting.sandbox import install_alias_authorizer
+
 register_alias_importer()
+install_alias_authorizer()
+
+from plugin.scripting.venv.results import error_result
 
 log = logging.getLogger("worker_harness")
 # The sandbox imports this module; sys.modules lookup avoids a second import on every request.
 _LPE_MODULE = "plugin.contrib.smolagents.local_python_executor"
-
-
-def _error_response(exc: BaseException) -> dict[str, Any]:
-    return {
-        "status": "error",
-        "message": str(exc),
-        "traceback": traceback.format_exc(),
-    }
 
 
 def _clean_str(val: Any) -> str | None:
@@ -107,7 +98,7 @@ def _handle_trusted_action(
     try:
         wiring = get_trusted_action_wiring(domain)
         if wiring is None:
-            resp = {"status": "error", "message": f"Unknown trusted action domain: {domain}"}
+            resp = error_result(message=f"Unknown trusted action domain: {domain}")
         else:
             heartbeat_fn = None
             if emit_result_frame and wiring.supports_heartbeat:
@@ -115,18 +106,12 @@ def _handle_trusted_action(
             result = wiring.dispatch(data, heartbeat_fn=heartbeat_fn)
             resp = {"status": "ok", "result": result}
     except Exception as exc:
-        resp = _error_response(exc)
+        resp = error_result(message=str(exc), with_traceback=True)
 
     if emit_result_frame:
         assert stdout is not None
         req_id = str(request.get("id", ""))
-        # What was wrong: {"id": req_id, **resp} let a top-level id inside resp
-        # replace the request id. The host treats that as a mismatched terminal
-        # frame and kills the worker.
-        # How it happened: the heartbeat payload was built with id first. The
-        # non-heartbeat path already assigns response["id"] after the dict exists.
-        # Why this change: id is written after the spread, matching that path.
-        # resp today is only status, result, message, and traceback.
+        # Request id is assigned after merging resp so a key inside resp cannot override it and make the host kill the worker on a mismatch.
         # Packing fails before any byte hits stdout, so the pipe is still in
         # sync. An oversized result is a small error frame. Letting
         # IpcFrameError escape after EXEC_STARTED ends the worker with no
@@ -138,8 +123,7 @@ def _handle_trusted_action(
                 stdout,
                 {
                     "id": req_id,
-                    "status": "error",
-                    "message": f"Result exceeds maximum payload size: {exc}",
+                    **error_result(message=f"Result exceeds maximum payload size: {exc}"),
                 },
             )
         return None
@@ -152,12 +136,12 @@ def _action_ppt_master_turn(request: dict[str, Any]) -> dict[str, Any] | None:
 
     data = request.get("data")
     if not isinstance(data, dict):
-        return {"status": "error", "message": "ppt_master_turn requires data dict."}
+        return error_result(message="ppt_master_turn requires data dict.")
     try:
         result = run_turn(data)
         return {"status": "ok", "result": result}
     except Exception as exc:
-        return _error_response(exc)
+        return error_result(message=str(exc), with_traceback=True)
 
 
 def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
@@ -165,7 +149,7 @@ def _action_execute(request: dict[str, Any]) -> dict[str, Any] | None:
 
     code = request.get("code")
     if not isinstance(code, str) or not code.strip():
-        return {"status": "error", "message": "No code provided."}
+        return error_result(message="No code provided.")
     bindings = request.get("bindings")
     bindings_dict = bindings if isinstance(bindings, dict) else None
     init_script = request.get("init_script")
@@ -193,16 +177,16 @@ def _handle_request(request: dict[str, Any], *, stdout: Any | None = None) -> di
 
         session_id = _clean_str(request.get("session_id"))
         if not session_id:
-            return {"status": "error", "message": "No session_id provided."}
+            return error_result(message="No session_id provided.")
         return reset_sandbox_session(session_id)
     if action == "ppt_master_turn":
         return _action_ppt_master_turn(request)
     if action == "run_trusted_action":
         data = request.get("data")
         if not isinstance(data, dict):
-            return {"status": "error", "message": "run_trusted_action requires data dict."}
+            return error_result(message="run_trusted_action requires data dict.")
         return _handle_trusted_action(request, data, stdout=stdout)
-    return {"status": "error", "message": f"Unknown action: {action!r}"}
+    return error_result(message=f"Unknown action: {action!r}")
 
 
 def _init_logging() -> None:
@@ -220,37 +204,12 @@ def _init_logging() -> None:
         sys.stderr.write(f"Failed to initialize worker logging: {exc}\n")
 
 
-def _die_with_parent() -> None:
-    """Kill this child if the LibreOffice process dies while we are in native code.
-
-    stdin EOF already exits an idle harness. A C extension that never returns
-    to ``read`` used to keep the venv process (and the microphone, or a BLAS
-    thread) after soffice quit. Linux ``PR_SET_PDEATHSIG`` is the parent-death
-    signal; the ppid check covers the parent dying before prctl runs.
-    ``PR_SET_PDEATHSIG`` follows the thread that created the process;
-    ``PythonWorkerManager`` spawns this harness on ``venv-worker-spawn``,
-    which lives until that manager is retired or ``shutdown_all``.
-    """
-    if sys.platform != "linux":
-        return
-    try:
-        import ctypes
-
-        # Compare against the ppid captured before prctl. After the parent
-        # dies, getppid() is the subreaper (systemd --user), which is not 1.
-        ppid = os.getppid()
-        libc = ctypes.CDLL("libc.so.6", use_errno=True)
-        # PR_SET_PDEATHSIG = 1, SIGKILL = 9. Arguments after the signal are unused.
-        if libc.prctl(1, 9, 0, 0, 0) != 0:
-            return
-        if os.getppid() != ppid:
-            os.kill(os.getpid(), 9)
-    except Exception as exc:
-        log.debug("Failed to configure PR_SET_PDEATHSIG: %s", exc)
-
 
 def main() -> None:
-    _die_with_parent()
+    from plugin.scripting.host_tool_call import ROLE_WORKER, set_process_role
+
+    set_process_role(ROLE_WORKER)
+    die_with_parent()
     _init_logging()
     log.info("Worker process %d starting up with python %s", os.getpid(), sys.version)
 
@@ -259,6 +218,9 @@ def main() -> None:
     # Idempotent. The script entry already claimed before later imports. This
     # call is the one in-process tests replace.
     stdout = claim_ipc_channel()
+    from plugin.framework.child_runtime import announce_ready
+
+    announce_ready(stdout)
 
     while True:
         # Read and handle are separate. IpcFrameError subclasses ValueError,
@@ -279,7 +241,7 @@ def main() -> None:
             break
         except ValueError as e:
             log.warning("Invalid pickle request: %s", e)
-            bad_req_frame = {"id": "", "status": "error", "message": f"Invalid pickle request: {e}"}
+            bad_req_frame = {"id": "", **error_result(message=f"Invalid pickle request: {e}")}
             try:
                 write_pickle_frame(stdout, bad_req_frame)
             except Exception:
@@ -322,14 +284,10 @@ def main() -> None:
             # Sandbox returns this as a dict. This is the backstop when Stop
             # is raised outside that path, so the process still writes a
             # terminal frame instead of dying without one.
-            response = {
-                "status": "error",
-                "code": "USER_STOPPED",
-                "message": str(e) or "Stopped by user.",
-            }
+            response = error_result(code="USER_STOPPED", message=str(e) or "Stopped by user.")
         except IpcPayloadSizeError as e:
             log.exception("IPC payload size error handling request id=%s", req_id)
-            response = _error_response(e)
+            response = error_result(message=str(e), with_traceback=True)
         except IpcFrameError as e:
             # Genuine read-side desync (e.g. from exchange_tool_call reading host replies).
             # Do not write an error frame to a corrupted stream.
@@ -337,7 +295,7 @@ def main() -> None:
             break
         except Exception as e:
             log.exception("Exception handling request id=%s", req_id)
-            response = _error_response(e)
+            response = error_result(message=str(e), with_traceback=True)
         except BaseException as e:
             # SystemExit and KeyboardInterrupt are BaseException. After
             # EXEC_STARTED a process death with no terminal frame is not
@@ -345,7 +303,7 @@ def main() -> None:
             # The sandbox returns these as an error dict; this writes that
             # frame when they escape _handle_request, then reads the next request.
             log.exception("BaseException handling request id=%s", req_id)
-            response = _error_response(e)
+            response = error_result(message=str(e), with_traceback=True)
 
         if response is None:
             continue
@@ -354,7 +312,7 @@ def main() -> None:
         try:
             write_pickle_frame(stdout, response)
         except Exception as e:
-            err_response = {"id": req_id, "status": "error", "message": f"Pickle serialization failed: {e}"}
+            err_response = {"id": req_id, **error_result(message=f"Pickle serialization failed: {e}")}
             try:
                 write_pickle_frame(stdout, err_response)
             except Exception:
@@ -362,9 +320,12 @@ def main() -> None:
                 break
 
         lpe = sys.modules.get(_LPE_MODULE)
-        if lpe is not None and getattr(lpe, "abandoned_timeout", False):
-            setattr(lpe, "abandoned_timeout", False)
-            os._exit(1)
+        if lpe is not None:
+            # Process backstop: sets abandoned_timeout before os._exit when a pool future outlives the frame.
+            lpe.finalize_thread_pool_timeout()
+            if getattr(lpe, "abandoned_timeout", False):
+                setattr(lpe, "abandoned_timeout", False)
+                os._exit(1)
 
 
 if __name__ == "__main__":

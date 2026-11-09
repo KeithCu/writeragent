@@ -26,11 +26,12 @@ import bisect
 import logging
 from typing import Any
 
-from plugin.doc.paragraph_search import confirm_paragraph_index, paragraph_entries
+from plugin.doc.paragraph_search import paragraph_entries
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_context import uno_same
-from plugin.writer.tree import _collect_heading_indices, heading_ref
+from plugin.writer.tree import collect_heading_indices, heading_ref
 
 log = logging.getLogger("writeragent.writer.nav.proximity")
 
@@ -111,7 +112,7 @@ class ProximityService(ServiceBase):
 
     def _heading_flat_and_bookmarks(self, doc: Any, para_ranges: Any) -> tuple[list[Any], dict[Any, Any]]:
         tree = self._tree_svc.build_heading_tree(doc, elements=para_ranges)
-        indices = _collect_heading_indices(tree)
+        indices = collect_heading_indices(tree)
         bookmark_map = self._bm_svc.ensure_heading_bookmarks(
             doc, heading_para_indices=indices, para_ranges=para_ranges
         )
@@ -278,8 +279,7 @@ class ProximityService(ServiceBase):
             except Exception as exc:
                 reraise_if_disposed(exc)
                 return None
-            raw_pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-            pi = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+            pi = self._doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
             if pi is not None and start_idx <= pi <= end_idx:
                 return pi
             return None
@@ -313,9 +313,8 @@ class ProximityService(ServiceBase):
             try:
                 fields = doc.getTextFields()
                 enum = fields.createEnumeration()
-                while enum.hasMoreElements() is True:
+                for field in iter_elements(enum):
                     try:
-                        field = enum.nextElement()
                         if not field.supportsService("com.sun.star.text.textfield.Annotation"):
                             continue
                         pi = anchored(field.getAnchor())

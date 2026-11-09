@@ -105,8 +105,10 @@ def test_run_text_analytics_unknown_helper_is_an_error():
 
 
 def test_text_analytics_helper_names():
-    assert hasattr(ta, "HELPER_NAMES")
-    assert "full" in ta.HELPER_NAMES
+    from plugin.scripting.helper_registry import names
+
+    text_names = names("text")
+    assert "full" in text_names
 
 
 def test_check_diagnostics():
@@ -154,7 +156,9 @@ def test_run_text_analytics_diagnostics_dispatch():
     ],
 )
 def test_text_analytics_topics_in_helernames_and_templates(value, value_2, value_3, value_4, value_5):
-    assert value in ta.HELPER_NAMES
+    from plugin.scripting.helper_registry import names
+
+    assert value in names("text")
     temps = ta.get_text_analytics_script_templates()
     assert value_2 in temps
     code = temps[value_3]
@@ -886,7 +890,7 @@ def test_selection_scope_topics_uses_selection_string(monkeypatch):
 
 
 def test_whole_scope_topics_still_uses_sections(monkeypatch):
-    monkeypatch.setattr("plugin.doc.doc_type.is_writer", lambda doc: True)
+    monkeypatch.setattr("plugin.framework.doc_type.is_writer", lambda doc: True)
 
     class FakeDoc:
         def getCurrentController(self):
@@ -947,7 +951,7 @@ def test_insert_empty_ok_result_raises_and_inserts_nothing(monkeypatch):
     def fake_insert(doc, ctx, html, pos):
         captured_html.append(html)
 
-    monkeypatch.setattr("plugin.writer.format.insert_content_at_position", fake_insert)
+    monkeypatch.setattr("plugin.writer.html_import.insert_content_at_position", fake_insert)
 
     class FakeDoc:
         def getCurrentController(self):
@@ -969,7 +973,7 @@ def test_insert_topic_inner_error_raises(monkeypatch):
     def fake_insert(doc, ctx, html, pos):
         captured_html.append(html)
 
-    monkeypatch.setattr("plugin.writer.format.insert_content_at_position", fake_insert)
+    monkeypatch.setattr("plugin.writer.html_import.insert_content_at_position", fake_insert)
 
     class FakeDoc:
         def getCurrentController(self):
@@ -1099,6 +1103,7 @@ def test_long_text_is_truncated_not_an_error(monkeypatch: pytest.MonkeyPatch) ->
     assert res["result"]["truncated"] == {
         "analyzed_chars": vta._MAX_ANALYZED_CHARS,
         "total_chars": vta._MAX_ANALYZED_CHARS + 10,
+        "hint": "Analysis used the first analyzed_chars of total_chars.",
     }
     assert res["result"]["entities"] == []
 

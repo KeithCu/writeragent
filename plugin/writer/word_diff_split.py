@@ -73,10 +73,10 @@ from dataclasses import dataclass
 import difflib
 from typing import Any
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, UNDER_CROSSHAIR, str_bounded, deal
+from plugin.framework.deal_shim import deal
 
 _MAX_DIFF_WORDS = 4000
-_DEFAULT_THRESHOLD = 0.6
+DEFAULT_THRESHOLD = 0.6
 
 __all__ = [
     "Token",
@@ -84,6 +84,7 @@ __all__ = [
     "SplitResult",
     "tokenize",
     "split_change",
+    "DEFAULT_THRESHOLD",
 ]
 
 
@@ -209,7 +210,7 @@ def _opcodes_with_affix(
 
 
 @deal.post(lambda result: isinstance(result, SplitResult) and 0.0 <= result.fraction_changed <= 1.0)
-def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> SplitResult:
+def split_change(old: str, new: str, threshold: float = DEFAULT_THRESHOLD) -> SplitResult:
     """Decide block-vs-surgical and compute the edits to turn *old* into *new*.
 
     Args:
@@ -224,9 +225,8 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
         definition and boundary semantics.
     """
     # crosshair: off
-    # What was wrong: identical strings over the word cap fell back to a whole-block redline.
-    # How it happened: _MAX_DIFF_WORDS cap was evaluated before checking if old == new.
-    # Why this change fixes it: return early with zero sub-edits when old == new before word capping.
+    # old == new returns zero sub-edits before the word cap runs, so long unchanged spans
+    # are not reported as one full-block redline.
     if old == new:
         return SplitResult("surgical", 0.0, [])
 
@@ -240,9 +240,8 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
         mid_old_len = len(old_words) - prefix - suffix
         mid_new_len = len(new_words) - prefix - suffix
         if mid_old_len + mid_new_len > _MAX_DIFF_WORDS:
-            # What was wrong: inputs over the cap reported 1.0 even when a long affix was unchanged.
-            # How it happened: cap bail-out hardcoded fraction=1.0 on the entire string without stripping matching prefix/suffix words.
-            # Why this change fixes it: strip matching affixes and compute upper-bound fraction on the middle words.
+            # Above the cap, strip matching word prefix/suffix before scoring so unchanged
+            # affixes do not inflate the reported change fraction to 1.0.
             denom = prefix + suffix + mid_old_len + mid_new_len
             fraction = (mid_old_len + mid_new_len) / denom if denom else 0.0
             return SplitResult("block", fraction, [])
@@ -275,17 +274,6 @@ def split_change(old: str, new: str, threshold: float = _DEFAULT_THRESHOLD) -> S
     # --- surgical path ---------------------------------------------------------
     sub_edits = _build_surgical_edits(old, new, old_words, new_words, opcodes)
     return SplitResult("surgical", fraction, sub_edits)
-
-
-# Selection text in pytest and production is longer than DEAL_MAX_SOURCE,
-# and that profile must not raise PreContractError. CrossHair bounds inputs.
-if UNDER_CROSSHAIR:
-    split_change = deal.pre(
-        lambda old, new, threshold=_DEFAULT_THRESHOLD: (
-            not isinstance(old, str) or str_bounded(old, DEAL_MAX_SOURCE)
-        )
-        and (not isinstance(new, str) or str_bounded(new, DEAL_MAX_SOURCE))
-    )(split_change)
 
 
 def _build_surgical_edits(old: str, new: str, old_words: list[Token], new_words: list[Token], opcodes: list[Any]) -> list[SubEdit]:

@@ -145,9 +145,9 @@ def test_collapsed_anchor_is_best_effort():
 def test_apply_document_content_edited_context_on_success():
     """Search apply walks outline hyperlinks on the match. MagicMock.hasMoreElements()
     is truthy, so `if not enum.hasMoreElements()` never stopped (PR #823 merge CI
-    leftover). `_enum_has_more` requires UNO True. Review mode is patched: this
+    leftover). `enum_has_more` requires UNO True. Review mode is patched: this
     file does not init config, and get_agent_edit_review_mode reads it first."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()

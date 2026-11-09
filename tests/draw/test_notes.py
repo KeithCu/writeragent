@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.draw.notes import GetSpeakerNotes, SetSpeakerNotes
+from plugin.framework.errors import DocumentDisposedError
 
 
 class _DisposedException(Exception):
@@ -100,7 +101,8 @@ def _ctx(active_page_index: int | None = None, doc: Any = None) -> Any:
 def test_get_returns_empty_and_ok_when_notes_page_missing():
     slide = _Slide(None)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         res = GetSpeakerNotes().execute(ctx, page=0)
     assert res == {"status": "ok", "page": 0, "notes": ""}
 
@@ -109,7 +111,8 @@ def test_get_reads_notes_body_behind_chrome():
     notes_page = _NotesPage(_ChromeShape(), _NotesShape("body"))
     slide = _Slide(notes_page)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         res = GetSpeakerNotes().execute(ctx, page=0)
     assert res == {"status": "ok", "page": 0, "notes": "body"}
 
@@ -117,7 +120,8 @@ def test_get_reads_notes_body_behind_chrome():
 def test_set_missing_notes_page_names_slide():
     slide = _Slide(None)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         out = SetSpeakerNotes().execute(ctx, text="hello", page=0)
     assert out["status"] == "error"
     assert out["code"] == "NOTES_UNAVAILABLE"
@@ -130,7 +134,8 @@ def test_set_missing_notes_shape_names_slide():
     notes_page = _NotesPage(_ChromeShape())
     slide = _Slide(notes_page)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         out = SetSpeakerNotes().execute(ctx, text="hello", page=0)
     assert out["status"] == "error"
     assert out["code"] == "NOTES_UNAVAILABLE"
@@ -144,7 +149,8 @@ def test_set_replaces_and_normalizes_crlf():
     notes_page = _NotesPage(notes_shape)
     slide = _Slide(notes_page)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         out = SetSpeakerNotes().execute(ctx, text="one\r\ntwo\r\nthree", page=0)
     assert out["status"] == "ok"
     body = notes_shape.getString()
@@ -158,7 +164,8 @@ def test_append_adds_one_paragraph():
     notes_page = _NotesPage(notes_shape)
     slide = _Slide(notes_page)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         out = SetSpeakerNotes().execute(ctx, text="three", page=0, append=True)
     assert out["status"] == "ok"
     assert notes_shape.getString() == "one\ntwo\nthree"
@@ -169,7 +176,8 @@ def test_append_after_trailing_newline_does_not_add_blank_paragraph():
     notes_page = _NotesPage(notes_shape)
     slide = _Slide(notes_page)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         out = SetSpeakerNotes().execute(ctx, text="two", page=0, append=True)
     assert out["status"] == "ok"
     body = notes_shape.getString()
@@ -182,7 +190,8 @@ def test_append_to_whitespace_only_body_replaces_it():
     notes_page = _NotesPage(notes_shape)
     slide = _Slide(notes_page)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         out = SetSpeakerNotes().execute(ctx, text="add", page=0, append=True)
     assert out["status"] == "ok"
     assert notes_shape.getString() == "add"
@@ -193,7 +202,8 @@ def test_append_default_is_replace():
     notes_page = _NotesPage(notes_shape)
     slide = _Slide(notes_page)
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         out = SetSpeakerNotes().execute(ctx, text="new", page=0)
     assert out["status"] == "ok"
     assert notes_shape.getString() == "new"
@@ -202,33 +212,53 @@ def test_append_default_is_replace():
 def test_resolution_explicit_page():
     slide = _Slide(_NotesPage(_NotesShape("ok")))
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide) as mock_get_slide:
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         GetSpeakerNotes().execute(ctx, page=2)
-    mock_get_slide.assert_called_once_with(ctx.doc, 2)
+    bridge_cls.return_value.resolve_page.assert_called_once_with(2, active_page_index=ctx.active_page_index)
 
 
 def test_resolution_omitted_page_with_active_page_index():
     slide = _Slide(_NotesPage(_NotesShape("ok")))
     ctx = _ctx(active_page_index=1)
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide) as mock_get_slide:
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
         GetSpeakerNotes().execute(ctx)
-    mock_get_slide.assert_called_once_with(ctx.doc, 1)
+    bridge_cls.return_value.resolve_page.assert_called_once_with(None, active_page_index=1)
 
 
 def test_resolution_omitted_page_falls_back_to_bridge():
     slide = _Slide(_NotesPage(_NotesShape("ok")))
     ctx = _ctx(active_page_index=None)
-    with patch("plugin.draw.bridge.DrawBridge.get_active_page_index", return_value=4), \
-         patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide) as mock_get_slide:
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 4)
         GetSpeakerNotes().execute(ctx)
-    mock_get_slide.assert_called_once_with(ctx.doc, 4)
+    bridge_cls.return_value.resolve_page.assert_called_once_with(None, active_page_index=None)
 
 
 def test_disposed_notes_page_propagates():
     slide = _DisposedSlide()
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge.get_slide_for_tool", return_value=slide):
-        with pytest.raises(_DisposedException):
+    with patch("plugin.draw.notes.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (slide, 0)
+        with pytest.raises(DocumentDisposedError):
             GetSpeakerNotes().execute(ctx, page=0)
-        with pytest.raises(_DisposedException):
+        with pytest.raises(DocumentDisposedError):
             SetSpeakerNotes().execute(ctx, text="hi", page=0)
+
+
+def test_notes_text_and_set_notes_text_functions():
+    from plugin.draw.bridge import notes_text, set_notes_text
+
+    assert notes_text(None) is None
+    assert set_notes_text(None, "hello") is False
+
+    slide_no_notes = _Slide(_NotesPage(_ChromeShape()))
+    assert notes_text(slide_no_notes) is None
+    assert set_notes_text(slide_no_notes, "hello") is False
+
+    shape = _NotesShape("initial")
+    slide_with_notes = _Slide(_NotesPage(_ChromeShape(), shape))
+    assert notes_text(slide_with_notes) == "initial"
+    assert set_notes_text(slide_with_notes, "updated") is True
+    assert notes_text(slide_with_notes) == "updated"

@@ -178,7 +178,7 @@ def test_ppt_master_session_delegates_to_venv():
     ctx.doc = "anthropic/claude-sonnet-4"
     ctx.status_callback = None
     ctx.append_thinking_callback = None
-    ctx.stop_checker = None
+    ctx.send_cancellation = None
 
     fake_doc = MagicMock()
     fake_doc.getURL.return_value = "file:///deck.odp"
@@ -194,7 +194,7 @@ def test_ppt_master_session_delegates_to_venv():
         out = tool.execute(ctx, query="Build a deck")
         mock_run.assert_called_once()
         assert mock_run.call_args.kwargs["model"] is None
-        assert mock_run.call_args.kwargs["cancellation_scope"] is ctx.send_cancellation
+        assert mock_run.call_args.kwargs["cancel"] is None
         assert out["status"] == "ok"
         assert "done" in out["result"]
 
@@ -229,7 +229,7 @@ def test_run_ppt_master_venv_turn_keeps_cancellation_on_the_host():
         patch("plugin.ppt_master.venv.host.apply_data_root_env"),
         patch("plugin.ppt_master.venv.host.configured_python_exec_timeout", return_value=30),
         patch("plugin.ppt_master.venv.host.resolve_python_exec_timeout", return_value=30),
-        patch("plugin.ppt_master.venv.host.get_config_int", return_value=8),
+        patch("plugin.ppt_master.venv.host.get_config", return_value=8),
     ):
         run_ppt_master_venv_turn(
             MagicMock(),
@@ -238,9 +238,9 @@ def test_run_ppt_master_venv_turn_keeps_cancellation_on_the_host():
             topic=None,
             model=None,
             session_id="s",
-            cancellation_scope=scope,
+            cancel=scope,
         )
     payload = manager.execute_ppt_master_turn.call_args.args[0]
-    assert manager.execute_ppt_master_turn.call_args.kwargs["cancellation_scope"] is scope
-    assert "cancellation_scope" not in payload
-    assert "_cancellation_scope" not in payload
+    assert manager.execute_ppt_master_turn.call_args.kwargs["cancel"] is scope
+    assert "cancel" not in payload
+    assert "_cancel" not in payload

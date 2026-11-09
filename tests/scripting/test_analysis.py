@@ -15,7 +15,7 @@ pytest.importorskip("sklearn")
 pytest.importorskip("scipy")
 
 import plugin.scripting.analysis as analysis
-from plugin.scripting.analysis import coerce_to_dataframe
+from plugin.scripting.analysis import grid_to_dataframe
 from plugin.scripting.calc_functions_common import ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS
 
 
@@ -56,7 +56,7 @@ REGRESSION_GRID = [["x", "y"], [1, 2], [2, 4], [3, 6], [4, 8]]
 
 
 def test_coerce_headers_and_currency():
-    result = coerce_to_dataframe(SALES_GRID, headers=True)
+    result = grid_to_dataframe(SALES_GRID, header_row=0, parse_strings=True)
     df = result.df
     assert list(df.columns) == ["Region", "Sales", "Units"]
     assert df.loc[0, "Sales"] == pytest.approx(1200.50)
@@ -69,7 +69,7 @@ def test_coerce_percent_and_empty_to_nan():
     import pandas as pd
 
     grid = [["Rate", "Label"], ["12%", "a"], ["", "b"], ["0.5", "c"]]
-    result = coerce_to_dataframe(grid, headers=True)
+    result = grid_to_dataframe(grid, header_row=0, parse_strings=True)
     series = result.df["Rate"]
     assert len(series) == 3
     assert series.iloc[0] == pytest.approx(0.12)
@@ -79,21 +79,21 @@ def test_coerce_percent_and_empty_to_nan():
 
 def test_coerce_records_dict_shape():
     records = [{"a": 1, "b": 2}, {"a": 3, "b": 4}]
-    result = coerce_to_dataframe(records, headers=True)
+    result = grid_to_dataframe(records, header_row=0, parse_strings=True)
     assert list(result.df.columns) == ["a", "b"]
     assert len(result.df) == 2
 
 
 def test_coerce_columns_rows_dict():
     payload = {"columns": ["x", "y"], "rows": [[1, 2], [3, 4]]}
-    result = coerce_to_dataframe(payload, headers=True)
+    result = grid_to_dataframe(payload, header_row=0, parse_strings=True)
     assert list(result.df.columns) == ["x", "y"]
     assert len(result.df) == 2
 
 
 def test_coerce_dedupes_header_names():
     grid = [["A", "A", "B"], [1, 2, 3]]
-    result = coerce_to_dataframe(grid, headers=True)
+    result = grid_to_dataframe(grid, header_row=0, parse_strings=True)
     assert list(result.df.columns) == ["A", "A_1", "B"]
 
 
@@ -213,6 +213,15 @@ def test_describe_data_pins_profile_pool_size():
 
     assert result["status"] == "ok"
     assert seen["kwargs"]["pool_size"] == 1
+
+
+def test_describe_data_does_not_phone_home():
+    if not _has_working_data_profiling():
+        pytest.skip("fg-data-profiling not usable on this platform")
+    with patch("requests.get") as mock_get:
+        result = analysis.describe_data(SALES_GRID)
+    assert result["status"] == "ok"
+    mock_get.assert_not_called()
 
 
 def test_kpi_summary():
@@ -817,6 +826,9 @@ def test_run_analysis_dispatches_helper(monkeypatch):
         recorded["kwargs"] = kwargs
         return {"status": "ok", "helper": "describe_data"}
 
+    from plugin.scripting import helper_registry
+
+    monkeypatch.setitem(helper_registry._BOUND, ("analysis", "describe_data"), stub_describe)
     monkeypatch.setattr("plugin.scripting.venv.analysis.describe_data", stub_describe)
     result = analysis.run_analysis("describe_data", SALES_GRID)
     assert result["status"] == "ok"
@@ -1085,8 +1097,8 @@ def test_pivot_and_group_aggfunc_and_headers():
     assert res7["status"] == "ok"
     cols7 = res7["tables"][0]["columns"]
     assert "Region" in cols7
-    assert "Sales_sum" in cols7
-    assert "Sales_mean" in cols7
+    assert "Sales / sum" in cols7
+    assert "Sales / mean" in cols7
     for col_name in cols7:
         assert "(" not in str(col_name)
 
@@ -1098,7 +1110,7 @@ def test_pivot_and_group_aggfunc_and_headers():
     ]
     res8 = analysis.pivot_aggregate(fixture, index="Region", columns="Quarter", values=["Sales", "Units"], aggfunc="sum")
     assert res8["status"] == "ok"
-    assert res8["tables"][0]["columns"] == ["Region", "Sales_Q1", "Sales_Q2", "Units_Q1", "Units_Q2"]
+    assert res8["tables"][0]["columns"] == ["Region", "Sales / Q1", "Sales / Q2", "Units / Q1", "Units / Q2"]
     rows8 = {r[0]: r[1:] for r in res8["tables"][0]["rows"]}
     # South's Q2 sales (idx 1) and units (idx 3) are 0
     assert rows8["South"][1] == 0
@@ -1112,7 +1124,7 @@ def test_pivot_and_group_aggfunc_and_headers():
 
     res10 = analysis.pivot_aggregate(fixture, index="Region", columns="Quarter", values="Sales", aggfunc=["sum", "mean"])
     assert res10["status"] == "ok"
-    assert res10["tables"][0]["columns"] == ["Region", "sum_Q1", "sum_Q2", "mean_Q1", "mean_Q2"]
+    assert res10["tables"][0]["columns"] == ["Region", "sum / Q1", "sum / Q2", "mean / Q1", "mean / Q2"]
     rows10 = {r[0]: r[1:] for r in res10["tables"][0]["rows"]}
     # South mean_Q2 (idx 3) is None
     assert rows10["South"][3] is None

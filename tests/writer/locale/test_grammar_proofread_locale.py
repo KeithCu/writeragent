@@ -180,39 +180,39 @@ def test_fingerprint_for_text() -> None:
 @pytest.mark.parametrize("provider", ("harper", "languagetool", "vale"))
 def test_grammar_max_in_flight_local_providers_always_one(provider: str) -> None:
     with (
-        patch("plugin.framework.config.get_config_int_safe", return_value=4),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value=provider),
+        patch("plugin.framework.config.get_config", return_value=4),
+        patch("plugin.writer.locale.grammar_settings.provider", return_value=provider),
     ):
         assert gl.grammar_max_in_flight() == 1
 
 
 def test_grammar_max_in_flight_llm_uses_config() -> None:
     with (
-        patch("plugin.framework.config.get_config_int_safe", return_value=4),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="llm"),
+        patch("plugin.framework.config.get_config", return_value=4),
+        patch("plugin.writer.locale.grammar_settings.provider", return_value="llm"),
     ):
         assert gl.grammar_max_in_flight() == 4
 
 
 def test_grammar_max_in_flight_llm_clamps_to_hard_cap() -> None:
     with (
-        patch("plugin.framework.config.get_config_int_safe", return_value=99),
-        patch("plugin.writer.locale.grammar_worker.get_grammar_provider", return_value="llm"),
+        patch("plugin.framework.config.get_config", return_value=99),
+        patch("plugin.writer.locale.grammar_settings.provider", return_value="llm"),
     ):
         assert gl.grammar_max_in_flight() == gl.GRAMMAR_MAX_IN_FLIGHT
 
 
 def test_grammar_batch_sentences_defaults_and_clamping() -> None:
-    with patch("plugin.framework.config.get_config_int_safe", return_value=0):
+    with patch("plugin.framework.config.get_config", return_value=0):
         assert gl.grammar_batch_sentences() == 1
 
-    with patch("plugin.framework.config.get_config_int_safe", return_value=4):
+    with patch("plugin.framework.config.get_config", return_value=4):
         assert gl.grammar_batch_sentences() == 4
 
-    with patch("plugin.framework.config.get_config_int_safe", return_value=99):
+    with patch("plugin.framework.config.get_config", return_value=99):
         assert gl.grammar_batch_sentences() == gl.GRAMMAR_BATCH_MAX_SENTENCES
 
-    with patch("plugin.framework.config.get_config_int_safe", return_value=-5):
+    with patch("plugin.framework.config.get_config", return_value=-5):
         assert gl.grammar_batch_sentences() == 1
 
 

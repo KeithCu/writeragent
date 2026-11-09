@@ -9,8 +9,8 @@ from __future__ import annotations
 import io
 import threading
 
-import plugin.scripting.ipc
-from plugin.scripting.ipc import (
+import plugin.framework.ipc
+from plugin.framework.ipc import (
     FRAME_HEARTBEAT,
     FRAME_RESULT,
     read_frame_payload,
@@ -77,7 +77,7 @@ def test_emit_holds_tool_call_lock_across_the_write():
     t.start()
     try:
         assert stream.first_write_entered.wait(timeout=2.0)
-        assert plugin.scripting.ipc._tool_call_lock.acquire(blocking=False) is False
+        assert plugin.framework.ipc._tool_call_lock.acquire(blocking=False) is False
     finally:
         stream.release_write.set()
         t.join(timeout=2.0)

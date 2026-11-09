@@ -41,7 +41,7 @@ The first search may return **“index building in the background — retry shor
 
 ### Search Nearby Files menu
 
-**WriterAgent → Search Nearby Files…** opens a modeless dialog ([`search_ui.py`](../plugin/embeddings/search_ui.py), [`SearchDialog.xdl`](../extension/WriterAgentDialogs/SearchDialog.xdl)) that runs the same hybrid path as the agent tool. It shows cache status, ranked hits, and a **Rebuild** button to cold-reindex the folder.
+**WriterAgent → Search Nearby Files…** opens a modeless dialog ([`search_ui.py`](../plugin/embeddings/search_ui.py), [`SearchDialog.xdl`](../extension/Dialogs/SearchDialog.xdl)) that runs the same hybrid path as the agent tool. It shows cache status, ranked hits, and a **Rebuild** button to cold-reindex the folder.
 
 ### What gets indexed
 
@@ -52,7 +52,7 @@ Same extensions as `list_nearby_files` / maintain ([`embeddings_fs.py`](../plugi
 | ODF | `.odt`, `.ods`, `.odp`, `.odg`, `.ots`, `.fods`, … |
 | OOXML | `.docx`, `.xlsx`, `.pptx` |
 | Legacy binary | `.doc`, `.xls`, `.ppt` (headless `soffice --convert-to` → temp ODF) |
-| Plain | `.csv`, `.txt`, `.rtf` |
+| Plain | `.csv`, `.txt`, `.rtf`, `.md` |
 
 **PDF** is not indexed yet.
 
@@ -133,6 +133,8 @@ Workflow hints ([`get_document_research_workflow_hint`](../plugin/framework/prom
 {"doc_url": "file:///…/notes.odt", "score": 0.85, "snippet": "…passage…", "para_index": 12}
 ```
 
+When **`file_subset`** is set, retrieval passes **`doc_url_filter`** for a single matching URL, or runs one hybrid query per URL and merges hits by score (not a post-filter of the global top-k).
+
 - **`snippet`** — for multi-chunk paragraphs, the **full ODF paragraph** (sibling sub-chunks merged by `para_index`); otherwise the embedded chunk from `chunks.body` (up to 512 characters).
 - **`para_index`** — weak hint (ODF extract ordinal). **Do not** treat as an exact LibreOffice jump target.
 - **`char_start` / `char_end`** — stored internally only; not returned in hits.
@@ -200,7 +202,7 @@ flowchart LR
 ### Pipeline (default `hybrid` backend)
 
 1. **Encode query** — `SentenceTransformer` in the embeddings venv ([`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py)).
-2. **FTS leg** — BM25 + optional `NEAR` on FTS5 `passages` ([`folder_fts.py`](../plugin/embeddings/venv/folder_fts.py)).
+2. **FTS leg** — BM25 + optional `NEAR` on FTS5 `passages` ([`embeddings_sqlite.py`](../plugin/embeddings/venv/embeddings_sqlite.py)).
 3. **Vector leg** — sqlite-vec `MATCH` on `vec_chunks_<model_slug>` ([`embeddings_search_graph.py`](../plugin/embeddings/venv/embeddings_search_graph.py)).
 4. **RRF fusion** — vendored reciprocal rank fusion ([`hybrid_rrf.py`](../plugin/embeddings/venv/hybrid_rrf.py), from [liamca/sqlite-hybrid-search](https://github.com/liamca/sqlite-hybrid-search)).
 5. **Parent merge** — widen snippets to full paragraph ([`embeddings_parent_hits.py`](../plugin/embeddings/venv/embeddings_parent_hits.py)).
@@ -296,7 +298,7 @@ One job per folder key (`_inflight` guard in [`embeddings_indexer.py`](../plugin
 
 Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window ([`embeddings_ingest_graph.py`](../plugin/embeddings/venv/embeddings_ingest_graph.py)).
 
-`search_nearby_files` does not wait for embed completion. An empty cache, or a cache whose `embedding_model` does not match the active model, returns `indexing` and enqueues a cold rebuild. It does not run a vector query against that index. A matching cache is read immediately, and maintain is enqueued in the background.
+`search_nearby_files` does not wait for embed completion. An empty cache, or a cache whose `embedding_model` does not match the active model, returns `indexing` and enqueues a cold rebuild. It does not run a vector query against that index. `folder_store` treats an explicit foreign `schema_version` as empty so search does not query it. A JSON object with a non-current `schema_version` is deleted by `maybe_upgrade_legacy_index` on the host `corpus-index-*` thread before the venv RPC, and the venv `maintain_folder_corpus` call stays. A matching cache is read immediately, and maintain is enqueued in the background.
 
 ### Module map
 
@@ -316,7 +318,6 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py) | Venv RPC facades |
 | [`embeddings_service.py`](../plugin/embeddings/embeddings_service.py) | Host index/search/stats RPC |
 | [`embedding_client.py`](../plugin/embeddings/embedding_client.py) | Host `embed_texts()` RPC (provider call used by the index service) |
-| [`folder_fts_service.py`](../plugin/embeddings/folder_fts_service.py) | Host folder FTS maintain/search RPC |
 
 ---
 
@@ -331,7 +332,7 @@ Ingest batches: **`EMBEDDINGS_INGEST_BATCH_SIZE`** (64) chunks per embed window 
 | **`corpus.db`** | `chunks`, FTS5 `passages`, `vec_chunks_<model_slug>`, `indexed_files`, `indexed_paragraphs`, `model_metadata` |
 | **`corpus_meta.json`** | `schema_version`, `embedding_model`, `dim`, `chunk_count`, `storage_backend`, `updated_at` |
 
-`write_corpus_meta` merges fields and publishes them with `tempfile.mkstemp` in the same `writeragent_embeddings/` directory plus `os.replace`. There is no cross-process lock; overlapping merges can still drop fields. For sqlite, an omitted `db_path` (including `fts_index_is_empty`'s default) uses the `corpus.db` next to the meta file before checking emptiness. A missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty. `resolve_index_context` returns `corpus.db` and `corpus_meta.json` paths and does not create `writeragent_embeddings/` (probes call it on every status refresh and research search; `write_corpus_meta` and `connect_corpus_db` create the directory on write). `clear_folder_cache` deletes `corpus.db-wal` and `corpus.db-shm` with `corpus.db`.
+`CorpusMeta.save` writes the dict it loaded via `os.replace` after writing to `tempfile.mkstemp` in the same `writeragent_embeddings/` directory. There is still no cross-process lock; overlapping merges can still drop fields. For sqlite, an omitted `db_path` (including `index_is_empty`'s default) uses the `corpus.db` next to the meta file before checking emptiness. A missing `corpus_meta.json` beside a live `corpus.db` is an empty index (cold rebuild may delete that db). Corrupt or non-object JSON beside that db is not empty and must not be wiped. For zvec and lancedb, a populated collection with missing or corrupt meta stays not empty. `resolve_index_context` returns `corpus.db` and `corpus_meta.json` paths, does not create `writeragent_embeddings/`, and does not delete (probes call it on every status refresh and research search; `CorpusMeta.save` and `connect_corpus_db` create the directory on write; stale-schema deletion runs on the corpus-index thread). `clear_folder_cache` deletes `corpus.db-wal` and `corpus.db-shm` with `corpus.db`. `connect_corpus_db` sets WAL when `path_is_local_disk` is true and DELETE otherwise; chat history stays WAL.
 
 Experimental backends use side-by-side stores: `writeragent_embeddings/zvec/` or `lancedb/` — `corpus.db` remains untouched when flipping modes.
 
@@ -575,6 +576,7 @@ Per-folder semantic search runs in the user venv via trusted RPC modules. Settin
 | [icu4py](https://pypi.org/project/icu4py/) | (same line) | Sentence boundaries for prose chunking (`SentenceBreaker`; bundled ICU wheels) |
 | [langdetect](https://pypi.org/project/langdetect/) | (same line) | Plain-text locale detection; grammar Local language detection (via embeddings worker RPC) |
 | [envwrap](https://pypi.org/project/envwrap/) | (same line) | Transitive dependency for `sentence-transformers` / Hugging Face stack on some Python versions |
+| [psutil](https://pypi.org/project/psutil/) | (same line) | Corpus `corpus.db` journal mode: classify local vs network mount (`embeddings_sqlite.path_is_local_disk`) |
 
 Canonical install constant: `EMBEDDINGS_VENV_PIP_INSTALL` in [`embeddings_index.py`](../plugin/embeddings/venv/embeddings_index.py).
 
@@ -583,7 +585,7 @@ Settings → **Python Test** and [`venv_diagnostics.py`](../plugin/scripting/ven
 **Minimum install:**
 
 ```bash
-uv pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap icu4py langdetect odfpy pandas openpyxl xlrd python-docx
+uv pip install numpy sentence-transformers sqlite-vec langgraph langchain-core langchain-text-splitters envwrap psutil icu4py langdetect odfpy pandas openpyxl xlrd python-docx
 ```
 
 See [`EMBEDDINGS_VENV_PIP_INSTALL`](../plugin/embeddings/venv/embeddings_index.py) for the canonical one-liner. [Installing sqlite-vec](#installing-sqlite-vec) if `sqlite_vec.load()` fails.
@@ -939,7 +941,7 @@ zvec stores data in `writeragent_embeddings/zvec/` — a first-class zvec collec
 - Background indexing heartbeat, enqueue, stale detection ([`embeddings_folder_maintain.py`](../plugin/embeddings/venv/embeddings_folder_maintain.py) dispatches to `maintain_folder_zvec` when mode is `zvec`)
 - Embedding generation: same `embed_texts` / `SentenceTransformer` wrapper, batching, and L2 normalization — switching backends does not change the embedding space
 - Tool contract and hit shaping (`{doc_url, score, snippet, para_index?, content_hash?, ...}`)
-- Host: `resolve_index_context`, mode-aware empty checks ([`zvec_collection_looks_populated`](../plugin/embeddings/embeddings_cache.py)), `corpus_meta.json` updates, cache clearing, search UI
+- Host: `resolve_index_context`, consolidated folder store state ([`folder_store`](../plugin/embeddings/embeddings_cache.py)), `corpus_meta.json` updates, cache clearing, search UI
 - Sandbox allow-listing and venv diagnostics (`zvec: present` or `None` in Python Test)
 
 **What zvec owns when `folder_search_mode="zvec"`** ([`embeddings_zvec.py`](../plugin/embeddings/venv/embeddings_zvec.py)):
@@ -954,7 +956,7 @@ zvec stores data in `writeragent_embeddings/zvec/` — a first-class zvec collec
 
 **Maintain (v1):** `maintain_folder_zvec` does per-file `delete_by_filter('doc_url == "..."')`, re-extracts paragraphs, embeds, builds `Doc` objects with stable ids (`{doc_url}#{para_index}#{content_hash_prefix}`), `upsert`s, heartbeat progress. Updates `corpus_meta.json` with `storage_backend: "zvec"`. Does **not** use sqlite `indexed_files` / `indexed_paragraphs` — a folder can have a good zvec index without ever building `corpus.db`.
 
-Auto maintenance must not treat that missing `corpus.db` as an empty index. For `zvec` and `lancedb`, cold vs incremental uses `corpus_meta.json` `chunk_count` plus whether `zvec/` or `lancedb/` has files (the same signals as the Search dialog and the research tools). A false empty resolves cold, and `clear_folder_cache` deletes the collection on every tick.
+Auto maintenance must not treat that missing `corpus.db` as an empty index. For `zvec` and `lancedb`, the dialog, the research tool, and maintain ask `folder_store` whether the store is built. `zvec` and `lancedb` still use chunk count plus collection presence, and a missing `corpus.db` is still not an empty collection. A false empty resolves cold, and `clear_folder_cache` deletes the collection on every tick.
 
 **Search:** `zvec_knn_search` (semantic only) and `zvec_hybrid_search` (normal tool path) embed the query, build `Query` objects, apply reranker when configured, map through `_shape_hit` to standard hits. `doc_url_filter` becomes a query filter; `near_slop` accepted for future FTS parity.
 

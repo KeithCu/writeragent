@@ -15,7 +15,9 @@ import time
 import urllib.parse
 from typing import Any, Callable
 
-from plugin.audio.tts_models import _notify_tts_status
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+
+from plugin.audio.tts_models import notify_tts_status
 from plugin.audio.tts_voices import canonical_voice_id, clean_voice_name, get_voice_family
 from plugin.audio.voice_catalog import KOKORO_FALLBACK_VOICE
 from plugin.framework.client.http_security import public_target
@@ -120,7 +122,7 @@ def _explicit_openrouter(endpoint_url: str) -> bool:
     try:
         from plugin.framework.config import get_config, get_current_endpoint
 
-        flag = bool(get_config("is_openrouter"))
+        flag = get_config("is_openrouter")
         curr = get_current_endpoint() or ""
     except ConfigError:
         return False
@@ -191,17 +193,17 @@ def _post_audio_speech(
     headers: dict[str, str],
     payload: dict[str, Any],
     *,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[bytes | None, str, int, str]:
     """Execute the HTTP request, returning (audio_bytes, content_type, code, error_body)."""
     import json
 
-    from plugin.framework.config import get_config_int_safe
+    from plugin.framework.config import get_config
     from plugin.framework.client.requests import sync_request
     from plugin.framework.errors import NetworkError
 
     # Read budget only. Connect stays on the shared short timeout inside sync_request.
-    timeout = get_config_int_safe("request_timeout")
+    timeout = int(get_config("request_timeout") or 0)
     read_timeout = float(timeout if timeout > 0 else 120)
 
     data = json.dumps(payload).encode("utf-8")
@@ -212,7 +214,7 @@ def _post_audio_speech(
             headers=headers,
             parse_json=False,
             timeout=read_timeout,
-            stop_checker=stop_checker,
+            cancel=cancel,
             include_meta=True,
             max_bytes=_SPEECH_RESPONSE_MAX_BYTES,
         )
@@ -256,7 +258,7 @@ def _resolve_tts_voice(model: str, voice: str, endpoint_url: str | None = None) 
     return canonical_voice_id(family, voice)
 
 
-def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
+def download_endpoint_speech(
     text: str,
     endpoint_url: str,
     api_key: str,
@@ -265,7 +267,7 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
     speed: float = 1.0,
     on_status: Callable[[str], None] | None = None,
     *,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> _EndpointClip | None:
     """Download one ``/audio/speech`` clip returning audio bytes and metadata.
 
@@ -277,7 +279,7 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
         remember_tts_response_format,
     )
 
-    if stop_checker and stop_checker():
+    if is_cancelled(cancel):
         return None
 
     is_or = _explicit_openrouter(endpoint_url)
@@ -314,9 +316,9 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
             public_target(url), payload["model"], payload.get("voice", ""), response_format, len(text),
         )
         audio_bytes, content_type, code, err_body = _post_audio_speech(
-            url, headers, payload, stop_checker=stop_checker,
+            url, headers, payload, cancel=cancel,
         )
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             return None
         if err_body and attempt == 0:
             alt = _alternate_tts_response_format(err_body, response_format, code)
@@ -330,12 +332,12 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
         break
 
     if err_body or audio_bytes is None:
-        _notify_tts_status(_speech_failure_message(code, err_body), on_status)
+        notify_tts_status(_speech_failure_message(code, err_body), on_status)
         return None
 
     if not audio_bytes:
         log.warning("TTS endpoint %s returned empty audio body", public_target(url))
-        _notify_tts_status(_("Speech endpoint returned no audio."), on_status)
+        notify_tts_status(_("Speech endpoint returned no audio."), on_status)
         return None
 
     actual_format = _sniff_audio_format(audio_bytes, content_type)
@@ -349,7 +351,7 @@ def _download_endpoint_speech(  # pyright: ignore[reportUnusedFunction]
         "TTS audio received from %s (model=%s, format=%s, bytes=%d, elapsed_ms=%d)",
         public_target(url), model, actual_format, len(audio_bytes), elapsed_ms,
     )
-    if stop_checker and stop_checker():
+    if is_cancelled(cancel):
         log.info("TTS playback cancelled after download")
         return None
     suffix = ".mp3" if actual_format == "mp3" else ".wav"

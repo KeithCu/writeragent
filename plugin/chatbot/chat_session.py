@@ -7,6 +7,40 @@ from plugin.chatbot.history_db import get_chat_history
 
 log = logging.getLogger(__name__)
 
+from plugin.framework.client.shim_helpers import snapshot_text
+
+
+def strip_legacy_document_suffix(content: str) -> str:
+    """If content endswith '\n[END DOCUMENT]' and contains '\n\n[DOCUMENT CONTENT]\n',
+    return content[:content.rfind(that marker)]. Otherwise return content.
+    """
+    marker = "\n\n[DOCUMENT CONTENT]\n"
+    if content.endswith("\n[END DOCUMENT]") and marker in content:
+        idx = content.rfind(marker)
+        if idx != -1:
+            return content[:idx]
+    return content
+
+
+def history_open_failed_text() -> str:
+    """Return the user-facing history warning translated at call time for sidebar display and test assertions."""
+    from plugin.framework.i18n import _
+
+    return _("Chat history could not be opened. This conversation will not be saved.")
+
+
+def request_tail(session: Any) -> str:
+    """Return dynamic per-request context (such as the document snapshot).
+
+    Everything that changes per request lives after the cache breakpoint so
+    earlier history and system prompts stay cacheable across turns.
+    """
+    doc_text = getattr(session, "document_context", "") or ""
+    if doc_text:
+        snap = snapshot_text(doc_text)
+        if snap:
+            return snap
+    return ""
 
 # ---------------------------------------------------------------------------
 # ChatSession - holds conversation history for multi-turn chat
@@ -24,10 +58,12 @@ class ChatSession:
     active_specialized_domain: str | None
     python_tool_domain: str | None
     compaction: Any
+    history_notice: str
 
     def __init__(self, system_prompt: str | None = None, session_id: str | None = None) -> None:
         self.session_id = session_id
         self.db = None
+        self.history_notice = ""
         self.messages = []
         self.base_system_prompt = system_prompt or ""
         self.document_context = ""
@@ -43,12 +79,17 @@ class ChatSession:
             try:
                 self.db = get_chat_history(session_id)
                 self.messages = self.db.get_messages()
+                if self.messages:
+                    first = self.messages[0]
+                    if isinstance(first, dict) and first.get("role") == "system" and isinstance(first.get("content"), str):
+                        first["content"] = strip_legacy_document_suffix(first["content"])
             except Exception:
-                # JSONDecodeError and sqlite json.loads used to land here with
-                # messages still []. The seed below then add_message'd a system
-                # row without deleting the old ones (or over a truncated file).
                 log.exception("ChatSession history load failed")
-                if self.db is not None:
+                if self.db is None:
+                    # The backend never opened: the session runs in memory and the
+                    # sidebar shows history_notice so the user knows nothing is saved.
+                    self.history_notice = history_open_failed_text()
+                else:
                     # Backend opened, then get_messages raised: must not insert
                     # a system row, which would replace a corrupt history with a
                     # one-message session.
@@ -70,26 +111,26 @@ class ChatSession:
             self.db.replace_messages(list(self.messages))
 
     def set_system_context(self, base_prompt: str, doc_text: str = "") -> None:
-        """Update the system prompt and document context, combining them into the first message."""
+        """Update the system prompt and document context.
+
+        base_system_prompt = base_prompt; document_context = doc_text.
+        messages[0] content is base_prompt only. Insert a system row when the
+        first row is not a system dict. Do not touch the DB.
+        """
         self.base_system_prompt = base_prompt
         self.document_context = doc_text
-        
-        content = base_prompt
-        if doc_text:
-            content += f"\n\n[DOCUMENT CONTENT]\n{doc_text}\n[END DOCUMENT]"
-            
-        # Bugfix: a loaded dict with no "role" raised KeyError on every send.
-        # SQLite3History.get_messages keeps every JSON object, and refresh_document_context
-        # calls set_system_context on every send. Anything that is not a system dict gets
-        # a system row inserted in front, leaving the existing first row in place.
+
+        # Rows without role=system get a system header inserted; malformed dicts must not raise KeyError.
         first = self.messages[0] if self.messages else None
         if not isinstance(first, dict) or first.get("role") != "system":
-            self.messages.insert(0, {"role": "system", "content": content})
+            self.messages.insert(0, {"role": "system", "content": base_prompt})
         else:
-            first["content"] = content
+            first["content"] = base_prompt
 
     def refresh_document_context(self, model: Any, ctx: Any) -> None:
-        """Reload the Chat system prompt and ``[DOCUMENT CONTENT]`` from the live document.
+        """Reload the Chat system prompt and document context from the live document.
+
+        Excerpt is stored on document_context, not messages[0].
 
         Why this lives on ChatSession, not panel_factory: the factory only wires
         XDL/controls. Mode switch, each send, and mid-loop refresh after a
@@ -108,6 +149,59 @@ class ChatSession:
         )
         self.set_system_context(base_prompt, doc_text)
 
+    def messages_for_request(self) -> list[dict[str, Any]]:
+        """Return the messages to send to the LLM for a request.
+
+        Starts with messages_for_llm(self), then folds request_tail(self)
+        into the trailing message:
+        - On normal chat turns (ending in a user message), the snapshot is
+          placed at the tail of the newest user turn as a content block, keeping
+          the newest user turn a consistent shape (list of content blocks) and
+          preserving prompt cache prefix stability.
+        - On tool rounds (ending in a tool message), the snapshot is folded
+          into the last tool result message so models (like gpt-oss-20b) do not
+          see an instruction-less trailing user message and enter runaway edit loops.
+        Does not mutate self.messages or self.compaction.
+        """
+        from plugin.chatbot.compaction import messages_for_llm
+
+        view = [dict(m) for m in messages_for_llm(self)]
+        if not view:
+            return view
+
+        tail = request_tail(self)
+        last = view[-1]
+        role = last.get("role") if isinstance(last, dict) else None
+
+        if role == "user":
+            # Strict-alternation templates reject two adjacent user turns; the tail folds into the last user message.
+            content = last.get("content")
+            if isinstance(content, str):
+                parts = [{"type": "text", "text": content}]
+            elif isinstance(content, list):
+                parts = list(content)
+            else:
+                parts = [{"type": "text", "text": str(content or "")}]
+            if tail:
+                parts.append({"type": "text", "text": tail})
+            new_last = dict(last, content=parts)
+            return view[:-1] + [new_last]
+
+        if role == "tool" and tail:
+            # A user turn after a tool result reads as a new request (gpt-oss-20b re-edited in a loop); folding the snapshot into the tool result keeps the model in tool-response state.
+            content = last.get("content")
+            new_content: Any
+            if isinstance(content, str):
+                new_content = f"{content}\n\n{tail}" if content else tail
+            elif isinstance(content, list):
+                new_content = list(content) + [{"type": "text", "text": tail}]
+            else:
+                new_content = f"{content}\n\n{tail}" if content is not None else tail
+            new_last = dict(last, content=new_content)
+            return view[:-1] + [new_last]
+
+        return view
+
     def add_user_message(self, content: Any) -> None:
         self.messages.append({"role": "user", "content": content})
         if self.db:
@@ -125,9 +219,7 @@ class ChatSession:
         if self.messages and self.messages[-1].get("_open_transcript"):
             self.messages.pop()
         self.messages.append(msg)
-        # Tool calls stay out of history. content=None used to be written
-        # anyway, and message_to_dict stored JSON null for a tool-only turn.
-        # Memory keeps "" above; disk skips empty assistant text.
+        # Tool-only turns keep content out of disk history; empty assistant text is not persisted.
         if self.db and content:
             self.db.add_message("assistant", content)
 
@@ -144,3 +236,34 @@ class ChatSession:
         self.active_specialized_domain = None
         self.python_tool_domain = None
         self._seed_system_message()
+
+
+def message_text(content: Any, *, strip_html: bool = False) -> str:
+    """Normalize user/assistant message content (string or multimodal parts list) to plain text."""
+    if not isinstance(content, (str, list)):
+        return ""
+    if isinstance(content, str):
+        if strip_html:
+            from plugin.framework.html_stripper import strip_html_tags
+
+            return strip_html_tags(content)
+        return content
+    parts: list[str] = []
+    for part in content:
+        if isinstance(part, str):
+            if part:
+                parts.append(part)
+        elif isinstance(part, dict):
+            if part.get("type") in ("text", None):
+                txt = part.get("text")
+                if txt is not None:
+                    s = str(txt)
+                    if s:
+                        parts.append(s)
+    text = "\n".join(parts)
+    if strip_html:
+        from plugin.framework.html_stripper import strip_html_tags
+
+        return strip_html_tags(text)
+    return text
+

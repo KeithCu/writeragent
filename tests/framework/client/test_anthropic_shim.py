@@ -197,7 +197,7 @@ def test_developer_joins_system_and_unknown_role_is_skipped(caplog: pytest.LogCa
         )
     data = json.loads(body)
     assert data["system"] == "sys\n\ndev line"
-    assert data["messages"] == [{"role": "user", "content": "hi"}]
+    assert data["messages"] == [{"role": "user", "content": [{"type": "text", "text": "hi"}]}]
     assert "do not send" not in body.decode()
     assert "function" in caplog.text
 
@@ -358,3 +358,216 @@ def test_anthropic_unset_omits_output_config() -> None:
     assert "output_config" not in json.loads(body)
 
 
+def test_anthropic_tool_loop_prompt_caching_and_merge():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    snap = snapshot_text("Current doc context")
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "func1", "arguments": "{}"}},
+                {"id": "t2", "function": {"name": "func2", "arguments": "{}"}},
+            ],
+            "reasoning_content": "thinking text that must not become a block",
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": "res1"},
+        {"role": "tool", "tool_call_id": "t2", "content": f"res2\n\n{snap}"},
+    ]
+
+    _m, _p, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "cache_control" not in data  # No top-level cache_control
+
+    converted_messages = data["messages"]
+    assert len(converted_messages) == 2
+    asst_msg = converted_messages[0]
+    assert asst_msg["role"] == "assistant"
+    # No thinking block
+    assert not any(part.get("type") == "thinking" for part in asst_msg["content"])
+
+    user_msg = converted_messages[1]
+    assert user_msg["role"] == "user"
+    parts = user_msg["content"]
+    assert len(parts) == 3
+    assert parts[0]["type"] == "tool_result"
+    assert parts[0]["tool_use_id"] == "t1"
+    assert "cache_control" not in parts[0]
+    assert parts[0]["content"] == [{"type": "text", "text": "res1"}]
+
+    assert parts[1]["type"] == "tool_result"
+    assert parts[1]["tool_use_id"] == "t2"
+    assert parts[1].get("cache_control") == {"type": "ephemeral"}
+    assert parts[1]["content"] == [{"type": "text", "text": "res2"}]
+
+    assert parts[2]["type"] == "text"
+    assert parts[2]["text"] == snap
+    assert "cache_control" not in parts[2]
+    assert json.dumps(data).count("cache_control") == 1
+
+
+def test_anthropic_user_send_prompt_caching():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    snap = snapshot_text("Document snapshot")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Please summarize this document."},
+                {"type": "text", "text": snap},
+            ],
+        }
+    ]
+
+    _m, _p, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "cache_control" not in data
+
+    converted_messages = data["messages"]
+    assert len(converted_messages) == 1
+    user_msg = converted_messages[0]
+    parts = user_msg["content"]
+    assert len(parts) == 2
+    assert parts[0]["text"] == "Please summarize this document."
+    assert parts[0].get("cache_control") == {"type": "ephemeral"}
+
+    assert parts[1]["text"] == snap
+    assert "cache_control" not in parts[1]
+
+    # The same user string on a later message list, with no tail, is that same first block without cache_control and without the tail.
+    later_messages = [
+        {"role": "user", "content": "Please summarize this document."},
+        {"role": "assistant", "content": "Summary"},
+    ]
+    _m, _p, body_later, _h = shim.build_chat_request(
+        later_messages, 100, None, None, False, "claude-3-5-sonnet", None
+    )
+    data_later = json.loads(body_later)
+    asst_turn_messages = data_later["messages"]
+    assert asst_turn_messages[0]["content"] == [{"type": "text", "text": "Please summarize this document."}]
+    assert "cache_control" not in asst_turn_messages[0]["content"][0]
+
+
+def test_anthropic_tool_choice():
+    class DummyClient:
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    tools = [{"type": "function", "function": {"name": "lookup", "parameters": {"type": "object"}}}]
+    messages = [{"role": "user", "content": "hi"}]
+
+    # With tools and tool_choice=None, tool_choice is absent, matching today
+    _m, _p, body1, _h = shim.build_chat_request(
+        messages, 100, None, tools, False, "claude-3-5-sonnet", None, tool_choice=None
+    )
+    data1 = json.loads(body1)
+    assert "tools" in data1
+    assert "tool_choice" not in data1
+
+    # With tools and tool_choice="none", body has tools and tool_choice == {"type": "none"}
+    _m, _p, body2, _h = shim.build_chat_request(
+        messages, 100, None, tools, False, "claude-3-5-sonnet", None, tool_choice="none"
+    )
+    data2 = json.loads(body2)
+    assert "tools" in data2
+    assert data2["tool_choice"] == {"type": "none"}
+
+
+def test_anthropic_single_tool_round_cache_breakpoint():
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    class DummyClient:
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    snap = snapshot_text("Document text")
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"id": "t1", "function": {"name": "f1", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_call_id": "t1", "content": f"res1\n\n{snap}"},
+    ]
+
+    _m, _p, body, _h = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None
+    )
+    data = json.loads(body)
+    assert "cache_control" not in data
+    converted = data["messages"]
+    assert len(converted) == 2
+    asst_msg = converted[0]
+    assert asst_msg["role"] == "assistant"
+    assert len(asst_msg["content"]) == 1
+    assert asst_msg["content"][0]["type"] == "tool_use"
+    assert asst_msg["content"][0]["id"] == "t1"
+    assert "cache_control" not in asst_msg["content"][0]
+
+    user_msg = converted[1]
+    assert user_msg["role"] == "user"
+    assert len(user_msg["content"]) == 2
+    tool_res = user_msg["content"][0]
+    assert tool_res["type"] == "tool_result"
+    assert tool_res.get("cache_control") == {"type": "ephemeral"}
+    assert tool_res["content"] == [{"type": "text", "text": "res1"}]
+
+    snap_part = user_msg["content"][1]
+    assert snap_part["type"] == "text"
+    assert snap_part["text"] == snap
+    assert "cache_control" not in snap_part
+    assert json.dumps(data).count("cache_control") == 1
+
+
+def test_anthropic_omits_cache_session_id():
+    class DummyClient:
+        def _get_provider(self):
+            return "anthropic"
+
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    messages = [{"role": "user", "content": "hi"}]
+    _method, _path, body, headers = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None, cache_session_id="conv-1"
+    )
+    data = json.loads(body)
+    assert "session_id" not in data
+    assert "prompt_cache_key" not in data
+    assert "x-grok-conv-id" not in headers

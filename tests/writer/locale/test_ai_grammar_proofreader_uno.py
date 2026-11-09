@@ -7,9 +7,10 @@
 from __future__ import annotations
 
 from typing import Any
+from plugin.writer.locale import grammar_ignore_rules as gir
 from plugin.writer.locale import grammar_proofread_cache as gc
 from plugin.writer.locale import grammar_proofread_text as gt
-from plugin.framework.config import get_config, set_config
+from plugin.framework.config import get_config, save
 from plugin.testing_runner import native_test
 
 
@@ -21,14 +22,14 @@ def setup_grammar_proof_tests(_ctx: Any = None) -> Any:
         saved_enabled = get_config("doc.grammar_proofreader_enabled")
     except Exception:
         saved_enabled = "off"
-    set_config("doc.grammar_proofreader_enabled", "llm")
+    save({"doc.grammar_proofreader_enabled": "llm"})
     return saved_enabled
 
 
 def teardown_grammar_proof_tests(saved_enabled: Any) -> None:
-    set_config("doc.grammar_proofreader_enabled", saved_enabled)
+    save({"doc.grammar_proofreader_enabled": saved_enabled})
     gc.grammar_registry.clear_all()
-    gc.ignore_rules_clear()
+    gir.ignore_rules_clear()
 
 
 @native_test

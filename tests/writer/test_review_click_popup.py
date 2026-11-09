@@ -9,14 +9,18 @@ from typing import Any
 from unittest.mock import MagicMock
 import pytest
 
-from plugin.writer import review_click_popup
+from plugin.writer import review_click_popup, review_view_attachment as rva
+
+
+def _click_handlers() -> list[tuple[Any, Any]]:
+    return [(c, h) for att in rva.attachments().values() for c, _i, h in att.controllers]
 
 
 @pytest.fixture(autouse=True)
 def clean_attached() -> Any:
-    review_click_popup._attached.clear()
+    rva.reset_all()
     yield
-    review_click_popup._attached.clear()
+    rva.reset_all()
 
 
 def test_same_click_point() -> None:
@@ -184,13 +188,19 @@ class FakeController:
     def getModel(self) -> Any:  # noqa: N802 -- UNO API
         return self.model
 
+    def registerContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
+        pass
+
+    def releaseContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
+        pass
+
 
 class FakeHandler:
     def __init__(self, model: Any) -> None:
         self._model = model
 
     def disposing(self, source: Any) -> None:  # noqa: N802, N803 -- UNO API
-        ctrl = review_click_popup._detach(self)
+        ctrl = rva.detach_click_handler(self)
         if ctrl is None:
             return
         try:
@@ -201,55 +211,76 @@ class FakeHandler:
 
 
 def test_registration_dedup_and_detach(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
-
-    ctrl = FakeController()
-    review_click_popup.register_click_review(ctrl)
-    assert len(review_click_popup._attached) == 1
+    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, detach: FakeHandler(mdl))
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu._make_interceptor",
+        lambda m: MagicMock(_model=m),
+    )
+    model = MagicMock()
+    model.supportsService.return_value = True
+    ctrl = FakeController(model=model)
+    rva.register_controller(ctrl)
+    assert len(_click_handlers()) == 1
     assert ctrl.add_count == 1
 
     # Registering again is a no-op
-    review_click_popup.register_click_review(ctrl)
-    assert len(review_click_popup._attached) == 1
+    rva.register_controller(ctrl)
+    assert len(_click_handlers()) == 1
     assert ctrl.add_count == 1
 
-    # _detach
-    handler = review_click_popup._attached[0][1]
-    detached_ctrl = review_click_popup._detach(handler)
+    # detach_click_handler
+    handler = _click_handlers()[0][1]
+    detached_ctrl = rva.detach_click_handler(handler)
     assert detached_ctrl is ctrl
-    assert len(review_click_popup._attached) == 0
+    assert len(_click_handlers()) == 0
 
-    # _detach when not present
-    assert review_click_popup._detach(handler) is None
+    # detach_click_handler when not present
+    assert rva.detach_click_handler(handler) is None
 
 
 def test_handler_disposing_calls_remove_mouse_click_handler(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
+    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, detach: FakeHandler(mdl))
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu._make_interceptor",
+        lambda m: MagicMock(_model=m),
+    )
+    model = MagicMock()
+    model.supportsService.return_value = True
+    ctrl = FakeController(model=model)
+    rva.register_controller(ctrl)
+    assert len(_click_handlers()) == 1
 
-    ctrl = FakeController()
-    review_click_popup.register_click_review(ctrl)
-    assert len(review_click_popup._attached) == 1
-
-    handler = review_click_popup._attached[0][1]
+    handler = _click_handlers()[0][1]
     handler.disposing(ctrl)
 
     assert ctrl.remove_count == 1
-    assert len(review_click_popup._attached) == 0
+    assert len(_click_handlers()) == 0
 
 
 def test_cleanup_disposed_controllers(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl: FakeHandler(mdl))
+    monkeypatch.setattr(review_click_popup, "_make_handler", lambda mdl, detach: FakeHandler(mdl))
+    monkeypatch.setattr(
+        "plugin.writer.change_context_menu._make_interceptor",
+        lambda m: MagicMock(_model=m),
+    )
+    live_model = MagicMock()
+    live_model.supportsService.return_value = True
+    live_ctrl = FakeController(model=live_model)
+    dead_ctrl = FakeController(model=live_model)
 
-    live_ctrl = FakeController(model=object())
-    dead_ctrl = FakeController(model=None)
+    def _dead_get_model() -> Any:
+        raise RuntimeError("disposed")
 
-    review_click_popup.register_click_review(live_ctrl)
-    review_click_popup.register_click_review(dead_ctrl)
-    assert len(review_click_popup._attached) == 2
+    dead_ctrl.getModel = _dead_get_model  # type: ignore[method-assign]
 
-    review_click_popup.cleanup_disposed_controllers()
-    assert len(review_click_popup._attached) == 1
-    assert review_click_popup._attached[0][0] is live_ctrl
+    rva.register_controller(live_ctrl)
+    key = rva.attachment_key(live_model)
+    rva.attachments()[key].controllers.append((dead_ctrl, MagicMock(), FakeHandler(live_model)))
+    assert len(_click_handlers()) == 2
+
+    rva.cleanup_disposed_controllers()
+    assert len(_click_handlers()) == 1
+    assert _click_handlers()[0][0] is live_ctrl
 
 
 def _click(x: int, y: int, count: int) -> Any:
@@ -268,8 +299,8 @@ def test_double_click_cancels_popup_and_never_consumes(monkeypatch: pytest.Monke
     monkeypatch.setattr(review_click_popup, "_DOUBLE_CLICK_SEC", 0.05)
     shown: list[tuple[int, int]] = []
     monkeypatch.setattr(review_click_popup, "_show_popup_and_resolve", lambda _m, _s, x, y: shown.append((x, y)))
-    monkeypatch.setattr("plugin.framework.queue_executor.post_to_main_thread", lambda fn, *a: fn(*a))
-    handler = review_click_popup._make_handler(MagicMock())
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn, *a: fn(*a))
+    handler = review_click_popup._make_handler(MagicMock(), detach=lambda handler: None)
 
     # Double-click: press/release/press/release inside the window -> no popup, nothing consumed.
     assert handler.mousePressed(_click(10, 10, 1)) is False

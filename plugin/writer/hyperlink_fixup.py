@@ -56,7 +56,7 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any, Iterator
 
-from plugin.doc.text_helpers import go_right
+from plugin.doc.text_helpers import go_right, iter_elements
 from plugin.framework.errors import uno_read
 
 log = logging.getLogger("writeragent.writer.hyperlink")
@@ -227,30 +227,16 @@ def _between(text: Any, start_pos: Any, end_pos: Any) -> str:
     return str(cursor.getString() or "")
 
 
-def _enum_has_more(enum: Any) -> bool:
-    """True only for a real UNO ``True``.
-
-    ``if not enum.hasMoreElements()`` is wrong on ``MagicMock``: the return is
-    another mock, which is truthy, so the loop never stops. PR #823 pull_request
-    CI merges this module onto unit tests that pass MagicMock ranges
-    (``test_edited_context``, ``test_small_fixes_r5``) and hung until GHA
-    SIGTERM. ``is True`` matches UNO bools and the ``_Enum`` fake.
-    """
-    return enum.hasMoreElements() is True
-
-
 def _iter_portions(text: Any, anchor_pos: Any) -> Iterator[Any]:
     """Portions of the paragraph containing *anchor_pos*."""
     cursor = _paragraph_cursor(text, anchor_pos)
     para_enum = cursor.createEnumeration()
-    while _enum_has_more(para_enum):
-        para = para_enum.nextElement()
+    for para in iter_elements(para_enum):
         if hasattr(para, "supportsService") and not para.supportsService(
                 "com.sun.star.text.Paragraph"):
             continue
         portion_enum = para.createEnumeration()
-        while _enum_has_more(portion_enum):
-            portion = portion_enum.nextElement()
+        for portion in iter_elements(portion_enum):
             # Skip tracked-change redline markers; they do not hold text or link properties.
             if uno_read(lambda: str(portion.getPropertyValue("TextPortionType") or ""), "") == "Redline":
                 continue
@@ -508,18 +494,9 @@ def restore_outline_hyperlinks(anchor: Any, snapshot: OutlineSnapshot,
         elif not snapshot.links and snapshot.preserve_url:
             put_back = snapshot.preserve_url
         if put_back and new_plain:
-            # What was wrong: replacing only the page digits turned them navy
-            # and underlined (discussion #1429). How it happened: those digits
-            # are not in the outline URL, so _paint skips the write when the
-            # URL is still there. setString of the digits still splits the
-            # run. One split leaves the title black and the digits navy; the
-            # next setString can also unlink the last digit and paint the
-            # title. CharColor on the digit subrange alone repaints the whole
-            # link, and CharColor after a subrange HyperLinkURL assignment
-            # does not stick. Why this fixes it: the match look was captured
-            # before the replace. When that one link is the whole paragraph,
-            # assign its URL and then the look on that same whole-paragraph
-            # cursor — the order that returns one black run.
+            # When one outline link spans the whole paragraph, reassign HyperLinkURL
+            # and the pre-replace CharColor on a whole-paragraph cursor so page-digit
+            # edits do not split the run into navy underlined digits.
             restored = False
             if snapshot.look and snapshot.links and snapshot.single_paragraph:
                 para = _paragraph_text(text, anchor)

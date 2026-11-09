@@ -16,12 +16,12 @@ from plugin.framework.constants import (
 
 
 def test_folder_rerank_enabled_defaults_false():
-    with patch("plugin.framework.config.get_config_bool", return_value=False):
+    with patch("plugin.framework.config.get_config", return_value=False):
         assert folder_rerank_enabled() is False
 
 
 def test_folder_rerank_enabled_reads_config():
-    with patch("plugin.framework.config.get_config_bool", return_value=True) as mock_bool:
+    with patch("plugin.framework.config.get_config", return_value=True) as mock_bool:
         assert folder_rerank_enabled() is True
     mock_bool.assert_called_once_with("embeddings.folder_rerank_enabled")
 

@@ -34,10 +34,8 @@ from plugin.framework.i18n import N_, _
 from plugin.framework.config import (
     get_api_key_for_endpoint,
     get_config,
-    get_config_int,
-    get_config_str,
     get_current_endpoint,
-    set_configs,
+    save,
 )
 from plugin.framework.client.model_fetcher import (
     cached_image_models,
@@ -58,8 +56,8 @@ from plugin.framework.client.model_fetcher import (
     settings_catalog_is_warm,
 )
 from plugin.framework.client.provider_detection import get_provider_from_endpoint
-from plugin.framework.model_lru import _sanitize_model_combobox_value
-from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.model_lru import sanitize_model_combobox_value
+from plugin.framework.queue_executor import main
 from plugin.framework.worker_pool import run_in_background
 from plugin.chatbot.settings_fields import populate_settings_control, read_settings_control
 from plugin.framework.logging import init_logging
@@ -145,7 +143,7 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
             dlg.getModel().Title = title
 
         prompt_ctrl = dlg.getControl("prompt_selector")
-        current_prompt = get_config_str("additional_instructions")
+        current_prompt = get_config("additional_instructions")
         populate_combobox_with_lru(prompt_ctrl, current_prompt, "prompt_lru", "")
 
         model_selector = get_optional(dlg, "model_selector")
@@ -161,12 +159,12 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
             )
 
         token_controls = (
-            (get_optional(dlg, "extend_max_tokens"), "extend_selection_max_tokens"),
-            (get_optional(dlg, "edit_extra_tokens"), "edit_selection_max_new_tokens"),
+            (get_optional(dlg, "extend_max_tokens"), "chatbot.extend_selection_max_tokens"),
+            (get_optional(dlg, "edit_extra_tokens"), "chatbot.edit_selection_max_new_tokens"),
         )
         for ctrl, cfg_key in token_controls:
             if ctrl:
-                set_control_text(ctrl, str(get_config_int(cfg_key)))
+                set_control_text(ctrl, str(get_config(cfg_key)))
 
         dlg.getControl("edit").setFocus()
         dlg.getControl("edit").setSelection(uno.createUnoStruct("com.sun.star.awt.Selection", 0, len(str(default))))
@@ -184,7 +182,7 @@ def input_box(ctx: Any, message: str, title: str = "", default: str = "") -> tup
                 if ctrl
             }
             if values:
-                set_configs(values)
+                save(values)
             return ret_text, ret_prompt
         # ESC/close: execute() returned false — skip dispose in finally (double dispose segfaults LO).
         need_dispose = False
@@ -256,6 +254,8 @@ class SettingsDialog:
                     break
                 try:
                     apply_settings_result(self._ctx, result, field_specs)
+                    # init_logging runs on save so log level changes apply without restart.
+                    init_logging(self._ctx)
                     return result
                 except ConfigValidationError as ve:
                     msgbox(self._ctx, _("Invalid Setting"), str(ve))
@@ -430,9 +430,7 @@ class SettingsDialog:
         result: dict[str, Any] = {}
         for field in field_specs:
             name = field["name"]
-            # getControl raises for an unknown id. None used to be the only
-            # skip, so one missing name aborted OK the same way it aborted
-            # open. get_optional skips the name; a disposed dialog still raises.
+            # Missing controls skip via get_optional; one unknown id must not abort the whole extract.
             ctrl = get_optional(self._dlg, name)
             if ctrl is None:
                 continue
@@ -448,7 +446,7 @@ class SettingsDialog:
         return result
 
     def _cleanup(self) -> None:
-        # A disposed control used to escape this finally and replace the error show() was handling.
+        # suppress_disposed in finally so teardown errors do not mask the original show() failure.
         if self._endpoint_listener:
             with suppress_disposed("close endpoint listener", logger=log, suppress_all=False):
                 self._endpoint_listener.close()
@@ -570,7 +568,7 @@ class TestConnectionListener(BaseActionListener):
                 if lbl_status:
                     set_control_text(lbl_status, _(msg))
 
-            post_to_main_thread(_apply)
+            main.post(_apply)
 
         run_in_background(_worker, name="settings-test-conn")
 
@@ -823,11 +821,11 @@ class _TtsTestStatusSink:
 
     def progress(self, message: str) -> None:
         log.info("TTS test progress: %s", message)
-        post_to_main_thread(self._listener._show_progress, message)
+        main.post(self._listener._show_progress, message)
 
     def clear(self) -> None:
         log.info("TTS test progress: clear")
-        post_to_main_thread(self._listener._close_progress)
+        main.post(self._listener._close_progress)
 
     def __call__(self, message: str) -> None:
         # Fallback / HTTP body: close any progress box, then blocking MessageBox.
@@ -836,7 +834,7 @@ class _TtsTestStatusSink:
             self._listener._close_progress()
             self._listener._status(message)
 
-        post_to_main_thread(_show)
+        main.post(_show)
 
 
 class TtsTestVoiceListener(BaseActionListener):
@@ -930,7 +928,7 @@ class TtsTestVoiceListener(BaseActionListener):
         on_status = _TtsTestStatusSink(self)
 
         def _on_complete() -> None:
-            post_to_main_thread(self._close_progress)
+            main.post(self._close_progress)
 
         speak_text_async(
             sample,
@@ -1080,7 +1078,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 if not same_provider:
                     current = ""
                 else:
-                    current = _sanitize_model_combobox_value(str(ctrl.getText() or "")) or fallback
+                    current = sanitize_model_combobox_value(str(ctrl.getText() or "")) or fallback
                 populate_combobox_with_lru(
                     ctrl,
                     current,
@@ -1191,11 +1189,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             else None
         )
         provider = _provider_for_catalog(resolved)
-        # These GETs used to run in _apply_dropdowns on the UI thread after the
-        # text list returned. OpenRouter image is GET /v1/images/models; speech
-        # and transcription are separate modality queries; Together voices are
-        # GET /v1/voices. That blocked Settings, including OK. The worker fills
-        # the process caches; apply_ui only reads them.
+        # Image/speech/voice catalog GETs run on the worker; apply_ui reads warmed caches only.
         if provider in {"openrouter", "together"}:
             fetch_available_image_models(resolved, api_key_override=key_ov)
             if provider == "openrouter":
@@ -1220,7 +1214,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             if endpoint_from_selector_text(self._ctrl.getText()) != resolved: return
             self._apply_catalog(resolved, models=models, skip_fetch=(models is None))
 
-        post_to_main_thread(apply_ui)
+        main.post(apply_ui)
 
     def _schedule_debounced_models_fetch(self) -> None:
         resolved = endpoint_from_selector_text(self._ctrl.getText())
@@ -1244,7 +1238,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
             if resolved:
                 self._start_bg_fetch(gen, resolved, "settings-fetch")
 
-        self._timer = threading.Timer(1.0, lambda: post_to_main_thread(_fetch))
+        self._timer = threading.Timer(1.0, lambda: main.post(_fetch))
         self._timer.daemon = True
         self._timer.start()
 
@@ -1277,9 +1271,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
         if url: self._ctrl.setText(url)
         
         gen = self._cancel_pending()
-        # Snapshot on the UI thread. The worker used to read _debounce_gen
-        # when it started, so a newer click was invisible, and it omitted the
-        # Together TTS model id that force_catalog_refresh already captures.
+        # Capture debounce gen and endpoint on the UI thread before the worker starts.
         resolved = endpoint_from_selector_text(self._ctrl.getText())
         if resolved:
             self._sync_api_key(force=True)
@@ -1288,8 +1280,7 @@ class EndpointCombinedListener(BaseListener, XItemListener, XTextListener):
                 self._apply_warm_catalog(resolved, key)
                 return
             # LRU plus defaults now. The catalog GET is the worker below.
-            # Non-OpenRouter providers used to fetch inside _apply_dropdowns
-            # and froze the dialog on a dead host.
+            # skip_fetch on select; network catalog work stays on the background worker.
             self._apply_dropdowns(resolved, models=None, skip_fetch=True)
             self._start_bg_fetch(gen, resolved, "settings-select")
 
@@ -1326,7 +1317,7 @@ class DownloadAudioListener(_CtxDlgActionListener):
     """Settings → Python: download audio binaries and pure Python dependencies from GitHub."""
 
     def on_action_performed(self, rEvent: Any) -> None:
-        from plugin.framework.queue_executor import execute_on_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.scripting.native_binaries import ensure_native_binaries_on_path, run_audio_download
         from plugin.scripting.payload_codec import invalidate_host_cython_accelerator
 
@@ -1341,14 +1332,14 @@ class DownloadAudioListener(_CtxDlgActionListener):
         def probe(on_display: Callable[[str], None], on_status: Callable[[str], None]) -> tuple[bool, str]:
             # The download stays on the probe worker. Appending audio_binaries
             # to sys.path and clearing the Cython accelerator must run on the
-            # main thread via execute_on_main_thread. VenvProbeProgressDialog
+            # main thread via main.call. VenvProbeProgressDialog
             # runs probe_fn with run_in_background while execute() pumps VCL;
             # that nested loop already dispatches AsyncCallback for the
             # progress lines, so the bind does not wait on a thread blocked
             # outside the message loop.
             ok = run_audio_download(on_display, on_status)
             if ok:
-                execute_on_main_thread(bind_downloaded_audio_on_main)
+                main.call(bind_downloaded_audio_on_main)
             return ok, ""
 
         VenvProbeProgressDialog(self._ctx, parent_dlg=self._dlg).run_modal_probe(

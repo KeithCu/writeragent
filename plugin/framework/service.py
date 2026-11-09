@@ -96,11 +96,11 @@ class ServiceRegistry:
 
         services = ServiceRegistry()
         services.register("document", my_document_service)
-        services.register("config", my_config_service)
+        services.register("events", my_event_bus)
 
         # Access by name:
         services.document.build_heading_tree(doc)
-        services.config.get("mcp.port")
+        services.events.emit("sample:event")
 
         # Or explicit:
         services.get("document")
@@ -136,6 +136,10 @@ class ServiceRegistry:
     def get(self, name: str) -> Any:
         """Get a service by name, or None if not registered."""
         return self._services.get(name)
+
+    def names(self) -> list[str]:
+        """Registered service names in insertion order."""
+        return list(self._services.keys())
 
     def __getattr__(self, name: str) -> Any:
         if name.startswith("_"):

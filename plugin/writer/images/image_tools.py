@@ -29,7 +29,7 @@ from com.sun.star.beans import PropertyValue
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER, AT_FRAME
 from plugin.doc import visual_helpers
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import best_effort
+from plugin.framework.errors import best_effort, reraise_if_disposed
 
 # WriterCompoundUndo is intentionally imported function-locally in _dispatch_insert_image,
 # insert_image_into_header_footer, and replace_graphic_source so importing image_tools
@@ -117,10 +117,8 @@ def _is_same_graphic(a: Any, b: Any) -> bool:
     return False
 
 
-# Bugfix: executeDispatch could fail silently or keep the existing selection unchanged,
-# causing subsequent property calls to resize or modify the previously selected graphic.
-# Verifying that the selection changed to a new graphic object prevents modifying
-# unintended objects, allowing caller to fall back cleanly to embedding.
+# After .uno:InsertGraphic, verify the selection is a new graphic so a silent
+# dispatch failure cannot resize or replace an unrelated selected object.
 def _dispatch_insert_linked_graphic(ctx: Any, model: Any, file_url: str) -> Any | None:
     """Insert a linked image via .uno:InsertGraphic (LO 6.1+).
 
@@ -259,6 +257,29 @@ def insert_image(
         add_image_to_gallery(ctx, img_path)
 
 
+def insert_embedded_image(
+    doc: Any,
+    img_path: str,
+    *,
+    width_units: int,
+    height_units: int,
+    title: str = "",
+    description: str = "",
+    ctx: Any | None = None,
+) -> Any:
+    """Create an AS_CHARACTER embedded graphic from a local file path."""
+    graphic = _create_embedded_graphic(doc, "writer", _file_url_for_path(img_path), ctx=ctx)
+    _apply_graphic_properties(
+        graphic,
+        width=width_units,
+        height=height_units,
+        title=title,
+        description=description,
+        anchor_type=AS_CHARACTER,
+    )
+    return graphic
+
+
 def insert_image_at_locator(ctx: Any, model: Any, img_path: str, width_mm: int | float = 80, height_mm: int | float = 80, title: str = "", description: str = "", text_cursor: Any = None, page_index: int | None = None, x_mm: int | float | None = None, y_mm: int | float | None = None) -> Any:
     """Insert at an optional Writer text cursor, or current view cursor / draw page.
 
@@ -342,10 +363,21 @@ def insert_image_into_header_footer(
         )
         return {
             "graphic": graphic,
-            "style_name": style_name,
+            "style_name": _page_style_name(style, style_name),
             "region": region,
             "auto_height": bool(auto_height),
         }
+
+
+def _page_style_name(style: Any, requested: str) -> str:
+    """Programmatic name of the resolved page style (a display name like
+    "Default Page Style" resolves to "Standard"); *requested* if unreadable."""
+    try:
+        name = style.getName()
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return requested
+    return name if isinstance(name, str) and name else requested
 
 
 def _cursor_for_writer_view(vc: Any) -> tuple[Any, Any]:
@@ -413,10 +445,9 @@ def _insert_embedded_at_writer_cursor(
     return image
 
 
-# Bugfix: When placing the view cursor at text_cursor failed, linked insert
-# proceeded anyway with executeDispatch, dropping the image at the user's
-# active caret instead of the targeted locator position. Skipping dispatch when
-# view cursor placement fails ensures the graphic is cleanly embedded at text_cursor.
+# Linked insert falls back to embedding at text_cursor when the view cursor cannot
+# be placed on the target range, so dispatch does not drop the image at the user's
+# active caret.
 def _insert_writer_graphic(
     ctx: Any,
     model: Any,
@@ -483,12 +514,9 @@ def _insert_writer_graphic(
 _FRAME_TITLE_HEIGHT_UNITS = 500
 
 
-# Bugfix: Inserting caption using the pre-image cursor could place caption text
-# in front of the image. Sizing added arbitrary 150-unit padding to width/height,
-# and if image insertion failed inside the frame, the empty frame remained in the
-# document because WriterCompoundUndo does not roll back on exception.
-# We now size the frame to exact width and height + 500 (if title), remove the
-# empty frame if image insert raises, and place the caption at frame_text.getEnd().
+# Frame height adds fixed title space, captions insert at frame_text.getEnd(), and
+# a failed image insert removes the empty frame because compound undo does not roll
+# back on exception.
 def _insert_frame(ctx: Any, model: Any, img_path: str, width: int, height: int, title: str, description: str) -> None:
     view_cursor = model.CurrentController.ViewCursor
     text_frame = model.createInstance("com.sun.star.text.TextFrame")
@@ -572,13 +600,8 @@ def _insert_image_to_drawpage(
     return image
 
 
-# Bugfix: The linked replace branch dispatched .uno:InsertGraphic at the view cursor,
-# which could drop the image at the wrong location or duplicate it, and removed the
-# original with model.getText() (body only, breaking tables/frames) or get_active_draw_page
-# (not the shape's real page). Furthermore, WriterCompoundUndo does not roll back on exception.
-# LibreOffice TextGraphicObject.idl specifies that setting GraphicURL directly loads
-# the image and sets Graphic on the existing object in place, preserving its name,
-# anchor, and frame. Linking is insert-only.
+# Replacement sets GraphicURL on the existing TextGraphicObject so name, anchor, and
+# frame stay put; linked graphic insert is not used for in-place replace.
 def replace_graphic_source(
     ctx: Any,
     model: Any,
@@ -622,10 +645,8 @@ def replace_graphic_source(
         return True
 
 
-# Bugfix: getattr(ctx, "getServiceManager", lambda: None)() evaluated the default
-# callable even when ServiceManager existed, and assert statements could be stripped
-# under Python -O optimizations. Context and ServiceManager availability are now
-# validated with explicit RuntimeError checks.
+# export_graphic_object_to_bytes raises RuntimeError when context or ServiceManager
+# is missing instead of relying on getattr defaults or assert (stripped under -O).
 def export_graphic_object_to_bytes(ctx: Any, obj: Any) -> bytes | None:
     """Export a graphic-bearing UNO object (GraphicObject or GraphicObjectShape) to PNG bytes."""
     graphic = visual_helpers.graphic_from_object(obj)
@@ -683,10 +704,8 @@ def get_selected_image_base64(model: Any, ctx: Any = None) -> str | None:
     return base64.b64encode(png_bytes).decode("utf-8")
 
 
-# Bugfix: Adding files with the same basename from different directories to the
-# gallery overwrote existing files in the gallery directory. We now compute a unique
-# destination filename using a hash digest when a different file with the same basename
-# already exists in the gallery.
+# _gallery_dest hashes the source path into the filename when the gallery already
+# holds a different file with the same basename, so distinct images are not overwritten.
 def _gallery_dest(gallery_dir: Path, img_path: str) -> Path:
     filename = os.path.basename(img_path)
     if not filename or filename in (".", ".."):

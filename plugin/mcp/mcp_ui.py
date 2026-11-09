@@ -25,7 +25,7 @@ from com.sun.star.awt import XItemListener, XTextListener
 if TYPE_CHECKING:
     from com.sun.star.awt import ItemEvent, TextEvent
 
-from plugin.framework.config import get_config_int_safe
+from plugin.framework.config import get_config
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.i18n import _
 from plugin.framework.uno_listeners import BaseActionListener, BaseListener
@@ -38,6 +38,7 @@ _active_settings_dialog_ref: Any = None
 # runs after the lock is released because post can invoke it inline and that
 # path takes the lock again.
 _active_settings_dialog_lock = threading.Lock()
+# Settings snippet cache of tested public URLs per provider.
 _tested_provider_tunnel_urls: dict[str, str] = {}
 
 _PROVIDER_DEFAULT_URLS = {"cloudflare": "https://<subdomain>.trycloudflare.com/mcp", "bore": "http://bore.pub:<remote-port>/mcp", "ngrok": "https://<domain>.ngrok-free.app/mcp", "tailscale": "https://<machine>.<tailnet>.ts.net/mcp"}
@@ -67,7 +68,7 @@ def build_mcp_config_snippet(port: int | None = None, url: str | None = None) ->
     """Return suggested MCP client JSON configuration for Claude Desktop / Cursor."""
     if not url:
         if port is None:
-            port = get_config_int_safe("mcp.mcp_port")
+            port = get_config("mcp.mcp_port")
         url = f"http://localhost:{port}/mcp"
 
     return json.dumps({"mcpServers": {"libreoffice": {"url": url}}}, indent=2)
@@ -121,11 +122,11 @@ class CopyMcpConfigListener(BaseActionListener):
 
 def _refresh_active_snippet() -> None:
     """Push the current snippet into the open Settings dialog, if any."""
-    from plugin.framework.queue_executor import post_to_main_thread
+    from plugin.framework.queue_executor import main
 
     def _apply() -> None:
         # The tunnel worker must not close over the dialog. The UI thread can
-        # clear it before this lambda runs; QueueExecutor then swallows the
+        # clear it before this lambda runs; MainThread then swallows the
         # disposed-dialog error and the update is dropped. Re-read under the
         # same lock on the UI thread. If clear won, there is nothing to update.
         dlg = _current_settings_dialog()
@@ -133,7 +134,7 @@ def _refresh_active_snippet() -> None:
             return
         sync_mcp_config_snippet(dlg)
 
-    post_to_main_thread(_apply)
+    main.post(_apply)
 
 
 def remember_tested_tunnel_url(provider: str, url: str) -> None:
@@ -148,10 +149,8 @@ def remember_tested_tunnel_url(provider: str, url: str) -> None:
 def clear_tested_provider_tunnel_url(provider: str) -> None:
     """Drop one provider's cached public URL.
 
-    The snippet used to keep copying that URL after the tunnel stopped,
-    failed, or lost its public address. The next sync then uses the local
-    URL or the provider template. ``remember_tested_tunnel_url`` stores a
-    URL again. An empty provider does nothing and does not refresh.
+    Clears stale public URLs after tunnel stop or failure so sync falls back to local/template.
+    remember_tested_tunnel_url stores again when the tunnel is healthy.
     """
     with _active_settings_dialog_lock:
         p = provider.strip().lower()
@@ -190,12 +189,14 @@ def sync_mcp_config_snippet(dlg: Any) -> None:
     # Same lock as remember and clear. A stop cannot drop the URL mid-read,
     # and a connect cannot publish into a gap.
     with _active_settings_dialog_lock:
-        active_url = _tested_provider_tunnel_urls.get(selected_provider)
+        cached = _tested_provider_tunnel_urls.get(selected_provider)
+        active_url = cached if isinstance(cached, str) and cached else None
     if not active_url:
-        from plugin.mcp import _shared_tunnel
+        from plugin.mcp import current_tunnel
 
-        if _shared_tunnel and _shared_tunnel.is_running and getattr(_shared_tunnel, "provider", None) == selected_provider:
-            active_url = _shared_tunnel.mcp_public_url()
+        tunnel = current_tunnel()
+        if tunnel and tunnel.is_running and getattr(tunnel, "provider", None) == selected_provider:
+            active_url = tunnel.mcp_public_url()
             # No URL yet: write the template now; notify_tunnel_url_acquired refreshes it later.
             if active_url:
                 remember_tested_tunnel_url(selected_provider, active_url)
@@ -259,7 +260,7 @@ class TestTunnelListener(BaseActionListener):
 
     def on_action_performed(self, rEvent: Any) -> None:
         from plugin.chatbot.dialogs import msgbox
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
         from plugin.framework.worker_pool import run_in_background
         from plugin.mcp.tunnel import test_tunnel_connectivity
 
@@ -297,6 +298,6 @@ class TestTunnelListener(BaseActionListener):
                         sync_mcp_config_snippet(self._dlg)
                     msgbox(self._ctx, _("MCP Tunnel Test"), msg)
 
-            post_to_main_thread(_apply)
+            main.post(_apply)
 
         run_in_background(_worker, name="mcp-tunnel-test", dedicated=True)

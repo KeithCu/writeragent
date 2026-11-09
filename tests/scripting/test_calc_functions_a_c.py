@@ -290,6 +290,8 @@ def test_csch():
     # csch of large number overflows sinh, catches OverflowError and returns 0.0
     assert calc.csch(1000) == 0.0
     assert calc.csch(-1000) == 0.0
+    assert math.isnan(calc.csch(float("inf")))
+    assert math.isnan(calc.csch(float("-inf")))
 
 
 def test_cumipmt_and_cumprinc():
@@ -340,6 +342,21 @@ def test_trig_errors_propagate():
         calc.acot("x")
     with pytest.raises(ValueError):
         calc.acoth("x")
+    with pytest.raises(ValueError):
+        calc.sec("x")
+    with pytest.raises(ValueError):
+        calc.sech("x")
+    with pytest.raises(ValueError):
+        calc.cot("x")
+    with pytest.raises(TypeError):
+        calc.sec(None)
+    with pytest.raises(TypeError):
+        calc.sech(None)
+    with pytest.raises(TypeError):
+        calc.cot(None)
+    for fn in (calc.sec, calc.sech, calc.cot, calc.csc, calc.coth, calc.csch):
+        assert math.isnan(fn(float("inf")))
+        assert math.isnan(fn(float("-inf")))
     assert math.isnan(calc.acoth(1))
     assert math.isnan(calc.acoth(0.5))
     with pytest.raises(ZeroDivisionError):

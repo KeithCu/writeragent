@@ -23,8 +23,11 @@ from plugin.framework.constants import WORKFLOW_TASK_PREFIXES, now_aware
 from plugin.framework.errors import reraise_if_disposed, uno_read
 import uno
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.doc.undo import commit_or_rollback_mutation
 from plugin.framework.tool import ToolBase
+from plugin.framework.errors import name_miss_details
+from ..search import CASE_SENSITIVE_DESCRIPTION, resolve_case_sensitive
 from ..specialized_base import ToolWriterCommentBase, enum_param
 
 log = logging.getLogger("writeragent.writer.comments")
@@ -33,8 +36,7 @@ log = logging.getLogger("writeragent.writer.comments")
 def _iter_annotations(doc: Any) -> Any:
     fields = doc.getTextFields()
     enum = fields.createEnumeration()
-    while enum.hasMoreElements() is True:
-        field = enum.nextElement()
+    for field in iter_elements(enum):
         try:
             if field.supportsService("com.sun.star.text.textfield.Annotation"):
                 yield field
@@ -48,17 +50,18 @@ def _prop(field: Any, name: str, default: Any = "") -> Any:
 
 def _annotation_reader(ctx: Any) -> Any:
     from plugin.doc.paragraph_search import paragraph_entries
+    from plugin.writer.search import LocationLabeler
 
     doc = ctx.doc
     doc_svc = ctx.services.document
     para_ranges = doc_svc.get_paragraph_ranges(doc)
     text_obj = doc.getText()
     entries = paragraph_entries(para_ranges)
-    label_cache: dict[int, str] = {}
+    labeler = LocationLabeler(doc) if doc is not None else None
 
     def reader(field: Any) -> dict[str, Any]:
         return _read_annotation(
-            field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, label_cache=label_cache
+            field, para_ranges, text_obj, doc_svc, doc=doc, entries=entries, labeler=labeler
         )
 
     return reader
@@ -68,8 +71,11 @@ class _ReplyNotRegistered(Exception):
     pass
 
 
-def _comment_not_found(message: str, **extra: Any) -> dict[str, Any]:
-    return {"status": "error", "code": "COMMENT_NOT_FOUND", "message": message, **extra}
+def _comment_not_found(message: str, *, details: dict[str, Any] | None = None, **extra: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {"status": "error", "code": "COMMENT_NOT_FOUND", "message": message, **extra}
+    if details:
+        payload["details"] = details
+    return payload
 
 
 def _reply_error(message: str, parent_name: str, **extra: Any) -> dict[str, Any]:
@@ -80,11 +86,47 @@ class CommentList(ToolWriterCommentBase):
     """List all comments (annotations) in the document."""
 
     name: str | None = "comment_list"
-    description: str = "List all comments/annotations in the document, including author, content, date, resolved status, and anchor preview. Use author_filter to see only a specific agent's comments."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"author_filter": {"type": "string", "description": ("Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all.")}}, "required": []}
+    description: str = (
+        "List all comments/annotations in the document, including author, content, date, resolved status, "
+        "and anchor preview. Use author_filter to see only a specific agent's comments. Returns at most "
+        "max_comments rows (default 100); page through the rest with start_index when has_more is true."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "author_filter": {
+                "type": "string",
+                "description": (
+                    "Filter by author name (e.g. 'Claude', 'AI'). Case-insensitive substring match. Omit for all."
+                ),
+            },
+            "start_index": {"type": "integer", "description": "Zero-based row to start this page at (default 0)."},
+            "max_comments": {
+                "type": "integer",
+                "description": "Maximum rows to return (default 100). Values below 1 are treated as 1, like tracking_list.",
+            },
+        },
+        "required": [],
+    }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        from ..search import parse_non_negative_int
+
         author_filter = kwargs.get("author_filter")
+        start_raw = kwargs.get("start_index", 0)
+        max_raw = kwargs.get("max_comments", 100)
+        try:
+            start_index = max(0, int(start_raw if start_raw is not None else 0))
+        except (TypeError, ValueError):
+            return self._tool_error(
+                "start_index must be a non-negative integer.",
+                code="INVALID_PARAMETER",
+                parameter="start_index",
+            )
+        max_val, max_err = parse_non_negative_int(max_raw, name="max_comments", coerce=True)
+        if max_err:
+            return self._tool_error(max_err, code="INVALID_PARAMETER", parameter="max_comments")
+        max_comments = max(1, max_val if max_val is not None else 100)
         doc = ctx.doc
         # One field scan first: a comment-free document should not pay for the paragraph map.
         fields = list(_iter_annotations(doc))
@@ -97,7 +139,16 @@ class CommentList(ToolWriterCommentBase):
 
                 comments.append(reader(field))
 
-        result: dict[str, Any] = {"status": "ok", "comments": comments, "count": len(comments)}
+        window = comments[start_index:start_index + max_comments]
+        end = start_index + len(window)
+        result: dict[str, Any] = {
+            "status": "ok",
+            "comments": window,
+            "count": len(window),
+            "has_more": end < len(comments),
+        }
+        if end < len(comments):
+            result["next_index"] = end
         if author_filter:
             result["filtered_by"] = author_filter
         return result
@@ -117,6 +168,7 @@ class AddComment(ToolBase):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {
         "content": {"type": "string", "description": "The comment text."},
         "search": {"type": "string", "description": "Anchor a new root comment to text matching this string. Not required when parent_name is set."},
+        "case_sensitive": {"type": "boolean", "description": f"For search: {CASE_SENSITIVE_DESCRIPTION}"},
         "occurrence": {"type": "integer", "description": "0-based match to comment on when search repeats (default 0). Ignored when parent_name is set."},
         "author": {"type": "string", "description": "Comment author (default 'WriterAgent')."},
         "parent_name": {"type": "string", "description": "Reply to this comment. Pass the 'name' from a prior add_comment success, or the 'name' field from comment_list. Immediate parent — not coerced to the thread root. When set, search/occurrence are skipped."},
@@ -143,6 +195,7 @@ class AddComment(ToolBase):
                 return _comment_not_found(
                     "Comment '%s' not found. Call comment_list to see the current names." % parent_name,
                     comment_added=False,
+                    details=_comment_miss_details(ctx.doc, parent_name),
                 )
             try:
                 reply_name = _insert_annotation_reply(ctx.doc, parent, parent_name, content, author)
@@ -162,22 +215,22 @@ class AddComment(ToolBase):
             return self._tool_error("Provide search.")
         from ..search import find_occurrence_range, parse_non_negative_int
 
-        # What was wrong: numeric strings, floats, and empty string were rejected.
-        # How it happened: parse_non_negative_int without coerce=True rejected non-ints.
-        # Why this change: restore int() coercion via coerce=True.
+        # coerce=True lets occurrence accept string numbers and floats from the model;
+        # without it, values like "2" or 1.0 are rejected as non-integers.
         occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
         if occ_err:
             return self._tool_error(occ_err)
         occurrence = 0 if occ_val is None else occ_val
 
         doc = ctx.doc
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
 
         try:
             found = find_occurrence_range(
                 doc,
                 search_text,
                 occurrence=occurrence,
-                case_sensitive_order=(True, False),
+                case_sensitive=case_sensitive,
             )
         except IndexError:
             found = None
@@ -186,7 +239,12 @@ class AddComment(ToolBase):
         # MCP host don't treat a no-op as success. anchor_text is returned on success only.
         if found is None:
             where = (" at occurrence %d" % occurrence) if occurrence else ""
-            return {"status": "error", "message": "Text '%s' not found%s." % (search_text, where), "matched": False, "comment_added": False}
+            return {
+                "status": "error",
+                "message": "Text '%s' not found%s." % (search_text, where),
+                "matched": False,
+                "comment_added": False,
+            }
 
         annotation = doc.createInstance("com.sun.star.text.textfield.Annotation")
         annotation.setPropertyValue("Author", author)
@@ -284,8 +342,12 @@ class CommentDelete(ToolWriterCommentBase):
             # A miss must be an ERROR: "ok, deleted: 0" reads as success and the agent then
             # reports a deletion that never happened.
             what = ("comment_name '%s'" % comment_name) if comment_name else ("author '%s'" % author)
+            details = None
+            if comment_name:
+                details = _comment_miss_details(doc, comment_name)
             return _comment_not_found(
                 "No comment matched %s. Call comment_list to see the current names and authors." % what,
+                details=details,
                 deleted=0,
             )
 
@@ -340,6 +402,7 @@ class CommentResolve(ToolWriterCommentBase):
         if target is None:
             return _comment_not_found(
                 "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
+                details=_comment_miss_details(doc, comment_name),
             )
 
         from ..edit_review import next_agent_edit_undo_title
@@ -372,6 +435,57 @@ class CommentResolve(ToolWriterCommentBase):
         if reply_name:
             result["reply_name"] = reply_name
         return result
+
+
+class CommentEdit(ToolWriterCommentBase):
+    """Edit an existing comment's text without changing metadata."""
+
+    name: str | None = "comment_edit"
+    description: str = "Change the content text of an existing comment by name. Does not change author, date, or resolved status."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The 'name' field returned by comment_list."},
+            "content": {"type": "string", "description": "New comment text."},
+        },
+        "required": ["name", "content"],
+    }
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
+        comment_name = kwargs["name"]
+        content = kwargs["content"]
+        if not content:
+            return self._tool_error("Provide content.")
+
+        doc = ctx.doc
+        target = _find_annotation_by_name(doc, comment_name)
+        if target is None:
+            return _comment_not_found(
+                "Comment '%s' not found. Call comment_list to see the current names." % comment_name,
+                details=_comment_miss_details(doc, comment_name),
+            )
+
+        from ..edit_review import next_agent_edit_undo_title
+
+        undo_title = next_agent_edit_undo_title()
+
+        def mutate() -> dict[str, Any] | None:
+            target.setPropertyValue("Content", content)
+            return None
+
+        err = commit_or_rollback_mutation(
+            self,
+            doc,
+            undo_title,
+            mutate,
+            undo_unavailable_msg="Cannot edit comment atomically (no usable undo context).",
+            rollback_msg="Failed to edit comment; the change was rolled back",
+        )
+        if err is not None:
+            return err
+
+        return {"status": "ok", "comment_name": comment_name, "content": content}
 
 
 _ANNOTATION_PROPERTIES = (
@@ -538,6 +652,12 @@ def _annotation_field_names(doc: Any) -> list[str]:
     return [_annotation_name(field) for field in _iter_annotations(doc)]
 
 
+def _comment_miss_details(doc: Any, wanted: str) -> dict[str, Any]:
+    """Miss payload for a comment name lookup (uses the same name list as comment_list)."""
+    names = [n for n in _annotation_field_names(doc) if n]
+    return name_miss_details(wanted, names, "comment_list")
+
+
 def _ensure_annotation_name(field: Any, names: list[str]) -> str:
     """Return *field*'s Name, assigning a unique one if Writer left it empty.
 
@@ -608,11 +728,11 @@ def _read_annotation(
     doc_svc: Any,
     doc: Any = None,
     entries: Any = None,
-    label_cache: dict[int, str] | None = None,
+    labeler: Any = None,
 ) -> dict[str, Any]:
     """Extract annotation properties into a plain dict."""
     from plugin.framework.uno_context import uno_same
-    from plugin.writer.search import describe_match_location
+    from plugin.writer.search import LocationLabeler, describe_match_location
 
     entry: dict[str, Any] = {}
     props_read = 0
@@ -657,16 +777,18 @@ def _read_annotation(
         anchor = field.getAnchor()
         preview = ""
         if anchor is not None:
-            entry["location"] = describe_match_location(anchor, doc, label_cache=label_cache)
+            if labeler is not None:
+                entry["location"] = labeler.describe(anchor)
+            elif doc is not None:
+                entry["location"] = LocationLabeler(doc).describe(anchor)
+            else:
+                entry["location"] = describe_match_location(anchor, doc)
             try:
                 anchor_text = anchor.getText()
             except Exception:
                 anchor_text = None
             if anchor_text is not None and text_obj is not None and uno_same(anchor_text, text_obj):
-                raw_pi = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                from plugin.doc.paragraph_search import confirm_paragraph_index
-
-                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, raw_pi)
+                placed = doc_svc.find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
                 if placed is not None:
                     entry["paragraph_index"] = placed
 

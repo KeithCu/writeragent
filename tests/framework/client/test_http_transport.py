@@ -5,8 +5,16 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.client.http_transport import LlmHttpTransport
+from plugin.framework.send_cancellation import SendCancellation
+
 from plugin.framework.client.request_controls import enable_local_unverified, reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
 
 
 @pytest.fixture(autouse=True)
@@ -30,8 +38,8 @@ def test_endpoint_parts_bad_port_is_network_error():
 def test_endpoint_parts_malformed_bracket_url_is_network_error():
     """``_endpoint_parts`` must not leak ``ValueError``.
 
-    What was wrong: ``urlparse`` raises before ``_explicit_port`` for an
-    unmatched bracket, so ``LlmHttpTransport.current_host`` escaped.
+    ``urlparse`` can raise on unmatched brackets before ``_explicit_port`` runs.
+    Those URLs must surface as ``NetworkError``, not escape as raw ``ValueError``.
     """
     for url in ("http://[::1", "http://[::1]extra", "http://[]/v1"):
         transport = LlmHttpTransport(lambda url=url: url, lambda: 5)
@@ -44,12 +52,12 @@ def test_endpoint_parts_malformed_bracket_url_is_network_error():
 def test_exchange_malformed_bracket_redirect_is_network_error():
     """``Location: http://[::1`` is ``NetworkError``, not a raw ``ValueError``.
 
-    What was wrong: ``urljoin`` raises ``ValueError`` for that Location
-    before ``_explicit_port``, so it skipped ``exchange``'s NetworkError catch.
+    ``urljoin`` can raise on a malformed redirect Location before port validation.
+    Exchange must still map that to ``NetworkError``, not leak ``ValueError``.
     """
     transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         response = MagicMock()
         response.status = 302
         response.reason = "Found"
@@ -67,7 +75,7 @@ def test_exchange_stops_after_bounded_redirects():
     transport = LlmHttpTransport(lambda: "https://example.invalid", lambda: 5)
     calls = {"n": 0}
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         calls["n"] += 1
         response = MagicMock()
         response.status = 302
@@ -143,29 +151,29 @@ def test_transport_stop_checker_suppresses_retry():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     transport._persistent_conn = MagicMock()
 
-    action = transport.handle_connection_error(
-        OSError("closed by stop"),
-        path="/v1/chat/completions",
-        retries_left=1,
-        retry_log_message="retry",
-        stop_checker=lambda: True,
-    )
+    with pytest.raises(NetworkError) as err:
+        transport.handle_connection_error(
+            OSError("closed by stop"),
+            path="/v1/chat/completions",
+            retries_left=1,
+            retry_log_message="retry",
+            cancel=_cancelled_scope(),
+        )
 
-    assert action == "stop"
+    assert err.value.code == "STOPPED"
 
 
 def test_transport_connection_retry_waits_with_backoff():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     statuses: list[str] = []
     with patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as wait:
-        action = transport.handle_connection_error(
+        transport.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             status_callback=statuses.append,
         )
-    assert action == "retry"
     wait.assert_called_once()
     assert len(statuses) == 1
     assert "retrying" in statuses[0].lower()
@@ -174,28 +182,30 @@ def test_transport_connection_retry_waits_with_backoff():
 def test_transport_stop_before_retry_does_not_emit_status():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     statuses: list[str] = []
-    action = transport.handle_connection_error(
-        OSError("closed by stop"),
-        path="/v1/chat/completions",
-        retries_left=1,
-        retry_log_message="retry",
-        stop_checker=lambda: True,
-        status_callback=statuses.append,
-    )
-    assert action == "stop"
+    with pytest.raises(NetworkError) as err:
+        transport.handle_connection_error(
+            OSError("closed by stop"),
+            path="/v1/chat/completions",
+            retries_left=1,
+            retry_log_message="retry",
+            cancel=_cancelled_scope(),
+            status_callback=statuses.append,
+        )
+    assert err.value.code == "STOPPED"
     assert statuses == []
 
 
 def test_transport_connection_retry_stop_during_wait():
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 60)
     with patch("plugin.framework.client.http_transport.wait_abortable", return_value=False):
-        action = transport.handle_connection_error(
-            OSError("reset"),
-            path="/v1/chat/completions",
-            retries_left=1,
-            retry_log_message="retry",
-        )
-    assert action == "stop"
+        with pytest.raises(NetworkError) as err:
+            transport.handle_connection_error(
+                OSError("reset"),
+                path="/v1/chat/completions",
+                retries_left=1,
+                retry_log_message="retry",
+            )
+    assert err.value.code == "STOPPED"
 
 
 def test_transport_send_uses_free_pacing_key_for_openrouter_free():
@@ -225,7 +235,7 @@ def test_transport_send_stop_already_set_does_not_open_or_send():
             "/v1/chat/completions",
             b"{}",
             headers={"Content-Type": "application/json"},
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
     assert err.value.code == "STOPPED"
     mock_conn.connect.assert_not_called()
@@ -249,11 +259,11 @@ def test_transport_stop_during_connect_does_not_wait_or_send():
         mock_conn.sock = MagicMock()
 
     mock_conn.connect.side_effect = _connect
-    stop = {"on": False}
+    scope = SendCancellation()
 
     def _stop_later() -> None:
         assert started.wait(2)
-        stop["on"] = True
+        scope.cancel()
 
     threading.Thread(target=_stop_later, daemon=True).start()
     t0 = time.monotonic()
@@ -265,7 +275,7 @@ def test_transport_stop_during_connect_does_not_wait_or_send():
                 "/v1/chat/completions",
                 b"{}",
                 headers={"Content-Type": "application/json"},
-                stop_checker=lambda: stop["on"],
+                cancel=scope,
             )
         assert err.value.code == "STOPPED"
         assert time.monotonic() - t0 < 2
@@ -318,7 +328,7 @@ def test_transport_send_stop_on_open_socket_does_not_reconnect():
             "/v1/chat/completions",
             b"{}",
             headers={"User-Agent": "test"},
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
     assert err.value.code == "STOPPED"
     mock_conn.connect.assert_not_called()
@@ -416,14 +426,13 @@ def test_connection_error_backoff_uses_free_pacing_key_not_paid_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        action = transport.handle_connection_error(
+        transport.handle_connection_error(
             OSError("reset"),
             path="/api/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="deepseek/deepseek-r1:free",
         )
-    assert action == "retry"
     assert _host_gap_sec.get("openrouter.ai:443:free") == 4.0
     assert "openrouter.ai:443" not in _host_gap_sec
 
@@ -436,14 +445,13 @@ def test_explicit_openrouter_flag_uses_free_key_on_custom_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        action1 = t1.handle_connection_error(
+        t1.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="x:free",
         )
-    assert action1 == "retry"
     assert _host_gap_sec.get("proxy.example:443:free") == 4.0
 
     t2 = LlmHttpTransport(lambda: "https://proxy.example/v1", lambda: 30)
@@ -451,14 +459,13 @@ def test_explicit_openrouter_flag_uses_free_key_on_custom_host():
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
         patch("plugin.framework.client.http_transport.backoff_delay_sec", return_value=4.0),
     ):
-        action2 = t2.handle_connection_error(
+        t2.handle_connection_error(
             OSError("reset"),
             path="/v1/chat/completions",
             retries_left=1,
             retry_log_message="retry",
             model="x:free",
         )
-    assert action2 == "retry"
     assert _host_gap_sec.get("proxy.example:443") == 4.0
 
 
@@ -512,16 +519,16 @@ def test_retry_after_ms_used_when_retry_after_absent():
 
     with (
         patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=fake_backoff),
-        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as mock_wait,
     ):
-        action = transport.handle_http_status(
+        transport.handle_http_status(
             response,
             request_body=b'{"model":"gpt-4o"}',
             path="/v1/chat/completions",
             retries_left=2,
             emitted_any=False,
         )
-    assert action == "retry"
+    mock_wait.assert_called_once()
     assert recorded == [2.0]
 
 
@@ -576,7 +583,7 @@ def _exchange_sender(script: list):
     calls = {"n": 0}
     steps = list(script)
 
-    def _sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def _sender(method, path, body, headers, *, cancel=None, status_callback=None):
         calls["n"] += 1
         if calls["n"] > len(steps):
             raise AssertionError("exchange kept sending after the script ended")
@@ -624,6 +631,35 @@ def test_exchange_error_body_read_failure_costs_one_retry():
     ):
         result = transport.exchange("GET", "/v1/models", None, {}, sender=sender, parse_json=True)
     assert result.parsed == {"ok": True}
+    assert calls["n"] == 3
+    assert attempts == [1, 2]
+
+
+def test_stream_error_body_read_failure_costs_one_retry():
+    """A reset while reading a streaming non-200 body is one attempt, so the third try still runs."""
+    import http.client
+
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    read_error = http.client.IncompleteRead(b"partial", 40)
+    ok = _status_response(200, body=b'{"ok": true}', content_type="application/json")
+    sender, calls = _exchange_sender([
+        _status_response(500, read_error=read_error),
+        _status_response(500, read_error=read_error),
+        ok,
+    ])
+    transport.send = sender  # type: ignore[assignment]
+    attempts: list[int] = []
+
+    def _delay(*, attempt: int = 1, **_kwargs):
+        attempts.append(attempt)
+        return 0.0
+
+    with (
+        patch("plugin.framework.client.http_transport.wait_abortable", return_value=True),
+        patch("plugin.framework.client.http_transport.backoff_delay_sec", side_effect=_delay),
+    ):
+        result = transport.stream("POST", "/v1/chat/completions", b"{}", {}, lambda _resp, _budget: "finished")
+    assert result == "finished"
     assert calls["n"] == 3
     assert attempts == [1, 2]
 
@@ -862,10 +898,10 @@ def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
     sock = _open_socket()
     conn = MagicMock()
     conn.sock = sock
-    stopped = [False]
+    scope = SendCancellation()
 
     def raise_broken_pipe(*a, **k):
-        stopped[0] = True
+        scope.cancel()
         raise BrokenPipeError("broken pipe")
 
     conn.request.side_effect = raise_broken_pipe
@@ -877,11 +913,31 @@ def test_reused_socket_broken_pipe_raises_immediately_when_stop_requested():
                 "/v1/chat/completions",
                 b"{}",
                 {"User-Agent": "test"},
-                stop_checker=lambda: stopped[0],
+                cancel=scope,
             )
         assert conn.request.call_count == 1
     finally:
         sock.close()
+
+
+def test_stream_stop_before_send_raises_stopped():
+    """Pre-cancelled scope: stream raises STOPPED without calling send or consume."""
+    transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
+    transport.send = MagicMock(side_effect=AssertionError("send must not run"))  # type: ignore[method-assign]
+
+    def consume(_response, _budget):
+        raise AssertionError("consume must not run")
+
+    with pytest.raises(NetworkError) as err:
+        transport.stream(
+            "POST",
+            "/v1/chat/completions",
+            b"{}",
+            {},
+            consume,
+            cancel=_cancelled_scope(),
+        )
+    assert err.value.code == "STOPPED"
 
 
 def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
@@ -890,14 +946,15 @@ def test_handle_connection_error_downgrades_to_debug_on_stop(caplog):
 
     transport = LlmHttpTransport(lambda: "https://api.openai.com", lambda: 30)
     with caplog.at_level(logging.DEBUG, logger="plugin.framework.client.http_transport"):
-        action = transport.handle_connection_error(
-            BrokenPipeError("broken pipe"),
-            path="/v1/chat/completions",
-            retries_left=2,
-            retry_log_message="retrying",
-            stop_checker=lambda: True,
-        )
-    assert action == "stop"
+        with pytest.raises(NetworkError) as err:
+            transport.handle_connection_error(
+                BrokenPipeError("broken pipe"),
+                path="/v1/chat/completions",
+                retries_left=2,
+                retry_log_message="retrying",
+                cancel=_cancelled_scope(),
+            )
+    assert err.value.code == "STOPPED"
     assert not any(r.levelno >= logging.ERROR for r in caplog.records)
     # Release strips log.debug; "stop" and the absence of ERROR must still hold.
     from plugin.framework.client import http_transport as http_transport_mod
@@ -930,8 +987,8 @@ def test_transport_auto_open_zero_prevents_silent_reconnect_on_closed_connection
 
 
 def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect():
-    """_apply_redirect must strip cookie and proxy-authorization on cross-origin hops."""
-    from plugin.framework.client.http_security import _SECRET_HEADER_NAMES, _apply_redirect
+    """apply_redirect must strip cookie and proxy-authorization on cross-origin hops."""
+    from plugin.framework.client.http_security import _SECRET_HEADER_NAMES, apply_redirect
 
     assert "cookie" in _SECRET_HEADER_NAMES
     assert "proxy-authorization" in _SECRET_HEADER_NAMES
@@ -943,7 +1000,7 @@ def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect()
         "X-Custom-Header": "keep-me",
     }
     # Cross-origin redirect
-    result = _apply_redirect("POST", b"{}", headers, "https://source.com/api", 302, "https://target.com/api")
+    result = apply_redirect("POST", b"{}", headers, "https://source.com/api", 302, "https://target.com/api")
     assert result is not None
     _, _, new_headers, origin, _, _ = result
     assert origin == "https://target.com"
@@ -954,7 +1011,7 @@ def test_secret_header_names_strips_cookie_and_proxy_authorization_on_redirect()
     assert new_headers.get("X-Custom-Header") == "keep-me"
 
     # Same-origin redirect preserves Cookie and Proxy-Authorization
-    same_result = _apply_redirect("GET", None, headers, "https://source.com/api", 302, "/new-path")
+    same_result = apply_redirect("GET", None, headers, "https://source.com/api", 302, "/new-path")
     assert same_result is not None
     _, _, same_headers, same_origin, _, _ = same_result
     assert same_origin == "https://source.com"
@@ -970,7 +1027,7 @@ def test_exchange_omitting_max_bytes_uses_single_read():
     response.read.return_value = b"entire-body"
     response.getheader.return_value = None
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         return response
 
     result = transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False)
@@ -986,7 +1043,7 @@ def test_exchange_with_max_bytes_uses_chunked_read():
     response.read.side_effect = [b"chunk1", b"chunk2", b""]
     response.getheader.return_value = None
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         return response
 
     result = transport.exchange("GET", "/test", None, {}, sender=sender, parse_json=False, max_bytes=1000)
@@ -1002,7 +1059,7 @@ def test_exchange_with_max_bytes_exceeded_raises_network_error():
     response.read.side_effect = [b"x" * 50, b"x" * 60]
     response.getheader.return_value = None
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         return response
 
     with pytest.raises(NetworkError) as exc_info:
@@ -1018,7 +1075,7 @@ def test_exchange_content_length_over_max_bytes_closes_connection():
     response.reason = "OK"
     response.getheader.return_value = "5000"
 
-    def sender(method, path, body, headers, *, stop_checker=None, status_callback=None):
+    def sender(method, path, body, headers, *, cancel=None, status_callback=None):
         return response
 
     with patch.object(transport, "close") as close:

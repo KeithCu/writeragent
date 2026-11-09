@@ -29,6 +29,7 @@ ensure_plugin_on_path(__file__, levels_up=4, also_add_lib=True)
 import unohelper
 
 
+from plugin.writer.locale import grammar_settings
 from plugin.writer.locale.ai_grammar_proofreader import (
     SERVICE_NAME,
     WriterAgentAiGrammarProofreader,
@@ -62,20 +63,15 @@ def normalize_harper_locale_to_bcp47(a_locale: Any) -> str | None:
 class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[reportGeneralTypeIssues]
     """Same proofreading pipeline; branded for the LibreHarper extension."""
 
-    _always_enabled: bool = True
-    _checker_identity: str
-    _provider: str
+    _profile: grammar_settings.GrammarProfile | None
     _implementation_name: str
     _locales: tuple[Any, ...]
     _locales_degraded: bool
     _locale_retry_logged: bool
 
     def __init__(self, ctx: Any, *args: Any) -> None:
-        # Pin package id before base init and update check: WriterAgent may also be installed, and
-        # resolve_package_extension_id prefers the first known id with a location.
-        # Identity before base init: register_live_proofreader / warmup may run doProofreading.
-        self._checker_identity = "harper"
-        self._provider = "harper"
+        # Profile before base init: register_live_proofreader / warmup may run doProofreading.
+        self._profile = grammar_settings.GrammarProfile("harper", "harper", True)
         # Set before super(): registration can observe the instance, and a
         # failed locale build must not look like "no English locales".
         self._locales_degraded = False
@@ -86,6 +82,8 @@ class HarperProofreader(WriterAgentAiGrammarProofreader):  # pyright: ignore[rep
         try:
             from plugin.framework.uno_context import desktop_create_is_unsafe, set_package_extension_id
 
+            # Pin package id before base init and update check: WriterAgent may also be installed, and
+            # resolve_package_extension_id prefers the first known id with a location.
             set_package_extension_id(EXTENSION_ID_LIBREHARPER)
             skip_register_ui = desktop_create_is_unsafe()
             if not skip_register_ui:

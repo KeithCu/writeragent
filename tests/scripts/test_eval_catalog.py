@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 _PO = Path(__file__).resolve().parents[2] / "scripts" / "prompt_optimization"
 if str(_PO) not in sys.path:
@@ -15,6 +16,7 @@ if str(_PO) not in sys.path:
 
 import pytest
 
+import eval_catalog
 from eval_catalog import (
     TOOL_PRESETS,
     apply_schema_density,
@@ -53,6 +55,82 @@ def test_eval_catalog_matches_registry_get_schemas() -> None:
         assert _names(kind) == live
 
 
+def _delegate_domain_enum(schemas: list[dict], tool_name: str) -> list[str] | None:
+    for row in schemas:
+        fn = row.get("function") if isinstance(row.get("function"), dict) else row
+        if fn.get("name") != tool_name:
+            continue
+        props = (fn.get("parameters") or {}).get("properties") or {}
+        domain = props.get("domain") or {}
+        enum = domain.get("enum")
+        return list(enum) if isinstance(enum, list) else None
+    return None
+
+
+def test_eval_schemas_match_sidebar_bootstrap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Eval headless registry uses the same hooks/filters as plugin.main bootstrap."""
+    import plugin.app as app
+    import plugin.bootstrap as bootstrap
+    import plugin.main as main
+    from unittest.mock import MagicMock
+    import tempfile
+
+    eval_catalog._registry = None
+    monkeypatch.setenv("WRITERAGENT_EVAL_HARNESS", "1")
+    monkeypatch.setattr("plugin.framework.queue_executor.MainThread.on_python_main_thread", lambda: True)
+    monkeypatch.setattr(main, "register_core_handlers", lambda: None)
+    monkeypatch.setattr("plugin.framework.worker_pool.run_in_background", lambda fn: None)
+
+    def _eval_like_modules(services: Any) -> list[Any]:
+        from plugin.calc import CalcModule
+        from plugin.chatbot import ChatbotModule
+        from plugin.draw import DrawModule
+        from plugin.writer import WriterModule
+
+        WriterModule().initialize(services)
+        CalcModule().initialize(services)
+        DrawModule().initialize(services)
+        ChatbotModule().initialize(services)
+        services.get("tools").auto_discover_package("plugin.doc")
+        return []
+
+    monkeypatch.setattr("plugin.framework.module_base.ModuleLoader.load_modules", _eval_like_modules)
+
+    eval_catalog._registry = None
+    try:
+        bootstrap.mark_uninitialized()
+        app._services = None
+        app._tools = None
+        app._modules = []
+        ctx = MagicMock()
+        path_settings = ctx.getServiceManager.return_value.createInstanceWithContext.return_value
+        path_settings.UserConfig = tempfile.mkdtemp(prefix="wa-eval-sidebar-")
+        app.bootstrap(ctx)
+        sidebar = app.get_tools()
+        assert sidebar is not None
+        eval_reg = _headless_registry()
+        for kind in ("writer", "calc", "draw"):
+            kwargs: dict = {"doc_type": kind, "filter_doc_type": True}
+            sidebar_rows = sidebar.get_schemas("openai", **kwargs)
+            eval_rows = eval_reg.get_schemas("openai", **kwargs)
+            assert sidebar_rows == eval_rows
+            delegate_name = f"delegate_to_specialized_{kind}_toolset"
+            assert _delegate_domain_enum(sidebar_rows, delegate_name) == _delegate_domain_enum(
+                eval_rows, delegate_name
+            )
+            assert _delegate_domain_enum(eval_rows, delegate_name) is not None
+    finally:
+        eval_catalog._registry = None
+
+
+def test_eval_prompts_build_without_libreoffice() -> None:
+    from scripts.prompt_optimization.eval_prompts import get_writer_eval_chat_system_prompt
+
+    prompt = get_writer_eval_chat_system_prompt()
+    assert "delegate_to_specialized_writer_toolset" in prompt
+    assert "[Eval harness]" in prompt
+
+
 def test_writer_catalog_has_production_names() -> None:
     names = _names("writer")
     assert {
@@ -75,7 +153,7 @@ def test_draw_catalog_has_core_names() -> None:
 
 def test_calc_catalog_has_write_formula() -> None:
     names = _names("calc")
-    # sort_range is specialized; main chat uses write_formula_range / read / summary.
+    # range_sort is specialized; main chat uses write_formula_range / read / summary.
     assert {
         "write_formula_range",
         "read_cell_range",
@@ -87,26 +165,26 @@ def test_calc_catalog_has_write_formula() -> None:
 
 def test_draw_shapes_domain_advertises_upsert() -> None:
     names = {_schema_name(s) for s in build_eval_tool_schemas(kind="draw", active_domain="shapes")}
-    assert {"shape_upsert", "shape_connect", "fill_draw_fields", "specialized_workflow_finished"} <= names
+    assert {"shape_upsert", "shape_connect", "shape_fill_fields", "specialized_workflow_finished"} <= names
     assert "shape_upsert" not in _names("draw")
-    assert "fill_draw_fields" not in _names("draw")
+    assert "shape_fill_fields" not in _names("draw")
 
 
 def test_calc_ranges_domain_advertises_sort() -> None:
     names = {_schema_name(s) for s in build_eval_tool_schemas(kind="calc", active_domain="ranges")}
-    assert {"sort_range", "specialized_workflow_finished"} <= names
-    assert "sort_range" not in _names("calc")
+    assert {"range_sort", "specialized_workflow_finished"} <= names
+    assert "range_sort" not in _names("calc")
 
 
 def test_apply_schema_patches_rewrites_sort_range_description() -> None:
     schemas = build_eval_tool_schemas(kind="calc", active_domain="ranges")
     patched = apply_schema_patches(
-        schemas, {"sort_range": {"description": "PATCHED_SORT_DESC"}}
+        schemas, {"range_sort": {"description": "PATCHED_SORT_DESC"}}
     )
     found = False
     for row in patched:
         fn = row.get("function") if isinstance(row.get("function"), dict) else row
-        if fn.get("name") == "sort_range":
+        if fn.get("name") == "range_sort":
             assert fn["description"] == "PATCHED_SORT_DESC"
             found = True
     assert found
@@ -114,7 +192,7 @@ def test_apply_schema_patches_rewrites_sort_range_description() -> None:
     original = next(
         row
         for row in schemas
-        if (row.get("function") or row).get("name") == "sort_range"
+        if (row.get("function") or row).get("name") == "range_sort"
     )
     orig_fn = original.get("function") or original
     assert orig_fn["description"] != "PATCHED_SORT_DESC"
@@ -226,7 +304,7 @@ def test_apply_schema_density_skinny_blanks_descriptions() -> None:
 
 def test_prepare_keeps_specialized_inner_schemas() -> None:
     outer = prepare_eval_tool_schemas(kind="calc", tools_spec="calc_minimal")
-    assert "sort_range" not in {schema_tool_name(s) for s in outer}
+    assert "range_sort" not in {schema_tool_name(s) for s in outer}
     inner = prepare_eval_tool_schemas(
         kind="calc",
         active_domain="ranges",
@@ -234,11 +312,11 @@ def test_prepare_keeps_specialized_inner_schemas() -> None:
         schema_density="skinny",
     )
     names = {schema_tool_name(s) for s in inner}
-    assert {"sort_range", "specialized_workflow_finished"} <= names
+    assert {"range_sort", "specialized_workflow_finished"} <= names
     sort_fn = next(
         (row.get("function") or row)
         for row in inner
-        if schema_tool_name(row) == "sort_range"
+        if schema_tool_name(row) == "range_sort"
     )
     assert sort_fn["description"] == ""
 
@@ -250,7 +328,7 @@ def test_unsupported_core_names() -> None:
     for state, name in (
         (writer, "get_guidance"),
         (draw, "shape_delete"),
-        (calc, "list_sheets"),
+        (calc, "sheet_list"),
     ):
         data = json.loads(dispatch_string_tool(state, name, "{}"))
         assert data["status"] == "error"

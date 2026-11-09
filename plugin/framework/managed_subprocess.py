@@ -7,7 +7,8 @@ Provides explicit start, environment merging, thread-guard refusal, bounded stde
 tree kill, reaping, and registered shutdown. Stderr can be subprocess.DEVNULL (no drain),
 and registry membership and start-error wrapping are optional. `raw_spawn=True` is a pass-through
 Popen for short-lived children, and ManagedSubprocess.run is subprocess.run plus Windows
-CREATE_NO_WINDOW from get_subprocess_creationflags().
+CREATE_NO_WINDOW from get_subprocess_creationflags(). ``run(..., kill_tree=True)`` uses
+its own session and kill_process_tree on timeout.
 Worker start, stderr drain, tree kill, and shutdown_all stay the default.
 When `stderr_name_with_pid` is true and `stderr_name` is set, the drain thread name is `{stderr_name}-{pid}`.
 """
@@ -26,11 +27,13 @@ from typing import IO, Any, Callable, cast
 
 from plugin.framework.worker_pool import (
     StderrTail,
-    get_subprocess_creationflags,
     start_stderr_drain,
     run_in_background,
 )
-from plugin.scripting.sandbox import scrub_subprocess_env
+from plugin.framework.subprocess_env import (
+    get_subprocess_creationflags,
+    scrub_subprocess_env,
+)
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +49,8 @@ class ManagedSubprocess:
     """A managed child process providing explicit start, safe shutdown, and stderr tailing.
 
     The default constructor is the worker (pipes, drain, registry).
+    On the worker path, ``stdin`` may be ``PIPE`` or ``DEVNULL`` and ``stderr`` may be
+    ``PIPE`` or ``DEVNULL``; ``stdout`` is always ``PIPE``.
     raw_spawn=True is the TTS path and does not do those things. Callers of raw mode
     own stop and reap. run does not create an instance.
     Callers own the stdout and stdin pipes (e.g. for JSON-RPC or custom framing).
@@ -55,6 +60,10 @@ class ManagedSubprocess:
     stderr name unchanged); `text=True` is line-buffered text pipes.
     `drain_stderr`, `register`, and `log_start_failure` default to the worker spawn
     (stderr drain, `shutdown_all` registry, start failures logged and wrapped in `RuntimeError`).
+    When `die_with_parent=True` (Linux only, rejected with `raw_spawn=True`), the parent
+    resolves prctl before fork so the child avoids dlopen or imports, and `start()` enforces
+    that child creation runs on the supervisor spawner thread because Linux `PR_SET_PDEATHSIG`
+    follows the creating thread.
     """
 
     _cmd_line: list[str]
@@ -77,6 +86,7 @@ class ManagedSubprocess:
     _text: bool
     _stderr_name_with_pid: bool
     _raw_spawn: bool
+    _worker_stdin: Any
     _raw_stdin: Any
     _raw_stdout: Any
     _raw_stderr: Any
@@ -87,6 +97,7 @@ class ManagedSubprocess:
     _stderr_drain: StderrTail | None
     _reaper_passes: int
     _stdio_closed: bool
+    _die_with_parent: bool
     _lock: threading.Lock
 
     def __init__(
@@ -116,7 +127,10 @@ class ManagedSubprocess:
         stdout: Any = None,
         encoding: str | None = None,
         errors: str | None = None,
+        die_with_parent: bool = False,
     ) -> None:
+        if raw_spawn and die_with_parent:
+            raise ValueError("raw_spawn does not support die_with_parent")
         if inherit_env and (env is not None or base_env is not None or scrub_env):
             raise ValueError("inherit_env cannot be combined with env, base_env, or scrub_env")
         if not drain_stderr and (stderr_tail_chars is not None or stderr_name is not None):
@@ -131,8 +145,15 @@ class ManagedSubprocess:
             else:
                 raise ValueError("stderr must be subprocess.PIPE or subprocess.DEVNULL")
             self._stderr = worker_stderr
+            if stdin is None:
+                self._worker_stdin = subprocess.PIPE
+            elif stdin == subprocess.PIPE or stdin == subprocess.DEVNULL:
+                self._worker_stdin = stdin
+            else:
+                raise ValueError("stdin must be subprocess.PIPE or subprocess.DEVNULL")
         else:
             self._stderr = subprocess.PIPE
+            self._worker_stdin = subprocess.PIPE
         self._cmd_line = cmd_line
         self._cwd = cwd
         self._env = env
@@ -158,6 +179,7 @@ class ManagedSubprocess:
         self._raw_text = text
         self._raw_encoding = encoding
         self._raw_errors = errors
+        self._die_with_parent = die_with_parent
         self._reaper_passes = 0
         self._stdio_closed = False
         self._proc = None
@@ -304,15 +326,7 @@ class ManagedSubprocess:
         self._reaper_passes += 1
         if self._reaper_passes >= _REAPER_MAX_PASSES:
             log.warning("%s pid=%s still alive; reaper giving up", self._label, self.pid)
-            # What was wrong: unkillable processes held in the shutdown registry caused
-            # shutdown_all to attempt closing them; Child._finish unregisters only after
-            # a successful reap.
-            # How it happened: reaper give-up returned without unregistering the instance,
-            # leaving it registered forever, while dropping the queue reference could trigger
-            # Popen.__del__ calling wait() with no timeout on the reaper thread.
-            # Why this change fixes it: call unregister() to remove the instance from
-            # shutdown_all, and keep the instance alive in _reaper_given_up off the reaper
-            # stack so Popen.__del__ does not execute wait() on the reaper thread.
+            # Unregister and keep alive so Popen.__del__ does not block the reaper thread.
             self.unregister()
             if self not in _reaper_given_up:
                 _reaper_given_up.append(self)
@@ -349,6 +363,14 @@ class ManagedSubprocess:
         (_proc is not None); a start() that fails before _proc
         is set leaves the instance reusable (worker and raw).
         """
+        if self._die_with_parent and sys.platform == "linux":
+            from plugin.framework.warm_child import supervisor
+
+            # Linux PR_SET_PDEATHSIG follows the thread that calls fork, not the process.
+            if threading.get_ident() != supervisor.spawner_ident:
+                supervisor.spawn(self)
+                return
+
         with self._lock:
             # Single-use once a child is published. A failure before _proc is set
             # leaves the instance reusable.
@@ -381,6 +403,11 @@ class ManagedSubprocess:
             popen_kw = get_subprocess_creationflags()
             if self._new_session and sys.platform != "win32":
                 popen_kw["start_new_session"] = True
+            if self._die_with_parent and sys.platform == "linux":
+                from plugin.framework.child_runtime import bind_pdeathsig, pdeathsig_preexec
+
+                if bind_pdeathsig():
+                    popen_kw["preexec_fn"] = pdeathsig_preexec
 
             cmd = (
                 self._command_wrapper(self._cmd_line, env=merged_env, cwd=self._cwd)
@@ -388,13 +415,7 @@ class ManagedSubprocess:
                 else list(self._cmd_line)
             )
 
-            # What was wrong: if start_stderr_drain (or any step after Popen) raised,
-            # self._proc was left assigned without being registered in _instances,
-            # leaking the spawned process without a tree kill or cleanup.
-            # How it happened: self._proc was assigned before start_stderr_drain ran.
-            # Why this change fixes it: keep the Popen instance in a local variable,
-            # clean up both the process and pipes on failure, and only assign self._proc
-            # and register once all startup operations have succeeded.
+            # Hold the Popen instance locally until startup succeeds to avoid leaking on failure.
             proc: subprocess.Popen[bytes] | None = None
             drain: StderrTail | None = None
             try:
@@ -403,7 +424,7 @@ class ManagedSubprocess:
                     "subprocess.Popen[bytes]",
                     subprocess.Popen(
                         cmd,
-                        stdin=subprocess.PIPE,
+                        stdin=self._worker_stdin,
                         stdout=subprocess.PIPE,
                         stderr=self._stderr,
                         env=merged_env,
@@ -471,11 +492,6 @@ class ManagedSubprocess:
             raise ValueError("raw_spawn does not optimize pipes")
         if self._base_env is not None:
             raise ValueError("raw_spawn does not merge base_env")
-        # What was wrong: raw_spawn rejected drain_stderr=False even though raw mode never drains,
-        # while the constructor default drain_stderr=True was accepted and ignored.
-        # How it happened: the validation check included "or not self._drain_stderr".
-        # Why this change fixes it: only reject explicit stderr-tail options; raw mode never
-        # starts a stderr drain regardless of drain_stderr.
         if (
             self._stderr_tail_chars is not None
             or self._stderr_name is not None
@@ -514,52 +530,90 @@ class ManagedSubprocess:
         text: bool = False,
         encoding: str | None = None,
         errors: str | None = None,
+        kill_tree: bool = False,
     ) -> subprocess.CompletedProcess[Any]:
         """One-shot subprocess.run with no env merge, no session, no drain, no registry.
 
         Windows CREATE_NO_WINDOW comes from get_subprocess_creationflags().
         Timeouts and OSError propagate.
+
+        When ``kill_tree`` is true, the child runs in its own POSIX session,
+        ``stdin`` defaults to ``subprocess.DEVNULL`` (soffice must not inherit
+        LibreOffice stdin), and a timeout calls ``kill_process_tree`` instead of
+        killing only the direct child (e.g. soffice → oosplash → soffice.bin).
         """
-        # What was wrong: probe_webview_import passed **get_subprocess_creationflags() until
-        # the editor migration (6e831e293) routed it through ManagedSubprocess.run, which omitted
-        # the flags; the Monaco doc still described CREATE_NO_WINDOW.
-        # How it happened: ManagedSubprocess.run was implemented as a bare subprocess.run wrapper
-        # without passing creationflags.
-        # Why this change fixes it: pass **get_subprocess_creationflags() to both subprocess.run branches.
         if capture_output:
             if stdout is not None or stderr is not None:
                 raise ValueError("stdout and stderr arguments may not be used with capture_output.")
-            run_kwargs: dict[str, Any] = {
-                "capture_output": True,
-                "env": env,
-                "cwd": cwd,
-                "text": text,
-                "encoding": encoding,
-                "errors": errors,
-                "timeout": timeout,
-                "check": check,
-                **get_subprocess_creationflags(),
-            }
-            if stdin is not None:
-                run_kwargs["stdin"] = stdin
+        if not kill_tree:
             return subprocess.run(
                 args,
-                **run_kwargs,
+                capture_output=capture_output,
+                stdin=stdin,
+                stdout=stdout,
+                stderr=stderr,
+                env=env,
+                cwd=cwd,
+                text=text,
+                encoding=encoding,
+                errors=errors,
+                timeout=timeout,
+                check=check,
+                **get_subprocess_creationflags(),
             )
-        return subprocess.run(
-            args,
-            stdin=stdin,
-            stdout=stdout,
-            stderr=stderr,
-            env=env,
-            cwd=cwd,
-            text=text,
-            encoding=encoding,
-            errors=errors,
-            timeout=timeout,
-            check=check,
+
+        if capture_output:
+            run_stdout: Any = subprocess.PIPE
+            run_stderr: Any = subprocess.PIPE
+        else:
+            run_stdout = stdout
+            run_stderr = stderr
+
+        popen_kw: dict[str, Any] = {
+            "stdin": stdin if stdin is not None else subprocess.DEVNULL,
+            "stdout": run_stdout,
+            "stderr": run_stderr,
+            "env": env,
+            "cwd": cwd,
+            "text": text,
+            "encoding": encoding,
+            "errors": errors,
             **get_subprocess_creationflags(),
-        )
+        }
+        if sys.platform != "win32":
+            popen_kw["start_new_session"] = True
+
+        with subprocess.Popen(args, **popen_kw) as proc:
+            try:
+                out, err = proc.communicate(timeout=timeout)
+            except subprocess.TimeoutExpired as exc:
+                # subprocess.run kills only the Popen pid; LO convert spawns soffice.bin
+                # as a grandchild, so tear down the whole session group.
+                kill_process_tree(proc)
+                out, err = exc.output, exc.stderr
+                try:
+                    out, err = proc.communicate(timeout=_REAP_WAIT_SEC)
+                except subprocess.TimeoutExpired as exc2:
+                    # Grandchild outside the session group can hold the pipe open;
+                    # output may be bytes here.
+                    out, err = exc2.output, exc2.stderr
+                raise subprocess.TimeoutExpired(
+                    exc.cmd,
+                    exc.timeout,
+                    output=out,
+                    stderr=err,
+                ) from None
+            except BaseException:
+                if proc.poll() is None:
+                    kill_process_tree(proc)
+                raise
+
+            retcode = proc.returncode
+            if retcode is None:
+                retcode = proc.wait()
+            if check and retcode:
+                raise subprocess.CalledProcessError(retcode, args, output=out, stderr=err)
+            return subprocess.CompletedProcess(args, retcode, out, err)
 
     def unregister(self) -> None:
         """Unregister this instance from shutdown_all without closing pipes or killing processes."""
@@ -597,15 +651,7 @@ def kill_process_tree(proc: subprocess.Popen[Any]) -> None:
         _kill_direct(proc)
         return
 
-    # What was wrong: in containerized environments (such as CI containers or restricted
-    # sandboxes) or when dealing with recycled PIDs or foreign process groups, os.getpgid(pid)
-    # or os.killpg(pgid, signal.SIGKILL) could fail with PermissionError [Errno 1] Operation not permitted.
-    # Furthermore, if pgid != pid, signalling pgid would attempt to kill a process group the child
-    # does not own.
-    # How it happened: kill_process_tree only caught ProcessLookupError and lacked an ownership check
-    # against pgid != pid.
-    # Why this change fixes it: catches (PermissionError, OSError) when querying or signalling groups,
-    # verifies ownership (pgid == pid) for session leaders, and safely falls back to killing only the direct child.
+    # Safely signal process group when owned by pid, falling back to direct process kill.
     try:
         pgid = os.getpgid(pid)
         fallback = False
@@ -728,11 +774,7 @@ def shutdown_all() -> None:
 
     Does not call ``close()``, does not close pipes, and does not wait.
     """
-    # What was wrong: close() on this thread waited out SIGTERM (3s per child) and closed
-    # stdout/stderr under ACP's readline and the compute io-owner.
-    # How it happened: shutdown_all walked the registry calling inst.close().
-    # Why this change fixes it: kill_tree signals the group and does not touch pipes.
-    # abandon reaps on managed-subprocess-reaper without waiting on the caller.
+    # Signals process groups without touching pipes or blocking the caller.
     with _registry_lock:
         targets = list(_instances)
     for inst in targets:
@@ -755,11 +797,7 @@ def _enqueue_reaper(item: ManagedSubprocess) -> None:
         _reaper_queue.put(item)
         if _reaper_started:
             return
-        # What was wrong: the flag was set before run_in_background; a raised start
-        # left it true and later enqueues wrote to a queue nobody drained.
-        # How it happened: _reaper_started was set before run_in_background returned.
-        # Why this change fixes it: the flag is set only after the call returns so the
-        # next enqueue retries, and the item put before the call stays on the queue.
+        # Set flag only after run_in_background succeeds so failed starts can retry.
         run_in_background(
             _reaper_loop,
             daemon=True,

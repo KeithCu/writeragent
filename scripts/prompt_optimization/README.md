@@ -86,7 +86,7 @@ python run_optimize.py --auto light -j 1 \
   -e table_from_mess,table_engineering --slice apply_html
 ```
 
-Other slices: `writer_core`, `apply_html`, `sort_range`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
+Other slices: `writer_core`, `apply_html`, `range_sort`, `write_formula_range`, `write_formula_range.values`, `full_prompt` (opaque whole-prompt fallback). Legacy ReAct comparison: `--student react-mock` (writes `optimized_writer_prompt.json`).
 
 Pick a different model:
 
@@ -139,7 +139,7 @@ From t=0 the scheduler does **not** finish the string pack and then start LibreO
 - LO work is queued before the string pool waits, so it is in flight while string tasks are still running. Wall clock for native LO rows approaches the overlap of those LLM waits plus serial UNO, not a full-example FIFO.
 - A string row never blocks on the LO queue. Only a row whose own backend is `lo` waits for a free pool worker.
 
-`run_eval_multi.py -j N` is still **models** (default 20). Inside one model, string tasks stay serial. Models share **one** LO pool (`--lo-workers`), so flag rows from several models occupy those agent threads while those models' string tasks overlap. Do **not** `ProcessPoolExecutor` against one soffice, and do not start a second soffice. Flag-path `get_ctx()` / Desktop current component / venv `_io_lock` are still a separate pin. Per-task banners include `model=`; an LO row also prints `backend=lo`.
+`run_eval_multi.py -j N` is still **models** (default 20). Inside one model, string tasks stay serial. Models share **one** LO pool (`--lo-workers`), so flag rows from several models occupy those agent threads while those models' string tasks overlap. Do **not** `ProcessPoolExecutor` against one soffice, and do not start a second soffice. Flag-path `get_ctx()` / Desktop current component / the warm-child pipe lock are still a separate pin. Per-task banners include `model=`; an LO row also prints `backend=lo`.
 
 `delegate_tool_domains` on the string world returns `unsupported_in_eval`. There is no fake `run_venv_python_script`. On LO, the harness runs that hop as an inner `LlmClient` loop (not SmolAgents) so `run_venv_python_script` is on the **harness trace**, then executes it through production tools with `python_tool_domain=shapes,core`. Shape mutators stay off the inner LLM list. Headed eval-2 still scores `writeragent_debug.log`; this row does not.
 
@@ -171,7 +171,7 @@ DSPy `build_program()` (`--student react-mock`) can still pass `tool_names` to r
 
 Production sidebar registration is unchanged. These flags only reshape the **advertised** eval catalog.
 
-**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `sort_range` / ranges-domain schemas.
+**`--tools SPEC`** (default `full`): named preset or comma-separated production tool names. Unknown explicit names raise with the available catalog. Kind-specific presets apply only to that document kind (a mixed-kind run with `--tools calc_minimal` still gives Writer/Draw the full catalog). **Specialized inner loops are not filtered** — `delegate_to_specialized_calc_toolset` still sees `range_sort` / ranges-domain schemas.
 
 | Preset | Kind | Outer tools (production names) |
 |--------|------|--------------------------------|

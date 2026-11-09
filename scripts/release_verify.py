@@ -45,7 +45,7 @@ IGNORED_TESTS = (
 
 DESELECTED_K = (
     "test_sync_tool_marshaled_from_background",
-    "test_execute_on_main_thread_timeout",
+    "test_call_timeout",
     "test_execute_python_addin_from_background_thread",
     # --strip drops log.debug calls, so this caplog check sees nothing.
     "test_best_effort_logs_and_swallows_everything",
@@ -65,10 +65,8 @@ DESELECTED_K = (
     "test_text_updated_without_has_text_raises",
     "test_start_unknown_handler_type_raises",
     "test_spec_validation_asserts",
-    "test_on_main_thread_or_post_asserts_callable",
     "test_aggregate_stubs_and_bools",
     "test_materialize_calc_range_shape_assertion",
-    "test_harper_try_lint_reenter_during_wait_asserts",
     # --strip drops log.debug/log.info and grammar_obs calls these checks look for.
     "test_resize_logging_behavior",
     "test_peer_not_chat_mode_logs_probe_failure",
@@ -233,6 +231,9 @@ def main(argv: list[str]) -> int:
 
         pytest_env = os.environ.copy()
         pytest_env["PYTHONPATH"] = str(root)
+        # Point harness scripts at the real checkout (compute_service, etc.);
+        # the stripped tree only has plugin/ + tests/.
+        pytest_env["WRITERAGENT_PROJECT_ROOT"] = str(PROJECT_ROOT)
         proc = subprocess.run(pytest_cmd, cwd=str(root), env=pytest_env, check=False)
         if proc.returncode != 0:
             return proc.returncode

@@ -2,7 +2,15 @@
 # Copyright (c) 2026 KeithCu
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Internal shared utilities for calc_functions formula emulation."""
+"""Internal shared utilities for calc_functions formula emulation.
+
+Formula error contract:
+Parameter coercion errors (ValueError, TypeError) propagate to the worker as #VALUE!,
+ZeroDivisionError as #DIV/0!, and unhandled OverflowError as #NUM!. Domain failures
+return float("nan") or raise CalcError(CalcError.NUM). The @calc_function decorator
+preserves the legacy NaN collapse for helpers that require it, while catching CalcError
+to emit either NaN (#NUM!) or error token strings (#VALUE!, #DIV/0!, #N/A).
+"""
 # pyright: reportUnusedFunction=false
 
 from __future__ import annotations
@@ -40,13 +48,30 @@ _WEEKEND_MAPPING: dict[int, tuple[int, ...]] = {
 }
 
 
-# Whole-body handlers that return NaN for these three errors only.
-# Do not add ZeroDivisionError or re.error: xirr, xnpv, and textsplit catch more.
-def _nan_on_error(fn: Any) -> Any:
+class CalcError(Exception):
+    """Sheet error raised inside a helper. Not framework.errors.CalcError."""
+
+    VALUE: str = "#VALUE!"
+    NUM: str = "#NUM!"
+    DIV0: str = "#DIV/0!"
+    NA: str = "#N/A"
+
+    token: str
+
+    def __init__(self, token: str) -> None:
+        if token not in (self.VALUE, self.NUM, self.DIV0, self.NA):
+            raise ValueError(token)
+        super().__init__(token)
+        self.token = token
+
+
+def calc_function(fn: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(fn)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         try:
             return fn(*args, **kwargs)
+        except CalcError as exc:
+            return float("nan") if exc.token == CalcError.NUM else exc.token
         except (ValueError, TypeError, OverflowError):
             return float("nan")
 
@@ -158,14 +183,7 @@ def _round_half_up(val: float, decimals: int) -> Decimal:
     # Half away from zero (2.5 -> 3, 2.675 -> 2.68). Python round() is half-to-even.
     if not math.isfinite(val):
         raise ValueError("Non-finite value cannot be rounded")
-    # What was wrong: DOLLAR, FIXED, and EUROCONVERT raised decimal.InvalidOperation
-    # for a large place count (fixed(0.5, 40), dollar(1.5, 40)).
-    # How it happened: quantize used the default 28-digit context. InvalidOperation
-    # subclasses ArithmeticError, not ValueError or OverflowError, so those handlers
-    # missed it. TEXT already widens the context in _format_number_pattern.
-    # Why this change fixes it: the same precision bump lets a 40-place quantize
-    # succeed, and a quantize that still fails becomes ValueError so the handlers
-    # return NaN instead of escaping the formula.
+    # Widen decimal context for large place counts so quantize failures become ValueError and formulas return NaN instead of InvalidOperation escaping.
     d = Decimal(str(val))
     try:
         exp = Decimal("1e" + str(-decimals))
@@ -195,7 +213,7 @@ def _as_bool_flag(val: Any) -> bool:
 
     A blank cell is false (``GetBool`` of an empty cell). ``"TRUE"`` and
     ``"FALSE"`` are those booleans. ``"0"`` is false. ``bool("0")`` and
-    ``bool("FALSE")`` used to be true, so the fit kept an intercept.
+    ``FALSE`` and ``0`` strings are false so LINEST const matches Calc and does not keep an intercept incorrectly.
     """
     if isinstance(val, str):
         token = val.strip().upper()
@@ -515,8 +533,7 @@ def _from_complex(c: complex, suffix: str = "i") -> str:
     """Convert Python complex to Calc string.
 
     ``Complex::GetString`` (``analysishelper.cxx``) calls ``finiteOrThrow``
-    on both parts. A non-finite value used to be printed (``"inf"``,
-    ``"nannani"``). macOS libm returns a non-finite complex for
+    on both parts. Non-finite components raise ValueError instead of printing ``inf`` strings. macOS libm returns a non-finite complex for
     ``(1+1j)**inf`` and does not raise. Linux raises ``OverflowError``.
     Callers map this ``ValueError`` to ``#VALUE!``.
     """

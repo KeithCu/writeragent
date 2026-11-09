@@ -129,11 +129,56 @@ def test_execute_code_does_not_pump_idle():
         assert kwargs.get("python_tool_domain") is None
         assert kwargs.get("session_id") == "notebook:test"
         assert kwargs.get("script_session_id") == "doc:test"
-        assert callable(kwargs.get("stop_checker"))
+        from plugin.framework.send_cancellation import get_current_send_cancellation
+
+        assert kwargs.get("cancel") is get_current_send_cancellation()
         release.assert_called_once_with("doc:test")
 
+
+def test_execute_code_latched_stop_skips_venv():
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
+        patch(
+            "plugin.notebook.notebook_runner.run_blocking_in_thread",
+            side_effect=lambda ctx, func, **kw: func(),
+        ),
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv") as run_venv,
+        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=True),
+        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
+        patch("plugin.notebook.notebook_runner.release_script_document") as release,
+    ):
+        out = execute_code(ctx, doc, "x = 1")
+    assert out["status"] == "stopped"
+    run_venv.assert_not_called()
+    release.assert_called_once_with("doc:test")
+
+
+def test_execute_code_passes_current_send_scope():
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    ctx = MagicMock()
+    doc = MagicMock()
+    with (
+        patch("plugin.notebook.notebook_runner.notebook_session_id", return_value="notebook:test"),
+        patch(
+            "plugin.notebook.notebook_runner.run_blocking_in_thread",
+            side_effect=lambda ctx, func, **kw: func(),
+        ),
+        patch("plugin.notebook.notebook_runner.run_code_in_user_venv", return_value={"status": "ok"}) as run_venv,
+        patch("plugin.notebook.notebook_runner._is_stop_requested", return_value=False),
+        patch("plugin.notebook.notebook_runner.pin_script_document", return_value="doc:test"),
+        patch("plugin.notebook.notebook_runner.release_script_document"),
+        patch("plugin.framework.send_cancellation.get_current_send_cancellation", return_value=scope),
+    ):
+        execute_code(ctx, doc, "x = 1")
+    assert run_venv.call_args.kwargs["cancel"] is scope
+
+
 def test_execute_code_stop_returns_interrupted_without_venv():
-    """When stop_checker is true during exception handling in _run, we return stopped."""
+    """When stop is latched during exception handling in _run, we return stopped."""
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -152,7 +197,7 @@ def test_execute_code_stop_returns_interrupted_without_venv():
         out = execute_code(ctx, doc, "x = 1")
     assert out["status"] == "stopped"
     assert pump.call_args.kwargs.get("pump_idle") is False
-    run_venv.assert_called_once()
+    run_venv.assert_not_called()
 
 
 def test_run_cell_updates_registry_and_execution_count():
@@ -260,9 +305,9 @@ def test_run_cell_missing_code_field():
     assert "empty" not in result.message.lower()
 
 
-def test_run_cell_busy_guard_shares_url_key_across_wrappers():
-    """Two PyUNO wrappers of one saved doc (no RuntimeUID) must not both run."""
-    from plugin.notebook.notebook_controls import _doc_key
+def test_run_cell_busy_guard_shares_uid_key_across_wrappers():
+    """Two PyUNO wrappers of one doc must not both run."""
+    from plugin.notebook.layout import doc_key
 
     ctx = MagicMock()
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
@@ -270,9 +315,8 @@ def test_run_cell_busy_guard_shares_url_key_across_wrappers():
     doc1 = MagicMock()
     doc2 = MagicMock()
     for doc in (doc1, doc2):
-        doc.getRuntimeUID.return_value = ""
-        doc.getURL.return_value = "file:///tmp/same.odt"
-    assert _doc_key(doc1) == _doc_key(doc2) == "url:file:///tmp/same.odt"
+        doc.getRuntimeUID.return_value = "uid-same"
+    assert doc_key(doc1) == doc_key(doc2) == "uid:uid-same"
     nested: list[object] = []
 
     def _reenter(*_a: object, **_k: object) -> dict[str, object]:
@@ -314,16 +358,16 @@ def test_insert_run_image_svg_mime(value, value_2, expected):
     assert insert_flow.call_args.kwargs["mime"] == expected
 
 def test_shared_notebook_session_via_sandbox():
-    from plugin.scripting.venv.venv_sandbox import clear_all_sandbox_sessions, run_sandboxed_code
+    from plugin.scripting.venv.venv_sandbox import SESSIONS, run_sandboxed_code
 
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
     sid = "notebook:test-runner"
     r1 = run_sandboxed_code("x = 41\nresult = x + 1", None, session_id=sid)
     assert r1["status"] == "ok"
     r2 = run_sandboxed_code("result = x + 1", None, session_id=sid)
     assert r2["status"] == "ok"
     assert r2["result"] == 42
-    clear_all_sandbox_sessions()
+    SESSIONS.clear_all()
 
 
 @pytest.mark.parametrize(
@@ -428,7 +472,7 @@ def test_clear_cell_output_uses_set_string_not_delete_contents():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -472,7 +516,7 @@ def test_clear_cell_output_stops_at_markdown_blockquote(value, value_2):
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -513,7 +557,7 @@ def test_clear_cell_output_collapsed_cursor_stops_at_markdown():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -549,7 +593,7 @@ def test_clear_cell_output_skips_empty_control_paragraph():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -591,7 +635,7 @@ def test_clear_cell_output_skips_control_row_then_clears_stdout():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=start),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -684,7 +728,7 @@ def test_apply_run_result_replaces_via_clear_then_insert():
 
     with (
         patch("plugin.notebook.notebook_runner._cursor_after_bookmark", return_value=cursor),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", side_effect=lambda _doc, name: name),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", side_effect=lambda _doc, name: name),
     ):
         apply_run_result(doc, cell, {"status": "ok", "stdout": "first\n", "result": None})
         apply_run_result(doc, cell, {"status": "ok", "stdout": "second\n", "result": None})
@@ -697,8 +741,8 @@ def test_apply_run_result_replaces_via_clear_then_insert():
 
 def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
     """When the cursor lands on Cell N: Markdown, stdout must not replace that heading."""
+    from plugin.notebook.layout import PARAGRAPH_BREAK
     from plugin.notebook.notebook_runner import _insert_stdout_paragraph
-    from plugin.notebook.writer_importer import _PARAGRAPH_BREAK
 
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     cursor = MagicMock()
@@ -718,8 +762,8 @@ def test_insert_stdout_paragraph_splits_before_next_cell_chrome():
         _insert_stdout_paragraph(doc, cell, cursor, "hello", "Preformatted Text", "WriterAgent Notebook In")
 
     assert [call.args[1] for call in text.insertControlCharacter.call_args_list] == [
-        _PARAGRAPH_BREAK,
-        _PARAGRAPH_BREAK,
+        PARAGRAPH_BREAK,
+        PARAGRAPH_BREAK,
     ]
     text.insertString.assert_called_once_with(cursor, "hello", False)
     cursor.setString.assert_not_called()
@@ -1037,7 +1081,7 @@ def test_clear_cell_output_preserves_spacer_before_next_heading():
         patch("plugin.notebook.notebook_runner._code_field_paragraph_end", return_value=None),
         patch("plugin.notebook.notebook_runner._is_output_bookmark_home", return_value=False),
         patch("plugin.notebook.notebook_runner._paragraph_has_frame", return_value=False),
-        patch("plugin.notebook.notebook_runner._resolve_para_style", return_value="WriterAgent Notebook In"),
+        patch("plugin.notebook.notebook_runner.resolve_para_style", return_value="WriterAgent Notebook In"),
     ):
         clear_cell_output(doc, cell)
 
@@ -1731,7 +1775,7 @@ def test_run_cells_between_cell_pump_disposal_stops_execution():
         patch("plugin.notebook.notebook_runner.update_in_prompt"),
         patch("plugin.notebook.notebook_runner.save_registry"),
         patch("plugin.notebook.notebook_runner.flush_ui_idle", side_effect=_flush),
-        patch("plugin.notebook.notebook_runner.is_document_disposed", side_effect=[False, True]),
+        patch("plugin.notebook.notebook_runner.document_is_disposed", side_effect=[False, True]),
     ):
         result = run_cells(ctx, doc, start_index=0)
 

@@ -85,12 +85,12 @@ def test_is_missing_value_covers_pandas_and_numpy():
 
 
 def test_dedupe_column_names_in_coerce():
-    """_dedupe_column_names produces unique labels and avoids colliding with pre-existing numbered suffixes."""
-    from plugin.scripting.venv.coerce import _dedupe_column_names
+    """dedupe_column_names produces unique labels and avoids colliding with pre-existing numbered suffixes."""
+    from plugin.scripting.venv.coerce import dedupe_column_names
 
-    assert _dedupe_column_names(["a", "a", "a_1"]) == ["a", "a_1", "a_1_1"]
-    assert _dedupe_column_names(["x", "x", "x"]) == ["x", "x_1", "x_2"]
-    assert _dedupe_column_names(["", ""]) == ["column", "column_1"]
+    assert dedupe_column_names(["a", "a", "a_1"]) == ["a", "a_1", "a_1_1"]
+    assert dedupe_column_names(["x", "x", "x"]) == ["x", "x_1", "x_2"]
+    assert dedupe_column_names(["", ""]) == ["column", "column_1"]
 
 
 def test_parse_date_column_serial_year_iso_and_mixed():
@@ -196,10 +196,10 @@ def test_table_from_df_nan_is_none():
 
 def test_numeric_columns_string_is_one_name():
     import pandas as pd
-    from plugin.scripting.venv.coerce import numeric_columns
+    from plugin.scripting.venv.coerce import resolve_columns
 
     df = pd.DataFrame({"AAPL": [1.0, 2.0], "MSFT": [3.0, 4.0]})
-    cols = numeric_columns(df, "AAPL")
+    cols = resolve_columns(df, "AAPL")
     assert cols == ["AAPL"]
 
 
@@ -359,11 +359,55 @@ def test_grid_dataframe_round_trip():
 
 def test_numeric_columns_empty_list_is_empty():
     import pandas as pd
-    from plugin.scripting.venv.coerce import numeric_columns
+    from plugin.scripting.venv.coerce import resolve_columns
 
     df = pd.DataFrame({"AAPL": [1.0, 2.0], "MSFT": [3.0, 4.0]})
-    assert numeric_columns(df, []) == []
-    assert numeric_columns(df, None) == ["AAPL", "MSFT"]
+    assert resolve_columns(df, []) == []
+    assert resolve_columns(df, numeric=True) == ["AAPL", "MSFT"]
+
+
+def test_resolve_columns_mixed_frame_numeric_and_explicit():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import resolve_columns
+
+    df = pd.DataFrame({"num": [1.0], "txt": ["a"]})
+    assert resolve_columns(df, numeric=True) == ["num"]
+    assert resolve_columns(df) == ["num", "txt"]
+    assert resolve_columns(df, ["txt"]) == ["txt"]
+
+
+def test_numeric_columns_integer_labels_keeps_original_type():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import resolve_columns
+
+    # Auto numeric column resolution must preserve integer column labels, not stringify them to "0".
+    df = pd.DataFrame([[1.0, 2.0], [3.0, 4.0]], columns=[0, 1])
+    cols = resolve_columns(df, numeric=True)
+    assert cols == [0, 1]
+    assert all(isinstance(c, int) for c in cols)
+    assert resolve_columns(df, [0]) == [0]
+
+
+def test_auto_numeric_unknown_column_raises():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import auto_numeric
+
+    df = pd.DataFrame({"a": [1.0]})
+    with pytest.raises(ValueError, match="Unknown columns: nope"):
+        auto_numeric(df, ["nope"])
+
+
+def test_resolve_columns_integer_labels_and_flat_label():
+    import pandas as pd
+    from plugin.scripting.venv.coerce import date_column, flat_label, resolve_columns
+
+    df = pd.DataFrame([[1.0, "x"], [3.0, "y"]], columns=[0, "date"])
+    assert resolve_columns(df, [0], numeric=True) == [0]
+    assert resolve_columns(df, ["0"], numeric=True) == [0]
+    assert date_column(df) == "date"
+    assert flat_label(("Sales", "Q1")) == "Sales / Q1"
+    assert flat_label(("Region", None, "")) == "Region"
+    assert flat_label("Simple") == "Simple"
 
 
 def test_coerce_str_list_skips_none():
@@ -417,7 +461,7 @@ def test_date_cols_zero_is_first_column():
 
 def test_grid_to_dataframe_copies_a_dataframe():
     import pandas as pd
-    from plugin.scripting.venv.coerce import coerce_to_dataframe, grid_to_dataframe
+    from plugin.scripting.venv.coerce import grid_to_dataframe, resolve_df
 
     orig = pd.DataFrame({"a": [1, 2]})
     res = grid_to_dataframe(orig, header_row=5, parse_strings=False)
@@ -427,9 +471,9 @@ def test_grid_to_dataframe_copies_a_dataframe():
     res.df.iloc[0, 0] = 9
     assert orig.iloc[0, 0] == 1
 
-    res_coerce = coerce_to_dataframe(orig)
-    assert list(res_coerce.df.columns) == ["a"]
-    assert res_coerce.df.values.tolist() == [[1], [2]]
+    res_resolve = resolve_df(orig)
+    assert list(res_resolve.df.columns) == ["a"]
+    assert res_resolve.df.values.tolist() == [[1], [2]]
 
 
 def test_resolve_df_duplicate_columns_have_dtypes():

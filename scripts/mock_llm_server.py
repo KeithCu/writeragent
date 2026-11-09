@@ -41,6 +41,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Iterator
 from urllib.parse import urlparse
 
+from plugin.framework.client.shim_helpers import SNAPSHOT_HEADER, extract_snapshot_from_messages
+
 DEFAULT_HOST = "127.0.0.1"
 # Not 8765 (historical MCP) or 18765 (current MCP).
 DEFAULT_PORT = 18766
@@ -133,7 +135,7 @@ _SCENARIO_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("parallel", re.compile(r"\b(two tools|in parallel)\b", re.IGNORECASE)),
     ("mutate", re.compile(r"\b(insert filler|append a paragraph)\b", re.IGNORECASE)),
     ("ping", re.compile(r"\bsse pings\b", re.IGNORECASE)),
-    ("list_sheets", re.compile(r"\blist sheets\b", re.IGNORECASE)),
+    ("sheet_list", re.compile(r"\blist sheets\b", re.IGNORECASE)),
     ("list_pages", re.compile(r"\blist pages\b", re.IGNORECASE)),
     # Packet P: specialized-inner peer (#673). peer_wait locks the Scrolly hang.
     ("peer_wait", re.compile(r"\b(wait after accepted|do not finish peer)\b", re.IGNORECASE)),
@@ -198,7 +200,7 @@ SCENARIO_IDS = frozenset(
         "two_dones",
         "event_ping",
         "ping",
-        "list_sheets",
+        "sheet_list",
         "list_pages",
         "peer_total",
         "peer_wait",
@@ -343,19 +345,29 @@ _CURRENT_QUERY_MARK = "### CURRENT QUERY:"
 
 
 def document_content_len(messages: list[Any]) -> int:
-    """Characters between ``[DOCUMENT CONTENT]`` and ``[END DOCUMENT]`` (0 if absent)."""
-    for msg in messages:
-        if not isinstance(msg, dict) or msg.get("role") != "system":
-            continue
-        text = _as_text(msg.get("content"))
+    """Characters between snapshot header and ``[END DOCUMENT]`` (0 if absent)."""
+    text = extract_snapshot_from_messages(messages)
+    if not text:
+        for msg in reversed(messages):
+            if isinstance(msg, dict):
+                raw = _as_text(msg.get("content"))
+                if "[DOCUMENT CONTENT]" in raw:
+                    text = raw
+                    break
+    if not text:
+        return 0
+    start = text.find(SNAPSHOT_HEADER)
+    if start >= 0:
+        start += len(SNAPSHOT_HEADER)
+    else:
         start = text.find("[DOCUMENT CONTENT]")
-        if start < 0:
-            continue
-        start += len("[DOCUMENT CONTENT]")
-        end = text.find("[END DOCUMENT]", start)
-        blob = text[start:end] if end >= 0 else text[start:]
-        return len(blob.strip())
-    return 0
+        if start >= 0:
+            start += len("[DOCUMENT CONTENT]")
+        else:
+            return 0
+    end = text.find("[END DOCUMENT]", start)
+    blob = text[start:end] if end >= 0 else text[start:]
+    return len(blob.strip())
 
 
 def summarize_chat_payload(
@@ -465,7 +477,11 @@ def current_query_text(user_text: str) -> str:
     text = user_text or ""
     idx = text.rfind(_CURRENT_QUERY_MARK)
     if idx >= 0:
-        return text[idx + len(_CURRENT_QUERY_MARK) :].strip()
+        text = text[idx + len(_CURRENT_QUERY_MARK) :]
+    for marker in (SNAPSHOT_HEADER, "[DOCUMENT CONTENT]"):
+        pos = text.find(marker)
+        if pos >= 0:
+            text = text[:pos]
     return text.strip()
 
 
@@ -563,7 +579,7 @@ def _last_user_raw(messages: list[Any]) -> str:
 
 
 def _delegate_for_tools(tool_names: set[str]) -> str | None:
-    calc_tools = {"write_formula_range", "list_sheets", "get_sheet_summary", "set_cell_values", "read_sheet_data"}
+    calc_tools = {"write_formula_range", "sheet_list", "get_sheet_summary", "set_cell_values", "read_sheet_data"}
     if _DELEGATE_CALC in tool_names and (bool(tool_names & calc_tools) or _DELEGATE_WRITER not in tool_names):
         return _DELEGATE_CALC
     for name in (_DELEGATE_WRITER, _DELEGATE_CALC, _DELEGATE_DRAW):
@@ -843,7 +859,7 @@ def _is_main_chat(tool_names: set[str]) -> bool:
             _DELEGATE_CALC,
             _DELEGATE_DRAW,
             "write_formula_range",
-            "list_sheets",
+            "sheet_list",
             "list_pages",
         }
     )
@@ -858,22 +874,30 @@ def _looks_like_comment(text: str) -> bool:
 
 
 def _extract_document_words(messages: list[Any]) -> list[str]:
-    """Extract plain words from the [DOCUMENT CONTENT] block in conversation messages."""
-    for msg in messages:
-        if not isinstance(msg, dict):
-            continue
-        content = _as_text(msg.get("content"))
-        if "[DOCUMENT CONTENT]" in content:
-            doc_section = content.split("[DOCUMENT CONTENT]", 1)[1]
-            if "[END DOCUMENT]" in doc_section:
-                doc_section = doc_section.split("[END DOCUMENT]", 1)[0]
-            cleaned = re.sub(r"\[DOCUMENT (?:START|END)\]", " ", doc_section)
-            cleaned = re.sub(r"\[\.\.\..*?\.\.\.\]", " ", cleaned)
-            cleaned = re.sub(r"\[Document (?:content unavailable|text reading failed[^\]]*)\]", " ", cleaned)
-            cleaned = re.sub(r"^Document length:\s*\d+\s*characters\.", " ", cleaned, flags=re.MULTILINE)
-            words = re.findall(r"\b[A-Za-z0-9_-]+\b", cleaned)
-            return words
-    return []
+    """Extract plain words from the document snapshot in conversation messages."""
+    content = extract_snapshot_from_messages(messages)
+    if not content:
+        for msg in reversed(messages):
+            if isinstance(msg, dict):
+                raw = _as_text(msg.get("content"))
+                if "[DOCUMENT CONTENT]" in raw:
+                    content = raw
+                    break
+    if not content:
+        return []
+    if SNAPSHOT_HEADER in content:
+        doc_section = content.split(SNAPSHOT_HEADER, 1)[1]
+    elif "[DOCUMENT CONTENT]" in content:
+        doc_section = content.split("[DOCUMENT CONTENT]", 1)[1]
+    else:
+        return []
+    if "[END DOCUMENT]" in doc_section:
+        doc_section = doc_section.split("[END DOCUMENT]", 1)[0]
+    cleaned = re.sub(r"\[DOCUMENT (?:START|END)\]", " ", doc_section)
+    cleaned = re.sub(r"\[\.\.\..*?\.\.\.\]", " ", cleaned)
+    cleaned = re.sub(r"\[Document (?:content unavailable|text reading failed[^\]]*)\]", " ", cleaned)
+    cleaned = re.sub(r"^Document length:\s*\d+\s*characters\.", " ", cleaned, flags=re.MULTILINE)
+    return re.findall(r"\b[A-Za-z0-9_-]+\b", cleaned)
 
 
 def _first_url(text: str) -> str:
@@ -973,7 +997,7 @@ def _html_tool_wrapup(user_text: str, tool_name: str, tool_text: str) -> str:
             f"<p>Specialized agent finished <strong>{safe_user}</strong>.</p>"
             f"<p>{snippet or '(empty)'}</p>"
         )
-    if tool_name in {"search_in_document", "get_document_tree", "list_sheets", "list_pages"}:
+    if tool_name in {"search_in_document", "get_document_tree", "sheet_list", "list_pages"}:
         return (
             f"<p>Ran <code>{html.escape(tool_name)}</code>.</p>"
             f"<p>{snippet or '(empty)'}</p>"
@@ -1528,10 +1552,10 @@ def _scenario_user_turn(
             user_text,
             turn,
         )
-    if scenario == "list_sheets":
-        # list_sheets is specialized-tier (sheets domain). Main Calc chat
+    if scenario == "sheet_list":
+        # sheet_list is specialized-tier (sheets domain). Main Calc chat
         # advertises get_sheet_summary instead — E12 uses that fallback.
-        name = "list_sheets" if "list_sheets" in tool_names else "get_sheet_summary"
+        name = "sheet_list" if "sheet_list" in tool_names else "get_sheet_summary"
         return _tool_or_html(tool_names, name, {}, user_text, turn)
     if scenario == "list_pages":
         return _tool_or_html(tool_names, "list_pages", {}, user_text, turn)
@@ -1634,6 +1658,8 @@ def decide_completion(payload: dict[str, Any], config: MockLLMConfig, turns: _Tu
         for msg in reversed(messages):
             if isinstance(msg, dict) and msg.get("role") == "tool":
                 tool_text = _as_text(msg.get("content"))
+                if SNAPSHOT_HEADER in tool_text:
+                    tool_text = tool_text[: tool_text.find(SNAPSHOT_HEADER)].strip()
                 break
         return Completion(
             content=_html_tool_wrapup(user_text, last_called_tool, tool_text),

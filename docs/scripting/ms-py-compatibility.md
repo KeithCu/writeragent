@@ -501,7 +501,7 @@ Registering a name is the easy 5%. Co-volatility, spill, and object cards are th
 - [../enabling_numpy_in_libreoffice.md](../enabling_numpy_in_libreoffice.md) — shipped `=PY`, session modes, MS comparison table
 - [numpy-jailsafe.md](numpy-jailsafe.md) — Online compute service + core Add-In
 - [enabling_numpy §7 Calc UX backlog](../enabling_numpy_in_libreoffice.md#calc-ux-backlog) — object cards and related UX; explicitly out-of-scope: cloud / `xl()` as default
-- Implementation: `plugin/calc/python/function.py` (spill registry), `plugin/scripting/venv_worker.py`, [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) (OOXML Excel ↔ DAG rewriter)
+- Implementation: `plugin/calc/python/spill.py` (spill state on `WorkbookState`), `plugin/scripting/venv_worker.py`, [`plugin/calc/excel_py_convert/`](../../plugin/calc/excel_py_convert/) (OOXML Excel ↔ DAG rewriter)
 - Sample fidelity: [`scripts/roundtrip_excel_py_samples.py`](../../scripts/roundtrip_excel_py_samples.py) over [`PythonExcelSamples/`](../PythonExcelSamples/)
 
 ### Microsoft / independent analysis

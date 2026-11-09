@@ -16,7 +16,7 @@ from plugin.chatbot.chat_sidebar_mode import (
     sidebar_mode_flags_for_doc_type,
     get_mode_labels,
     mode_from_label,
-    _SPEC_BY_KEY,
+    _MODE_BY_KEY,
 )
 from plugin.chatbot.skills import HUMANIZER_GUIDANCE
 from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
@@ -42,7 +42,12 @@ def test_sidebar_mode_flags_contracts(doc_type: str) -> None:
         assert flags.include_brainstorming is False
         assert flags.include_writing_plan is False
         assert flags.include_ppt_master is True
-        assert flags.include_deep_research is False
+        assert flags.include_deep_research is True
+    elif doc_type == "calc":
+        assert flags.include_brainstorming is False
+        assert flags.include_writing_plan is False
+        assert flags.include_ppt_master is False
+        assert flags.include_deep_research is True
     else:
         assert flags.include_brainstorming is False
         assert flags.include_writing_plan is False
@@ -53,12 +58,12 @@ def test_sidebar_mode_flags_contracts(doc_type: str) -> None:
 @given(label=st.text(max_size=DEAL_MAX_TOKEN))
 def test_mode_from_label_contracts(label: str) -> None:
     mode = mode_from_label(label)
-    assert mode in _SPEC_BY_KEY
+    assert mode in _MODE_BY_KEY
 
     labels = get_mode_labels()
     assert isinstance(labels, tuple)
     assert len(labels) >= 4
-    assert "librarian" in _SPEC_BY_KEY
+    assert "librarian" in _MODE_BY_KEY
 
 
 def test_skills_guidance_constant() -> None:

@@ -41,15 +41,16 @@ def tool_ctx():
     ctx.doc.supportsService.return_value = True
     ctx.ctx = MagicMock()
     ctx.doc_type = "writer"
-    ctx.stop_checker = None
-    ctx.stop_checker = None
     return ctx
 
 
 def _registry_with_vision_tool() -> ToolRegistry:
+    from tests.tool_registry_filters import append_production_tool_registry_filters
+
     services = ServiceRegistry()
     registry = ToolRegistry(services)
     registry.register(ExtractStructureFromImage())
+    append_production_tool_registry_filters(registry)
     return registry
 
 
@@ -124,12 +125,12 @@ def test_delegate_schema_hides_vision_when_unavailable(_mock_avail):
 
 
 @patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/venv/bin/python")
-@patch("plugin.vision.vision_availability.get_config_str", return_value="/home/user/venv")
+@patch("plugin.vision.vision_availability.get_config", return_value="/home/user/venv")
 def test_vision_venv_configured_true_when_python_resolves(_cfg, _exe):
     assert vision_venv_configured(MagicMock()) is True
 
 
-@patch("plugin.vision.vision_availability.get_config_str", return_value="")
+@patch("plugin.vision.vision_availability.get_config", return_value="")
 def test_vision_venv_configured_false_without_venv_path(_cfg):
     assert vision_venv_configured(MagicMock()) is False
 
@@ -144,7 +145,7 @@ def test_filter_vision_specialized_tools_removes_tool():
     assert other in filtered
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_happy_path_inserts(
     mock_run,
@@ -165,7 +166,6 @@ def test_extract_structure_happy_path_inserts(
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     tool = ExtractStructureFromImage()
-    tool_ctx.stop_checker = None
     result = tool.execute(tool_ctx, insert_into_document=True)
 
     assert result["status"] == "ok"
@@ -177,7 +177,7 @@ def test_extract_structure_happy_path_inserts(
     assert mock_run.call_args.kwargs["insert_into_document"] is True
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_return_only_skips_insert(
     mock_run,
@@ -198,7 +198,6 @@ def test_extract_structure_return_only_skips_insert(
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
 
     tool = ExtractStructureFromImage()
-    tool_ctx.stop_checker = None
     result = tool.execute(tool_ctx, insert_into_document=False)
 
     assert result["status"] == "ok"
@@ -207,16 +206,70 @@ def test_extract_structure_return_only_skips_insert(
 
 
 def test_extract_structure_rejects_unsupported_doc(tool_ctx):
-    tool_ctx.doc_type = "draw"
+    tool_ctx.doc_type = "notebook"
     tool = ExtractStructureFromImage()
     result = tool.execute(tool_ctx)
     assert result["status"] == "error"
-    assert "Writer or Calc" in result.get("message", "")
+    assert "Draw" in result.get("message", "")
+
+
+@patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
+def test_extract_structure_draw_omitted_insert_is_return_only(mock_run, tool_ctx):
+    mock_run.return_value = {"status": "ok", "full_text": "scan", "inserted": False}
+    tool = ExtractStructureFromImage()
+    for doc_type in ("draw", "impress"):
+        tool_ctx.doc_type = doc_type
+        result = tool.execute(tool_ctx)
+        assert result["status"] == "ok"
+        assert mock_run.call_args.kwargs["insert_into_document"] is False
+
+
+@patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
+def test_extract_structure_draw_true_is_vision_error(mock_run, tool_ctx):
+    tool_ctx.doc_type = "draw"
+    result = ExtractStructureFromImage().execute(tool_ctx, insert_into_document=True)
+    assert result["status"] == "error"
+    assert result.get("code") == "VISION_ERROR"
+    mock_run.assert_not_called()
+
+
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
+@patch.object(ExtractStructureFromImage, "execute", return_value={"status": "ok"})
+def test_delegate_draw_vision_passes_insert_false(mock_execute, _avail):
+    from plugin.draw.specialized import DelegateToSpecializedDraw
+
+    ctx = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.doc_type = "draw"
+    out = DelegateToSpecializedDraw().execute(ctx, domain="vision", task="")
+    assert out["status"] == "ok"
+    mock_execute.assert_called_once()
+    assert mock_execute.call_args.kwargs["insert_into_document"] is False
+
+
+@patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
+def test_vision_directive_draw_names_draw_gateway(_mock_avail):
+    from plugin.framework.doc_type import IMPRESS_DOCUMENT_SERVICE, DRAW_DOCUMENT_SERVICE
+    from plugin.vision.vision_availability import get_vision_core_directive
+
+    doc = MagicMock()
+    doc.supportsService.side_effect = lambda svc: svc in (DRAW_DOCUMENT_SERVICE, IMPRESS_DOCUMENT_SERVICE)
+    text = get_vision_core_directive(doc, MagicMock())
+    assert 'delegate_to_specialized_draw_toolset(domain="vision"' in text
+    assert "nothing is inserted" in text.lower()
+
+
+def test_supports_vision_manual_true_for_draw():
+    from plugin.vision.vision_runner import supports_vision_manual
+
+    doc = MagicMock()
+    with patch("plugin.vision.vision_runner.is_draw", return_value=True):
+        assert supports_vision_manual(doc) is True
 
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=False)
 def test_get_vision_core_directive_empty_when_unavailable(_mock_avail):
-    from plugin.framework.prompts import get_vision_core_directive
+    from plugin.vision.vision_availability import get_vision_core_directive
 
     assert get_vision_core_directive(MagicMock(), MagicMock()) == ""
 
@@ -267,7 +320,7 @@ def test_delegate_vision_requires_document_lock_when_sub_agent():
 
 @patch("plugin.vision.vision_availability.vision_venv_configured", return_value=True)
 def test_get_vision_core_directive_when_available(_mock_avail, writer_doc):
-    from plugin.framework.prompts import get_vision_core_directive
+    from plugin.vision.vision_availability import get_vision_core_directive
 
     text = get_vision_core_directive(writer_doc, MagicMock())
     assert "domain=\"vision\"" in text
@@ -289,7 +342,7 @@ def test_images_guidance_names_structure_tool():
     assert "text and structure" in WRITER_IMAGES_RULES.lower()
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, tool_ctx):
     mock_run.return_value = {
@@ -304,7 +357,6 @@ def test_extract_structure_partial_failure_details(mock_run, mock_main_thread, t
         "failed_image": "Img2",
     }
     mock_main_thread.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
-    tool_ctx.stop_checker = None
     result = ExtractStructureFromImage().execute(tool_ctx)
     assert result["status"] == "error"
     assert result["code"] == "VISION_ERROR"
@@ -319,7 +371,6 @@ def test_extract_structure_reraises_document_disposed(tool_ctx):
     from plugin.framework.errors import DocumentDisposedError
 
     with patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection", side_effect=DocumentDisposedError("gone", object_type="vision")):
-        tool_ctx.stop_checker = None
         with pytest.raises(DocumentDisposedError):
             ExtractStructureFromImage().execute(tool_ctx)
 
@@ -334,7 +385,6 @@ def test_extract_structure_preserves_zero_images_processed(mock_run, tool_ctx):
         "inserted": False,
         "message": "None found",
     }
-    tool_ctx.stop_checker = None
     result = ExtractStructureFromImage().execute(tool_ctx)
     assert result["status"] == "ok"
     assert result["images_processed"] == 0
@@ -358,6 +408,5 @@ def test_extract_structure_preserves_zero_images_processed(mock_run, tool_ctx):
 @patch("plugin.vision.vision_tools.run_and_insert_vision_for_selection")
 def test_extract_structure_coerces_insert_into_document(mock_run, tool_ctx, raw_val, expected):
     mock_run.return_value = {"status": "ok", "images_processed": 1}
-    tool_ctx.stop_checker = None
     ExtractStructureFromImage().execute(tool_ctx, insert_into_document=raw_val)
     assert mock_run.call_args.kwargs["insert_into_document"] is expected

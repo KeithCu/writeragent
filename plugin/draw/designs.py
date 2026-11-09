@@ -47,13 +47,17 @@ import shutil
 import tempfile
 from typing import Any, NamedTuple
 
+from plugin.framework.doc_type import is_impress
 from plugin.doc.document_research import _path_settings_from_ctx, _resolve_lo_directory_path, _should_skip_filename
+from plugin.draw.base import DRAW_AND_IMPRESS
 from plugin.draw.design_look import derive_otp_look
+from plugin.draw.masters import find_master, iter_masters
 from plugin.draw.otp_zip import extract_member, read_member
-from plugin.draw.pages import _DRAW_UNO, _is_impress_doc
+from plugin.draw.shape_clone import clone_shape, copy_prop, fill_style_kind
 from plugin.framework.tool import ToolBase, ToolContext
-from plugin.framework.errors import is_real_disposal
-from plugin.framework.uno_context import get_service_manager, uno_same
+from plugin.framework.errors import available_miss_details
+from plugin.framework.errors import is_disposal
+from plugin.framework.uno_context import uno_same
 from plugin.framework.url_utils import path_to_file_url
 
 log = logging.getLogger("writeragent.draw.designs")
@@ -101,25 +105,6 @@ def _normalize_master_name(name: str) -> str:
     return " ".join(s.split())
 
 
-_FILL_STYLE_NAMES = {0: "none", 1: "solid", 2: "gradient", 3: "hatch", 4: "bitmap"}
-
-
-def _fill_style_kind(val: Any) -> str:
-    """Resolve FillStyle enum or int to standard kind name."""
-    raw = getattr(val, "value", val)
-    if isinstance(raw, str):
-        raw_upper = raw.strip().upper()
-        if raw_upper in ("NONE", "SOLID", "GRADIENT", "HATCH", "BITMAP"):
-            return raw_upper.lower()
-        try:
-            raw = int(raw)
-        except (ValueError, TypeError):
-            return "unknown"
-    if isinstance(raw, int) or hasattr(raw, "__index__"):
-        return _FILL_STYLE_NAMES.get(int(raw), "unknown")
-    return "unknown"
-
-
 def _master_image_hrefs_from_zip(zf: Any, master_name: str) -> list[str] | None:
     """Read styles.xml and collect draw:image/@xlink:href for the named master page."""
     import xml.etree.ElementTree as ET  # nosemgrep: use-defused-xml  # shipped .otp styles.xml, size-capped by read_member
@@ -157,47 +142,6 @@ def _master_image_hrefs_from_zip(zf: Any, master_name: str) -> list[str] | None:
                     return hrefs
     return None
 
-# Visual props copied onto a dest-created shape after it is added to the
-# dest master. Size/Position are applied last — setting them before add()
-# leaves factory Default geometry (25200-wide title vs Metropolis 14800).
-# Primitives only. Graphic / FillBitmap / Background are SfxItems from the
-# Hidden source pool — copying them then closing the source aborts soffice
-# (GetUserOrPoolDefaultItem). Graphic is re-imported via GraphicProvider.
-_CLONE_SHAPE_PROPS = (
-    "Name",
-    "Visible",
-    "ZOrder",
-    "LayerID",
-    "FillStyle",
-    "FillColor",
-    "FillTransparence",
-    "LineStyle",
-    "LineColor",
-    "LineWidth",
-    "CharColor",
-    "CharHeight",
-    "CharWeight",
-    "CharFontName",
-    "String",
-    "TextAutoGrowHeight",
-    "TextAutoGrowWidth",
-    "TextHorizontalAdjust",
-    "TextVerticalAdjust",
-    "CustomShapeGeometry",
-    "Geometry",
-    "Polygon",
-    "PolyPolygon",
-    "PolyPolygonBezier",
-    "RotateAngle",
-    "CharPosture",
-    "CharUnderline",
-    "TextFitToSize",
-    "ParaAdjust",
-    "ParaLeftMargin",
-    "ParaRightMargin",
-    "ParaTopMargin",
-    "ParaBottomMargin",
-)
 _CLONE_MASTER_PAGE_PROPS = ("BackgroundFullSize", "BorderLeft", "BorderRight", "BorderTop", "BorderBottom", "Width", "Height")
 
 # PathSettings properties that hold template directories. Discover extras whose
@@ -347,23 +291,9 @@ def resolve_design(ctx: Any, design: str) -> dict[str, str] | None:
 
 def _master_entries(doc: Any) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
-    try:
-        masters = doc.getMasterPages()
-    except Exception as exc:
-        # Bugfix: a closed document raises DisposedException from getMasterPages(),
-        # and this except turned that into a missing page / not-found result.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing missing-page path.
-        if is_real_disposal(exc):
-            raise
-        return out
-    for i in range(masters.getCount()):
-        m = masters.getByIndex(i)
-        name = m.Name if hasattr(m, "Name") else ""
-        # MasterPage.getCount() does not fail on a live page. The old except
-        # left shape_count at 0 and swallowed a closed document.
+    for i, m, name in iter_masters(doc):
         shapes = int(m.getCount())
-        out.append({"index": i, "name": name or "", "shape_count": shapes})
+        out.append({"index": i, "name": name, "shape_count": shapes})
     return out
 
 
@@ -410,8 +340,7 @@ def _load_design_model(
     hidden: bool,
     as_template: bool,
 ) -> Any:
-    from plugin.framework.uno_context import get_desktop
-    from plugin.writer.format import create_property_value
+    from plugin.framework.uno_context import create_property_value, get_desktop
 
     desktop = get_desktop(uno_ctx)
     if desktop is None:
@@ -444,47 +373,13 @@ def open_design_source_hidden(uno_ctx: Any, design: dict[str, str], *, as_templa
         raise
 
 
-def _copy_uno_prop(dest: Any, src: Any, name: str) -> str:
-    """Copy one UNO property or interface attribute.
-
-    Returns "copied", "missing", or "rejected". Properties in XPropertySet
-    use getPropertyValue/setPropertyValue; geometry falls back to getattr/setattr.
-    """
-    try:
-        value = src.getPropertyValue(name)
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        try:
-            value = getattr(src, name)
-        except Exception as inner_exc:
-            if is_real_disposal(inner_exc):
-                raise
-            return "missing"
-    try:
-        dest.setPropertyValue(name, value)
-        return "copied"
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-    try:
-        setattr(dest, name, value)
-        return "copied"
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        if name in ("Position", "Size"):
-            raise RuntimeError("Failed to set %s on cloned shape" % name)
-        return "rejected"
-
-
 def _clear_master_shapes(master: Any) -> int:
     """Remove factory placeholders so the clone is only source shapes."""
     removed = 0
     try:
         count = int(master.getCount())
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return 0
     for i in range(count - 1, -1, -1):
@@ -492,203 +387,10 @@ def _clear_master_shapes(master: Any) -> int:
             master.remove(master.getByIndex(i))
             removed += 1
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("clear master shape failed index=%s", i, exc_info=True)
     return removed
-
-
-def _graphic_from_file_url(uno_ctx: Any, file_url: str) -> Any | None:
-    """Load a dest-owned XGraphic from a file URL (never from a Hidden-doc pool)."""
-    if uno_ctx is None or not file_url:
-        return None
-    from plugin.writer.format import create_property_value
-
-    try:
-        smgr = get_service_manager(uno_ctx)
-        if smgr is None:
-            return None
-        provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
-        if provider is None:
-            return None
-        return provider.queryGraphic((create_property_value("URL", file_url),))
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        log.debug("GraphicProvider.queryGraphic failed url=%s", file_url, exc_info=True)
-        return None
-
-
-def _reimport_graphic(
-    uno_ctx: Any,
-    src_shape: Any,
-    dest_shape: Any,
-    *,
-    image_path: str | None = None,
-) -> bool:
-    """Attach chrome without sharing the Hidden source SfxItemPool."""
-    if uno_ctx is None:
-        return False
-    from plugin.writer.format import create_property_value
-
-    # 1) Extracted image path — never opens the Hidden Graphic.
-    if image_path and os.path.isfile(image_path):
-        url = path_to_file_url(image_path)
-        log.debug("clone_master graphic via extracted file path=%s", image_path)
-        new_graphic = _graphic_from_file_url(uno_ctx, url)
-        if new_graphic is not None:
-            try:
-                dest_shape.Graphic = new_graphic
-                return True
-            except Exception as exc:
-                if is_real_disposal(exc):
-                    raise
-                log.debug("assigning extracted graphic failed", exc_info=True)
-
-    # 2) Last resort: round-trip the live Graphic (may still be pool-sensitive).
-    try:
-        graphic = src_shape.Graphic
-    except Exception as exc:
-        if is_real_disposal(exc):
-            raise
-        return False
-    if graphic is None:
-        return False
-    smgr = get_service_manager(uno_ctx)
-    if smgr is None:
-        return False
-    provider = smgr.createInstanceWithContext("com.sun.star.graphic.GraphicProvider", uno_ctx)
-    if provider is None:
-        return False
-    log.debug("clone_master graphic via storeGraphic fallback")
-    for suffix, mime in ((".svg", "image/svg+xml"), (".png", "image/png")):
-        fd, path = tempfile.mkstemp(suffix=suffix)
-        try:
-            os.close(fd)
-            url = path_to_file_url(path)
-            provider.storeGraphic(graphic, (create_property_value("URL", url), create_property_value("MimeType", mime)))
-            new_graphic = provider.queryGraphic((create_property_value("URL", url),))
-            if new_graphic is None:
-                continue
-            dest_shape.Graphic = new_graphic
-            return True
-        except Exception:
-            log.debug("graphic reimport %s failed", mime, exc_info=True)
-        finally:
-            try:
-                os.remove(path)
-            except Exception:
-                log.debug("clone_master graphic: remove temp %s failed", path, exc_info=True)
-    return False
-
-
-def _record_shape_warning(shape_warnings: list[str], warnings: list[str] | None, token: str) -> None:
-    shape_warnings.append(token)
-    if warnings is not None:
-        warnings.append(token)
-
-
-def _clone_one_shape(
-    dest_doc: Any,
-    dest_master: Any,
-    src_shape: Any,
-    uno_ctx: Any = None,
-    *,
-    image_path: str | None = None,
-    image_paths: list[str | None] | None = None,
-    shape_index: int = 0,
-    warnings: list[str] | None = None,
-    chrome: list[int] | None = None,
-) -> tuple[str, bool | None]:
-    """Create a dest-owned shape, add it, then copy visual props + geometry.
-
-    Adding first is required: presentation placeholders ignore Size/Position
-    set before they belong to a page.
-    """
-    shape_type = str(getattr(src_shape, "ShapeType", "") or "")
-    if not shape_type.startswith("com.sun.star."):
-        raise RuntimeError("Unsupported master shape type: %s" % shape_type)
-    clone = dest_doc.createInstance(shape_type)
-    dest_master.add(clone)
-    shape_warnings: list[str] = []
-    for prop in _CLONE_SHAPE_PROPS:
-        res = _copy_uno_prop(clone, src_shape, prop)
-        if res == "rejected":
-            _record_shape_warning(shape_warnings, warnings, f"rejected {prop} on shape {shape_index}")
-        elif res == "copied" and prop == "FillStyle":
-            try:
-                val = src_shape.getPropertyValue("FillStyle")
-            except Exception as exc:
-                if is_real_disposal(exc):
-                    raise
-                val = getattr(src_shape, "FillStyle", None)
-            fill_kind = _fill_style_kind(val)
-            if fill_kind == "gradient":
-                if _copy_uno_prop(clone, src_shape, "FillGradient") != "copied":
-                    _record_shape_warning(shape_warnings, warnings, f"fill gradient not copied on shape {shape_index}")
-                else:
-                    _copy_uno_prop(clone, src_shape, "FillTransparenceGradient")
-            elif fill_kind == "hatch":
-                if _copy_uno_prop(clone, src_shape, "FillHatch") != "copied":
-                    _record_shape_warning(shape_warnings, warnings, f"fill hatch not copied on shape {shape_index}")
-            elif fill_kind == "bitmap":
-                _record_shape_warning(shape_warnings, warnings, f"fill bitmap not copied on shape {shape_index}")
-            elif fill_kind not in ("none", "solid"):
-                _record_shape_warning(shape_warnings, warnings, f"fill {fill_kind} not copied on shape {shape_index}")
-
-    reimported: bool | None = None
-    if "GraphicObject" in shape_type:
-        if isinstance(image_paths, list):
-            image_path = image_paths.pop(0) if image_paths else None
-        reimported = _reimport_graphic(
-            uno_ctx,
-            src_shape,
-            clone,
-            image_path=image_path,
-        )
-        if chrome is not None:
-            chrome[0] += 1
-            if reimported is True:
-                chrome[1] += 1
-        log.debug("clone_master graphic_reimport ok=%s type=%s", reimported, shape_type)
-
-    if "GroupShape" in shape_type:
-        src_child_count = 0
-        try:
-            src_child_count = int(src_shape.getCount())
-        except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-        for child_idx in range(src_child_count):
-            src_child = src_shape.getByIndex(child_idx)
-            # Same href list; a grouped picture is not a top-level shape.
-            _clone_one_shape(
-                dest_doc,
-                clone,
-                src_child,
-                uno_ctx,
-                image_paths=image_paths,
-                shape_index=child_idx,
-                warnings=warnings,
-                chrome=chrome,
-            )
-        dest_child_count = 0
-        try:
-            dest_child_count = int(clone.getCount())
-        except Exception as exc:
-            if is_real_disposal(exc):
-                raise
-        if src_child_count > 0 and dest_child_count == 0:
-            raise DesignChromeMissingError(
-                f"Cloned group on shape {shape_index} has no children (expected {src_child_count}).",
-                warnings=tuple(warnings or ()),
-            )
-
-    # Geometry last so layout does not overwrite chrome metrics.
-    _copy_uno_prop(clone, src_shape, "Position")
-    _copy_uno_prop(clone, src_shape, "Size")
-    log.debug("clone_shape index=%s type=%s warnings=%s", shape_index, shape_type, shape_warnings)
-    return shape_type, reimported
 
 
 def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[str]) -> None:
@@ -698,7 +400,7 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
         if src_bg is None and hasattr(src_master, "getPropertyValue"):
             src_bg = src_master.getPropertyValue("Background")
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         src_bg = None
     if src_bg is None:
@@ -710,10 +412,10 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
             else getattr(src_bg, "FillStyle", None)
         )
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         fill_style = getattr(src_bg, "FillStyle", None)
-    kind = _fill_style_kind(fill_style)
+    kind = fill_style_kind(fill_style)
     if kind == "none":
         return
 
@@ -722,7 +424,7 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
         if dest_bg is None and hasattr(dest_master, "getPropertyValue"):
             dest_bg = dest_master.getPropertyValue("Background")
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         dest_bg = None
 
@@ -731,18 +433,18 @@ def _clone_master_background(dest_master: Any, src_master: Any, warnings: list[s
         return
 
     if kind == "solid":
-        _copy_uno_prop(dest_bg, src_bg, "FillStyle")
-        if _copy_uno_prop(dest_bg, src_bg, "FillColor") != "copied":
+        copy_prop(dest_bg, src_bg, "FillStyle")
+        if copy_prop(dest_bg, src_bg, "FillColor") != "copied":
             warnings.append("fill solid not copied on master")
     elif kind == "gradient":
-        _copy_uno_prop(dest_bg, src_bg, "FillStyle")
-        if _copy_uno_prop(dest_bg, src_bg, "FillGradient") != "copied":
+        copy_prop(dest_bg, src_bg, "FillStyle")
+        if copy_prop(dest_bg, src_bg, "FillGradient") != "copied":
             warnings.append("fill gradient not copied on master")
         else:
-            _copy_uno_prop(dest_bg, src_bg, "FillTransparenceGradient")
+            copy_prop(dest_bg, src_bg, "FillTransparenceGradient")
     elif kind == "hatch":
-        _copy_uno_prop(dest_bg, src_bg, "FillStyle")
-        if _copy_uno_prop(dest_bg, src_bg, "FillHatch") != "copied":
+        copy_prop(dest_bg, src_bg, "FillStyle")
+        if copy_prop(dest_bg, src_bg, "FillHatch") != "copied":
             warnings.append("fill hatch not copied on master")
     elif kind == "bitmap":
         warnings.append("fill bitmap not copied on master")
@@ -764,7 +466,7 @@ def _count_graphic_shapes(container: Any) -> int:
                 total += _count_graphic_shapes(shape)
         return total
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         return 0
 
@@ -790,21 +492,20 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         pages = dest_doc.getDrawPages()
         p0 = pages.getByIndex(0) if pages.getCount() > 0 else None
         if p0 is not None:
-            dw = getattr(p0, "Width", 0) or 0
-            dh = getattr(p0, "Height", 0) or 0
-            if (not dw or not dh) and hasattr(p0, "MasterPage") and p0.MasterPage:
-                dw = getattr(p0.MasterPage, "Width", 0) or 0
-                dh = getattr(p0.MasterPage, "Height", 0) or 0
-        if (not dw or not dh) and hasattr(dest_doc, "getMasterPages"):
-            masters = dest_doc.getMasterPages()
-            if masters.getCount() > 0:
-                m0 = masters.getByIndex(0)
-                dw = getattr(m0, "Width", 0) or 0
-                dh = getattr(m0, "Height", 0) or 0
+            from plugin.draw.bridge import page_size
+
+            size = page_size(p0)
+            if size is None and hasattr(p0, "MasterPage") and p0.MasterPage:
+                size = page_size(p0.MasterPage)
+            if size is None:
+                m0 = find_master(dest_doc, index=0)
+                if m0 is not None:
+                    size = page_size(m0)
+            dw, dh = size or (0, 0)
         if dw and dh and float(dh) > 0:
             dest_ratio = float(dw) / float(dh)
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
 
     norm_design_id = _normalize_master_name(design_id)
@@ -817,13 +518,13 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         try:
             cand = src_masters.getByIndex(i)
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             continue
         try:
             cand_name = str(getattr(cand, "Name", "") or "")
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             cand_name = ""
         norm_cand_name = _normalize_master_name(cand_name)
@@ -841,7 +542,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 if sw and sh and float(sh) > 0:
                     cand_ratio = float(sw) / float(sh)
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 cand_ratio = 0.0
             if not cand_ratio:
@@ -881,7 +582,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         try:
             dest_master.Name = design_name
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("rename cloned master to %s failed", design_name, exc_info=True)
 
@@ -893,7 +594,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         # Factory placeholders on the new master are not user content.
         _clear_master_shapes(dest_master)
         for prop in _CLONE_MASTER_PAGE_PROPS:
-            res = _copy_uno_prop(dest_master, src_master, prop)
+            res = copy_prop(dest_master, src_master, prop)
             if res == "rejected":
                 warnings.append(f"rejected {prop} on master")
         # Size the clone to the destination deck so named 4:3 masters with 16:9 .otp geometry still apply as 4:3.
@@ -902,14 +603,14 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 dest_master.Width = int(dw)
                 dest_master.Height = int(dh)
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 log.debug("set cloned master size to dest deck failed", exc_info=True)
         _clone_master_background(dest_master, src_master, warnings)
         try:
             src_count = int(src_master.getCount())
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             src_count = 0
 
@@ -936,24 +637,28 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
                 log.debug("reading otp zip failed for %s", otp_path, exc_info=True)
 
         cloned_types: list[str] = []
-        chrome: list[int] = [0, 0]
+        graphic_shapes = 0
+        graphic_reimports = 0
         image_paths = extracted_image_paths if extracted_image_paths else None
         for i in range(src_count):
             src_shape = src_master.getByIndex(i)
             st = str(getattr(src_shape, "ShapeType", "") or "")
             log.debug("clone_master step=shape i=%s/%s type=%s", i, src_count, st)
-            shape_type, _reimported = _clone_one_shape(
+            result = clone_shape(
                 dest_doc,
                 dest_master,
                 src_shape,
-                uno_ctx,
+                uno_ctx=uno_ctx,
                 image_paths=image_paths,
                 shape_index=i,
                 warnings=warnings,
-                chrome=chrome,
             )
-            cloned_types.append(shape_type)
-            log.debug("clone_master step=shape_done i=%s type=%s", i, shape_type)
+            if result.empty_group_message:
+                raise DesignChromeMissingError(result.empty_group_message, warnings=tuple(warnings))
+            cloned_types.append(result.shape_type)
+            graphic_shapes += result.graphic_shapes
+            graphic_reimports += result.graphic_reimports
+            log.debug("clone_master step=shape_done i=%s type=%s", i, result.shape_type)
 
         dest_name = str(dest_master.Name or "") or design_name
         # Do not copy the presentation style family here. Blind style-prop copies
@@ -965,7 +670,6 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         if shape_count < 1:
             raise RuntimeError("Cloned master '%s' has no shapes." % dest_name)
 
-        graphic_shapes, graphic_reimports = chrome[0], chrome[1]
         if graphic_shapes >= 1 and graphic_reimports == 0:
             raise DesignChromeMissingError(
                 "No chrome graphics could be imported for master '%s'." % dest_name,
@@ -989,7 +693,7 @@ def clone_master_into_doc(dest_doc: Any, src_doc: Any, design: dict[str, str], u
         try:
             dest_masters.remove(dest_master)
         except Exception as remove_exc:
-            if is_real_disposal(remove_exc):
+            if is_disposal(remove_exc):
                 raise
             log.debug("remove partial cloned master failed", exc_info=True)
         raise
@@ -1006,7 +710,7 @@ def assign_master_to_all_slides(doc: Any, master: Any) -> int:
             pages.getByIndex(i).MasterPage = master
             updated += 1
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("assign_master_to_all_slides failed on page %s", i, exc_info=True)
     return updated
@@ -1020,7 +724,7 @@ def _is_master_referenced(doc: Any, master: Any) -> bool:
             if uno_same(pages.getByIndex(i).MasterPage, master):
                 return True
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         log.debug("error checking master reference; assuming referenced", exc_info=True)
         return True
@@ -1035,7 +739,7 @@ def _restore_slide_masters(snapshot: list[tuple[Any, Any]], *, swallow_disposal:
             page.MasterPage = old_master
             restored += 1
         except Exception as exc:
-            if not swallow_disposal and is_real_disposal(exc):
+            if not swallow_disposal and is_disposal(exc):
                 raise
             log.debug("restore master page failed", exc_info=True)
     return restored
@@ -1048,22 +752,18 @@ def _cleanup_previous_same_named_masters(dest_doc: Any, new_master: Any, design_
     target_lower = design_name.strip().lower()
     if target_lower == "default":
         return
-    dest_masters = dest_doc.getMasterPages()
-    count = int(dest_masters.getCount())
     to_remove: list[Any] = []
-    for i in range(count):
-        m = dest_masters.getByIndex(i)
+    for _i, m, name in iter_masters(dest_doc):
         if uno_same(m, new_master):
             continue
-        m_name = str(getattr(m, "Name", "") or "").strip()
-        if m_name.lower() == target_lower:
+        if name.strip().lower() == target_lower:
             if not _is_master_referenced(dest_doc, m):
                 to_remove.append(m)
     for m in to_remove:
         try:
-            dest_masters.remove(m)
+            dest_doc.getMasterPages().remove(m)
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("remove old same-named master failed", exc_info=True)
 
@@ -1075,12 +775,12 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
     try:
         dest_doc.getDrawPages().getCount()
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
     try:
         is_ro = bool(callable(getattr(dest_doc, "isReadonly", None)) and dest_doc.isReadonly() is True)
     except Exception as ro_exc:
-        if is_real_disposal(ro_exc):
+        if is_disposal(ro_exc):
             raise
         is_ro = False
     if is_ro:
@@ -1122,11 +822,11 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
                 cloned.master.Name = target_design_name
                 master_name = target_design_name
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise
                 master_name = str(getattr(cloned.master, "Name", "") or "") or target_design_name
         except Exception as post_exc:
-            if is_real_disposal(post_exc):
+            if is_disposal(post_exc):
                 _restore_slide_masters(snapshot, swallow_disposal=True)
                 raise
             slides_restored = _restore_slide_masters(snapshot)
@@ -1134,7 +834,7 @@ def apply_design_to_current_doc(uno_ctx: Any, dest_doc: Any, design: dict[str, s
                 try:
                     dest_doc.getMasterPages().remove(cloned.master)
                 except Exception as rem_exc:
-                    if is_real_disposal(rem_exc):
+                    if is_disposal(rem_exc):
                         raise
                     log.debug("remove rolled-back master failed", exc_info=True)
             try:
@@ -1249,7 +949,7 @@ class ListDesigns(ToolBase):
         "install prefix."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
     is_mutation: bool | None = False
 
@@ -1282,14 +982,14 @@ class ApplyDesign(ToolBase):
         "Call list_designs first. Draw documents return a not-Impress error."
     )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"design": {"type": "string", "description": "Design id, name, path, or url from list_designs (e.g. Metropolis)."}}, "required": ["design"]}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         # Draw and every other non-Impress doc share this error.
         # _is_draw_only_doc returned the same payload.
-        if not _is_impress_doc(ctx.doc):
+        if not is_impress(ctx.doc):
             return self._tool_error(
                 "apply_design requires an Impress presentation, not a Draw document.",
                 code="UNSUPPORTED_DOC_TYPE",
@@ -1298,17 +998,21 @@ class ApplyDesign(ToolBase):
         design_key = kwargs["design"].strip()
         if not design_key:
             return self._tool_error("design is required.")
-        # One walk, no ZIP look. resolve_design used to open every .otp,
-        # and a miss enumerated the tree again.
+        # One enumeration walk, no per-design ZIP open. A miss must not rescan the tree.
         listed = enumerate_impress_designs(ctx.ctx, include_look=False)
         entry = _match_listed_design(listed, design_key)
         if entry is None:
             available = [d["id"] for d in listed]
-            return self._tool_error("Design not found: %s" % design_key, available=available[:40])
+            avail = available[:40]
+            return self._tool_error(
+                "Design not found: %s" % design_key,
+                available=avail,
+                **available_miss_details(str(design_key), avail),
+            )
         try:
             return apply_design_to_current_doc(ctx.ctx, ctx.doc, entry)
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             log.exception("current-doc apply_design failed for %s", entry.get("path"))
             return self._tool_error("Failed to apply design to the current presentation: %s" % e, reason="current_doc_import_failed", hint="Hidden .otp master clone or MasterPage assign did not complete.")

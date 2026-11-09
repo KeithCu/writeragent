@@ -21,13 +21,6 @@ from typing import Any, IO, NoReturn
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-_ready_lock = threading.Lock()
-_ready_sent = False
-_session_lock = threading.Lock()
-_closed_for: str | None = None
-_lifecycle_lock = threading.Lock()
-_gui_loop_entered = False
-_window: Any = None
 _ipc_stream: IO[bytes] = sys.stdout.buffer
 
 
@@ -60,7 +53,10 @@ _bootstrap_plugin_import_path()
 
 try:
     from plugin.framework.uno_bootstrap import register_alias_importer
+    from plugin.scripting.sandbox import install_alias_authorizer
+
     register_alias_importer()
+    install_alias_authorizer()
 except Exception as e:
     log.warning("Could not register alias importer in editor child process: %s", e)
 
@@ -145,33 +141,103 @@ class JediSession:
             return {"items": []}
 
 
+class EditorSession:
+    """Session identity and child process lifecycle under a single lock.
+
+    Guarantees load, closed-stamping, and window destruction coordinate atomically
+    without cross-lock races between pipe reader and GUI thread.
+    """
+
+    def __init__(self) -> None:
+        self.lock: threading.Lock = threading.Lock()
+        self.session_id: str = ""
+        self.mode: str = ""
+        self.target: dict[str, str] = {}
+        self.closed_for: str | None = None
+        self.shutting_down: bool = False
+        self.gui_loop_entered: bool = False
+        self.ready_sent: bool = False
+        self.window: Any = None
+
+    def reset(self) -> None:
+        """Reset state for tests."""
+        with self.lock:
+            self.session_id = ""
+            self.mode = ""
+            self.target = {}
+            self.closed_for = None
+            self.shutting_down = False
+            self.gui_loop_entered = False
+            self.ready_sent = False
+            self.window = None
+
+    def remember_session(self, msg: dict[str, Any]) -> None:
+        sid = session_id_of(msg)
+        mode = str(msg.get("mode") or "")
+        raw_target = msg.get("target")
+        new_target = normalize_target(raw_target) if isinstance(raw_target, dict) else None
+        with self.lock:
+            if sid:
+                self.session_id = sid
+            if mode:
+                self.mode = mode
+            if new_target is not None:
+                self.target = new_target
+
+    def load(self, msg: dict[str, Any]) -> None:
+        self.remember_session(msg)
+        with self.lock:
+            self.closed_for = None
+
+    def closed(self) -> dict[str, Any] | None:
+        """Return stamped closed message payload if not already closed for current session."""
+        with self.lock:
+            if self.closed_for == self.session_id:
+                return None
+            self.closed_for = self.session_id
+            return stamp_session(
+                {"type": "closed"},
+                session_id=self.session_id,
+                mode=self.mode,
+                target=dict(self.target),
+            )
+
+    def shutdown(self) -> Any | None:
+        """Mark shutting down; return window to destroy if GUI loop was entered."""
+        with self.lock:
+            self.shutting_down = True
+            if self.gui_loop_entered:
+                return self.window
+            return None
+
+    def claim_gui_loop(self) -> bool:
+        with self.lock:
+            if self.shutting_down:
+                return False
+            self.gui_loop_entered = True
+            return True
+
+    def mark_ready(self) -> bool:
+        with self.lock:
+            if self.ready_sent:
+                return False
+            self.ready_sent = True
+            return True
+
+    def stamp(self, message: dict[str, Any]) -> dict[str, Any]:
+        with self.lock:
+            return stamp_session(
+                message,
+                session_id=self.session_id,
+                mode=self.mode,
+                target=dict(self.target),
+            )
+
+
+session = EditorSession()
 _ui_queue: queue.Queue[dict[str, Any]] = queue.Queue()
 _stdout_lock = threading.Lock()
-_shutting_down = False
 _JEDI_CALL_TIMEOUT_SEC = 5.0
-_current_session_id = ""
-_current_mode = ""
-_current_target: dict[str, str] = {}
-
-
-def _remember_session(msg: dict[str, Any]) -> None:
-    # Bugfix: Session globals were previously modified without locking,
-    # allowing concurrent threads (pipe reader vs. GUI thread) to observe or
-    # stamp partially updated, mismatched session fields. Computing
-    # normalized target outside the lock and assigning the three fields
-    # under _session_lock guarantees consistent session snapshots.
-    global _current_session_id, _current_mode, _current_target
-    sid = session_id_of(msg)
-    mode = str(msg.get("mode") or "")
-    raw_target = msg.get("target")
-    new_target = normalize_target(raw_target) if isinstance(raw_target, dict) else None
-    with _session_lock:
-        if sid:
-            _current_session_id = sid
-        if mode:
-            _current_mode = mode
-        if new_target is not None:
-            _current_target = new_target
 
 
 def _js_str(value: Any) -> str:
@@ -181,25 +247,11 @@ def _js_str(value: Any) -> str:
 
 
 def _remember_js_session(session_id: str, mode: str, target: Any) -> None:
-    _remember_session({"session_id": session_id, "mode": mode, "target": target or {}})
+    session.remember_session({"session_id": session_id, "mode": mode, "target": target or {}})
 
 
 def _note_load(msg: dict[str, Any]) -> None:
-    """The reader publishes identity as soon as the load frame arrives; poll_messages applies the same helper again on the GUI thread immediately before show."""
-    _remember_session(msg)
-    global _closed_for
-    with _session_lock:
-        _closed_for = None
-
-
-def _stamp_current(message: dict[str, Any]) -> dict[str, Any]:
-    # Caller holds _session_lock. Closed frames must be stamped in that same section.
-    return stamp_session(
-        message,
-        session_id=_current_session_id,
-        mode=_current_mode,
-        target=dict(_current_target),
-    )
+    session.load(msg)
 
 
 def _emit(message: dict[str, Any]) -> None:
@@ -210,49 +262,32 @@ def _emit(message: dict[str, Any]) -> None:
 def _write_parent(message: dict[str, Any]) -> None:
     kind = message_type(message)
     if kind and kind != "ready":
-        with _session_lock:
-            message = _stamp_current(message)
+        message = session.stamp(message)
     _emit(message)
 
 
 def _send_ready_once() -> None:
     """Tell LibreOffice the GUI is up and stdin is ready for ``load`` messages."""
-    global _ready_sent
-    with _ready_lock:
-        if _ready_sent:
-            return
+    if session.mark_ready():
         _write_parent({"type": "ready"})
-        _ready_sent = True
         log.info("editor_main: sent ready")
 
 
 def _send_closed_once() -> None:
     """Tell LibreOffice the editor session ended (Cancel, WM close, or process exit)."""
-    # Bugfix: A load frame arriving on the pipe thread could clear _closed_for
-    # after _send_closed_once set the flag and before writing the message, and
-    # _write_parent then stamped the closed frame with the newly loaded session,
-    # causing the host to close the buffer it had just opened. Building the
-    # stamped payload under _session_lock alongside updating _closed_for
-    # ensures the closed frame is always stamped with the
-    # session identity captured when the close was accepted.
-    global _closed_for
-    with _session_lock:
-        if _closed_for == _current_session_id:
-            return
-        _closed_for = _current_session_id
-        payload = _stamp_current({"type": "closed"})
-    try:
-        _emit(payload)
-        log.info("editor_main: sent closed")
-    except Exception:
-        log.debug("editor_main: closed write failed", exc_info=True)
+    payload = session.closed()
+    if payload is not None:
+        try:
+            _emit(payload)
+            log.info("editor_main: sent closed")
+        except Exception:
+            log.debug("editor_main: closed write failed", exc_info=True)
 
 
 def _pipe_reader_loop(stdin: IO[bytes] | None = None) -> None:
-    global _shutting_down
     stream: IO[bytes] = sys.stdin.buffer if stdin is None else stdin
     try:
-        while not _shutting_down:
+        while not session.shutting_down:
             msg = read_message(stream)
             if msg is None:
                 break
@@ -263,7 +298,7 @@ def _pipe_reader_loop(stdin: IO[bytes] | None = None) -> None:
             # handleScriptsManagerMessage, so a direct call also applied load twice.
             if kind in PARENT_TO_CHILD_TYPES:
                 if kind == "load":
-                    _note_load(msg)
+                    session.load(msg)
                 _ui_queue.put(msg)
             elif kind == "closed":
                 break
@@ -272,11 +307,7 @@ def _pipe_reader_loop(stdin: IO[bytes] | None = None) -> None:
         # and truncation already returns None and takes the same exit.
         log.exception("Editor pipe reader failed")
     finally:
-        win_to_destroy = None
-        with _lifecycle_lock:
-            _shutting_down = True
-            if _gui_loop_entered:
-                win_to_destroy = _window
+        win_to_destroy = session.shutdown()
         log.info("editor_main: stdin reader finished; destroying window to exit event loop")
         if win_to_destroy is not None:
             try:
@@ -286,17 +317,7 @@ def _pipe_reader_loop(stdin: IO[bytes] | None = None) -> None:
 
 
 def _claim_gui_loop() -> bool:
-    # Bugfix: The stdin reader used to start before _window existed; EOF set
-    # _shutting_down and skipped destroy, leaving main to block in webview.start
-    # with no load coming. Conversely, EOF between create_window and start destroyed
-    # the window while start still ran. The claim and the reader's destroy share
-    # _lifecycle_lock, ensuring destroy runs only after the claim has entered the loop.
-    global _gui_loop_entered
-    with _lifecycle_lock:
-        if _shutting_down:
-            return False
-        _gui_loop_entered = True
-        return True
+    return session.claim_gui_loop()
 
 
 class MonacoEditorApi:
@@ -321,19 +342,19 @@ class MonacoEditorApi:
                 log.info("editor_main: poll_messages received load; showing window")
                 _note_load(msg)
                 try:
-                    if _window is not None:
+                    if session.window is not None:
                         title = msg.get("title")
                         if title:
-                            _window.title = title
+                            session.window.title = title
                         with contextlib.suppress(Exception):
-                            _window.restore()
-                        _window.show()
-                        if hasattr(_window, "on_top"):
+                            session.window.restore()
+                        session.window.show()
+                        if hasattr(session.window, "on_top"):
                             with contextlib.suppress(Exception):
-                                _window.on_top = True
-                                _window.on_top = False
+                                session.window.on_top = True
+                                session.window.on_top = False
                         with contextlib.suppress(Exception):
-                            _window.focus()
+                            session.window.focus()
                 except Exception:
                     log.exception("editor_main: failed to show window on load")
         return batch
@@ -348,11 +369,7 @@ class MonacoEditorApi:
             return self._completion_gen
 
     def _run_completion(self, code: str, line: int, column: int, gen: int) -> dict[str, Any] | None:
-        # Bugfix: A hung ThreadPoolExecutor worker never became free, every later
-        # completion blocked the API thread for 5 seconds, and concurrent.futures'
-        # non-daemon atexit join kept the process alive so the host treated it as
-        # healthy. Spawning a raw daemon thread allows abandoning a stuck worker
-        # without blocking process exit or queueing behind a deadlocked thread.
+        # Jedi completions run on a daemon thread so a hung worker does not block later requests or keep the editor process alive at exit.
         if self._jedi is None and jedi is None:
             return {"items": []}
 
@@ -393,12 +410,7 @@ class MonacoEditorApi:
             log.warning("Jedi completions timed out or failed")
             return {"items": []}
 
-        # Bugfix: When completions finish within the timeout, the worker thread
-        # signalled `done` from its `finally:` block, but `done.wait()` unblocked
-        # the caller while the worker was still unwinding. A subsequent completion
-        # request arriving immediately after observed `_jedi_thread.is_alive()` as
-        # True and was rejected as in-flight. Joining the finished worker ensures
-        # its thread lifecycle has completed before returning.
+        # worker.join() after done.wait() so the next completion does not see a still-alive _jedi_thread during unwind.
         worker.join()
 
         return box.get("result", {"items": []})
@@ -460,21 +472,23 @@ class MonacoEditorApi:
         log.info("editor_main: notify_cancel called; hiding window")
         _send_closed_once()
         with contextlib.suppress(Exception):
-            _window.hide()
+            if session.window is not None:
+                session.window.hide()
 
 
 def _handle_window_closing() -> bool:
     """Hides the window instead of closing/destroying it, notifying the parent."""
     # Return True while shutting down so the window can be destroyed. False
     # cancels close and leaves the editor process running after stdin EOF.
-    with _lifecycle_lock:
-        shutting_down = _shutting_down
+    with session.lock:
+        shutting_down = session.shutting_down
     if shutting_down:
         return True
     log.info("editor_main: intercepting window close. Hiding window instead.")
     _send_closed_once()
     with contextlib.suppress(Exception):
-        _window.hide()
+        if session.window is not None:
+            session.window.hide()
     return False  # Aborts standard window close/destruction
 
 
@@ -510,8 +524,7 @@ def _bind_window_events(window: Any) -> None:
 def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | None:
     """Map a request path to a file, or None.
 
-    ``/vs//etc/passwd`` used to make path[4:] absolute, and os.path.join then
-    dropped the rocher root. ``/vs/../../`` escaped after normpath.
+    Reject ``..`` and absolute segments under ``/vs/`` so static assets cannot escape the rocher root.
     """
     if url_path in ("/", "/index.html"):
         return os.path.join(assets, "index.html")
@@ -523,7 +536,8 @@ def monaco_static_path(url_path: str, assets: str, rocher_root: str) -> str | No
         "/scripts_manager.js",
         "/style.css",
     ):
-        return os.path.join(assets, url_path.lstrip("/"))
+        rel = url_path.lstrip("/").replace("/", os.sep)
+        return os.path.join(assets, rel)
     if not url_path.startswith("/vs/"):
         return None
     # ImportError passes an empty root. realpath("") is the cwd, which would
@@ -589,7 +603,7 @@ def wsgi_app(environ: dict[str, Any], start_response: Any) -> list[bytes]:
 
 def main() -> None:
     global _ipc_stream
-    from plugin.scripting.ipc import claim_ipc_channel
+    from plugin.framework.ipc import claim_ipc_channel
     _ipc_stream = claim_ipc_channel()
 
     logging.basicConfig(level=logging.INFO)
@@ -621,15 +635,14 @@ def main() -> None:
     api = MonacoEditorApi()
     log.info("editor_main: assets=%s index=%s argv0=%s", assets, index_html, sys.argv[0])
     print(f"editor_main: serving {index_html} via WSGI app", file=sys.stderr, flush=True)
-    global _window
     try:
-        _window = webview.create_window(
+        session.window = webview.create_window(
             EDITOR_DEFAULT_TITLE, url=wsgi_app, width=900, height=640, js_api=api, hidden=True
         )
     except Exception as e:
         _fatal(f"webview.create_window failed: {e}", exc=e)
 
-    _bind_window_events(_window)
+    _bind_window_events(session.window)
 
     # Listen for parent messages after window and API events are set up.
     threading.Thread(target=_pipe_reader_loop, name="editor-stdin-reader", daemon=True).start()

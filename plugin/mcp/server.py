@@ -24,8 +24,8 @@ Concurrency: the socket accept loop runs on its **own** daemon thread
 (``run_in_background(..., dedicated=True, name="http-server")``) so it
 does not occupy the short-job pool. Incoming HTTP is **not** the
 LibreOffice UI thread. Anything that touches a document, a dialog, or
-most UNO services must be posted through ``QueueExecutor``
-(``execute_on_main_thread``). Route reads and register/unregister share
+most UNO services must be posted through ``MainThread``
+(``main.call``). Route reads and register/unregister share
 ``HttpRouteRegistry``'s lock. MCP toggle mutates the table while ``GET /``
 iterates it; the lock is what keeps that from raising ``RuntimeError``.
 """
@@ -49,16 +49,17 @@ MCP_HTTP_SOCKET_TIMEOUT_SEC = 30.0
 
 from plugin.framework.thread_guard import background
 import contextlib
+from dataclasses import dataclass, field
 import json
 import logging
 import socket
 import threading
-import time
 import weakref
 from http.server import BaseHTTPRequestHandler
-from typing import TYPE_CHECKING, Any, ClassVar, cast
-from plugin.framework.url_utils import get_url_path, get_url_query_dict
-from plugin.framework.errors import AgentParsingError, WriterAgentException, format_error_payload, safe_json_loads
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, cast
+from plugin.framework.url_utils import get_url_path
+from plugin.framework.errors import AgentParsingError, WriterAgentException, format_error_payload
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
 from plugin.framework.http_server import DualStackThreadPoolHTTPServer
 from plugin.mcp.cors import reject_forbidden_host, reject_forbidden_origin, send_cors_headers
@@ -67,7 +68,7 @@ from plugin.mcp.http_trace import log_cors_preflight, log_http_request, log_no_r
 if TYPE_CHECKING:
     from plugin.mcp.routes import HttpRouteRegistry
 
-log = logging.getLogger("writeragent.framework.http_server")
+log = logging.getLogger("writeragent.mcp.server")
 
 
 def mcp_endpoint_url(host: str, port: int, use_ssl: bool = False) -> str:
@@ -98,35 +99,34 @@ def write_http_json(handler: Any, status: int, data: Any, extra_headers: Any = N
         pass
 
 
-def _body_error(status: int, message: str, **details: Any) -> tuple[None, tuple[int, AgentParsingError]]:
-    return None, (status, AgentParsingError(message, details=details))
+def read_json_body(handler: Any, reply: Callable[..., Any] = write_http_json) -> Any:
+    """Parse a JSON object body, or return None after calling reply(handler, status, error_payload) when refused.
 
-
-def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]:
-    """Parse a JSON object body, or ``(None, (status, error))`` when it is refused.
-
-    The caller writes the error response. A Transfer-Encoding containing
+    On refusal, calls ``reply(handler, status, payload)`` and returns None. A Transfer-Encoding containing
     chunked is HTTP 400 and is not read, including when Content-Length is
     missing, zero, or set. Negative Content-Length stays 400. A length above
     :data:`MCP_HTTP_MAX_BODY_BYTES` is 413 and is not read. A socket timeout
     (``TimeoutError``, or pre-3.10 ``socket.timeout``) while reading a body
     under the cap is 408. An empty body with no
     chunked coding is still ``{}`` and does not touch ``rfile``.
+
+    Shared with compute_service.server._read_request_body: chunked transfer is
+    400 and unread, a bad Content-Length is 400, over the cap is 413. Length 0
+    is {} here; that reader rejects missing or <=0 as 400.
     """
+    def _fail(status: int, message: str, **details: Any) -> None:
+        err = AgentParsingError(message, details=details)
+        reply(handler, status, format_error_payload(err))
+        return None
+
     raw_te = handler.headers.get("Transfer-Encoding", "")
     if isinstance(raw_te, str) and "chunked" in raw_te.lower():
-        # What was wrong: a missing or zero Content-Length returned {}
-        # without reading rfile. Transfer-Encoding: chunked was then
-        # handled as an empty object (MCP reported Invalid JSON-RPC) and
-        # the chunk bytes stayed on the socket.
-        # How: the length check ran first and treated 0 as empty. A
-        # Content-Length next to chunked would also have been trusted.
-        # Why: refuse with 400 before any read, matching compute_service
+        # Chunked bodies must not be treated as empty {}; refuse invalid length/TE with 400 before read.
         # _reject_chunked. close_connection stops keep-alive from parsing
         # the leftover bytes as the next request. No chunk parser.
         handler.close_connection = True
         log.warning("Rejecting chunked Transfer-Encoding")
-        return _body_error(
+        return _fail(
             400,
             "Chunked transfer encoding is not supported",
             transfer_encoding=handler.headers.get("Transfer-Encoding"),
@@ -136,37 +136,37 @@ def read_json_body(handler: Any) -> tuple[Any, tuple[int, BaseException] | None]
     try:
         content_length = int(raw_length)
     except (TypeError, ValueError):
-        return _body_error(400, "Invalid Content-Length in HTTP request", length=raw_length)
+        return _fail(400, "Invalid Content-Length in HTTP request", length=raw_length)
     if content_length < 0:
         # BaseHTTPRequestHandler / rfile.read treats a negative size as "read
         # until EOF". Content-Length: -1 would block the worker until the
         # socket closed. Reject before any read.
         log.warning("Invalid negative Content-Length: %s", content_length)
-        return _body_error(400, "Invalid negative Content-Length in HTTP request", length=content_length)
+        return _fail(400, "Invalid negative Content-Length in HTTP request", length=content_length)
     if content_length == 0:
-        return {}, None
+        return {}
     if content_length > MCP_HTTP_MAX_BODY_BYTES:
         # A trusted Content-Length with no ceiling pins the worker on the
         # allocation, and a stalled body with no socket timeout pins it
         # forever. Refuse the length before the read. The handler/server
         # timeout covers a stall whose declared length is still under the cap.
         log.warning("Rejecting oversized Content-Length: %s", content_length)
-        return _body_error(413, "HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, length=content_length, max=MCP_HTTP_MAX_BODY_BYTES)
+        return _fail(413, "HTTP body exceeds %s bytes" % MCP_HTTP_MAX_BODY_BYTES, length=content_length, max=MCP_HTTP_MAX_BODY_BYTES)
     try:
         raw_bytes = handler.rfile.read(content_length)
     # Before Python 3.10 socket.timeout is a distinct class (same rule as http_server.handle_error).
     except (TimeoutError, socket.timeout):
         log.warning("Timed out reading HTTP body (%s bytes declared)", content_length)
-        return _body_error(408, "Timed out reading HTTP body", length=content_length)
+        return _fail(408, "Timed out reading HTTP body", length=content_length)
     try:
         raw = raw_bytes.decode("utf-8")
     except UnicodeDecodeError:
-        return _body_error(400, "HTTP body is not UTF-8", length=content_length)
+        return _fail(400, "HTTP body is not UTF-8", length=content_length)
     data = safe_json_loads(raw, default=None, strict=True)
     if data is None and raw.strip():
         log.warning("Invalid JSON body: %s", raw[:200])
-        return _body_error(400, "Invalid JSON body in HTTP request", raw=raw[:200])
-    return (data if data is not None else {}), None
+        return _fail(400, "Invalid JSON body in HTTP request", raw=raw[:200])
+    return data if data is not None else {}
 
 
 def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> None:
@@ -177,59 +177,6 @@ def write_http_empty(handler: Any, status: int, extra_headers: Any = None) -> No
         extra_headers(handler)
     handler.send_header("Content-Length", "0")
     handler.end_headers()
-
-
-def _sse_state(tcp_server: Any) -> tuple[threading.Event, Any, Any, threading.Lock]:
-    """Per-listener keepalive tracking.
-
-    serve_forever()/shutdown() does not join ThreadingMixIn request threads.
-    State lives on that listener: stopping one server must not mark a
-    different listener's streams as stopped. Weak refs so a handler that
-    already exited does not pin the connection.
-    """
-    lock = getattr(tcp_server, "_sse_lock", None)
-    if lock is None:
-        lock = threading.Lock()
-        tcp_server._sse_lock = lock
-        tcp_server._sse_stop = threading.Event()
-        tcp_server._sse_sockets = weakref.WeakSet()
-        tcp_server._sse_threads = weakref.WeakSet()
-    return tcp_server._sse_stop, tcp_server._sse_sockets, tcp_server._sse_threads, lock
-
-
-def try_reserve_sse(tcp_server: Any, sock: Any = None) -> threading.Event | None:
-    """Reserve an SSE stream slot on *tcp_server*.
-
-    Returns the stop event the loop must watch, or None when this listener
-    is already stopped or the stream cap is reached.
-    """
-    if tcp_server is None:
-        return None
-    stop, sockets, threads, lock = _sse_state(tcp_server)
-    with lock:
-        count = getattr(tcp_server, "_sse_count", 0)
-        active = max(count, len(threads))
-        if stop.is_set() or active >= SSE_MAX_STREAMS:
-            return None
-        tcp_server._sse_count = count + 1
-        if sock is not None:
-            sockets.add(sock)
-        threads.add(threading.current_thread())
-        return stop
-
-
-def forget_sse_keepalive(tcp_server: Any, sock: Any = None) -> None:
-    """Drop a keepalive that has left its loop and release its reservation."""
-    if tcp_server is None:
-        return
-    _stop, sockets, threads, lock = _sse_state(tcp_server)
-    with lock:
-        if sock is not None:
-            sockets.discard(sock)
-        threads.discard(threading.current_thread())
-        count = getattr(tcp_server, "_sse_count", 0)
-        if count > 0:
-            tcp_server._sse_count = count - 1
 
 
 def _shutdown_sse_socket(sock: Any) -> None:
@@ -245,25 +192,62 @@ def _shutdown_sse_socket(sock: Any) -> None:
         sock.close()
 
 
-def stop_sse_keepalives(tcp_server: Any) -> None:
-    """End SSE loops still running on *tcp_server* after the accept loop exits.
+@dataclass
+class SseRegistry:
+    """Per-listener keepalive tracking.
 
-    HttpServer.stop() only makes serve_forever() return. Each GET /mcp and
-    GET /sse keepalive stays on its request thread until the client drops or
-    the 15s select timeout, and a restart adds more. Set this listener's flag
-    and shut down its registered sockets so those loops exit. The next
-    HttpServer has its own flag.
+    serve_forever()/shutdown() does not join ThreadingMixIn request threads.
+    State lives on that listener: stopping one server must not mark a
+    different listener's streams as stopped. Weak refs so a handler that
+    already exited does not pin the connection.
     """
-    if tcp_server is None:
-        return
-    stop, sockets, _threads, lock = _sse_state(tcp_server)
-    with lock:
-        stop.set()
-        socks = list(sockets)
-    if socks:
-        log.info("Closing %d SSE keepalive socket(s)", len(socks))
-    for sock in socks:
-        _shutdown_sse_socket(sock)
+
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    stop_event: threading.Event = field(default_factory=threading.Event)
+    sockets: weakref.WeakSet[Any] = field(default_factory=weakref.WeakSet)
+    threads: weakref.WeakSet[threading.Thread] = field(default_factory=weakref.WeakSet)
+    count: int = 0
+
+    def reserve(self, sock: Any = None) -> threading.Event | None:
+        """Reserve an SSE stream slot.
+
+        Returns the stop event the loop must watch, or None when this listener
+        is already stopped or the stream cap is reached.
+        """
+        with self.lock:
+            active = max(self.count, len(self.threads))
+            if self.stop_event.is_set() or active >= SSE_MAX_STREAMS:
+                return None
+            self.count += 1
+            if sock is not None:
+                self.sockets.add(sock)
+            self.threads.add(threading.current_thread())
+            return self.stop_event
+
+    def release(self, sock: Any = None) -> None:
+        """Drop a keepalive that has left its loop and release its reservation."""
+        with self.lock:
+            if sock is not None:
+                self.sockets.discard(sock)
+            self.threads.discard(threading.current_thread())
+            if self.count > 0:
+                self.count -= 1
+
+    def stop_all(self) -> None:
+        """End SSE loops still running after the accept loop exits.
+
+        HttpServer.stop() only makes serve_forever() return. Each GET /mcp and
+        GET /sse keepalive stays on its request thread until the client drops or
+        the 15s select timeout, and a restart adds more. Set this listener's flag
+        and shut down its registered sockets so those loops exit.
+        """
+        with self.lock:
+            self.stop_event.set()
+            socks = list(self.sockets)
+        if socks:
+            log.info("Closing %d SSE keepalive socket(s)", len(socks))
+        for sock in socks:
+            _shutdown_sse_socket(sock)
 
 
 class _ThreadedHTTPServer(DualStackThreadPoolHTTPServer):
@@ -275,6 +259,11 @@ class _ThreadedHTTPServer(DualStackThreadPoolHTTPServer):
 
     route_registry: HttpRouteRegistry | None = None
     bind_host: str | None = None
+    sse_registry: SseRegistry
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.sse_registry = SseRegistry()
 
 
 
@@ -290,16 +279,8 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
     def handle_one_request(self) -> None:
         """A client that goes away while the response is written is a closed request.
 
-        What was wrong: the 404 ``write_http_json`` in ``_dispatch`` is outside the
-        ``try`` that swallows ``OSError`` on the 500 write. ``do_GET`` returns
-        into ``BaseHTTPRequestHandler.handle_one_request``, which only catches
-        ``TimeoutError`` and then flushes ``wfile`` again. ``BrokenPipeError``
-        and ``ConnectionResetError`` from the 404 write, from the 403 writes in
-        ``reject_forbidden_host`` / ``reject_forbidden_origin``, or from that
-        second flush reach ``handle_error`` and print a traceback.
-        How: this override is the one frame above ``do_*`` and that flush.
-        Why: those disconnects are ``ConnectionError``. Any other exception
-        still propagates.
+        Client disconnect during response write is a normal ConnectionError here, not handle_error noise.
+        This override sits above do_* where 404/403 writes are not wrapped like the 500 path.
         """
         try:
             super().handle_one_request()
@@ -344,16 +325,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
             return
 
         try:
-            if route.raw:
-                route.handler(self)
-            else:
-                body = self._read_body()
-                if body is None:
-                    return  # _read_body already sent error response
-                query = get_url_query_dict(self.path)
-                result = route.handler(body, self.headers, query)
-                status, data = cast("tuple[int, Any]", result)
-                write_http_json(self, status, data)
+            route.handler(self)
         except ConnectionError:
             # Peer went away (RST/EPIPE) during the body read or a write.
             # That is a closed request, not a server bug: no 500, no traceback.
@@ -368,12 +340,7 @@ class GenericRequestHandler(BaseHTTPRequestHandler):
                     pass
 
     def _read_body(self) -> Any:
-        data, rejected = read_json_body(self)
-        if rejected is not None:
-            status, err = rejected
-            write_http_json(self, status, format_error_payload(err))
-            return None
-        return data
+        return read_json_body(self)
 
     def log_message(self, format: str, *args: object) -> None:
         log.info("%s - %s", self.client_address[0], format % args)
@@ -399,8 +366,7 @@ class HttpServer:
             return
 
         # Certs are loaded before bind. A missing file or use_ssl without
-        # certs used to bind the port and then close it. The caller logs the
-        # failure once (_start_server); logging here too wrote two tracebacks.
+        # Load TLS certs before bind so a cert failure does not bind-then-close the port.
         ssl_ctx = None
         if self.use_ssl:
             # TLS server mode requires explicit certificates.
@@ -413,9 +379,7 @@ class HttpServer:
             ssl_ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
             ssl_ctx.load_cert_chain(certfile=self.ssl_cert, keyfile=self.ssl_key)
 
-        # Single bind — no retry/sleep. A busy port used to block bootstrap and the Start MCP
-        # menu for ~4s (5×1s). Stdio clients that start before LO are handled by mcp_bridge.py;
-        # callers stash OSError and show _PORT_IN_USE_GUIDANCE in the UI.
+        # Single bind attempt; port-in-use surfaces immediately for UI guidance, no retry sleep.
         self._server = _ThreadedHTTPServer(
             (self.host, self.port),
             GenericRequestHandler,
@@ -428,8 +392,6 @@ class HttpServer:
         self._server.bind_host = self.host
         if ssl_ctx is not None:
             self._server.ssl_ctx = ssl_ctx
-        # Before the accept thread exists, so request handlers share this state.
-        _sse_state(self._server)
 
         self._running = True
         self._thread = run_in_background(self._run, daemon=True, name="http-server", dedicated=True)
@@ -441,37 +403,18 @@ class HttpServer:
         if not self._running:
             return
         self._running = False
-        threads_to_join = []
         try:
             if self._server:
-                # The SSE state registry tracks active SSE keepalive threads so we can
-                # wait for them to exit after their sockets are closed. POST handler threads
-                # are daemon threads and are not joined (joining POST threads on the main thread
-                # while they await the main-thread queue causes deadlocks/freezes).
-                _, _, threads, lock = _sse_state(self._server)
-                with lock:
-                    threads_to_join = list(threads)
                 self._server.shutdown()
                 self._server.server_close()
                 log.info("HTTP server stopped")
         finally:
             # shutdown() does not join request threads. SSE keepalives are
             # still blocked in select until their sockets are closed.
-            stop_sse_keepalives(self._server)
-
-            # Join in-flight SSE keepalive threads within a single 2s deadline.
-            deadline = time.monotonic() + 2.0
-            still_alive: list[str] = []
-            for t in threads_to_join:
-                if t is threading.current_thread():
-                    continue
-                remaining = deadline - time.monotonic()
-                if remaining > 0:
-                    t.join(timeout=remaining)
-                if t.is_alive():
-                    still_alive.append(getattr(t, "name", "unknown"))
-            if still_alive:
-                log.warning("HTTP server request thread(s) still alive after stop: %s", ", ".join(still_alive))
+            if self._server:
+                self._server.sse_registry.stop_all()
+            # Do not join SSE threads here: stop() can run on the UI thread, and the
+            # threads are daemon (http_server.py:268) with their sockets already closed by stop_all().
 
     @background
     def _run(self) -> None:
@@ -496,7 +439,7 @@ class HttpServer:
                 try:
                     server.server_close()
                 finally:
-                    stop_sse_keepalives(server)
+                    server.sse_registry.stop_all()
 
     def is_running(self) -> bool:
         return self._running

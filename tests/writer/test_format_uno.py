@@ -15,8 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from plugin.doc.text_helpers import normalize_linebreaks as _normalize
-from plugin.writer.format import (
-    document_to_content,
+from plugin.writer.html_export import document_to_content
+from plugin.writer.html_import import (
     insert_content_at_position as _insert_content_at_position,
     content_has_markup as _content_has_markup,
     replace_preserving_format as _replace_text_preserving_format,
@@ -35,14 +35,14 @@ def _move_cursor_by_offset(cursor, offset, expand=False):
 
 def _tool_ctx(doc, ctx):
     """Build ToolContext for writer tools (uses real get_services())."""
-    from plugin.main import get_services
+    from plugin.app import get_services
     from plugin.framework.tool import ToolContext
     return ToolContext(doc, ctx, "writer", get_services(), "test")
 
 
 def _get_document_content(doc, ctx, params):
     """Call real get_document_content tool; returns dict."""
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     scope = params.get("scope", "full")
     kwargs = {"scope": scope}
     if params.get("max_chars") is not None:
@@ -63,7 +63,7 @@ def _apply_document_content(doc, ctx, params):
     # GHA 34683742049: leftover Hidden _default apply hung after the
     # first apply-suite skips. Later apply UNO files skip the same load.
     skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
-    from plugin.main import get_tools
+    from plugin.app import get_tools
     content = params.get("content", "")
     if isinstance(content, list):
         content = "\n".join(str(x) for x in content)

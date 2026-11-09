@@ -85,8 +85,7 @@ class TestACPConnectionStop:
         proc = _live_proc()
         conn._proc = proc
         conn._running = True
-        # What was wrong: stop() delegates the kill to the background writer.
-        # Checking it synchronously raced that thread.
+        # stop() kills via the background writer; synchronous assertions race that thread.
         killed: list[object] = []
 
         def _kill(proc_arg: object) -> None:
@@ -219,10 +218,9 @@ class TestACPConnectionReaderExit:
     def test_non_object_json_skipped_while_prompt_in_flight(self):
         """Bare number, true/false, string, and array lines must not kill the reader.
 
-        What was wrong: those lines parse, then ``"id" in msg`` or ``msg.get``
-        raised, the inner except left the loop, and the exit sweep failed the
-        prompt with "ACP process terminated" while the child was still alive.
-        The response that follows those lines has to be returned.
+        Non-object JSON lines must be skipped without killing the reader. Treating
+        them as dicts raises inside the loop, aborts reading, and fails an in-flight
+        prompt while the child is still alive.
         """
         conn = ACPConnection(cmd_line=["agent"])
         release = threading.Event()
@@ -291,12 +289,9 @@ class TestACPConnectionReaderExit:
     def test_unhashable_id_does_not_kill_reader(self):
         """An object id that is an array, object, or JSON boolean must not kill the reader.
 
-        What was wrong: those lines parse as dicts, then ``pending.get(req_id)``
-        raised TypeError (unhashable) or, for JSON ``true``, hashed equal to
-        request id 1 and stole the in-flight response. The inner except left
-        the loop and the exit sweep failed the prompt with "ACP process
-        terminated" while the child was still alive. The response that follows
-        has to be returned, and the reader has to stay up.
+        JSON ids that are not hashable scalars must not kill the reader or steal
+        an in-flight response (for example boolean ``true`` colliding with id 1).
+        The reader stays up and the real response after junk lines is returned.
         """
         conn = ACPConnection(cmd_line=["agent"])
         release = threading.Event()
@@ -440,9 +435,9 @@ sys.stdout.buffer.flush()
     def test_proc_cleared_between_check_and_readline_is_not_a_reader_error(self, caplog):
         """stop() may null _proc after the loop sees it and before stdout.
 
-        What was wrong: the body read self._proc.stdout. That second lookup
-        was None, so AttributeError was logged as Reader error. The second
-        _proc read here is None, the same window stop() opens.
+        The reader must hold one ``_proc`` reference per iteration. A second
+        lookup after ``stop()`` clears ``_proc`` would log a spurious Reader
+        error for ``None.stdout``.
         """
         caplog.set_level("ERROR", logger="plugin.acp.acp_connection")
         proc = _live_proc()
@@ -504,7 +499,7 @@ def _proc_nulled_on_bool(conn: ACPConnection, stdin: object):
 
     ``if self._proc and self._proc.stdin`` loads ``_proc`` twice. The
     truthiness test is the gap ``stop()`` uses to set ``_proc`` to None,
-    so the second load used to be ``None.stdin``.
+    so the second load can be ``None.stdin`` if the code reads ``_proc`` twice.
     """
 
     class _Proc:
@@ -585,6 +580,42 @@ class TestStdinWriteCapturesProc:
         conn._running = True
         with pytest.raises(ToolExecutionError, match="nope"):
             conn.send_request("initialize", {}, timeout=2)
+
+    def test_error_object_includes_rpc_code_when_int(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+
+        def flush() -> None:
+            with conn._lock:
+                entry = conn._pending.get(1)
+                if entry is not None and entry.response is None:
+                    entry.response = {"error": {"code": -32602, "message": "Unknown model ID: x"}}
+                    entry.event.set()
+
+        proc.stdin.flush.side_effect = flush
+        conn._proc = proc
+        conn._running = True
+        with pytest.raises(ToolExecutionError, match="Unknown model ID") as exc_info:
+            conn.send_request("session/set_model", {}, timeout=2)
+        assert exc_info.value.details.get("rpc_code") == -32602
+
+    def test_error_object_without_code_has_no_rpc_code(self):
+        conn = ACPConnection(cmd_line=["agent"])
+        proc = _live_proc()
+
+        def flush() -> None:
+            with conn._lock:
+                entry = conn._pending.get(1)
+                if entry is not None and entry.response is None:
+                    entry.response = {"error": {"message": "nope"}}
+                    entry.event.set()
+
+        proc.stdin.flush.side_effect = flush
+        conn._proc = proc
+        conn._running = True
+        with pytest.raises(ToolExecutionError, match="nope") as exc_info:
+            conn.send_request("initialize", {}, timeout=2)
+        assert "rpc_code" not in exc_info.value.details
 
     def test_send_request_closed_stdin_is_tool_error(self):
         """A pipe stop() already closed must not escape as ValueError.
@@ -728,8 +759,8 @@ class TestStdinWriteCapturesProc:
 def test_is_alive_does_not_reread_proc():
     """stop() may null _proc between the None check and poll().
 
-    What was wrong: is_alive loaded _proc twice, so the second was
-    None.poll(). One load must be enough.
+    ``is_alive`` must load ``_proc`` once. A second read after ``stop()`` nulls
+    it yields ``None.poll()`` and a false not-alive result.
     """
     proc = _live_proc()
 
@@ -1165,7 +1196,7 @@ def test_request_after_the_writer_stops_fails_without_a_new_thread():
         patch.setattr("plugin.acp.acp_connection.kill_process_tree", lambda process: None)
         conn._enqueue(_QueuedStop(proc))
         # The handle is cleared in the writer's finally. Waiting for that,
-        # not merely for _closed, is what used to start a second writer.
+        # Wait for the writer handle to clear, not only _closed, or a second writer starts.
         assert _wait_until(lambda: conn._writer_thread is None)
         event = threading.Event()
         conn._pending[3] = _Pending(event)

@@ -24,8 +24,8 @@ import uuid
 from typing import Any, ClassVar, Generator
 
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.doc.paragraph_search import confirm_paragraph_index, find_paragraph_for_range, get_paragraph_ranges
-from plugin.framework.errors import best_effort, reraise_if_disposed
+from plugin.doc.paragraph_search import get_paragraph_ranges, paragraph_index_for_anchor
+from plugin.framework.errors import best_effort, name_miss_details, reraise_if_disposed
 from plugin.framework.service import ServiceBase
 from plugin.framework.uno_listeners import BaseDocumentEventListener
 from ..specialized_base import ToolWriterBookmarkBase
@@ -71,10 +71,9 @@ def _in_save_hook(doc_key: str) -> Generator[None, None, None]:
 class _BookmarkSaveListener(BaseDocumentEventListener):
     """Strip ``_mcp_`` heading bookmarks just before the file is written.
 
-    Nelson ``4c92ea12`` / #2644: insert used to dirty the document, leave
-    undo steps, and persist agent locators into ``.odt`` / ``.docx``. Strip
-    on ``OnSave*`` (not only ``OnSaveDone``) so the written file is clean;
-    restore the same names after ``*Done``.
+    OnSave* strips ``_mcp_`` heading locators before write so they are not
+    persisted in ``.odt``/``.docx`` or left on the undo stack; the same names
+    are restored after ``*Done``.
     """
 
     _svc: BookmarkService
@@ -125,9 +124,9 @@ class BookmarkService(ServiceBase):
     def _doc_key(self, doc: Any) -> str:
         if self._doc_svc is not None:
             return self._doc_svc.doc_key(doc)
-        from plugin.doc.document_helpers import _compute_doc_key
+        from plugin.doc.document_helpers import compute_doc_key
 
-        return _compute_doc_key(doc)
+        return compute_doc_key(doc)
 
     def _ignore_cache(self) -> Any:
         if self._doc_svc is not None:
@@ -189,12 +188,7 @@ class BookmarkService(ServiceBase):
             for name in mcp_names:
                 bm = bookmarks.getByName(name)
                 anchor = bm.getAnchor()
-                para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj, entries=entries)
-                # A failed placement returns None, so a stale _mcp_ mark must not be
-                # stored as the bookmark for the first paragraph.
-                # confirm_paragraph_index keeps 0 only when the anchor is actually
-                # there. An unplaced mark is omitted and later removed.
-                placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+                placed = paragraph_index_for_anchor(anchor, para_ranges, text_obj, entries=entries)
                 if placed is not None:
                     result[placed] = name
         except Exception as exc:
@@ -227,7 +221,7 @@ class BookmarkService(ServiceBase):
         """Ensure every heading has an _mcp_ bookmark. Returns map.
 
         Also removes ``_mcp_`` bookmarks that are no longer on a heading.
-        Demoting a heading used to leave the point mark in the document forever.
+        Demoted headings drop orphan ``_mcp_`` marks so locators do not linger on body text.
         """
         key = self._doc_key(doc)
         in_hook = key in _ACTIVE_SAVE_HOOK_KEYS
@@ -533,7 +527,11 @@ def _resolve_bookmark_target(
     bookmarks = ctx.doc.getBookmarks()
     has_bm = bookmarks.hasByName(name)
     if must_exist and not has_bm:
-        return None, "", tool._tool_error(f"Bookmark '{name}' not found.")
+        names = [str(n) for n in bookmarks.getElementNames()]
+        return None, "", tool._tool_error(
+            f"Bookmark '{name}' not found.",
+            **name_miss_details(name, names, "bookmark_list"),
+        )
     if not must_exist and has_bm:
         return None, "", tool._tool_error(f"A bookmark named '{name}' already exists.")
     return bookmarks, name, None
@@ -643,7 +641,11 @@ class BookmarkGet(ToolWriterBookmarkBase):
 
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(name):
-            return self._tool_error(f"Bookmark '{name}' not found.")
+            names = [str(n) for n in bookmarks.getElementNames()]
+            return self._tool_error(
+                f"Bookmark '{name}' not found.",
+                **name_miss_details(name, names, "bookmark_list"),
+            )
 
         bm = bookmarks.getByName(name)
         try:
@@ -674,12 +676,14 @@ class BookmarkResolve(ToolWriterBookmarkBase):
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(bookmark_name):
             hint = "Bookmark '%s' not found." % bookmark_name
+            names = [str(n) for n in bookmarks.getElementNames()]
+            miss = name_miss_details(bookmark_name, names, "bookmark_list")
             if bookmark_name.startswith("_mcp_"):
                 hint += " It may have been deleted or the document changed. Use heading_text:<text> locator for resilient heading addressing, or call get_document_tree to refresh bookmarks."
                 existing = [n for n in bookmarks.getElementNames() if n.startswith("_mcp_")]
                 if existing:
                     hint += " Existing bookmarks: %s" % ", ".join(existing[:10])
-            return self._tool_error(hint)
+            return self._tool_error(hint, **miss)
 
         bm = bookmarks.getByName(bookmark_name)
         try:
@@ -688,18 +692,15 @@ class BookmarkResolve(ToolWriterBookmarkBase):
             reraise_if_disposed(exc)
             return self._tool_error("Bookmark '%s' anchor is not in the document." % bookmark_name)
 
-        # Find paragraph index. A failed placement is 0, which is also a real
-        # first paragraph — confirm before reporting it.
+        # Find paragraph index. A failed placement returns None.
         para_ranges = get_paragraph_ranges(doc)
         text_obj = doc.getText()
-        para_idx = find_paragraph_for_range(anchor, para_ranges, text_obj)
-        placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
-        if placed is None:
+        para_idx = paragraph_index_for_anchor(anchor, para_ranges, text_obj)
+        if para_idx is None:
             return self._tool_error(
                 "Bookmark '%s' anchor is not in the document. It may be stale after an edit, save, or bookmark_cleanup."
                 % bookmark_name
             )
-        para_idx = placed
 
         result = {"status": "ok", "bookmark": bookmark_name, "paragraph_index": para_idx}
 

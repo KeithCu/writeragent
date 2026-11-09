@@ -5,13 +5,18 @@ import time
 from typing import Any
 from unittest.mock import patch
 
+from plugin.framework.client.errors import (
+    _structured_error_is_overload,
+    _text_is_overload,
+    stream_error_is_overload,
+)
 from plugin.framework.client import request_controls
+from plugin.framework.send_cancellation import SendCancellation
+
 from plugin.framework.client.request_controls import (
     OPENROUTER_FREE_MIN_GAP_SEC,
     RequestPacer,
     _reserve_host_send_slot,
-    _structured_error_is_overload,
-    _text_is_overload,
     backoff_delay_sec,
     clear_host_gap,
     emit_retry_status,
@@ -26,10 +31,15 @@ from plugin.framework.client.request_controls import (
     reset_local_unverified_hosts_for_tests,
     retry_after_exceeds_cap,
     ssl_mode_for,
-    stream_error_is_overload,
     wait_abortable,
     wait_host_gap,
 )
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
 
 
 def _remaining(key: str, now: Any = None) -> float:
@@ -117,22 +127,25 @@ def test_backoff_over_cap_retry_after_spreads_downward():
 
 def test_wait_abortable_stops_without_sleeping_remainder():
     sleeps: list[float] = []
+    scope = SendCancellation()
     calls = {"n": 0}
 
-    def stop_checker() -> bool:
+    def sleeper(delay: float) -> None:
+        sleeps.append(delay)
         calls["n"] += 1
-        return calls["n"] >= 3
+        if calls["n"] >= 3:
+            scope.cancel()
 
     times = iter([0.0, 0.0, 0.0, 0.0])
     ok = wait_abortable(
         10.0,
-        stop_checker,
-        sleep=sleeps.append,
+        scope,
+        sleep=sleeper,
         monotonic=lambda: next(times),
         chunk_sec=0.05,
     )
     assert ok is False
-    assert sleeps == [0.05]
+    assert sleeps == [0.05, 0.05, 0.05]
 
 
 def test_openrouter_free_pacing_key_covers_suffix_and_auto_router():
@@ -240,7 +253,7 @@ def test_retry_after_exceeds_cap():
 def test_wait_host_gap_stop_rolls_back_reservation():
     remember_host_gap("localhost", 5.0)
     mark_host_sent("localhost", monotonic=lambda: 100.0)
-    assert wait_host_gap("localhost", stop_checker=lambda: True, monotonic=lambda: 100.0) is False
+    assert wait_host_gap("localhost", _cancelled_scope(), monotonic=lambda: 100.0) is False
     assert _reserve_host_send_slot("localhost", monotonic=lambda: 100.0)[0] == 5.0
 
 
@@ -249,7 +262,7 @@ def test_wait_host_gap_stop_does_not_clobber_later_claim():
     mark_host_sent("localhost", monotonic=lambda: 100.0)
     first_wait = _reserve_host_send_slot("localhost", monotonic=lambda: 100.0)[0]
     assert first_wait == 5.0
-    assert wait_host_gap("localhost", stop_checker=lambda: True, monotonic=lambda: 100.0) is False
+    assert wait_host_gap("localhost", _cancelled_scope(), monotonic=lambda: 100.0) is False
     assert _remaining("localhost", lambda: 100.0) == 10.0
 
 
@@ -258,7 +271,7 @@ def test_wait_host_gap_status_callback():
     mark_host_sent(key, monotonic=lambda: 100.0)
     seen: list[str] = []
     # Key has 3s floor, 1s has elapsed, remaining is 2s.
-    wait_host_gap(key, status_callback=seen.append, monotonic=lambda: 101.0, stop_checker=lambda: True)
+    wait_host_gap(key, _cancelled_scope(), status_callback=seen.append, monotonic=lambda: 101.0)
     assert len(seen) == 1
     assert "Spacing free-model requests, next send in 2s…" in seen[0]
 
@@ -266,7 +279,7 @@ def test_wait_host_gap_status_callback():
     remember_host_gap("busy.ai", 10.0)
     mark_host_sent("busy.ai", monotonic=lambda: 100.0)
     seen_busy: list[str] = []
-    wait_host_gap("busy.ai", status_callback=seen_busy.append, monotonic=lambda: 101.0, stop_checker=lambda: True)
+    wait_host_gap("busy.ai", _cancelled_scope(), status_callback=seen_busy.append, monotonic=lambda: 101.0)
     assert len(seen_busy) == 1
     assert "Provider busy, retrying in 9s…" in seen_busy[0]
 
@@ -330,3 +343,16 @@ class TestOverloadDetection:
         assert _structured_error_is_overload({"error": {"code": "rate_limit_exceeded"}}) is True
         assert _structured_error_is_overload({"error": {"code": 400, "message": "limit is 503 tokens"}}) is False
         assert stream_error_is_overload({"error": {"message": "limit is 503 tokens"}}) is False
+
+
+def test_retry_budget_charge_send():
+    from unittest.mock import MagicMock
+
+    from plugin.framework.client.request_controls import RETRY_MAX_ATTEMPTS, RetryBudget
+
+    budget = RetryBudget(MagicMock())
+    assert budget.charge_send(status=True) == 1
+    assert budget.sends_left == RETRY_MAX_ATTEMPTS - 1
+    assert budget.attempt_charged is True
+    assert budget.charge_send(status=False) == 2
+    assert budget.attempt_charged is True

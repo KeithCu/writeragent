@@ -33,23 +33,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterator, TextIO
 
-# Must match plugin.framework.deal_shim.CROSSHAIR_ENV. Do not import deal_shim
-# here — that would bind DEAL_MAX_* before WRITERAGENT_CROSSHAIR is set.
-CROSSHAIR_DEAL_ENV = "WRITERAGENT_CROSSHAIR"
-
-
-def enable_crosshair_deal_table() -> None:
-    """Set ``WRITERAGENT_CROSSHAIR=1`` before CrossHair / pool workers import deal_shim.
-
-    Import-time only: deal_shim binds ``DEAL_MAX_*`` from this env when the module
-    loads. Pytest / make test never call this — they keep the wide table.
-    Check-all and cover-all (including ProcessPoolExecutor workers) call this
-    so fork/spawn both see the short table. ``run_crosshair`` also injects the
-    same key on the CrossHair child env dict (``make crosshair-check`` / cover).
-    """
-    os.environ[CROSSHAIR_DEAL_ENV] = "1"
-
-
 # Bracket inner width for ``[CHECK PROGRESS       ]`` (no Prev). With Prev the
 # inner text is ``CHECK PROGRESS | Prev M:SS`` and is not padded.
 CHECK_TAG_WIDTH = 22
@@ -431,10 +414,10 @@ def find_crosshair() -> str:
     path = shutil.which("crosshair")
     if path:
         return path
-    venv = Path(".venv/bin/crosshair")
-    if venv.exists():
-        return str(venv)
-    raise SystemExit("crosshair not found on PATH or in .venv/bin/")
+    for venv in (Path(".venv/bin/crosshair"), Path(".venv/Scripts/crosshair.exe")):
+        if venv.exists():
+            return str(venv)
+    raise SystemExit("crosshair not found on PATH or in .venv/bin/ or .venv/Scripts/")
 
 
 def discover_deal_plugin_files(plugin_root: Path | None = None) -> list[Path]:
@@ -600,7 +583,7 @@ def run_crosshair(
     first of the sweep includes ``| Prev M:SS`` (wall time since the previous
     emitted tagged line). Cover mode ignores it.
     """
-    crosshair_path = find_crosshair()
+    find_crosshair()
     dest = out if out is not None else sys.stdout
     # Announce before spawn: CrossHair -v often prints "Analyzing …" only after that
     # condition finishes, so a hang otherwise looks like the previous post.
@@ -609,14 +592,16 @@ def run_crosshair(
     clock = prev_clock if mode == "check" else None
     emit_tagged_line(dest, start_tag, target, prev_clock=clock)
     # Piped CrossHair otherwise block-buffers debug(); last flushed line is stale.
-    # Inject on the child env dict (do not require the caller to have set
-    # os.environ). Same short @deal.pre table as check-all / cover-all.
     env = os.environ.copy()
     env["PYTHONUNBUFFERED"] = "1"
-    env[CROSSHAIR_DEAL_ENV] = "1"
     # New session so timeout can killpg CrossHair + solver children together.
+    wrapper_code = (
+        "import sys; sys.argv = sys.argv[1:]; "
+        "import scripts.crosshair_domains as cd; cd.install(); "
+        "import crosshair.main; crosshair.main.main()"
+    )
     proc = subprocess.Popen(
-        [crosshair_path, command, *crosshair_args],
+        [sys.executable, "-c", wrapper_code, "crosshair", command, *crosshair_args],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

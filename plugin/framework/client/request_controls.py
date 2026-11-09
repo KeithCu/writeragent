@@ -3,7 +3,10 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Low-level pacing and retry policy helpers for outbound LLM requests.
+"""Low-level pacing and retry loop for outbound LLM requests.
+
+Unified retry loop (``RetryBudget.run_with_retries``) for exchange and streaming requests,
+with pacing and retry policy helpers.
 
 Concurrency: ``RequestPacer`` (minimum gap between sends) is a field on one
 transport and is not locked. Each ``LlmClient`` has its own transport.
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import datetime
 import email.utils
+import http.client
 import json
 import logging
 import math
@@ -29,8 +33,16 @@ import random
 import re
 import threading
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
+if TYPE_CHECKING:
+    from .http_transport import LlmHttpTransport  # http_transport imports this module at runtime.
+
+from plugin.framework.errors import NetworkError, format_error_message
+from plugin.framework.i18n import _
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+
+from . import http_security
 from .errors import stream_error_message
 from .ssl_helpers import is_certificate_verify_error
 from .provider_detection import is_local_host
@@ -50,6 +62,14 @@ RETRY_MIN_DELAY_SEC = 0.3
 RETRY_MAX_DELAY_SEC = 30.0
 RETRY_WAIT_CHUNK_SEC = 0.05
 RETRY_MAX_ATTEMPTS = 3
+
+CONNECTION_ERRORS = (http.client.HTTPException, OSError)
+
+
+def stopped_error() -> NetworkError:
+    return NetworkError("LLM request aborted by Stop", code="STOPPED")
+
+
 # 529 is Anthropic "overloaded". A 200 SSE body that says overload is
 # already retried; the HTTP status was not, so that path never ran.
 RETRYABLE_HTTP_STATUS = frozenset({429, 503, 529})
@@ -62,10 +82,6 @@ _OVERLOAD_TEXT_MARKERS = ("overload", "rate_limit", "rate limit", "too many requ
 
 # Explicit HTTP status indicator (e.g. "HTTP 429", "status 503", "HTTP status 429", "error code 503").
 # Bare 429 or 503 (such as "limit is 503 tokens" or "4290 tokens") must never match.
-# Bugfix: previously _OVERLOAD_STATUS_RE matched any bare \b(?:429|503)\b, which caused non-overload
-# errors like "limit is 503 tokens" to be wrongly identified as overload and retried until timeout.
-# We fix this by checking structured error codes (including OpenRouter error.code) and explicit
-# HTTP status indicators first, while the text fallback matches only phrases.
 _HTTP_STATUS_OVERLOAD_RE = re.compile(
     r"\b(?:https?|status(?:\s+code)?|http\s+error|error\s+code)\s*(?:is\s*|:\s*)?(?:429|503)\b",
     re.IGNORECASE,
@@ -79,8 +95,6 @@ def _shown_seconds(delay_sec: float) -> int | float:
 def emit_retry_status(status_callback: Callable[[str], None] | None, delay_sec: float) -> None:
     if status_callback is None:
         return
-    from plugin.framework.i18n import _
-
     status_callback(_("Provider busy, retrying in {0}s…").format(_shown_seconds(delay_sec)))
 
 
@@ -131,8 +145,6 @@ def retry_after_exceeds_cap(retry_after_sec: float | None) -> bool:
 
 
 def over_cap_retry_message(provider_message: str, retry_after_sec: float) -> str:
-    from plugin.framework.i18n import _
-
     return provider_message + " " + _("Provider asked to wait {0}s, which is above the {1}s retry cap.").format(_shown_seconds(retry_after_sec), _shown_seconds(RETRY_MAX_DELAY_SEC))
 
 
@@ -160,21 +172,28 @@ def backoff_delay_sec(*, attempt: int = 1, retry_after_sec: float | None = None)
     return min(max(delay_ms / 1000.0, RETRY_MIN_DELAY_SEC), RETRY_MAX_DELAY_SEC)
 
 
-def wait_abortable(delay_sec: float, stop_checker: Callable[[], bool] | None = None, *, sleep: Callable[[float], None] | None = None, monotonic: Callable[[], float] | None = None, chunk_sec: float = RETRY_WAIT_CHUNK_SEC) -> bool:
+def wait_abortable(
+    delay_sec: float,
+    cancel: SendCancellation | None = None,
+    *,
+    sleep: Callable[[float], None] | None = None,
+    monotonic: Callable[[], float] | None = None,
+    chunk_sec: float = RETRY_WAIT_CHUNK_SEC,
+) -> bool:
     """Sleep ``delay_sec`` in small chunks so Stop aborts the wait. False if stopped."""
     sleeper = sleep or time.sleep
     now = monotonic or time.monotonic
-    if stop_checker and stop_checker():
+    if is_cancelled(cancel):
         return False
     if not math.isfinite(delay_sec) or delay_sec <= 0:
-        return not (stop_checker and stop_checker())
+        return not is_cancelled(cancel)
     deadline = now() + delay_sec
     while True:
-        if stop_checker and stop_checker():
+        if is_cancelled(cancel):
             return False
         remaining = deadline - now()
         if remaining <= 0:
-            return not (stop_checker and stop_checker())
+            return not is_cancelled(cancel)
         sleeper(min(chunk_sec, remaining))
 
 
@@ -360,7 +379,13 @@ def _rollback_host_reservation(host: str, reserved_at: float, previous_last: flo
                 _host_last_sent[host] = previous_last
 
 
-def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, *, monotonic: Callable[[], float] | None = None) -> bool:
+def wait_host_gap(
+    host: str,
+    cancel: SendCancellation | None = None,
+    status_callback: Callable[[str], None] | None = None,
+    *,
+    monotonic: Callable[[], float] | None = None,
+) -> bool:
     """Wait out a learned per-host gap. False if Stop fired."""
     remaining, reserved_at, previous_last = _reserve_host_send_slot(host, monotonic=monotonic)
     if remaining <= 0:
@@ -368,27 +393,160 @@ def wait_host_gap(host: str, stop_checker: Callable[[], bool] | None = None, sta
     if status_callback is not None:
         with _host_gap_lock:
             stored_gap = _host_gap_sec.get(host, 0.0)
-        # Bugfix: Previously wait_host_gap unconditionally called emit_retry_status,
-        # showing "Provider busy, retrying in {0}s…" even during initial pre-send pacing
-        # for free-tier models (3s floor on :free keys).
-        # What was wrong: False "Provider busy" warning appeared before any failure occurred.
-        # How it happened: Both rate-limit retries and proactive rate pacing used the same status formatter.
-        # Why this change fixes it: If the pacing key is a :free model and stored gap is <= the free floor,
-        # show a dedicated pacing message; real retry delays (> 3s) still show "Provider busy".
+        # Free-tier model pacing shows dedicated spacing message instead of retry status.
         if host.endswith(":free") and stored_gap <= OPENROUTER_FREE_MIN_GAP_SEC:
             from plugin.framework.i18n import _
 
             status_callback(_("Spacing free-model requests, next send in {0}s…").format(_shown_seconds(remaining)))
         else:
             emit_retry_status(status_callback, remaining)
-    ok = wait_abortable(remaining, stop_checker, monotonic=monotonic)
+    ok = wait_abortable(remaining, cancel, monotonic=monotonic)
     if not ok:
-        # Bugfix: Stop during the wait left last_sent at now + wait, so the next caller
-        # waited an extra gap. _reserve_host_send_slot wrote the future stamp before the sleep;
-        # rollback restores the previous stamp only if nobody else has reserved past it.
+        # Roll back host reservation on abort so subsequent callers do not wait extra gap.
         _rollback_host_reservation(host, reserved_at, previous_last)
         return False
     return True
+
+
+class StreamOverload(Exception):
+    """Mid-stream overload before any token; the retry budget waits and resends."""
+
+
+class RetryBudget:
+    """One retry budget per HTTP request (stream or exchange)."""
+
+    _transport: LlmHttpTransport
+    _cancel: SendCancellation | None
+    _status_callback: Callable[[str], None] | None
+    _on_bad_request: Callable[[bytes], bytes | None] | None
+    sends_left: int
+    emitted_any: bool
+    body_in_hand: bool
+    attempt_charged: bool
+
+    def __init__(
+        self,
+        transport: LlmHttpTransport,
+        *,
+        cancel: SendCancellation | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        on_bad_request: Callable[[bytes], bytes | None] | None = None,
+    ) -> None:
+        self._transport = transport
+        self._cancel = cancel
+        self._status_callback = status_callback
+        self._on_bad_request = on_bad_request
+        self.sends_left = RETRY_MAX_ATTEMPTS
+        self.emitted_any = False
+        self.body_in_hand = False
+        self.attempt_charged = False
+
+    def stopped(self) -> bool:
+        return is_cancelled(self._cancel)
+
+    def clear_pacing_gap_when_unspent(self, model: str | None) -> None:
+        if self.sends_left == RETRY_MAX_ATTEMPTS:
+            clear_host_gap(self._transport.pacing_key_for_model(model))
+
+    def charge_send(self, *, status: bool) -> int:
+        """Consume one send attempt. ``status`` True marks ``attempt_charged`` (HTTP status path)."""
+        self.sends_left -= 1
+        if status:
+            self.attempt_charged = True
+        return RETRY_MAX_ATTEMPTS - self.sends_left
+
+    def rejected_effort(self, exc: BaseException) -> bool:
+        details = getattr(exc, "details", None)
+        return (
+            self._on_bad_request is not None
+            and not self.emitted_any
+            and not self.stopped()
+            and getattr(exc, "code", None) == "HTTP_ERROR"
+            and isinstance(details, dict)
+            and details.get("status") == 400
+            and "effort" in str(exc).lower()
+        )
+
+    def connection_outcome(
+        self,
+        exc: Exception,
+        *,
+        fatal: bool = False,
+        attempt_charged: bool = False,
+        secrets: list[str] | None = None,
+        path: str = "",
+        model: str | None = None,
+        retry_log_message: str = "Retrying HTTP request on a fresh connection",
+        close_on_fatal: bool = False,
+    ) -> None:
+        """Return to retry. Stop raises stopped_error(). Fatal loss raises NetworkError(code='CONNECTION_LOST')."""
+        # stop() closes the socket, so the blocked read raises here.
+        # Looking only at emitted_any reported Stop after the first
+        # token as CONNECTION_LOST. A latched Stop (or cancel scope)
+        # is a user cancel, same as the pre-token path. A real drop
+        # still refuses retry once any token reached the UI.
+        if self.stopped():
+            self._transport.close()
+            raise stopped_error()
+
+        # A retry after tokens already reached the UI would duplicate text,
+        # or after the body is in hand for an exchange.
+        if fatal:
+            if close_on_fatal:
+                self._transport.close()
+            target = http_security.public_target(path)
+            err_msg = http_security.redact_secrets(format_error_message(exc), secrets)
+            raise NetworkError(err_msg, code="CONNECTION_LOST", details={"url": target})
+
+        # handle_http_status reads the error body, and that read can
+        # raise IncompleteRead, a reset, or a timeout. The non-200
+        # branch above already decremented sends_left. Charging
+        # again would consume two of the three attempts for one
+        # failed read, and the last try would never run.
+        if attempt_charged:
+            attempt = RETRY_MAX_ATTEMPTS - self.sends_left
+        else:
+            attempt = self.charge_send(status=False)
+
+        target = http_security.public_target(path)
+        self._transport.handle_connection_error(
+            exc,
+            path=target,
+            retries_left=self.sends_left,
+            retry_log_message=retry_log_message,
+            cancel=self._cancel,
+            status_callback=self._status_callback,
+            attempt=attempt,
+            model=model,
+            secrets=secrets,
+        )
+
+    def run_with_retries(
+        self,
+        body: Any,
+        dispatch: Callable[[Any], tuple[Literal["again", "done"], Any]],
+        on_connection_error: Callable[[Exception], None],
+    ) -> Any:
+        """The single while True retry loop for all outbound HTTP requests."""
+        while True:
+            try:
+                action, value = dispatch(body)
+            except NetworkError as exc:
+                new_body = None
+                if self.rejected_effort(exc):
+                    raw = bytes(body) if isinstance(body, (bytes, bytearray)) else bytes(str(body), "utf-8")
+                    new_body = self._on_bad_request(raw) if self._on_bad_request is not None else None
+                if new_body is not None:
+                    body = new_body
+                    continue
+                raise
+            except CONNECTION_ERRORS as exc:
+                on_connection_error(exc)
+                continue
+            if action == "again":
+                body = value
+                continue
+            return value
 
 
 class RequestPacer:
@@ -431,9 +589,7 @@ def ssl_mode_for(scheme: str, host: str) -> str:
 
     Public HTTPS is always verified. Local HTTPS starts verified and
     switches to unverified only after ``enable_local_unverified`` records a
-    certificate failure (self-signed Ollama/LM Studio). Previously this
-    returned ``unverified`` for every non-local host, which silently
-    disabled TLS checks for OpenAI, Anthropic, OpenRouter, and similar.
+    certificate failure (self-signed Ollama/LM Studio).
     """
     if scheme != "https":
         return "plain"

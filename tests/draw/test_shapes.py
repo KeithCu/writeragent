@@ -10,8 +10,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+
 from plugin.draw.shapes import (
     AlignShapes,
+    ConnectShapes,
     DeleteShape,
     GetDrawSummary,
     GroupShapes,
@@ -115,6 +117,7 @@ def test_shape_upsert_octagon_sets_geometry_before_page_add():
     ):
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
+        bridge.resolve_page.return_value = (page, 0)
         bridge.get_active_page_index.return_value = 0
 
         result = UpsertShape().execute(
@@ -211,6 +214,7 @@ def test_shape_upsert_calc_customshape_reapplies_geometry_after_page_add():
     ):
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
+        bridge.resolve_page.return_value = (page, 0)
         bridge.get_active_page_index.return_value = 0
 
         result = UpsertShape().execute(
@@ -355,7 +359,7 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
         shapes = [MagicMock(), MagicMock()]
         page = MagicMock()
         page.getByIndex.side_effect = lambda i, shapes=shapes: shapes[i]
-        page.getCount.return_value = 1
+        page.getCount.return_value = 2
 
         doc = MagicMock()
         doc.createInstance.side_effect = RuntimeError(
@@ -373,15 +377,17 @@ def test_shape_group_uses_service_manager_not_document_factory() -> None:
         pages = MagicMock()
         pages.getByIndex.return_value = page
 
-        with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+            "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+        ):
             bridge = bridge_cls.return_value
             bridge.get_pages.return_value = pages
             bridge.get_active_page.return_value = page
-            bridge_cls.get_slide_for_tool.return_value = page
+            bridge_cls.return_value.resolve_page.return_value = (page, 0)
             result = cls().execute(tool_ctx, indices=[0, 1])
 
         assert result["status"] == "ok", result
-        assert result["index"] == 0
+        assert result["index"] == page.getCount() - 1
         doc.createInstance.assert_not_called()
         uno_ctx.ServiceManager.createInstanceWithContext.assert_called_once_with(
             "com.sun.star.drawing.ShapeCollection",
@@ -465,6 +471,7 @@ def test_shape_upsert_execute_line_zero_height():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
+        bridge.resolve_page.return_value = (page, 0)
         bridge.get_active_page_index.return_value = 0
         ok = UpsertShape().execute(ctx, action="create", shape_type="line", x=100, y=200, width=4000, height=0)
         rejected = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=200, width=4000, height=0)
@@ -476,33 +483,34 @@ def test_shape_upsert_execute_line_zero_height():
 
 
 class DisposedException(Exception):
-    """Type name matches is_disposed_exception."""
+    """Type name matches is_disposal."""
 
 
 def test_shape_upsert_disposed_page_is_not_invalid_index():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=0)
 
 
 def test_shape_upsert_bad_page_stays_invalid_index():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
-        out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=3)
-    assert out["status"] == "error"
-    assert "Invalid page index" in out["message"]
+        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 3 out of range.")
+        with pytest.raises(ToolExecutionError, match=r"Page index \d+ out of range\."):
+            UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10, page=3)
 
 
 def test_shape_summary_disposed_page_is_not_missing_page():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             GetDrawSummary().execute(ctx, page=0)
 
@@ -511,19 +519,20 @@ def test_align_shapes_disposed_page_is_not_invalid_index():
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = DisposedException("gone")
+        bridge_cls.return_value.resolve_page.side_effect = DisposedException("gone")
         with pytest.raises(DisposedException):
             AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=0)
 
 
 def test_align_shapes_bad_page_stays_invalid_index():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = MagicMock()
     ctx.active_page_index = 0
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getByIndex.side_effect = IndexError("bad")
-        out = AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=9)
-    assert out["status"] == "error"
-    assert "Invalid page index" in out["message"]
+        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 9 out of range.")
+        with pytest.raises(ToolExecutionError, match=r"Page index \d+ out of range\."):
+            AlignShapes().execute(ctx, indices=[0, 1], alignment="left", page=9)
 
 
 def test_shape_upsert_validate_rejects_bad_types_and_enum():
@@ -559,6 +568,7 @@ def test_shape_upsert_creation_failure_keeps_draw_error_code():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
+        bridge.resolve_page.return_value = (page, 0)
         bridge.get_active_page_index.return_value = 0
         out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=0, y=0, width=10, height=10)
     assert out["status"] == "error"
@@ -569,6 +579,7 @@ def test_shape_group_failure_propagates():
     shapes = [MagicMock(), MagicMock()]
     page = MagicMock()
     page.getByIndex.side_effect = lambda i, shapes=shapes: shapes[i]
+    page.getCount.return_value = 2
     page.group.side_effect = RuntimeError("nope")
 
     collection = MagicMock()
@@ -582,11 +593,14 @@ def test_shape_group_failure_propagates():
     pages = MagicMock()
     pages.getByIndex.return_value = page
 
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
+        bridge.resolve_page.return_value = (page, 0)
         bridge.get_active_page.return_value = page
-        bridge_cls.get_slide_for_tool.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(RuntimeError):
             GroupShapes().execute(tool_ctx, indices=[0, 1])
 
@@ -622,6 +636,7 @@ def test_shape_upsert_off_page_adds_warning():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
+        bridge.resolve_page.return_value = (page, 0)
         bridge.get_active_page_index.return_value = 0
 
         # Off-slide position x=30000 on a 28000 slide
@@ -665,6 +680,7 @@ def test_shape_upsert_within_page_has_no_warning():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages
+        bridge.resolve_page.return_value = (page, 0)
         bridge.get_active_page_index.return_value = 0
 
         out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=1000, y=1000, width=2000, height=2000)
@@ -677,13 +693,21 @@ def test_shape_tool_service_lists_and_scoping():
     """Draw, Calc, and Writer shape tools share uno_services and doc_types; bases supply core dependencies."""
     from plugin.calc import shapes as calc_shapes
     from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
-    from plugin.draw.base import ToolDrawShapeBase
     from plugin.draw import shapes as draw_shapes
     from plugin.writer.specialized import shapes as writer_shapes
 
     expected_services = list(SHAPE_TOOL_UNO_SERVICES)
     expected_doc_types = ["writer", "calc", "draw", "impress"]
-    tool_names = ["UpsertShape", "DeleteShape", "GetDrawSummary", "ConnectShapes", "GroupShapes"]
+    tool_names = [
+        "UpsertShape",
+        "DeleteShape",
+        "GetDrawSummary",
+        "ConnectShapes",
+        "GroupShapes",
+        "AlignShapes",
+        "DistributeShapes",
+        "CreateDiagram",
+    ]
 
     for mod in (draw_shapes, calc_shapes, writer_shapes):
         for name in tool_names:
@@ -699,7 +723,7 @@ def test_shape_tool_service_lists_and_scoping():
     for name in tool_names:
         assert getattr(writer_shapes, name).required_core_tools == writer_core
 
-    assert draw_shapes.AlignShapes.uno_services == ToolDrawShapeBase.uno_services
+    assert draw_shapes.AlignShapes.uno_services == expected_services
 
 
 def test_outside_page_zero_width_or_height():
@@ -728,6 +752,7 @@ def test_shape_summary_name():
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = tool.execute(ctx, page=0)
 
     assert out["status"] == "ok"
@@ -749,6 +774,7 @@ def test_upsert_shape_invalid_fill_color_adds_warning():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, \
          patch("plugin.draw.shapes.DrawShapes") as ds_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         ds_cls.return_value.safe_create_shape.return_value = (shape, True, None)
         out = UpsertShape().execute(ctx, action="create", shape_type="rectangle", x=100, y=100, width=100, height=100, fill_color="not_a_color")
 
@@ -781,6 +807,7 @@ def test_create_diagram_returns_layout_str():
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, \
          patch("plugin.draw.shapes.DrawShapes") as ds_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         ds_cls.return_value.safe_create_shape.return_value = (shape, True, None)
         out = tool.execute(ctx, nodes=[{"id": "a", "text": "A"}], layout="horizontal_flow")
 
@@ -801,6 +828,7 @@ def test_upsert_shape_edit_text_only_does_not_set_text_fit_to_size():
 
     with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
         bridge_cls.return_value.get_pages.return_value.getByIndex.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = UpsertShape().execute(ctx, action="edit", index=0, text="New text")
 
     assert out["status"] == "ok"
@@ -827,6 +855,95 @@ def test_apply_shape_properties_non_disposal_still_warns():
     shape = MagicMock()
     shape.setString.side_effect = RuntimeError("boom")
     assert _apply_shape_properties(shape, {"text": "x"}) == ["text"]
+
+
+def test_apply_shape_properties_former_failed_prop_arms() -> None:
+    fill_style = MagicMock()
+    fill_style.NONE = "NONE"
+    fill_style.SOLID = "SOLID"
+    line_style = MagicMock()
+    line_style.SOLID = "SOLID"
+    drawing_mod = MagicMock()
+    drawing_mod.FillStyle = fill_style
+    drawing_mod.LineStyle = line_style
+    modules = {
+        "com.sun.star.drawing": drawing_mod,
+        "com.sun.star": MagicMock(drawing=drawing_mod),
+    }
+
+    shape = MagicMock()
+    shape.setString.side_effect = RuntimeError("text fail")
+    assert _apply_shape_properties(shape, {"text": "x"}) == ["text"]
+
+    shape = MagicMock()
+    shape.setString.side_effect = DisposedException("gone")
+    with pytest.raises(DisposedException):
+        _apply_shape_properties(shape, {"text": "x"})
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.LineStyle = True
+    shape.setPropertyValue.side_effect = RuntimeError("fill none fail")
+    with patch.dict("sys.modules", modules):
+        assert _apply_shape_properties(shape, {"fill_color": "none"}) == ["fill_color"]
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.setPropertyValue.side_effect = DisposedException("gone")
+    with patch.dict("sys.modules", modules):
+        with pytest.raises(DisposedException):
+            _apply_shape_properties(shape, {"fill_color": "none"})
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.setPropertyValue.side_effect = RuntimeError("solid fail")
+    with patch.dict("sys.modules", modules):
+        assert _apply_shape_properties(shape, {"fill_style": "solid"}) == ["fill_style"]
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    shape.setPropertyValue.side_effect = DisposedException("gone")
+    with patch.dict("sys.modules", modules):
+        with pytest.raises(DisposedException):
+            _apply_shape_properties(shape, {"fill_style": "solid"})
+
+    shape = MagicMock()
+    shape.FillStyle = True
+    with patch.dict("sys.modules", modules):
+        assert _apply_shape_properties(shape, {"fill_style": "gradient"}) == []
+
+    shape = MagicMock()
+    shape.LineStyle = True
+
+    def line_set(name: str, value: object) -> None:
+        if name == "LineStyle":
+            raise RuntimeError("line style fail")
+
+    shape.setPropertyValue.side_effect = line_set
+    with patch.dict("sys.modules", modules):
+        failed = _apply_shape_properties(shape, {"line_color": "#000000"})
+    assert failed == ["line_style"]
+    assert "line_color" not in failed
+
+    shape = MagicMock()
+    shape.LineStyle = True
+    shape.setPropertyValue.side_effect = DisposedException("gone")
+    with patch.dict("sys.modules", modules):
+        with pytest.raises(DisposedException):
+            _apply_shape_properties(shape, {"line_color": "#000000"})
+
+    shape = MagicMock()
+    with patch("plugin.draw.shapes.apply_character_properties", return_value={"CharHeight": False}):
+        assert _apply_shape_properties(shape, {"font_size": 12}) == ["CharHeight"]
+
+    shape = MagicMock()
+    with patch("plugin.draw.shapes.apply_character_properties", side_effect=RuntimeError("chars fail")):
+        assert _apply_shape_properties(shape, {"font_size": 12}) == ["text_properties"]
+
+    shape = MagicMock()
+    with patch("plugin.draw.shapes.apply_character_properties", side_effect=DisposedException("gone")):
+        with pytest.raises(DisposedException):
+            _apply_shape_properties(shape, {"font_size": 12})
 
 
 def test_clamp_shape_text_autogrow_disposal_propagates():
@@ -895,7 +1012,8 @@ def test_draw_summary_nested_group_shapes():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
-    with patch("plugin.draw.bridge.resolve_shape_page", return_value=(page, 0, None)):
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         res = GetDrawSummary().execute(ctx, page=0)
 
     assert res["status"] == "ok"
@@ -948,7 +1066,8 @@ def test_upsert_shape_edit_nested_group_child():
 
     ctx = MagicMock()
     ctx.doc = MagicMock()
-    with patch("plugin.draw.bridge.resolve_shape_page", return_value=(page, 0, None)):
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         result = UpsertShape().execute(ctx, action="edit", index="1.1.0", text="star")
 
     assert result["status"] == "ok"
@@ -975,7 +1094,8 @@ def test_delete_shape_group_child_and_page_shape():
     ctx = MagicMock()
     ctx.doc = MagicMock()
 
-    with patch("plugin.draw.shapes._resolve_mutation_page", return_value=(page, None)):
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         # Delete of "1.0" calls group.remove(child) and not page.remove
         res_child = DeleteShape().execute(ctx, index="1.0")
         assert res_child["status"] == "ok"
@@ -986,3 +1106,140 @@ def test_delete_shape_group_child_and_page_shape():
         res_page = DeleteShape().execute(ctx, index=0)
         assert res_page["status"] == "ok"
         page.remove.assert_called_once_with(rect)
+
+
+def test_shape_delete_by_name_and_index_wins():
+    named = MagicMock()
+    named.Name = "Target"
+    named.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.getByIndex.return_value = named
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = DeleteShape().execute(ctx, index=0, name="Target")
+    assert out["status"] == "ok"
+    page.remove.assert_called_once_with(named)
+
+
+def test_shape_delete_unknown_name_hint():
+    page = MagicMock()
+    page.getCount.return_value = 0
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        with patch("plugin.draw.shapes._page_shape_names", return_value=["Title", "Titl"]):
+            out = DeleteShape().execute(ctx, name="Titel")
+    assert out["status"] == "error"
+    assert out["details"]["available"] == ["Title", "Titl"]
+    assert "details.available" in out["details"]["hint"]
+    assert "Titl" in out["details"]["similar"]
+
+
+def test_shape_connect_group_align_distribute_by_name():
+    left = MagicMock()
+    left.Name = "Left"
+    left.getPosition.return_value = MagicMock(X=0, Y=0)
+    left.getSize.return_value = MagicMock(Width=100, Height=100)
+    left.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    right = MagicMock()
+    right.Name = "Right"
+    right.getPosition.return_value = MagicMock(X=500, Y=0)
+    right.getSize.return_value = MagicMock(Width=100, Height=100)
+    right.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: left if i == 0 else right
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    ctx.active_page_index = 0
+
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.draw.shapes.DrawShapes.safe_create_shape",
+        return_value=(MagicMock(), None, None),
+    ), patch("plugin.draw.shapes._apply_shape_properties", return_value=[]), patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        conn = ConnectShapes().execute(ctx, start="Left", end="Right")
+        assert conn["status"] == "ok"
+
+        page.group.reset_mock()
+        group_out = GroupShapes().execute(ctx, indices=["Left", "Right"])
+        assert group_out["status"] == "ok"
+        page.group.assert_called_once()
+
+        align_out = AlignShapes().execute(ctx, indices=["Left", "Right"], alignment="left")
+        assert align_out["status"] == "ok"
+        assert align_out["indices"] == [0, 1]
+
+
+def test_shape_group_nested_ref_does_not_group():
+    child = MagicMock()
+    child.Name = "Inner"
+    child.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+
+    group = MagicMock()
+    group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    group.getCount.return_value = 1
+    group.getByIndex.return_value = child
+
+    top = MagicMock()
+    top.Name = "Top"
+    top.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: top if i == 0 else group
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = GroupShapes().execute(ctx, indices=["1.0", "Top"])
+    assert out["status"] == "error"
+    page.group.assert_not_called()
+
+
+def test_shape_group_rejects_duplicate_indices():
+    left = MagicMock()
+    left.getShapeType.return_value = "com.sun.star.drawing.RectangleShape"
+    page = MagicMock()
+    page.getCount.return_value = 1
+    page.getByIndex.return_value = left
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.ctx = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.framework.uno_context.uno_same", side_effect=lambda a, b: a is b
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = GroupShapes().execute(ctx, indices=[0, 0])
+    assert out["status"] == "error"
+    page.group.assert_not_called()
+
+
+def test_digit_string_ref_is_index():
+    page = MagicMock()
+    shape = MagicMock()
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls, patch(
+        "plugin.draw.tree.find_shape_on_page", return_value=(2, shape, page, None)
+    ) as mock_find:
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        DeleteShape().execute(ctx, index="2")
+        mock_find.assert_called_once()
+        assert mock_find.call_args.kwargs["index"] == "2"
+        assert mock_find.call_args.kwargs.get("name") is None

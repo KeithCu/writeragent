@@ -9,13 +9,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from plugin.framework.tool import ToolBaseDummy
-from plugin.scripting.optimize import HELPER_NAMES, HELPER_PARAM_HELP, insert_optimize_result_into_calc, run_trusted_optimize
+from plugin.scripting.helper_domain import run_domain
+from plugin.scripting.helper_registry import names, specs
+from plugin.scripting.optimize import insert_optimize_result_into_calc
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-_OPTIMIZE_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
-_PARAM_TEXT = " ".join(f"{name}: {HELPER_PARAM_HELP[name]}" for name in sorted(HELPER_PARAM_HELP))
+_OPTIMIZE_SPECS = specs("optimize")
+_OPTIMIZE_DATA_HELPERS = ", ".join(sorted(names("optimize")))
+_PARAM_TEXT = " ".join(f"{s.name}: {s.param_help}" for s in sorted(_OPTIMIZE_SPECS, key=lambda s: s.name) if s.param_help)
 
 
 class OptimizeDataTool(ToolBaseDummy):
@@ -55,11 +58,11 @@ class OptimizeDataTool(ToolBaseDummy):
         if getattr(ctx, "active_domain", None) in ("analysis", "optimize") and data is not None:
             return self._tool_error("analysis/optimize domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
-        # Call run_trusted_optimize on this worker. It both reads the sheet
-        # and blocks in the optimize client, so execute_on_main_thread would
+        # Call run_domain on this worker. It both reads the sheet
+        # and blocks in the optimize client, so main.call would
         # put that IPC on the UI thread and freeze Calc. The helper marshals
         # only the UNO read; the sheet write below stays on the main thread.
-        result = run_trusted_optimize(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
+        result = run_domain("optimize", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
 
         if output_range and result.get("status") == "ok":
             result = write_anchor_result(ctx, result, output_range, insert_optimize_result_into_calc)

@@ -38,14 +38,12 @@ def schedule_periodic_embeddings_indexer_once(ctx: Any) -> None:
 def _embeddings_periodic_tick(ctx: Any) -> None:
     from plugin.embeddings.embeddings_indexer import enqueue_folder_index
     from plugin.framework.uno_context import get_active_document
-    from plugin.main import get_services
 
     model = get_active_document(ctx)
     if model is None:
         return
     try:
-        services = get_services()
-        enqueue_folder_index(ctx, services, model)
+        enqueue_folder_index(ctx, model)
     except Exception:
         log.exception("embeddings periodic indexer tick failed")
 
@@ -54,7 +52,7 @@ def _embeddings_periodic_tick(ctx: Any) -> None:
 def run_periodic_embeddings_indexer(ctx: Any) -> None:
     """Daemon loop: enqueue incremental folder index for the active document folder."""
     from plugin.framework.constants import EMBEDDINGS_INDEX_INTERVAL_S, folder_search_enabled
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
 
     log.info("embeddings periodic indexer: started (interval=%ss)", EMBEDDINGS_INDEX_INTERVAL_S)
     while True:
@@ -62,6 +60,6 @@ def run_periodic_embeddings_indexer(ctx: Any) -> None:
         if not folder_search_enabled():
             continue
         try:
-            execute_on_main_thread(lambda: _embeddings_periodic_tick(ctx))
+            main.call(lambda: _embeddings_periodic_tick(ctx))
         except Exception:
-            log.exception("embeddings periodic indexer failed to execute on main thread")
+            log.exception("embeddings periodic indexer failed to call on main thread")

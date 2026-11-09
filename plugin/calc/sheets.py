@@ -26,7 +26,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
 from plugin.framework.tool import ToolBase
 
@@ -37,7 +37,7 @@ from plugin.calc.base import ToolCalcSheetBase
 from plugin.calc.bridge import CalcBridge, filter_agent_sheet_names, is_agent_visible_sheet
 from plugin.calc.analyzer import SheetAnalyzer
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _INVALID_SHEET_CHARS = set("[]*?:/\\")
 
@@ -69,22 +69,35 @@ def _sheet_name_error(doc: Any, name: Any, *, exclude: str | None = None) -> str
 class ListSheets(ToolCalcSheetBase):
     """List all sheet names in the workbook."""
 
-    name: str | None = "list_sheets"
-    description: str = "Lists user-visible sheet names in the workbook (omits LibreOffice internal tabs)."
+    name: str | None = "sheet_list"
+    description: str = (
+        "Lists user-visible sheets (omits leading-`_` internal tabs). "
+        "Each entry is {name, protected, visible}."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}}
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
-        sheet_names = filter_agent_sheet_names(doc.getSheets().getElementNames())
-        log.info("Sheets listed: %s", sheet_names)
-        return {"status": "ok", "result": sheet_names}
+        sheets = doc.getSheets()
+        entries: list[dict[str, Any]] = []
+        for name in filter_agent_sheet_names(sheets.getElementNames()):
+            sheet = sheets.getByName(name)
+            entries.append(
+                {
+                    "name": name,
+                    "protected": bool(sheet.isProtected()),
+                    "visible": bool(sheet.getPropertyValue("IsVisible")),
+                }
+            )
+        log.info("Sheets listed: %s", [entry["name"] for entry in entries])
+        return {"status": "ok", "result": entries}
 
 
 class SwitchSheet(ToolCalcSheetBase):
     """Switch to a specified sheet."""
 
-    name: str | None = "switch_sheet"
+    name: str | None = "sheet_switch"
     description: str = "Switches to the specified sheet (makes it active)."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to switch to"}}, "required": ["sheet"]}
     is_mutation: bool | None = True
@@ -103,8 +116,8 @@ class SwitchSheet(ToolCalcSheetBase):
 class CreateSheet(ToolCalcSheetBase):
     """Create a new sheet."""
 
-    name: str | None = "create_sheet"
-    description: str = "Creates a new empty sheet (tab exists; no cells copied). create_sheet is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet."
+    name: str | None = "sheet_create"
+    description: str = "Creates a new empty sheet (tab exists; no cells copied). sheet_create is not Sample/deliverable populate — after create, write_formula_range with source to copy a block onto the new sheet."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"sheet": {"type": "string", "description": ("Exact new sheet title from the request; preserve spaces (do not snake_case or invent aliases).")}, "position": {"type": "integer", "description": "Sheet position (0-based). Appended to end if not specified."}},
@@ -144,7 +157,7 @@ class CreateSheet(ToolCalcSheetBase):
 class RenameSheet(ToolCalcSheetBase):
     """Rename an existing sheet."""
 
-    name: str | None = "rename_sheet"
+    name: str | None = "sheet_rename"
     description: str = "Renames an existing sheet."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"old_name": {"type": "string", "description": "Current name of the sheet"}, "new_name": {"type": "string", "description": "New name for the sheet"}}, "required": ["old_name", "new_name"]}
     is_mutation: bool | None = True
@@ -171,7 +184,7 @@ class RenameSheet(ToolCalcSheetBase):
 class DeleteSheet(ToolCalcSheetBase):
     """Delete an existing sheet."""
 
-    name: str | None = "delete_sheet"
+    name: str | None = "sheet_delete"
     description: str = "Deletes an existing sheet by name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Name of the sheet to delete"}}, "required": ["sheet"]}
     is_mutation: bool | None = True
@@ -195,7 +208,7 @@ class DeleteSheet(ToolCalcSheetBase):
 class ProtectSheet(ToolCalcSheetBase):
     """Protect or unprotect a sheet."""
 
-    name: str | None = "protect_sheet"
+    name: str | None = "sheet_protect"
     description: str = "Protects or unprotects a sheet. When protected, cells cannot be edited unless they are explicitly unlocked."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "Sheet name (active sheet if empty)"}, "protect": {"type": "boolean", "description": "True to protect, False to unprotect (default: True)"}}, "required": []}
     is_mutation: bool | None = True
@@ -223,7 +236,7 @@ class ProtectSheet(ToolCalcSheetBase):
             else:
                 sheet.unprotect("")
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             if should_protect:
                 return self._tool_error(f"Could not protect sheet '{actual_name}': {e}")
@@ -236,6 +249,127 @@ class ProtectSheet(ToolCalcSheetBase):
 
         log.info("%s", msg)
         return {"status": "ok", "message": msg}
+
+
+class SheetCopy(ToolCalcSheetBase):
+    """Copy a sheet to a new tab."""
+
+    name: str | None = "sheet_copy"
+    description: str = "Copies an existing sheet to a new tab (cells included; does not activate the copy)."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "source": {"type": "string", "description": "Name of the sheet to copy."},
+            "new_name": {"type": "string", "description": "Name for the new sheet tab."},
+            "position": {"type": "integer", "description": "0-based index for the copy (appended if omitted)."},
+        },
+        "required": ["source", "new_name"],
+    }
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        source = kwargs["source"]
+        new_name = kwargs["new_name"]
+        position = kwargs.get("position")
+
+        doc = ctx.doc
+        CalcBridge(doc).get_sheet(source)
+        if not is_agent_visible_sheet(source):
+            return self._tool_error(f"Cannot copy internal sheet '{source}'.")
+        err = _sheet_name_error(doc, new_name)
+        if err:
+            return self._tool_error(err)
+
+        sheets = doc.getSheets()
+        count = sheets.getCount()
+        if position is None:
+            position = count
+        elif not isinstance(position, int) or isinstance(position, bool) or position < 0 or position > count:
+            return self._tool_error(f"Position {position} is out of range (0..{count}).")
+
+        sheets.copyByName(source, new_name, position)
+        log.info("Sheet copied from '%s' to '%s' at position %d.", source, new_name, position)
+        return {"status": "ok", "message": f"Sheet '{source}' copied to '{new_name}'."}
+
+
+class SheetMove(ToolCalcSheetBase):
+    """Move a sheet to a new position."""
+
+    name: str | None = "sheet_move"
+    description: str = "Moves a sheet to a new 0-based index in the workbook."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "sheet": {"type": "string", "description": "Name of the sheet to move."},
+            "position": {"type": "integer", "description": "New 0-based index (0..sheet count minus 1)."},
+        },
+        "required": ["sheet", "position"],
+    }
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        sheet_name = kwargs["sheet"]
+        position = kwargs["position"]
+
+        if not isinstance(position, int) or isinstance(position, bool):
+            return self._tool_error("position must be an integer.")
+
+        doc = ctx.doc
+        CalcBridge(doc).get_sheet(sheet_name)
+        if not is_agent_visible_sheet(sheet_name):
+            return self._tool_error(f"Cannot move internal sheet '{sheet_name}'.")
+
+        sheets = doc.getSheets()
+        count = sheets.getCount()
+        if position < 0 or position >= count:
+            return self._tool_error(f"Position {position} is out of range (0..{count - 1}).")
+
+        sheets.moveByName(sheet_name, position)
+        log.info("Sheet '%s' moved to position %d.", sheet_name, position)
+        return {"status": "ok", "message": f"Sheet '{sheet_name}' moved to position {position}."}
+
+
+class SheetHide(ToolCalcSheetBase):
+    """Hide or show a sheet tab."""
+
+    name: str | None = "sheet_hide"
+    description: str = "Hides or shows a sheet tab (visible=false hides; default hides)."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "sheet": {"type": "string", "description": "Name of the sheet."},
+            "visible": {"type": "boolean", "description": "True to show the tab; false to hide (default: false)."},
+        },
+        "required": ["sheet"],
+    }
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        sheet_name = kwargs["sheet"]
+        visible = kwargs.get("visible", False)
+        if not isinstance(visible, bool):
+            return self._tool_error("visible must be a boolean.")
+
+        doc = ctx.doc
+        bridge = CalcBridge(doc)
+        sheet = bridge.get_sheet(sheet_name)
+        if not is_agent_visible_sheet(sheet_name):
+            return self._tool_error(f"Cannot hide internal sheet '{sheet_name}'.")
+
+        if not visible:
+            sheets = doc.getSheets()
+            visible_count = sum(
+                1
+                for name in sheets.getElementNames()
+                if sheets.getByName(name).getPropertyValue("IsVisible")
+            )
+            if sheet.getPropertyValue("IsVisible") and visible_count <= 1:
+                return self._tool_error("Cannot hide the only visible sheet in the document.")
+
+        sheet.setPropertyValue("IsVisible", visible)
+        state = "visible" if visible else "hidden"
+        log.info("Sheet '%s' is now %s.", sheet_name, state)
+        return {"status": "ok", "message": f"Sheet '{sheet_name}' is now {state}."}
 
 
 class GetSheetSummary(ToolBase):

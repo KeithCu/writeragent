@@ -33,14 +33,14 @@ def apply_auto_plot_result(
     """Attach plot result, run main-thread image insert, and record image_inserted or plot_error."""
     if plot_result is None:
         return result
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
     from plugin.scripting.viz import insert_viz_result_into_doc
 
     out = dict(result)
     out["plot"] = plot_result
     if plot_result.get("status") == "ok":
         try:
-            execute_on_main_thread(lambda: insert_viz_result_into_doc(uno_ctx, doc, plot_result))
+            main.call(lambda: insert_viz_result_into_doc(uno_ctx, doc, plot_result))
             out["image_inserted"] = True
         except Exception as exc:
             # Propagate document disposal; ordinary insertion errors are recorded on the result.
@@ -87,6 +87,6 @@ def run_auto_plot_after_analysis(uno_ctx: Any, doc: Any, *, analysis_helper: str
     if request is None:
         return None
     viz_helper, viz_params = request
-    from plugin.scripting.viz import run_trusted_viz
+    from plugin.scripting.helper_domain import run_domain
 
-    return run_trusted_viz(uno_ctx, doc, helper=viz_helper, params=viz_params, data_range=data_range, task_hint=task_hint)
+    return run_domain("viz", uno_ctx, doc, helper=viz_helper, params=viz_params, data_range=data_range, task_hint=task_hint)

@@ -183,7 +183,7 @@ Call chain:
 
 `PythonFunction.python()` → `execute_python_addin` → `calc_addin_data` / `payload_codec` → `run_code_in_user_venv` → `PythonWorkerManager` → `venv/worker_harness` → `venv/venv_sandbox` → `LocalPythonExecutor`
 
-Error display: `function.py` uses `framework.errors.format_error_payload` plus a local `_format_error_for_display` so `=PY()` does **not** import `plugin.framework.client` (package init is now lazy HTTP/errors only, but the add-in still stays off that package).
+Error display: `addin_values.py` uses `framework.errors.format_error_payload` plus a local `_format_error_for_display` so `=PY()` does **not** import `plugin.framework.client` (package init is now lazy HTTP/errors only, but the add-in still stays off that package).
 
 Config: `get_config_str("scripting.python_venv_path")`, session mode, timeout, auto-spill.
 
@@ -191,8 +191,8 @@ This closure **does not** call the LLM, chat panel, or MCP.
 
 ### 2. As-shipped module closure — WriterAgent (split complete)
 
-- **`=PY()` (WriterAgent):** register [`addin.py`](../../plugin/calc/python/addin.py) → [`function.py`](../../plugin/calc/python/function.py) (no `LlmClient`).
-- **`=PY()` (LibrePy):** register [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) → same `function.py`.
+- **`=PY()` (WriterAgent):** register [`addin.py`](../../plugin/calc/python/addin.py) → [`function.py`](../../plugin/calc/python/function.py) and related spill/value modules (no `LlmClient`).
+- **`=PY()` (LibrePy):** register [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) → same `function.py` / `spill.py` modules.
 - **`=PROMPT()`:** register [`prompt_addin.py`](../../plugin/calc/prompt_addin.py) → loads [`prompt_function.py`](../../plugin/calc/prompt_function.py) (LLM stack). WriterAgent only.
 
 A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [Recommended refactors](#recommended-refactors-for-libreoffice-maintainers).
@@ -208,8 +208,8 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/framework/config.py`](../../plugin/framework/config.py) | Config path, cache, JSON I/O, typed getters |
 | [`plugin/framework/config_schema.py`](../../plugin/framework/config_schema.py) | `WriterAgentConfig`, `MODULES`, coerce/clamp/defaults (no disk I/O). Imports `MODULES` from `_manifest` and binds `CONFIG_DEFAULTS` via `set_manifest_modules` at import. Import schema names from here. |
 | [`plugin/framework/constants.py`](../../plugin/framework/constants.py) | `get_plugin_dir`, `AUTO_IMPORTS`, worker pool ids |
-| [`plugin/framework/errors.py`](../../plugin/framework/errors.py) | `format_error_payload`, `ConfigError`, `safe_call` |
-| [`plugin/framework/json_utils.py`](../../plugin/framework/json_utils.py) | `safe_json_loads` (via `client/errors.py`) |
+| [`plugin/framework/errors.py`](../../plugin/framework/errors.py) | `format_error_payload`, `ConfigError`, `uno_call` |
+| [`plugin/framework/json_utils.py`](../../plugin/framework/json_utils.py) | `safe_json_loads` |
 | [`plugin/framework/i18n.py`](../../plugin/framework/i18n.py) | `_()` for translated errors |
 | [`plugin/framework/event_bus.py`](../../plugin/framework/event_bus.py) | `get_event_bus()` — imported by `config.py` |
 | [`plugin/framework/service.py`](../../plugin/framework/service.py) | `ServiceBase` — imported by `event_bus.py` |
@@ -229,7 +229,10 @@ A core OXT must **not** register `prompt_addin.py` / `prompt_function.py`. See [
 | [`plugin/calc/python/addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) | LibrePy UNO add-in: `python()` (registers as `org.extension.writeragent.PythonFunction`) |
 | [`plugin/calc/python/addin_impl.py`](../../plugin/calc/python/addin_impl.py) | Shared `PythonFunction` class (WriterAgent `addin.py` and LibrePy both register it) |
 | [`plugin/calc/python/addin.py`](../../plugin/calc/python/addin.py) | **WriterAgent only** — same add-in for the full OXT |
-| [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `execute_python_addin`, matrix session, spill, `finalize_python_return` |
+| [`plugin/calc/python/function.py`](../../plugin/calc/python/function.py) | `execute_python_addin`, matrix session, `finalize_python_return` |
+| [`plugin/calc/python/spill.py`](../../plugin/calc/python/spill.py) | Spill registry, orphan cleanup, deferred spill |
+| [`plugin/calc/python/addin_values.py`](../../plugin/calc/python/addin_values.py) | Value coercion, type conversion |
+| [`plugin/calc/python/undo.py`](../../plugin/calc/python/undo.py) | Undo lock management |
 | [`plugin/calc/addin_common.py`](../../plugin/calc/addin_common.py) | Shared add-in helpers |
 | [`plugin/calc/calc_addin_data.py`](../../plugin/calc/calc_addin_data.py) | Range → `data`, size limits, wire packing; `_resolve_python_data` for Run Python Script / trusted helpers |
 | [`plugin/calc/__init__.py`](../../plugin/calc/__init__.py) | Package (`CalcError`) |
@@ -341,7 +344,7 @@ flowchart LR
 
 | App | Insertion | Result shaping |
 |-----|-----------|----------------|
-| **Writer** | HTML at **selection** via [`insert_content_at_position`](../../plugin/writer/format.py) | [`format_result_for_writer`](../../plugin/scripting/python_runner.py) — lists → tables, dicts → sections |
+| **Writer** | HTML at **selection** via [`insert_content_at_position`](../../plugin/writer/html_import.py) | [`format_result_for_writer`](../../plugin/scripting/python_runner.py) — lists → tables, dicts → sections |
 | **Calc** | Values from **active selection** via [`insert_result_into_calc`](../../plugin/scripting/python_runner.py) | Dict title/summary + tables; 1D/2D lists via `write_formula_range` |
 | **Draw/Impress** | None (message box) | — |
 
@@ -364,8 +367,7 @@ Config keys: `last_python_script_name_writer`, `last_python_script_name_calc`, `
 | [`plugin/doc/text_helpers.py`](../../plugin/doc/text_helpers.py) | Linebreaks, tracked-deletion reads, heading tree, document path |
 | [`plugin/doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Graphic export for Vision egress |
 | [`plugin/doc/compound_undo.py`](../../plugin/doc/compound_undo.py) | `WriterCompoundUndo` context manager |
-| [`plugin/writer/format.py`](../../plugin/writer/format.py) | HTML insert facade, mixed math segments |
-| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | HTML import, replace. `review_authors` is `ImportError`-guarded (LibrePy applies HTML without split-author coloring) |
+| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | HTML import, replace, `insert_content_at_position`, `run_writer_mutation_with_optional_review`. `review_authors` is `ImportError`-guarded (LibrePy applies HTML without split-author coloring) |
 | [`plugin/writer/xhtml_style_postprocess.py`](../../plugin/writer/xhtml_style_postprocess.py) | HTML post-process |
 | [`plugin/calc/bridge.py`](../../plugin/calc/bridge.py) | Active sheet / document access |
 | [`plugin/calc/address_utils.py`](../../plugin/calc/address_utils.py) | `index_to_column` for anchor cell |
@@ -522,7 +524,7 @@ flowchart TB
 
 ### Done — do not re-propose
 
-1. **Split the add-in** — [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) / [`function.py`](../../plugin/calc/python/function.py) have zero `llm_client` imports. `=PY()` uses a local error formatter.
+1. **Split the add-in** — [`addin_librepy.py`](../../plugin/calc/python/addin_librepy.py) / [`function.py`](../../plugin/calc/python/function.py) and helpers have zero `llm_client` imports. `=PY()` uses a local error formatter.
 2. **Narrow IDL** — core RDB is [`extension-core/idl/XPythonFunction.idl`](../extension-core/idl/XPythonFunction.idl) only (no Prompt).
 3. **Separate extension id** — `org.extension.librepy` in [`extension-core/`](../extension-core/). Add-in implementation name stays `org.extension.writeragent.PythonFunction` so `=PY()` formulas stay portable.
 4. **`doc_type.py` / `udprops.py` / `text_helpers.py` / `compound_undo.py`** — type detection, document properties, Writer text/path helpers, and compound undo context manager. `document_helpers.py` is WriterAgent-only and **must not re-export** those names.
@@ -543,7 +545,7 @@ flowchart TB
 - WriterAgent `description.xml` dependency on `org.extension.librepy`.
 - Dual-install: one `=PY()` add-in, chat tools import the core worker.
 
-Allowlist source of truth: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py). [`tests/scripts/test_librepy_import_graph.py`](../../tests/scripts/test_librepy_import_graph.py) checks that top-level `plugin.*` imports of shipped modules resolve to allowlisted files, and that loading editor / function / sidebar / settings / python_runner does not import WriterAgent-only modules. Skip generated `plugin._manifest`, the build-replaced `contrib/smolagents/__init__.py` stub, and optional `ImportError` imports (Cython `vec_pack.pack`). Do **not** ship [`plugin/writer/__init__.py`](../../plugin/writer/__init__.py) (it registers chat tools); [`rich_html.py`](../../plugin/calc/rich_html.py) imports `plugin.writer.format` directly.
+Allowlist source of truth: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py). [`tests/scripts/test_librepy_import_graph.py`](../../tests/scripts/test_librepy_import_graph.py) checks that top-level `plugin.*` imports of shipped modules resolve to allowlisted files, and that loading editor / function / sidebar / settings / python_runner does not import WriterAgent-only modules. Skip generated `plugin._manifest`, the build-replaced `contrib/smolagents/__init__.py` stub, and optional `ImportError` imports (Cython `vec_pack.pack`). Do **not** ship [`plugin/writer/__init__.py`](../../plugin/writer/__init__.py) (it registers chat tools); [`rich_html.py`](../../plugin/calc/rich_html.py) imports `plugin.writer.html_import` directly.
 
 ---
 
@@ -690,7 +692,7 @@ Registered as `org.extension.librepy.Main` in [`extension-core/Jobs.xcu`](../ext
 
 **Recommended:** keep **`writeragent.json`** for both extensions ([`CONFIG_FILENAME`](../../plugin/framework/config.py)) so venv path, session mode, and timeouts are shared. Core owns **Python Settings** ([`plugin/librepy/settings.py`](../../plugin/librepy/settings.py): Python tab only; General/Image tabs hidden); WriterAgent Settings focus on LLM / AI keys.
 
-Shared Settings helpers (both OXTs): [`plugin/scripting/venv_probe_ui.py`](../../plugin/scripting/venv_probe_ui.py) (venv Test / download progress modal) and [`plugin/chatbot/settings_fields.py`](../../plugin/chatbot/settings_fields.py) (module.yaml field-spec build/apply). LibrePy keeps Python-only chrome and Cython-only download local; list new shared files in [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py). The Cython download probe calls `run_vec_pack_download` and then `execute_on_main_thread` runs `ensure_native_binaries_on_path` plus `invalidate_host_cython_accelerator` (the worker must not mutate `sys.path` or accelerator globals). WriterAgent Settings → Python audio download (`DownloadAudioListener` in `plugin/chatbot/dialog_views.py`) calls `run_audio_download` and uses that same main-thread bind. `open_librepy_settings` disposes the dialog if chrome or populate raises, the same try/finally as chat `SettingsDialog.show`. Progress UI parents with createPeer before execute(), download probes pass append_log=True so each on_display line accumulates, opening and result titles are N_() msgids translated once in the dialog, and Close stays disabled until the probe finishes.
+Shared Settings helpers (both OXTs): [`plugin/scripting/venv_probe_ui.py`](../../plugin/scripting/venv_probe_ui.py) (venv Test / download progress modal) and [`plugin/chatbot/settings_fields.py`](../../plugin/chatbot/settings_fields.py) (module.yaml field-spec build/apply). LibrePy keeps Python-only chrome and Cython-only download local; list new shared files in [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_paths.py). The Cython download probe calls `run_vec_pack_download` and then `main.call` runs `ensure_native_binaries_on_path` plus `invalidate_host_cython_accelerator` (the worker must not mutate `sys.path` or accelerator globals). WriterAgent Settings → Python audio download (`DownloadAudioListener` in `plugin/chatbot/dialog_views.py`) calls `run_audio_download` and uses that same main-thread bind. `open_librepy_settings` disposes the dialog if chrome or populate raises, the same try/finally as chat `SettingsDialog.show`. Progress UI parents with createPeer before execute(), download probes pass append_log=True so each on_display line accumulates, opening and result titles are N_() msgids translated once in the dialog, and Close stays disabled until the probe finishes.
 
 WriterAgent-only `module.yaml` settings keys can carry **`librepy_exclude: true`** (e.g. `scripting.ppt_master_data_path`). LibrePy manifest generation (`make manifest-core` / `generate_manifest.py --skip-writeragent-extension`) omits those keys from `_manifest_librepy.py` and from generated `SettingsDialog.xdl` page 3 controls.
 
@@ -813,7 +815,7 @@ Allowlist: [`scripts/librepy_bundle_paths.py`](../../scripts/librepy_bundle_path
 
 **Framework:** `config.py`, `config_schema.py`, `constants.py`, `errors.py`, `json_utils.py`, `i18n.py`, `event_bus.py`, `service.py`, `url_utils.py`, `thread_guard.py`, `client/errors.py`, `client/requests.py`, `client/http_transport.py`, `client/http_security.py`, `client/request_controls.py`, `client/ssl_helpers.py`, `client/provider_detection.py`, **lazy** `client/__init__.py`, `framework/__init__.py`, `_manifest.py` (LibrePy: `_manifest_librepy.py` at generate time)
 
-**Calc:** `python/addin_librepy.py` (not WriterAgent `addin.py`), `python/function.py`, `addin_common.py`, `calc_addin_data.py`, `calc/__init__.py`
+**Calc:** `python/addin_librepy.py` (not WriterAgent `addin.py`), `python/addin_values.py`, `python/undo.py`, `python/spill.py`, `python/function.py`, `addin_common.py`, `calc_addin_data.py`, `calc/__init__.py`
 
 **Scripting host:** `venv_worker.py`, `ipc.py`, `payload_codec.py`, `sandbox.py`, `config_limits.py`, `session_manager.py`, `module.yaml`, `scripting/__init__.py`
 
@@ -931,7 +933,7 @@ flowchart LR
 
 | File | Role |
 |------|------|
-| [`plugin/writer/format.py`](../../plugin/writer/format.py) | `_insert_mixed_html_and_math_at_cursor`, `insert_content_at_position` |
+| [`plugin/writer/html_import.py`](../../plugin/writer/html_import.py) | `_insert_mixed_html_and_math_at_cursor`, `insert_content_at_position` |
 | [`plugin/writer/math/html_math_segment.py`](../../plugin/writer/math/html_math_segment.py) | `$…$`, `$$…$$`, `\(...\)`, `\[...\]`, MathML segments |
 | [`plugin/writer/math/math_mml_convert.py`](../../plugin/writer/math/math_mml_convert.py) | LaTeX/MathML → StarMath (shared with menu) |
 
@@ -1110,7 +1112,7 @@ flowchart LR
   runner[vision_runner.py]
   rpc[trusted RPC domain vision]
   venv[vision/venv/vision.py]
-  egressW[writer/format.py HTML insert]
+  egressW[writer/html_import.py HTML insert]
   egressC[calc/vision_egress.py]
   rps --> runner --> rpc --> venv
   venv --> egressW
@@ -1148,7 +1150,7 @@ Registered in [`trusted_action_registry.py`](../../plugin/scripting/trusted_acti
 |------|------|
 | [`calc/vision_egress.py`](../../plugin/calc/vision_egress.py) | Calc HTML / structured grid insert |
 | [`calc/rich_html.py`](../../plugin/calc/rich_html.py) | `insert_cell_html_rich` |
-| [`writer/format.py`](../../plugin/writer/format.py) | Writer HTML at cursor; `run_writer_mutation_with_optional_review` wraps insert in `EditReviewSession` when WriterAgent’s `edit_review` module is co-installed (LibrePy alone applies directly) |
+| [`writer/html_import.py`](../../plugin/writer/html_import.py) | Writer HTML at cursor; `run_writer_mutation_with_optional_review` wraps insert in `EditReviewSession` when WriterAgent’s `edit_review` module is co-installed (LibrePy alone applies directly) |
 | [`doc/visual_helpers.py`](../../plugin/doc/visual_helpers.py) | Export graphic to bytes |
 
 ### Settings / UI

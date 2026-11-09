@@ -58,25 +58,25 @@ def test_resolve_python_exec_timeout_clamp_and_fallback():
     assert resolve_python_exec_timeout(None) == 10
 
 
-@patch("plugin.framework.config.get_config_int", return_value=10)
+@patch("plugin.framework.config.get_config", return_value=10)
 def test_configured_python_exec_timeout(mock_get):
     assert configured_python_exec_timeout() == 10
     mock_get.assert_called_once_with("scripting.python_exec_timeout")
 
 
-@patch("plugin.framework.config.get_config_int", return_value=1000)
+@patch("plugin.framework.config.get_config", return_value=1000)
 def test_configured_python_exec_timeout_clamps_legacy_high(mock_get):
     # Above schema max (600) but within DEAL_MAX_ARGV (4096) so @deal.pre on _clamp_timeout still runs.
     assert configured_python_exec_timeout() == 600
 
 
-@patch("plugin.framework.config_schema._resolve_default", side_effect=ConfigError("no schema default"))
-@patch("plugin.framework.config.get_config_int", side_effect=ConfigError("read failed"))
+@patch("plugin.framework.config_schema.resolve_default", side_effect=ConfigError("no schema default"))
+@patch("plugin.framework.config.get_config", side_effect=ConfigError("read failed"))
 def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_get, mock_resolve_default):
     """Failed read uses the schema/fallback default, not the 1s floor.
 
-    The _resolve_default patch is not used by the fixed function. It is what
-    makes get_config_int_safe return 0 if the function goes back to that helper.
+    The resolve_default patch is not used by the fixed function. It is what
+    makes get_config return 0 if the function goes back to that helper.
     In this checkout the manifest is present, so without this patch the old
     helper still returns 10 and the assertion would pass on the bug.
     """
@@ -86,7 +86,7 @@ def test_configured_python_exec_timeout_failed_read_uses_default_not_min(mock_ge
     assert mock_resolve_default.call_count == 0
 
 
-@patch("plugin.framework.config.get_config_int", return_value=0)
+@patch("plugin.framework.config.get_config", return_value=0)
 def test_configured_python_exec_timeout_stored_zero_clamps_to_min(mock_get):
     assert configured_python_exec_timeout() == _bounds("python_exec_timeout")[0]
     mock_get.assert_called_once_with("scripting.python_exec_timeout")
@@ -157,23 +157,23 @@ def test_get_config_python_max_data_cells_uses_schema_default():
     assert get_config("scripting.python_max_data_cells") == 250_000
 
 
-@patch("plugin.framework.config.get_config_int", return_value=250_000)
+@patch("plugin.framework.config.get_config", return_value=250_000)
 def test_configured_python_max_data_cells(mock_get):
     assert configured_python_max_data_cells() == 250_000
     mock_get.assert_called_once_with("scripting.python_max_data_cells")
 
 
-@patch("plugin.framework.config.get_config_int", return_value=9_999_999)
+@patch("plugin.framework.config.get_config", return_value=9_999_999)
 def test_configured_python_max_data_cells_clamps_high(mock_get):
     assert configured_python_max_data_cells() == 2_000_000
 
 
-@patch("plugin.framework.config.get_config_int", return_value=0)
+@patch("plugin.framework.config.get_config", return_value=0)
 def test_configured_python_max_data_cells_clamps_low(mock_get):
     assert configured_python_max_data_cells() == 1000
 
 
-@patch("plugin.framework.config.get_config_int", side_effect=RuntimeError("read failed"))
+@patch("plugin.framework.config.get_config", side_effect=RuntimeError("read failed"))
 def test_configured_python_max_data_cells_failed_read_uses_default_not_min(mock_get):
     default = _schema_int("python_max_data_cells", "default", required=True)
     assert default != python_max_data_cells_min()

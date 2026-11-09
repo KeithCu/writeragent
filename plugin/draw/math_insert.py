@@ -10,8 +10,8 @@ import logging
 import re
 from typing import Any, ClassVar
 
-from plugin.draw.base import ToolDrawSpecialBase
-from plugin.framework.errors import best_effort, is_disposed_exception
+from plugin.draw.base import DRAW_AND_IMPRESS, ToolDrawSpecialBase
+from plugin.framework.errors import best_effort, is_disposal
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_latex_to_starmath, convert_mathml_to_starmath
 
 log = logging.getLogger("writeragent.draw")
@@ -115,7 +115,7 @@ def _heuristic_size_hmm(formula: str) -> tuple[int, int]:
 
 
 class InsertMathDraw(ToolDrawSpecialBase):
-    name: str | None = "insert_math"
+    name: str | None = "math_insert"
     description: str = "Inserts an editable LibreOffice Math formula on a Draw or Impress page. Use formula_type 'latex' or 'mathml' with the corresponding formula string; position with page, x, y (100ths of mm). Size is derived from the formula when possible."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -128,12 +128,12 @@ class InsertMathDraw(ToolDrawSpecialBase):
         },
         "required": ["formula_type", "formula", "page", "x", "y"],
     }
-    uno_services: list[str] | None = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     is_mutation: bool | None = True
     specialized_domain: ClassVar[str | None] = "math"
 
     def execute(self, ctx: Any, **kwargs: Any) -> Any:
-        from plugin.draw.bridge import resolve_shape_page
+        from plugin.draw.bridge import DrawBridge
         from com.sun.star.awt import Size, Point
 
         formula_type = kwargs["formula_type"]
@@ -155,10 +155,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
             detail = (res.error_message or "").strip() or "unknown_error"
             return self._tool_error(f"Failed to convert math expression: {detail}", conversion_detail=detail)
 
-        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-        if err:
-            return self._tool_error(err)
-        assert page is not None
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         shape = None
         added = False
@@ -187,7 +184,7 @@ class InsertMathDraw(ToolDrawSpecialBase):
         except Exception as exc:
             if added:
                 best_effort(lambda: page.remove(shape), "remove partial math shape")
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             return self._tool_error(f"Failed to insert math shape: {exc}")
 

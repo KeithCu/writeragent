@@ -25,11 +25,7 @@ from plugin.contrib.smolagents.local_python_executor import (
     is_forbidden_dunder_attribute,
 )
 from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
-    DEAL_MAX_SOURCE,
     DEAL_MAX_TOKEN,
-    _profile,
-    ascii_bounded,
     deal,
     str_bounded,
 )
@@ -43,31 +39,15 @@ def _deal_sandbox_imports_ok_pytest(authorized_imports: object) -> bool:
     return all(isinstance(x, str) and "\0" not in x and str_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
 
 
-def _deal_sandbox_imports_ok_crosshair(authorized_imports: object) -> bool:
-    if not isinstance(authorized_imports, (list, tuple)):
-        return False
-    return (
-        len(authorized_imports) <= DEAL_MAX_CMD_ARGS
-        and all(ascii_bounded(x, DEAL_MAX_TOKEN) for x in authorized_imports)
-    )
-
-
-_deal_sandbox_imports_ok = _profile(_deal_sandbox_imports_ok_crosshair, _deal_sandbox_imports_ok_pytest)
+_deal_sandbox_imports_ok = _deal_sandbox_imports_ok_pytest
 
 
 def _deal_sandbox_code_ok_pytest(code: object) -> bool:
     # `_cache_key` joins with NUL; production =PY() scripts may be non-ASCII.
-    # =PY() source is longer than DEAL_MAX_SOURCE. The cap raised
-    # PreContractError before the cache key was built. NUL stays out:
-    # the key joins on NUL. CrossHair keeps the short ASCII source.
     return isinstance(code, str) and "\0" not in code
 
 
-def _deal_sandbox_code_ok_crosshair(code: object) -> bool:
-    return isinstance(code, str) and ascii_bounded(code, DEAL_MAX_SOURCE) and "\0" not in code
-
-
-_deal_sandbox_code_ok = _profile(_deal_sandbox_code_ok_crosshair, _deal_sandbox_code_ok_pytest)
+_deal_sandbox_code_ok = _deal_sandbox_code_ok_pytest
 
 
 def _deal_sandbox_policy_ok(authorized_imports: object, blocked_imports: object = None) -> bool:
@@ -112,8 +92,7 @@ def validate_sandbox_ast(
         if isinstance(node, ast.Import):
             for alias in node.names:
                 # writeragent.X is checked as plugin.X. A blanket writeragent.*
-                # on the list used to pass here, then AliasImporter loaded
-                # framework.config and LlmClient.
+                # Reject unauthorized writeragent.* aliases before AliasImporter can pull host-only modules.
                 if not import_authorized(alias.name, authorized_imports, blocked_imports=effective_blocked):
                     # Keep the message short. Never leak the blocklist or extras.
                     return f"Import of {alias.name} is not allowed."
@@ -201,15 +180,7 @@ def _build_entry(
         try:
             module = ast.parse(code)
         except ValueError as exc:
-            # What was wrong: ast.parse raises ValueError for a null byte on
-            # CPython before 3.12 (gh-96670). LibreOffice 24.8 ships Python 3.9
-            # and is the extension minimum; execute_with_return runs there.
-            # How it happened: only SyntaxError and RecursionError were caught.
-            # Release OXTs strip @deal, so the NUL deal pre does not run, and
-            # the ValueError left get_hot_entry. execute_with_return logged
-            # log.exception; _run_on_executor attached a traceback.
-            # Why this fixes it: null bytes are bad user source. Cache a parse
-            # error so evaluate_python_code raises InterpreterError.
+            # ValueError from ast.parse on NUL bytes (pre-3.12) is cached as a parse error so LibreOffice 3.9 runtimes behave like newer CPython.
             return HotEntry(
                 module=None,
                 error=f"Code parsing failed due to: {type(exc).__name__}: {exc}",

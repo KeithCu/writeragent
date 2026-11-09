@@ -12,7 +12,8 @@ from typing import Any
 
 from plugin.calc.address_utils import format_address, qualify_a1, split_sheet_prefix
 from plugin.calc.calc_utils import cell_value_and_type, query_interface, resolve_sheet_and_cell as _resolve_sheet_and_cell
-from plugin.framework.errors import best_effort, safe_json_loads
+from plugin.framework.errors import best_effort
+from plugin.framework.json_utils import safe_json_loads
 
 _FORMULA_DEP_CHAIN_CMD = ".uno:FormulaDepChain"
 # A full-column precedent such as A:Z is about 27 million cells. Walking
@@ -83,6 +84,16 @@ def _precedents_via_formula_query(sheet: Any, col: int, row: int, doc: Any) -> d
         "precedents": precedents,
         "truncated": total_cells > _MAX_PRECEDENT_CELLS,
         "total_cells": total_cells,
+        **(
+            {
+                "hint": (
+                    "Precedent list stopped at the cell cap. "
+                    "A whole-column reference was not expanded."
+                )
+            }
+            if total_cells > _MAX_PRECEDENT_CELLS
+            else {}
+        ),
     }
 
 
@@ -96,9 +107,7 @@ def fetch_formula_dep_chain(doc: Any, ctx: Any, address: str) -> dict[str, Any] 
     if ctx is not None:
         # Navigation selects the cell for the UNO command. A disposed
         # document, headless run, or missing controller can throw here.
-        # That used to abort before getCommandValues and the formula-query
-        # fallback, so the dep chain was lost even though it does not need
-        # the view.
+        # navigate_to_cell can fail without a view; dep-chain collection must continue anyway.
         from plugin.calc.navigation import navigate_to_cell
 
         best_effort(lambda: navigate_to_cell(doc, ctx, address), f"navigate_to_cell failed for {address!r}; continuing dep chain")

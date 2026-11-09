@@ -25,8 +25,9 @@ import os
 import threading
 import time
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, final
 
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.i18n import _
 from plugin.framework.tool import ToolBase
 
@@ -34,23 +35,14 @@ if TYPE_CHECKING:
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.contrib.smolagents.models import ChatMessage
     from plugin.framework.tool import ToolContext
-from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, safe_json_loads
+from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload
+from plugin.framework.config_schema import as_bool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
+from plugin.chatbot.tool_loop_state import as_dict
 from plugin.chatbot.web_research_cache import ordered_unique_query_words
 from plugin.chatbot.web_research_chat import web_search_engine_step_chat_text
 
-log = logging.getLogger("writeragent.web_research")
-
-# Page visits and Chrome teardown share this count. Stop shuts the deep pool
-# down without joining, so the last run must not kill the browser until forward
-# returns. Runs share one local Chrome: a second frame can be researching while
-# the first execute() is still inside visit_webpage.
-_cdp_visits_cond = threading.Condition()
-_cdp_visits_inflight = 0
-_cdp_closing = False
-_cdp_runs = 0
-_cdp_launch_lock = threading.Lock()
-_CDP_LOCK_TIMEOUT_SECONDS = 35.0
+log = logging.getLogger(__name__)
 
 # Web-research sub-agent only (main chat delegate + web-research checkbox). Facts in plain text;
 # main agent applies HTML, memory colors, and apply_document_content when the user wanted a doc edit.
@@ -80,7 +72,6 @@ class WebAgentRunParams:
     cache_max_mb: int
     cache_max_age_days: int
     cdp_url: str | None
-    stop_checker: Callable[[], bool] | None
     status_callback: Callable[[str], None] | None
     append_thinking_callback: Callable[[str], None] | None
     approval_callback: Any
@@ -90,7 +81,7 @@ class WebAgentRunParams:
     # Pool workers do not see the send thread's cancellation thread-local.
     # LlmClient only auto-registers get_current_send_cancellation() on the
     # constructing thread, so each worker must be handed this scope explicitly.
-    cancellation_scope: Any = None
+    cancel: SendCancellation | None = None
 
 
 
@@ -187,12 +178,19 @@ def _write_research_cache(
 from plugin.contrib.smolagents.tools import Tool
 
 
+_VISIT_WEBPAGE_DESCRIPTION = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
+
+
+def _visit_webpage_inputs() -> dict[str, dict[str, str | type[Any] | bool]]:
+    return {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+
+
 class _VisitWebpageDedupTool(Tool):
     """Wraps visit_webpage and skips URLs already read in this deep-research run."""
 
     name: str = "visit_webpage"
-    description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    description: str = _VISIT_WEBPAGE_DESCRIPTION
+    inputs: dict[str, dict[str, str | type[Any] | bool]] = _visit_webpage_inputs()
     output_type: str = "string"
     _inner: Tool
     _visited_urls: _VisitedUrls
@@ -213,8 +211,7 @@ class _VisitWebpageDedupTool(Tool):
         # Record the URL only after non-empty, non-error text, under the
         # same lock as the check. An error string is retryable. An empty
         # extract is too: a blank page or whitespace-only innerText is not
-        # an error prefix, so it used to be stored as visited and the next
-        # sub-query was told the URL was already read.
+        # an error prefix; only non-empty success text marks the URL visited.
         body = str(text or "").strip()
         if body and not body.startswith(("Error", "Failed")):
             with self._visited_urls.lock:
@@ -222,100 +219,116 @@ class _VisitWebpageDedupTool(Tool):
         return text
 
 
-def _cdp_visit_enter() -> bool:
-    """Count one in-flight page read. False once teardown has started."""
-    global _cdp_visits_inflight
-    with _cdp_visits_cond:
-        if _cdp_closing:
-            return False
-        _cdp_visits_inflight += 1
-        return True
+@final
+class CdpRefCount:
+    """Shared-Chrome refcount and condition variable for page visits and teardown."""
+
+    cond: threading.Condition
+    visits_inflight: int
+    closing: bool
+    runs: int
+    launch_lock: threading.Lock
+    timeout_seconds: float
+
+    def __init__(self, timeout_seconds: float = 35.0) -> None:
+        self.cond = threading.Condition()
+        self.visits_inflight = 0
+        self.closing = False
+        self.runs = 0
+        self.launch_lock = threading.Lock()
+        self.timeout_seconds = timeout_seconds
+
+    def visit_enter(self) -> bool:
+        """Count one in-flight page read. False once teardown has started."""
+        with self.cond:
+            if self.closing:
+                return False
+            self.visits_inflight += 1
+            return True
+
+    def visit_leave(self) -> None:
+        with self.cond:
+            self.visits_inflight = max(0, self.visits_inflight - 1)
+            if self.visits_inflight == 0:
+                self.cond.notify_all()
+
+    def run_enter(self) -> None:
+        """Count one execute() using the shared local browser.
+
+        Waits out a teardown already in progress so this run does not attach to
+        a Chrome process that is about to be killed.
+        """
+        with self.cond:
+            start_wait = time.monotonic()
+            while self.closing:
+                self.cond.wait(1.0)
+                if time.monotonic() - start_wait > self.timeout_seconds:
+                    raise RuntimeError("previous CDP browser still closing")
+            self.runs += 1
+
+    def finish(self) -> None:
+        """Release this research run's hold on the shared local browser.
+
+        Visit state and the Chrome process are process-global. Count active
+        runs. Only the last one sets the closing flag, waits until in-flight
+        visits leave forward, and then terminates Chrome.
+        """
+        from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
+
+        with self.cond:
+            if self.runs <= 0:
+                return
+            self.runs -= 1
+            if self.runs > 0:
+                return
+            self.closing = True
+            start_wait = time.monotonic()
+            while self.visits_inflight > 0:
+                self.cond.wait(1.0)
+                if time.monotonic() - start_wait > self.timeout_seconds:
+                    log.warning("Timeout waiting for in-flight CDP visits to finish")
+                    break
+        try:
+            cleanup_local_chrome()
+        except Exception as exc:
+            log.warning("Failed to clean up local Chrome process: %s", exc)
+        finally:
+            with self.cond:
+                self.closing = False
+                self.cond.notify_all()
+
+    def reset_for_tests(self) -> None:
+        with self.cond:
+            self.visits_inflight = 0
+            self.closing = False
+            self.runs = 0
+            self.cond.notify_all()
 
 
-def _cdp_visit_leave() -> None:
-    global _cdp_visits_inflight
-    with _cdp_visits_cond:
-        _cdp_visits_inflight = max(0, _cdp_visits_inflight - 1)
-        if _cdp_visits_inflight == 0:
-            _cdp_visits_cond.notify_all()
+_cdp_refcount = CdpRefCount()
 
 
-def _cdp_run_enter() -> None:
-    """Count one execute() using the shared local browser.
-
-    Waits out a teardown already in progress so this run does not attach to
-    a Chrome process that is about to be killed.
-    """
-    global _cdp_runs
-    with _cdp_visits_cond:
-        start_wait = time.monotonic()
-        while _cdp_closing:
-            _cdp_visits_cond.wait(1.0)
-            if time.monotonic() - start_wait > _CDP_LOCK_TIMEOUT_SECONDS:
-                raise RuntimeError("previous CDP browser still closing")
-        _cdp_runs += 1
+def _stop_checker_from_cancel(cancel: SendCancellation | None) -> Callable[[], bool] | None:
+    return cancel.is_cancelled if cancel is not None else None
 
 
 def _begin_shared_cdp(uno_ctx: Any, browser_type: str) -> str:
-    """Attach this run to the process-wide local browser.
-
-    The caller must call _finish_cdp_browser once after this returns. A failed
-    launch drops the run count here and re-raises, so the caller must not
-    finish again. The launch lock keeps two runs from both missing the port
-    probe and spawning a second Chrome that the process-global handle drops.
-    """
+    """Attach this run to the process-wide local browser."""
     from plugin.contrib.cdp.browser_cdp_tool import get_local_chrome_cdp_url
 
-    with _cdp_launch_lock:
-        _cdp_run_enter()
+    with _cdp_refcount.launch_lock:
+        _cdp_refcount.run_enter()
         try:
             return get_local_chrome_cdp_url(uno_ctx, browser_type)
         except Exception:
-            _finish_cdp_browser()
+            _cdp_refcount.finish()
             raise
-
-
-def _finish_cdp_browser() -> None:
-    """Release this research run's hold on the shared local browser.
-
-    Visit state and the Chrome process are process-global. Count active
-    runs. Only the last one sets the closing flag, waits until in-flight
-    visits leave forward, and then terminates Chrome. An earlier finish
-    leaves the browser up. Killing it on every execute() drops a second
-    run (another frame, or any execute still inside visit_webpage), and
-    Stop must not kill Chrome while its own worker is still inside
-    Page.navigate.
-    """
-    global _cdp_closing, _cdp_runs
-    from plugin.contrib.cdp.browser_cdp_tool import cleanup_local_chrome
-
-    with _cdp_visits_cond:
-        if _cdp_runs <= 0:
-            return
-        _cdp_runs -= 1
-        if _cdp_runs > 0:
-            return
-        _cdp_closing = True
-        start_wait = time.monotonic()
-        while _cdp_visits_inflight > 0:
-            _cdp_visits_cond.wait(1.0)
-            if time.monotonic() - start_wait > _CDP_LOCK_TIMEOUT_SECONDS:
-                log.warning("Timeout waiting for in-flight CDP visits to finish")
-                break
-    try:
-        cleanup_local_chrome()
-    except Exception as exc:
-        log.warning("Failed to clean up local Chrome process: %s", exc)
-    finally:
-        with _cdp_visits_cond:
-            _cdp_closing = False
-            _cdp_visits_cond.notify_all()
 
 
 class VisitWebpageCdpTool(Tool):
     name: str = "visit_webpage"
-    description: str = "Visits a webpage at the given url and reads its content as a markdown string. Use this to browse webpages."
-    inputs: dict[str, dict[str, str | type[Any] | bool]] = {"url": {"type": "string", "description": "The url of the webpage to visit."}}
+    description: str = _VISIT_WEBPAGE_DESCRIPTION
+    inputs: dict[str, dict[str, str | type[Any] | bool]] = _visit_webpage_inputs()
     output_type: str = "string"
     cdp_url: str
     stop_checker: Callable[[], bool] | None
@@ -335,7 +348,7 @@ class VisitWebpageCdpTool(Tool):
 
         # Each visit opens and closes its own target. Reusing the first page
         # tab meant two deep-research workers navigated the same document.
-        if not _cdp_visit_enter():
+        if not _cdp_refcount.visit_enter():
             return "Error visiting webpage via CDP: browser is closing"
         target_id = None
         try:
@@ -385,7 +398,7 @@ class VisitWebpageCdpTool(Tool):
                     lambda: browser_cdp("Target.closeTarget", {"targetId": target_id}),
                     f"visit_webpage: closeTarget failed for {target_id}",
                 )
-            _cdp_visit_leave()
+            _cdp_refcount.visit_leave()
 
 
 def _unpack_approval(result: Any) -> tuple[bool, str | None]:
@@ -445,7 +458,7 @@ def _run_web_agent(
     )
 
     visit_inner = (
-        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=params.stop_checker)
+        VisitWebpageCdpTool(cdp_url=params.cdp_url, stop_checker=_stop_checker_from_cancel(params.cancel))
         if params.cdp_url
         else VisitWebpageTool(cache_path=params.cache_path, cache_max_mb=params.cache_max_mb, cache_max_age_days=params.cache_max_age_days)
     )
@@ -467,7 +480,7 @@ def _run_web_agent(
 
     task = f"### CONVERSATION HISTORY:\n{history_text or 'None'}\n\n### CURRENT QUERY:\n{query}"
     web_search_step_index = 0
-    stop_checker = params.stop_checker
+    stop_checker = _stop_checker_from_cancel(params.cancel)
 
     def tool_call_handler(step: ToolCall) -> Any:
         nonlocal web_search_step_index
@@ -475,7 +488,11 @@ def _run_web_agent(
             return _user_stopped_payload()
         status_msg = ""
         if step.name == "web_search":
-            args = _coerce_args_dict(step.arguments)
+            def echo(q: str) -> None:
+                if params.chat_append_callback:
+                    params.chat_append_callback(web_search_engine_step_chat_text(q))
+
+            args = as_dict(step.arguments)
             q = str(args.get("query", ""))
             if params.append_thinking_callback:
                 params.append_thinking_callback(f"Running tool: {step.name} with {{'query': '{q}'}}\n")
@@ -483,8 +500,7 @@ def _run_web_agent(
             if params.approval_callback:
                 # Show the engine query before blocking on Accept/Change/Reject so the sidebar
                 # transcript matches what the user is approving (skip outer-query dedup).
-                if params.chat_append_callback:
-                    params.chat_append_callback(web_search_engine_step_chat_text(q))
+                echo(q)
                 approval_result = params.approval_callback(q, "web_search", step.arguments)
                 proceed, query_override = _unpack_approval(approval_result)
 
@@ -494,14 +510,12 @@ def _run_web_agent(
                     args["query"] = query_override
                     step.arguments = args
                     q = query_override
-                    if params.chat_append_callback:
-                        params.chat_append_callback(web_search_engine_step_chat_text(q))
+                    echo(q)
             else:
                 q_norm = _norm_research_query(q)
                 query_norm = _norm_research_query(params.outer_query)
                 if not (web_search_step_index == 0 and q_norm == query_norm):
-                    if params.chat_append_callback:
-                        params.chat_append_callback(web_search_engine_step_chat_text(q))
+                    echo(q)
 
             web_search_step_index += 1
             status_msg = f"Search: {q[:25]}"
@@ -540,7 +554,7 @@ def _run_deep_web_research(
     cache write.
     """
     from plugin.contrib.smolagents.default_tools import DuckDuckGoSearchTool
-    from plugin.framework.config import get_config_int, get_config_int_safe
+    from plugin.framework.config import get_config
     from plugin.chatbot.web_research_deep import run_deep_research
     from plugin.framework.client.llm_client import LlmClient
 
@@ -549,19 +563,19 @@ def _run_deep_web_research(
     def _chat_via(client: Any) -> Callable[[list[dict[str, str]], int], str]:
         # Planning and synthesis stay on this thread, outside the sub-query pool.
         # chat_completion_sync raises USER_STOPPED when the checker fires; an
-        # empty string used to look like a finished plan and was cached.
+        # USER_STOPPED must not become an empty cached plan string.
         def chat(messages: list[dict[str, str]], max_tok: int) -> str:
             return client.chat_completion_sync(
                 messages,
                 max_tokens=max_tok,
                 prepend_dev_build_system_prefix=False,
-                stop_checker=agent_params.stop_checker,
+                cancel=agent_params.cancel,
             )
 
         return chat
 
     visited = _VisitedUrls()
-    sub_steps = get_config_int_safe("chatbot.deep_research_sub_agent_steps")
+    sub_steps = get_config("chatbot.deep_research_sub_agent_steps")
     if sub_steps > 0:
         run_max_steps = sub_steps
     elif agent_params.max_steps > 0:
@@ -579,14 +593,11 @@ def _run_deep_web_research(
 
     def worker_factory() -> tuple[Any, Any, Any]:
         # One LlmClient owns one HTTP connection and is not safe on two threads.
-        # The deep pool (default concurrency 2) used to share the parent client,
-        # so sub-query sockets raced the planning request. Build a client on the
-        # worker. Pool threads have no send-cancellation thread-local, so pass
-        # the scope explicitly or Stop cannot close this socket.
+        # Each deep worker gets its own LlmClient and explicit cancel scope; the parent socket is not shared.
         worker_client = LlmClient(
             parent_client.config,
             parent_client.ctx,
-            cancellation_scope=agent_params.cancellation_scope,
+            cancel=agent_params.cancel,
         )
         from plugin.chatbot.smol_agent import create_smol_model
 
@@ -594,7 +605,7 @@ def _run_deep_web_research(
             client=worker_client,
             max_tokens=agent_params.smol_model.max_tokens,
             status_callback=agent_params.status_callback,
-            stop_checker=agent_params.stop_checker,
+            cancel=agent_params.cancel,
         )
         worker_params = replace(deep_params, smol_model=worker_model)
 
@@ -609,9 +620,7 @@ def _run_deep_web_research(
         approval_result = agent_params.approval_callback(query_str, "web_search", {"query": query_str})
         proceed, query_override = _unpack_approval(approval_result)
         if not proceed:
-            # Reject used to skip only the preview, then run_deep_research
-            # kept going after the sidebar went idle. Same stop payload as
-            # a rejected shallow search.
+            # Reject at planning time returns the same stop payload as a rejected shallow search.
             return (
                 _user_stopped_payload(),
                 query_str,
@@ -636,19 +645,19 @@ def _run_deep_web_research(
     if agent_params.status_callback:
         agent_params.status_callback("Deep research: starting...")
 
-    max_rounds = get_config_int_safe("chatbot.deep_research_max_rounds")
+    max_rounds = get_config("chatbot.deep_research_max_rounds")
 
     researched = run_deep_research(
         query_str,
         llm_chat=_chat_via(parent_client),
         worker_factory=worker_factory,
-        stop_checker=agent_params.stop_checker,
+        stop_checker=_stop_checker_from_cancel(agent_params.cancel),
         status_callback=agent_params.status_callback,
-        breadth=get_config_int("chatbot.deep_research_breadth"),
+        breadth=get_config("chatbot.deep_research_breadth"),
         max_rounds=max_rounds,
-        concurrency=get_config_int("chatbot.deep_research_concurrency"),
-        max_sub_queries=get_config_int("chatbot.deep_research_max_sub_queries"),
-        quality_threshold=get_config_int("chatbot.deep_research_quality_threshold"),
+        concurrency=get_config("chatbot.deep_research_concurrency"),
+        max_sub_queries=get_config("chatbot.deep_research_max_sub_queries"),
+        quality_threshold=get_config("chatbot.deep_research_quality_threshold"),
         plain_text_format=WEB_RESEARCH_PLAIN_TEXT_FORMAT,
         initial_search_snippet=initial_snippet,
     )
@@ -672,34 +681,28 @@ class WebResearchTool(ToolBase):
         return True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        query = kwargs.get("query")
         history_text = kwargs.get("history_text")
-
-        query_str = str(query or "")
+        query_str = str(kwargs.get("query") or "")
         from plugin.chatbot.web_research_cache import resolve_research_locale
 
         stem_lang = resolve_research_locale(ctx.ctx, ctx.doc)[1]
         unique_key, embedding_text = _cache_key_inputs(query_str, stem_lang)
 
-        from plugin.framework.config import get_config_bool_safe, get_config_int, user_config_dir
-        cache_enabled = get_config_bool_safe("web_research_cache_enabled")
+        from plugin.framework.config import get_config, user_config_dir
+        cache_enabled = get_config("chatbot.web_research_cache_enabled")
         udir = user_config_dir()
-        raw_mb = get_config_int("web_cache_max_mb")
+        raw_mb = get_config("chatbot.web_cache_max_mb")
         cache_max_mb = 0 if raw_mb <= 0 else max(1, min(500, raw_mb))
         # web_cache_max_mb 0 disables the shared web cache. Page and search
-        # tools skip both the read and the write. Research used to look up
-        # whenever the db file existed and only drop the path before the
-        # write, so a disabled cache still served a stale report.
+        # web_cache_max_mb 0 omits cache_path entirely so reads and writes both stay off.
         cache_path = os.path.join(udir, "writeragent_web_cache.db") if (udir and cache_max_mb > 0) else None
-        cache_max_age_days = get_config_int("web_cache_validity_days")
+        cache_max_age_days = get_config("chatbot.web_cache_validity_days")
 
         from plugin.framework.prompts import get_research_completion_instruction
 
         instruction = get_research_completion_instruction(ctx.doc_type)
 
-        # deep used to be read only after this lookup, so a shallow row for the
-        # same words was returned as a deep report and a deep row could be
-        # served to ordinary web_research. Mode selects the key before any hit.
+        # cache_mode (deep vs shallow) is part of the lookup key before any cache hit.
         deep = bool(kwargs.get("deep"))
         cache_mode = "deep" if deep else ""
 
@@ -707,9 +710,9 @@ class WebResearchTool(ToolBase):
             try:
                 from plugin.chatbot.web_research_cache import enqueue_research_cache_embedding_backfill, lookup_research_cache
 
-                jaccard_percent = get_config_int("web_research_cache_jaccard_percent")
-                embedding_percent = get_config_int("web_research_cache_embedding_percent")
-                min_overlap = get_config_int("web_research_cache_min_overlap")
+                jaccard_percent = get_config("chatbot.web_research_cache_jaccard_percent")
+                embedding_percent = get_config("chatbot.web_research_cache_embedding_percent")
+                min_overlap = get_config("chatbot.web_research_cache_min_overlap")
                 enqueue_research_cache_embedding_backfill(ctx.ctx, cache_path, cache_max_age_days)
                 hit = lookup_research_cache(
                     cache_path,
@@ -753,10 +756,9 @@ class WebResearchTool(ToolBase):
 
         from plugin.chatbot.smol_agent import create_smol_model
 
-        max_steps = get_config_int("chatbot.max_tool_rounds")
+        max_steps = get_config("chatbot.max_tool_rounds")
 
         from plugin.framework.config import get_config
-        from plugin.framework.config_schema import as_bool
 
         browser_type = get_config("chatbot.web_research_browser")
         cdp_enabled = browser_type in ("chrome", "firefox", "chromium")
@@ -774,6 +776,8 @@ class WebResearchTool(ToolBase):
                 except Exception as e:
                     log.warning("Failed to launch or connect to local %s via CDP: %s. Falling back to static HTTP.", browser_type, e)
 
+            scope = ctx.send_cancellation
+
             agent_params = WebAgentRunParams(
                 smol_model=smol_model,
                 max_steps=max_steps,
@@ -781,13 +785,12 @@ class WebResearchTool(ToolBase):
                 cache_max_mb=cache_max_mb,
                 cache_max_age_days=cache_max_age_days,
                 cdp_url=cdp_url,
-                stop_checker=ctx.stop_checker,
                 status_callback=status_callback,
                 append_thinking_callback=ctx.append_thinking_callback,
                 approval_callback=ctx.approval_callback if as_bool(get_config("chatbot.prompt_for_web_research")) else None,
                 chat_append_callback=ctx.chat_append_callback,
                 outer_query=query_str,
-                cancellation_scope=ctx.send_cancellation,
+                cancel=scope,
             )
             if deep:
                 final_ans, researched_query = _run_deep_web_research(
@@ -833,18 +836,8 @@ class WebResearchTool(ToolBase):
             return {**final_ans, **cache_fields}
         finally:
             if cdp_held:
-                _finish_cdp_browser()
+                _cdp_refcount.finish()
             best_effort(smol_model.api.stop, "Error stopping smol_model api")
-
-
-def _coerce_args_dict(arguments: Any) -> dict[str, Any]:
-    if isinstance(arguments, dict):
-        return arguments
-    if isinstance(arguments, str):
-        data = safe_json_loads(arguments)
-        if isinstance(data, dict):
-            return data
-    return {}
 
 
 def _norm_research_query(q: str) -> str:

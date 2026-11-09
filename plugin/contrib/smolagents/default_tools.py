@@ -406,8 +406,7 @@ class DuckDuckGoSearchTool(Tool):
         results = parser.results[:self.max_results]
 
         if len(results) == 0:
-            # An empty parse (challenge page, layout change) used to be stored
-            # for web_cache_validity_days, so later steps replayed "No results".
+            # Do not cache empty search parses—challenge pages would poison the cache for days.
             result = "No results found! Try a less restrictive/shorter query."
         else:
             if USE_MARKDOWN:
@@ -449,10 +448,7 @@ class VisitWebpageTool(Tool):
     def _return_error(self, key: str, message: str) -> str:
         """Return a fetch error without caching it.
 
-        Transient 403/timeout/network failures used to be stored as page
-        entries with the normal validity window, so a recovered site stayed
-        poisoned for up to web_cache_validity_days. Successful fetches still
-        write through ``forward``.
+        Transient fetch errors are not cached; successful fetches still write through ``forward``.
         """
         return message
 

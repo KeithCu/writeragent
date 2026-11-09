@@ -17,8 +17,8 @@
 """Writer and Calc track-changes tools.
 
 Provides the complete suite of specialized track changes tools:
-track_changes_start, track_changes_stop, track_changes_list,
-manage_tracked_changes (accept/reject one or all), and track_changes_show.
+tracking_start, tracking_stop, tracking_list,
+tracking_manage (accept/reject one or all), and tracking_show.
 """
 
 from __future__ import annotations
@@ -28,9 +28,10 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.base import ToolCalcSpecialTracking
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.uno_context import uno_same
 from plugin.writer.review_scan import is_agent_token, redline_identity_key, redline_is_agent_change
-from plugin.writer.search import describe_match_location
+from plugin.writer.search import LocationLabeler
 from .specialized_base import WriterAgentSpecialTracking, enum_param
 
 if TYPE_CHECKING:
@@ -41,23 +42,15 @@ log = logging.getLogger("writeragent.writer")
 _TRACK_CHANGES_UNO_SERVICES = ["com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"]
 
 
-def _enum_has_more(enum: Any) -> bool:
-    try:
-        return enum.hasMoreElements() is True
-    except Exception:
-        log.debug("redline enumeration hasMoreElements failed", exc_info=True)
-        return False
-
-
 def _enumerate_redlines(redlines: Any) -> tuple[list[Any], int]:
-    # What was wrong: enumeration could yield fewer elements than getCount() without detection, corrupting indexes.
-    # How it happened: loop only checked hasMoreElements() and did not verify length against getCount().
-    # Why this change fixes it: read getCount() upfront, cap at total, and return (objs, total) so callers can detect truncation.
+    # Cap at getCount() and return (objs, total) so callers can detect truncation.
     total = int(redlines.getCount())
     enum = redlines.createEnumeration()
     objs: list[Any] = []
-    while len(objs) < total and _enum_has_more(enum):
-        objs.append(enum.nextElement())
+    for elem in iter_elements(enum):
+        if len(objs) >= total:
+            break
+        objs.append(elem)
     return objs, total
 
 
@@ -74,9 +67,8 @@ def _identity_keys(objs: list[Any]) -> list[tuple[Any, ...]] | None:
 
 
 def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -> str | None:
-    # What was wrong: compareRegionStarts threw IllegalArgumentException when checking a redline in another XText (table cell, footnote, header).
-    # How it happened: compareRegionStarts requires both ranges to belong to the same XText.
-    # Why this change fixes it: skip overlap comparison if uno_same(target_text, other_text) is False.
+    # compareRegionStarts requires both ranges in the same XText; redlines in another text
+    # (table, footnote, header) are skipped instead of aborting the overlap check.
     try:
         target_text = start.getText()
         if target_text is None:
@@ -118,9 +110,8 @@ def _overlap_refusal(target_index: int, objs: list[Any], start: Any, end: Any) -
 
 
 def _resolve_outcome(index: int, before_keys: list[tuple[Any, ...]], after_keys: list[tuple[Any, ...]]) -> str | None:
-    # What was wrong: checked getCount() or agent counts rather than specific redline identity keys, which could miss wrong resolves or silent failure.
-    # How it happened: getCount() reduction alone did not verify that the target redline was the one resolved.
-    # Why this change fixes it: compare before and after identity key Counters, requiring target key count to drop by 1 and other keys not to drop.
+    # Resolve success compares redline identity-key counts before and after, not getCount()
+    # alone, so silent or wrong-target resolves are reported instead of assumed success.
     before_counts = Counter(before_keys)
     after_counts = Counter(after_keys)
     if before_counts == after_counts:
@@ -153,7 +144,7 @@ def _set_recording(doc: Any, record: bool) -> dict[str, Any]:
     return {"status": "ok", "message": f"{done} recording changes."}
 
 
-_REDLINE_FIELD_UNREADABLE = "track_changes_list: redline field unreadable"
+_REDLINE_FIELD_UNREADABLE = "tracking_list: redline field unreadable"
 
 
 def _redline_text(redline: Any, start: Any = None) -> str:
@@ -185,7 +176,7 @@ def _redline_text(redline: Any, start: Any = None) -> str:
     return ""
 
 
-def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int, str] | None = None) -> dict[str, Any]:
+def _describe_redline(redline: Any, index: int, doc: Any, labeler: LocationLabeler | None = None) -> dict[str, Any]:
     entry: dict[str, Any] = {"index": index}
     for prop in ("RedlineType", "RedlineAuthor", "RedlineComment", "RedlineIdentifier"):
         try:
@@ -209,7 +200,7 @@ def _describe_redline(redline: Any, index: int, doc: Any, label_cache: dict[int,
         log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     if start is not None:
         try:
-            entry["location"] = describe_match_location(start, doc, label_cache=label_cache)
+            entry["location"] = (labeler or LocationLabeler(doc)).describe(start)
         except Exception:
             log.debug(_REDLINE_FIELD_UNREADABLE, exc_info=True)
     txt = _redline_text(redline, start=start)
@@ -222,7 +213,7 @@ class TrackChangesStart(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  #
     """Start recording changes."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "track_changes_start"
+    name: str | None = "tracking_start"
     description: str = "Start recording changes (track changes) in the document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
@@ -235,7 +226,7 @@ class TrackChangesStop(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     """Stop recording changes."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "track_changes_stop"
+    name: str | None = "tracking_stop"
     description: str = "Stop recording changes (track changes) in the document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
     is_mutation: bool | None = True
@@ -252,7 +243,7 @@ def _agent_review_mode() -> Any | None:
 
         return get_agent_edit_review_mode()
     except Exception:
-        log.exception("track_changes_list: could not read agent review mode")
+        log.exception("tracking_list: could not read agent review mode")
         return None
 
 
@@ -260,7 +251,7 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     """List all tracked changes (redlines) in the document."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "track_changes_list"
+    name: str | None = "tracking_list"
     description: str = (
         "List all tracked changes (redlines) in the document, including type, author, date, text "
         "and location. NOTE the two flags: 'recording' is the DOCUMENT's own track-changes toggle; "
@@ -280,26 +271,24 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
         try:
-            # What was wrong: failed RecordChanges read was reported as recording: False.
-            # How it happened: recording initialized to False and exception swallowed with bare pass.
-            # Why this change fixes it: log exception and report recording: None when unreadable.
+            # Unreadable RecordChanges is logged and returned as recording: None so callers
+            # cannot treat a read failure as tracking disabled.
             recording = doc.getPropertyValue("RecordChanges")
         except Exception:
-            log.exception("track_changes_list: could not read RecordChanges")
+            log.exception("tracking_list: could not read RecordChanges")
             recording = None
         agent_mode = _agent_review_mode()
 
         if not hasattr(doc, "getRedlines"):
-            # What was wrong: documents without getRedlines returned count: 0 and changes: [], looking like empty document.
-            # How it happened: returned standard empty list response when API was missing.
-            # Why this change fixes it: omit count and changes, set track_changes_list_unsupported: True.
+            # Without getRedlines, omit an empty change list and set track_changes_list_unsupported
+            # so non-Writer documents are not mistaken for a clean tracked-changes doc.
             result: dict[str, Any] = {
                 "status": "ok",
                 "recording": recording,
                 "track_changes_list_unsupported": True,
                 "message": (
                     "This document does not expose a redlines API, so this is not an empty change list. "
-                    "track_changes_start and track_changes_stop still control recording."
+                    "tracking_start and tracking_stop still control recording."
                 ),
             }
             if agent_mode is not None:
@@ -317,11 +306,11 @@ class TrackChangesList(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         # The model can send 0 or a negative number; clamp instead of failing.
         start_index = max(0, int(start_index))
         max_changes = max(1, int(max_changes))
-        label_cache: dict[int, str] = {}
+        labeler = LocationLabeler(doc)
 
         window = redline_objs[start_index:start_index + max_changes]
         changes = [
-            _describe_redline(redline, start_index + offset, doc, label_cache)
+            _describe_redline(redline, start_index + offset, doc, labeler)
             for offset, redline in enumerate(window)
         ]
         end = start_index + len(changes)
@@ -343,7 +332,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     """Show or hide change markup."""
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "track_changes_show"
+    name: str | None = "tracking_show"
     description: str = "Show or hide tracked changes markup in the document view (Writer). On Calc, recording still works; this call returns guidance to use LibreOffice menus for show/hide markup until UNO support is implemented."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"show": {"type": "boolean", "description": "True to show changes, False to hide them."}}, "required": ["show"]}
     is_mutation: bool | None = True
@@ -351,13 +340,11 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         show_b: bool = kwargs["show"]
         assert isinstance(show_b, bool)
-        # What was wrong: checked controller.getViewSettings to decide Writer vs Calc, but Calc controllers might also implement getViewSettings.
-        # How it happened: relied on view service distinction rather than document capability.
-        # Why this change fixes it: branch on hasattr(ctx.doc, 'getRedlines') to distinguish Writer from Calc.
+        # Writer vs Calc is decided by getRedlines on the document, not view settings, because
+        # Calc controllers may still expose getViewSettings.
         if hasattr(ctx.doc, "getRedlines"):
-            # What was wrong: set view ShowChangesInMargin instead of document RedlineDisplayType.
-            # How it happened: ShowChangesInMargin is view's margin preference, not markup visibility toggle.
-            # Why this change fixes it: write IDL RedlineDisplayType (LO 26.8.1.1 probe):
+            # Markup visibility is set on document RedlineDisplayType, not ShowChangesInMargin
+            # (margin layout only). IDL RedlineDisplayType (LO 26.8.1.1 probe):
             # 2 is INSERTED_AND_REMOVED (IsShowChanges), 1 is INSERTED (IsHideChanges).
             # 0 stores as 1 on LO 26.8, 3 is show-original (REMOVED).
             # Boolean ShowChanges False is a no-op while type is 2.
@@ -379,7 +366,7 @@ class TrackChangesShow(WriterAgentSpecialTracking, ToolCalcSpecialTracking):  # 
         return {
             "status": "ok",
             "message": (
-                "Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. track_changes_start / track_changes_stop still control recording."
+                "Calc: showing or hiding tracked-change markup from WriterAgent is not supported yet—use Edit - Track Changes - Show (or Review in the tabbed UI) in LibreOffice. tracking_start / tracking_stop still control recording."
             ),
             "calc_track_changes_show_unsupported": True,
         }
@@ -393,11 +380,11 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
     """
 
     uno_services: list[str] | None = _TRACK_CHANGES_UNO_SERVICES  # type: ignore[assignment]
-    name: str | None = "manage_tracked_changes"
+    name: str | None = "tracking_manage"
     description: str = (
         "Accept or reject tracked changes. action=accept/reject requires index "
-        "(from track_changes_list). That index is stale after any resolve; call "
-        "track_changes_list again before the next accept or reject. action=accept_all/reject_all "
+        "(from tracking_list). That index is stale after any resolve; call "
+        "tracking_list again before the next accept or reject. action=accept_all/reject_all "
         "resolves every change."
     )
     parameters: dict[str, Any] | None = {
@@ -406,7 +393,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             "action": enum_param(["accept", "reject", "accept_all", "reject_all"], "accept/reject one change by index, or accept_all/reject_all."),
             "index": {
                 "type": "integer",
-                "description": "Zero-based index from track_changes_list (required for accept/reject). Call track_changes_list again after each resolve; indexes shift.",
+                "description": "Zero-based index from tracking_list (required for accept/reject). Call tracking_list again after each resolve; indexes shift.",
             },
         },
         "required": ["action"],
@@ -424,7 +411,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         return self._execute_single(ctx, index, is_accept=(action == "accept"))
 
     def _undo_error(self, ctx: ToolContext, problem: str,
-                    log_message: str = "manage_tracked_changes: undo of a bad resolve failed",
+                    log_message: str = "tracking_manage: undo of a bad resolve failed",
                     failed_suffix: str = " Undo failed; the document was still changed.") -> dict[str, Any]:
         """Undo the last resolve, then report *problem* plus whether the undo worked."""
         try:
@@ -461,9 +448,8 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 return err
             return {"status": "ok", "message": msg}
 
-        # What was wrong: bulk accept/reject relied on executeDispatch return value, which returns None on success in Writer.
-        # How it happened: executeDispatch returns None ('no result') even when dispatch succeeds.
-        # Why this change fixes it: judge bulk resolve success by getCount() before and after dispatch on documents with getRedlines.
+        # Bulk resolve success is judged by redline getCount() before and after dispatch
+        # because executeDispatch returns None on success in Writer.
         after = int(ctx.doc.getRedlines().getCount())
         if before == 0 or after == 0:
             return {"status": "ok", "message": msg}
@@ -530,7 +516,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 cur.gotoRange(end, True)
         except Exception:
             # collapsed span (e.g. a deletion) — selecting the start point suffices
-            log.debug("manage_tracked_changes: RedlineEnd unreadable; selecting the start point", exc_info=True)
+            log.debug("tracking_manage: RedlineEnd unreadable; selecting the start point", exc_info=True)
 
         refusal = _overlap_refusal(index, objs, start, end)
         if refusal is not None:
@@ -541,7 +527,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
         try:
             previous = controller.getSelection()
         except Exception:
-            log.debug("manage_tracked_changes: could not read the view selection", exc_info=True)
+            log.debug("tracking_manage: could not read the view selection", exc_info=True)
             previous = None
 
         controller.select(cur)
@@ -563,7 +549,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 return self._undo_error(
                     ctx,
                     "Agent edit was resolved, which is forbidden.",
-                    "manage_tracked_changes: undo of a forbidden agent resolution failed",
+                    "tracking_manage: undo of a forbidden agent resolution failed",
                     " Undo failed; the change is still resolved.",
                 )
 
@@ -577,7 +563,7 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
             return {
                 "status": "ok",
                 "message": (
-                    "%s tracked change at index %d. Call track_changes_list again before another accept or reject; indexes shift after each resolve."
+                    "%s tracked change at index %d. Call tracking_list again before another accept or reject; indexes shift after each resolve."
                     % (action_str, index)
                 ),
             }
@@ -586,4 +572,4 @@ class ManageTrackedChanges(WriterAgentSpecialTracking, ToolCalcSpecialTracking):
                 try:
                     controller.select(previous)
                 except Exception:
-                    log.exception("manage_tracked_changes: could not restore the view selection")
+                    log.exception("tracking_manage: could not restore the view selection")

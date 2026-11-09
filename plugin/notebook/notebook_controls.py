@@ -28,307 +28,16 @@ import logging
 import threading
 import time
 from typing import Any
-import unicodedata
 
 import uno
-from com.sun.star.awt import Size
-from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
-from plugin.framework.errors import best_effort, uno_probe
-from plugin.framework.i18n import _
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.uno_listeners import BaseActionListener, BaseContainerListener, BaseDocumentEventListener
-from plugin.notebook.cell_registry import _coerce_notebook_text, cell_id_to_hex, load_registry
+from plugin.notebook.cell_registry import load_registry
+from plugin.notebook.layout import RUN_PREFIX, doc_key, mono_ms, runtime_uid_from_doc_key
 
 log = logging.getLogger("writeragent.notebook")
-
-# com.sun.star.form.FormButtonType.PUSH — URL buttons open TargetURL via desktop, not our handler.
-_FORM_BUTTON_PUSH = 0
-
-_RUN_PREFIX = "nb_run_"
-
-# 1/100 mm — code field width falls back when page style is unavailable.
-_DEFAULT_WIDTH = 14000
-_MIN_FIELD_HEIGHT = 500
-_LINE_HEIGHT = 450
-_FIELD_HEIGHT_PAD = 280
-_MAX_FIELD_HEIGHT = 24000
-_RUN_BUTTON_SIZE = 320
-_SLOW_ADD_MS = 2000
-_CODE_FONT_NAME = "Liberation Mono"
-_CODE_FONT_HEIGHT = 10
-_CODE_FIELD_BG = 0xF7F7F7
-_CODE_FIELD_BORDER = 0xD0D0D0
-
-
-# ---------------------------------------------------------------------------
-# Layout & Page Sizing
-# ---------------------------------------------------------------------------
-
-
-def _mono_ms(t0: float) -> int:
-    return int((time.monotonic() - t0) * 1000)
-
-
-def _page_style(doc: Any | None) -> Any | None:
-    """Page style of the first body paragraph, else Standard/Default.
-
-    A cursor at the start of the body text carries the first paragraph's
-    PageDescName; the document model does not have this property.
-    File Open has no view yet, so this is not the view cursor.
-    """
-    if doc is None:
-        return None
-
-    def _get() -> Any | None:
-        families = doc.getStyleFamilies().getByName("PageStyles")
-        cursor = doc.getText().createTextCursor()
-        cursor.gotoStart(False)
-        name = str(cursor.getPropertyValue("PageDescName") or "")
-        if name and families.hasByName(name):
-            return families.getByName(name)
-        for candidate in ("Standard", "Default", "Default Page Style"):
-            if families.hasByName(candidate):
-                return families.getByName(candidate)
-        return None
-
-    return best_effort(_get, "notebook controls page style lookup failed")
-
-
-def _text_width_from_style(style: Any | None) -> int:
-    """Page width minus left/right margins (1/100 mm), falling back to _DEFAULT_WIDTH."""
-    if style is None:
-        return _DEFAULT_WIDTH
-
-    def _calc() -> int:
-        page_w = int(style.getPropertyValue("Width"))
-        left = int(style.getPropertyValue("LeftMargin"))
-        right = int(style.getPropertyValue("RightMargin"))
-        return max(6000, page_w - left - right)
-
-    val = best_effort(_calc, "notebook controls width from style failed")
-    return val if val is not None else _DEFAULT_WIDTH
-
-
-def _text_area_width_units(doc: Any | None) -> int:
-    """Page width minus left/right margins (1/100 mm), for code fields and images."""
-    style = _page_style(doc)
-    return _text_width_from_style(style)
-
-
-def _cap_from_style(style: Any | None) -> int:
-    """Cap AS_CHARACTER code fields at roughly body height, falling back to _MAX_FIELD_HEIGHT."""
-    if style is None:
-        return _MAX_FIELD_HEIGHT
-
-    def _calc() -> int:
-        page_h = int(style.getPropertyValue("Height"))
-        top = int(style.getPropertyValue("TopMargin"))
-        bottom = int(style.getPropertyValue("BottomMargin"))
-        # Leave room for the In [n]: gutter on the same page when possible.
-        return max(_MIN_FIELD_HEIGHT, page_h - top - bottom - 1500)
-
-    val = best_effort(_calc, "notebook controls cap from style failed")
-    return val if val is not None else _MAX_FIELD_HEIGHT
-
-def _line_display_cols(line: str, *, max_cols: int | None = None) -> int:
-    if line.endswith("\r"):
-        line = line[:-1]
-    line = line.expandtabs(4)
-    cols = 0
-    for ch in line:
-        if unicodedata.east_asian_width(ch) in ("W", "F"):
-            cols += 2
-        else:
-            cols += 1
-        if max_cols is not None and cols >= max_cols:
-            return cols
-    return cols
-
-
-def _raw_height_for_text(
-    text: str,
-    *,
-    field_w: int | None = None,
-    cap: int | None = None,
-) -> int:
-    if field_w is None:
-        cols = 80
-    else:
-        char_width = int(_CODE_FONT_HEIGHT * 2540 * 0.6 / 72)
-        cols = max(8, field_w // char_width)
-    lines = 0
-    base_pad = _FIELD_HEIGHT_PAD + _LINE_HEIGHT
-    # Stop line walk once height strictly passes cap so raw_h > cap remains true.
-    max_lines_needed = max(1, (cap - base_pad) // _LINE_HEIGHT + 1) if cap is not None else None
-
-    for line in (text or "").split("\n"):
-        rem_lines = (max_lines_needed - lines) if max_lines_needed is not None else None
-        max_cols = (rem_lines * cols) if rem_lines is not None and rem_lines > 0 else None
-        cols_count = _line_display_cols(line, max_cols=max_cols)
-        lines += max(1, (cols_count + cols - 1) // cols)
-        if max_lines_needed is not None and lines >= max_lines_needed:
-            break
-    lines = max(1, lines)
-    return lines * _LINE_HEIGHT + base_pad
-
-
-def _height_for_text(text: str, doc: Any | None = None, *, field_w: int | None = None, cap: int | None = None) -> int:  # pyright: ignore[reportUnusedFunction]
-    """Shape height in 1/100 mm so every source line is visible (no clipped last line)."""
-    if field_w is None and doc is not None:
-        field_w = _text_area_width_units(doc)
-    raw = _raw_height_for_text(text, field_w=field_w, cap=cap)
-    if cap is None:
-        cap = _cap_from_style(_page_style(doc))
-    return max(_MIN_FIELD_HEIGHT, min(cap, raw))
-
-
-# ---------------------------------------------------------------------------
-# Form Model Styling & Flow Insertion
-# ---------------------------------------------------------------------------
-
-
-def _anchor_control_as_character(shape: Any) -> None:
-    """In-flow control: AS_CHARACTER, top-aligned, no wrap beside the next shape."""
-    shape.setPropertyValue("AnchorType", AS_CHARACTER)
-    shape.setPropertyValue("VertOrient", 1)
-    shape.setPropertyValue("TextWrap", 0)
-
-
-def _set_model_props(model: Any, pairs: list[tuple[str, Any]]) -> None:
-    """Set form-model properties querying getPropertySetInfo once. Skip names this model lacks.
-
-    CommandButton has no ``Border``; the form TextField has no ``AutoVScroll``.
-    A rejected value must not abort insertion of the code field.
-    """
-    info = best_effort(lambda: model.getPropertySetInfo(), "notebook controls getPropertySetInfo failed")
-    if info is None:
-        return
-    for name, value in pairs:
-        if info.hasPropertyByName(name):
-            best_effort(functools.partial(model.setPropertyValue, name, value), f"notebook controls could not set model {name}")
-
-
-def _style_code_field_model(model: Any, *, vscroll: bool = False) -> None:
-    """Jupyter-like code box: light gray fill, hairline border, Liberation Mono."""
-    _set_model_props(
-        model,
-        [
-            ("MultiLine", True),
-            ("FontName", _CODE_FONT_NAME),
-            ("FontHeight", _CODE_FONT_HEIGHT),
-            ("BackgroundColor", _CODE_FIELD_BG),
-            ("Border", 2),
-            ("BorderColor", _CODE_FIELD_BORDER),
-            ("VScroll", vscroll),
-        ],
-    )
-
-
-def _style_run_button_model(model: Any) -> None:
-    """Small ▶ without a fat 3D square around it."""
-    _set_model_props(
-        model,
-        [
-            ("Border", 0),
-            ("BackgroundColor", 0xFFFFFF),
-            ("FontHeight", 8),
-            ("FocusOnClick", False),
-            ("DefaultControl", "com.sun.star.form.control.CommandButton"),
-        ],
-    )
-
-
-def _log_shape_add(*, step: str, name: str = "", text_chars: int = 0, truncated: bool = False, shape_h: int = 0, shapes_before: int, create_ms: int = 0, text_ms: int = 0, add_ms: int = 0, ok: bool = True) -> None:
-    total_ms = create_ms + text_ms + add_ms
-    log.debug("notebook controls add step=%s name=%s text_chars=%d truncated=%s shape_h=%d shapes_before=%d create_ms=%d text_ms=%d add_ms=%d ok=%s", step, name, text_chars, truncated, shape_h, shapes_before, create_ms, text_ms, add_ms, ok)
-    if total_ms >= _SLOW_ADD_MS:
-        log.warning("notebook controls slow UNO add step=%s total_ms=%d shapes_before=%d", step, total_ms, shapes_before)
-
-
-def _insert_run_button_in_flow(doc: Any, *, cell_id: str, controls_before: int) -> None:  # pyright: ignore[reportUnusedFunction]
-    """In-flow ▶ on the ``In [n]:`` gutter paragraph (not the tall gray field)."""
-    hex_id = cell_id_to_hex(cell_id)
-    t0 = time.monotonic()
-    model = doc.createInstance("com.sun.star.form.component.CommandButton")
-    if model is None:
-        raise RuntimeError("Failed to create form CommandButton")
-    model.Name = f"{_RUN_PREFIX}{hex_id}"
-    model.Label = "\u25b6"
-    if hasattr(model, "HelpText"):
-        model.HelpText = _("Run code cell")
-    model.ButtonType = _FORM_BUTTON_PUSH
-    _style_run_button_model(model)
-
-    shape = doc.createInstance("com.sun.star.drawing.ControlShape")
-    if shape is None:
-        raise RuntimeError("Failed to create ControlShape for run button")
-    shape.setSize(Size(_RUN_BUTTON_SIZE, _RUN_BUTTON_SIZE))
-    shape.Control = model
-    _anchor_control_as_character(shape)
-
-    text = doc.getText()
-    cursor = text.createTextCursor()
-    cursor.gotoEnd(False)
-    t_add = time.monotonic()
-    text.insertTextContent(cursor, shape, False)
-    _log_shape_add(step="run_button", name=model.Name, shapes_before=controls_before, create_ms=_mono_ms(t0), add_ms=_mono_ms(t_add), shape_h=_RUN_BUTTON_SIZE)
-
-
-def _insert_code_input_in_flow(  # pyright: ignore[reportUnusedFunction]
-    doc: Any,
-    *,
-    name: str,
-    source: str,
-    controls_before: int,
-    field_w: int | None = None,
-    cap: int | None = None,
-) -> None:
-    """Editable code cell: form TextField anchored in document flow at body end."""
-    source_text = _coerce_notebook_text(source)
-    raw_chars = len(source_text)
-
-    if field_w is None:
-        field_w = _text_area_width_units(doc)
-    if cap is None:
-        cap = _cap_from_style(_page_style(doc))
-
-    raw_h = _raw_height_for_text(source_text, field_w=field_w, cap=cap)
-    h = max(_MIN_FIELD_HEIGHT, min(cap, raw_h))
-    vscroll = raw_h > cap
-
-    t0 = time.monotonic()
-    model = doc.createInstance("com.sun.star.form.component.TextField")
-    if model is None:
-        raise RuntimeError("Failed to create form TextField")
-    model.Name = name
-    if hasattr(model, "Label"):
-        model.Label = _("Code")
-    _style_code_field_model(model, vscroll=vscroll)
-    create_ms = _mono_ms(t0)
-
-    t_text = time.monotonic()
-    # Full source is the runnable program; display cap is for body text only.
-    # MaxTextLen defaults to 0 (unlimited); do not set it or non-zero caps at 32k.
-    model.Text = source_text
-    text_ms = _mono_ms(t_text)
-
-    t_shape = time.monotonic()
-    shape = doc.createInstance("com.sun.star.drawing.ControlShape")
-    if shape is None:
-        raise RuntimeError("Failed to create ControlShape")
-    shape.setSize(Size(field_w, h))
-    shape.Control = model
-    _anchor_control_as_character(shape)
-    create_ms += _mono_ms(t_shape)
-
-    text = doc.getText()
-    cursor = text.createTextCursor()
-    cursor.gotoEnd(False)
-    t_add = time.monotonic()
-    text.insertTextContent(cursor, shape, False)
-    add_ms = _mono_ms(t_add)
-    _log_shape_add(step="code_field", name=name, text_chars=raw_chars, truncated=False, shape_h=h, shapes_before=controls_before, create_ms=create_ms, text_ms=text_ms, add_ms=add_ms)
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +50,7 @@ def _insert_code_input_in_flow(  # pyright: ignore[reportUnusedFunction]
 # ensure_form_design_mode_off, prune_dead_listeners, and
 # wire_all_notebook_run_buttons must run there; decorating them breaks
 # WRITERAGENT_UNO_THREAD_GUARD=1 File Open (filter returns False → General I/O
-# error). Do not marshal with execute_on_main_thread from the filter (host
+# error). Do not marshal with main.call from the filter (host
 # waiting = deadlock #402). ApplyFormDesignMode=False must happen before the
 # filter returns. Listener methods stay undecorated (LO already invokes those
 # on the UI thread; docs/framework/uno-thread-safety.md §A4). Release OXT still
@@ -349,7 +58,7 @@ def _insert_code_input_in_flow(  # pyright: ignore[reportUnusedFunction]
 # _lock serializes _listener_refs / _warned_no_container mutations (Dummy-2
 # XFilter and Dummy-3 OnViewCreated can overlap) and the one-shot global
 # _doc_listener install. Do not hold it across UNO (getFormController,
-# addActionListener).
+# addActionListener, uno_same).
 _listener_refs: list[Any] = []
 _warned_no_container: set[str] = set()
 
@@ -383,39 +92,10 @@ def _query_interface(obj: Any, typename: str) -> Any:
     return obj.queryInterface(uno.getTypeByName(typename))
 
 
-def _doc_key(doc: Any) -> str:
-    """Stable id for listener de-dupe across Python wrappers of the same document.
-
-    Untitled Writer docs have an empty URL, so ``id(doc)`` was used. Import
-    and bootstrap ``install_notebook_run_button_wiring`` can wire on
-    different PyUNO wrappers of the same document — one ▶ click then ran
-    the cell multiple times (``[In [4]]`` jumped to ``[In [7]]``).
-    ``RuntimeUID`` is the same object for every wrapper of that document.
-
-    Read it with ``_read_runtime_uid``, the same ladder without
-    ``@main_thread_only``. ``get_runtime_uid`` raises off the main thread
-    when the dev UNO thread guard is on. File Open ``XFilter.filter`` runs
-    on Dummy-2 and the extensionless detect reload on Dummy-3 (see the
-    wire_all comment above). ``filter()`` would catch that ``RuntimeError``
-    and return False, and ``loadComponentFromURL`` would return None.
-    Decorating this path or hopping to the main thread deadlocks the
-    waiting host (#402).
-    """
-    from plugin.framework.uno_context import _read_runtime_uid
-
-    uid = _read_runtime_uid(doc)
-    if uid:
-        return f"uid:{uid}"
-    url = uno_probe(lambda: doc.getURL(), "")
-    if isinstance(url, str) and url:
-        return f"url:{url}"
-    return f"id:{id(doc)}"
-
-
 def _hex_id_from_control_name(name: str) -> str | None:
-    if not isinstance(name, str) or not name.startswith(_RUN_PREFIX):
+    if not isinstance(name, str) or not name.startswith(RUN_PREFIX):
         return None
-    hex_id = name[len(_RUN_PREFIX) :]
+    hex_id = name[len(RUN_PREFIX) :]
     return hex_id or None
 
 
@@ -448,15 +128,15 @@ def form_run_listeners(doc: Any | None = None) -> list[Any]:
     out = [lis for lis in _listener_refs if isinstance(lis, NotebookFormRunListener)]
     if doc is None:
         return out
-    key = _doc_key(doc)
+    key = doc_key(doc)
     return [lis for lis in out if getattr(lis, "_doc_key_val", None) == key]
 
 
 def prune_dead_listeners() -> None:
     """Remove listeners whose target document is closed/gone."""
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return
     with _lock:
         refs = list(_listener_refs)
@@ -477,67 +157,25 @@ class NotebookFormRunListener(BaseActionListener):
 
     _ctx: Any
     _doc_key_val: str
-    _doc_url: str
     _runtime_uid: str
-    _doc_weak: Any | None
     _attached_names: set[str]
 
     def __init__(self, ctx: Any, doc: Any) -> None:
         self._ctx = ctx
-        self._doc_key_val = _doc_key(doc)
-        self._doc_url = str(uno_probe(lambda: doc.getURL(), "") or "")
-        # _doc_key already stored RuntimeUID in the uid: prefix. Untitled docs
-        # have an empty URL. Hidden native tests (and a notebook that is not
-        # Desktop.getCurrentComponent) then failed get_active_document; PyUNO
-        # wrappers usually cannot be weakref'd, so ▶ looked wired but
-        # actionPerformed returned "document gone".
-        self._runtime_uid = self._doc_key_val[4:] if self._doc_key_val.startswith("uid:") else ""
-        import weakref
-
-        self._doc_weak = uno_probe(lambda: weakref.ref(doc), None)
+        self._doc_key_val = doc_key(doc)
+        self._runtime_uid = runtime_uid_from_doc_key(self._doc_key_val)
         self._attached_names = set()
 
     def _resolve_doc(self) -> Any | None:
-        from plugin.framework.uno_context import get_active_document, resolve_document_by_url
+        from plugin.framework.uno_context import resolve_document_by_url
 
-        weak = self._doc_weak
-        if callable(weak):
-            ref_doc: Any = weak()
-            if ref_doc is not None:
-                for meth in ("getRuntimeUID", "getURL"):
-                    fn = getattr(ref_doc, meth, None)
-                    if not callable(fn):
-                        continue
-                    try:
-                        fn()
-                        return ref_doc
-                    except Exception:
-                        log.debug(
-                            "notebook controls: %s liveness probe failed",
-                            meth,
-                            exc_info=True,
-                        )
-            self._doc_weak = None
-
-        active = best_effort(
-            lambda: get_active_document(self._ctx),
-            "notebook controls: active document resolution failed",
+        if not self._runtime_uid:
+            return None
+        resolved = best_effort(
+            functools.partial(resolve_document_by_url, self._ctx, self._runtime_uid),
+            "notebook controls: runtime uid resolution failed",
         )
-        if active is not None and _doc_key(active) == self._doc_key_val:
-            return active
-
-        for token, what in (
-            (self._doc_url, "notebook controls: doc resolution failed"),
-            (self._runtime_uid, "notebook controls: runtime uid resolution failed"),
-        ):
-            if not token:
-                continue
-            resolved = best_effort(
-                functools.partial(resolve_document_by_url, self._ctx, token),
-                what,
-            )
-            if resolved is None:
-                continue
+        if resolved is not None:
             doc, _doc_type = resolved
             if doc is not None:
                 return doc
@@ -642,7 +280,7 @@ def _form_and_container(doc: Any) -> tuple[Any | None, Any | None]:
             elem_count = getattr(form, "getCount", lambda: 0)()
             for j in range(elem_count):
                 name = getattr(form.getByIndex(j), "Name", "")
-                if name and name.startswith(_RUN_PREFIX):
+                if name and name.startswith(RUN_PREFIX):
                     target_form = form
                     break
             if target_form is not None:
@@ -687,10 +325,10 @@ def forget_document_wiring(doc: Any) -> None:
     """Drop ▶ listeners and registry bookkeeping for *doc* on unload."""
     if doc is None:
         return
-    doc_key = _doc_key(doc)
+    key = doc_key(doc)
     with _lock:
-        _warned_no_container.discard(doc_key)
-        to_drop = [lis for lis in _listener_refs if getattr(lis, "_doc_key_val", None) == doc_key]
+        _warned_no_container.discard(key)
+        to_drop = [lis for lis in _listener_refs if getattr(lis, "_doc_key_val", None) == key]
     if not to_drop:
         return
     for lis in to_drop:
@@ -704,16 +342,56 @@ def forget_document_wiring(doc: Any) -> None:
         _listener_refs[:] = [lis for lis in _listener_refs if lis not in drop_set]
 
 
-def _container_wired(doc_key: str, container: Any | None = None) -> bool:
-    """Caller holds ``_lock``. ``container is None`` skips ``uno_same``."""
+def _container_matches(refs: list[Any], key: str, container: Any | None = None) -> list[Any]:
+    """Return matching container listeners from ``refs``.
+
+    Does not acquire ``_lock`` and does not read ``_listener_refs``.
+    ``container is None`` skips ``uno_same``.
+    """
     from plugin.framework.uno_context import uno_same
 
-    return any(
-        isinstance(lis, NotebookFormContainerListener)
-        and lis._doc_key_val == doc_key
+    return [
+        lis
+        for lis in refs
+        if isinstance(lis, NotebookFormContainerListener)
+        and lis._doc_key_val == key
         and (container is None or uno_same(lis._container, container))
-        for lis in _listener_refs
-    )
+    ]
+
+
+def _claim_container(
+    key: str,
+    container: Any | None = None,
+    listener: Any | None = None,
+    container_lis: Any | None = None,
+) -> bool:
+    """True if a snapshot match is still in ``_listener_refs``.
+
+    Bugfix: Previously, container comparisons ran under ``_lock``.
+    ``uno_same`` falls back to ``==`` and ``uno.isSame`` UNO calls, while
+    ``on_disposing`` and document-event handlers take ``_lock`` when already
+    holding SolarMutex, creating a lock-order inversion risk.
+    To fix this, we snapshot ``_listener_refs`` under ``_lock``, compare
+    containers outside ``_lock`` with ``uno_same``, and recheck listener
+    identity under ``_lock``. If another caller appended to ``_listener_refs``
+    during comparison, we retry; otherwise, if ``listener`` and ``container_lis``
+    are provided and no live match was found, we append both before returning False.
+    """
+    while True:
+        with _lock:
+            refs = list(_listener_refs)
+        matches = _container_matches(refs, key, container)
+        with _lock:
+            if any(lis in _listener_refs for lis in matches):
+                return True
+            if any(lis not in refs for lis in _listener_refs):
+                # another wire_all appended during the compare; rescan so only one pair survives (lost-race rule below)
+                continue
+            if listener is not None and container_lis is not None:
+                _listener_refs.append(listener)
+                _listener_refs.append(container_lis)
+                _warned_no_container.discard(key)
+            return False
 
 
 def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> int:
@@ -721,11 +399,9 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
 
     Does **not** call ``controller.getControl(model)`` per code cell.
     """
-    doc_key = _doc_key(doc)
+    key = doc_key(doc)
     if not new_view:
-        with _lock:
-            already_wired = _container_wired(doc_key)
-        if already_wired:
+        if _claim_container(key):
             ensure_form_design_mode_off(doc)
             return 1
 
@@ -739,18 +415,15 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
     _fc, container = _form_and_container(doc)
     if container is None:
         with _lock:
-            warn = doc_key not in _warned_no_container
+            warn = key not in _warned_no_container
             if warn:
-                _warned_no_container.add(doc_key)
+                _warned_no_container.add(key)
         if warn:
             log.warning("notebook controls: no form controller container; ▶ clicks will not run (%d code cells)", len(state.code_cells))
         return 0
 
-    with _lock:
-        already_wired = _container_wired(doc_key, container)
-
-    if already_wired:
-        log.debug("notebook controls: form listener already attached doc=%s", doc_key)
+    if _claim_container(key, container):
+        log.debug("notebook controls: form listener already attached doc=%s", key)
         return 1
 
     listener = NotebookFormRunListener(ctx, doc)
@@ -772,20 +445,14 @@ def wire_all_notebook_run_buttons(ctx: Any, doc: Any, new_view: bool = True) -> 
         _detach_wiring(container, listener, container_lis)
         return 0
 
-    with _lock:
-        already_wired = _container_wired(doc_key, container)
-        if not already_wired:
-            _listener_refs.append(listener)
-            _listener_refs.append(container_lis)
-            _warned_no_container.discard(doc_key)
-    if already_wired:
+    if _claim_container(key, container, listener, container_lis):
         # File Open (Dummy-2) and view creation can both get past the first
         # check. The other call kept its listener; take ours back off so one
         # ▶ click does not run the cell twice.
         _detach_wiring(container, listener, container_lis)
-        log.debug("notebook controls: lost wiring race; detached duplicate doc=%s", doc_key)
+        log.debug("notebook controls: lost wiring race; detached duplicate doc=%s", key)
         return 1
-    elapsed_ms = _mono_ms(t0)
+    elapsed_ms = mono_ms(t0)
     log.info("notebook import attach_form_listener elapsed_ms=%d attached_views=%d code_cells=%d", elapsed_ms, attached, len(state.code_cells))
     return 1
 
@@ -819,7 +486,7 @@ def _install_doc_event_listener(ctx: Any) -> None:
                         return
 
                     if doc is not None:
-                        is_text_doc = uno_probe(
+                        is_text_doc = uno_read(
                             lambda: bool(doc.supportsService("com.sun.star.text.TextDocument")),
                             True,
                         )
@@ -848,7 +515,7 @@ def _install_doc_event_listener(ctx: Any) -> None:
 def install_notebook_run_button_wiring(ctx: Any) -> None:
     """Bootstrap: wire ▶ buttons on the active Writer document (if any)."""
     try:
-        from plugin.doc.doc_type import is_writer
+        from plugin.framework.doc_type import is_writer
         from plugin.framework.uno_context import get_active_document
 
         doc = get_active_document(ctx)

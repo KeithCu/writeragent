@@ -7,9 +7,12 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.config import get_config_int
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
+
+from plugin.framework.config import get_config
 from plugin.ppt_master.paths import apply_data_root_env
 from plugin.scripting.config_limits import configured_python_exec_timeout, resolve_python_exec_timeout
 from plugin.scripting.venv_worker import _get_worker_manager
@@ -29,8 +32,7 @@ def run_ppt_master_venv_turn(
     model: str | None,
     session_id: str,
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    cancellation_scope: Any | None = None,
+    cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """Dispatch one sidebar turn to the venv ppt-master runner."""
     apply_data_root_env(uno_ctx)
@@ -49,16 +51,15 @@ def run_ppt_master_venv_turn(
         "topic": topic,
         "model": model,
         "session_id": session_id,
-        "max_steps": get_config_int("chatbot.max_tool_rounds"),
-        "max_tokens": get_config_int("chat_max_tokens"),
+        "max_steps": get_config("chatbot.max_tool_rounds"),
+        "max_tokens": get_config("chat_max_tokens"),
     }
 
-    # cancellation_scope is a host object (it registers the live LlmClient).
+    # cancel is a host object (it registers the live LlmClient).
     # It stays out of payload, which is pickled to the child.
     return manager.execute_ppt_master_turn(
         payload,
         timeout_sec=timeout_sec,
         on_worker_event=on_worker_event,
-        stop_checker=stop_checker,
-        cancellation_scope=cancellation_scope,
+        cancel=cancel,
     )

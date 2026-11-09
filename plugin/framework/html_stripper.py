@@ -23,13 +23,12 @@ from typing import NamedTuple
 
 from plugin.framework.deal_shim import DEAL_MAX_HTML_CHUNK, deal, str_bounded
 
-# Wider than DEAL_MAX_SOURCE (16 under CrossHair): _feed_chunk() must still
-# reach the 256-char tag flush under pytest. Pytest binds DEAL_MAX_HTML_CHUNK=4096;
-# CrossHair uses 16. Public feed() / strip_html_tags have no whole-string
-# @deal.pre — they slice to DEAL_MAX_HTML_CHUNK so long _append_response
-# assistant/tool-result HTML cannot PreContract in debug OXTs.
+# Wider than DEAL_MAX_SOURCE: _feed_chunk() must still reach the 256-char
+# tag flush under pytest. DEAL_MAX_HTML_CHUNK=4096 here; 16 is in the runner.
+# Public feed() / strip_html_tags have no whole-string @deal.pre — they slice
+# to DEAL_MAX_HTML_CHUNK so long _append_response assistant/tool-result HTML
+# cannot PreContract in debug OXTs.
 
-# Element text used to survive (``<script>alert(1)</script>`` → ``alert(1)``).
 # Drop the body until the matching close tag, not only the tag bytes.
 _DISCARD_ELEMENTS = frozenset({"script", "style"})
 # Tags the stripper removes. Anything else inside ``<…>`` is prose: a generic
@@ -254,12 +253,7 @@ class StreamingHTMLStripper:
     @deal.pre(lambda self, chunk: str_bounded(chunk, DEAL_MAX_HTML_CHUNK))
     @deal.post(lambda result: isinstance(result, str))
     def _feed_chunk(self, chunk: str) -> str:
-        """Process one deal-bounded slice. feed() slices so callers never trip this pre.
-
-        Debug OXTs keep live @deal.pre. _append_response used to pass a whole
-        assistant chunk here; one slice >4096 raised PreContractError, which
-        suppress_disposed swallowed (UI Ready, log PreContractError=1).
-        """
+        """Process one deal-bounded slice. feed() slices so callers never trip this pre."""
         # crosshair: off
         out: list[str] = []
         for char in chunk:
@@ -271,8 +265,7 @@ class StreamingHTMLStripper:
                 else:
                     self._note_discarded_body(char, out)
             elif self._quote:
-                # The first '>' used to end the tag even inside quotes, so
-                # ``<img alt="a>b" src="x">`` leaked ``b" src="x">``.
+                # Track quotes so '>' inside quotes does not end the tag.
                 if char == self._quote:
                     self._quote = ""
                 self._push_tag_char(char, out)
@@ -329,8 +322,7 @@ class StreamingHTMLStripper:
     @deal.post(lambda result: isinstance(result, str))
     def finalize(self) -> str:
         """Return any remaining buffered text when the stream is completed."""
-        # No close tag arrived. Dropping the hold used to erase a short
-        # mention ("use a <script> tag") when the reply ended under the cap.
+        # Emit remaining buffered text if no close tag arrived.
         held = self._discard_body + self.tag_buffer
         self.tag_buffer = ""
         self._quote = ""

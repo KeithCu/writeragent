@@ -145,7 +145,7 @@ started on the same soffice (`6052,1752`). Later
 Impress + skipped Writer docs; office still alive). Cause:
 `python -m plugin.testing_runner` is `__main__`; tests imported
 `plugin.testing_runner` and set the recycle flag on that copy.
-`request_office_recycle_after_suite` / `consume_office_recycle_request`
+`current_office().request_recycle` / `consume_recycle_request`
 read and write that one flag (see “What the fixture actually does”).
 
 GHA 34551644954 (`0177648d`): recycle **did** run (`start` / `done`
@@ -294,7 +294,7 @@ is not `close(True)`'d (34607010446) and is not recycled mid-run
 `test_insert_math_draw` OK, later Impress suites OK, then
 `notebook.test_import_filter_uno_detect_without_filtername` hung 30s.
 GHA 34619751330 deferred `test_draw_uno` and the same notebook detect
-hang happened *before* `insert_math` (soffice still `2444,5124`,
+hang happened *before* `math_insert` (soffice still `2444,5124`,
 leftovers `['34','27','26']`). Leftover Math Draw is not that hang.
 `test_import_filter_uno_load_component` Hidden `_blank` + FilterName
 returned, then raw `close(True)`; the next Hidden `_blank` detect
@@ -343,7 +343,7 @@ POSIX still `close_doc`. Breadcrumbs:
 `close_doc: skip writer close leftovers open=N uid=…`,
 `get_draw_tree: body start/execute done/body done`,
 `close_doc: skip math ole close (windows) uid= leftovers= keeper= pids=`,
-`insert_math_draw: insert_math start/done` and `body done`,
+`insert_math_draw: math_insert start/done` and `body done`,
 `import_filter_uno: load start/done` (`target=_wa_notebook` on
 Windows), `html_paste_writer: noted leftover_open=`,
 `windows leftover skip:`. Do **not** fold Draw-family settle into
@@ -482,8 +482,8 @@ the same soffice PIDs). Worker threads were `worker_pool._loop` /
 `createWindow` TOP + later `setVisible` is the same Windows-headless
 VCL map. Windows now `skip_windows_awt_top_dialog`s before
 `createPeer` / `setVisible` (`windows awt skip: slash_popup
-createPeer/setVisible`). Linux UNO still maps the overlay. ENABLE_SLASH
-stays parked. Not a product change.
+createPeer/setVisible`). Linux UNO still maps the overlay when enabled.
+Not a product change.
 
 GHA 34657826349 / 34657808315 (master `0bf7d223`, tip of #734):
 #734's Hidden-open skip is not that hang. `document_research_uno`
@@ -669,7 +669,7 @@ second; no second Hidden `_blank` / no 30s Timeout in
 `create_native_doc` on `…_multi_para_joins_with_newline`),
 `draw.test_draw_forms_uno` four tests `TEST end … OK` (first Draw
 `close(True)` must return; no `close_doc: start uid= svc=draw` before
-that close), `insert_math_draw: insert_math start/done` then
+that close), `insert_math_draw: math_insert start/done` then
 `close_doc: skip math ole close (windows)` (not
 `LIFECYCLE close_doc dispose` / `office dead after close doc_type=draw`),
 `import_filter_uno: load start target=_wa_notebook` (not `_blank`)
@@ -744,7 +744,7 @@ GHA 34692834349 SkipTest on the worker did not skip the parent),
 `html_paste_writer: noted leftover_open=1` from deferred formulas /
 rich_html, **then**
 `TEST end draw.test_draw_uno.test_insert_math_draw OK` after
-`insert_math_draw: insert_math start/done` and
+`insert_math_draw: math_insert start/done` and
 `close_doc: skip math ole close (windows)`, leftover-Impress
 suites (`native_doc: teardown skip impress/draw close leftover_open=N`
 when leftover Writer is already open — not

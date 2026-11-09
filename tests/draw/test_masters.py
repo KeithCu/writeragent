@@ -11,11 +11,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from plugin.draw.masters import GetSlideMaster, ListMasterSlides, SetSlideMaster
+from plugin.draw.masters import GetSlideMaster, ListMasterSlides, SetSlideMaster, find_master, iter_masters
 from plugin.framework.errors import DocumentDisposedError
 
 
-def test_list_master_slides():
+def test_slide_master_list():
     m0 = MagicMock()
     m0.Name = "DefaultMaster"
     m0.Width = 21000
@@ -133,13 +133,14 @@ def test_get_slide_master_omitted_page_uses_active_page_index():
 
 
 def test_get_slide_master_invalid_page_returns_error():
+    from plugin.framework.errors import ToolExecutionError
+
     m0 = _Master("Default")
     p0 = _Page(m0)
     doc = _Doc(_Masters([m0]), _Masters([p0]))
     ctx = SimpleNamespace(doc=doc, active_page_index=0)
-    res = GetSlideMaster().execute(ctx, page=5)
-    assert res["status"] == "error"
-    assert "Invalid page index: 5" in res["message"]
+    with pytest.raises(ToolExecutionError, match="Page index 5 out of range."):
+        GetSlideMaster().execute(ctx, page=5)
 
 
 def test_set_slide_master_success():
@@ -197,4 +198,24 @@ def test_set_slide_master_disposal_propagates():
     ctx = SimpleNamespace(doc=doc, active_page_index=0)
     with pytest.raises(DocumentDisposedError):
         SetSlideMaster().execute(ctx, page=0, master="Default")
+
+
+def test_iter_masters_and_find_master():
+    m0 = _Master("Default")
+    m1 = _Master("Sunset")
+    doc = _Doc(_Masters([m0, m1]), _Masters([]))
+
+    entries = iter_masters(doc)
+    assert len(entries) == 2
+    assert entries[0] == (0, m0, "Default")
+    assert entries[1] == (1, m1, "Sunset")
+
+    assert find_master(doc, name="Sunset") is m1
+    assert find_master(doc, name="Nonexistent") is None
+    assert find_master(doc, index=0) is m0
+    assert find_master(doc, index=5) is None
+    assert find_master(doc) is None
+
+    assert iter_masters(None) == []
+    assert iter_masters(object()) == []
 

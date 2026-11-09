@@ -46,7 +46,7 @@ def _type_includes(type_value: Any, name: str) -> bool:
 
 
 def call_properties(schema: Any) -> dict[str, Any] | None:
-    """Properties object used to check a call, including ``{}``.
+    """Properties object for checking a call, including ``{}``.
 
     An empty ``properties`` object is a closed schema, not "no schema".
     ``if props`` treats it as missing, so hallucinated kwargs reach no-arg
@@ -64,9 +64,7 @@ def call_properties(schema: Any) -> dict[str, Any] | None:
 def required_keys(schema: Any) -> list[Any]:
     """``required`` when it is a list, else [].
 
-    Bugfix: a string required (``"name"`` / ``"ab"``) used to be iterated as
-    characters. Only a list is a set of keys. Leave a non-list value on the
-    schema object itself; this helper only supplies the key list.
+    Only a list is a set of keys; non-list values return [].
     """
     raw = schema.get("required") if isinstance(schema, dict) else None
     return raw if isinstance(raw, list) else []
@@ -153,9 +151,8 @@ def normalize_outbound_tool_calls(messages: _OutboundMessages, tools: Any) -> _O
     kwargs on a no-arg tool. Duplicate tool names union their properties
     instead of keeping only the last schema.
 
-    *messages* and *tools* may be any sequence. A tuple used to fail the
-    ``list`` check and skip the allow-list. Strings are not sequences of
-    messages or tools.
+    *messages* and *tools* may be any sequence (strings are not sequences
+    of messages or tools).
 
     This writes ``function["arguments"]`` on the existing call dicts and
     does not replace ``tool_calls``. ``prepare_chat_messages`` deep-copies
@@ -198,9 +195,8 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
     when this property's type includes array. Nested ``range`` fields are
     not walked.
 
-    ``write_formula_range`` values stay type string on the source schema
-    (Gemini/Groq must not see a union) while MCP sends a native array.
-    A list or number becomes the string ``execute`` already json-encodes.
+    ``write_formula_range`` values accept string or native array on the source
+    schema; only a bare number is coerced to string for single-cell fill.
     """
     if not isinstance(kwargs, dict):
         return kwargs
@@ -221,26 +217,26 @@ def coerce_call_args(tool_name: str | None, props: Any, kwargs: dict[str, Any]) 
 
     if tool_name == "write_formula_range":
         fov = out.get("values")
-        coerced: str | None = None
-        if isinstance(fov, list):
-            coerced = json.dumps(fov) if fov else ""
-        elif isinstance(fov, (int, float)) and not isinstance(fov, bool):
-            coerced = str(fov)
-        if coerced is not None:
-            out["values"] = coerced
+        if isinstance(fov, (int, float)) and not isinstance(fov, bool):
+            out["values"] = str(fov)
     return out
 
 
-@deal.ensure(lambda prop_schema, result: not isinstance(prop_schema, dict) or isinstance(result, dict))
-def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any]:
+@deal.ensure(lambda prop_schema, result, for_mcp=False: not isinstance(prop_schema, dict) or isinstance(result, dict))
+def _make_optional_scalar_nullable(prop_schema: dict[str, Any], *, for_mcp: bool = False) -> dict[str, Any]:
     """Add null to optional scalar property types (strict providers reject bare null otherwise).
 
     A union of scalars is optional in the same way as one scalar. Null is
     appended; the other members stay. ``["string", "number"]`` must not
     become ``["string", "null"]``.
+
+    MCP/Gemini rejects JSON null inside ``enum`` when agy forwards tool schemas.
+    Optional enum properties stay non-nullable on the MCP wire; callers omit the key.
     """
     # crosshair: off
     if not isinstance(prop_schema, dict):
+        return prop_schema
+    if for_mcp and isinstance(prop_schema.get("enum"), list):
         return prop_schema
     raw = prop_schema.get("type")
     types = [raw] if isinstance(raw, str) else raw if isinstance(raw, list) else None
@@ -256,9 +252,9 @@ def _make_optional_scalar_nullable(prop_schema: dict[str, Any]) -> dict[str, Any
     return out
 
 
-@deal.ensure(lambda params, result: (not isinstance(params, dict) or not params) or isinstance(result, dict))
-@deal.ensure(lambda params, result: not isinstance(result, dict) or result.get("required") != [])
-def _normalize_schema_for_strict_providers(params: Any) -> Any:
+@deal.ensure(lambda params, result, for_mcp=False: (not isinstance(params, dict) or not params) or isinstance(result, dict))
+@deal.ensure(lambda params, result, for_mcp=False: not isinstance(result, dict) or result.get("required") != [])
+def _normalize_schema_for_strict_providers(params: Any, *, for_mcp: bool = False) -> Any:
     """Normalize JSON Schema for strict upstream validators (Gemini, Groq, etc.).
 
     - Optional scalar properties, including a union of scalars, get ``null``
@@ -270,9 +266,7 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     # crosshair: off
     if type(params) is not dict or len(params) == 0:
         return params
-    # Bugfix: #2594 removed this copy, so normalization mutated the caller's
-    # schema in place (e.g. ToolBase.parameters class dicts shared by every
-    # call). Copy first so the input is never changed.
+    # Deepcopy parameters so normalization does not mutate the caller's schema.
     params = copy.deepcopy(params)
     # Dedupe only. One remaining name becomes a string. An empty list
     # becomes "string". Do not collapse a real union to one member:
@@ -307,12 +301,12 @@ def _normalize_schema_for_strict_providers(params: Any) -> Any:
     if isinstance(params.get("properties"), dict):
         req = required_keys(params)
         for k, v in params["properties"].items():
-            v = _normalize_schema_for_strict_providers(v)
+            v = _normalize_schema_for_strict_providers(v, for_mcp=for_mcp)
             if k not in req:
-                v = _make_optional_scalar_nullable(v)
+                v = _make_optional_scalar_nullable(v, for_mcp=for_mcp)
             params["properties"][k] = v
     if "items" in params and isinstance(params["items"], dict):
-        params["items"] = _normalize_schema_for_strict_providers(params["items"])
+        params["items"] = _normalize_schema_for_strict_providers(params["items"], for_mcp=for_mcp)
     return params
 
 
@@ -381,17 +375,8 @@ def to_mcp_schema(tool: Any, *, doc_type: str | None = None) -> dict[str, Any]:
         if "domain" in props and isinstance(props["domain"], dict):
             props["domain"]["description"] = format_specialized_domains_description(agent_label=agent_label)
 
-    input_schema = _normalize_schema_for_strict_providers(input_schema)
-    # MCP hosts validate args against inputSchema before tools/call. Keep string|array for
-    # write_formula_range so native JSON arrays are accepted (OpenAI/Gemini stay string-only
-    # via to_openai_schema collapse — see docs/calc/date-time-handling.md §4.3).
+    input_schema = _normalize_schema_for_strict_providers(input_schema, for_mcp=True)
     props = input_schema["properties"]
-    if tool.name == "write_formula_range" and "values" in props:
-        fov = props["values"]
-        fov["type"] = ["string", "array"]
-        fov["items"] = {"type": ["string", "number"]}
-        desc_bits = fov.get("description") or ""
-        fov["description"] = ((desc_bits + " " if desc_bits else "") + "Native JSON array of strings/numbers is accepted (same length as the range); a single string still fills the entire range.").strip()
     # Execute already coerces a bare range string to [str]. Source schemas stay
     # array-only; widen MCP so a host may send the string execute already wraps.
     rn = props.get("range")

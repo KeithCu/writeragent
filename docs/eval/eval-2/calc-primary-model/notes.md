@@ -31,7 +31,7 @@ the oracle fail-closes on formula/model anchors instead.
    wrong series (Orders instead of Revenue Units; headcount mix-up).
 2. **Pinned formula** — one relative formula string stamped down a
    column with no row adjust (same actuation bug AFC saw, new claim).
-3. **Empty create_sheet** — a new tab exists and looks like a
+3. **Empty sheet_create** — a new tab exists and looks like a
    component; no schedule populated.
 
 Not in scope: Sample / SSC / column K, sample-flag counts.

@@ -5,8 +5,6 @@
 """Calc formula parity helpers for =PY() and spreadsheet import (auto-imported as ``calc``).
 
 Semantics mirror the inline helpers formerly pasted by spreadsheet import translation.
-Type errors are left to the worker exception path, which returns #VALUE!.
-ZeroDivisionError is left to that path as well, which returns #DIV/0!.
 """
 
 from __future__ import annotations
@@ -530,8 +528,7 @@ def _criteria_pairs(args: tuple[Any, ...]) -> list[tuple[Any, Any]] | None:
 
 def averageifs(ar: Any, *args: Any) -> float | str:
     # Criteria ranges must match the average range in shape, not just in cell
-    # count. A 2x3 range and a 3x2 range both ravel to 6 and used to be
-    # averaged. Calc returns #VALUE!. No pairs used to average the whole range.
+    # count. A 2x3 range and a 3x2 range both ravel to 6 and must not be averaged. Calc returns #VALUE!. No pairs must not average the whole range.
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
@@ -564,20 +561,13 @@ def _bessel_call(name: str, x: Any, n: Any, *, positive_x: bool) -> float:
 
     A missing install is the same NaN as _npf_result, not a raised ImportError.
     """
-    # What was wrong: BESSELK(1, -1) returned kn(1, 1) and BESSELY(1, -1)
-    # returned a finite value. Both are illegal orders.
-    # How it happened: iv/jv rejected a negative order, but kn/yn only
-    # rejected x <= 0. scipy.special.kn(-n, x) equals kn(n, x).
-    # Why this stays: AnalysisAddIn::getBesselk and getBessely throw
-    # IllegalArgumentException when nOrder < 0 or fNum <= 0. NaN is that
-    # error here. iv/jv still allow x <= 0 (positive_x=False).
+    xv = float(x)
+    nv = int(float(n))
+    if nv < 0 or (positive_x and xv <= 0):
+        return float("nan")
     try:
         import scipy.special  # type: ignore[import-untyped]
 
-        xv = float(x)
-        nv = int(float(n))
-        if nv < 0 or (positive_x and xv <= 0):
-            return float("nan")
         return float(getattr(scipy.special, name)(nv, xv))
     except (ValueError, TypeError, OverflowError):
         return float("nan")
@@ -737,7 +727,7 @@ def bitxor(n1: Any, n2: Any) -> float:
 
 
 def char(n: Any) -> str:
-    # Bad input used to return "" (and inf escaped as OverflowError). chr() also
+    # Bad input must not return "" (and inf escaped as OverflowError). chr() also.
     # accepts code points above 255; Excel/Calc CHAR returns #VALUE! for those.
     try:
         code = int(float(n))
@@ -872,11 +862,17 @@ def confidence(alpha: Any, stddev: Any, size: Any) -> float:
 
 
 def cot(x: Any) -> float:
-    return float(1.0 / math.tan(float(x)))
+    xv = float(x)
+    if not math.isfinite(xv):
+        return float("nan")
+    return float(1.0 / math.tan(xv))
 
 
 def coth(x: Any) -> float:
-    return float(1.0 / math.tanh(float(x)))
+    xv = float(x)
+    if not math.isfinite(xv):
+        return float("nan")
+    return float(1.0 / math.tanh(xv))
 
 
 def countif(r: Any, crit: Any) -> float:
@@ -886,7 +882,7 @@ def countif(r: Any, crit: Any) -> float:
 def countifs(*args: Any) -> float | str:
     # Every criteria range must be the same shape. A 2x3 and a 3x2 both have
     # 6 cells; comparing raveled lengths counted them. Calc returns #VALUE!.
-    # No pairs used to sum an empty mask and return 0.
+    # No pairs must not sum an empty mask and return 0.
     pairs = _criteria_pairs(args)
     if pairs is None:
         return "#VALUE!"
@@ -1007,14 +1003,20 @@ def critbinom(trials: Any, prob: Any, alpha: Any) -> float:
 
 
 def csc(x: Any) -> float:
-    return float(1.0 / math.sin(float(x)))
+    xv = float(x)
+    if not math.isfinite(xv):
+        return float("nan")
+    return float(1.0 / math.sin(xv))
 
 
 def csch(x: Any) -> float:
     # 1/sinh(x) goes to 0 as |x| grows. OverflowError is that limit, not #NUM!.
     # OverflowError is the finite limit 0. ZeroDivisionError (#DIV/0!) and type errors (#VALUE!) are left to the worker.
+    xv = float(x)
+    if not math.isfinite(xv):
+        return float("nan")
     try:
-        return float(1.0 / math.sinh(float(x)))
+        return float(1.0 / math.sinh(xv))
     except OverflowError:
         return 0.0
 

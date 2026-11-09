@@ -24,7 +24,6 @@ from plugin.vision.vision_runner import (
 
 def test_get_selected_image_bytes_returns_raw_bytes():
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     raw = b"fake-png-bytes"
@@ -36,7 +35,6 @@ def test_get_selected_image_bytes_returns_raw_bytes():
 
 def test_get_selected_image_bytes_raises_when_no_selection():
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=None):
         with pytest.raises(ToolExecutionError) as exc:
@@ -46,7 +44,6 @@ def test_get_selected_image_bytes_raises_when_no_selection():
 
 def test_get_selected_image_bytes_raises_when_export_fails():
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=graphic), patch(
@@ -60,7 +57,6 @@ def test_get_selected_image_bytes_raises_when_export_fails():
 
 def test_get_selected_image_bytes_raises_when_export_returns_none():
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     with patch("plugin.vision.vision_runner.selected_graphic_object", return_value=graphic), patch(
@@ -77,7 +73,6 @@ def test_get_selected_image_bytes_raises_when_export_returns_none():
 @patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_merge):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     mock_bytes.return_value = b"png"
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
@@ -90,13 +85,12 @@ def test_run_trusted_vision_builds_payload(mock_bytes, mock_run_vision, _mock_me
         {"helper": "extract_text", "params": {"lang": "en"}},
         b"png",
         context={"source": "selection"},
-            stop_checker=None,
+            cancel=None,
     )
 
 
 def test_run_trusted_vision_rejects_unknown_helper():
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     with pytest.raises(ToolExecutionError) as exc:
         run_trusted_vision(ctx, doc, helper="not_real")
@@ -109,7 +103,6 @@ def test_run_trusted_vision_rejects_unknown_helper():
 @patch("plugin.vision.vision_runner.resolve_vision_image_bytes")
 def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_vision, _mock_merge, mock_get_obj):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
@@ -125,14 +118,13 @@ def test_run_trusted_vision_passes_image_name_context(mock_bytes, mock_run_visio
         {"helper": "extract_text", "params": {"lang": "en"}},
         b"png",
         context={"source": "graphic_name", "image_name": "Photo1"},
-        stop_checker=None,
+        cancel=None,
     )
 
 
 @patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     mock_selected.return_value = b"sel"
     assert resolve_vision_image_bytes(ctx, doc, image_name="") == b"sel"
@@ -143,7 +135,6 @@ def test_resolve_vision_image_bytes_uses_selection_when_name_empty(mock_selected
 @patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
@@ -157,7 +148,6 @@ def test_resolve_vision_image_bytes_by_name(mock_get_obj, mock_export):
 @patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     mock_get_obj.return_value = None
     with pytest.raises(ToolExecutionError) as exc:
@@ -169,7 +159,6 @@ def test_resolve_vision_image_bytes_raises_when_name_missing(mock_get_obj):
 @patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_raises_when_export_fails(mock_get_obj, mock_export):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
@@ -183,7 +172,6 @@ def test_resolve_vision_image_bytes_raises_when_export_fails(mock_get_obj, mock_
 @patch("plugin.vision.vision_runner._get_graphic_object")
 def test_resolve_vision_image_bytes_raises_when_export_returns_none(mock_get_obj, mock_export):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     mock_get_obj.return_value = graphic
@@ -199,7 +187,6 @@ def test_resolve_vision_image_bytes_raises_when_export_returns_none(mock_get_obj
 @patch("plugin.vision.vision_runner.get_selected_image_bytes")
 def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_vision, mock_get_lo_locale, _mock_merge):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     mock_bytes.return_value = b"png"
     mock_run_vision.return_value = {"status": "ok", "helper": "extract_text", "full_text": "hi"}
@@ -212,7 +199,7 @@ def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_visio
         {"helper": "extract_text", "params": {"lang": "fr"}},
         b"png",
         context={"source": "selection"},
-            stop_checker=None,
+            cancel=None,
     )
 
 
@@ -221,11 +208,10 @@ def test_run_trusted_vision_resolves_lang_from_locale(mock_bytes, mock_run_visio
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run, _mock_merge):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock())]
 
-    def _run(_ctx, _doc, *, helper, params, stop_checker=None):
+    def _run(_ctx, _doc, *, helper, params, cancel=None):
         name = params["image_name"]
         return {
             "status": "ok",
@@ -272,11 +258,10 @@ def test_run_and_insert_vision_for_selection_loops_by_name(mock_pairs, mock_run,
 def test_run_and_insert_vision_for_selection_reverse_discovery_order(mock_pairs, mock_run, _mock_merge):
     """When discovery returns reverse click order, the host loop follows that order."""
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     mock_pairs.return_value = [("Img2", MagicMock()), ("Img1", MagicMock())]
 
-    def _run(_ctx, _doc, *, helper, params, stop_checker=None):
+    def _run(_ctx, _doc, *, helper, params, cancel=None):
         name = params["image_name"]
         return {
             "status": "ok",
@@ -302,7 +287,6 @@ def test_run_and_insert_vision_for_selection_reverse_discovery_order(mock_pairs,
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_vision_for_selection_image_name_short_circuits(mock_pairs, mock_run, _mock_merge):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     mock_run.return_value = {
         "status": "ok",
@@ -338,7 +322,6 @@ def test_run_and_insert_vision_for_selection_image_name_short_circuits(mock_pair
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[])
 def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     with pytest.raises(ToolExecutionError) as exc:
         run_and_insert_vision_for_selection(ctx, doc, helper="extract_text")
@@ -351,11 +334,10 @@ def test_run_and_insert_vision_for_selection_no_images(mock_pairs, _mock_merge):
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_merge):
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     mock_pairs.return_value = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
 
-    def _run(_ctx, _doc, *, helper, params, stop_checker=None):
+    def _run(_ctx, _doc, *, helper, params, cancel=None):
         name = params["image_name"]
         if name == "Img2":
             return {"status": "error", "code": "VISION_ERROR", "helper": helper, "message": "boom"}
@@ -385,16 +367,18 @@ def test_run_and_insert_continues_past_failed_image(mock_pairs, mock_run, _mock_
 @patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "t"})
 @patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png")
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock())])
-def test_stop_checker_reaches_run_vision(_mock_pairs, _mock_bytes, mock_run_vision, _mock_merge):
+def test_cancel_reaches_run_vision(_mock_pairs, _mock_bytes, mock_run_vision, _mock_merge):
     """The tool's stop flag must reach the venv RPC; the UNO ctx carries none."""
-    ctx = MagicMock(spec=[])  # a UNO component context has no stop_checker attribute
-    stop = MagicMock(return_value=False)
-    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn(*a)), \
+    from plugin.framework.send_cancellation import SendCancellation
+
+    ctx = MagicMock(spec=[])  # a UNO component context has no send_cancellation attribute
+    scope = SendCancellation()
+    with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn(*a)), \
             patch("plugin.vision.vision_runner._get_graphic_object", return_value=MagicMock()), \
             patch("plugin.vision.vision_runner._resolve_locale_language", return_value="en"), \
             patch("plugin.vision.vision_egress.insert_vision_result"):
-        run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_text", stop_checker=stop)
-    assert mock_run_vision.call_args.kwargs["stop_checker"] is stop
+        run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_text", cancel=scope)
+    assert mock_run_vision.call_args.kwargs["cancel"] is scope
 
 
 @patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {}))
@@ -402,7 +386,6 @@ def test_stop_checker_reaches_run_vision(_mock_pairs, _mock_bytes, mock_run_visi
 @patch("plugin.doc.visual_helpers.graphic_objects_in_selection")
 def test_run_and_insert_single_image_failure_returns_its_error(mock_pairs, mock_run, _mock_merge):
     ctx = MagicMock()
-    ctx.stop_checker = None
     mock_pairs.return_value = [("Img1", MagicMock())]
     mock_run.return_value = {"status": "error", "code": "VISION_ERROR", "message": "boom"}
     with patch("plugin.vision.vision_egress.insert_vision_result") as insert:
@@ -419,8 +402,8 @@ def test_run_trusted_vision_rejects_unimplemented_helper_before_export():
     ) as rpc:
         with pytest.raises(ToolExecutionError) as exc:
             run_trusted_vision(MagicMock(), MagicMock(), helper="detect_objects")
-    assert exc.value.code == "UNKNOWN_HELPER"
-    assert "not implemented" in str(exc.value).lower()
+    assert exc.value.code == "VISION_ERROR"
+    assert "unknown helper" in str(exc.value).lower()
     export.assert_not_called()
     rpc.assert_not_called()
 
@@ -448,7 +431,6 @@ def test_resolve_locale_runtime_exception_graphic_falls_back_to_ui_locale():
 
 def test_named_image_locale_ignores_other_selection():
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     graphic.getPropertyValue.side_effect = lambda prop: SimpleNamespace(Language="fr") if prop == "CharLocale" else None
@@ -467,7 +449,6 @@ def test_named_image_locale_ignores_other_selection():
 
 def test_named_image_without_char_locale_uses_ui_locale_not_selection():
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
     graphic = MagicMock()
     graphic.getPropertyValue.return_value = None
@@ -519,7 +500,7 @@ def test_ocr_rpc_runs_outside_main_thread_marshal():
     def fake_insert(*args, **kwargs):
         seen["insert"] = depth["n"]
 
-    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=fake_exec), patch(
+    with patch("plugin.framework.queue_executor.main.call", side_effect=fake_exec), patch(
         "plugin.vision.vision_runner.run_vision", side_effect=fake_run_vision
     ), patch("plugin.vision.vision_runner.resolve_vision_image_bytes", side_effect=fake_export), patch(
         "plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})
@@ -527,7 +508,6 @@ def test_ocr_rpc_runs_outside_main_thread_marshal():
         "plugin.vision.vision_egress.insert_vision_result", side_effect=fake_insert
     ):
         ctx = MagicMock()
-        ctx.stop_checker = None
         result = run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_structure")
 
     assert result["status"] == "ok"
@@ -544,7 +524,7 @@ def test_vision_insert_marshaled_with_unscoped_scope():
         return fn(*args, **kwargs)
 
     with (
-        patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=fake_exec),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_exec),
         patch("plugin.vision.vision_runner.run_vision", return_value={"status": "ok", "full_text": "text"}),
         patch("plugin.vision.vision_runner.resolve_vision_image_bytes", return_value=b"png"),
         patch("plugin.vision.vision_runner.merge_vision_params", side_effect=lambda _ctx, params: dict(params or {})),
@@ -552,7 +532,6 @@ def test_vision_insert_marshaled_with_unscoped_scope():
         patch("plugin.vision.vision_egress.insert_vision_result"),
     ):
         ctx = MagicMock()
-        ctx.stop_checker = None
         result = run_and_insert_vision_for_selection(ctx, MagicMock(), helper="extract_structure")
 
     assert result["status"] == "ok"
@@ -560,23 +539,18 @@ def test_vision_insert_marshaled_with_unscoped_scope():
 
 
 def test_stop_break_reports_partial_and_stopped():
-    # What was wrong: stop break returned status: ok, "OCR complete (N images)", and full image_names list.
-    # Why this change: verify stopped=True, partial=True, image_names truncated to processed, and message "Stopped after N of M images."
+    # Stop mid-run must set stopped/partial, truncate image_names to processed count, and report "Stopped after N of M images."
+    from plugin.framework.send_cancellation import SendCancellation
+
     ctx = MagicMock()
     doc = MagicMock()
     mock_pairs = [("Img1", MagicMock()), ("Img2", MagicMock()), ("Img3", MagicMock())]
+    scope = SendCancellation()
 
-    called = 0
-
-    def stop_checker():
-        nonlocal called
-        # Stop on 2nd image check
-        return called >= 1
-
-    def _run(_ctx, _doc, *, helper, params, stop_checker=None):
-        nonlocal called
-        called += 1
+    def _run(_ctx, _doc, *, helper, params, cancel=None):
         name = params["image_name"]
+        if name == "Img1":
+            scope.cancel()
         return {"status": "ok", "helper": helper, "full_text": name, "html": f"<p>{name}</p>", "metrics": {}, "warnings": []}
 
     with (
@@ -585,7 +559,7 @@ def test_stop_break_reports_partial_and_stopped():
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=mock_pairs),
         patch("plugin.vision.vision_egress.insert_vision_result"),
     ):
-        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", stop_checker=stop_checker)
+        result = run_and_insert_vision_for_selection(ctx, doc, helper="extract_text", cancel=scope)
 
     assert result["status"] == "ok"
     assert result["stopped"] is True
@@ -596,11 +570,10 @@ def test_stop_break_reports_partial_and_stopped():
 
 
 def test_send_cancelled_escapes_discovery_as_user_stopped():
-    # What was wrong: SendCancelled during discovery escaped as generic VISION_ERROR.
-    # Why this change: verify SendCancelled raises USER_STOPPED directly.
+    # SendCancelled during discovery must return USER_STOPPED, not a generic VISION_ERROR.
     from plugin.framework.send_cancellation import SendCancelled
 
-    with patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=SendCancelled("cancel")):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=SendCancelled("cancel")):
         result = run_and_insert_vision_for_selection(MagicMock(), MagicMock(), helper="extract_text")
 
     assert result["status"] == "error"
@@ -611,19 +584,18 @@ def test_send_cancelled_escapes_discovery_as_user_stopped():
 def test_run_and_insert_vision_multi_image_partial_failure_attaches_results():
     """When image N fails in a multi-image run, completed results for 1..N-1 are attached."""
     ctx = MagicMock()
-    ctx.stop_checker = None
     doc = MagicMock()
 
     call_count = [0]
 
-    def fake_run_trusted(ctx, doc, *, helper, params, stop_checker=None):
+    def fake_run_trusted(ctx, doc, *, helper, params, cancel=None):
         call_count[0] += 1
         if call_count[0] == 1:
             return {"status": "ok", "helper": helper, "full_text": "text1", "html": "<p>1</p>"}
         return {"status": "error", "message": "OCR model crashed"}
 
     with (
-        patch("plugin.vision.vision_runner.execute_on_main_thread", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **kw: fn(*a, **kw)),
         patch("plugin.doc.visual_helpers.graphic_objects_in_selection", return_value=[("Img1", MagicMock()), ("Img2", MagicMock())]),
         patch("plugin.vision.vision_runner.run_trusted_vision", side_effect=fake_run_trusted),
     ):

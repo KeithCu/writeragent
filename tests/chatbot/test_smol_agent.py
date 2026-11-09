@@ -60,6 +60,7 @@ setattr(lang_module, "XEventListener", _XEventListener)
 # =============================================================================
 
 from plugin.chatbot.panel import SendButtonListener
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display
 from plugin.chatbot.smol_agent import (
     SmolToolAdapter,
     WriterAgentSmolModel,
@@ -72,7 +73,8 @@ from plugin.chatbot.librarian import (
     get_os_login_name,
     get_suggested_user_name,
 )
-from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool
+from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, require_sidebar_mode
+from plugin.chatbot.sticky_reply import StickyReplyToUserTool
 from plugin.chatbot.memory import MemoryTool
 from plugin.contrib.smolagents.agents import ToolCallingAgent
 from plugin.contrib.smolagents.memory import ActionStep, FinalAnswerStep, ToolCall
@@ -87,7 +89,7 @@ from plugin.framework.tool import ToolBase
 # =============================================================================
 
 
-def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat") -> SimpleNamespace:
+def _make_listener(*, active_librarian: bool = False, sidebar_mode: str = "chat") -> SimpleNamespace:
     import types
     from plugin.chatbot.chat_sidebar_mode import SidebarModeFlags
     from plugin.chatbot.panel import SendButtonListener
@@ -132,9 +134,8 @@ def _make_listener(*, in_librarian_mode: bool = False, sidebar_mode: str = "chat
         model_selector=MagicMock(),
         status_control=None,
         query_control=query_control,
-        _active_mode="librarian" if in_librarian_mode else "",
+        _active_mode="librarian" if active_librarian else "",
         _mode_topic="",
-        _terminal_status="Ready",
         _stt_inflight=False,
         _set_status=MagicMock(),
         _get_document_model=MagicMock(return_value=object()),
@@ -527,7 +528,7 @@ def test_smol_tool_adapter_unsafe_uses_execute():
     tool = _StubTool()
     tool.execute = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         out = adapter.forward(p="v")
     mock_main.assert_called_once()
@@ -546,7 +547,7 @@ def test_smol_tool_adapter_safe_async_uses_execute_safe():
     tool = AsyncTool()
     tool.execute_safe = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         adapter.forward(p="x")
     mock_main.assert_not_called()
     tool.execute_safe.assert_called_once()
@@ -558,7 +559,7 @@ def test_smol_tool_adapter_handles_positional_arguments():
     tool.execute = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         # Positional string argument should map to the first input key 'p'
         adapter.forward("positional_value")
@@ -602,7 +603,7 @@ def test_smol_tool_adapter_rejects_bad_enum_like_registry():
     tool.execute = MagicMock(return_value={"status": "ok"})
     tool.execute_safe = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         out = adapter.forward(position="start")
     mock_main.assert_not_called()
     tool.execute.assert_not_called()
@@ -621,7 +622,7 @@ def test_smol_tool_adapter_valid_call_runs_with_coerced_args():
     tool = _EnumTool()
     tool.execute_safe = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=True, inputs_style="specialized")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         out = adapter.forward(position="end", level=2.0, note=None, bogus=1)
     tool.execute_safe.assert_called_once_with(ctx, position="end", level=2)
@@ -645,7 +646,7 @@ def test_smol_tool_adapter_read_only_target_rejects_mutation():
         tool.execute = MagicMock(return_value={"status": "ok"})
         tool.execute_safe = MagicMock(return_value={"status": "ok"})
         adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
-        with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        with patch("plugin.framework.queue_executor.main.call") as mock_main:
             out = adapter.forward(p="v")
         mock_main.assert_not_called()
         tool.execute.assert_not_called()
@@ -667,7 +668,7 @@ def test_smol_tool_adapter_read_only_target_allows_non_mutation():
     tool = FlaggedRead()
     tool.execute = MagicMock(return_value={"status": "ok"})
     adapter = SmolToolAdapter(tool, ctx, safe=False, inputs_style="librarian")
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         out = adapter.forward(p="v")
     tool.execute.assert_called_once()
@@ -697,7 +698,7 @@ def test_smol_tool_adapter_resolves_dynamic_parameters():
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.chatbot.smol_agent.get_config_int")
+@patch("plugin.chatbot.smol_agent.get_config")
 @patch("plugin.chatbot.smol_agent.get_api_config")
 def test_build_toolcalling_agent_wires_max_tokens_and_steps(
     mock_get_api, mock_get_int, mock_llm, mock_wsm, mock_tca
@@ -731,7 +732,7 @@ def test_build_toolcalling_agent_wires_max_tokens_and_steps(
         final_answer_tool_name="reply_to_user",
         examples_block="examples",
     )
-    mock_llm.assert_called_once_with({"model": "test/model"}, ctx.ctx, cancellation_scope=ctx.send_cancellation)
+    mock_llm.assert_called_once_with({"model": "test/model"}, ctx.ctx, cancel=ctx.send_cancellation)
     assert mock_wsm.call_args.kwargs["max_tokens"] == 512
     tca_kw = mock_tca.call_args.kwargs
     assert tca_kw["max_steps"] == 12
@@ -745,12 +746,11 @@ def test_create_smol_model_reads_chat_max_tokens_and_explicit_max_tokens_wins():
 
     ctx = MagicMock()
     ctx.ctx = MagicMock()
-    ctx.stop_checker = lambda: False
     ctx.send_cancellation = MagicMock()
     ctx.status_callback = MagicMock()
 
     with patch("plugin.chatbot.smol_agent.get_api_config", return_value={"model": "m"}), \
-         patch("plugin.chatbot.smol_agent.get_config_int", return_value=2048), \
+         patch("plugin.chatbot.smol_agent.get_config", return_value=2048), \
          patch("plugin.chatbot.smol_agent.LlmClient"), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel") as mock_wsm:
 
@@ -891,7 +891,7 @@ def test_run_inner_tool_agent():
 # =============================================================================
 
 
-@patch("plugin.chatbot.smol_agent.get_config_int", side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024)
+@patch("plugin.chatbot.smol_agent.get_config", side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024)
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 class TestLibrarianSmol:
     def test_tool_adapter_initialization(self, mock_get_api, mock_get_int):
@@ -899,7 +899,7 @@ class TestLibrarianSmol:
         ctx.ctx = MagicMock()
 
         memory_tool = MemoryTool()
-        reply_tool = StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC)
+        reply_tool = StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN))
 
         smol_memory = SmolToolAdapter(memory_tool, ctx, safe=False, inputs_style="librarian")
         smol_reply = SmolToolAdapter(reply_tool, ctx, safe=False, inputs_style="librarian")
@@ -919,7 +919,7 @@ class TestLibrarianSmol:
 
         # Verify forward call marshals execute onto the drain thread
         memory_tool.execute = MagicMock(return_value={"status": "ok"})
-        with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+        with patch("plugin.framework.queue_executor.main.call") as mock_main:
             mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
             smol_memory.forward(key="favorite_color", content="blue")
         mock_main.assert_called_once()
@@ -936,7 +936,7 @@ class TestLibrarianSmol:
 
         tools = [
             SmolToolAdapter(MemoryTool(), ctx, safe=False, inputs_style="librarian"),
-            SmolToolAdapter(StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC), ctx, safe=False, inputs_style="librarian"),
+            SmolToolAdapter(StickyReplyToUserTool(require_sidebar_mode(CHAT_MODE_LIBRARIAN)), ctx, safe=False, inputs_style="librarian"),
         ]
 
         # This shouldn't raise "All elements must be instance of BaseTool"
@@ -1091,9 +1091,13 @@ class TestLibrarianSmol:
             assert ("called Keith") not in (kwargs["instructions"])
 
     def test_librarian_stop_calls_interrupt(self, mock_get_api, mock_get_int):
+        from plugin.framework.send_cancellation import SendCancellation
+
         ctx = MagicMock()
         ctx.ctx = MagicMock()
-        ctx.stop_checker.return_value = True
+        scope = SendCancellation()
+        scope.cancel()
+        ctx.send_cancellation = scope
 
         with patch("plugin.chatbot.memory.MemoryStore") as mock_store_class, patch(
             "plugin.chatbot.smol_agent.ToolCallingAgent"
@@ -1258,7 +1262,7 @@ def test_do_send_agent_backend_exception_does_not_start_builtin():
 
     listener._send_handlers._do_send_via_agent_backend.assert_called_once()
     listener._tool_calling._do_send_chat_with_tools.assert_not_called()
-    assert listener._terminal_status == "Error"
+    assert send_outcome_terminal_display(listener) == "Error"
     assert listener._set_status.call_args[0][0] == "Error"
     shown = listener._append_response.call_args[0][0]
     assert "Agent backend error" in shown
@@ -1278,7 +1282,7 @@ def test_do_send_agent_backend_lookup_exception_does_not_start_builtin():
 
     listener._send_handlers._do_send_via_agent_backend.assert_not_called()
     listener._tool_calling._do_send_chat_with_tools.assert_not_called()
-    assert listener._terminal_status == "Error"
+    assert send_outcome_terminal_display(listener) == "Error"
     shown = listener._append_response.call_args[0][0]
     assert "config boom" in shown
 
@@ -1299,8 +1303,13 @@ def test_do_send_agent_backend_success_skips_builtin():
     listener._append_response.assert_not_called()
 
 
-def test_on_librarian_session_finished_applies_chat_mode():
-    from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_CHAT, SidebarModeController, SidebarModeFlags
+def test_librarian_mode_finished_applies_chat_mode():
+    from plugin.chatbot.chat_sidebar_mode import (
+        CHAT_MODE_CHAT,
+        CHAT_MODE_LIBRARIAN,
+        SidebarModeController,
+        SidebarModeFlags,
+    )
 
     listener = SimpleNamespace(
         sidebar_mode_flags=SidebarModeFlags(include_brainstorming=True, include_writing_plan=True),
@@ -1309,7 +1318,7 @@ def test_on_librarian_session_finished_applies_chat_mode():
         _active_mode="librarian",
     )
     with patch("plugin.chatbot.chat_sidebar_mode.set_selector_mode_with_flags") as mock_set:
-        SidebarModeController(listener).on_librarian_session_finished()
+        SidebarModeController(listener).on_mode_finished(CHAT_MODE_LIBRARIAN, {})
 
     assert listener._active_mode == ""
     mock_set.assert_called_once()
@@ -1533,9 +1542,9 @@ class TestSmolImplicitFinalAnswerJson:
 
 
 class TestSmolToolMarshaling:
-    @patch("plugin.framework.queue_executor.execute_on_main_thread")
+    @patch("plugin.framework.queue_executor.main.call")
     @patch("plugin.chatbot.memory.user_config_dir")
-    def test_memory_tool_marshalled_to_main_thread(self, mock_user_config_dir, mock_execute_on_main_thread):
+    def test_memory_tool_marshalled_to_main_thread(self, mock_user_config_dir, mock_call):
         """Verify MemoryTool executes via main thread marshalling despite not using UNO directly."""
         import json
         import os
@@ -1546,10 +1555,10 @@ class TestSmolToolMarshaling:
         with tempfile.TemporaryDirectory() as tmpdir:
             mock_user_config_dir.return_value = tmpdir
 
-            def fake_execute_on_main_thread(func, *args, **kwargs):
+            def fake_call(func, *args, **kwargs):
                 return func(*args, **kwargs)
 
-            mock_execute_on_main_thread.side_effect = fake_execute_on_main_thread
+            mock_call.side_effect = fake_call
 
             ctx = MagicMock()
             tool = SmolToolAdapter(MemoryTool(), ctx, safe=False)
@@ -1557,7 +1566,7 @@ class TestSmolToolMarshaling:
             res_write = tool.forward(key="user_memory", content="User likes Python")
 
             assert (res_write.get("status")) == ("ok")
-            assert (mock_execute_on_main_thread.call_count) == (1)
+            assert (mock_call.call_count) == (1)
 
             memory_file = os.path.join(tmpdir, "memories", "USER.md")
             assert (os.path.exists(memory_file))
@@ -1565,30 +1574,32 @@ class TestSmolToolMarshaling:
                 data = json.load(f)
                 assert (data.get("user_memory")) == ("User likes Python")
 
-    @patch("plugin.framework.queue_executor.execute_on_main_thread")
-    def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_execute_on_main_thread):
+    @patch("plugin.framework.queue_executor.main.call")
+    def test_sticky_reply_tool_marshalled_to_main_thread(self, mock_call):
         """Verify StickyReplyToUserTool is async and executes directly on worker without main-thread marshal."""
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_LIBRARIAN, require_sidebar_mode
         from plugin.chatbot.smol_agent import SmolToolAdapter
-        from plugin.chatbot.sticky_reply import LIBRARIAN_REPLY_SPEC, StickyReplyToUserTool
+        from plugin.chatbot.sticky_reply import StickyReplyToUserTool
 
         ctx = MagicMock()
-        tool = SmolToolAdapter(StickyReplyToUserTool(LIBRARIAN_REPLY_SPEC), ctx, safe=False)
+        mode = require_sidebar_mode(CHAT_MODE_LIBRARIAN)
+        tool = SmolToolAdapter(StickyReplyToUserTool(mode), ctx, safe=False)
 
         res = tool.forward(answer="All done", switch_to_document_mode=True)
 
-        assert (res.get("status")) == (LIBRARIAN_REPLY_SPEC.leave_status)
+        assert (res.get("status")) == (mode.leave_status)
         assert (res.get("result")) == ("All done")
         assert (res.get("message")) == ("All done")
-        assert (mock_execute_on_main_thread.call_count) == (0)
+        assert (mock_call.call_count) == (0)
 
         res2 = tool.forward(answer="Hello")
         assert res2 == {"status": "ok", "result": "Hello"}
-        assert (mock_execute_on_main_thread.call_count) == (0)
+        assert (mock_call.call_count) == (0)
 
     def test_max_steps_string_with_reply_spec_is_incomplete(self):
         """When agent reaches max steps and returns a string without reply_to_user, status is incomplete."""
+        from plugin.chatbot.chat_sidebar_mode import CHAT_MODE_BRAINSTORMING, require_sidebar_mode
         from plugin.chatbot.smol_agent import run_smol_side_turn
-        from plugin.chatbot.sticky_reply import BRAINSTORMING_REPLY_SPEC
 
         ctx = MagicMock()
         with patch("plugin.chatbot.smol_agent.run_inner_tool_agent", return_value="Reached max steps"):
@@ -1599,7 +1610,7 @@ class TestSmolToolMarshaling:
                 collector=lambda c: [],
                 instructions="",
                 examples_key="brainstorming",
-                reply_spec=BRAINSTORMING_REPLY_SPEC,
+                mode=require_sidebar_mode(CHAT_MODE_BRAINSTORMING),
                 status_message="",
                 stop_message="",
                 error_prefix="",

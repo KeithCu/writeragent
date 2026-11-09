@@ -40,17 +40,15 @@ _OPEN: list[FrameSession] = []
 def _same_frame(left: Any, right: Any) -> bool:
     """True when *left* and *right* are the same frame.
 
-    Off the main thread ``uno_same`` raises. Treating that as a miss used to
-    fall through to ``panels[0]``. Identity here is ``is`` off the main
-    thread, and ``uno_same`` only on it.
+    Uses ``is`` off the main thread, and ``uno_same`` on the main thread.
     """
     if left is None or right is None:
         return False
     if left is right:
         return True
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return False
     from plugin.framework.uno_context import uno_same
 
@@ -196,9 +194,9 @@ class FrameSession:
         focus out of them either. Any UNO failure also counts as "not active":
         losing one caret restore is cheap, stealing focus is the bug.
         """
-        from plugin.framework.thread_guard import on_main_thread
+        from plugin.framework.queue_executor import main
 
-        if self._closed or self.frame is None or not on_main_thread():
+        if self._closed or self.frame is None or not main.is_current():
             return False
         try:
             container = self.frame.getContainerWindow()

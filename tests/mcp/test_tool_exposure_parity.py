@@ -16,9 +16,16 @@ that the two modes hide the same things.
 """
 import pytest
 
-from plugin.framework.prompts import get_specialized_domain_catalog
+from plugin.doc.specialized_catalog import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase
 from plugin.mcp.mcp_protocol import MCP_DIRECT_FLAT_EXCLUDE_TIERS
+
+
+@pytest.fixture(autouse=True)
+def _register_prompt_catalog_for_parity_tests() -> None:
+    from tests.tool_registry_filters import register_prompt_catalog_for_tests
+
+    register_prompt_catalog_for_tests()
 
 
 def _all_tool_classes():
@@ -197,7 +204,7 @@ def test_calc_base_does_not_import_writer_or_draw():
 _MARKER_ALLOWLIST = {
     "Writer": frozenset({"document_research", "python", "vision", "web_research"}),
     "Calc": frozenset({"document_research", "web_research", "vision", "images"}),
-    "Draw": frozenset({"document_research", "python", "web_research"}),
+    "Draw": frozenset({"document_research", "python", "vision", "web_research"}),
 }
 
 

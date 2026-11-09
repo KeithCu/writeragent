@@ -166,8 +166,9 @@ flowchart TB
 ### Phase 5: Export to `.ipynb` — **Planned**
 - Serializer walking document cell registry and text fields to generate valid `.ipynb` nbformat v4 files.
 
-### Phase 6 (Deferred): In-Kernel Host RPC Proxy — **Planned**
-- Bridge allowing notebook Python code to invoke WriterAgent tools securely via host proxy calls.
+### Phase 6: In-Kernel Host RPC Proxy — **Shipped**
+
+Notebook code cells call [`run_code_in_user_venv`](../../plugin/notebook/notebook_runner.py) (no `python_tool_domain` restriction); [`host_rpc.py`](../../plugin/scripting/host_rpc.py) treats `None` domain as unrestricted host RPC (re-entry guard only).
 
 ---
 
@@ -230,7 +231,7 @@ Native test suite execution:
 
 ### 1. PyUNO Import Filter Component (`plugin/notebook/import_filter.py`)
 
-A lightweight UNO component implementing `XImporter` and `XFilter`. LibreOffice calls `filter()` on a Dummy-N thread while the main thread waits. Do not call `@main_thread_only` helpers from that path (`get_runtime_uid` included). The dev thread guard raises, `filter()` returns false, and File Open yields no document. Document identity in that path uses `_read_runtime_uid`. Do not marshal back to the main thread from the filter (host already waiting; deadlock #402).
+A lightweight UNO component implementing `XImporter` and `XFilter`. LibreOffice calls `filter()` on a Dummy-N thread while the main thread waits. Do not call `@main_thread_only` helpers from that path. Document identity in that path uses `get_runtime_uid`. Do not marshal back to the main thread from the filter (host already waiting; deadlock #402).
 
 ```python
 import uno

@@ -12,7 +12,7 @@ from plugin.calc.address_utils import format_address, qualify_a1
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.manipulator import CellManipulator
 from plugin.calc.rich_html import insert_cell_html_rich
-from plugin.calc.tabular_egress import _append_blank, _append_table_rows, _append_truncation_note, pad_grid
+from plugin.calc.tabular_egress import append_blank, append_table_rows, append_truncation_note, pad_grid
 from plugin.doc.visual_helpers import get_graphic_object_by_name, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
@@ -76,7 +76,7 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
                 rows.append([text])
                 prose_rows += 1
     if prose_rows:
-        _append_blank(rows)
+        append_blank(rows)
 
     tables = result.get("tables")
     table_count = 0
@@ -89,23 +89,21 @@ def _vision_structure_calc_layout(result: dict[str, Any]) -> tuple[list[list[Any
             if not (isinstance(columns, list) and columns) and not (isinstance(table_rows, list) and table_rows):
                 continue
             table_count += 1
-            _append_blank(rows)
+            append_blank(rows)
             rows.append([str(table.get("name") or f"table_{table_count}")])
             header_grid_row = len(rows)
             # OCR text stays a string here; numeric coercion happens only at write time.
-            _append_table_rows(rows, columns, table_rows, lambda value: "" if value is None else str(value))
+            append_table_rows(rows, columns, table_rows, lambda value: "" if value is None else str(value))
             width = max(len(r) for r in rows[header_grid_row:])
             merges.extend(_table_span_merges(table, header_grid_row=header_grid_row, max_grid_row=len(rows) - 1, max_width=width))
-            _append_truncation_note(rows, table)
+            append_truncation_note(rows, table)
 
     return rows, merges
 
 
 def calc_output_anchor_from_graphic(doc: Any, *, image_name: str | None = None) -> tuple[str, int, int]:
     """Return (sheet_name, start_col, start_row) one row below the graphic's anchor cell, on the graphic's sheet."""
-    # Writer already inserts by name; Calc used to ignore image_name and write under the selection.
-    # Named OCR then landed under whatever graphic happened to be selected. Resolve the named
-    # shape first so the insert uses that graphic's cell anchor, not a second selection lookup.
+    # Calc must resolve image_name to the named graphic's cell anchor; otherwise the insert follows the active selection.
     name = str(image_name or "").strip()
     if name:
         obj = get_graphic_object_by_name(doc, name)

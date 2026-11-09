@@ -11,7 +11,6 @@ from core context and desktop lookup.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from contextlib import contextmanager
@@ -20,13 +19,14 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
-from plugin.framework.thread_guard import main_thread_only, on_main_thread
+from plugin.framework.queue_executor import Policy, main
+from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger("writeragent.vcl_pumping")
 
 # Coalesce to one in-flight secondary-idle post without scanning the process queue.
 # Unscoped posts are not cancelled by Stop. The flag clears only when _pump finishes
-# or post_to_main_thread raises. If a test double removes or drains the queued callable
+# or main.post raises. If a test double removes or drains the queued callable
 # without running it, the flag stays set on purpose; do not scan the queue to clear it.
 _secondary_idle_lock = threading.Lock()
 _secondary_idle_in_flight = False
@@ -98,13 +98,13 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
     from plugin.framework.async_drain_guard import get_drain_owner, note_suppressed_vcl_pump
     from plugin.framework.uno_context import get_toolkit
 
-    # QueueExecutor.post can fall back onto the caller when AsyncCallback
+    # MainThread.post can fall back onto the caller when AsyncCallback
     # is missing. process_events_to_idle is @main_thread_only — skip.
-    if not on_main_thread():
+    if not main.is_current():
         return False
 
     if not force:
-        if os.environ.get("WRITERAGENT_TESTING") == "1":
+        if main.policy is Policy.test_inline:
             return False
         owner = get_drain_owner()
         if owner is not None:
@@ -129,14 +129,13 @@ def process_events_to_idle(ctx: Any, rounds: int = 1, force: bool = False) -> bo
 def _post_secondary_idle(ctx: Any) -> None:
     """Enqueue one PE2I tick on the VCL thread. Must not run PE2I on the waiter."""
     global _secondary_idle_in_flight
-    from plugin.framework.queue_executor import post_to_main_thread
 
     def _pump() -> None:
         global _secondary_idle_in_flight
         try:
             # post() can run this on the waiter when AsyncCallback is missing.
             # process_events_to_idle is main-thread-only; skip rather than pump here.
-            if on_main_thread():
+            if main.is_current():
                 process_events_to_idle(ctx, force=False)
         finally:
             with _secondary_idle_lock:
@@ -147,7 +146,7 @@ def _post_secondary_idle(ctx: Any) -> None:
             return
         _secondary_idle_in_flight = True
     try:
-        post_to_main_thread(_pump, bound_scope=None)
+        main.post(_pump, bound_scope=None)
     except Exception:
         with _secondary_idle_lock:
             _secondary_idle_in_flight = False
@@ -161,7 +160,7 @@ def pump_secondary_idle_tick(ctx: Any, *, on_caller: bool | None = None) -> None
     on something other than an Event (e.g. a lock). Failures are swallowed.
     """
     if on_caller is None:
-        on_caller = on_main_thread()
+        on_caller = main.is_current()
     try:
         if on_caller:
             process_events_to_idle(ctx, force=False)
@@ -190,7 +189,7 @@ def wait_while_pumping(done: "threading.Event", ctx: Any, *, timeout: float, pol
     if *timeout* elapsed first. Post/PE2I failures are swallowed so a pump
     miss cannot abort the wait.
     """
-    pump_on_caller = on_main_thread()
+    pump_on_caller = main.is_current()
     deadline = time.monotonic() + max(0.0, timeout)
     while not done.is_set():
         remaining = deadline - time.monotonic()

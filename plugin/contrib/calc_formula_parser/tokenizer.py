@@ -286,10 +286,7 @@ class ExcelParser(ExcelParserTokens):
             # single-quoted strings (sheet references / external paths)
             # embeds are double
             # end does not mark a token
-            # Bugfix: keep quotes on quoted sheet names ('My Sheet'!A1) through tokenize/emit.
-            # What was wrong: opening and closing single quotes were stripped from sheet names, and $'Sheet' emitted '$' as unknown.
-            # How: inPath state did not append "'" to token, and non-empty token before "'" was emitted as TOK_TYPE_UNKNOWN.
-            # Why: preserving quotes and allowing '$' prefix retains valid Calc/Excel sheet references.
+            # Keep single quotes on sheet names ('My Sheet'!A1); allow $'Sheet' prefix without emitting '$' alone as unknown.
             if inPath:
                 if currentChar() == "'":
                     if nextChar() == "'":
@@ -332,10 +329,7 @@ class ExcelParser(ExcelParserTokens):
                 continue
 
             # scientific notation check
-            # Bugfix: support scientific notation with signed exponents (e.g. 0.5E+3, 10E+3, 1.E+3, 12e-3).
-            # What was wrong: regex '^[1-9]{1}(\.[0-9]+)?[eE]{1}$' rejected leading zero mantissas (0.5E+3) or multi-digit (10E+3).
-            # How: the mantissa pattern was strictly restricted to a single digit 1-9.
-            # Why: matching any valid mantissa (digits with optional dot or starting with dot) followed by e/E keeps the signed exponent in the number token.
+            # Mantissa regex must accept 0.5E+3 and 10E+3, not only single-digit mantissas before e/E.
             regexSN = r'^([0-9]+(\.[0-9]*)?|\.[0-9]+)[eE]$'
             if currentChar() in "+-":
                 if len(token) > 1 and re.match(regexSN, token, re.IGNORECASE):
@@ -418,10 +412,7 @@ class ExcelParser(ExcelParserTokens):
                 continue
 
             # trim white-space
-            # Bugfix: check not EOF() before currentChar() to avoid IndexError on trailing whitespace.
-            # What was wrong: currentChar() ran before not EOF(), raising IndexError on trailing whitespace (e.g. '=A1 ').
-            # How: formula[offset] indexed past the end of the string.
-            # Why: checking not EOF() first and including \t/\r ensures clean loop exit at end of string.
+            # Guard EOF before currentChar() on whitespace skip—trailing '=A1 ' must not IndexError.
             if currentChar() in (" ", "\n", "\t", "\r"):
                 if len(token) > 0:
                     tokens.add(token, self.TOK_TYPE_OPERAND)
@@ -453,10 +444,7 @@ class ExcelParser(ExcelParserTokens):
                 continue
 
             # standard postfix operators
-            # Bugfix: Postfix % must bind with Excel postfix operator precedence (tighter than ^ and * /).
-            # What was wrong: % was rewritten as '* 0.01' or evaluated as float(token)/100, which crashed on cell refs (A1%) and had wrong precedence.
-            # How: % was not emitted as TOK_TYPE_OP_POST.
-            # Why: Emitting TOK_TYPE_OP_POST allows parser shunting-yard to apply precedence 6.
+            # Emit % as TOK_TYPE_OP_POST so shunting-yard applies Excel postfix precedence (not * 0.01).
             if currentChar() == "%":
                 if len(token) > 0:
                     tokens.add(token, self.TOK_TYPE_OPERAND)
@@ -478,10 +466,7 @@ class ExcelParser(ExcelParserTokens):
                 continue
 
             # function, subexpression, array parameters
-            # Bugfix: empty function arguments (e.g. F(,1) or F(1,)) were miscounted because None operand was only emitted for ',,'.
-            # What was wrong: F(,1) and F(1,) counted 1 argument instead of 2.
-            # How: arguments before the first comma or after the last comma lacked an operand token.
-            # Why: check if preceded by '(' or followed by ')' / ',' to emit a None operand.
+            # F(,1) and F(1,) need explicit None operands so arity counts empty slots.
             if currentChar() == ",":
                 if len(token) > 0:
                     tokens.add(token, self.TOK_TYPE_OPERAND)
@@ -494,7 +479,7 @@ class ExcelParser(ExcelParserTokens):
                         tokens.add("None", self.TOK_TYPE_OPERAND, self.TOK_SUBTYPE_NONE)
                     tokens.add(currentChar(), self.TOK_TYPE_ARGUMENT)
                 offset += 1
-                # Bugfix: check not EOF() before currentChar() to avoid IndexError on trailing comma.
+                # Guard EOF before peeking after ',' inside functions.
                 if not EOF() and currentChar() == ",":
                     tokens.add("None", self.TOK_TYPE_OPERAND, self.TOK_SUBTYPE_NONE)
                     token = ""
@@ -641,10 +626,7 @@ class ExcelParser(ExcelParserTokens):
             if token.ttype == self.TOK_TYPE_OPERAND and len(token.tsubtype) == 0:
                 str_val = str(token.tvalue).strip()
                 is_num = False
-                # Bugfix: exclude nan, inf, and identifiers with underscores from being misclassified as numbers.
-                # What was wrong: float("nan") or float("inf") succeeded in Python 3, tagging range/identifier tokens as numbers.
-                # How: bare float(token.tvalue) was called without checking for identifier characters or special floats.
-                # Why: filtering out nan/inf and strings with '_' ensures valid Excel range/name identification.
+                # Reject nan/inf and identifiers with '_' before float()—names must stay ranges, not numbers.
                 if str_val.lower() not in ("nan", "inf", "-inf", "+inf") and "_" not in str_val:
                     try:
                         float(str_val)
@@ -654,7 +636,7 @@ class ExcelParser(ExcelParserTokens):
                 if is_num:
                     token.tsubtype = self.TOK_SUBTYPE_NUMBER
                 elif str_val.upper() in ("TRUE", "FALSE"):
-                    # Bugfix: case-insensitive boolean literal classification
+                    # TRUE/FALSE classification is case-insensitive.
                     token.tsubtype = self.TOK_SUBTYPE_LOGICAL
                 elif str_val == "None":
                     token.tsubtype = self.TOK_SUBTYPE_NONE

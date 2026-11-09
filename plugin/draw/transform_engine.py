@@ -12,8 +12,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from plugin.doc.text_helpers import normalize_linebreaks
+from plugin.doc.text_helpers import iter_elements, normalize_linebreaks
 from plugin.draw.bridge import DrawBridge
+from plugin.draw.layouts import layout_id
 from plugin.draw.transform_schema import (
     EDIT_TEXT_RE,
     MOVE_SLIDE_RE,
@@ -22,12 +23,11 @@ from plugin.draw.transform_schema import (
     get_slide_commands,
     is_deferred_command_key,
     parse_slide_index_token,
-    resolve_layout_id,
     split_uno_command,
     validate_slide_commands,
     validate_top_level_uno,
 )
-from plugin.framework.errors import is_disposed_exception, uno_probe
+from plugin.framework.errors import best_effort, is_disposal
 from plugin.doc.compound_undo import WriterCompoundUndo
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ def _clear_empty_pres_obj(shape: Any) -> None:
         elif hasattr(shape, "setPropertyValue") and callable(getattr(shape, "setPropertyValue", None)):
             shape.setPropertyValue("IsEmptyPresentationObject", False)
 
-    uno_probe(_apply, None)
+    best_effort(_apply, "clear empty presentation object")
 
 
 
@@ -59,10 +59,7 @@ def _set_shape_text(shape: Any, text: str) -> bool:
                 # Ensure \n creates paragraph breaks if setString left a single paragraph.
                 if "\n" in text and hasattr(xtext, "createEnumeration") and callable(getattr(xtext, "createEnumeration", None)):
                     enum = xtext.createEnumeration()
-                    para_count = 0
-                    while enum.hasMoreElements():
-                        enum.nextElement()
-                        para_count += 1
+                    para_count = sum(1 for _unused in iter_elements(enum))
                     if para_count <= 1:
                         lines = text.split("\n")
                         xtext.setString(lines[0])
@@ -72,13 +69,13 @@ def _set_shape_text(shape: Any, text: str) -> bool:
                             try:
                                 xtext.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
                             except Exception as exc:
-                                if is_disposed_exception(exc):
+                                if is_disposal(exc):
                                     raise
                             cursor.setString(line)
                             cursor.gotoEnd(False)
                 return True
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             # non-dispose falls through
     if hasattr(shape, "setString") and callable(getattr(shape, "setString", None)):
@@ -86,7 +83,7 @@ def _set_shape_text(shape: Any, text: str) -> bool:
             shape.setString(text)
             return True
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
     return False
 
@@ -164,7 +161,7 @@ def _cursor_string(obj: Any) -> str | None:
         try:
             val = getter()
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             return None
         if isinstance(val, str):
@@ -183,7 +180,7 @@ def _shape_text_string(shape: Any) -> str | None:
         try:
             text = getter()
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             text = None
         found = _cursor_string(text)
@@ -206,7 +203,7 @@ def _text_cursor_is_partial_selection(cursor: Any, shape: Any) -> bool | None:
         try:
             selected = getter()
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             return None
         if not isinstance(selected, str):
@@ -223,7 +220,7 @@ def _text_cursor_is_partial_selection(cursor: Any, shape: Any) -> bool | None:
     try:
         full = _shape_text_string(shape)
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         return None
     if full is not None and selected == full:
@@ -278,13 +275,13 @@ def _set_text_prop(cursor: Any, name: str, value: Any) -> bool:
             setter(name, value)
             return True
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             log.debug("cursor setPropertyValue %s failed", name, exc_info=True)
     try:
         setattr(cursor, name, value)
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         log.debug("cursor attribute %s failed", name, exc_info=True)
         return False
@@ -455,7 +452,7 @@ class SlideCommandEngine:
                             self.bridge.set_current_page_index(self.current_slide)
                             return self._error_result(message=err_msg, failed_at=idx)
                     except Exception as exc:
-                        if is_disposed_exception(exc):
+                        if is_disposal(exc):
                             raise
                         cmd_key = next(iter(cmd.keys())) if isinstance(cmd, dict) and cmd else "Command"
                         msg = f"{cmd_key} failed: {exc}"
@@ -465,7 +462,7 @@ class SlideCommandEngine:
                 self.bridge.set_current_page_index(self.current_slide)
                 return self._ok_result()
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             log.exception("SlideCommandEngine.apply failed")
             return self._error_result(message=str(exc))
@@ -520,7 +517,7 @@ class SlideCommandEngine:
             self.applied.append("RenameSlide:%s" % value)
             return None
         if key in ("ChangeLayout", "ChangeLayoutByName"):
-            return self._set_layout(resolve_layout_id(value), key)
+            return self._set_layout(layout_id(value), key)
         if key == "UnoCommand":
             err = self._dispatch_uno_string(value)
             if err is not None:
@@ -553,7 +550,7 @@ class SlideCommandEngine:
                     self.applied.append("JumpToSlideByName:%s" % name)
                     return i
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 # no-op after the dispose re-raise; non-dispose falls through
         return None
@@ -571,7 +568,7 @@ class SlideCommandEngine:
             self.applied.append("InsertMasterSlide:%d" % new_idx)
             return None
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             return self._fail(f"InsertMasterSlide: {e}")
 
@@ -594,7 +591,7 @@ class SlideCommandEngine:
         try:
             self.bridge.duplicate_slide(idx, switch=True)
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             return self._fail("DuplicateSlide failed: %s" % exc)
         self.pages = self.bridge.get_pages()
@@ -650,7 +647,7 @@ class SlideCommandEngine:
             if xtext is not None and hasattr(xtext, "createTextCursor") and callable(getattr(xtext, "createTextCursor", None)):
                 cursor = xtext.createTextCursor()
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             return self._fail("EditTextObject.%d: no text: %s" % (shape_index, exc))
         if cursor is None or xtext is None:
@@ -687,7 +684,7 @@ class SlideCommandEngine:
                         cursor.setString(inserted)
                         _clear_empty_pres_obj(shape)
                     except Exception as exc:
-                        if is_disposed_exception(exc):
+                        if is_disposal(exc):
                             raise
                         return self._fail("InsertText failed: %s" % exc)
                     # Upstream FuTransformDocumentStructure (drviews2.cxx) leaves inserted text selected.
@@ -704,7 +701,7 @@ class SlideCommandEngine:
                                 try:
                                     go_left(len(inserted), True)
                                 except Exception as exc:
-                                    if is_disposed_exception(exc):
+                                    if is_disposal(exc):
                                         raise
                             left_str = _cursor_string(cursor)
                             left_norm = normalize_linebreaks(left_str) if isinstance(left_str, str) else None
@@ -767,7 +764,7 @@ class SlideCommandEngine:
                 try:
                     collapse()
                 except Exception as exc:
-                    if is_disposed_exception(exc):
+                    if is_disposal(exc):
                         raise
         return cursor, mode, None
 
@@ -812,7 +809,7 @@ class SlideCommandEngine:
             dispatcher.executeDispatch(frame, name, "", 0, props)
             return None
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             return self._fail("UnoCommand %s failed: %s" % (name, exc))
 
@@ -851,7 +848,7 @@ class SlideCommandEngine:
                 if controller is not None:
                     controller.select(shape)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 # no-op after the dispose re-raise; non-dispose falls through
         return self._execute_uno(uno_name, props)

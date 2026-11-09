@@ -1,9 +1,17 @@
 # Unit tests for apply_document_content search helpers (no LibreOffice required).
 from plugin.writer.search import (
+    _compare_normalize,
+    _paragraph_matches_part,
+    build_search_not_found_response,
+    closest_mismatch,
+    DASH_CLASS,
     drawing_shape_containing,
     escape_for_lo_regex,
     HORIZONTAL_SPACE_CLASS,
     normalize_search_string_for_find,
+    old_content_covers_most,
+    prepare_old_content,
+    SINGLE_QUOTE_CLASS,
     SPACE_NORMALIZE_MAP,
 )
 import pytest
@@ -38,6 +46,147 @@ def test_escape_for_lo_regex_normalizes_exotic_spaces_in_needle():
 def test_escape_for_lo_regex_escapes_regex_metacharacters():
     assert escape_for_lo_regex("a.b") == r"a\.b"
     assert escape_for_lo_regex("(test)") == r"\(test\)"
+
+
+def test_prepare_old_content_strips_tags_and_preserves_newlines():
+    assert prepare_old_content("<p>Hello <b>World</b></p>") == "Hello World"
+    assert prepare_old_content("<p>Hello</p><p>World</p>") == "Hello\nWorld"
+    assert prepare_old_content(None) == ""
+    assert prepare_old_content("   ") == ""
+
+
+def test_compare_normalize_quotes_and_dashes():
+    assert _compare_normalize("it’s") == _compare_normalize("it's")
+    assert _compare_normalize("a–b") == _compare_normalize("a-b")
+
+
+def test_escape_for_lo_regex_quotes_and_dashes():
+    assert escape_for_lo_regex("it's") == escape_for_lo_regex("it’s")
+    assert SINGLE_QUOTE_CLASS in escape_for_lo_regex("it's")
+    assert DASH_CLASS in escape_for_lo_regex("a-b")
+
+
+def test_paragraph_matches_part_tail_and_middle():
+    ok, off = _paragraph_matches_part("prefix and ‘tail’", "'tail'", tail=True)
+    assert ok is True
+    ok, off = _paragraph_matches_part("prefix and tail", "prefix", tail=True)
+    assert ok is False
+    ok, off = _paragraph_matches_part("middle–line", "middle-line")
+    assert ok is True
+    ok, off = _paragraph_matches_part("middle line", "muddle line")
+    assert ok is False
+
+
+def test_closest_mismatch_near_miss():
+    hay = "Preface. The revenue grew last year."
+    needle = "The revenue grew fast"
+    res = closest_mismatch(needle, hay, lenient=True)
+    assert res is not None
+    assert res["message"] == "closest match starts 'The revenue grew…', differs at character 17: f vs l"
+    assert res["closest_match"] == "The revenue grew…"
+    assert res["diff_at"] == 17
+
+
+def test_closest_mismatch_no_useful_match_returns_none():
+    hay = "The revenue grew last year."
+    needle = "Completely unrelated search text"
+    assert closest_mismatch(needle, hay, lenient=True) is None
+    # Leading character mismatch should not trigger a near-miss report for position 0
+    assert closest_mismatch("Revenue grew last year", hay, lenient=False) is None
+
+
+def test_closest_mismatch_collapses_space_runs():
+    hay = "Preface. The revenue  grew last year."
+    needle = "The revenue grew fast"
+    res = closest_mismatch(needle, hay, lenient=True)
+    assert res is not None
+    assert res["diff_at"] == 17
+    assert res["closest_match"] == "The revenue  gre…"
+    assert "differs at character 17: f vs l" in res["message"]
+
+
+def test_closest_mismatch_lenient_quote_pair_returns_no_mismatch():
+    needle = "it is fine with 'quotes'"
+    hay = "it is fine with ’quotes’"
+    assert closest_mismatch(needle, hay, lenient=True) is None
+    res = closest_mismatch(needle, hay, lenient=False)
+    assert res is not None
+    assert res["diff_at"] == 16
+
+
+class _FakeCursorForSteps:
+    def __init__(self, length):
+        self.length = length
+        self.pos = 0
+
+    def gotoStart(self, expand=False):
+        self.pos = 0
+
+    def goRight(self, n, expand=False):
+        if self.pos + n <= self.length:
+            self.pos += n
+            return True
+        self.pos = self.length
+        return False
+
+
+class _FakeTextForSteps:
+    def __init__(self, length):
+        self.length = length
+
+    def createTextCursor(self):
+        return _FakeCursorForSteps(self.length)
+
+
+class _FakeDocForSteps:
+    def __init__(self, length):
+        self.text = _FakeTextForSteps(length)
+
+    def getText(self):
+        return self.text
+
+
+def test_old_content_covers_most_proved_table():
+    assert old_content_covers_most(_FakeDocForSteps(200), 120) is True
+    assert old_content_covers_most(_FakeDocForSteps(200), 100) is False
+    assert old_content_covers_most(_FakeDocForSteps(0), 120) is False
+    assert old_content_covers_most(_FakeDocForSteps(150), 160) is True
+    assert old_content_covers_most(_FakeDocForSteps(200), 0) is False
+    assert old_content_covers_most(_FakeDocForSteps(50), 40) is False
+
+
+def test_old_content_covers_most_boundaries():
+    doc = _FakeDocForSteps(200)
+    # Needle exactly half the body is not oversized
+    assert old_content_covers_most(doc, 100) is False
+    # Needle strictly more than half the body is oversized
+    assert old_content_covers_most(doc, 101) is True
+    # Needle under 100 chars is never oversized, even if it exceeds half the body
+    small_doc = _FakeDocForSteps(120)
+    assert old_content_covers_most(small_doc, 99) is False
+    assert old_content_covers_most(small_doc, 100) is True
+
+
+def test_build_search_not_found_response_oversized_with_near_miss():
+    doc = _FakeDocForSteps(200)
+    # 120-char needle is > half of 200-char doc, but has a closest mismatch
+    needle = "A" * 120
+    closest = {
+        "closest_match": "A" * 16 + "…",
+        "diff_at": 119,
+        "message": "closest match starts '...', differs at character 119: A vs B",
+    }
+    resp = build_search_not_found_response(doc, needle, closest=closest)
+    assert resp["status"] == "error"
+    assert "target='full_document'" not in resp["message"]
+    assert "closest match starts" in resp["message"]
+    assert resp.get("oversized") is not True
+
+    # When no closest mismatch is found, oversized refusal triggers
+    resp_oversized = build_search_not_found_response(doc, needle, closest=None)
+    assert resp_oversized["status"] == "error"
+    assert "target='full_document'" in resp_oversized["message"]
+    assert resp_oversized.get("oversized") is True
 
 
 # --- drawing_shape_containing (C7): actionable "text is inside a shape" diagnostic -----------

@@ -16,10 +16,15 @@ from unittest.mock import MagicMock, patch
 def _make_send_listener():
     from tests.conftest import make_mock_send_button_listener
     from plugin.chatbot.tool_loop_actions import begin_send_turn
+    from plugin.framework.queue_executor import MainThread, main
 
     send = make_mock_send_button_listener()
     send.rich_text_widget = MagicMock()
     send.queue_executor = MagicMock()
+    send.queue_executor.is_current.side_effect = lambda: main.is_current()
+    send.queue_executor.post_or_run.side_effect = (
+        lambda fn, *a, **k: MainThread.post_or_run(send.queue_executor, fn, *a, **k)
+    )
     send.session.messages = []
     begin_send_turn(send)
     return send
@@ -29,7 +34,7 @@ class TestRichAppendResponse:
     def test_chunk_updates_the_message_list_then_paints(self):
         send = _make_send_listener()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response("<p>Report</p>", role="assistant")
@@ -42,7 +47,7 @@ class TestRichAppendResponse:
         send = _make_send_listener()
         send.session.messages.append({"role": "assistant", "content": "Hello", "_open_transcript": True})
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response(" world", role="assistant")
@@ -57,7 +62,7 @@ class TestRichAppendResponse:
         send = _make_send_listener()
         send.session.messages.append({"role": "assistant", "content": "Ask the", "_open_transcript": True})
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response(" AI", role="assistant")
@@ -68,7 +73,7 @@ class TestRichAppendResponse:
     def test_main_thread_calls_widget_directly(self):
         send = _make_send_listener()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value=None),
         ):
             send._append_response("search step", role="assistant")
@@ -78,17 +83,17 @@ class TestRichAppendResponse:
 
     def test_worker_thread_posts_to_queue_executor(self):
         send = _make_send_listener()
-        with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+        with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
             send._append_response("search step", role="assistant")
 
         send.queue_executor.post.assert_called_once()
         send.rich_text_widget.paint_session.assert_not_called()
         assert send.session.messages == []
 
-    def test_background_task_name_posts_even_on_main_thread(self):
+    def test_background_task_name_posts_even_when_current(self):
         send = _make_send_listener()
         with (
-            patch("plugin.framework.thread_guard.on_main_thread", return_value=True),
+            patch("plugin.framework.queue_executor.main.is_current", return_value=True),
             patch("plugin.framework.thread_guard.get_background_task_name", return_value="record-hold"),
         ):
             send._append_response("search step", role="assistant")

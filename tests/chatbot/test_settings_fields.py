@@ -19,7 +19,7 @@ def test_default_settings_stay_unchanged_when_strict_coerce_sees_bounds() -> Non
     """Untouched defaults must not become a Settings OK write.
 
     A number equal to a stored out-of-range value is not unchanged: strict
-    coerce rejects it, so the key stays in the batch and set_configs raises.
+    coerce rejects it, so the key stays in the batch and save raises.
     """
     from plugin.chatbot.settings_fields import changed_config_values
 
@@ -106,13 +106,13 @@ def test_apply_field_specs_result_uses_config_key():
         {"name": "ignored", "config_key": "scripting.ignored"},
     ]
     with (
-        patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
+        patch("plugin.chatbot.settings_fields.save") as mock_set,
         patch.object(get_event_bus(), "emit") as mock_emit,
     ):
         apply_field_specs_result({"scripting__python_venv_path": "/opt/venv"}, specs)
 
     mock_set.assert_called_once_with({"scripting.python_venv_path": "/opt/venv"})
-    # set_configs emits when a value changes. This function must not emit again.
+    # save emits when a value changes. This function must not emit again.
     mock_emit.assert_not_called()
 
 
@@ -130,7 +130,7 @@ def test_apply_field_specs_result_maps_translated_label_to_value():
         return {"Shared kernel": "Gedeelde kernel"}.get(text, text)
 
     with (
-        patch("plugin.chatbot.settings_fields.set_configs") as mock_set,
+        patch("plugin.chatbot.settings_fields.save") as mock_set,
         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
     ):
         apply_field_specs_result({"scripting__python_session_mode": "Gedeelde kernel"}, specs)
@@ -144,7 +144,7 @@ def test_apply_field_specs_result_maps_translated_label_to_value():
 
 def test_apply_field_specs_result_skips_unchanged_and_default_values():
     """A caption that maps to the current id, and a value equal to the default, are not writes."""
-    from plugin.framework.config import get_config_file_path, set_configs
+    from plugin.framework.config import get_config_file_path, save
 
     path = get_config_file_path()
     assert path
@@ -164,13 +164,13 @@ def test_apply_field_specs_result_skips_unchanged_and_default_values():
 
     def _spy(values: dict) -> None:
         seen.append(dict(values))
-        set_configs(values)
+        save(values)
 
     import os
 
     before = open(path, encoding="utf-8").read() if os.path.isfile(path) else ""
     with (
-        patch("plugin.chatbot.settings_fields.set_configs", side_effect=_spy),
+        patch("plugin.chatbot.settings_fields.save", side_effect=_spy),
         patch("plugin.chatbot.settings_fields._", side_effect=_fake_gettext),
     ):
         apply_field_specs_result(
@@ -189,7 +189,7 @@ def test_apply_field_specs_result_skips_unchanged_and_default_values():
 
 
 def test_apply_field_specs_result_skips_unknown_keys():
-    with patch("plugin.chatbot.settings_fields.set_configs") as mock_set:
+    with patch("plugin.chatbot.settings_fields.save") as mock_set:
         apply_field_specs_result({"nope": "x"}, [{"name": "kept", "config_key": "scripting.kept"}])
     mock_set.assert_not_called()
 
@@ -294,17 +294,20 @@ def test_read_settings_control_uses_peer_when_setvalue_fails():
 
 
 def test_populate_settings_control_sets_string_item_list_and_numeric_value():
-    class _Model:
-        StringItemList = ()
-
     class _Ctrl:
         def __init__(self):
-            self.model = _Model()
+            self.items = []
             self.value = None
             self.text = None
 
-        def getModel(self):
-            return self.model
+        def getItemCount(self):
+            return len(self.items)
+
+        def removeItems(self, pos, count):
+            del self.items[pos : pos + count]
+
+        def addItems(self, items, pos):
+            self.items[pos:pos] = list(items)
 
         def setValue(self, value):
             self.value = value
@@ -322,7 +325,7 @@ def test_populate_settings_control_sets_string_item_list_and_numeric_value():
             "options": [{"value": "7", "label": "Seven"}],
         },
     )
-    assert ctrl.model.StringItemList == ("Seven",)
+    assert ctrl.items == ["Seven"]
     assert ctrl.value == 7.0
     assert ctrl.text is None
 
@@ -332,9 +335,9 @@ def _config_json(path):
     return json.loads(body[body.index("{") :])
 
 
-def test_set_configs_one_write_one_emit_and_validation_writes_nothing(tmp_path):
+def test_save_one_write_one_emit_and_validation_writes_nothing(tmp_path):
     """Batch save: one write, one event. A bad value leaves the file untouched."""
-    from plugin.framework.config import get_config, get_config_int, reset_config_for_tests, set_configs
+    from plugin.framework.config import get_config, reset_config_for_tests, save
     from plugin.framework.errors import ConfigValidationError
 
     path = tmp_path / "writeragent.json"
@@ -345,32 +348,32 @@ def test_set_configs_one_write_one_emit_and_validation_writes_nothing(tmp_path):
             patch("plugin.framework.config.get_config_file_path", return_value=str(path)),
             patch.object(get_event_bus(), "emit") as emit,
         ):
-            set_configs({"text_model": "alpha", "request_timeout": 45})
+            save({"text_model": "alpha", "request_timeout": 45})
             assert emit.call_count == 1
             assert emit.call_args.args[0] == "config:changed"
             assert emit.call_args.kwargs["key"] == ""
             assert emit.call_args.kwargs["keys"] == ("text_model", "request_timeout")
             assert emit.call_args.kwargs["old_value"] is None
             assert get_config("text_model") == "alpha"
-            assert get_config_int("request_timeout") == 45
+            assert get_config("request_timeout") == 45
             # An unrelated batch leaves the flat alias alone. Only staging the
             # dotted key pops it (checked below).
-            assert _config_json(path)["python_venv_path"] == "/old"
+            assert _config_json(path).get("scripting.python_venv_path") == "/old"
 
             emit.reset_mock()
-            set_configs({"text_model": "beta"})
+            save({"text_model": "beta"})
             emit.assert_called_once()
             assert emit.call_args.kwargs["key"] == "text_model"
             assert emit.call_args.kwargs["value"] == "beta"
 
             emit.reset_mock()
             before = path.read_text(encoding="utf-8")
-            set_configs({"text_model": "beta", "request_timeout": "45"})
+            save({"text_model": "beta", "request_timeout": "45"})
             emit.assert_not_called()
             assert path.read_text(encoding="utf-8") == before
 
             with pytest.raises(ConfigValidationError):
-                set_configs({"temperature": 9, "text_model": "should-not-land"})
+                save({"temperature": 9, "text_model": "should-not-land"})
             emit.assert_not_called()
             assert path.read_text(encoding="utf-8") == before
             assert get_config("text_model") == "beta"
@@ -380,7 +383,7 @@ def test_set_configs_one_write_one_emit_and_validation_writes_nothing(tmp_path):
                 encoding="utf-8",
             )
             reset_config_for_tests()
-            set_configs({"scripting.python_venv_path": "/opt/venv"})
+            save({"scripting.python_venv_path": "/opt/venv"})
             written = _config_json(path)
             assert written["scripting.python_venv_path"] == "/opt/venv"
             assert "python_venv_path" not in written
@@ -388,7 +391,7 @@ def test_set_configs_one_write_one_emit_and_validation_writes_nothing(tmp_path):
         reset_config_for_tests()
 
 
-def test_call_options_provider_skips_plugin_main_when_absent():
+def test_call_options_provider_skips_services_when_app_get_services_missing():
     import sys
     import types
 
@@ -402,7 +405,8 @@ def test_call_options_provider_skips_plugin_main_when_absent():
 
     fake = types.ModuleType("wa_librepy_opts")
     fake.provide = provide
-    with patch.dict(sys.modules, {"plugin.main": None, "wa_librepy_opts": fake}):
+    stub_app = types.ModuleType("plugin.app")
+    with patch.dict(sys.modules, {"plugin.app": stub_app, "wa_librepy_opts": fake}):
         out = call_options_provider("wa_librepy_opts:provide")
     assert out == ["ok"]
     assert seen == [None]
@@ -435,7 +439,7 @@ def test_build_module_field_specs_voice_options_come_from_catalog():
         patch("plugin.chatbot.settings_fields.get_config", side_effect=_cfg),
         patch("plugin.framework.config.get_config", side_effect=_cfg),
         patch("plugin.framework.i18n.get_active_locale", return_value="de_DE"),
-        patch("plugin.main.get_services", return_value=None),
+        patch("plugin.app.get_services", return_value=None),
     ):
         specs = build_module_field_specs("audio", ctx=object(), control_ids="prefixed")
 
@@ -461,7 +465,7 @@ def test_build_module_field_specs_options_provider_falls_back_to_yaml():
     with (
         patch("plugin._manifest.MODULES", [manifest]),
         patch("plugin.chatbot.settings_fields.get_config", return_value="default"),
-        patch("plugin.main.get_services", return_value=None),
+        patch("plugin.app.get_services", return_value=None),
     ):
         specs = build_module_field_specs("audio", ctx=object(), control_ids="flat")
 

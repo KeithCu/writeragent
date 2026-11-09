@@ -71,8 +71,8 @@ def close_modeless_dialog(dlg: Any, *, toolkit_teardown: bool = False, log_label
         log.debug("%s: dispose failed", log_label, exc_info=True)
 
 
-from plugin.framework.config import get_config, get_config_str, set_config
-from plugin.framework.errors import is_tool_document_disposed, resolve_exception_message
+from plugin.framework.config import get_config, save
+from plugin.framework.errors import is_disposal, resolve_exception_message
 from plugin.framework.i18n import _
 from plugin.chatbot.dialogs import (
     load_writeragent_dialog_detail,
@@ -115,9 +115,9 @@ class _ScriptSaveResult:
 
 
 def _report_script_dialog_error(ctx: Any, dlg: Any, exc: BaseException, where: str, doc: Any = None) -> None:
-    """Show Save / Save As / Delete / New failures. Those buttons used to only log."""
+    """Show Save / Save As / Delete / New failures in the dialog label, not only in the log."""
     log.exception("%s failed in dialog", where)
-    text = _("The document is no longer open.") if is_tool_document_disposed(exc, doc) else resolve_exception_message(exc)
+    text = _("The document is no longer open.") if is_disposal(exc) else resolve_exception_message(exc)
     lbl = dlg.getControl("InstructionLbl")
     if lbl is not None:
         set_control_text(lbl, text)
@@ -149,15 +149,7 @@ def _picker_select_name(select_ctrl: Any, name: str, names: list[str]) -> None:
     if hasattr(select_ctrl, "selectItemPos"):
         for idx, nm in enumerate(names):
             if nm == name:
-                # What was wrong: the combobox could show the XDL default empty label, or the previous name,
-                # while the editor and the selected index were the script just chosen.
-                # How it happened: ScriptSelect is a spin="true" combobox (extension/Dialogs/PythonScriptDialog.xdl,
-                # dlg:value=""). selectItemPos does not reliably update that text field, and this function returned
-                # before setText. set_selector_mode in plugin/chatbot/chat_sidebar_mode.py calls both for that reason.
-                # test_picker_select_name_combobox_uses_set_text uses MagicMock(spec=[]), which has no selectItemPos,
-                # so it never took the return.
-                # Why this change fixes it: selectItemPos still runs when the name is in the list, and setText
-                # still runs when the control has it.
+                # selectItemPos and setText both run so the spin combobox text matches the script name the editor loaded.
                 select_ctrl.selectItemPos(idx, True)
                 break
     if hasattr(select_ctrl, "setText"):
@@ -230,13 +222,13 @@ class NativePythonScriptDialog:
 
         config_key = self._name_config_key
 
-        picked = select_display if select_display and select_display in names else get_config_str(config_key)
+        picked = select_display if select_display and select_display in names else get_config(config_key)
         selected_name = picked if picked and picked in names else (names[0] if names else "")
 
         dlg = self._dlg
         if selected_name:
             _picker_select_name(select_ctrl, selected_name, names)
-            set_config(config_key, selected_name)
+            save({config_key: selected_name})
         if dlg is not None:
             code_ctrl = dlg.getControl("CodeEdit")
             if code_ctrl is not None:
@@ -257,11 +249,9 @@ class NativePythonScriptDialog:
 
             # Finite pre-warm. The shared daemon pool is for this. dedicated=True
             # is for servers, pipe drains, and jobs another thread joins.
-            # What was wrong: a submit failure disposed a dialog that was already loaded.
-            # How it happened: this call sits in _open's try without its own handler.
-            # Why this change: pre-warm is optional, so catch and log scheduling failures.
+            # Pre-warm scheduling failures are logged only so a bad background submit cannot dispose an open dialog.
             try:
-                run_in_background(warm_venv_worker, ctx, name="warm-venv-worker", dedicated=False)
+                run_in_background(warm_venv_worker, name="warm-venv-worker", dedicated=False)
             except Exception:
                 log.exception("native script dialog: venv warm-up was not scheduled")
 
@@ -280,10 +270,7 @@ class NativePythonScriptDialog:
                 self._top_listener = ModelessWindowClosingListener(self)
                 dlg.addTopWindowListener(self._top_listener)
                 dlg.setVisible(True)
-                # What was wrong: the editor did not take focus on the floating dialog.
-                # How it happened: setFocus ran before setVisible(True). Modal execute() is different:
-                # it shows the dialog and blocks, so focus stays before execute().
-                # Why this change fixes it: the modeless dialog focuses CodeEdit after it is visible.
+                # Focus CodeEdit after setVisible(True) so the modeless script dialog accepts keyboard input.
                 if code_ctrl is not None:
                     code_ctrl.setFocus()
                 return None
@@ -316,13 +303,7 @@ class NativePythonScriptDialog:
             if self._doc is None:
                 return _ScriptSaveResult(_("No document is open to save scripts."), "modal")
             err = save_document_script(self._doc, real_name, t)
-            # What was wrong: any document error used to be copied into My Scripts,
-            # and the label either hid the document failure or glued str(err) onto
-            # a second sentence.
-            # How it happened: an unconditional fallback ran for all non-None err returns.
-            # Why this change: Monaco already limits the fallback to READONLY so
-            # TOO_LARGE and reserved names are not skipped. This branch matches that,
-            # and both READONLY sentences name the document failure.
+            # Document save errors surface in the label; only READONLY failures fall back to My Scripts, matching Monaco behavior.
             if err is None:
                 self._current_scripts[display_name] = t
                 return _ScriptSaveResult(_("Script '%s' saved to this document.") % real_name, None)
@@ -398,7 +379,7 @@ class NativePythonScriptDialog:
                 name = _picker_selected_name(select_ctrl)
                 if name:
                     code_ctrl = dlg.getControl("CodeEdit")
-                    set_config(self._name_config_key, name)
+                    save({self._name_config_key: name})
                     t = self._current_scripts.get(name, "")
                     code_ctrl.setText(t)
             except Exception:
@@ -410,12 +391,7 @@ class NativePythonScriptDialog:
             try:
                 t = _editor_code(dlg)
                 lbl = dlg.getControl("InstructionLbl")
-                # What was wrong: the save sentence was written and then replaced by
-                # Running..., and completion replaced the label again.
-                # How it happened: 1682d0493 displayed save_msg and the next line
-                # always set Running...
-                # Why this change: builtin stays on the label through a successful
-                # finish; every other warning is a Save box before Running...
+                # Builtin save messages stay on InstructionLbl through the run; modal save warnings use a msgbox so Running... does not erase them.
                 save_res = self._save_current_script(t, only_if_changed=True)
 
                 if save_res.channel == "builtin":
@@ -523,10 +499,7 @@ class NativePythonScriptDialog:
                             set_control_text(lbl, err)
                             return
                     else:
-                        # What was wrong: a missing My Scripts row was reported as deleted.
-                        # How it happened: the NOT_FOUND return from delete_user_script was ignored.
-                        # Why this change: match the document branch by checking err, displaying it,
-                        # and returning before dropdown refresh and success reporting.
+                        # delete_user_script errors are shown instead of a false deleted message when the row is missing.
                         err = delete_user_script(real_name)
                         if err is not None:
                             set_control_text(lbl, err)

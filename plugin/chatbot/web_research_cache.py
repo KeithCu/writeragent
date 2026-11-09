@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 from plugin.framework.deal_shim import deal
 from plugin.framework.grammar_rule_ids import _ISO_TO_SNOWBALL
 
-log = logging.getLogger("writeragent.web_research_cache")
+log = logging.getLogger(__name__)
 
 _SNOWBALL_LANGS = frozenset(_ISO_TO_SNOWBALL.values())
 _STEMMER_CACHE: dict[str, Any] = {}
@@ -50,8 +50,14 @@ def _get_stemmer(snowball_lang: str) -> Any | None:
         _STEMMER_CACHE[snowball_lang] = stemmer
         return stemmer
     except ImportError:
-        log.warning("No stemmer for '%s', falling back to english", snowball_lang)
+        log.warning("snowballstemmer not installed; web research cache keys are not stemmed")
         return None
+    except KeyError:
+        # snowballstemmer.stemmer raises KeyError for an unknown algorithm.
+        if snowball_lang == "english":
+            return None
+        log.warning("No stemmer for '%s', falling back to english", snowball_lang)
+        return _get_stemmer("english")
 
 
 def stem_word(snowball_lang: str, token: str) -> str:
@@ -78,7 +84,9 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
     """Read first-paragraph CharLocale from *doc*. Main thread only (UNO)."""
     text = doc.getText()
     enum = text.createEnumeration()
-    if not enum.hasMoreElements():
+    from plugin.framework.uno_context import enum_has_more
+
+    if not enum_has_more(enum):
         return None
     first_para = enum.nextElement()
     char_locale = first_para.getPropertyValue("CharLocale")
@@ -92,18 +100,18 @@ def _read_doc_char_locale(doc: Any) -> tuple[str, str] | None:
 
 
 def _run_on_main_or_none(fn: Callable[[], Any], what: str, *, reraise_disposed: bool = False) -> Any | None:
-    from plugin.framework.errors import is_disposed_exception
-    from plugin.framework.queue_executor import run_on_main
+    from plugin.framework.errors import is_disposal
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancelled
 
     try:
-        return run_on_main(fn)
+        return main.run(fn)
     except SendCancelled:
         log.debug("research cache: %s cancelled", what)
     except TimeoutError:
         log.warning("research cache: %s timed out on main thread", what)
     except Exception as e:
-        if reraise_disposed and is_disposed_exception(e):
+        if reraise_disposed and is_disposal(e):
             raise
         log.debug("research cache: %s failed: %s", what, e)
     return None
@@ -150,17 +158,17 @@ def get_research_fluff_words(*, snowball_lang: str) -> frozenset[str]:
         return cached
 
     from plugin.chatbot.research_cache_fluff import translated_research_cache_fluff
-    from plugin.writer.locale.linguistic_index import _raw_tokens
+    from plugin.writer.locale.linguistic_index import raw_tokens
     from plugin.writer.locale.stop_words import stop_words_for_snowball
 
     fluff: set[str] = set()
     for phrase in translated_research_cache_fluff():
-        fluff.update(_raw_tokens(phrase))
+        fluff.update(raw_tokens(phrase))
     # Stop words are stored with their accents ("até", "chère"); query tokens
-    # come from _raw_tokens, which lowercases and deaccents, so union the
+    # come from raw_tokens, which lowercases and deaccents, so union the
     # normalized form or accented stop words never filter.
     for stop_word in stop_words_for_snowball(snowball_lang):
-        fluff.update(_raw_tokens(stop_word))
+        fluff.update(raw_tokens(stop_word))
     result = frozenset(fluff)
     _FLUFF_WORDS_CACHE[cache_key] = result
     return result
@@ -170,12 +178,12 @@ def ordered_unique_query_words(query: str, *, snowball_lang: str) -> list[str]: 
     """Fluff-filtered tokens, first-seen order. Storage keys sort a copy of this list."""
     if not query:
         return []
-    from plugin.writer.locale.linguistic_index import _raw_tokens
+    from plugin.writer.locale.linguistic_index import raw_tokens
 
     fluff = get_research_fluff_words(snowball_lang=snowball_lang)
     seen: set[str] = set()
     ordered: list[str] = []
-    for token in _raw_tokens(query):
+    for token in raw_tokens(query):
         if token in fluff or len(token) < _MIN_TOKEN_LEN or token in seen:
             continue
         seen.add(token)
@@ -262,12 +270,12 @@ def research_cache_similarity(query_stems: set[str], stored_stems: set[str]) -> 
 def _research_cache_embedding_configured() -> bool:
     """True when the local embeddings venv is configured enough to try worker RPC."""
     try:
-        from plugin.framework.config import get_config, get_config_str
+        from plugin.framework.config import get_config
 
         provider = str(get_config("embedding_provider") or "local").strip().lower() or "local"
         if provider != "local":
             return False
-        return bool(get_config_str("scripting.python_venv_path").strip())
+        return bool(str(get_config("scripting.python_venv_path") or "").strip())
     except Exception:
         return False
 

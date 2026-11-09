@@ -306,8 +306,7 @@ def test_scripts_list_reports_unreadable_envelope():
     doc = _DocWithUserDefinedProperties(props)
 
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
         patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         msg = build_scripts_list_message(
@@ -322,8 +321,7 @@ def test_scripts_list_reports_unreadable_envelope():
     assert "version 99" in err_text
 
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
         patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         msg_ok = build_scripts_list_message(
@@ -338,8 +336,7 @@ def test_scripts_list_reports_unreadable_envelope():
     props_corrupt.values[DOCUMENT_SCRIPTS_UDPROP] = "not-json"
     doc_corrupt = _DocWithUserDefinedProperties(props_corrupt)
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
         patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         msg_corrupt = build_scripts_list_message(
@@ -414,13 +411,13 @@ def test_new_script_name_error_matches_attach_and_allows_user_init():
 
     with (
         patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.set_config") as mock_set,
+        patch("plugin.framework.config.save") as mock_set,
     ):
         assert save_user_script("INIT", "x = 1") is None
         mock_set.assert_called_once()
-        cfg_key, cfg_val = mock_set.call_args[0]
-        assert cfg_key == "saved_python_scripts"
-        assert "INIT" in cfg_val
+        cfg_patch = mock_set.call_args[0][0]
+        assert "saved_python_scripts" in cfg_patch
+        assert "INIT" in cfg_patch["saved_python_scripts"]
 
 
 def test_delete_document_script():
@@ -530,7 +527,7 @@ def test_resolve_run_script_selection_uses_config_default():
         "Hello WriterAgent": "result = 'hello'",
         "Prime Numbers": "result = 'gaps'",
     }
-    with patch("plugin.framework.config.get_config_str", return_value="Prime Numbers"), patch(
+    with patch("plugin.framework.config.get_config", return_value="Prime Numbers"), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
@@ -545,16 +542,16 @@ def test_resolve_run_script_selection_uses_config_default():
 def test_resolve_run_script_selection_falls_back_to_first_name():
     doc = MagicMock()
     saved = {"Alpha": "a = 1", "Beta": "b = 2"}
-    with patch("plugin.framework.config.get_config_str", return_value="Missing"), patch(
+    with patch("plugin.framework.config.get_config", return_value="Missing"), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
-    ), patch("plugin.framework.config.set_config") as mock_set:
+    ), patch("plugin.framework.config.save") as mock_set:
         name, code, merged = resolve_run_script_selection(
             doc, build_xdl_script_picker_state(doc, saved)
         )
     assert name == "Alpha"
     assert code == "a = 1"
-    mock_set.assert_called_once_with("last_python_script_name_writer", "Alpha")
+    mock_set.assert_called_once_with({"last_python_script_name_writer": "Alpha"})
 
 
 def test_resolve_script_picker_entry():
@@ -568,9 +565,7 @@ def test_build_scripts_list_message_sections():
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
     attach_document_script(doc, "Regional", "result = 3")
-    with patch("plugin.framework.config.get_config", return_value={"Prime": "result = 2"}), patch(
-        "plugin.framework.config.get_config_str", return_value=""
-    ), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {"Prime": "result = 2"} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ):
         msg = build_scripts_list_message(session_doc=doc, session_doc_url="file:///tmp/test.odt")
@@ -590,9 +585,7 @@ def test_build_scripts_list_section_order_local_doc_vision_math_units_analysis()
     doc.getURL = MagicMock(return_value="file:///tmp/test.ods")
     doc.supportsService = MagicMock(side_effect=lambda s: s == "com.sun.star.sheet.SpreadsheetDocument")
     attach_document_script(doc, "SheetHelper", "result = 1")
-    with patch("plugin.framework.config.get_config", return_value={"MyLocal": "result = 0"}), patch(
-        "plugin.framework.config.get_config_str", return_value=""
-    ), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {"MyLocal": "result = 0"} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_calc"
     ), patch(
         "plugin.vision.vision_runner.supports_vision_manual", return_value=True
@@ -605,22 +598,20 @@ def test_build_scripts_list_section_order_local_doc_vision_math_units_analysis()
 
 def test_build_scripts_list_message_includes_selected_script():
     doc = MagicMock()
-    with patch("plugin.framework.config.get_config", return_value={"Prime": "print('primes')"}), patch(
-        "plugin.framework.config.get_config_str", return_value="Prime"
-    ) as mock_get_str, patch(
+    def _cfg_selected(k):
+        return {"Prime": "print('primes')"} if k == "saved_python_scripts" else "Prime"
+    with patch("plugin.framework.config.get_config", side_effect=_cfg_selected) as mock_get, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ) as mock_key:
         msg = build_scripts_list_message(session_doc=doc, session_doc_url=None)
     mock_key.assert_called_once_with(doc)
-    mock_get_str.assert_called_once_with("last_python_script_name_writer")
+    mock_get.assert_any_call("last_python_script_name_writer")
     assert msg["selected_script_name"] == "Prime"
 
 
 def test_build_scripts_list_message_includes_selected_script_name_when_empty():
     doc = MagicMock()
-    with patch("plugin.framework.config.get_config", return_value={"Alpha": "a = 1"}), patch(
-        "plugin.framework.config.get_config_str", return_value=""
-    ), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {"Alpha": "a = 1"} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
@@ -633,9 +624,7 @@ def test_build_scripts_list_message_stale_when_url_changes():
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/other.odt")
     attach_document_script(doc, "A", "x")
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.get_config_str", return_value=""
-    ), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key", return_value="last_python_script_name_writer"
     ):
         msg = build_scripts_list_message(session_doc=doc, session_doc_url="file:///tmp/original.odt")
@@ -649,9 +638,7 @@ def test_build_scripts_list_untitled_save_is_not_stale():
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/saved.odt")
     attach_document_script(doc, "A", "x")
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.get_config_str", return_value=""
-    ), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
@@ -664,7 +651,7 @@ def test_build_scripts_list_untitled_save_is_not_stale():
 def test_build_scripts_list_includes_analysis_section_for_calc():
     doc = MagicMock()
     with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.doc.doc_type.is_calc", return_value=True
+        "plugin.framework.doc_type.is_calc", return_value=True
     ), patch(
         "plugin.scripting.document_scripts.is_calc", return_value=True
     ):
@@ -758,13 +745,13 @@ def test_build_xdl_script_picker_excludes_text_analytics_for_writer():
 def test_save_and_delete_user_script():
     store = {"Mine": "a = 1"}
     with patch("plugin.framework.config.get_config", side_effect=lambda key: store if key == "saved_python_scripts" else None), patch(
-        "plugin.framework.config.set_config"
+        "plugin.framework.config.save"
     ) as mock_set:
         save_user_script("New", "b = 2")
-        mock_set.assert_called_with("saved_python_scripts", {"Mine": "a = 1", "New": "b = 2"})
+        mock_set.assert_called_with({"saved_python_scripts": {"Mine": "a = 1", "New": "b = 2"}})
         store["New"] = "b = 2"
         delete_user_script("Mine")
-        mock_set.assert_called_with("saved_python_scripts", {"New": "b = 2"})
+        mock_set.assert_called_with({"saved_python_scripts": {"New": "b = 2"}})
 
 
 def test_handle_editor_script_message_unknown_kind():
@@ -776,9 +763,9 @@ def test_handle_editor_script_message_unknown_kind():
 def test_handle_editor_script_message_save_user_and_empty_name():
     sent: list = []
     store = {"Mine": "a = 1"}
-    with patch("plugin.framework.config.get_config", side_effect=lambda key: store if key == "saved_python_scripts" else {}), patch(
-        "plugin.framework.config.set_config"
-    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value="Mine"), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda key: store if key == "saved_python_scripts" else "Mine"), patch(
+        "plugin.framework.config.save"
+    ) as mock_set, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
@@ -789,8 +776,8 @@ def test_handle_editor_script_message_save_user_and_empty_name():
             session_doc_url=None,
             send=sent.append,
         )
-        mock_set.assert_any_call("saved_python_scripts", {"Mine": "a = 1", "New": "x = 1"})
-        mock_set.assert_any_call("last_python_script_name_writer", "New")
+        mock_set.assert_any_call({"saved_python_scripts": {"Mine": "a = 1", "New": "x = 1"}})
+        mock_set.assert_any_call({"last_python_script_name_writer": "New"})
         assert sent[-1]["type"] == "scripts_list"
         assert "Saved script" in sent[-1]["status_ok_text"]
 
@@ -809,9 +796,9 @@ def test_handle_editor_script_message_save_document_script_updates_config():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     sent: list = []
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.set_config"
-    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
+        "plugin.framework.config.save"
+    ) as mock_set, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
@@ -822,7 +809,7 @@ def test_handle_editor_script_message_save_document_script_updates_config():
             session_doc_url=None,
             send=sent.append,
         )
-        mock_set.assert_called_with("last_python_script_name_writer", "[Doc] DocReport")
+        mock_set.assert_called_with({"last_python_script_name_writer": "[Doc] DocReport"})
         assert sent[-1]["type"] == "scripts_list"
         assert "Saved script 'DocReport' to this document" in sent[-1]["status_ok_text"]
 
@@ -831,9 +818,9 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
     """A document save error that lands in My Scripts is one success string."""
     doc = _DocWithUserDefinedProperties(_UserDefinedProperties())
     sent: list = []
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.set_config"
-    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
+        "plugin.framework.config.save"
+    ) as mock_set, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch(
@@ -847,7 +834,7 @@ def test_doc_save_fallback_sends_success_with_migration_note_only():
             session_doc_url=None,
             send=sent.append,
         )
-    mock_set.assert_any_call("saved_python_scripts", {"DocReport": "y = 2"})
+    mock_set.assert_any_call({"saved_python_scripts": {"DocReport": "y = 2"}})
     msg = sent[-1]
     assert msg["type"] == "scripts_list"
     assert "status_error_text" not in msg
@@ -873,23 +860,15 @@ def test_readonly_fallback_second_edit_follows_the_user_row():
     def _get_config(key: str, default=None):
         if key == "saved_python_scripts":
             return dict(config_store.get("saved_python_scripts", {}))
-        return config_store.get(key, {} if default is None else default)
+        return config_store.get(key, "" if default is None else default)
 
-    def _get_config_str(key: str, default: str = "") -> str:
-        val = config_store.get(key, default)
-        return str(val) if val is not None else default
-
-    def _set_config(key: str, value, *, event_key=None):
-        if isinstance(value, dict):
-            config_store[key] = dict(value)
-        else:
-            config_store[key] = value
+    def _save(patch_dict, *, event_key=None):
+        config_store.update(patch_dict)
 
     sent: list = []
     with (
         patch("plugin.framework.config.get_config", side_effect=_get_config),
-        patch("plugin.framework.config.get_config_str", side_effect=_get_config_str),
-        patch("plugin.framework.config.set_config", side_effect=_set_config),
+        patch("plugin.framework.config.save", side_effect=_save),
         patch(
             "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
             return_value="last_python_script_name_writer",
@@ -936,11 +915,11 @@ def test_doc_save_fallback_does_not_overwrite_my_scripts():
     def _get_config(key: str):
         if key == "saved_python_scripts":
             return dict(store)
-        return {}
+        return ""
 
     with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
-        "plugin.framework.config.set_config"
-    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+        "plugin.framework.config.save"
+    ) as mock_set, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch(
@@ -954,7 +933,7 @@ def test_doc_save_fallback_does_not_overwrite_my_scripts():
             session_doc_url=None,
             send=sent.append,
         )
-    written = [call.args for call in mock_set.call_args_list if call.args and call.args[0] == "saved_python_scripts"]
+    written = [call.args[0] for call in mock_set.call_args_list if call.args and "saved_python_scripts" in call.args[0]]
     assert written == []
     msg = sent[-1]
     assert "status_ok_text" not in msg
@@ -969,9 +948,7 @@ def test_attach_script_stores_display_name_as_property_key():
     props = _UserDefinedProperties()
     doc = _DocWithUserDefinedProperties(props)
     sent: list = []
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.get_config_str", return_value=""
-    ), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
@@ -993,9 +970,7 @@ def test_handle_editor_script_message_disposed_document_returns_list_error():
     from plugin.framework.errors import DocumentDisposedError
 
     sent: list = []
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.get_config_str", return_value=""
-    ), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ), patch(
@@ -1018,8 +993,7 @@ def test_handle_editor_script_message_disposed_document_returns_list_error():
 
 def test_scripts_list_without_session_doc_is_not_writable():
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
         patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         msg = build_scripts_list_message(
@@ -1034,8 +1008,7 @@ def test_scripts_list_without_session_doc_is_not_writable():
 
     sent: list = []
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
         patch("plugin.scripting.document_scripts.save_document_script") as mock_save,
         patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
@@ -1053,9 +1026,8 @@ def test_scripts_list_without_session_doc_is_not_writable():
 def test_save_script_reserved_prefix_is_status_error():
     sent: list = []
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.framework.config.set_config") as mock_set,
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
+        patch("plugin.framework.config.save") as mock_set,
         patch("plugin.scripting.domain_registry.PICKER_WIRING", ()),
     ):
         handled = handle_editor_script_message(
@@ -1068,7 +1040,7 @@ def test_save_script_reserved_prefix_is_status_error():
     assert handled is True
     assert "reserved prefix" in sent[-1]["status_error_text"]
     for call in mock_set.call_args_list:
-        assert call[0][0] != "saved_python_scripts"
+        assert "saved_python_scripts" not in call[0][0]
 
     err1 = save_user_script("[Doc] my_script", "code")
     assert err1 is not None
@@ -1178,18 +1150,15 @@ def test_document_script_reopen_after_select_and_save_uses_display_key():
     }
 
     def _get_config(key: str):
-        return config.get(key)
-
-    def _get_config_str(key: str) -> str:
         value = config.get(key)
-        return value if isinstance(value, str) else ""
+        return value if value is not None else ""
 
-    def _set_config(key: str, value: object) -> None:
-        config[key] = value
+    def _save(patch_dict: dict) -> None:
+        config.update(patch_dict)
 
     with patch("plugin.framework.config.get_config", side_effect=_get_config), patch(
-        "plugin.framework.config.get_config_str", side_effect=_get_config_str
-    ), patch("plugin.framework.config.set_config", side_effect=_set_config), patch(
+        "plugin.framework.config.save", side_effect=_save
+    ), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
@@ -1284,9 +1253,7 @@ def test_monaco_overwrite_check_uses_document_display_key():
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/test.odt")
     attach_document_script(doc, "Regional", "result = 3")
-    with patch("plugin.framework.config.get_config", return_value={"Regional": "user-code"}), patch(
-        "plugin.framework.config.get_config_str", return_value=""
-    ), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {"Regional": "user-code"} if k == "saved_python_scripts" else ""), patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_writer",
     ):
@@ -1401,9 +1368,8 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
         return real_domain(d)
 
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.framework.config.set_config"),
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
+        patch("plugin.framework.config.save"),
         patch("plugin.scripting.document_scripts._load_document_script_map", side_effect=counting_load),
         patch("plugin.scripting.document_scripts.domain_template_entries", side_effect=counting_domain),
     ):
@@ -1416,9 +1382,8 @@ def test_build_scripts_list_message_loads_once_when_the_document_is_current():
     assert domain_counts == 1
 
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.framework.config.set_config"),
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
+        patch("plugin.framework.config.save"),
     ):
         expected_selected, _, _ = resolve_run_script_selection(
             doc, build_xdl_script_picker_state(doc, get_user_scripts())
@@ -1440,9 +1405,8 @@ def test_stale_list_selection_ignores_templates_of_the_stale_document():
     doc.getURL = MagicMock(return_value="file:///tmp/current.odt")
 
     with (
-        patch("plugin.framework.config.get_config", return_value={}),
-        patch("plugin.framework.config.get_config_str", return_value=""),
-        patch("plugin.framework.config.set_config") as mock_set_config,
+        patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""),
+        patch("plugin.framework.config.save") as mock_set_config,
         patch("plugin.scripting.domain_registry.PICKER_WIRING", (domain,)),
     ):
         msg = build_scripts_list_message(
@@ -1461,10 +1425,8 @@ def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/opened.ods")
     attach_document_script(doc, "SecretDocScript", "secret = 1")
-    with patch("plugin.framework.config.get_config", return_value={"UserScript": "x = 1"}), patch(
-        "plugin.framework.config.get_config_str", return_value="[Doc] SecretDocScript"
-    ), patch(
-        "plugin.framework.config.set_config"
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {"UserScript": "x = 1"} if k == "saved_python_scripts" else "[Doc] SecretDocScript"), patch(
+        "plugin.framework.config.save"
     ) as mock_set, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_calc",
@@ -1477,9 +1439,9 @@ def test_build_scripts_list_message_stale_doc_does_not_select_doc_script():
     assert msg["document_stale"] is True
     assert msg["selected_script_name"] != "[Doc] SecretDocScript"
     assert not msg["selected_script_name"].startswith("[Doc] ")
-    # Ensure set_config did not store "[Doc] SecretDocScript" against the stale doc
+    # Ensure save did not store "[Doc] SecretDocScript" against the stale doc
     for call in mock_set.call_args_list:
-        assert call.args[1] != "[Doc] SecretDocScript"
+        assert call.args[0].get("last_python_script_name_calc") != "[Doc] SecretDocScript"
 
 
 def test_save_script_reserved_name_init_does_not_fallback_to_my_scripts():
@@ -1488,9 +1450,9 @@ def test_save_script_reserved_name_init_does_not_fallback_to_my_scripts():
     doc = _DocWithUserDefinedProperties(props)
     doc.getURL = MagicMock(return_value="file:///tmp/doc.ods")
     sent: list = []
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.set_config"
-    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
+        "plugin.framework.config.save"
+    ) as mock_set, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_calc",
     ):
@@ -1506,7 +1468,7 @@ def test_save_script_reserved_name_init_does_not_fallback_to_my_scripts():
     assert "status_ok_text" not in sent[0]
     assert "reserved" in sent[0].get("status_error_text", "").lower()
     # Must NOT have written to My Scripts (saved_python_scripts)
-    user_writes = [c for c in mock_set.call_args_list if c.args and c.args[0] == "saved_python_scripts"]
+    user_writes = [c for c in mock_set.call_args_list if c.args and "saved_python_scripts" in c.args[0]]
     assert user_writes == []
 
 
@@ -1517,9 +1479,9 @@ def test_save_script_too_large_does_not_fallback_to_my_scripts():
     doc.getURL = MagicMock(return_value="file:///tmp/doc.ods")
     sent: list = []
     huge_code = "x = 1\n" * 200_000
-    with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.set_config"
-    ) as mock_set, patch("plugin.framework.config.get_config_str", return_value=""), patch(
+    with patch("plugin.framework.config.get_config", side_effect=lambda k: {} if k == "saved_python_scripts" else ""), patch(
+        "plugin.framework.config.save"
+    ) as mock_set, patch(
         "plugin.scripting.document_scripts.resolve_run_script_name_config_key",
         return_value="last_python_script_name_calc",
     ):
@@ -1534,7 +1496,7 @@ def test_save_script_too_large_does_not_fallback_to_my_scripts():
     assert len(sent) == 1
     assert "status_ok_text" not in sent[0]
     assert "too large" in sent[0].get("status_error_text", "").lower()
-    user_writes = [c for c in mock_set.call_args_list if c.args and c.args[0] == "saved_python_scripts"]
+    user_writes = [c for c in mock_set.call_args_list if c.args and "saved_python_scripts" in c.args[0]]
     assert user_writes == []
 
 
@@ -1551,7 +1513,7 @@ def test_delete_document_script_missing_returns_error_and_does_not_write():
 def test_delete_user_script_missing_returns_error_and_does_not_write():
     """Bug 4: deleting a missing user script returns an error and does not rewrite config."""
     with patch("plugin.framework.config.get_config", return_value={}), patch(
-        "plugin.framework.config.set_config"
+        "plugin.framework.config.save"
     ) as mock_set:
         err = delete_user_script("NonExistent")
     assert err is not None

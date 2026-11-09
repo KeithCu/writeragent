@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Unit tests for plugin.doc.doc_type."""
+"""Unit tests for plugin.framework.doc_type."""
 
 import types
 from unittest.mock import patch
 
 import pytest
 
-from plugin.doc.doc_type import (
+from plugin.framework.doc_type import (
     CALC_DOCUMENT_SERVICE,
     DOCUMENT_SERVICES,
     DRAW_DOCUMENT_SERVICE,
@@ -26,6 +26,7 @@ from plugin.doc.doc_type import (
     get_document_uno_services,
     is_calc,
     is_draw,
+    is_impress,
     is_writer,
     uno_services_for_doc_type_label,
     uno_services_for_document,
@@ -134,6 +135,7 @@ def test_doc_type_truth_table(
     assert is_writer(model) is (expected_type == DocumentType.WRITER)
     assert is_calc(model) is (expected_type == DocumentType.CALC)
     assert is_draw(model) is (expected_type in (DocumentType.DRAW, DocumentType.IMPRESS))
+    assert is_impress(model) is (_IMPRESS_SERVICE in services if services else False)
 
 
 def test_doc_type_of_resolution() -> None:
@@ -197,7 +199,7 @@ def test_uno_services_for_document_fallback_and_off_main() -> None:
     assert uno_services_for_document(empty_model, "writer") == frozenset({_TEXT_SERVICE})
 
     # Off main thread -> uses label map instead of supportsService
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False):
         assert uno_services_for_document(calc_model, "writer") == frozenset({_TEXT_SERVICE})
 
 

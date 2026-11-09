@@ -10,21 +10,25 @@ import pytest
 from plugin.chatbot.smol_agent import WriterAgentSmolModel
 from plugin.doc.document_research_specialized import DelegateReadDocument
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.queue_executor import QueueExecutor, default_executor
-from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, send_stopped, wait_for_approval
+from plugin.framework.queue_executor import MainThread, main
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, agent_session, is_agent_active, is_cancelled, wait_for_approval
 
 
 def test_wait_for_approval_set_event_wins_over_stop():
     """A signaled approval must not lose to a stop that lands in the same wake."""
     event = threading.Event()
     event.set()
-    assert wait_for_approval(event, lambda: True, timeout=0.01) is True
+    cancel = SendCancellation()
+    cancel.cancel()
+    assert wait_for_approval(event, cancel, timeout=0.01) is True
 
 
 def test_wait_for_approval_stop_while_unset_returns_false():
     """Sidebar close latches stop and never sets the approval event."""
     event = threading.Event()
-    assert wait_for_approval(event, lambda: True, timeout=0.01) is False
+    cancel = SendCancellation()
+    cancel.cancel()
+    assert wait_for_approval(event, cancel, timeout=0.01) is False
     assert event.is_set() is False
 
 
@@ -112,6 +116,19 @@ def test_register_on_cancel_duplicate_after_cancel_does_not_run_again():
     assert adapter.calls == 1
 
 
+def test_unregister_on_cancel_prevents_hook_execution():
+    called = []
+    scope = SendCancellation()
+
+    def hook():
+        called.append(1)
+
+    scope.register_on_cancel(hook)
+    scope.unregister_on_cancel(hook)
+    scope.cancel()
+    assert called == []
+
+
 def test_llm_client_registers_under_agent_session():
     config = {"endpoint": "http://127.0.0.1:5000", "model": "test"}
     with agent_session() as scope:
@@ -132,23 +149,23 @@ def test_llm_client_not_registered_outside_agent_session():
         mock_outside.assert_not_called()
 
 
-def test_writer_agent_smol_model_passes_stop_checker():
+def test_writer_agent_smol_model_passes_cancel():
     api = MagicMock()
-    checker = MagicMock(return_value=False)
-    model = WriterAgentSmolModel(api, stop_checker=checker)
+    scope = SendCancellation()
+    model = WriterAgentSmolModel(api, cancel=scope)
     model.generate([{"role": "user", "content": "hi"}])
     _, kwargs = api.request_with_tools.call_args
-    assert kwargs.get("stop_checker") is checker
+    assert kwargs.get("cancel") is scope
 
 
-def test_unbound_cancel_leaves_default_executor_queue():
-    """Stop before bind must not wipe MCP/grammar/peer work on default_executor."""
+def test_unbound_cancel_leaves_main_queue():
+    """Stop before bind must not wipe MCP/grammar/peer work on main."""
     import queue as queue_mod
 
     from plugin.framework.queue_executor import _WorkItem
 
     item = _WorkItem(lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(item)
+    main._work_queue.put(item)
     try:
         scope = SendCancellation()
         scope.cancel()
@@ -159,12 +176,12 @@ def test_unbound_cancel_leaves_default_executor_queue():
         leftover = []
         while True:
             try:
-                leftover.append(default_executor._work_queue.get_nowait())
+                leftover.append(main._work_queue.get_nowait())
             except queue_mod.Empty:
                 break
         for other in leftover:
             if other is not item:
-                default_executor._work_queue.put(other)
+                main._work_queue.put(other)
 
 
 def test_bound_cancel_wakes_only_that_scope():
@@ -173,12 +190,12 @@ def test_bound_cancel_wakes_only_that_scope():
 
     from plugin.framework.send_cancellation import _current_send_cancellation
 
-    with patch.object(default_executor, "_poke_main_thread"):
+    with patch.object(main, "_poke_main_thread"):
         with agent_session() as scope:
-            mine = default_executor._enqueue_work(lambda: None, (), {})
+            mine = main._enqueue_work(lambda: None, (), {})
             token = _current_send_cancellation.set(None)
             try:
-                other = default_executor._enqueue_work(lambda: None, (), {})
+                other = main._enqueue_work(lambda: None, (), {})
             finally:
                 _current_send_cancellation.reset(token)
             scope.cancel()
@@ -188,7 +205,7 @@ def test_bound_cancel_wakes_only_that_scope():
             assert other.event is not None and not other.event.is_set()
     while True:
         try:
-            default_executor._work_queue.get_nowait()
+            main._work_queue.get_nowait()
         except queue_mod.Empty:
             break
 
@@ -197,15 +214,15 @@ def test_cancel_pending_work_wakes_blocking_waiter():
     from plugin.framework.queue_executor import _WorkItem
 
     item = _WorkItem(lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(item)
-    default_executor.cancel_pending_work()
+    main._work_queue.put(item)
+    main.cancel_pending_work()
     assert item.cancelled
     assert item.event is not None
     assert item.event.wait(timeout=1.0)
     assert item.exception is not None
 
 
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
@@ -226,7 +243,7 @@ def test_delegate_read_runs_inner_agent_off_main_thread(mock_resolve, mock_open,
     ctx = MagicMock()
     ctx.ctx = MagicMock()
     ctx.doc = MagicMock()
-    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
     result = tool.execute(ctx, path_or_name="budget.ods", task="Q4")
 
     assert result["status"] == "ok"
@@ -259,7 +276,7 @@ def test_agent_session_success_does_not_cancel():
 
     client = MagicMock()
     item = _WorkItem(lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(item)
+    main._work_queue.put(item)
     try:
         with agent_session() as scope:
             scope.register_client(client)
@@ -274,12 +291,12 @@ def test_agent_session_success_does_not_cancel():
         leftover: list[object] = []
         while True:
             try:
-                leftover.append(default_executor._work_queue.get_nowait())
+                leftover.append(main._work_queue.get_nowait())
             except queue_mod.Empty:
                 break
         for other in leftover:
             if other is not item:
-                default_executor._work_queue.put(other)
+                main._work_queue.put(other)
 
 
 def test_agent_session_stop_then_success_does_not_double_cancel():
@@ -297,13 +314,13 @@ def test_agent_session_abort_cancels_pending_main_thread_work():
     from plugin.framework.queue_executor import _WorkItem
 
     earlier = _WorkItem(lambda: None, (), {}, blocking=True)
-    default_executor._work_queue.put(earlier)
+    main._work_queue.put(earlier)
     mine = None
     try:
         with pytest.raises(RuntimeError):
             with agent_session():
-                with patch.object(default_executor, "_poke_main_thread"):
-                    mine = default_executor._enqueue_work(lambda: None, (), {})
+                with patch.object(main, "_poke_main_thread"):
+                    mine = main._enqueue_work(lambda: None, (), {})
                 raise RuntimeError("crash")
         assert mine is not None and mine.cancelled
         assert mine.event is not None
@@ -313,7 +330,7 @@ def test_agent_session_abort_cancels_pending_main_thread_work():
     finally:
         while True:
             try:
-                default_executor._work_queue.get_nowait()
+                main._work_queue.get_nowait()
             except queue_mod.Empty:
                 break
 
@@ -321,8 +338,8 @@ def test_agent_session_abort_cancels_pending_main_thread_work():
 def test_cancel_clears_bound_executor_not_unrelated():
     from plugin.framework.queue_executor import _WorkItem
 
-    bound = QueueExecutor()
-    other = QueueExecutor()
+    bound = MainThread()
+    other = MainThread()
 
     scope = SendCancellation()
     bound_item = _WorkItem(lambda: None, (), {}, blocking=True, scope=scope)
@@ -349,7 +366,7 @@ def test_smol_executor_aborts_before_next_step_when_cancelled():
 
     scope = SendCancellation()
     ctx = MagicMock()
-    ctx.stop_checker = scope.is_cancelled
+    ctx.send_cancellation = scope
     agent = MagicMock()
     step1 = MagicMock()
     step1.__class__.__name__ = "ActionStep"
@@ -382,7 +399,7 @@ def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
     from plugin.contrib.smolagents.memory import ToolCall
 
     ctx = MagicMock()
-    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
     agent = MagicMock()
     tool_step = ToolCall(name="test_tool", arguments={}, id="call_1")
 
@@ -404,43 +421,14 @@ def test_smol_executor_early_handler_return_interrupts_and_closes_generator():
     assert generator_closed is True
 
 
-def test_stop_checker_stays_true_after_panel_clears_scope_reference():
-    from plugin.framework.send_cancellation import bind_send_stop_checker
-
+def test_register_client_requires_stop_method():
     scope = SendCancellation()
-    stop_checker = bind_send_stop_checker(scope, lambda: False)
-    scope.cancel()
-    assert stop_checker() is True
 
+    class _NoStop:
+        pass
 
-def test_bound_checker_ignores_a_replaced_scope_attribute():
-    from plugin.framework.send_cancellation import bind_send_stop_checker, capture_send_stop
-
-    class Host:
-        def __init__(self, scope):
-            self._send_cancellation = scope
-
-        def resolve_stop_checker(self):
-            return bind_send_stop_checker(self._send_cancellation, lambda: False)
-
-    old = SendCancellation()
-    host = Host(old)
-    scope, checker = capture_send_stop(host)
-    assert scope is old
-    old.cancel()
-    new = SendCancellation()
-    host._send_cancellation = new
-    assert checker() is True
-    assert bind_send_stop_checker(new, lambda: False)() is False
-
-
-def test_bind_send_stop_checker_ors_fallback_before_scope_cancel():
-    from plugin.framework.send_cancellation import bind_send_stop_checker
-
-    scope = SendCancellation()
-    checker = bind_send_stop_checker(scope, lambda: True)
-    assert not scope.is_cancelled()
-    assert checker() is True
+    with pytest.raises(AttributeError):
+        scope.register_client(_NoStop())  # type: ignore[arg-type]
 
 
 def test_agent_session_reuses_existing_scope():
@@ -508,30 +496,15 @@ class TestSendCancellationHooksLocking:
         )
 
 
-def test_send_stopped_predicates():
-    """send_stopped checks scope cancellation, stop_checker, and client stopped flag."""
+def test_is_cancelled_predicate():
+    """is_cancelled checks scope is not None and scope.is_cancelled()."""
+    assert is_cancelled(None) is False
     scope = SendCancellation()
-    client = MagicMock()
-    client._stopped = False
-
-    # Initially not stopped
-    assert send_stopped(scope, lambda: False, client) is False
-
-    # Cancelled scope latches True
+    assert is_cancelled(scope) is False
     scope.cancel()
-    assert send_stopped(scope, lambda: False, client) is True
-
-    # Active stop_checker returns True even if scope is uncancelled or None
-    fresh_scope = SendCancellation()
-    assert send_stopped(fresh_scope, lambda: True, client) is True
-    assert send_stopped(None, lambda: True, client) is True
-
-    # Client _stopped flag latches True
-    client._stopped = True
-    assert send_stopped(fresh_scope, lambda: False, client) is True
+    assert is_cancelled(scope) is True
 
 
-def test_send_cancellation_imports_before_queue_executor():
     import subprocess
     import sys
 
@@ -541,4 +514,41 @@ def test_send_cancellation_imports_before_queue_executor():
         "assert sc._SCOPE_UNSET is qe._SCOPE_UNSET\n"
     )
     subprocess.run([sys.executable, "-c", code], check=True, timeout=60)
+
+
+def test_claim_cancel_sets_flag_before_hooks():
+    scope = SendCancellation()
+    hook1_calls: list[int] = []
+    hook2_calls: list[int] = []
+
+    def hook1():
+        hook1_calls.append(1)
+
+    def hook2():
+        hook2_calls.append(1)
+
+    scope.register_on_cancel(hook1)
+    run_cancel = scope.claim_cancel()
+    assert run_cancel is not None
+    assert scope.is_cancelled() is True
+    assert hook1_calls == []
+
+    # The closure runs it once
+    run_cancel()
+    assert hook1_calls == [1]
+
+    # cancel() does not run it again
+    scope.cancel()
+    assert hook1_calls == [1]
+
+    # register_on_cancel of that same hook does not run it again
+    scope.register_on_cancel(hook1)
+    assert hook1_calls == [1]
+
+    # A different hook registered after claim runs once immediately and the closure does not run it a second time
+    scope.register_on_cancel(hook2)
+    assert hook2_calls == [1]
+    run_cancel()
+    assert hook2_calls == [1]
+
 

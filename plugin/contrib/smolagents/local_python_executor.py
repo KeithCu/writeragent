@@ -36,7 +36,7 @@ import time
 import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from contextvars import ContextVar
 from dataclasses import dataclass
@@ -85,6 +85,9 @@ _WRAPPED_TOOLS_KEY = object()
 
 # Set when thread-pool fallback timeout expires so the worker process exits after writing the response.
 abandoned_timeout: bool = False
+_pending_timeout_future: Future[Any] | None = None
+_pending_timeout_grace_sec: float = 0.0
+_pending_timeout_executor: ThreadPoolExecutor | None = None
 
 
 class _Ops:
@@ -518,6 +521,90 @@ _DANGEROUS_CALLABLE_MODULES = (
 _DANGEROUS_BUILTIN_FUNCTIONS = frozenset({"compile", "eval", "exec", "globals", "locals", "__import__"})
 _DANGEROUS_SYS_FUNCTIONS = frozenset({"_getframe", "_current_frames", "settrace", "setprofile"})
 _PROCESS_CALLABLE_NAMES = frozenset({"create_subprocess_exec", "create_subprocess_shell", "ProcessPoolExecutor"})
+# os.path.* metadata probes (no file content); allowed without the files sandbox flag.
+_PATH_METADATA_MODULE_ROOTS = frozenset({"genericpath", "ntpath", "posixpath"})
+_PATH_METADATA_FUNCTION_NAMES = frozenset(
+    {"exists", "isfile", "isdir", "islink", "lexists", "commonpath"}
+)
+_OS_PATH_METADATA_IDS: frozenset[int] | None = None
+
+
+def _get_os_path_metadata_ids() -> frozenset[int]:
+    """``os.path.*`` metadata callables by object identity (Windows binds ``nt._path_*``)."""
+    global _OS_PATH_METADATA_IDS
+    if _OS_PATH_METADATA_IDS is None:
+        import os.path as _osp
+
+        ids: set[int] = set()
+        for name in _PATH_METADATA_FUNCTION_NAMES:
+            fn = getattr(_osp, name, None)
+            if callable(fn):
+                ids.add(id(fn))
+        _OS_PATH_METADATA_IDS = frozenset(ids)
+    return _OS_PATH_METADATA_IDS
+
+
+def _is_path_metadata_callable(module_root: str, fn_name: str) -> bool:
+    if module_root not in _PATH_METADATA_MODULE_ROOTS:
+        return False
+    if fn_name in _PATH_METADATA_FUNCTION_NAMES:
+        return True
+    # Windows CPython exposes ntpath helpers as _path_exists, _path_isfile, ...
+    if fn_name.startswith("_path_"):
+        return fn_name[len("_path_") :] in _PATH_METADATA_FUNCTION_NAMES
+    return False
+
+
+def discard_thread_pool_timeout() -> None:
+    """Drop a deferred thread-pool timeout without waiting (pytest / host cleanup).
+
+    Windows xdist: after ``@timeout`` thread-pool fallback the worker thread can
+    outlive the test; ``shutdown(wait=False)`` alone left gw* wedged ~300s with
+    no traceback (CI 41744668351). Cancel the future and clear ``abandoned_timeout``
+    so the next test does not inherit a stray pool or harness exit flag.
+    """
+    global abandoned_timeout, _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
+    future = _pending_timeout_future
+    pool = _pending_timeout_executor
+    _pending_timeout_future = None
+    _pending_timeout_grace_sec = 0.0
+    _pending_timeout_executor = None
+    abandoned_timeout = False
+    if future is not None:
+        future.cancel()
+        try:
+            future.result(timeout=0)
+        except Exception:
+            pass
+    if pool is not None:
+        pool.shutdown(wait=False, cancel_futures=True)
+
+
+def finalize_thread_pool_timeout() -> None:
+    """After a thread-pool timeout, wait briefly for the worker thread to finish.
+
+    Soft timeouts (e.g. ``time.sleep`` still running) must not set ``abandoned_timeout``
+    so the venv worker keeps shared sessions. Stuck C calls get ``abandoned_timeout``
+    after the grace wait so ``worker_harness`` can ``os._exit``.
+    """
+    global abandoned_timeout, _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
+    future = _pending_timeout_future
+    grace = _pending_timeout_grace_sec
+    pool = _pending_timeout_executor
+    _pending_timeout_future = None
+    _pending_timeout_grace_sec = 0.0
+    _pending_timeout_executor = None
+    if future is None:
+        return
+    try:
+        try:
+            future.result(timeout=grace)
+        except FuturesTimeoutError:
+            abandoned_timeout = True
+    finally:
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
+
 
 SANDBOX_POLICY_CONTEXT: ContextVar[tuple[frozenset[str], frozenset[int]]] = ContextVar(
     "sandbox_policy_context", default=(frozenset(), frozenset())
@@ -555,6 +642,10 @@ def _check_dangerous_value(val: Any, authorized_imports: list[str] | None = None
             except (ImportError, ModuleNotFoundError):
                 pass
             allowed_file_ids = file_os_ids or _get_default_file_os_ids()
+            if id(val) in _get_os_path_metadata_ids():
+                return
+            if _is_path_metadata_callable(root, fn_name):
+                return
             if root in _DANGEROUS_CALLABLE_MODULES:
                 # os file functions are posix callables, hence the id set.
                 if root not in relaxed_roots and id(val) not in allowed_file_ids and root not in extras_roots:
@@ -665,10 +756,7 @@ def safer_func(
     return _check_return
 
 
-# Control-flow signals (break/continue/return) and timeout previously subclassed
-# Exception, causing user `except Exception` blocks in the sandbox to swallow
-# returns, breaks, continues, and SIGALRM timeout errors.
-# Subclassing BaseException ensures these signals bypass `except Exception` clauses.
+# Control-flow signals and timeout subclass BaseException so user `except Exception` cannot swallow them.
 class InterpreterSignal(BaseException):
     """Base class for AST control flow signals (break, continue, return)."""
 
@@ -731,10 +819,7 @@ def timeout(timeout_seconds: Any):
                     if 0 < previous_alarm < timeout_seconds:
                         signal.alarm(previous_alarm)
                 except BaseException:
-                    # Bugfix: what was wrong: if alarm arming failed, old_handler was never
-                    # restored because the outer except only caught (ValueError, AttributeError).
-                    # How it happened: signal.alarm could raise or an outer alarm fired before try/finally.
-                    # Why this change fixes it: restores old_handler and cancels alarm on any failure.
+                    # Restore SIGALRM handler and cancel alarm on any arming failure, not only ValueError/AttributeError.
                     signal.signal(signal.SIGALRM, old_handler)
                     signal.alarm(0)
                     raise
@@ -745,16 +830,26 @@ def timeout(timeout_seconds: Any):
                 # runs until it returns; host IPC kill remains the stop for a hung worker.
                 executor = ThreadPoolExecutor(max_workers=1)
                 future = executor.submit(func, *args, **kwargs)
+                timed_out = False
                 try:
                     return future.result(timeout=timeout_seconds)
                 except FuturesTimeoutError:
-                    global abandoned_timeout
-                    abandoned_timeout = True
+                    timed_out = True
+                    global _pending_timeout_executor, _pending_timeout_future, _pending_timeout_grace_sec
+                    # Raise immediately on thread-pool timeout; finalize_thread_pool_timeout() drains later.
+                    _pending_timeout_future = future
+                    # Grace must exceed the typical overrun of a soft timeout (e.g.
+                    # time.sleep slightly above the budget on Windows). A grace of
+                    # exactly timeout_seconds races the timer and sets abandoned_timeout,
+                    # which makes worker_harness os._exit and drops shared sessions.
+                    _pending_timeout_grace_sec = float(timeout_seconds) + 2.0
+                    _pending_timeout_executor = executor
                     raise ExecutionTimeoutError(
                         f"Code execution exceeded the maximum execution time of {timeout_seconds} seconds"
                     )
                 finally:
-                    executor.shutdown(wait=False, cancel_futures=True)
+                    if not timed_out:
+                        executor.shutdown(wait=False, cancel_futures=True)
 
             try:
                 return func(*args, **kwargs)
@@ -1603,15 +1698,7 @@ def evaluate_name(
     elif name.id in ERRORS:
         return ERRORS[name.id]
     hint = _close_match_hint(name.id, list(state.keys()), label="variables")
-    # What was wrong: a missing name raised InterpreterError, a ValueError.
-    # How: evaluate_try matches handlers with isinstance. The stateful benchmark
-    # does `except NameError` around `counter += 1`. InterpreterError is not a
-    # NameError, so the handler never ran, counter was never stored, and every
-    # later cell on that shared kernel failed the same way. Subscript
-    # KeyError/IndexError were unwrapped for this reason in 7560ccae9.
-    # Why: CPython raises NameError, so the handler runs and the assignment
-    # sticks. An uncaught NameError is still wrapped as InterpreterError by
-    # evaluate_python_code, so a bare missing name stays an executor error.
+    # Missing names raise NameError so user `except NameError` works; uncaught names still become InterpreterError upstream.
     raise NameError(f"name '{name.id}' is not defined{hint}")
 
 
@@ -2120,11 +2207,7 @@ def get_safe_module(raw_module: Any, authorized_imports: list[str] | None = None
 
     if name in ("operator", "string"):
         # Tip: cache one wrapper per (module, policy) to avoid cross-session leaks and unbounded growth.
-        # Bugfix: what was wrong: _authorized_imports was stored on the shared wrapper instance and mutated
-        # on cache hits, causing attrgetter in earlier sessions to see later session imports.
-        # How it happened: _SAFE_MODULE_CACHE was keyed only by id(raw_module) and overwritten.
-        # Why this change fixes it: wrappers are keyed by (id(raw_module), tuple(authorized_imports))
-        # and bind imports locally in __init__.
+        # Cache safe module wrappers by (module id, authorized_imports tuple)—shared wrappers must not mutate policy.
         cache_key = (id(raw_module), tuple(authorized_imports or ()))
         wrapper = _SAFE_MODULE_CACHE.get(cache_key)
         if wrapper is None:
@@ -2148,7 +2231,7 @@ def evaluate_import(
     if isinstance(expression, ast.Import):
         for alias in expression.names:
             if not check_import_authorized(alias.name, authorized_imports):
-                # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
+                # Short import denial message—do not echo authorized_imports (leaks duckdb paths).
                 raise InterpreterError(f"Import of {alias.name} is not allowed.")
             raw_leaf = import_module(alias.name)
             if alias.asname:
@@ -2212,7 +2295,7 @@ def evaluate_import(
                     _check_dangerous_value(val, authorized_imports)
                     state[target_name] = val
         else:
-            # Bugfix: keep import-failure messages short; dumping authorized_imports exposes duckdb.
+            # Short import denial message—do not echo authorized_imports (leaks duckdb paths).
             raise InterpreterError(f"Import from {expression.module} is not allowed.")
         return None
 
@@ -2599,23 +2682,12 @@ def evaluate_python_code(
                     sig_name = type(e).__name__.replace("Exception", "").lower()
                 raise InterpreterError(f"'{sig_name}' outside function")
             except Exception as e:
-                from plugin.framework.errors import is_disposed_exception
+                from plugin.framework.errors import is_disposal
 
-                # lp() used to catch DisposedException, wrap it as CALC_READ_ERROR,
-                # and this handler then wrapped that as InterpreterError, so a closed
-                # document became PYTHON_EXECUTION_ERROR. Re-raising here lets
-                # execute_with_return see the disposal.
-                if is_disposed_exception(e):
+                # Document disposal must propagate, not become PYTHON_EXECUTION_ERROR.
+                if is_disposal(e):
                     raise
-                # Bugfix: What was wrong: evaluate_name was changed to raise NameError so
-                # scripts could catch missing names via `except NameError`. However, uncaught
-                # NameErrors were formatted with `due to: NameError:`, which Calc add-in worker
-                # exception classification mapped to #NAME? (525) instead of the historical
-                # executor failure #VALUE! (519).
-                # How it happened: evaluate_python_code interpolated type(e).__name__.
-                # Why this change fixes it: formatting uncaught NameError with `due to: InterpreterError:`
-                # preserves the pre-NameError worker failure formatting and Calc #VALUE! (519) error
-                # while allowing `except NameError` inside user scripts.
+                # Uncaught NameError is labeled InterpreterError in the message so Calc maps #VALUE! not #NAME?.
                 exc_type_name = "InterpreterError" if isinstance(e, NameError) else type(e).__name__
                 raise InterpreterError(
                     f"Code execution failed at line '{ast.get_source_segment(code, node)}' due to: {exc_type_name}: {e}"
@@ -2629,7 +2701,11 @@ def evaluate_python_code(
     if timeout_seconds is not None:
         _execute_code = timeout(timeout_seconds)(_execute_code)
 
-    return _execute_code()
+    try:
+        return _execute_code()
+    except ExecutionTimeoutError:
+        finalize_thread_pool_timeout()
+        raise
 
 
 @dataclass

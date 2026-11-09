@@ -29,40 +29,21 @@ from typing import Any, NamedTuple
 
 log = logging.getLogger("writeragent.grammar")
 
+from plugin.writer.locale import grammar_settings
 from .grammar_proofread_locale import (
     GRAMMAR_CACHE_MAX_CHARS,
     GRAMMAR_CACHE_VERSION,
     GRAMMAR_DOC_CACHE_UDPROP,
+    normalize_for_sentence_cache,
 )
 
 # v2 blobs with LLM-style errors have no model id. First `llm:…` identity to
-# touch the document adopts the rows (young-codebase hack; avoids a full recheck).
+# touch the document adopts the rows (avoids a full recheck on older documents).
 _V2_LLM_PENDING = "llm"
 
 # v2/v3 rows have no CharLocale. Empty cannot collide with a BCP-47 tag.
 # The first locale-specific read adopts the row; other locales miss.
 _LEGACY_LOCALE = ""
-
-
-def grammar_checker_identity() -> str:
-    """Stable cache/file identity for the active grammar checker.
-
-    Local engines use a sentinel (``harper`` / ``languagetool`` / ``vale``).
-    LLM uses ``llm:`` plus the resolved model from ``get_grammar_model()``.
-    """
-    from plugin.writer.locale.grammar_worker import get_grammar_provider
-
-    provider = get_grammar_provider()
-    if provider in ("harper", "languagetool", "vale"):
-        return provider
-    if provider == "off":
-        return "off"
-    try:
-        from plugin.framework.client.model_fetcher import get_grammar_model
-
-        return f"llm:{get_grammar_model() or ''}"
-    except (ImportError, ModuleNotFoundError):
-        return "llm:unknown"
 
 
 # Storage key mapping for error objects to reduce JSON footprint.
@@ -102,7 +83,6 @@ _SNIFF_PREFIXES: tuple[tuple[str, str], ...] = (
     ("languagetool||", "languagetool"),
     ("vale||", "vale"),
 )
-
 
 
 from plugin.framework.uno_listeners import BaseDocumentEventListener
@@ -207,9 +187,7 @@ class GrammarRegistry:
             dp._teardown()
 
     def get_cached_language(self, text: str) -> str | None:
-        from .grammar_proofread_cache import _normalize_for_sentence_cache
-
-        norm = _normalize_for_sentence_cache(text)
+        norm = normalize_for_sentence_cache(text)
         with self.lock:
             if norm in self.lang_detect_cache:
                 self.lang_detect_cache.move_to_end(norm)
@@ -217,18 +195,13 @@ class GrammarRegistry:
         return None
 
     def put_cached_language(self, text: str, lang: str) -> None:
-        from .grammar_proofread_cache import _normalize_for_sentence_cache
-
-        norm = _normalize_for_sentence_cache(text)
+        norm = normalize_for_sentence_cache(text)
         with self.lock:
             self.lang_detect_cache[norm] = lang
             if len(self.lang_detect_cache) > 1000:
                 self.lang_detect_cache.popitem(last=False)
 
 grammar_registry = GrammarRegistry()
-
-
-
 
 
 def get_document_model_for_id(doc_id: str) -> Any | None:
@@ -406,7 +379,7 @@ class DocumentPersistence:
             if type(version) is not int:
                 self._reject_unknown_cache(version)
                 return
-            current = grammar_checker_identity()
+            current = grammar_settings.checker_identity()
             load_entries = False
             blob_identity: str | None = None
 
@@ -536,7 +509,7 @@ class DocumentPersistence:
             return previous
 
     def _persist_to_udprops(self) -> None:
-        # Note (Backlog P22): _persist_to_udprops only serializes _session_accessed keys.
+        # _persist_to_udprops only serializes _session_accessed keys.
         # LibreOffice calls proofreading for the entire document on open, which populates
         # _session_accessed for active sentences and naturally trims old/deleted sentences
         # from the persisted user-defined property payload.
@@ -545,7 +518,7 @@ class DocumentPersistence:
         try:
             # Resolve the checker identity before taking _lock: it imports
             # model_fetcher and reads config.
-            current = grammar_checker_identity()
+            current = grammar_settings.checker_identity()
             with self._lock:
                 # Capture the model once; _teardown can clear it mid-save and
                 # set_document_property(None, ...) would raise.
@@ -647,9 +620,9 @@ class DocumentPersistence:
     ) -> list[dict[str, Any]] | None:
         """Return errors for ``fp`` under ``locale``.
 
-        L1 keys are ``sent|locale|identity|fp``. L2 used to key on ``fp`` only,
-        so the same sentence under two CharLocales reused the other locale's
-        errors or a good (empty) row. Pass ``locale`` for a real lookup.
+        L1 keys are ``sent|locale|identity|fp`` so the same sentence under different
+        CharLocales does not share another locale's cached diagnostics. Pass
+        ``locale`` for a real lookup.
 
         A single legacy v2/v3 bucket is adopted to ``locale`` when
         ``adopt_legacy`` is true (proofreading). Probes pass false so a

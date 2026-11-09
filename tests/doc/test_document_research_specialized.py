@@ -20,11 +20,18 @@ from plugin.doc.document_research_specialized import (
 from plugin.doc.specialized_base import DelegateToSpecializedBase
 from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
-from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
+from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, SpecializedWorkflowFinished
 from plugin.embeddings.document_research_fts_tool import SearchNearbyFiles
 from plugin.doc.document_research_grep_tool import GrepNearbyFiles
 from plugin.doc.document_research_tools import ListNearbyFiles
+
+
+@pytest.fixture(autouse=True)
+def _register_prompt_hooks_for_document_research_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
 
 
 class _MutatingTool(ToolBase):
@@ -146,8 +153,8 @@ def test_read_only_target_blocks_mutation_in_registry():
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -158,7 +165,7 @@ def test_document_research_outer_delegation_gets_document_research_tools(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
@@ -193,8 +200,8 @@ def test_document_research_outer_delegation_gets_document_research_tools(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -205,7 +212,7 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 
@@ -253,8 +260,8 @@ def test_document_research_outer_delegation_gets_peer_send_when_peers_open(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -267,7 +274,7 @@ def test_document_research_chat_append_on_delegate_read_document(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     captured: list[str] = []
 
@@ -330,8 +337,8 @@ def _run_registered_peer_tool(mock_agent_class, tool_name: str, result: dict) ->
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -344,11 +351,11 @@ def test_document_research_return_idles_outer_after_peer_send(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     """Host appends idle-after-send when an inner peer send was accepted."""
     from plugin.doc.peer_message import SendPeerWork
-    from plugin.framework.prompts import PEER_OUTER_IDLE_AFTER_SEND
+    from plugin.doc.peer_prompt import PEER_OUTER_IDLE_AFTER_SEND
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
         # A bare ToolCall is not delivery. The adapter must see accepted=true.
@@ -398,8 +405,8 @@ def test_document_research_return_idles_outer_after_peer_send(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -414,11 +421,11 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     """Nested ranges finish on a Peer-work turn must not look like peer delivery."""
     from plugin.calc.cells import SortRange
-    from plugin.framework.prompts import PEER_OUTER_DELIVERY_STILL_REQUIRED
+    from plugin.doc.peer_prompt import PEER_OUTER_DELIVERY_STILL_REQUIRED
 
     mock_executor_cls.return_value.execute_safe.return_value = {
         "status": "ok",
@@ -449,8 +456,8 @@ def test_ranges_return_stamps_delivery_pending_on_peer_work_turn(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -465,11 +472,11 @@ def test_document_research_send_peer_result_skips_delivery_pending(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     """Accepted send_peer_result on a Peer-work turn keeps idle-after-send, not delivery-pending."""
     from plugin.doc.peer_message import SendPeerResult
-    from plugin.framework.prompts import (
+    from plugin.doc.peer_prompt import (
         PEER_OUTER_DELIVERY_STILL_REQUIRED,
         PEER_OUTER_IDLE_AFTER_SEND,
     )
@@ -534,8 +541,8 @@ _PEER_SEND_FAILURE_CODES = (
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -550,7 +557,7 @@ def test_document_research_failed_send_peer_result_does_not_stamp_idle(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     """A failed send_peer_result is not delivery and must not idle-after-send.
 
@@ -558,7 +565,7 @@ def test_document_research_failed_send_peer_result_does_not_stamp_idle(
     so the inner agent can retry or surface the error.
     """
     from plugin.doc.peer_message import SendPeerResult
-    from plugin.framework.prompts import (
+    from plugin.doc.peer_prompt import (
         PEER_OUTER_DELIVERY_STILL_REQUIRED,
         PEER_OUTER_IDLE_AFTER_SEND,
     )
@@ -660,7 +667,6 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
         MagicMock(),
         "calc",
         {"tools": r},
-        stop_checker=lambda: False,
         active_domain=active_domain_sentinel,
         active_page_index=active_page_sentinel,
         approval_callback=approval_cb,
@@ -697,7 +703,7 @@ def test_run_inner_read_agent_uses_allowlist(mock_executor_cls, mock_build_agent
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_does_not_use_delegate_gateway(
     mock_main,
     mock_resolve,
@@ -729,7 +735,7 @@ def test_delegate_read_document_does_not_use_delegate_gateway(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_closes_after_inner_error(
     mock_main,
     mock_resolve,
@@ -757,7 +763,7 @@ def test_delegate_read_document_closes_after_inner_error(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_skips_close_when_reusing_open_doc(
     mock_main,
     mock_resolve,
@@ -784,7 +790,7 @@ def test_delegate_read_document_skips_close_when_reusing_open_doc(
 @patch("plugin.doc.document_research_specialized.run_inner_read_agent", return_value={"status": "ok", "result": "42"})
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_opens_file_url_from_listing(
     mock_main,
     mock_open,
@@ -822,7 +828,7 @@ def test_delegate_read_document_opens_file_url_from_listing(
 
 def test_get_open_documents():
     from plugin.doc.document_research import get_open_documents
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
 
     mock_ctx = MagicMock()
     mock_desktop = MagicMock()
@@ -841,7 +847,7 @@ def test_get_open_documents():
         assert docs[0]["doc_type"] == "calc"
 
 
-@patch("plugin.chatbot.smol_agent.get_config_int", side_effect=_mock_get_config_int_for_sub_agent)
+@patch("plugin.chatbot.smol_agent.get_config", side_effect=_mock_get_config_for_sub_agent)
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
@@ -851,7 +857,7 @@ def test_document_research_delegation_includes_open_documents_context(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     r = ToolRegistry(services={})
     r.register(ListNearbyFiles())
@@ -896,7 +902,7 @@ def test_document_research_delegation_includes_open_documents_context(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_unwraps_finish_answer(
     mock_main,
     mock_resolve,
@@ -934,7 +940,7 @@ def test_delegate_read_document_unwraps_finish_answer(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_passes_through_result(
     mock_main,
     mock_resolve,
@@ -966,7 +972,7 @@ def test_delegate_read_document_passes_through_result(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_length_truncated_read_is_incomplete(
     mock_main,
     mock_resolve,
@@ -1004,7 +1010,7 @@ def test_delegate_read_document_length_truncated_read_is_incomplete(
 
     with (
         patch("plugin.chatbot.smol_agent.create_smol_model", return_value=WriterAgentSmolModel(client, max_tokens=256)),
-        patch("plugin.chatbot.smol_agent.get_config_int", return_value=5),
+        patch("plugin.chatbot.smol_agent.get_config", return_value=5),
     ):
         result = r.get("delegate_read_document").execute_safe(ctx, path_or_name="Budget.ods", task="Q4")
 
@@ -1021,7 +1027,7 @@ def test_delegate_read_document_length_truncated_read_is_incomplete(
 @patch("plugin.doc.document_research_specialized.close_document_research_document")
 @patch("plugin.doc.document_research_specialized.open_document_for_read")
 @patch("plugin.doc.document_research_specialized.resolve_path_or_name")
-@patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn, *a, **k: fn())
+@patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn, *a, **k: fn())
 def test_delegate_read_document_no_answer_is_error(
     mock_main,
     mock_resolve,
@@ -1060,7 +1066,7 @@ def test_delegate_read_document_resolves_before_the_main_thread_open(
 ):
     order: list[str] = []
 
-    def fake_run_on_main(fn, *a, **k):
+    def fake_run_on_main(fn, *a, timeout=None, bound_scope=None, **k):
         order.append("main")
         return fn(*a, **k)
 
@@ -1075,7 +1081,10 @@ def test_delegate_read_document_resolves_before_the_main_thread_open(
     mock_resolve.side_effect = fake_resolve
     mock_open.side_effect = fake_open
 
-    with patch("plugin.doc.document_research_specialized.run_on_main", side_effect=fake_run_on_main):
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_run_on_main),
+    ):
         r = ToolRegistry(services={})
         r.register(DelegateReadDocument())
         ctx = MagicMock()
@@ -1110,8 +1119,9 @@ def test_delegate_read_document_survives_close_post_timeout(
         return fn(*a, **k)
 
     with (
-        patch("plugin.doc.document_research_specialized.run_on_main", side_effect=fake_run_on_main),
-        patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=TimeoutError("queue full")),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_run_on_main),
+        patch("plugin.framework.queue_executor.main.post", side_effect=TimeoutError("queue full")),
     ):
         r = ToolRegistry(services={})
         r.register(DelegateReadDocument())
@@ -1148,7 +1158,7 @@ def test_allowlist_tools_are_registered(doc_type):
     r.register(GetDrawTree())
     r.register(SpecializedWorkflowFinished())
 
-    got = {t.name for t in r.get_tools(doc_type=doc_type, names=list(READ_TOOLS_BY_DOC_TYPE[doc_type]), exclude_tiers=())}
+    got = {t.name for t in r.get_tools(doc_type=doc_type, names=frozenset(READ_TOOLS_BY_DOC_TYPE[doc_type]), exclude_tiers=())}
     assert got == set(READ_TOOLS_BY_DOC_TYPE[doc_type])
 
 

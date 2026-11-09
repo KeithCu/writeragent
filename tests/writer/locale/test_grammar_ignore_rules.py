@@ -15,6 +15,7 @@ from plugin.framework.grammar_rule_ids import (
     parse_prefixed_rule_identifier,
 )
 from plugin.writer.locale.grammar_ignore_rules import (
+    IgnoreSet,
     WA_G_RULE_PREFIX,
     canonical_rule_key,
     collect_ignored_reasons,
@@ -307,7 +308,7 @@ def test_cached_errors_to_uno_tuple_filters_stable_after_reload(prefix: str, ign
     u16_map = Utf16OffsetMap("This was done by him. This is a apple.")
     with (
         patch("plugin.writer.locale.grammar_persistence.get_persistence", return_value=dp),
-        patch("plugin.writer.locale.grammar_proofread_cache.ignored_rules_snapshot", return_value=set()),
+        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value=set()),
     ):
         res = _cached_errors_to_uno_tuple(cached, ctx, doc_id, u16_map)
 
@@ -353,5 +354,18 @@ def test_rule_prefixes_come_from_framework_leaf() -> None:
     import plugin.writer.locale.grammar_ignore_rules as gir
 
     assert ids.WA_G_RULE_PREFIX is gir.WA_G_RULE_PREFIX
+
+
+def test_ignore_set_for_document_and_allows() -> None:
+    ctx = MagicMock()
+    with (
+        patch("plugin.writer.locale.grammar_ignore_rules.doc_ignored_rules", return_value={"avoid passive voice"}),
+        patch("plugin.writer.locale.grammar_ignore_rules.ignored_rules_snapshot", return_value={"global-rule"}),
+    ):
+        iset = IgnoreSet.for_document(ctx, "doc1")
+        assert not iset.allows(f"{WA_G_RULE_PREFIX}Avoid passive voice.")
+        assert not iset.allows("global-rule")
+        assert iset.allows("unrelated-rule")
+
 
 

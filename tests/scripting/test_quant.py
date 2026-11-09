@@ -16,8 +16,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.scripting.helper_domain import header_prefix
+from plugin.scripting.helper_registry import names
 from plugin.scripting.quant import (
-    HELPER_NAMES,
     get_quant_template,
 )
 from plugin.scripting.venv.quant import run_quant as venv_run_quant
@@ -55,9 +55,9 @@ def test_run_quant_invalid_params(monkeypatch):
     assert result["status"] == "error"
     assert result["code"] == "INVALID_PARAMS"
     assert result["helper"] == "fetch_historical_data"
-    from plugin.calc.quant_egress import is_quant_result
+    from plugin.scripting.domain_registry import get_domain_wiring
 
-    assert is_quant_result(result) is True
+    assert get_domain_wiring("quant").is_result(result) is True
 
 
 def test_fetch_historical_data_calc_range(monkeypatch):
@@ -78,7 +78,7 @@ def test_fetch_historical_data_calc_range(monkeypatch):
 
 
 def test_helper_names_cover_templates():
-    for helper in HELPER_NAMES:
+    for helper in names("quant"):
         assert get_quant_template(helper) is not None
 
 
@@ -150,9 +150,9 @@ def test_technical_analysis_missing_column_sets_helper(monkeypatch):
     assert result["status"] == "error"
     assert result["code"] == "MISSING_COLUMN"
     assert result["helper"] == "technical_analysis"
-    from plugin.calc.quant_egress import is_quant_result
+    from plugin.scripting.domain_registry import get_domain_wiring
 
-    assert is_quant_result(result) is True
+    assert get_domain_wiring("quant").is_result(result) is True
 
 
 def test_efficient_frontier_treats_grid_as_returns():
@@ -179,8 +179,9 @@ def test_efficient_frontier_treats_grid_as_returns():
 
 
 def test_is_quant_result_uses_helper_names_not_fetch_prefix():
-    from plugin.calc.quant_egress import is_quant_result
+    from plugin.scripting.domain_registry import get_domain_wiring
 
+    is_quant_result = get_domain_wiring("quant").is_result
     assert is_quant_result({"status": "ok", "helper": "fetch_historical_data"}) is True
     assert is_quant_result({"status": "ok", "helper": "fetch_not_a_helper"}) is False
     assert is_quant_result({"status": "error", "code": "QUANT_ERROR"}) is False

@@ -28,24 +28,24 @@ def test_libreharper_preserves_supported_english_dialects() -> None:
 
 def test_grammar_work_queue_has_no_top_level_framework_client_package_import() -> None:
     """Harper OXT must not pull LLM/embeddings via ``from plugin.framework.client import …``."""
-    path = os.path.join(_repo_root(), "plugin", "writer", "locale", "grammar_work_queue.py")
-    with open(path, encoding="utf-8") as f:
-        module = ast.parse(f.read(), filename=path)
-    top_level = [
-        node.module
-        for node in module.body
-        if isinstance(node, ast.ImportFrom) and node.module is not None
-    ]
-    assert "plugin.framework.client" not in top_level
-    assert "plugin.framework.client.request_controls" not in top_level
-    assert "plugin.framework.client.llm_client" not in top_level
-    assert "plugin.framework.client.model_fetcher" not in top_level
+    for filename in ("grammar_work_queue.py", "grammar_settings.py"):
+        path = os.path.join(_repo_root(), "plugin", "writer", "locale", filename)
+        with open(path, encoding="utf-8") as f:
+            module = ast.parse(f.read(), filename=path)
+        top_level = [
+            node.module
+            for node in module.body
+            if isinstance(node, ast.ImportFrom) and node.module is not None
+        ]
+        assert "plugin.framework.client" not in top_level
+        assert "plugin.framework.client.request_controls" not in top_level
+        assert "plugin.framework.client.llm_client" not in top_level
+        assert "plugin.framework.client.model_fetcher" not in top_level
 
 
 def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
     from unittest.mock import patch
-    from plugin.writer.locale.grammar_persistence import grammar_checker_identity
-    from plugin.writer.locale.grammar_worker import get_grammar_provider, is_grammar_enabled
+    from plugin.writer.locale.grammar_settings import checker_identity, is_grammar_enabled, provider
     from plugin.framework.constants import EXTENSION_ID_LIBREHARPER
     from plugin.framework.uno_context import reset_package_extension_id_for_tests, set_package_extension_id
 
@@ -53,13 +53,13 @@ def test_libreharper_config_always_uses_harper_and_ignores_json() -> None:
         set_package_extension_id(EXTENSION_ID_LIBREHARPER)
         with patch("plugin.framework.config.get_config", return_value="off"):
             assert is_grammar_enabled() is True
-            assert get_grammar_provider() == "harper"
-            assert grammar_checker_identity() == "harper"
+            assert provider() == "harper"
+            assert checker_identity() == "harper"
 
         with patch("plugin.framework.config.get_config", return_value="llm"):
             assert is_grammar_enabled() is True
-            assert get_grammar_provider() == "harper"
-            assert grammar_checker_identity() == "harper"
+            assert provider() == "harper"
+            assert checker_identity() == "harper"
     finally:
         reset_package_extension_id_for_tests()
 
@@ -80,21 +80,22 @@ def test_harper_proofreader_identity_and_locale_check() -> None:
             patch("plugin.writer.locale.harper.maybe_start_harper_async"),
         ):
             proofreader = HarperProofreader(ctx)
-        assert proofreader._checker_identity == "harper"
-        assert proofreader._provider == "harper"
+        from plugin.writer.locale.grammar_settings import GrammarProfile
+
+        assert proofreader._profile == GrammarProfile("harper", "harper", True)
 
         locale_en = SimpleNamespace(Language="en", Country="US", Variant="")
-        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10) == "en-US"
+        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
 
         locale_de = SimpleNamespace(Language="de", Country="DE", Variant="")
-        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10) is None
+        assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_de, 0, 10, proofreader._resolved_profile()) is None
 
         ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED = True
         with (
-            patch("plugin.writer.locale.grammar_worker.is_grammar_enabled", return_value=False),
+            patch("plugin.writer.locale.grammar_settings.is_grammar_enabled", return_value=False),
             patch("plugin.writer.locale.ai_grammar_proofreader.grammar_obs") as mock_obs,
         ):
-            assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10) == "en-US"
+            assert proofreader._check_enabled_and_locale("doc1", "Some text.", locale_en, 0, 10, proofreader._resolved_profile()) == "en-US"
             assert ai_grammar_proofreader._GRAMMAR_DISABLED_NOTICE_EMITTED is True
             entry_calls = [c for c in mock_obs.call_args_list if c.args and c.args[0] == "do_proofreading_entry"]
             assert len(entry_calls) == 1

@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import ToolExecutionError, is_disposal
 from plugin.writer.table_helpers import (
     _set_cell_string,
     edit_table_band,
@@ -19,6 +19,9 @@ from plugin.writer.table_helpers import (
 )
 
 log = logging.getLogger("writeragent.draw")
+
+if TYPE_CHECKING:
+    from plugin.framework.tool import ToolContext
 
 _A1 = re.compile(r"^([A-Za-z]+)(\d+)$")
 
@@ -33,11 +36,8 @@ def _table_model(shape: Any) -> Any | None:
     try:
         return shape.getModel()
     except Exception as exc:
-        # Bugfix: a closed document raises DisposedException from getModel(),
-        # and this except turned that into a missing page / not-found result.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing missing-page path.
-        if is_real_disposal(exc):
+        # getModel on a closed document raises disposal. Re-raise that; other errors return None.
+        if is_disposal(exc):
             raise
         return None
 
@@ -48,14 +48,14 @@ def _cell_string(cell: Any) -> str:
         if val is not None:
             return str(val)
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
     try:
         return str(cell.getText().getString() or "")
     except Exception as exc:
         # Both reads failed. "" is an empty cell (table_get_cells), so a
         # UNO failure must not look like a blank. Disposal propagates.
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         raise ValueError("Could not read Draw table cell: %s" % exc) from exc
 
@@ -71,6 +71,37 @@ def _is_table_shape(shape: Any) -> bool:
         return bool(shape.supportsService("com.sun.star.drawing.TableShape"))
     except Exception:
         return False
+
+
+def table_cells_for_shape(shape: Any) -> list[list[str]] | None:
+    """Cell strings for a TableShape, or None when not a table or cells could not be read.
+
+    Disposal propagates; any other failure is logged at debug and returns None.
+    """
+    if not _is_table_shape(shape):
+        return None
+    model = _table_model(shape)
+    if model is None:
+        return None
+    try:
+        return get_draw_cells({"model": model})
+    except Exception as exc:
+        if is_disposal(exc):
+            raise
+        log.debug("table_cells_for_shape failed", exc_info=True)
+        return None
+
+
+def table_matrix_to_tsv(matrix: list[list[str]]) -> str | None:
+    """One TSV block (rows joined by newline) or None when every cell is blank."""
+    lines: list[str] = []
+    for row in matrix:
+        if not any(cell.strip() for cell in row):
+            continue
+        lines.append("\t".join(cell.strip() for cell in row))
+    if not lines:
+        return None
+    return "\n".join(lines)
 
 
 def _ensure_table_dims(model: Any, rows: int, columns: int) -> tuple[int, int]:
@@ -191,10 +222,8 @@ def get_draw_cells(entry: dict[str, Any]) -> list[list[str]]:
             try:
                 row.append(_cell_string(model.getCellByPosition(c, r)))
             except Exception as exc:
-                # getCellByPosition / _cell_string failures used to append "".
-                # That is the empty-cell value, so a bad read became a blank
-                # in an ok matrix. Disposal propagates; anything else is an error.
-                if is_real_disposal(exc):
+                # Read failures must not masquerade as empty cells. Disposal propagates; other errors raise.
+                if is_disposal(exc):
                     raise
                 raise ValueError("Could not read Draw table cell at row %s col %s: %s" % (r, c, exc)) from exc
         matrix.append(row)
@@ -227,28 +256,26 @@ def coerce_int(value: Any, default: int) -> int:
     return int(value)
 
 
-def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
+def insert_draw_table(ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
     """Create a TableShape on a Draw/Impress page. Returns a tool-result dict."""
     from com.sun.star.awt import Point, Size
-    from plugin.draw.bridge import resolve_shape_page
+    from plugin.draw.bridge import DrawBridge
 
     rows = cast("int", kwargs.get("rows"))
     columns = cast("int", kwargs.get("columns"))
     # Schema required + type integer already reject null and non-integers. minimum is not checked.
     if rows < 1 or columns < 1:
-        return {"status": "error", "message": "rows and columns must be at least 1.", "code": "TOOL_EXECUTION_ERROR"}
+        raise ToolExecutionError("rows and columns must be at least 1.")
 
     data = kwargs.get("data")
     if data:
         if len(data) > rows:
-            return {"status": "error", "message": "data has %d rows but table only has %d." % (len(data), rows), "code": "TOOL_EXECUTION_ERROR"}
+            raise ToolExecutionError("data has %d rows but table only has %d." % (len(data), rows))
         for r_idx, row in enumerate(data):
             if isinstance(row, (list, tuple)) and len(row) > columns:
-                return {"status": "error", "message": "data row %d has %d columns but table only has %d." % (r_idx, len(row), columns), "code": "TOOL_EXECUTION_ERROR"}
+                raise ToolExecutionError("data row %d has %d columns but table only has %d." % (r_idx, len(row), columns))
 
-    page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-    if err or page is None:
-        return {"status": "error", "message": err or "No draw page available.", "code": "TOOL_EXECUTION_ERROR"}
+    page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
     x = coerce_int(kwargs.get("x"), 3000)
     y = coerce_int(kwargs.get("y"), 4000)
@@ -287,20 +314,18 @@ def insert_draw_table(ctx: Any, **kwargs: Any) -> dict[str, Any]:
                     stage = "fill table cells"
                     written = fill_table_cells(table, data)
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         if added:
-            # page.add already inserted the shape. Returning the size/fill
-            # error used to leave that half-built table on the page.
-            # Remove it, then report the original error. A closed document
-            # is re-raised and is not rewritten as a tool error.
+            # page.add leaves a half-built table on failure; remove the shape before returning the error.
+            # Disposal re-raises unchanged.
             try:
                 page.remove(shape)
             except Exception as remove_exc:
-                if is_real_disposal(remove_exc):
+                if is_disposal(remove_exc):
                     raise
                 log.debug("Failed to remove half-built table shape: %s", remove_exc)
-        return {"status": "error", "message": f"Failed to {stage}: {exc}", "code": "TOOL_EXECUTION_ERROR"}
+        raise ToolExecutionError(f"Failed to {stage}: {exc}") from exc
 
     return {
         "status": "ok",

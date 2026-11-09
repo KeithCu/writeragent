@@ -1,3 +1,4 @@
+from plugin.framework.queue_executor import main
 # WriterAgent - AI Writing Assistant for LibreOffice
 # Copyright (c) 2024 John Balis
 # Copyright (c) 2026 KeithCu (modifications and relicensing)
@@ -21,6 +22,7 @@ import pytest
 import threading
 import time
 import types
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry, ToolBaseDummy
@@ -38,7 +40,6 @@ def test_tool_context_init():
 
     def status_cb(): pass
     def thinking_cb(): pass
-    def stop_cb(): return False
 
     tc = ToolContext(
         doc=doc,
@@ -48,7 +49,6 @@ def test_tool_context_init():
         caller=caller,
         status_callback=status_cb,
         append_thinking_callback=thinking_cb,
-        stop_checker=stop_cb
     )
 
     assert tc.doc is doc
@@ -58,14 +58,12 @@ def test_tool_context_init():
     assert tc.caller == caller
     assert tc.status_callback is status_cb
     assert tc.append_thinking_callback is thinking_cb
-    assert tc.stop_checker is stop_cb
 
 def test_tool_context_defaults():
     tc = ToolContext(doc=None, ctx=None, doc_type="calc", services=None)
     assert tc.caller == ""
     assert tc.status_callback is None
     assert tc.append_thinking_callback is None
-    assert tc.stop_checker is None
 
 
 def test_tool_context_derive():
@@ -78,7 +76,6 @@ def test_tool_context_derive():
         "active_page_index": 42,
         "status_callback": lambda s: None,
         "append_thinking_callback": lambda s: None,
-        "stop_checker": lambda: False,
         "approval_callback": lambda s: True,
         "chat_append_callback": lambda s: None,
         "set_active_domain_callback": lambda s: None,
@@ -102,7 +99,6 @@ def test_tool_context_derive():
     assert child.active_page_index == sentinels["active_page_index"]
     assert child.status_callback is sentinels["status_callback"]
     assert child.append_thinking_callback is sentinels["append_thinking_callback"]
-    assert child.stop_checker is sentinels["stop_checker"]
     assert child.approval_callback is sentinels["approval_callback"]
     assert child.chat_append_callback is sentinels["chat_append_callback"]
     assert child.set_active_domain_callback is sentinels["set_active_domain_callback"]
@@ -168,6 +164,14 @@ def test_detects_mutation():
     from plugin.writer.specialized_base import SpecializedWorkflowFinished
 
     assert SpecializedWorkflowFinished().detects_mutation() is False
+
+    from plugin.calc.search import ReplaceInSpreadsheet
+    from plugin.calc.errors import DetectErrors
+    from plugin.calc.sheet_filter import GetSheetFilter
+
+    assert ReplaceInSpreadsheet().detects_mutation() is True
+    assert DetectErrors().detects_mutation() is False
+    assert GetSheetFilter().detects_mutation() is False
 
 def test_requires_document_lock_default_matches_detects_mutation():
     tool1 = ValidTool()
@@ -293,6 +297,28 @@ def test_get_item():
     # Item found
     res = tool.get_item(doc, "getMyItems", "item1")
     assert res == "val1"
+
+def test_similar_names_caps_and_cutoff():
+    from plugin.framework.errors import similar_names
+
+    names = ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"]
+    assert similar_names("", names) == []
+    close = similar_names("Alfa", names)
+    assert "Alpha" in close
+    assert len(close) <= 5
+    assert "Zeta" not in similar_names("Alfa", ["Zeta"])
+    assert similar_names("totally_unrelated_xyz", names) == []
+
+
+def test_get_item_miss_includes_hint_and_similar():
+    tool = ValidTool()
+    doc = TestingFactory.create_doc(doc_type="writer", items={"Frame1": "v1", "Frame2": "v2"})
+
+    res = tool.get_item(doc, "getMyItems", "Fram1", list_tool="frame_list")
+    assert res["status"] == "error"
+    assert res["details"]["available"]
+    assert "frame_list" in res["details"]["hint"]
+    assert "Frame1" in res["details"]["similar"]
 
 # ── Tool Registry Tests ─────────────────────────────────────────────
 
@@ -627,42 +653,40 @@ class TestExcludeSpecializedTiers:
         assert "fake_tool" in names
         assert "spec_tool" in names
 
-class TestManageChartsSpecializedTier:
-    """manage_charts is specialized on all apps; use delegate domain=charts."""
+class TestChartToolsSpecializedTier:
+    """chart_* tools are specialized on all apps; use delegate domain=charts."""
 
-    _SKINNY_CHART_TOOLS = frozenset({"list_charts", "get_chart_info", "upsert_chart", "delete_chart"})
+    _CHART_TOOL_NAMES = frozenset({"chart_list", "chart_get_info", "chart_upsert", "chart_delete"})
 
     @pytest.fixture
     def chart_registry(self):
-        from plugin.calc.charts import ManageCharts
+        from plugin.calc.charts import ChartList, ChartGetInfo, ChartUpsert, ChartDelete
 
-        return _make_registry(ManageCharts())
+        return _make_registry(ChartList(), ChartGetInfo(), ChartUpsert(), ChartDelete())
 
     @pytest.mark.parametrize(
         "doc_type",
         [
-            pytest.param("calc", id="test_manage_charts_hidden_from_main_chat_calc"),
-            pytest.param("writer", id="test_manage_charts_hidden_from_main_chat_writer"),
+            pytest.param("calc", id="test_chart_tools_hidden_from_main_chat_calc"),
+            pytest.param("writer", id="test_chart_tools_hidden_from_main_chat_writer"),
         ],
     )
-    def test_manage_charts_hidden_from_main_chat_calc(self, chart_registry, doc_type):
+    def test_chart_tools_hidden_from_main_chat(self, chart_registry, doc_type):
         doc = TestingFactory.create_doc(doc_type=doc_type, content=[])
         names = {t.name for t in chart_registry.get_tools(doc=doc)}
-        assert "manage_charts" not in names
+        assert names.isdisjoint(self._CHART_TOOL_NAMES)
 
-
-    def test_manage_charts_in_charts_domain_calc(self, chart_registry):
+    def test_chart_tools_in_charts_domain_calc(self, chart_registry):
         doc = TestingFactory.create_doc(doc_type="calc", content=[])
         names = {t.name for t in chart_registry.get_tools(doc=doc, active_domain="charts")}
-        assert "manage_charts" in names
+        assert names == self._CHART_TOOL_NAMES
 
-    def test_manage_charts_openai_schema_excluded_by_default(self, chart_registry):
+    def test_chart_tools_openai_schema_excluded_by_default(self, chart_registry):
         doc = TestingFactory.create_doc(doc_type="calc", content=[])
         tool_names = {s["function"]["name"] for s in chart_registry.get_schemas("openai", doc=doc)}
-        assert "manage_charts" not in tool_names
+        assert tool_names.isdisjoint(self._CHART_TOOL_NAMES)
 
-    def test_skinny_chart_tools_not_discovered(self):
-        """list/info/upsert/delete are ToolBaseDummy-only; only manage_charts registers."""
+    def test_skinny_chart_tools_discovered(self):
         import plugin.calc.charts as calc_charts
         import plugin.draw.charts as draw_charts
         import plugin.writer.specialized.charts as writer_charts
@@ -672,24 +696,29 @@ class TestManageChartsSpecializedTier:
         reg.auto_discover(writer_charts)
         reg.auto_discover(draw_charts)
 
-        assert reg.get("manage_charts") is not None
-        for name in self._SKINNY_CHART_TOOLS:
-            assert reg.get(name) is None, f"{name} should not be registered"
+        for name in self._CHART_TOOL_NAMES:
+            assert reg.get(name) is not None, f"{name} should be registered"
 
         doc = TestingFactory.create_doc(doc_type="calc", content=[])
         domain_names = {t.name for t in reg.get_tools(doc=doc, active_domain="charts")}
-        assert domain_names == {"manage_charts"}
+        assert domain_names == self._CHART_TOOL_NAMES
 
     def test_writer_charts_domain_uses_writer_core_tools_not_sheet_readers(self):
-        """Shared manage_charts name must not inherit Calc's required_core_tools via MRO."""
+        """Shared chart tool names must not inherit Calc's required_core_tools via MRO."""
         from plugin.calc.shapes import UpsertShape as CalcUpsertShape
-        from plugin.writer.specialized.charts import ManageCharts as WriterManageCharts
+        from plugin.writer.specialized.charts import (
+            ChartDelete as WriterChartDelete,
+            ChartGetInfo as WriterChartGetInfo,
+            ChartList as WriterChartList,
+            ChartUpsert as WriterChartUpsert,
+        )
         from plugin.writer.specialized.shapes import UpsertShape as WriterUpsertShape
 
         assert "get_document_content" in (WriterUpsertShape.required_core_tools or ())
         assert "get_sheet_summary" in (CalcUpsertShape.required_core_tools or ())
-        assert WriterManageCharts.required_core_tools is not None
-        assert "read_cell_range" not in WriterManageCharts.required_core_tools
+        for chart_cls in (WriterChartList, WriterChartGetInfo, WriterChartUpsert, WriterChartDelete):
+            assert chart_cls.required_core_tools is not None
+            assert "read_cell_range" not in chart_cls.required_core_tools
 
         def _exec(self, ctx, **kwargs):
             return {"status": "ok"}
@@ -702,19 +731,40 @@ class TestManageChartsSpecializedTier:
             )
             return cls()
 
+        from plugin.writer.specialized.charts import (
+            ChartDelete as WriterChartDelete,
+            ChartGetInfo as WriterChartGetInfo,
+            ChartList as WriterChartList,
+            ChartUpsert as WriterChartUpsert,
+        )
+
         reg = _make_registry(
             core("get_document_content"),
             core("get_document_tree"),
             core("get_sheet_summary"),
             core("read_cell_range"),
-            WriterManageCharts(),
+            WriterChartList(),
+            WriterChartGetInfo(),
+            WriterChartUpsert(),
+            WriterChartDelete(),
         )
         names = {t.name for t in reg.get_tools(active_domain="charts", filter_doc_type=False)}
-        assert "manage_charts" in names
+        assert self._CHART_TOOL_NAMES <= names
         assert "get_document_content" in names
         assert "get_document_tree" in names
         assert "read_cell_range" not in names
         assert "get_sheet_summary" not in names
+
+    def test_chart_list_unions_required_core_tools_on_replace(self):
+        from plugin.calc.charts import ChartList as CalcChartList
+        from plugin.writer.specialized.charts import ChartList as WriterChartList
+
+        reg = _make_registry()
+        reg.register(CalcChartList())
+        reg.register(WriterChartList())
+        cores = reg._required_core_union.get("chart_list") or frozenset()
+        assert "get_document_content" in cores
+        assert "get_sheet_summary" in cores
 
     def test_shared_shape_upsert_unions_required_core_tools_on_replace(self):
         """Last-wins registration must keep Calc and Writer core tool sets."""
@@ -811,18 +861,17 @@ class TestManageChartsSpecializedTier:
         assert "style_sibling" not in names
         assert "finish_control" not in names
 
-    def test_manage_charts_still_dispatches_to_dummy_backends(self):
-        from plugin.calc.charts import ManageCharts
+    def test_chart_list_dispatches_to_list_charts(self):
+        from plugin.calc.charts import ChartList
 
         ctx = TestingFactory.create_context(doc_type="calc")
-        tool = ManageCharts()
-        with patch("plugin.calc.charts.ListCharts") as list_cls:
-            list_cls.return_value.execute.return_value = {"status": "ok", "charts": [], "count": 0}
-            res = tool.execute(ctx, action="list")
+        tool = ChartList()
+        with patch("plugin.calc.charts.list_charts") as mock_list:
+            mock_list.return_value = {"status": "ok", "charts": [], "count": 0}
+            res = tool.execute(ctx)
         assert res["status"] == "ok"
         assert res["count"] == 0
-        list_cls.assert_called_once_with()
-        list_cls.return_value.execute.assert_called_once()
+        mock_list.assert_called_once_with(tool, ctx)
 
 
 class TestLibrarianToolVisibility:
@@ -871,7 +920,7 @@ class TestSchemas:
         reg = _make_registry(FakeTool())
         ctx = MagicMock()
         with (
-            patch("plugin.vision.vision_availability.get_config_str", return_value="/venv"),
+            patch("plugin.vision.vision_availability.get_config", return_value="/venv"),
             patch("plugin.vision.vision_availability.resolve_venv_python", return_value="/venv/bin/python"),
         ):
             reg.get_schemas("openai", doc=TestingFactory.create_doc(doc_type="writer"), ctx=ctx)
@@ -916,6 +965,10 @@ class TestExecuteKwargsAndFailure:
         assert result["details"]["ignored_parameters"] == ["paragraph_index"]
 
     def test_execute_coerces_write_formula_range_array_and_number(self):
+        from plugin.calc.cells import WriteCellRange
+
+        values_schema = WriteCellRange.parameters["properties"]["values"]
+
         class WriteFormulaRange(ToolBase):
             name = "write_formula_range"
             description = "write"
@@ -923,7 +976,7 @@ class TestExecuteKwargsAndFailure:
                 "type": "object",
                 "properties": {
                     "range": {"type": "array", "items": {"type": "string"}},
-                    "values": {"type": "string"},
+                    "values": values_schema,
                 },
                 "required": ["range"],
             }
@@ -935,20 +988,25 @@ class TestExecuteKwargsAndFailure:
         services = ServiceRegistry()
         reg = ToolRegistry(services)
         reg.register(WriteFormulaRange())
-        ctx = ToolContext(doc=TestingFactory.create_doc(doc_type="writer"), ctx=None, doc_type="writer", services=services, caller="mcp")
+        ctx = ToolContext(
+            doc=TestingFactory.create_doc(doc_type="writer"),
+            ctx=None,
+            doc_type="writer",
+            services=services,
+            caller="mcp",
+        )
 
         listed = reg.execute("write_formula_range", ctx, range=["A1:B1"], values=["a", "b"])
         assert listed["status"] == "ok"
-        assert listed["values"] == '["a", "b"]'
+        assert listed["values"] == ["a", "b"]
 
         number = reg.execute("write_formula_range", ctx, range=["A1"], values=3)
         assert number["values"] == "3"
 
         empty = reg.execute("write_formula_range", ctx, range=["A1"], values=[])
-        assert empty["values"] == ""
+        assert empty["values"] == []
 
-        # A plain string parameter must still reject a list. The coerce is
-        # only the MCP widening for write_formula_range values.
+        # A plain string parameter must still reject a list.
         class StringArg(ToolBase):
             name = "string_arg"
             description = "string only"
@@ -959,7 +1017,14 @@ class TestExecuteKwargsAndFailure:
                 return {"status": "ok"}
 
         reg.register(StringArg())
-        rejected = reg.execute("string_arg", ctx, arg1=["nope"])
+        writer_ctx = ToolContext(
+            doc=TestingFactory.create_doc(doc_type="writer"),
+            ctx=None,
+            doc_type="writer",
+            services=services,
+            caller="mcp",
+        )
+        rejected = reg.execute("string_arg", writer_ctx, arg1=["nope"])
         assert rejected["status"] == "error"
         assert rejected["code"] == "VALIDATION_ERROR"
 
@@ -1235,11 +1300,10 @@ class TestToolIsolation:
     def test_tool_timeout_does_not_cancel_the_send(self):
         """A tool timeout must return TOOL_TIMEOUT without cancelling the send.
 
-        What was wrong: the timeout path called send_cancellation.cancel()
-        and also returned the error dict. How: the drain stop checker is
-        that flag, so it discarded the dict and the turn waited for
-        TOOL_DONE. Why: the worker is already abandoned; the caller delivers
-        the timeout.
+        Calling ``send_cancellation.cancel()`` on timeout makes the drain stop
+        checker discard the error dict, so the turn waits for TOOL_DONE instead
+        of returning TOOL_TIMEOUT. The worker is already abandoned; the caller
+        must deliver the timeout without cancelling the send.
         """
         from plugin.framework.send_cancellation import SendCancellation
 
@@ -1277,10 +1341,9 @@ class TestToolIsolation:
         class Mutate(ToolBase):
             name = "mutate_then_unwind"
             description = "x"
-            # Bugfix: Generous tool timeout so slow/loaded CI runners do not spuriously
-            # time out before the worker thread starts and queues its result.
-            # 10s is well below release.wait(30s), so any regression where execute
-            # mistakenly waits on the worker thread to exit will still time out.
+            # A generous timeout avoids spurious TOOL_TIMEOUT on slow CI before
+            # the worker queues its result. 10s stays below release.wait(30s), so
+            # a regression that waits for thread exit still times out.
             timeout = 10.0
             parameters = {"type": "object", "properties": {}}
 
@@ -1612,13 +1675,9 @@ def test_get_tools_names_empty_and_bare_string():
     listed = {"filter_doc_type": False}
     assert {t.name for t in reg.get_tools(**listed)} == {"get", "target"}
     assert {t.name for t in reg.get_tools(names=None, **listed)} == {"get", "target"}
-    assert reg.get_tools(names=[], **listed) == []
-    assert reg.get_tools(names="", **listed) == []
-    assert reg.get_tools(names=(), **listed) == []
-    # "get" in "target" is true; the filter must not substring-match.
-    assert [t.name for t in reg.get_tools(names="target", **listed)] == ["target"]
-    assert [t.name for t in reg.get_tools(names="get", **listed)] == ["get"]
-    assert [t.name for t in reg.get_tools(names=["get"], **listed)] == ["get"]
+    assert reg.get_tools(names=frozenset(), **listed) == []
+    assert [t.name for t in reg.get_tools(names=frozenset({"target"}), **listed)] == ["target"]
+    assert [t.name for t in reg.get_tools(names=frozenset({"get"}), **listed)] == ["get"]
 
 
 def test_execute_with_timeout_parameterizes_result_queue() -> None:
@@ -1727,7 +1786,7 @@ def test_execute_unguarded_skips_guard() -> None:
         return fn()
 
     params = {"note": "keep"}
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         # Same shape as tools_lo: keyword, then **params. A dict literal
         # spread is a different bytecode path and is not this contract.
         out = reg.execute_unguarded("dummy_sync", ctx, **params)
@@ -1742,8 +1801,9 @@ def test_execute_unguarded_skips_guard() -> None:
 def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
     """A **dict must not skip execute_safe, even when the value is truthy.
 
-    What was wrong: the keyword-only parameter bound JSON true before
-    without_unknown_kwargs ran, so the sync tool ran on the worker.
+    If ``bypass_thread_guard`` binds from JSON before ``without_unknown_kwargs``,
+    a truthy model value skips ``execute_safe`` and the sync tool runs on the
+    worker thread.
     """
     reg, ctx, calls, seen = _guard_probe_registry()
     marshalled: list[str] = []
@@ -1758,7 +1818,7 @@ def test_execute_json_spread_cannot_bypass_thread_guard(bypass: object) -> None:
     def bg():
         box["out"] = reg.execute("dummy_sync", ctx, **args)
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         worker = threading.Thread(target=bg, name="tool-sync-probe")
         worker.start()
         worker.join()
@@ -1778,7 +1838,7 @@ def test_execute_dict_literal_bypass_cannot_skip_thread_guard() -> None:
         marshalled.append("marshal")
         return fn()
 
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=fake_marshal):
+    with patch("plugin.framework.tool.main.call", side_effect=fake_marshal):
         out = reg.execute("dummy_sync", ctx, **{"bypass_thread_guard": True, "note": "keep"})
 
     assert marshalled == ["marshal"]
@@ -1808,7 +1868,7 @@ def test_tool_get_parameters_value_error_returns_registry_error() -> None:
 
 def test_execute_spread_colliding_names_handled() -> None:
     reg, ctx, calls, seen = _guard_probe_registry()
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute(
             "dummy_sync",
             ctx,
@@ -1844,7 +1904,7 @@ def test_execute_tool_with_timeout_tool_name_run_threaded_in_schema() -> None:
     reg = ToolRegistry(MagicMock())
     reg.register(AdvancedParamsTool())
     ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute("advanced_params", ctx, timeout=5, tool_name="my_name", run_threaded=True)
 
     assert out.get("status") == "ok"
@@ -1873,28 +1933,28 @@ def test_sync_tool_timeout_none_returns_ok() -> None:
     reg = ToolRegistry(MagicMock())
     reg.register(NoneTimeoutTool())
     ctx = ToolContext(MagicMock(), MagicMock(), "writer", {}, "test")
-    with patch("plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()):
+    with patch("plugin.framework.tool.main.call", side_effect=lambda fn: fn()):
         out = reg.execute("none_timeout_tool", ctx)
     assert out.get("status") == "ok"
     assert out.get("result") == 42
 
 
-def test_doc_type_probe_on_main_thread_only() -> None:
+def test_doc_type_probe_on_main_only() -> None:
     reg = ToolRegistry(MagicMock())
     doc = MagicMock()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+    with patch.object(main, "is_current", return_value=True), \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc)
         assert mock_probe.call_count == 1
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+    with patch.object(main, "is_current", return_value=True), \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_schemas(doc=doc, doc_type="writer")
         mock_probe.assert_not_called()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=False), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
+    with patch.object(main, "is_current", return_value=False), \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe:
         reg.get_tools(doc=doc)
         mock_probe.assert_not_called()
         reg.get_schemas(doc=doc)
@@ -1905,8 +1965,8 @@ def test_get_schemas_unknown_protocol_does_not_probe() -> None:
     reg = ToolRegistry(MagicMock())
     doc = MagicMock()
 
-    with patch("plugin.framework.tool.on_main_thread", return_value=True), \
-         patch("plugin.doc.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe, \
+    with patch.object(main, "is_current", return_value=True), \
+         patch("plugin.framework.doc_type.doc_type_str_from_doc", return_value="writer") as mock_probe, \
          patch("plugin.framework.tool.ToolRegistry.get_tools") as mock_get_tools:
         with pytest.raises(ValueError, match="Unknown protocol: xml"):
             reg.get_schemas("xml", doc=doc)
@@ -1961,12 +2021,20 @@ def test_specialized_domain_flag() -> None:
 
 
 def test_get_tools_signature_and_ctx() -> None:
+    from tests.tool_registry_filters import append_production_tool_registry_filters
+
     reg = ToolRegistry(MagicMock())
     with pytest.raises(TypeError):
         reg.get_tools(doc_typo="writer")  # type: ignore[call-arg]
 
+    append_production_tool_registry_filters(reg)
     sentinel_ctx = object()
-    with patch("plugin.vision.vision_availability.filter_vision_specialized_tools", side_effect=lambda tools, ctx: tools) as mock_filter:
-        reg.get_tools(ctx=sentinel_ctx)
-        mock_filter.assert_called_once()
-        assert mock_filter.call_args[0][1] is sentinel_ctx
+    seen: list[Any] = []
+
+    def _track(tools: list[Any], ctx: Any = None) -> list[Any]:
+        seen.append(ctx)
+        return tools
+
+    reg.tool_filters = [_track]
+    reg.get_tools(ctx=sentinel_ctx)
+    assert seen == [sentinel_ctx]

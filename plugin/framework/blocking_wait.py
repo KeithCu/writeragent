@@ -42,6 +42,17 @@ _gc_suspend_depth = 0
 _gc_suspend_was_enabled = False
 
 
+def gc_suspended() -> bool:
+    """True while any ``automatic_gc_suspended`` context is active.
+
+    Best-effort unlocked read of ``_gc_suspend_depth`` (int compare only).
+    For ``gc_policy``'s ticker only; do not use elsewhere for correctness.
+    """
+    # Do not take _gc_suspend_lock; gc.enable() under that lock while
+    # automatic_gc_suspended is active is intentional.
+    return _gc_suspend_depth != 0
+
+
 @contextlib.contextmanager
 def automatic_gc_suspended() -> Generator[None, None, None]:
     """Keep automatic cyclic GC off while the caller holds SolarMutex and waits.
@@ -96,8 +107,7 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
     ``=PROMPT()``) must not return to the VCL loop, and ``pump_idle=True``
     still has to block the caller until *func* returns.
 
-    Never runs *func* on the caller thread: a missing Toolkit used to fall back
-    to a synchronous call, which blocked recalc with no worker isolation.
+    Never runs *func* on the caller thread.
     """
     # crosshair: off
     q: queue.Queue[tuple[Any, BaseException | None]] = queue.Queue()
@@ -131,7 +141,7 @@ def run_blocking_in_thread(ctx: Any, func: Any, *args: Any, pump_idle: bool = Tr
         # Always wait 0.1s, never timeout=None (#1632). With no timeout this thread
         # only wakes when the worker finishes, so it never drains the marshal
         # queue. That deadlocked when pump_idle was True and get_toolkit failed:
-        # the worker sat in execute_on_main_thread waiting for this thread. Do not
+        # the worker sat in main.call waiting for this thread. Do not
         # add a flag that skips the poll in some cases; that flag caused the bug.
         while True:
             # Only the get waits on the queue. A worker that raised queue.Empty

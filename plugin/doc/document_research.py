@@ -12,15 +12,16 @@ from __future__ import annotations
 import logging
 import os
 import sys
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, Callable
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 import uno
 
-from plugin.doc.doc_type import doc_type_family_label, get_document_type
+from plugin.framework.doc_type import doc_type_family_label, get_document_type
 from plugin.doc.text_helpers import get_document_path
 from plugin.embeddings.embeddings_fs import ALL_INDEXABLE_EXTENSIONS
 from plugin.framework.errors import best_effort, uno_read, user_stopped_payload
-from plugin.framework.uno_context import resolve_document_by_url
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.uno_context import enum_has_more, resolve_document_by_url
 from plugin.framework.url_utils import normalize_file_url, path_to_file_url
 
 if TYPE_CHECKING:
@@ -262,7 +263,7 @@ def _scan_directory(
     filter_substring: str | None,
     exclude_path: str | None,
     open_paths: dict[str, str],
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> tuple[list[FileEntry], bool]:
     exclude_norm = _normalize_path(exclude_path) if exclude_path else None
     filter_lower = filter_substring.lower() if filter_substring else None
@@ -274,7 +275,7 @@ def _scan_directory(
 
     entries: list[FileEntry] = []
     for idx, name in enumerate(names):
-        if idx % 50 == 0 and stop_checker and stop_checker():
+        if idx % 50 == 0 and is_cancelled(cancel):
             raise InterruptedError("USER_STOPPED")
         if _should_skip_filename(name):
             continue
@@ -386,7 +387,7 @@ def list_nearby_files(
     exclude_path: Any = _USE_DEFAULT,
     open_paths: Any = _USE_DEFAULT,
     listing_root: Any = _USE_DEFAULT,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
 ) -> dict[str, Any]:
     """List nearby files for the outer document_research agent.
 
@@ -414,11 +415,11 @@ def list_nearby_files(
 
         return res_exclude, res_open, res_root
 
-    from plugin.framework.queue_executor import run_on_main
+    from plugin.framework.queue_executor import main
     from plugin.framework.send_cancellation import SendCancelled
 
     try:
-        exclude_path, open_paths, listing_root = run_on_main(_fetch_uno_state)
+        exclude_path, open_paths, listing_root = main.run(_fetch_uno_state)
     except SendCancelled:
         return user_stopped_payload()
 
@@ -430,9 +431,11 @@ def list_nearby_files(
                 filter_substring=filter,
                 exclude_path=exclude_path,
                 open_paths=open_paths,
-                stop_checker=stop_checker,
+                cancel=cancel,
             )
-            return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root}
+            return {"status": "ok", "files": files, "truncated": truncated, "listing_root": listing_root, **(
+                {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
+            )}
         except InterruptedError:
             return user_stopped_payload()
         except OSError as e:
@@ -445,7 +448,9 @@ def list_nearby_files(
             "status": "error",
             "message": "No nearby files found. Save the document or open sibling files in LibreOffice.",
         }
-    return {"status": "ok", "files": files, "truncated": truncated, "listing_root": None}
+    return {"status": "ok", "files": files, "truncated": truncated, "listing_root": None, **(
+        {"hint": "Listing stopped at 100. Pass filter to narrow the name."} if truncated else {}
+    )}
 
 
 def resolve_path_or_name(
@@ -569,7 +574,7 @@ def open_document_for_read(ctx: Any, path_or_url: str) -> tuple[Any | None, str 
     # this function returns.
     model: Any = None
     try:
-        from plugin.writer.format import create_property_value
+        from plugin.framework.uno_context import create_property_value
         desktop = get_desktop(ctx)
         load_props = (
             create_property_value("Hidden", True),
@@ -662,8 +667,7 @@ def get_open_documents(uno_ctx: Any, active_model: Any = None) -> list[dict[str,
     # this from list_v1_peers / chat prompts with ctx=MagicMock().
     while enum is not None:
         try:
-            more = enum.hasMoreElements()
-            if more is not True and more != 1:
+            if not enum_has_more(enum):
                 break
             elem = enum.nextElement()
         except Exception as exc:

@@ -14,13 +14,13 @@ import logging
 import threading
 from contextlib import contextmanager
 from contextvars import ContextVar, Token
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from plugin.framework.queue_executor import QueueExecutor
+    from plugin.framework.queue_executor import MainThread
 
-log = logging.getLogger("writeragent.framework.queue_executor")
+log = logging.getLogger(__name__)
 
 _AGENT_ACTIVE_LOCK = threading.Lock()
 # Scopes whose agent_session has not exited yet (identity, under the lock).
@@ -37,19 +37,21 @@ class _ScopeUnset:
 _SCOPE_UNSET = _ScopeUnset()
 
 
+class CancellableClient(Protocol):
+    def stop(self) -> None: ...
+
+
 class SendCancelled(Exception):
     """Raised when main-thread work is skipped because the user stopped the send."""
 
 
-def wait_for_approval(event: threading.Event, stop_checker: Callable[[], bool] | None, timeout: float = 0.2) -> bool:
+def wait_for_approval(event: threading.Event, cancel: SendCancellation | None, timeout: float = 0.2) -> bool:
     """Block until *event* is set, or the send is stopped.
 
-    Approval used to call ``event.wait()`` with no stop check. Closing the
-    sidebar latches stop and never signals the event, so the worker stayed
-    parked after the drain ended. A set event wins a race with stop.
+    A set event wins a race with stop.
     """
     while not event.is_set():
-        if stop_checker is not None and stop_checker():
+        if is_cancelled(cancel):
             return False
         event.wait(timeout)
     return True
@@ -62,35 +64,32 @@ class SendCancellation:
         self._cancelled: threading.Event = threading.Event()
         self._lock: threading.Lock = threading.Lock()
         self._hooks: list[Callable[[], None]] = []
-        self._executors: list[QueueExecutor] = []
+        self._executors: list[MainThread] = []
 
     def is_cancelled(self) -> bool:
         return self._cancelled.is_set()
 
-    def bind_executor(self, executor: "QueueExecutor") -> None:
-        """Track a :class:`QueueExecutor` whose pending work Stop must cancel."""
+    def bind_executor(self, executor: "MainThread") -> None:
+        """Track a :class:`MainThread` whose pending work Stop must cancel."""
         with self._lock:
             if executor not in self._executors:
                 self._executors.append(executor)
 
-    def register_client(self, client: Any) -> None:
+    def register_client(self, client: CancellableClient) -> None:
         # Resolve .stop() at registration time so cancel() only needs one list of
         # plain callables — no duck-type dispatch needed there.
         # B13: Stop can fire before the drain creates/registers the client. If the
         # scope is already cancelled, register_on_cancel calls stop() immediately.
-        stop = getattr(client, "stop", None)
-        if not callable(stop):
-            return
-        self.register_on_cancel(cast("Callable[[], None]", stop))
+        self.register_on_cancel(client.stop)
 
     def register_on_cancel(self, hook: Callable[[], None]) -> None:
         with self._lock:
             # Equality, not identity, because each adapter.stop access is a new
             # bound method that compares equal.
-            if hook in self._hooks:
+            already = self._cancelled.is_set()
+            if already and hook in self._hooks:
                 return
             self._hooks.append(hook)
-            already = self._cancelled.is_set()
         # Stop can win the race: a hook registered after cancel() must still run.
         if already:
             try:
@@ -98,71 +97,61 @@ class SendCancellation:
             except Exception:
                 log.exception("SendCancellation: error in late cancel hook")
 
-    def cancel(self) -> None:
+    def unregister_on_cancel(self, hook: Callable[[], None]) -> None:
+        with self._lock:
+            if hook in self._hooks:
+                self._hooks.remove(hook)
+
+    def claim_cancel(self) -> Callable[[], None] | None:
+        """Latch the cancellation flag and return a closure to run registered hooks.
+
+        Returns None if cancellation was already claimed.
+        """
         # Set the flag under the lock so two callers cannot both run the hooks.
         with self._lock:
             if self._cancelled.is_set():
-                return
+                return None
             self._cancelled.set()
-            hooks = list(self._hooks)
+            seen: set[Callable[[], None]] = set()
+            hooks: list[Callable[[], None]] = []
+            for h in self._hooks:
+                if h not in seen:
+                    seen.add(h)
+                    hooks.append(h)
             executors = list(self._executors)
-        for hook in hooks:
-            try:
-                hook()
-            except Exception:
-                log.exception("SendCancellation: error in cancel hook")
-        # Unbound Stop only latches the flag. Falling back to default_executor
-        # cancelled MCP, grammar, and peer items posted before the drain bound
-        # this scope. The sidebar drain checks is_cancelled() and returns.
-        for executor in executors:
-            executor.cancel_pending_work(self)
+
+        def _run_cancel() -> None:
+            for hook in hooks:
+                try:
+                    hook()
+                except Exception:
+                    log.exception("SendCancellation: error in cancel hook")
+            # Unbound Stop only latches the flag. Falling back to main
+            # cancelled MCP, grammar, and peer items posted before the drain bound
+            # this scope. The sidebar drain checks is_cancelled() and returns.
+            for executor in executors:
+                executor.cancel_pending_work(self)
+
+        return _run_cancel
+
+    def cancel(self) -> None:
+        run = self.claim_cancel()
+        if run is not None:
+            run()
 
 
 def get_current_send_cancellation() -> SendCancellation | None:
     return _current_send_cancellation.get()
 
 
-def bind_send_stop_checker(scope: SendCancellation | None, fallback: Callable[[], bool] | None = None) -> Callable[[], bool]:
-    """Return a stop predicate tied to *scope*, not the panel field.
+def is_cancelled(scope: SendCancellation | None) -> bool:
+    """Return True if *scope* is cancelled.
 
-    Worker threads must use this (or ``scope.is_cancelled``) so Stop stays latched after
-    the main thread clears ``panel._send_cancellation`` when the drain loop exits.
-
-    When both *scope* and *fallback* are set, either latch is enough: Stop can
-    fire after SEND_CLICKED but before the deferred drain enters ``agent_session``.
-    A checker that raises used to look like "not stopped" when the caller
-    ignored the exception. Fail closed so a broken latch still aborts the send.
+    Strict ``is True``: a non-bool return (e.g. a MagicMock scope in specialized
+    delegation tests, or a stub host) must not read as a user Stop, or
+    incomplete/step-limit results turn into error/USER_STOPPED.
     """
-    def _cancelled() -> bool:
-        try:
-            return (scope is not None and scope.is_cancelled()) or (fallback is not None and fallback())
-        except Exception:
-            log.exception("stop_checker raised exception; failing closed (treating as stopped)")
-            return True
-
-    return _cancelled
-
-
-def capture_send_stop(host: Any) -> tuple[Any, Callable[[], bool]]:
-    """Scope and stop checker frozen on the send thread before ``run_in_background``.
-
-    The worker closes over both results. Calling ``resolve_stop_checker`` or
-    reading ``host._send_cancellation`` inside the thread body misses Stop:
-    the drain clears that field and the next send stores a new scope, so the
-    old worker can latch onto the new send and cancel it.
-    """
-    scope = getattr(host, "_send_cancellation", None)
-    checker = host.resolve_stop_checker()
-    return scope, checker
-
-
-def send_stopped(bound_scope: Any, stop_checker: Callable[[], bool], client: Any) -> bool:
-    """True when send cancellation was requested via scope, stop_checker callback, or client latch."""
-    if bound_scope is not None and bound_scope.is_cancelled():
-        return True
-    if stop_checker():
-        return True
-    return bool(getattr(client, "_stopped", False))
+    return scope is not None and scope.is_cancelled() is True
 
 
 @contextmanager
@@ -176,9 +165,9 @@ def agent_session(scope: SendCancellation | None = None) -> Generator[SendCancel
         scope = SendCancellation()
     # Bind here, not when StartSendEffect creates the scope: Stop before the
     # deferred drain must not cancel_pending_work that posted closer.
-    from plugin.framework.queue_executor import default_executor
+    from plugin.framework.queue_executor import main
 
-    scope.bind_executor(default_executor)
+    scope.bind_executor(main)
     token = _current_send_cancellation.set(scope)
     with _AGENT_ACTIVE_LOCK:
         _AGENT_OPEN_SCOPES.append(scope)

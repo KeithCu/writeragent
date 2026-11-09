@@ -11,7 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.embeddings.venv import embeddings_llama_index
-from plugin.embeddings.venv.embeddings_llama_index import HAS_LLAMA_INDEX
+from plugin.embeddings.venv.embeddings_llama_index import llama_index_installed
 
 
 def test_llama_index_retrieval_pool_over_fetches_for_rerank():
@@ -70,7 +70,7 @@ def test_apply_postprocessors_truncates_without_rerank():
 
 
 @pytest.mark.skipif(
-    not HAS_LLAMA_INDEX,
+    not llama_index_installed(),
     reason="llama-index-core is not installed in the testing environment",
 )
 def test_writer_agent_embedding_delegates_to_embed_texts():
@@ -91,7 +91,7 @@ def test_writer_agent_embedding_delegates_to_embed_texts():
 
 
 @pytest.mark.skipif(
-    not HAS_LLAMA_INDEX,
+    not llama_index_installed(),
     reason="llama-index-core is not installed in the testing environment",
 )
 def test_writer_agent_fts_retriever_converts_inverted_score():
@@ -113,7 +113,7 @@ def test_writer_agent_fts_retriever_converts_inverted_score():
 
 
 @pytest.mark.skipif(
-    not HAS_LLAMA_INDEX,
+    not llama_index_installed(),
     reason="llama-index-core is not installed in the testing environment",
 )
 def test_writer_agent_vector_store_delete_delegates_to_sqlite():
@@ -138,7 +138,7 @@ def test_writer_agent_vector_store_delete_delegates_to_sqlite():
 
 
 @pytest.mark.skipif(
-    not HAS_LLAMA_INDEX,
+    not llama_index_installed(),
     reason="llama-index-core is not installed in the testing environment",
 )
 def test_build_hybrid_retriever_without_openai_api_key(monkeypatch):
@@ -169,7 +169,7 @@ def test_build_hybrid_retriever_without_openai_api_key(monkeypatch):
 
 
 @pytest.mark.skipif(
-    not HAS_LLAMA_INDEX,
+    not llama_index_installed(),
     reason="llama-index-core is not installed in the testing environment",
 )
 def test_run_hybrid_retrieval_pipeline_uses_rerank_postprocessor():

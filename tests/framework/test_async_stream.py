@@ -11,9 +11,16 @@ from unittest.mock import MagicMock, patch
 
 
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import StreamQueue, run_stream_drain_loop
+from plugin.framework.async_stream import DrainOutcome, StreamQueue, run_stream_drain_loop
 from plugin.framework.worker_pool import run_in_background
+from plugin.framework.send_cancellation import SendCancellation
 from tests.framework.stream_test_helpers import DummyToolkit
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
 
 
 def test_run_async_worker_with_drain_next_tool_keeps_pumping():
@@ -66,7 +73,7 @@ def test_run_stream_drain_loop_next_tool_false_keeps_pumping():
     run_stream_drain_loop(
         q,
         None,
-        [False],
+        DrainOutcome(),
         lambda text, is_thinking: applied.append((text, is_thinking)),
         on_stream_done=on_stream_done,
         on_stopped=lambda: None,
@@ -95,7 +102,7 @@ def test_run_stream_drain_loop_basic():
     q.put((StreamQueueKind.STREAM_DONE, None))
 
     toolkit = DummyToolkit()
-    job_done = [False]
+    outcome = DrainOutcome()
 
     applied = []
     def apply_chunk(t, is_thinking):
@@ -108,11 +115,11 @@ def test_run_stream_drain_loop_basic():
         pass
 
     run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk,
+        q, toolkit, outcome, apply_chunk,
         on_stream_done=stream_done, on_stopped=noop, on_error=noop
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert ("hello", False) in applied
 
 
@@ -122,18 +129,18 @@ def test_run_stream_drain_loop_thinking():
     q.put((StreamQueueKind.STREAM_DONE, None))
 
     toolkit = DummyToolkit()
-    job_done = [False]
+    outcome = DrainOutcome()
 
     applied = []
     def apply_chunk(t, is_thinking):
         applied.append((t, is_thinking))
 
     run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk,
+        q, toolkit, outcome, apply_chunk,
         on_stream_done=lambda i: True, on_stopped=lambda: None, on_error=lambda e: None
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert ("[Thinking] ", True) in applied
     assert ("hmmm", True) in applied
     assert (" /thinking\n", True) in applied
@@ -144,18 +151,18 @@ def test_run_stream_drain_loop_error():
     q.put((StreamQueueKind.ERROR, ValueError("test error")))
 
     toolkit = DummyToolkit()
-    job_done = [False]
+    outcome = DrainOutcome()
 
     errors = []
     def on_error(e):
         errors.append(e)
 
     run_stream_drain_loop(
-        q, toolkit, job_done, lambda t, is_thinking: None,
+        q, toolkit, outcome, lambda t, is_thinking: None,
         on_stream_done=lambda i: True, on_stopped=lambda: None, on_error=on_error
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert len(errors) == 1
     assert isinstance(errors[0], ValueError)
 
@@ -168,7 +175,7 @@ def test_run_stream_drain_loop_error_on_error_true_drops_batch_tail():
     q.put((StreamQueueKind.STREAM_DONE, "stale-done"))
 
     toolkit = DummyToolkit()
-    job_done = [False]
+    outcome = DrainOutcome()
     applied = []
     errors = []
     done = []
@@ -186,14 +193,14 @@ def test_run_stream_drain_loop_error_on_error_true_drops_batch_tail():
     run_stream_drain_loop(
         q,
         toolkit,
-        job_done,
+        outcome,
         lambda t, is_thinking: applied.append(t),
         on_stream_done=stream_done,
         on_stopped=lambda: None,
         on_error=on_error,
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert len(errors) == 1
     assert "stale" not in applied
     assert "after retry" in applied
@@ -484,18 +491,20 @@ def test_run_stream_drain_loop_stop_checker_mid_batch():
     q.put((StreamQueueKind.CHUNK, "third "))
 
     toolkit = DummyToolkit()
-    job_done = [False]
+    outcome = DrainOutcome()
     stopped_called = [False]
     applied = []
+    cancel = SendCancellation()
+    items_seen = [0]
+
+    def is_cancelled() -> bool:
+        items_seen[0] += 1
+        return items_seen[0] > 2
+
+    cancel.is_cancelled = is_cancelled  # type: ignore
 
     def apply_chunk(t, is_thinking):
         applied.append(t)
-
-    items_seen = [0]
-    def stop_checker():
-        # Stop on the second call (first item in the for loop)
-        items_seen[0] += 1
-        return items_seen[0] > 2
 
     def on_stopped():
         stopped_called[0] = True
@@ -507,12 +516,12 @@ def test_run_stream_drain_loop_stop_checker_mid_batch():
     q.put((StreamQueueKind.STREAM_DONE, None))
 
     run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk,
-        on_stream_done=lambda i: True, on_stopped=on_stopped, on_error=lambda e: None, stop_checker=stop_checker
+        q, toolkit, outcome, apply_chunk,
+        on_stream_done=lambda i: True, on_stopped=on_stopped, on_error=lambda e: None, cancel=cancel
     )
 
     assert stopped_called[0] is True
-    assert job_done[0] is True
+    assert outcome.done is True
     # The first chunk is handled before Stop. CHUNK items already pulled
     # into the rest of the batch are still applied. STREAM_DONE is not.
     assert "".join(applied) == "first second third "
@@ -523,7 +532,7 @@ def test_run_stream_drain_loop_callback_raises():
     q.put((StreamQueueKind.CHUNK, "hello"))
 
     toolkit = DummyToolkit()
-    job_done = [False]
+    outcome = DrainOutcome()
 
     def apply_chunk(t, is_thinking):
         raise RuntimeError("apply_chunk error")
@@ -534,11 +543,11 @@ def test_run_stream_drain_loop_callback_raises():
     # It should not hang, but gracefully mark job_done as True
     # and swallow the exception in the catch-all.
     run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk,
+        q, toolkit, outcome, apply_chunk,
         on_stream_done=lambda i: True, on_stopped=lambda: None, on_error=on_error
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
 
 
 def test_run_stream_drain_loop_tool_done_continue():
@@ -547,7 +556,7 @@ def test_run_stream_drain_loop_tool_done_continue():
     q.put((StreamQueueKind.CHUNK, "next chunk"))
 
     toolkit = None
-    job_done = [False]
+    outcome = DrainOutcome()
     applied = []
     tools_done = []
 
@@ -568,11 +577,11 @@ def test_run_stream_drain_loop_tool_done_continue():
     q.put((StreamQueueKind.STREAM_DONE, None))
 
     run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk,
+        q, toolkit, outcome, apply_chunk,
         on_stream_done=on_stream_done, on_stopped=noop, on_error=noop
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert len(tools_done) == 1
     assert tools_done[0][1] == "call_123"
     assert ("next chunk", False) in applied
@@ -583,19 +592,19 @@ def test_run_stream_drain_loop_stopped():
     q.put((StreamQueueKind.STOPPED,))
 
     toolkit = DummyToolkit()
-    job_done = [False]
+    outcome = DrainOutcome()
     stopped_called = [False]
 
     def on_stopped():
         stopped_called[0] = True
 
     run_stream_drain_loop(
-        q, toolkit, job_done, lambda t, is_thinking: None,
+        q, toolkit, outcome, lambda t, is_thinking: None,
         on_stream_done=lambda i: True, on_stopped=on_stopped, on_error=lambda e: None
     )
 
     assert stopped_called[0] is True
-    assert job_done[0] is True
+    assert outcome.done is True
 
 
 def test_run_stream_drain_loop_toolkit_none():
@@ -603,7 +612,7 @@ def test_run_stream_drain_loop_toolkit_none():
     q.put((StreamQueueKind.CHUNK, "hello"))
     q.put((StreamQueueKind.STREAM_DONE, None))
 
-    job_done = [False]
+    outcome = DrainOutcome()
 
     applied = []
     def apply_chunk(t, is_thinking):
@@ -617,11 +626,11 @@ def test_run_stream_drain_loop_toolkit_none():
 
     # Should run successfully without a toolkit
     run_stream_drain_loop(
-        q, None, job_done, apply_chunk,
+        q, None, outcome, apply_chunk,
         on_stream_done=stream_done, on_stopped=noop, on_error=noop
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert ("hello", False) in applied
 
 
@@ -630,7 +639,7 @@ def test_run_stream_drain_loop_tool_thinking():
     q.put((StreamQueueKind.TOOL_THINKING, "Searching google..."))
     q.put((StreamQueueKind.STREAM_DONE, None))
 
-    job_done = [False]
+    outcome = DrainOutcome()
 
     applied = []
     def apply_chunk(t, is_thinking):
@@ -644,11 +653,11 @@ def test_run_stream_drain_loop_tool_thinking():
 
     # With show_search_thinking=True, it should apply the chunk
     run_stream_drain_loop(
-        q, None, job_done, apply_chunk,
+        q, None, outcome, apply_chunk,
         on_stream_done=stream_done, on_stopped=noop, on_error=noop, show_search_thinking=True
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert ("Searching google...", True) in applied
 
     # With show_search_thinking=False, it should NOT apply the chunk
@@ -656,17 +665,17 @@ def test_run_stream_drain_loop_tool_thinking():
     q2.put((StreamQueueKind.TOOL_THINKING, "Searching bing..."))
     q2.put((StreamQueueKind.STREAM_DONE, None))
 
-    job_done2 = [False]
+    outcome2 = DrainOutcome()
     applied2 = []
     def apply_chunk2(t, is_thinking):
         applied2.append((t, is_thinking))
 
     run_stream_drain_loop(
-        q2, None, job_done2, apply_chunk2,
+        q2, None, outcome2, apply_chunk2,
         on_stream_done=stream_done, on_stopped=noop, on_error=noop, show_search_thinking=False
     )
 
-    assert job_done2[0] is True
+    assert outcome2.done is True
     assert len(applied2) == 0
 
 
@@ -683,7 +692,7 @@ def test_run_stream_drain_loop_complex_interleaving():
     q.put((StreamQueueKind.FINAL_DONE, " That is all."))
 
     toolkit = None
-    job_done = [False]
+    outcome = DrainOutcome()
 
     applied = []
     statuses = []
@@ -709,11 +718,11 @@ def test_run_stream_drain_loop_complex_interleaving():
         pass
 
     run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk,
+        q, toolkit, outcome, apply_chunk,
         on_stream_done=stream_done, on_stopped=noop, on_error=noop, on_status_fn=on_status
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
 
     # Assert specific sequence of flushes
     assert statuses == ["Searching...", "Writing..."]
@@ -740,7 +749,7 @@ def test_run_stream_drain_loop_next_tool_and_approval():
     q.put((StreamQueueKind.STREAM_DONE, "end"))
 
     toolkit = None
-    job_done = [False]
+    outcome = DrainOutcome()
 
     applied = []
     approvals = []
@@ -764,12 +773,12 @@ def test_run_stream_drain_loop_next_tool_and_approval():
         approvals.append(item)
 
     run_stream_drain_loop(
-        q, toolkit, job_done, apply_chunk,
+        q, toolkit, outcome, apply_chunk,
         on_stream_done=stream_done, on_stopped=on_stopped, on_error=lambda e: None,
         on_approval_required=on_approval
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert [item[0] for item in stream_done_items] == [
         StreamQueueKind.NEXT_TOOL,
         StreamQueueKind.STREAM_DONE,
@@ -788,7 +797,7 @@ def test_run_stream_drain_loop_next_tool_and_approval():
 
 def test_run_stream_drain_loop_connection_drop():
     q = queue.Queue()
-    job_done = [False]
+    outcome = DrainOutcome()
     toolkit = DummyToolkit()
 
     chunks_received = []
@@ -825,11 +834,11 @@ def test_run_stream_drain_loop_connection_drop():
     t = run_in_background(worker, daemon=False)
 
     # Run the drain loop in the main thread (simulated)
-    # The loop should terminate when job_done[0] becomes True, which happens on error
+    # The loop should terminate when outcome.done becomes True, which happens on error
     run_stream_drain_loop(
         q,
         toolkit,
-        job_done,
+        outcome,
         apply_chunk_fn,
         on_stream_done,
         on_stopped,
@@ -850,14 +859,14 @@ def test_run_stream_drain_loop_connection_drop():
     assert str(error_received[0]) == "Connection dropped unexpectedly"
 
     # Verify that the job was marked as done
-    assert job_done[0] is True
+    assert outcome.done is True
 
 
 def test_run_stream_drain_loop_rejects_string_kind():
     """First tuple element must be StreamQueueKind, not a bare str matching the value."""
     q = queue.Queue()
     q.put(("chunk", "bad"))
-    job_done = [False]
+    outcome = DrainOutcome()
     errors = []
 
     def on_error(e):
@@ -866,13 +875,13 @@ def test_run_stream_drain_loop_rejects_string_kind():
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda t, is_thinking: None,
         on_stream_done=lambda i: True,
         on_stopped=lambda: None,
         on_error=on_error,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert len(errors) == 1
 
 
@@ -886,17 +895,17 @@ def test_invalid_tag_on_error_raise_is_not_called_twice():
         errors.append(payload)
         raise RuntimeError("on_error error")
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda _text, _th: None,
         on_stream_done=lambda _item: True,
         on_stopped=lambda: None,
         on_error=on_error,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert len(errors) == 1
 
 
@@ -911,17 +920,17 @@ def test_stopped_item_on_stopped_raise_is_not_an_error():
         stopped.append(True)
         raise RuntimeError("stop handler failed")
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda _text, _th: None,
         on_stream_done=lambda _item: True,
         on_stopped=on_stopped,
         on_error=errors.append,
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert stopped == [True]
     assert errors == []
 
@@ -937,18 +946,18 @@ def test_stop_checker_on_stopped_raise_is_not_an_error():
         stopped.append(True)
         raise RuntimeError("stop handler failed")
 
-    job_done = [False]
+    outcome = DrainOutcome()
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         lambda _text, _th: None,
         on_stream_done=lambda _item: True,
         on_stopped=on_stopped,
         on_error=errors.append,
-        stop_checker=lambda: True,
+        cancel=_cancelled_scope(),
     )
-    assert job_done[0] is True
+    assert outcome.done is True
     assert stopped == [True]
     assert errors == []
 
@@ -961,7 +970,7 @@ def test_run_stream_drain_loop_tool_call_and_tool_result():
     q.put((StreamQueueKind.TOOL_RESULT, payload_result))
     q.put((StreamQueueKind.STREAM_DONE, None))
 
-    job_done = [False]
+    outcome = DrainOutcome()
     applied = []
 
     def apply_chunk(t, is_thinking):
@@ -970,65 +979,68 @@ def test_run_stream_drain_loop_tool_call_and_tool_result():
     run_stream_drain_loop(
         q,
         None,
-        job_done,
+        outcome,
         apply_chunk,
         on_stream_done=lambda i: True,
         on_stopped=lambda: None,
         on_error=lambda e: None,
     )
 
-    assert job_done[0] is True
+    assert outcome.done is True
     assert any("[Tool call]" in t for t, th in applied if not th)
     assert any("[Tool result]" in t for t, th in applied if not th)
     assert any(payload_call["name"] in t for t, th in applied if not th)
 
 
 def test_stream_queue_terminal_subscribers_are_independent():
-    """Verify StreamQueue per-drain subscriber cell independence and lifecycle."""
+    """Verify StreamQueue per-drain subscriber event independence and lifecycle."""
+    import threading
+
     q = StreamQueue()
     cell1 = q.subscribe_terminal()
     cell2 = q.subscribe_terminal()
-    assert cell1 == [False]
-    assert cell2 == [False]
+    assert isinstance(cell1, threading.Event)
+    assert not cell1.is_set()
+    assert not cell2.is_set()
     assert cell1 is not cell2
 
     q.put((StreamQueueKind.STREAM_DONE, None))
-    assert cell1[0] is True
-    assert cell2[0] is True
+    assert cell1.is_set()
+    assert cell2.is_set()
 
     q.unsubscribe_terminal(cell1)
-    assert cell2[0] is True
+    assert cell2.is_set()
 
     cell3 = q.subscribe_terminal()
-    assert cell3[0] is False
+    assert not cell3.is_set()
 
     q.put((StreamQueueKind.FINAL_DONE, None))
-    assert cell3[0] is True
+    assert cell3.is_set()
 
-    # A different [False] list that compares equal is not removed by unsubscribe_terminal
-    equal_cell = [False]
+    # A different Event that is not the same instance is not removed by unsubscribe_terminal
+    other_event = threading.Event()
     cell4 = q.subscribe_terminal()
-    assert cell4[0] is False
-    q.unsubscribe_terminal(equal_cell)
-    assert cell4 in q._terminal_flags
+    assert not cell4.is_set()
+    q.unsubscribe_terminal(other_event)
+    assert cell4 in q._terminal_events
 
-    # Non-terminal kinds do not set a fresh cell
+    # Non-terminal kinds do not set a fresh event
     cell5 = q.subscribe_terminal()
-    assert cell5[0] is False
+    assert not cell5.is_set()
     q.put((StreamQueueKind.CHUNK, "x"))
-    assert cell5[0] is False
+    assert not cell5.is_set()
     q.put((StreamQueueKind.TOOL_DONE, None))
-    assert cell5[0] is False
+    assert not cell5.is_set()
 
-    # After the last unsubscribe, put of a terminal does not change old cells
+    # After the last unsubscribe, put of a terminal does not change old events
     q.unsubscribe_terminal(cell2)
     q.unsubscribe_terminal(cell3)
     q.unsubscribe_terminal(cell4)
     q.unsubscribe_terminal(cell5)
-    assert len(q._terminal_flags) == 0
+    assert len(q._terminal_events) == 0
 
-    cell5[0] = False
+    cell5.clear()
     q.put((StreamQueueKind.ERROR, None))
-    assert cell5[0] is False
+    assert not cell5.is_set()
 
     assert type(q).put is StreamQueue.put

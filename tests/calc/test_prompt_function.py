@@ -21,13 +21,15 @@ from plugin.calc.prompt_function import (
 from plugin.framework.errors import NetworkError
 
 
+def _mock_config(custom_system=""):
+    return lambda k: 4096 if k == "calc_prompt_max_tokens" else custom_system
+
+
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_str")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_default_system_is_plain_cell_prompt(mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run):
-    mock_get_config_str.return_value = ""
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
+def test_prompt_default_system_is_plain_cell_prompt(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
 
     execute_prompt_addin(
@@ -50,10 +52,8 @@ def test_prompt_default_system_is_plain_cell_prompt(mock_get_config_int, mock_ge
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_str")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_respects_custom_extend_system_prompt(mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run):
-    mock_get_config_str.return_value = "Custom calc prompt"
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config("Custom calc prompt"))
+def test_prompt_respects_custom_extend_system_prompt(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
 
     execute_prompt_addin(MagicMock(), "hello", None, None, None, client=None)
@@ -65,8 +65,8 @@ def test_prompt_respects_custom_extend_system_prompt(mock_get_config_int, mock_g
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_formula_system_arg_overrides_default(mock_get_config_int, mock_api, mock_client_cls, mock_run):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
+def test_prompt_formula_system_arg_overrides_default(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
 
     execute_prompt_addin(
@@ -85,10 +85,9 @@ def test_prompt_formula_system_arg_overrides_default(mock_get_config_int, mock_a
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_str", return_value="")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
 def test_prompt_empty_response_returns_diagnostic(
-    mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run
+    mock_get_config, mock_api, mock_client_cls, mock_run
 ):
     mock_api.return_value = {"model": "mercury-2"}
     mock_run.return_value = {
@@ -154,16 +153,16 @@ def test_optional_text(value: Any, expected: str):
         (500.7, 500),
     ],
 )
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_optional_max_tokens(mock_get_config_int, value: Any, expected: int):
+@patch("plugin.calc.prompt_function.get_config", return_value=4096)
+def test_optional_max_tokens(mock_get_config, value: Any, expected: int):
     assert _optional_max_tokens(value) == expected
 
 
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config", return_value={"model": "cfg"})
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_model_override_reaches_new_client(mock_get_config_int, mock_api, mock_client_cls, mock_run):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
+def test_prompt_model_override_reaches_new_client(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
     execute_prompt_addin(MagicMock(), "hello", None, "gpt-x", None, client=None)
     assert mock_client_cls.call_args.args[0]["model"] == "gpt-x"
@@ -173,8 +172,8 @@ def test_prompt_model_override_reaches_new_client(mock_get_config_int, mock_api,
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config", return_value={"model": "cfg"})
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_blank_model_does_not_override(mock_get_config_int, mock_api, mock_client_cls, mock_run, blank_model):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
+def test_prompt_blank_model_does_not_override(mock_get_config, mock_api, mock_client_cls, mock_run, blank_model):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
     execute_prompt_addin(MagicMock(), "hello", None, blank_model, None, client=None)
     assert mock_client_cls.call_args.args[0]["model"] == "cfg"
@@ -184,9 +183,8 @@ def test_prompt_blank_model_does_not_override(mock_get_config_int, mock_api, moc
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_str", return_value="Custom")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_blank_system_prompt_uses_fallback(mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run, blank_system):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config("Custom"))
+def test_prompt_blank_system_prompt_uses_fallback(mock_get_config, mock_api, mock_client_cls, mock_run, blank_system):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
     execute_prompt_addin(MagicMock(), "hello", blank_system, None, None, client=None)
     messages = mock_run.call_args[0][2]
@@ -205,8 +203,8 @@ def test_prompt_blank_message_returns_error_without_call(mock_client_cls, mock_r
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config", return_value={"model": "cfg"})
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_reused_client_clears_stop(mock_get_config_int, mock_api, mock_client_cls, mock_run):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
+def test_prompt_reused_client_clears_stop(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
     client = MagicMock()
     client.config = {}
@@ -219,9 +217,8 @@ def test_prompt_reused_client_clears_stop(mock_get_config_int, mock_api, mock_cl
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_str", return_value="")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_empty_response_nested_reasoning_and_used_model(mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
+def test_prompt_empty_response_nested_reasoning_and_used_model(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_api.return_value = {"model": "requested-model"}
     mock_run.return_value = {
         "content": None,
@@ -240,8 +237,8 @@ def test_prompt_empty_response_nested_reasoning_and_used_model(mock_get_config_i
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_long_error_is_capped(mock_get_config_int, mock_api, mock_client_cls, mock_run):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
+def test_prompt_long_error_is_capped(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_run.side_effect = RuntimeError("x" * 2000)
     out, _client = execute_prompt_addin(MagicMock(), "hello", None, None, None, client=None)
     assert out.startswith("Error: ")
@@ -251,8 +248,8 @@ def test_prompt_long_error_is_capped(mock_get_config_int, mock_api, mock_client_
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_expected_failure_returns_cell_string(mock_get_config_int, mock_api, mock_client_cls, mock_run):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config(""))
+def test_prompt_expected_failure_returns_cell_string(mock_get_config, mock_api, mock_client_cls, mock_run):
     mock_run.side_effect = NetworkError("boom")
     out, _client = execute_prompt_addin(MagicMock(), "hello", None, None, None, client=None)
     assert out.startswith("Error: ")
@@ -262,9 +259,8 @@ def test_prompt_expected_failure_returns_cell_string(mock_get_config_int, mock_a
 @patch("plugin.calc.prompt_function.run_blocking_in_thread")
 @patch("plugin.calc.prompt_function.LlmClient")
 @patch("plugin.calc.prompt_function.get_api_config")
-@patch("plugin.calc.prompt_function.get_config_str", return_value="Custom")
-@patch("plugin.calc.prompt_function.get_config_int", return_value=4096)
-def test_prompt_empty_system_prompt_omits_system_message(mock_get_config_int, mock_get_config_str, mock_api, mock_client_cls, mock_run, empty_system):
+@patch("plugin.calc.prompt_function.get_config", side_effect=_mock_config("Custom"))
+def test_prompt_empty_system_prompt_omits_system_message(mock_get_config, mock_api, mock_client_cls, mock_run, empty_system):
     mock_run.return_value = {"content": "ok", "finish_reason": "stop", "usage": {}}
     execute_prompt_addin(MagicMock(), "hello", empty_system, None, None, client=None)
     messages = mock_run.call_args[0][2]

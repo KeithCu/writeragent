@@ -24,16 +24,20 @@ concurrency contract, which the in-process sidebar never needs). Its consumers:
 Same pieces, different assembly per channel — update a rule in prompts.py and every consumer
 sees it; only genuinely channel-specific text lives outside the shared pieces.
 
-Sections are per document type: Writer has the full manual; Calc and Draw currently get the generic
-sections (tools-not-chat, confirmation by structured fields, concurrency) until app-specific prose is
-written. ``get_guidance`` resolves the target document's type the same way every other tool does, so
-a Calc session never reads Writer advice."""
+Sections are per document type: Writer has the full manual; Calc and Draw have app-specific
+topics plus the shared concurrency section. ``get_guidance`` resolves the target document's type
+the same way every other tool does, so a Calc session never reads Writer advice."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from plugin.framework.prompts import (
+    CALC_CORE_DIRECTIVES,
+    CALC_FORMULA_SYNTAX_TEMPLATE,
+    CALC_WORKFLOW,
     CONFIRM_EDITS_FROM_STRUCTURED_FIELDS,
+    DRAW_CORE_DIRECTIVES,
+    DRAW_GET_IMAGE_TOOL_LINE,
     GENERIC_EDIT_CONFIRMATION_RULES,
     TOOL_USAGE_PATTERNS,
     TRANSLATION_RULES,
@@ -127,6 +131,29 @@ _WRITER_TOPICS: tuple[_Topic, ...] = (
     _CONCURRENCY_TOPIC,
 )
 
+_CALC_FORMULA_SYNTAX_MANUAL = CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", "")
+
+_CALC_TOPICS: tuple[_Topic, ...] = (
+    _Topic("workflow", CALC_WORKFLOW, "Calc workflow: read sheet, delegate, formulas, charts"),
+    _Topic(
+        "formula-syntax",
+        _CALC_FORMULA_SYNTAX_MANUAL,
+        "Calc formula syntax for =PY() and sheet references",
+    ),
+    _Topic("directives", CALC_CORE_DIRECTIVES, "Calc delegation and file/sheet data rules"),
+    _CONCURRENCY_TOPIC,
+)
+
+_DRAW_TOPICS: tuple[_Topic, ...] = (
+    _Topic("directives", DRAW_CORE_DIRECTIVES, "Draw/Impress delegation and file data rules"),
+    _Topic(
+        "get-image",
+        DRAW_GET_IMAGE_TOOL_LINE,
+        "get_image tool: page render and embedded shapes",
+    ),
+    _CONCURRENCY_TOPIC,
+)
+
 _GENERIC_TOPICS: tuple[_Topic, ...] = (
     _Topic(
         "editing",
@@ -138,6 +165,8 @@ _GENERIC_TOPICS: tuple[_Topic, ...] = (
 
 _MANUALS: dict[str, tuple[_Topic, ...]] = {
     "writer": _WRITER_TOPICS,
+    "calc": _CALC_TOPICS,
+    "draw": _DRAW_TOPICS,
     "generic": _GENERIC_TOPICS,
 }
 
@@ -163,6 +192,8 @@ def _app(doc_type: str | None) -> str:
     if doc_type is None:
         return "generic"
     label = doc_type.strip().lower()
+    if label == "impress":
+        label = "draw"
     return label if label in _MANUALS else "generic"
 
 
@@ -171,9 +202,24 @@ def writer_topic_list_text() -> str:
     return ", ".join(t.id for t in _WRITER_TOPICS)
 
 
+def calc_topic_list_text() -> str:
+    """Comma-separated list of canonical Calc topic ids in display order."""
+    return ", ".join(t.id for t in _CALC_TOPICS)
+
+
+def draw_topic_list_text() -> str:
+    """Comma-separated list of canonical Draw/Impress topic ids in display order."""
+    return ", ".join(t.id for t in _DRAW_TOPICS)
+
+
+def list_topic_entries(doc_type: str | None = "writer") -> list[tuple[str, str]]:
+    """Canonical topic ids and summaries in display order for a document type."""
+    return [(t.id, t.summary) for t in _MANUALS[_app(doc_type)]]
+
+
 def list_topics(doc_type: str | None = "writer") -> list[str]:
     """Canonical topic ids in display order for a document type."""
-    return [t.id for t in _MANUALS[_app(doc_type)]]
+    return [topic_id for topic_id, _summary in list_topic_entries(doc_type)]
 
 
 def _resolve_topic(topic: str | None, doc_type: str | None = "writer") -> _Topic | None:

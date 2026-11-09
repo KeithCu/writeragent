@@ -694,9 +694,9 @@ def _attach_index_rows(ctx, idx, rows):
 def test_list_toc_entries_reads_rows_not_the_full_export():
     """A long linked TOC is listed from index paragraphs, not the XHTML export.
 
-    What was wrong: inspecting rows called get_document_content, which exports
-    the whole document through the XHTML Writer filter. A linked TOC is a bad
-    input for that filter. This listing must not call that export or update().
+    Row inspection must not call get_document_content (XHTML Writer filter export);
+    a linked TOC is a bad input for that filter. This listing must not export or
+    call update().
     """
     tool = IndexesListTocEntries()
     ctx, _doc, idx, _mgr = _one_toc_context()
@@ -724,7 +724,6 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
 
     with patch("plugin.writer.html_export._export_xhtml", side_effect=AssertionError("xhtml export")) as export_xhtml, \
          patch("plugin.writer.html_export.document_to_content", side_effect=AssertionError("full export")) as export_doc, \
-         patch("plugin.writer.format.document_to_content", side_effect=AssertionError("format export")) as export_format, \
          patch("plugin.writer.get_document_content.GetDocumentContent.execute", side_effect=AssertionError("get_document_content")) as export_tool:
         listed = tool.execute(ctx)
 
@@ -733,7 +732,6 @@ def test_list_toc_entries_reads_rows_not_the_full_export():
     assert listed["count"] == count + 2
     assert export_xhtml.call_count == 0
     assert export_doc.call_count == 0
-    assert export_format.call_count == 0
     assert export_tool.call_count == 0
     ctx.doc.storeToURL.assert_not_called()
     first = listed["entries"][0]
@@ -1118,8 +1116,8 @@ class _OffsetText:
 def test_list_toc_entries_skips_a_paragraph_before_the_toc():
     """A paragraph above the TOC must not end the walk (discussion #2259).
 
-    What was wrong: the walk broke when compareRegionStarts(para, anchor end)
-    was positive, which in UNO means the paragraph starts before the end.
+    A positive compareRegionStarts(para, anchor end) only means the paragraph
+    starts before the anchor end; the walk must keep going.
     """
     rows = []
     for offset, (label, style) in enumerate((
@@ -1333,4 +1331,35 @@ def test_single_toc_position_single_toc_returns_index():
         res = tool.execute(ctx)
     assert res["status"] == "ok"
     assert res["index"] == 1
+
+
+def test_toc_match_case_sensitive():
+    """toc_match threads case_sensitive to find_all_ranges."""
+    from plugin.writer.specialized.indexes import toc_match
+
+    doc = MagicMock()
+    anchor = MagicMock()
+    anchor.getText.return_value = MagicMock()
+
+    calls = []
+    r_insensitive = MagicMock()
+    r_exact = MagicMock()
+
+    def fake_find_all(d, s, *, case_sensitive=False):
+        calls.append((s, case_sensitive))
+        return [r_exact] if case_sensitive else [r_insensitive]
+
+    with patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+         patch("plugin.writer.specialized.indexes._contained", return_value=True), \
+         patch("plugin.writer.specialized.indexes._para_style_name", return_value="Contents 1"):
+        # Omitted / None
+        hit_default, _ = toc_match(doc, anchor, "board", 0)
+        assert calls[-1] == ("board", False)
+        assert hit_default is r_insensitive
+
+        # Explicit True
+        hit_exact, _ = toc_match(doc, anchor, "board", 0, case_sensitive=True)
+        assert calls[-1] == ("board", True)
+        assert hit_exact is r_exact
+
 

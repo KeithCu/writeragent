@@ -30,7 +30,7 @@ from enum import Enum, auto
 import logging
 from typing import Any, Generator, NamedTuple
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import uno_same
 from plugin.writer import review_scan as _review_scan
@@ -46,6 +46,12 @@ class ResolveStatus(Enum):
     REFUSED_SIBLING = auto()
     NO_OP = auto()
     PARTIAL = auto()
+
+
+class ResolvePolicy(Enum):
+    EXACT_THEN_PARAGRAPH = auto()
+    EXACT_ONLY = auto()
+    PARAGRAPH_ONLY = auto()
 
 
 class ResolveResult(NamedTuple):
@@ -243,7 +249,7 @@ def _is_all_redlines_agent(view: RedlineView) -> bool:
     )
 
 
-# --- Agent-self-resolution guard (used by the agent-facing track_changes_* tools) -------------
+# --- Agent-self-resolution guard (used by the agent-facing tracking_* tools) -------------
 # BUG (reported): the agent accepted its OWN edits. wa-review changes are recorded for the HUMAN
 # to accept/reject in the review UI; the agent must never resolve them. HOW IT HAPPENED:
 # tracking.py's accept/reject tools drive the native .uno:Accept/Reject(All)TrackedChanges, which
@@ -473,13 +479,9 @@ def _span_contains_point(text: Any, span: Any, point: Any) -> bool:
 def _user_redline_whitespace_adjacent(text: Any, span: Any, rl_span: Any) -> bool:
     """Return True if span and user redline span are separated only by whitespace.
 
-    Fix: exact retry treated a one-space foreign neighbor as safe.
-    What was wrong: #1943 retried exact bounds after paragraph REFUSED_FOREIGN, but
-    point containment across a one-space gap evaluates to false, allowing resolve-all
-    to mistakenly accept the neighboring edit.
-    Why this fixes it: when the character gap between the agent span and a user
-    redline consists entirely of whitespace, we treat them as overlapping to refuse
-    the exact retry. Gaps with any other characters (words) remain eligible for retry.
+    Whitespace-only gaps between the agent span and a user redline count as overlapping,
+    so exact retry after REFUSED_FOREIGN does not treat a one-space neighbor as safe.
+    Gaps that contain non-whitespace still allow retry.
     """
     try:
         if text.compareRegionStarts(span.getEnd(), rl_span.getStart()) == 1:
@@ -632,11 +634,8 @@ def resolve_agent_change(
     ctx: Any,
     token: str,
     accept: bool,
-    refuse_sibling_agent: bool = True,
-    prefer_exact: bool = True,
+    policy: ResolvePolicy = ResolvePolicy.EXACT_THEN_PARAGRAPH,
     before: RedlineView | None = None,
-    *,
-    allow_paragraph_fallback: bool = True,
 ) -> tuple[ResolveResult, RedlineView]:
     """Accept/reject ONE agent change by token.
 
@@ -661,9 +660,10 @@ def resolve_agent_change(
         text = left.getText()
         controller = model.getCurrentController()
         view_cursor = controller.getViewCursor()
+        refuse_sibling = (policy is ResolvePolicy.EXACT_THEN_PARAGRAPH)
 
         # 1) Precise path: select EXACTLY this change's marks and dispatch -- resolves only it.
-        if prefer_exact:
+        if policy is not ResolvePolicy.PARAGRAPH_ONLY:
             exact = text.createTextCursorByRange(left)
             exact.gotoRange(right, True)
             strict_siblings: set[str] = set()
@@ -672,7 +672,7 @@ def resolve_agent_change(
                 text,
                 exact,
                 token,
-                refuse_sibling_agent,
+                refuse_sibling,
                 "inline",
                 strict_sibling_edges=True,
                 sibling_tokens=strict_siblings,
@@ -698,7 +698,7 @@ def resolve_agent_change(
                             token, removed, after.reliable, foreign_safe)
                 return ResolveResult(ResolveStatus.PARTIAL), after
 
-            if not allow_paragraph_fallback:
+            if policy is ResolvePolicy.EXACT_ONLY:
                 log.debug("inline_review: exact resolve of %s was no-op (fallback disabled)", token)
                 return ResolveResult(ResolveStatus.NO_OP), after
 
@@ -718,7 +718,7 @@ def resolve_agent_change(
             text,
             para_span,
             token,
-            refuse_sibling_agent,
+            refuse_sibling,
             "paragraph",
         )
         if refusal is not None:
@@ -742,7 +742,7 @@ def resolve_agent_change(
             return ResolveResult(ResolveStatus.NO_OP), after
         return ResolveResult(ResolveStatus.PARTIAL), after
     except Exception as exc:
-        if is_real_disposal(exc) and not dispatched:
+        if is_disposal(exc) and not dispatched:
             log.warning("inline_review: resolve_agent_change aborted on disposed document for %s", token)
             return ResolveResult(ResolveStatus.UNRELIABLE), before
         log.exception("inline_review: resolve_agent_change failed")
@@ -752,24 +752,10 @@ def resolve_agent_change(
 @contextlib.contextmanager
 def _grouped_resolve_undo(model: Any) -> Generator[None, None, None]:
     """Group dispatches into one undo step; keeps landed edits on failure."""
-    um = None
-    try:
-        candidate = model.getUndoManager()
-        if not candidate.isLocked():
-            candidate.enterUndoContext(_("Resolve agent changes"))
-            um = candidate
-        else:
-            log.warning("inline_review: undo manager is locked, undo grouping skipped")
-    except Exception:
-        log.warning("inline_review: could not access undo manager, undo grouping skipped", exc_info=True)
-    try:
+    from plugin.doc.compound_undo import WriterCompoundUndo
+
+    with WriterCompoundUndo(model, _("Resolve agent changes")):
         yield
-    finally:
-        if um is not None:
-            try:
-                um.leaveUndoContext()
-            except Exception:
-                log.warning("inline_review: leaveUndoContext failed", exc_info=True)
 
 
 def _resolve_overlapping_agent_changes(
@@ -877,7 +863,7 @@ def _resolve_overlapping_agent_changes(
             return ResolveResult(ResolveStatus.PARTIAL, 0)
         return ResolveResult(ResolveStatus.REFUSED_FOREIGN if has_foreign else ResolveStatus.REFUSED_SIBLING, 0)
     except Exception as exc:
-        if is_real_disposal(exc) and not dispatched:
+        if is_disposal(exc) and not dispatched:
             log.warning("inline_review: overlapping resolve aborted on disposed document for %s", token)
             return ResolveResult(ResolveStatus.UNRELIABLE, 0)
         log.exception("inline_review: resolving overlapping agent changes of %s failed", token)
@@ -933,7 +919,7 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
             before_count = len(cur_tokens)
             # Resolve-all wants sibling agent changes resolved together; only a user redline blocks it.
             res, next_view = resolve_agent_change(
-                model, ctx, token, accept, refuse_sibling_agent=False, prefer_exact=False, before=cur_view
+                model, ctx, token, accept, policy=ResolvePolicy.PARAGRAPH_ONLY, before=cur_view
             )
             if res.status == ResolveStatus.REFUSED_FOREIGN and not exact_unsupported:
                 # Tip: retry exact bounds; valid only while paragraph REFUSED_FOREIGN is pre-dispatch.
@@ -942,10 +928,8 @@ def _resolve_all_agent_changes(model: Any, ctx: Any, accept: bool) -> ResolveAll
                     ctx,
                     token,
                     accept,
-                    refuse_sibling_agent=False,
-                    prefer_exact=True,
+                    policy=ResolvePolicy.EXACT_ONLY,
                     before=cur_view,
-                    allow_paragraph_fallback=False,
                 )
                 if exact_res.status == ResolveStatus.NO_OP:
                     exact_unsupported = True

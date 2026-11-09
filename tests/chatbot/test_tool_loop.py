@@ -1,5 +1,4 @@
 import sys
-import types
 from unittest.mock import Mock, MagicMock, patch
 
 
@@ -31,18 +30,24 @@ from plugin.framework.stream_batch import BatchingStreamQueue, StreamQueueKind  
 from plugin.chatbot.tool_loop import CHAT_STREAM_BATCH_INTERVAL, ToolCallingMixin  # noqa: E402
 from plugin.chatbot.send_state import SendButtonState, SendMode  # noqa: E402
 from plugin.chatbot.sidebar_state import SidebarCompositeState  # noqa: E402
+from plugin.chatbot.tool_loop_actions import send_outcome_terminal_display  # noqa: E402
 
 class MockSession:
     def __init__(self):
         self.messages = []
+        self.document_context = ""
         self.db = None
+        self.session_id: str | None = None
 
     def set_system_context(self, base_prompt, doc_text=""):
-        content = f"{base_prompt}\n\n[DOCUMENT CONTENT]\n{doc_text}\n[END DOCUMENT]"
+        self.document_context = doc_text
         if not self.messages or self.messages[0]["role"] != "system":
-            self.messages.insert(0, {"role": "system", "content": content})
+            self.messages.insert(0, {"role": "system", "content": base_prompt})
         else:
-            self.messages[0]["content"] = content
+            self.messages[0]["content"] = base_prompt
+
+    def messages_for_request(self):
+        return list(self.messages)
 
     def add_assistant_message(self, content=None, tool_calls=None, reasoning_replay=None):
         msg = {"role": "assistant"}
@@ -83,12 +88,7 @@ class FakePanel(ToolCallingMixin):
         self._spawn_llm_worker = Mock()
         self._spawn_final_stream = Mock()
         self._get_document_model = Mock(return_value=None)
-        self._terminal_status = "Ready"
 
-    def resolve_stop_checker(self):
-        from plugin.framework.send_cancellation import bind_send_stop_checker
-
-        return bind_send_stop_checker(getattr(self, "_send_cancellation", None), lambda: self._stop_requested_fallback)
 
 def setup_mock_panel():
     ctx = MagicMock()
@@ -118,9 +118,8 @@ def test_chat_stream_batch_interval_is_250ms():
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_stream_done_no_tools(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_stream_done_no_tools(mock_get_config, mock_drain_loop):
     from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, session = setup_mock_panel()
     begin_send_turn(panel)
@@ -146,9 +145,8 @@ def test_stream_done_no_tools(mock_get_config, mock_get_config_int, mock_drain_l
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_drain_loop):
     """First LLM worker spawn takes round_num from ToolLoopState, not a host mirror."""
     panel, _session = setup_mock_panel()
     mock_drain_loop.side_effect = lambda *a, **k: k.get("on_drain_started") and k["on_drain_started"]()
@@ -163,9 +161,8 @@ def test_kickoff_uses_sm_state_round_num(mock_get_config, mock_get_config_int, m
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_control_state_lives_only_on_sm_state(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_control_state_lives_only_on_sm_state(mock_get_config, mock_drain_loop):
     """After STREAM_DONE with tools, pending/round live on _sm_state; host has no mirror attrs."""
     panel, _session = setup_mock_panel()
     tool_calls = [
@@ -190,9 +187,8 @@ def test_control_state_lives_only_on_sm_state(mock_get_config, mock_get_config_i
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_drain_loop):
     from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn, note_stop_partial
 
     panel, session = setup_mock_panel()
@@ -211,19 +207,19 @@ def test_handle_stream_stopped_stores_partial_text(mock_get_config, mock_get_con
 
 
 def test_handle_stream_error_persists_banner():
+    from plugin.chatbot.tool_loop import StreamErrorOutcome
     panel, session = setup_mock_panel()
-    with patch("plugin.chatbot.tool_loop.try_native_audio_stt_fallback", return_value=False), \
-         patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False), \
+    with patch("plugin.chatbot.tool_loop.try_native_audio_stt_fallback", return_value=StreamErrorOutcome.NOT_HANDLED), \
+         patch("plugin.chatbot.tool_loop.get_config", return_value=False), \
          patch("plugin.scripting.audio_recorder_service.clear_pending_audio_wav"):
         result = panel._handle_stream_error({"message": "boom"})
-    assert result is None
+    assert result is StreamErrorOutcome.END
     assert session.messages[-1]["content"] == "[API error: boom]"
 
 
 @patch("plugin.chatbot.tool_loop.run_stream_drain_loop")
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch("plugin.chatbot.tool_loop.get_config")
-def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_drain_loop):
     from plugin.chatbot.tool_loop_actions import begin_send_turn
     panel, _session = setup_mock_panel()
     begin_send_turn(panel)
@@ -240,9 +236,8 @@ def test_handle_stream_stopped_sets_sm_state_only(mock_get_config, mock_get_conf
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_stream_done_with_tools(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_stream_done_with_tools(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -278,9 +273,8 @@ def test_stream_done_with_tools(mock_get_config, mock_get_config_int, mock_drain
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_stream_done_persisted_assistant_tool_calls_contain_no_parsed_args(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_stream_done_persisted_assistant_tool_calls_contain_no_parsed_args(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
     tool_calls = [
         {"id": "call_abc", "type": "function", "function": {"name": "get_weather", "arguments": '{"location": "Paris"}'}}
@@ -310,9 +304,8 @@ def test_stream_done_persisted_assistant_tool_calls_contain_no_parsed_args(mock_
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_next_tool_advances_round(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_next_tool_advances_round(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     results = []
@@ -331,10 +324,9 @@ def test_next_tool_advances_round(mock_get_config, mock_get_config_int, mock_dra
     panel._spawn_llm_worker.assert_called()
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
-def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -382,10 +374,9 @@ def test_next_tool_executes_tool(mock_update_activity, mock_get_config, mock_get
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
-def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -440,10 +431,9 @@ def test_multiple_tool_calls_ordering_and_ids(mock_update_activity, mock_get_con
     assert session.messages[2]["tool_call_id"] == "call_2"
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
-def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     results = []
@@ -479,10 +469,9 @@ def test_stop_requested_mid_round(mock_update_activity, mock_get_config, mock_ge
 
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
 @patch('plugin.chatbot.tool_loop.update_activity_state')
-def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_malformed_tool_calls_handling(mock_update_activity, mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     captured_q = None
@@ -565,9 +554,8 @@ def test_max_tool_rounds_exhausted(mock_update_activity, mock_get_config, mock_d
     panel._spawn_final_stream.assert_called()
 
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_final_done_handling(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_final_done_handling(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     results = []
@@ -581,14 +569,38 @@ def test_final_done_handling(mock_get_config, mock_get_config_int, mock_drain_lo
     panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
 
     assert results[0] is True # Return true means exit loop
-    assert panel._terminal_status == "Ready"
+    assert send_outcome_terminal_display(panel) == "Ready"
     assert len(session.messages) == 1
     assert session.messages[0]["content"] == "This is the final word."
 
+
 @patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
-@patch('plugin.chatbot.tool_loop.get_config_int', return_value=10)
 @patch('plugin.chatbot.tool_loop.get_config')
-def test_error_handling_in_loop(mock_get_config, mock_get_config_int, mock_drain_loop):
+def test_final_done_empty_content_shows_out_of_tool_rounds_message(mock_get_config, mock_drain_loop):
+    from plugin.framework.i18n import _
+
+    panel, session = setup_mock_panel()
+
+    results = []
+    def mock_drain_impl(q, toolkit, thinking_open, append_fn, on_stream_done=None, **kwargs):
+        res = on_stream_done((StreamQueueKind.FINAL_DONE, ''))
+        results.append(res)
+
+    mock_drain_loop.side_effect = mock_drain_impl
+
+    client = Mock()
+    panel._start_tool_calling_async(client, model="mock-model", max_tokens=100, tools=[], execute_tool_fn=Mock(), max_tool_rounds=10)
+
+    assert results[0] is True
+    assert send_outcome_terminal_display(panel) == "Ready"
+    expected = _("Reached the maximum number of tool rounds.")
+    panel._append_response.assert_any_call(expected + "\n")
+    assert len(session.messages) == 1
+    assert session.messages[0]["content"] == expected
+
+@patch('plugin.chatbot.tool_loop.run_stream_drain_loop')
+@patch('plugin.chatbot.tool_loop.get_config')
+def test_error_handling_in_loop(mock_get_config, mock_drain_loop):
     panel, session = setup_mock_panel()
 
     results = []
@@ -606,41 +618,31 @@ def test_error_handling_in_loop(mock_get_config, mock_get_config_int, mock_drain
     assert results[0] is True # Should exit loop
 
 
-def test_refresh_active_tools_for_session():
-    """Avoid @patch(plugin.main.get_tools): importing plugin.main pulls UNO-heavy code."""
+def test_refresh_active_tools_for_session(monkeypatch):
+    """Patch plugin.app.get_tools without importing plugin.main."""
     fake_registry = MagicMock()
     fake_registry.get_schemas.return_value = [{"function": {"name": "fresh"}}]
-    fake_main = types.ModuleType("plugin.main")
-    fake_main.get_tools = MagicMock(return_value=fake_registry)
+    monkeypatch.setattr("plugin.app.get_tools", MagicMock(return_value=fake_registry))
+    panel, session = setup_mock_panel()
+    panel.cached_doc_type = "writer"
+    panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
+    session.active_specialized_domain = "tables"
+    from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
 
-    old_main = sys.modules.pop("plugin.main", None)
-    sys.modules["plugin.main"] = fake_main
-    try:
-        panel, session = setup_mock_panel()
-        panel.cached_doc_type = "writer"
-        panel.cached_uno_services = frozenset({"com.sun.star.text.TextDocument"})
-        session.active_specialized_domain = "tables"
-        from plugin.chatbot.tool_loop_actions import begin_send_turn, current_turn
+    turn = begin_send_turn(panel)
+    turn.active_tools = [{"function": {"name": "stale"}}]
 
-        turn = begin_send_turn(panel)
-        turn.active_tools = [{"function": {"name": "stale"}}]
+    panel._refresh_active_tools_for_session()
 
-        panel._refresh_active_tools_for_session()
-
-        fake_registry.get_schemas.assert_called_once_with(
-            "openai",
-            doc_type="writer",
-            uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
-            active_domain="tables",
-            ctx=panel.ctx,
-            doc=None,
-        )
-        assert current_turn(panel).active_tools == [{"function": {"name": "fresh"}}]
-    finally:
-        if old_main is not None:
-            sys.modules["plugin.main"] = old_main
-        else:
-            sys.modules.pop("plugin.main", None)
+    fake_registry.get_schemas.assert_called_once_with(
+        "openai",
+        doc_type="writer",
+        uno_services_supported=frozenset({"com.sun.star.text.TextDocument"}),
+        active_domain="tables",
+        ctx=panel.ctx,
+        doc=None,
+    )
+    assert current_turn(panel).active_tools == [{"function": {"name": "fresh"}}]
 
 # =============================================================================
 # Specialized Delegation Tests (Merged)
@@ -655,7 +657,7 @@ from plugin.draw.specialized import DelegateToSpecializedDraw
 from plugin.calc.base import ToolCalcSpecialBase
 from plugin.draw.base import ToolDrawSpecialBase
 from plugin.contrib.smolagents.memory import FinalAnswerStep
-from plugin.framework.config import get_config_int as _real_get_config_int
+from plugin.framework.config import get_config as _real_get_config
 
 class DummyTableTool(ToolWriterSpecialBase):
     name = "dummy_table_tool"
@@ -689,16 +691,10 @@ class DummyCalcSpecialTool(ToolCalcSpecialBase):
         return {"status": "ok", "message": "ok"}
 
 
-# Bugfix: DummyDrawSpecialTool previously inherited directly from ToolDrawSpecialBase
-# at module scope, which permanently leaked 'draw_test_domain' into
-# ToolDrawSpecialBase.__subclasses__() across the pytest session. This caused
-# test_tool_exposure_parity.py to fail when verifying that catalog domains map to
-# shipped concrete tools.
-#
-# To prevent test pollution, DummyDrawSpecialTool inherits from ToolBase (registered
-# virtually with ToolDrawSpecialBase), and the dummy_draw_tool fixture monkeypatches
-# ToolDrawSpecialBase.__subclasses__ only for tests exercising Draw delegation,
-# restoring the original subclasses on teardown.
+# Module-scope inheritance from ToolDrawSpecialBase leaks draw_test_domain into
+# __subclasses__() for the whole pytest session and breaks exposure-parity checks.
+# DummyDrawSpecialTool inherits ToolBase instead; the dummy_draw_tool fixture
+# patches __subclasses__ only for Draw delegation tests and restores on teardown.
 class DummyDrawSpecialTool(ToolBase):
     name = "dummy_draw_special_tool"
     description = "A dummy Draw specialized tool."
@@ -746,17 +742,29 @@ def mock_ctx(registry):
     return ctx
 
 
-def _mock_get_config_int_for_sub_agent(key):
+def _mock_get_config_for_sub_agent(key):
     if key == "chat_max_tokens":
         return 2048
     if key in ("chat_max_tool_rounds", "chatbot.max_tool_rounds"):
         return 25
-    return _real_get_config_int(key)
+    return _real_get_config(key)
+
+
+def _compaction_off_config(key):
+    if key == "chat_compaction_enabled":
+        return False
+    return _real_get_config(key)
+
+
+def _compaction_on_config(key):
+    if key == "chat_compaction_enabled":
+        return True
+    return _real_get_config(key)
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -766,14 +774,13 @@ def test_specialized_delegation_sub_agent_mode(
     mock_llm,
     mock_smol_model,
     mock_agent_class,
-    mock_get_config,
-    _mock_get_config_int,
+    mock_get_api_config,
+    _mock_get_config,
     registry,
     mock_ctx,
 ):
     # Sub-agent delegation path
     mock_ctx.ctx = MagicMock()
-    mock_get_config.return_value = {}
 
     active_domain = "initial_value"
 
@@ -823,8 +830,8 @@ def test_specialized_delegation_sub_agent_mode(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -834,13 +841,12 @@ def test_shapes_delegation_includes_canvas_in_instructions(
     mock_llm,
     mock_smol_model,
     mock_agent_class,
-    mock_get_config,
-    _mock_get_config_int,
+    mock_get_api_config,
+    _mock_get_config,
     registry,
     mock_ctx,
 ):
     mock_ctx.ctx = MagicMock()
-    mock_get_config.return_value = {}
 
     doc = MagicMock()
 
@@ -963,8 +969,8 @@ def test_active_domain_schemas_include_calc_and_draw(registry, dummy_draw_tool):
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -974,8 +980,8 @@ def test_calc_specialized_delegation_sub_agent(
     mock_llm,
     mock_smol_model,
     mock_agent_class,
-    mock_get_config,
-    _mock_get_config_int,
+    mock_get_api_config,
+    _mock_get_config,
     registry,
     mock_ctx,
 ):
@@ -1004,8 +1010,8 @@ def test_calc_specialized_delegation_sub_agent(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -1015,8 +1021,8 @@ def test_draw_specialized_delegation_sub_agent(
     mock_llm,
     mock_smol_model,
     mock_agent_class,
-    mock_get_config,
-    _mock_get_config_int,
+    mock_get_api_config,
+    _mock_get_config,
     registry,
     mock_ctx,
     dummy_draw_tool,
@@ -1109,7 +1115,7 @@ def _run_captured_llm_worker(spawn):
     import queue
 
     from plugin.chatbot.tool_loop_actions import current_turn
-    from plugin.framework.send_cancellation import SendCancellation, bind_send_stop_checker
+    from plugin.framework.send_cancellation import SendCancellation
 
     panel, _session = setup_mock_panel()
     turn = current_turn(panel)
@@ -1121,33 +1127,17 @@ def _run_captured_llm_worker(spawn):
     new = SendCancellation()
     panel._send_cancellation = old
     panel._stop_requested_fallback = False
-    calls = []
-    bound = {}
-
-    def resolve():
-        scope = panel._send_cancellation
-        calls.append(scope)
-        checker = bind_send_stop_checker(scope, lambda: panel._stop_requested_fallback)
-        bound["checker"] = checker
-        return checker
-
-    panel.resolve_stop_checker = resolve
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
     seen = {}
 
     def during_stream(*_args, **kwargs):
-        seen["checker"] = kwargs["stop_checker"]
+        seen["scope"] = kwargs["cancel"]
+        assert kwargs["cancel"] is old
         old.cancel()
         panel._send_cancellation = new
         panel._stop_requested_fallback = False
-        client._stopped = False
-
-        def boom():
-            calls.append(panel._send_cancellation)
-            raise AssertionError("resolve_stop_checker inside worker")
-
-        panel.resolve_stop_checker = boom
+        client.stopped.return_value = False
         return {"content": "should-not-finish", "tool_calls": []}
 
     client.stream_request_with_tools.side_effect = during_stream
@@ -1160,17 +1150,15 @@ def _run_captured_llm_worker(spawn):
 
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture),
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
     ):
         spawn(panel, batched, client)
-        assert calls == [old]
         assert len(started) == 1
         started[0]()
 
-    assert calls == [old]
-    assert seen["checker"] is bound["checker"]
-    assert seen["checker"]() is True
-    assert bind_send_stop_checker(new, lambda: False)() is False
+    assert seen["scope"] is old
+    assert old.is_cancelled()
+    assert new.is_cancelled() is False
     item = q.get(timeout=1)
     assert item[0] == StreamQueueKind.STOPPED
     assert q.empty()
@@ -1205,7 +1193,6 @@ def test_toolkit_none_starts_drain_and_first_worker():
             cb()
 
     with patch("plugin.chatbot.tool_loop.get_toolkit", return_value=None), \
-         patch("plugin.chatbot.tool_loop.get_config_int", return_value=10), \
          patch("plugin.chatbot.tool_loop.get_config", return_value=False), \
          patch("plugin.chatbot.tool_loop.run_stream_drain_loop", side_effect=mock_drain), \
          patch.object(panel, "_spawn_llm_worker", MagicMock()) as mock_spawn:
@@ -1245,7 +1232,7 @@ def test_retry_status_restored_on_first_chunk():
     batched = BatchingStreamQueue(q, batch_interval=10)
     turn.batcher = batched
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
 
     def fake_stream(*_args, **kwargs):
         kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
@@ -1257,7 +1244,7 @@ def test_retry_status_restored_on_first_chunk():
 
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
     ):
         ToolCallingMixin._spawn_llm_worker(panel, batched, client, 100, [], 0)
         started[0]()
@@ -1290,7 +1277,7 @@ def test_retry_status_restored_on_first_chunk_final_stream():
     batched = BatchingStreamQueue(q, batch_interval=10)
     turn.batcher = batched
     client = MagicMock()
-    client._stopped = False
+    client.stopped.return_value = False
 
     def fake_stream(messages, max_tokens, append_c, append_t, **kwargs):
         kwargs["status_callback"]("Provider busy, retrying in 0.4s…")
@@ -1301,7 +1288,7 @@ def test_retry_status_restored_on_first_chunk_final_stream():
 
     with (
         patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
-        patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False),
+        patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
     ):
         ToolCallingMixin._spawn_final_stream(panel, batched, client, 100)
         started[0]()
@@ -1321,17 +1308,43 @@ def test_retry_status_restored_on_first_chunk_final_stream():
     assert items[0] == (StreamQueueKind.STATUS, "Provider busy, retrying in 0.4s…")
     assert items[1] == (StreamQueueKind.STATUS, "Finishing...")
     assert items[2] == (StreamQueueKind.CHUNK, "World")
+    assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
+
+
+def test_spawn_final_stream_passes_active_tools_and_tool_choice_none():
+    import queue
+
+    panel, session = setup_mock_panel()
+    q = queue.Queue()
+    batched = BatchingStreamQueue(q, batch_interval=10)
+    client = MagicMock()
+    client.stopped.return_value = False
+    tools = [{"type": "function", "function": {"name": "test_tool"}}]
+
+    started = []
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=lambda fn, **kw: started.append(fn)),
+        patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config),
+    ):
+        ToolCallingMixin._spawn_final_stream(panel, batched, client, 100, tools=tools)
+        started[0]()
+    batched._timer.stop()
+
+    client.stream_chat_response.assert_called_once()
+    assert client.stream_chat_response.call_args.kwargs["tools"] == tools
+    assert client.stream_chat_response.call_args.kwargs["tool_choice"] == "none"
+    client.stream_request_with_tools.assert_not_called()
 
 
 
 def test_bind_spawn_without_live_turn_has_no_session():
     # current_turn can be None; _bind_spawn must still return usable callbacks.
     host = Mock()
-    host._panel = Mock(_turn=None)
-    with patch("plugin.chatbot.tool_loop.capture_send_stop", return_value=(Mock(is_cancelled=lambda: True), lambda: False)):
-        turn, session, stop_checker, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
+    cancelled = Mock(is_cancelled=lambda: True)
+    host._panel = Mock(_turn=None, _send_cancellation=cancelled)
+    turn, session, bound_scope, emit, stopped_cb = ToolCallingMixin._bind_spawn(host, Mock())
     assert turn is None and session is None
-    assert stop_checker() is False
+    assert bound_scope is cancelled
     emit("x")  # no live turn: put_for_turn drops the item instead of raising
     assert stopped_cb() is True
 
@@ -1363,16 +1376,70 @@ def test_compact_bound_session_tolerates_missing_turn():
     from plugin.chatbot.tool_loop import _compact_bound_session
 
     result = Mock(reason="ok", tokens_before=1, tokens_after=1)
-    with patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=True), \
+    with patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_on_config), \
          patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=1000), \
          patch("plugin.chatbot.tool_loop.compact_session", return_value=result):
-        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, stop_checker=None, force=False, status_cb=Mock()) is True
+        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, cancel=None, force=False, status_cb=Mock()) is True
 
 
 def test_compact_bound_session_disabled_skips_compact():
     from plugin.chatbot.tool_loop import _compact_bound_session
 
-    with patch("plugin.chatbot.tool_loop.get_config_bool_safe", return_value=False), \
+    with patch("plugin.chatbot.tool_loop.get_config", side_effect=_compaction_off_config), \
          patch("plugin.chatbot.tool_loop.compact_session") as mock_compact:
-        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, stop_checker=None, force=True, status_cb=Mock()) is True
+        assert _compact_bound_session(Mock(), Mock(), None, tools=None, max_tokens=None, cancel=None, force=True, status_cb=Mock()) is True
         mock_compact.assert_not_called()
+
+
+def test_tool_loop_lane_status_callback_queues_status() -> None:
+    import queue
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from typing import Any
+
+    from plugin.chatbot.tool_loop_actions import TurnController, put_for_turn
+    from tests.framework.lane_probe import assert_lane_callback_safe
+
+    turn = TurnController(SimpleNamespace(messages=[]))
+    turn.queue = queue.Queue()
+    turn.batcher = None
+
+    def emit(item: Any) -> bool:
+        return put_for_turn(turn, item)
+
+    bound = (turn, SimpleNamespace(messages=[]), None, emit, lambda: False)
+
+    captured: dict[str, Any] = {}
+
+    @contextmanager
+    def fake_llm_request_lane(*, status_callback: Any = None, resume_status: Any = None, **kwargs: Any) -> Any:
+        captured["status_callback"] = status_callback
+        captured["resume_status"] = resume_status
+        yield
+
+    raw_q = queue.Queue()
+    batched = BatchingStreamQueue(raw_q, batch_interval=10.0)
+    try:
+        with (
+            patch("plugin.chatbot.tool_loop.llm_request_lane", fake_llm_request_lane),
+            patch("plugin.chatbot.tool_loop.get_config", return_value=False),
+        ):
+            ToolCallingMixin()._run_stream_worker(
+                bound,
+                batched=batched,
+                client=MagicMock(),
+                max_tokens=1000,
+                resume_status="Thinking...",
+                stream_call=lambda session, content_cb, thinking_cb, status_cb, bound_scope: "ok",
+                done_kind=StreamQueueKind.STREAM_DONE,
+                error_log_msg="x",
+                strip_round_0_image=False,
+            )
+    finally:
+        batched._timer.stop()
+
+    assert captured["resume_status"] == "Thinking..."
+    assert callable(captured["status_callback"])
+    assert_lane_callback_safe(captured["status_callback"], "lane-probe")
+    queued_items = list(turn.queue.queue)
+    assert (StreamQueueKind.STATUS, "lane-probe") in queued_items

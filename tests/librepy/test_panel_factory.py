@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import gettext
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+import plugin.framework.i18n as i18n_module
 
 
 def _element():
@@ -43,9 +46,11 @@ def test_get_real_interface_create_goes_through_main_thread_hop():
         el.toolpanel = panel
         return None
 
-    with patch("plugin.librepy.panel_factory.run_on_main", side_effect=fake_hop), patch(
-        "plugin.librepy.panel_factory.get_extension_url"
-    ) as url:
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=fake_hop),
+        patch("plugin.librepy.panel_factory.get_extension_url") as url,
+    ):
         result = el.getRealInterface()
     url.assert_not_called()
     assert result is panel
@@ -59,13 +64,19 @@ def test_get_real_interface_create_runs_on_hop():
     controller = MagicMock(name="controller")
     controller.resize_listener = MagicMock(name="resize")
 
-    with patch(
-        "plugin.librepy.panel_factory.run_on_main",
-        side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
-    ) as hop, patch("plugin.librepy.panel_factory._ensure_paths") as ensure, patch.object(
-        el, "_getOrCreatePanelRootWindow", return_value=root
-    ), patch(
-        "plugin.librepy.python_sidebar.PythonSidebarController", return_value=controller
+    with (
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch(
+            "plugin.framework.queue_executor.main.call",
+            side_effect=lambda fn, *args, **kwargs: fn(),
+        ) as hop,
+        patch("plugin.librepy.panel_factory._ensure_paths") as ensure,
+        patch.object(
+            el, "_getOrCreatePanelRootWindow", return_value=root
+        ),
+        patch(
+            "plugin.librepy.python_sidebar.PythonSidebarController", return_value=controller
+        ),
     ):
         result = el.getRealInterface()
 
@@ -82,7 +93,7 @@ def test_get_real_interface_skips_hop_when_panel_exists():
     el = _element()
     existing = MagicMock(name="existing")
     el.toolpanel = existing
-    with patch("plugin.librepy.panel_factory.run_on_main") as hop:
+    with patch("plugin.framework.queue_executor.main.call") as hop:
         result = el.getRealInterface()
     hop.assert_not_called()
     assert result is existing
@@ -104,7 +115,7 @@ def test_get_real_interface_clears_toolpanel_and_retries():
         return ctrl
 
     with patch(
-        "plugin.librepy.panel_factory.run_on_main",
+        "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
@@ -129,7 +140,7 @@ def test_get_real_interface_second_create_panel_is_noop():
     controller = MagicMock(name="controller")
 
     with patch(
-        "plugin.librepy.panel_factory.run_on_main",
+        "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root
@@ -151,9 +162,17 @@ def test_get_or_create_root_window_raises_when_ctx_is_none():
 
     el = _element()
     el.ctx = None
-    with patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, pytest.raises(UnoObjectError):
-        el._getOrCreatePanelRootWindow()
-    mock_get_ctx.assert_not_called()
+    # UnoObjectError runs msgids through _(); first _() in an xdist worker
+    # would init i18n via get_lo_locale → get_ctx. Seed the catalog so we
+    # only assert the panel path does not bootstrap UNO context.
+    prev_translation = i18n_module._translation
+    i18n_module._translation = gettext.NullTranslations()
+    try:
+        with patch("plugin.framework.uno_context.get_ctx") as mock_get_ctx, pytest.raises(UnoObjectError):
+            el._getOrCreatePanelRootWindow()
+        mock_get_ctx.assert_not_called()
+    finally:
+        i18n_module._translation = prev_translation
 
 
 def test_null_create_container_window_raises_and_retries():
@@ -168,7 +187,7 @@ def test_null_create_container_window_raises_and_retries():
     controller.resize_listener = None
 
     with patch(
-        "plugin.librepy.panel_factory.run_on_main",
+        "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.librepy.panel_factory._ensure_paths"), patch(
         "plugin.librepy.panel_factory.get_extension_url", return_value="file:///ext"
@@ -209,7 +228,7 @@ def test_window_on_disposing_nulls_toolpanel_and_rebuilds():
     controller2 = MagicMock(name="controller2")
 
     with patch(
-        "plugin.librepy.panel_factory.run_on_main",
+        "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ), patch("plugin.librepy.panel_factory._ensure_paths"), patch.object(
         el, "_getOrCreatePanelRootWindow", return_value=root

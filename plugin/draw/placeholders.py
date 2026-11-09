@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Any
 
 from plugin.draw.bridge import DrawBridge
-from plugin.framework.errors import uno_probe
+from plugin.framework.errors import uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
 # Specific tokens first so matching is not shape-order / substring-any.
@@ -47,7 +47,7 @@ def _role_from_label(label: Any) -> str | None:
 
 def _shape_type(shape: Any) -> str:
     """Short UNO service name, e.g. ``TitleTextShape``."""
-    raw = uno_probe(lambda: shape.getShapeType(), "") or uno_probe(lambda: getattr(shape, "ClassName", ""), "")
+    raw = uno_read(lambda: shape.getShapeType(), "") or uno_read(lambda: getattr(shape, "ClassName", ""), "")
     return str(raw).rsplit(".", 1)[-1] if raw else ""
 
 
@@ -56,10 +56,10 @@ def _scan_shapes(page: Any) -> list[_ScanRow]:
     out = []
     for i in range(page.getCount()):
         shape = page.getByIndex(i)
-        name = uno_probe(lambda: str(shape.Name), "") or ""
+        name = uno_read(lambda: str(shape.Name), "") or ""
         shape_type = _shape_type(shape)
         role = _role_from_label(shape_type) or ""
-        has_text = uno_probe(lambda: hasattr(shape, "getString"), False)
+        has_text = uno_read(lambda: hasattr(shape, "getString"), False)
         out.append((i, shape, shape_type, role, name, has_text))
     return out
 
@@ -96,7 +96,7 @@ def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[di
     for i, shape, class_name, type_role, name, has_text in scan:
         if not has_text:
             continue
-        text = uno_probe(lambda: shape.getString(), None)
+        text = uno_read(lambda: shape.getString(), None)
         if text is None:
             continue
         entry: dict[str, Any] = {"index": i, "text": text}
@@ -113,7 +113,7 @@ def _list_placeholders(page: Any, scan: list[_ScanRow] | None = None) -> list[di
 
 # C1: available=[] is truthful (no presentation placeholders yet) but mercury
 # retried the same role call. Hint + suggest_layout points at delegate
-# slide_layouts — set_slide_layout is specialized and not on the main tool list.
+# slide_layouts — slide_layout_set is specialized and not on the main tool list.
 _EMPTY_PLACEHOLDER_HINT = "Slide may lack a text layout. Delegate domain=slide_layouts with layout='text', then list_placeholders."
 
 
@@ -164,11 +164,10 @@ class ListPlaceholders(ToolBase):
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         scan = _scan_shapes(page)
         placeholders = _list_placeholders(page, scan)
-        return {"status": "ok", "page": page_idx, "placeholders": placeholders, "count": len(placeholders)}
+        return {"status": "ok", "page": actual_idx, "placeholders": placeholders, "count": len(placeholders)}
 
 
 class GetPlaceholderText(ToolBase):
@@ -184,8 +183,7 @@ class GetPlaceholderText(ToolBase):
     uno_services: list[str] | None = ["com.sun.star.presentation.PresentationDocument"]
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, _actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         role = kwargs.get("role")
         shape_index = kwargs.get("index")
         scan = None if shape_index is not None else _scan_shapes(page)
@@ -223,8 +221,7 @@ class SetPlaceholderText(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        page_idx = kwargs.get("page")
-        page = DrawBridge.get_slide_for_tool(ctx.doc, page_idx)
+        page, _actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
         text = kwargs["text"]
         role = kwargs.get("role")
         shape_index = kwargs.get("index")

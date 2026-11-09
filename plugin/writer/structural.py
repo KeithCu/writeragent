@@ -25,12 +25,14 @@ from typing import TYPE_CHECKING, Any
 
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
+    iter_elements,
     with_view_cursor_left_body_locked as _with_left_body_locked,
 )
 from plugin.doc.visual_helpers import safe_get_property
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.prompts import PARAGRAPH_INDEX_DIRECTIVE
 from plugin.framework.tool import ToolBase, ToolBaseDummy
+from plugin.framework.errors import name_miss_details
 
 from .specialized_base import ToolWriterStructuralBase
 
@@ -124,10 +126,8 @@ class GetPageObjects(ToolBase):
                 except (ValueError, ToolExecutionError) as e:
                     return self._tool_error(str(e))
             if para_idx is not None:
-                # What was wrong: get_page_for_paragraph swallowed exceptions and returned
-                # fallback 1, so failures were reported as status: ok, page: 1 (#1422).
-                # Why: page resolution failures must be surfaced as tool errors so callers
-                # and automated controllers do not act on false success.
+                # Page lookup failures surface as tool errors instead of defaulting to
+                # page 1, so callers and automation do not act on a false ok response.
                 try:
                     page = doc_svc.get_page_for_paragraph(doc, para_idx)
                 except (ValueError, ToolExecutionError) as e:
@@ -291,7 +291,11 @@ class SectionRead(ToolWriterStructuralBase):
         sections = doc.getTextSections()
         if not sections.hasByName(section_name):
             available = list(sections.getElementNames())
-            return self._tool_error("Section '%s' not found." % section_name, available=available)
+            return self._tool_error(
+                "Section '%s' not found." % section_name,
+                available=available,
+                **name_miss_details(section_name, [str(n) for n in available], "section_list"),
+            )
 
         section = sections.getByName(section_name)
         anchor = section.getAnchor()
@@ -299,8 +303,7 @@ class SectionRead(ToolWriterStructuralBase):
         # Extract paragraphs within the section
         enum = anchor.createEnumeration()
         paragraphs = []
-        while enum.hasMoreElements() is True:
-            para = enum.nextElement()
+        for para in iter_elements(enum):
             if para.supportsService("com.sun.star.text.Paragraph"):
                 paragraphs.append(get_string_without_tracked_deletions(para))
             elif para.supportsService("com.sun.star.text.TextTable") is True:
@@ -357,10 +360,12 @@ class CloneHeadingBlock(ToolBaseDummy):
         if para_index is None:
             return self._tool_error("Provide locator or paragraph_index.")
 
-        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
-
         # Use writer_tree service to find the heading node and block size.
-        tree_svc = ctx.services.writer_tree
+        tree_svc = getattr(ctx.services, "writer_tree", None)
+        if tree_svc is None:
+            return self._tool_error("Writer tree service unavailable.", code="SERVICE_UNAVAILABLE")
+
+        from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK  # type: ignore
 
         tree = tree_svc.build_heading_tree(ctx.doc)
         node = tree_svc.find_heading_by_para_index(tree, para_index)
@@ -375,8 +380,7 @@ class CloneHeadingBlock(ToolBaseDummy):
         enum = doc_text.createEnumeration()
         elements = []
         idx = 0
-        while enum.hasMoreElements():
-            el = enum.nextElement()
+        for el in iter_elements(enum):
             if para_index <= idx < para_index + total:
                 elements.append(el)
             if idx >= para_index + total - 1:

@@ -12,7 +12,7 @@ import logging
 import re
 from typing import Any, Iterator, NamedTuple, Sequence
 
-from plugin.doc.text_helpers import go_right, skip_tracked_deletions
+from plugin.doc.text_helpers import FAILED, go_right, skip_tracked_deletions
 from plugin.framework.errors import best_effort, reraise_if_disposed, uno_read
 import plugin.writer.range_copy as range_copy
 
@@ -98,16 +98,14 @@ def inject_ruby_into_html(html: str, spans: Sequence[_RubySpan]) -> str:
     """Rewrite glued or dropped ruby encodings to semantic ``<ruby><rt>``.
 
     The XHTML Writer filter has no ``text:ruby`` rule, so full export concatenates
-    base + reading (``漢字かんじです``). Range/portion-copy never paints ``RubyText``
-    — that property lives on the empty Ruby *start* mark, not the Text run —
-    so range export used to drop the reading. Both become
+    base + reading (``漢字かんじです``). Range copy does not paint ``RubyText`` on the
+    start mark, so readings are rewritten here to
     ``<ruby>漢字<rt>かんじ</rt></ruby>です``. Apply recreates portions in
     ``html_import`` (strip ``<rt>``, then ``RubyText`` on the base run).
 
     Replacements stay inside a single text node (or wrap the base node and
-    delete a following reading node). Crossing a tag with a wrapper used to
-    emit ``<span><ruby>…</span>…`` — browsers recover, but it is not HTML we
-    want the agent to copy.
+    delete a following reading node). Replacements stay within one text node so
+    wrappers do not split ``<ruby>`` across tags.
     """
     if not html or not spans:
         return html
@@ -151,8 +149,8 @@ def _iter_ruby_spans_in_paragraph(para: Any) -> Iterator[_RubySpan]:
     ``Text`` run; the end mark is empty. ``getString()`` on the paragraph is
     base only — reading is not a text field.
     """
-    portion_enum = uno_read(lambda: para.createEnumeration(), range_copy._FAILED)
-    if portion_enum is range_copy._FAILED:
+    portion_enum = uno_read(lambda: para.createEnumeration(), FAILED)
+    if portion_enum is FAILED:
         return
     in_ruby = False
     reading = ""

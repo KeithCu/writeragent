@@ -19,13 +19,11 @@ from __future__ import annotations
 from typing import Any, IO, Mapping
 
 from plugin.framework.deal_shim import (
-    DEAL_MAX_CMD_ARGS,
     DEAL_MAX_TOKEN,
-    _profile,
     ascii_bounded,
     deal,
 )
-from plugin.scripting.ipc import (
+from plugin.framework.ipc import (
     _write_all,
     DEFAULT_MAX_PAYLOAD_BYTES,
     IpcPayloadSizeError,
@@ -39,6 +37,7 @@ __all__ = [
     "PARENT_TO_CHILD_TYPES",
     "message_type",
     "normalize_target",
+    "pack_message",
     "read_message",
     "session_id_of",
     "stamp_session",
@@ -99,15 +98,20 @@ def read_message(stream: IO[bytes]) -> dict[str, Any] | None:
     return decoded
 
 
-def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
-    """Write one dict to *stream* as pickle protocol 5 with a 4-byte big-endian length prefix."""
-    # crosshair: off
+def pack_message(message: dict[str, Any]) -> bytes:
+    """Pack one dict as pickle protocol 5 with a 4-byte big-endian length prefix."""
     try:
-        frame = pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
+        return pack_pickle_frame(message, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
     except IpcPayloadSizeError as exc:
         # pack_pickle_frame's message includes the byte count. A fixed
         # sentence here dropped that count from str(exc) at the host dialog.
         raise ValueError(str(exc)) from exc
+
+
+def write_message(stream: IO[bytes], message: dict[str, Any]) -> None:
+    """Write one dict to *stream* as pickle protocol 5 with a 4-byte big-endian length prefix."""
+    # crosshair: off
+    frame = pack_message(message)
     _write_all(stream, frame)
 
 
@@ -129,18 +133,7 @@ def _deal_ipc_dict_ok_pytest(msg: object) -> bool:
     return isinstance(msg, Mapping)
 
 
-def _deal_ipc_dict_ok_crosshair(msg: object, allow_nested: bool = True) -> bool:
-    return type(msg) is dict and len(msg) <= DEAL_MAX_CMD_ARGS and all(
-        type(k) is str and ascii_bounded(k, DEAL_MAX_TOKEN) and (
-            v is None
-            or (isinstance(v, str) and ascii_bounded(v, DEAL_MAX_TOKEN))
-            or (allow_nested and isinstance(v, dict) and _deal_ipc_dict_ok_crosshair(v, allow_nested=False))
-        )
-        for k, v in msg.items()
-    )
-
-
-_deal_ipc_dict_ok = _profile(_deal_ipc_dict_ok_crosshair, _deal_ipc_dict_ok_pytest)
+_deal_ipc_dict_ok = _deal_ipc_dict_ok_pytest
 
 
 @deal.pre(lambda target: target is None or _deal_ipc_dict_ok(target))
@@ -156,9 +149,7 @@ def normalize_target(target: Mapping[str, Any] | None) -> dict[str, str]:
     out: dict[str, str] = {}
     for key in _TARGET_KEYS:
         raw = target.get(key)
-        # str() on a UNO object or other non-str used to land in
-        # target_identity_key. Callers build these fields as str; a non-str
-        # must not become a session id.
+        # Skip non-str identity fields so UNO objects are not coerced into session ids.
         if not isinstance(raw, str):
             continue
         text = raw.strip()

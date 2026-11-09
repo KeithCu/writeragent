@@ -40,7 +40,7 @@ class _ContentEmbed:
 
 def test_content_size_uses_embedded_object_property_not_get_embedded_object() -> None:
     # Draw OLE2Shape has no getEmbeddedObject(); that call used to return
-    # None and insert_math always fell through to the length heuristic.
+    # None and math_insert always fell through to the length heuristic.
     calls = {"getEmbeddedObject": 0}
 
     class Shape:
@@ -128,14 +128,15 @@ class _FakeDoc:
 
 
 def test_insert_math_invalid_page_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    from plugin.framework.errors import ToolExecutionError
+
     monkeypatch.setattr(
         "plugin.draw.math_insert.convert_latex_to_starmath",
         lambda *args, **kwargs: MathConversionResult(True, "x", None),
     )
     ctx = SimpleNamespace(doc=_FakeDoc([]), active_page_index=0)
-    res = InsertMathDraw().execute(ctx, formula_type="latex", formula="x^2", page=5, x=0, y=0)
-    assert res["status"] == "error"
-    assert "Invalid page index: 5" in res["message"]
+    with pytest.raises(ToolExecutionError, match="Page index 5 out of range."):
+        InsertMathDraw().execute(ctx, formula_type="latex", formula="x^2", page=5, x=0, y=0)
 
 
 def test_insert_math_disposal_propagates(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -30,7 +30,7 @@ gave the extension at load, stored in ``_fallback_ctx``. Calling
 can return a **different** context with no UI, which then segfaults or
 fails to find dialogs. This module does **not** make the Writer/Calc
 document model safe from any thread — wrap document access with
-``guard_uno`` and marshal UI work through ``QueueExecutor``.
+``guard_uno`` and marshal UI work through ``MainThread``.
 """
 
 from __future__ import annotations
@@ -51,10 +51,11 @@ from plugin.framework.constants import (
 from plugin.framework.errors import (
     _uno_disposal_message,
     reraise_if_disposed,
-    safe_call,
     suppress_disposed,
+    uno_call,
 )
-from plugin.framework.thread_guard import main_thread_only, on_main_thread
+from plugin.framework.queue_executor import main
+from plugin.framework.thread_guard import main_thread_only
 from plugin.framework.vcl_pumping import (
     focus_preserved as focus_preserved,
     process_events_to_idle as process_events_to_idle,
@@ -203,7 +204,7 @@ def resolve_package_extension_id(ctx: Any | None = None) -> str:
     if _package_extension_id:
         return _package_extension_id
 
-    if not on_main_thread():
+    if not main.is_current():
         return EXTENSION_ID_WRITERAGENT
 
     pip = get_package_info(ctx)
@@ -252,7 +253,7 @@ def _stable_component_context(ctx: Any) -> Any:
     ``get_ctx() is get_ctx()`` would be False. The release stub returns the
     raw object, so identity holds. The bootstrap context is one long-lived
     PyUNO object. Mocks and guard-off returns stay the raw object, which
-    is already stable. QueueExecutor still unwraps before it stores a
+    is already stable. MainThread still unwraps before it stores a
     context; that compare is on the raw target.
     """
     from plugin.framework.thread_guard import _UnoThreadGuardProxy
@@ -354,11 +355,11 @@ def get_active_document(ctx: Any | None = None) -> Any:
         desktop = get_desktop(ctx)
         if desktop is None:
             return None
-        doc = safe_call(desktop.getCurrentComponent, "Desktop component resolution")
+        doc = uno_call(desktop.getCurrentComponent, "Desktop component resolution")
         return _guard_returned_uno(doc)
     except Exception as e:
         # DisposedException from get_desktop() is a plain Exception, so a
-        # dying desktop looks like nothing open. safe_call already re-raises
+        # dying desktop looks like nothing open. uno_call already re-raises
         # disposal from getCurrentComponent.
         reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
         log.exception("get_active_document unexpected exception")
@@ -449,15 +450,23 @@ def normalize_doc_url(url: Any) -> str:
     return s
 
 
-def _read_runtime_uid(model: Any) -> str:
-    """RuntimeUID ladder with no thread check.
+def get_runtime_uid(model: Any) -> str:
+    """Stable per-session id for an open component.
 
-    File Open ``XFilter.filter`` runs on Dummy-2 (detect reload on Dummy-3),
-    not ``threading.main_thread()``. Notebook ``_doc_key`` must use this so
-    the guard on ``get_runtime_uid`` does not make ``filter()`` return False.
-    Same acceptance rules as ``get_runtime_uid``: plain ``str`` / ``int`` only.
+    Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
+    documents, so it can address a document that has no file on disk yet.
+    Returns "" if unavailable.
+
+    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
+    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
+    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
+    cannot masquerade as a real uid.
     """
-    for accessor in (lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None, lambda m: getattr(m, "RuntimeUID", None), lambda m: m.getPropertyValue("RuntimeUID")):
+    for accessor in (
+        lambda m: m.getRuntimeUID() if callable(getattr(m, "getRuntimeUID", None)) else None,
+        lambda m: getattr(m, "RuntimeUID", None),
+        lambda m: m.getPropertyValue("RuntimeUID"),
+    ):
         try:
             raw = accessor(model)
             if isinstance(raw, bool):
@@ -470,30 +479,6 @@ def _read_runtime_uid(model: Any) -> str:
             log.debug("runtime uid accessor failed", exc_info=True)
             continue
     return ""
-
-
-@main_thread_only
-def get_runtime_uid(model: Any) -> str:
-    """Stable per-session id for an open component.
-
-    Unlike the document URL, ``RuntimeUID`` exists even for unsaved/untitled
-    documents, so it can address a document that has no file on disk yet.
-    Returns "" if unavailable.
-
-    Tries ``getRuntimeUID()``, attribute access, and ``getPropertyValue("RuntimeUID")`` in turn
-    because LibreOffice builds expose the id through different UNO surfaces. Only plain ``str`` /
-    ``int`` values are accepted so auto-mocked UNO attributes (e.g. ``MagicMock.RuntimeUID``)
-    cannot masquerade as a real uid.
-
-    ``@main_thread_only`` raises before the loop when the guard is on.
-    Every accessor sitting in ``except Exception`` swallows
-    ``assert_main_thread``'s ``RuntimeError`` and returns ``""`` (an
-    untitled document with no id) — the same ladder ``uno_same`` used
-    before it was decorated. On-thread disposal still returns ``""``.
-    An untagged Dummy upcall may call this; notebook File Open still uses
-    ``_read_runtime_uid`` so it does not depend on the guard.
-    """
-    return _read_runtime_uid(model)
 
 
 # @main_thread_only (same decorator as resolve_document_by_url) never
@@ -510,9 +495,7 @@ def uno_same(a: Any, b: Any) -> bool:
     PyUNO often hands out **distinct Python wrappers** for one UNO identity.
     Bare ``is`` / ``==`` / ``!=`` can then miss that a draw shape's
     ``shape.getAnchor().getText()`` is the same header ``XText`` as
-    ``style.getPropertyValue("HeaderText")``. That false miss hid logos from
-    ``_scan_region_content`` (get/metadata wrong; historically a wipe could
-    look "safe").
+    ``style.getPropertyValue("HeaderText")``.
 
     This is **not** a requirement of the debug viral UNO thread proxy
     (``_UnoThreadGuardProxy`` in ``thread_guard.py``). That proxy is a
@@ -520,19 +503,17 @@ def uno_same(a: Any, b: Any) -> bool:
     LibreOffice / PyUNO wrapper issue and exists with the proxy stripped.
 
     It still works when proxying is on: ``_UnoThreadGuardProxy.__eq__``
-    unwraps ``_target`` and compares ``self._target == _unwrap_uno(other)``
+    unwraps ``_target`` and compares ``self._target == unwrap_uno(other)``
     (see ``thread_guard.py``), so step 2 (``==``) succeeds for
     proxy↔unwrapped. ``uno.isSame`` is a UNO/C++ identity test and must see
-    real PyUNO objects, so step 3 unwraps via ``_unwrap_uno`` first.
+    real PyUNO objects, so step 3 unwraps via ``unwrap_uno`` first.
 
-    Ladder (a false miss is still wrong for get/metadata, and was the
-    disaster when wipe used this scan as a refuse gate):
+    Ladder:
 
     1. ``a is b``
     2. try ``a == b`` (covers viral-proxy ``__eq__`` unwrap when GUARD_ON)
     3. try ``uno.isSame`` on unwrapped objects when the function exists
-       (not all LibreOffice Python-UNO builds ship it; same fallback as
-       ``_page_index_for`` historically)
+       (not all LibreOffice Python-UNO builds ship it)
     4. else False
     """
     if a is b:
@@ -548,11 +529,11 @@ def uno_same(a: Any, b: Any) -> bool:
         is_same = getattr(uno, "isSame", None)
         if not callable(is_same):
             return False
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
         # ``is True``: mocked ``uno.isSame`` (unit tests) returns a MagicMock,
         # which is truthy. Real PyUNO returns a bool.
-        return is_same(_unwrap_uno(a), _unwrap_uno(b)) is True
+        return is_same(unwrap_uno(a), unwrap_uno(b)) is True
     except Exception:
         return False
 
@@ -561,16 +542,19 @@ def uno_same(a: Any, b: Any) -> bool:
 _ENUM_CAP = 32
 
 
-def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bool:
-    """True when *has_more* indicates more elements and *seen* is below ``_ENUM_CAP``."""
-    # What was wrong: is not True treats SAL integer 1 as the end of the enum,
-    # so iter_desktop_models yields nothing and session lookup/reset misses
-    # every open model.
-    # How: 8a8e33d42 replaced not has_more, which treated 1 as more, while
-    # stopping MagicMock.
-    # Why: != 1 matches iter_open_models, and a mock still stops because its
-    # inequality is truthy.
-    if has_more is not True and has_more != 1:
+def enum_has_more(enum: Any) -> bool:
+    """True when a UNO XEnumeration reports more elements.
+
+    PyUNO maps ``hasMoreElements()`` sal_Bool to Python ``bool`` (``True`` /
+    ``False``), not integer ``1``. The ``is True`` check stops pytest
+    ``MagicMock`` enums whose default return is another truthy mock.
+    """
+    return enum.hasMoreElements() is True
+
+
+def _desktop_enum_value_continues(enum: Any, seen: int, *, label: str) -> bool:
+    """True when *enum* has more elements and *seen* is below ``_ENUM_CAP``."""
+    if not enum_has_more(enum):
         return False
     if seen >= _ENUM_CAP:
         log.error("%s: desktop enum hit cap=%s; stopping", label, _ENUM_CAP)
@@ -578,26 +562,27 @@ def _desktop_enum_value_continues(has_more: Any, seen: int, *, label: str) -> bo
     return True
 
 
-def _enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # imported by document_scripts.py and session_manager.py
+def enumeration_should_continue(enum: Any, seen: int, *, label: str) -> bool:  # pyright: ignore[reportUnusedFunction]  # cross-module helper; imported by document_scripts.py
     """False when *enum* is exhausted or past ``_ENUM_CAP``.
 
     Swallows ``hasMoreElements`` errors and returns False. Callers that need
-    disposal re-raising (such as :func:`iter_open_models`) must handle
-    ``hasMoreElements`` themselves and call :func:`_desktop_enum_value_continues`
+    disposal re-raising (such as :func:`iter_open_models` with strict=True) must
+    handle ``hasMoreElements`` themselves and call :func:`_desktop_enum_value_continues`
     instead.
     """
     try:
-        has_more = enum.hasMoreElements()
+        return _desktop_enum_value_continues(enum, seen, label=label)
     except Exception:
         return False
-    return _desktop_enum_value_continues(has_more, seen, label=label)
 
 
-def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
+def iter_open_models(desktop: Any, *, strict: bool = True, label: str = "iter_open_models") -> Generator[Any, None, None]:
     """Iterate open document models from desktop components enumeration.
 
-    Handles frame controller unwrapping, guards against truthy mock loops,
-    stops on nextElement failure, and re-raises real disposal.
+    Handles frame controller unwrapping and guards against truthy mock loops.
+    An element that fails to resolve is skipped; an enumeration failure ends
+    the walk. With *strict* a real disposal is re-raised; without it the walk
+    also skips models whose ``getCurrentController`` raises.
     """
     if desktop is None:
         return
@@ -610,8 +595,7 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
             return
         seen = 0
         while True:
-            more = enum.hasMoreElements()
-            if not _desktop_enum_value_continues(more, seen, label="iter_open_models"):
+            if not _desktop_enum_value_continues(enum, seen, label=label):
                 break
             seen += 1
             elem = enum.nextElement()
@@ -625,51 +609,17 @@ def iter_open_models(desktop: Any) -> Generator[Any, None, None]:
                     controller = elem.getController()
                     if controller is not None and hasattr(controller, "getModel"):
                         model = controller.getModel()
-                if model is not None:
-                    yield model
+                if model is not None and not strict:
+                    getattr(model, "getCurrentController", lambda: None)()
             except Exception as e:
-                log.debug("iter_open_models element error: %s", type(e).__name__)
+                log.debug("%s element error: %s", label, type(e).__name__)
                 continue
-    except Exception as e:
-        reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
-        return
-
-
-def iter_desktop_models(ctx: Any, *, label: str = "session_manager") -> Generator[Any, None, None]:
-    """Yield all valid open models from desktop component enumeration."""
-    from plugin.framework.errors import check_disposed
-    from plugin.framework.thread_guard import _unwrap_uno
-
-    desktop = get_desktop(ctx)
-    if desktop is None:
-        return
-    comps = desktop.getComponents() if hasattr(desktop, "getComponents") else None
-    if comps is None or not hasattr(comps, "createEnumeration"):
-        return
-    enum = comps.createEnumeration()
-    seen = 0
-    while True:
-        if not _enumeration_should_continue(enum, seen, label=label):
-            break
-        seen += 1
-        try:
-            elem = enum.nextElement()
-        except Exception:
-            break
-        model = None
-        if hasattr(elem, "getURL") and callable(getattr(elem, "getURL")):
-            model = elem
-        elif hasattr(elem, "getController"):
-            ctrl = elem.getController()
-            if ctrl:
-                model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-        if model is not None:
-            try:
-                check_disposed(_unwrap_uno(model))
-                getattr(model, "getCurrentController", lambda: None)()
+            if model is not None:
                 yield model
-            except Exception:
-                log.debug("session_manager: skipping broken model", exc_info=True)
+    except Exception as e:
+        if strict:
+            reraise_if_disposed(e, _uno_disposal_message(e), object_type="Desktop")
+        return
 
 
 @main_thread_only
@@ -684,7 +634,7 @@ def resolve_document_by_url(ctx: Any, url: Any) -> tuple[Any, str | None]:
     """
     if not url or not str(url).strip():
         return (None, None)
-    from plugin.doc import doc_type as _doc_type
+    from plugin.framework import doc_type as _doc_type
 
     target = _doc_identity_url(url)
     try:
@@ -737,7 +687,7 @@ def document_id_for_frame(frame: Any) -> str:
     """
     if frame is None:
         return ""
-    if not on_main_thread():
+    if not main.is_current():
         return ""
     model = get_document_from_frame(frame)
     if model is None:

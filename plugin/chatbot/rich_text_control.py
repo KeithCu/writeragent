@@ -24,6 +24,7 @@ from typing import Any, cast
 from plugin.framework.errors import best_effort
 from plugin.framework.uno_listeners import BaseWindowListener
 from plugin.doc.text_helpers import go_right
+from plugin.chatbot.dialogs import set_prop
 from plugin.chatbot.rich_text import (
     CHAT_FONT_HEIGHT,
     CHAT_FONT_NAME,
@@ -37,13 +38,15 @@ from plugin.framework.uno_context import focus_preserved, process_events_to_idle
 log = logging.getLogger(__name__)
 
 
-def _debug_env_active() -> bool:  # pyright: ignore[reportUnusedFunction]
-    """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1``)."""
+def debug_env_active() -> bool:
+    """True in dev thread-guard builds and mock-sidebar soffice (``WRITERAGENT_TESTING=1`` via ``is_dev_build()``)."""
     from plugin.framework import thread_guard as tg
 
-    if hasattr(tg, "_designated_main_thread"):
+    if getattr(tg, "DEV_GUARD", False):
         return True
-    return os.environ.get("WRITERAGENT_TESTING") == "1"
+    from plugin.framework.dev_build import is_dev_build
+
+    return is_dev_build()
 
 _CONTROL_INIT_STARTED: set[int] = set()
 _IN_SCROLL_TO_TAIL: set[int] = set()
@@ -95,7 +98,7 @@ class RichTextChatWidget:
         # Closes over this panel's frame session. Stream chunks must not
         # restore whichever Ask field was pinned for the process.
         self.restore_focus = restore_focus
-        # Debug-only: Packet M (mock sidebar) reads these through the SNAPSHOT
+        # Debug-only: test hooks read these through the SNAPSHOT
         # hook to prove streaming appends instead of repainting.
         self._debug_paint_session_count: int = 0
         self._debug_stream_session_count: int = 0
@@ -589,17 +592,17 @@ def _apply_rich_control_style_defaults_on_model(model: Any, style_window: Any = 
         ("AutoHScroll", False),
         ("HardLineBreaks", False),
         # If a 1-char tail selection is left (collapse missed), hide it when
-        # Ask/instruct has focus (exp 16). Harmless if selection is collapsed.
+        # Ask/instruct has focus. Harmless if selection is collapsed.
         ("HideInactiveSelection", True),
     ):
-        _set_model_property(model, name, val)
+        set_prop(model, name, val)
     import uno
 
     fd = cast("Any", uno.createUnoStruct("com.sun.star.awt.FontDescriptor"))
     fd.Name = CHAT_FONT_NAME
     fd.Height = int(CHAT_FONT_HEIGHT)
     fd.Weight = int(CHAT_FONT_WEIGHT)
-    _set_model_property(model, "FontDescriptor", fd)
+    set_prop(model, "FontDescriptor", fd)
 
 
 def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -> None:
@@ -630,26 +633,6 @@ def _apply_rich_control_style_defaults(control: Any, style_window: Any = None) -
         CHAT_FONT_NAME,
         CHAT_FONT_HEIGHT,
     )
-
-
-def _set_model_property(model: Any, name: str, value: Any) -> bool:
-    """Set a control model property (attribute or XPropertySet).
-
-    Form ``TextField`` models reject many awt edit properties (``BackgroundColor``, etc.);
-    callers must treat False as unsupported, not fatal.
-    """
-    try:
-        setattr(model, name, value)
-        return True
-    except Exception as e:
-        log.debug("_set_model_property setattr %s failed: %s", name, e)
-    if hasattr(model, "setPropertyValue"):
-        try:
-            model.setPropertyValue(name, value)
-            return True
-        except Exception as e:
-            log.debug("_set_model_property %s failed: %s", name, e)
-    return False
 
 
 def _apply_control_surface_colors(control: Any, bg_color: int) -> None:
@@ -740,7 +723,7 @@ def _try_dialog_embedded_rich_control(root_window: Any, placeholder_ctrl: Any, p
             ("Width", bw),
             ("Height", bh),
         ):
-            _set_model_property(embedded, prop, val)
+            set_prop(embedded, prop, val)
 
         _apply_rich_control_style_defaults_on_model(embedded, style_window=root_window)
 
@@ -887,9 +870,9 @@ class RichTextControlListener(BaseWindowListener):
         self.initialized = True
         _CONTROL_INIT_STARTED.add(parent_id)
         log_rich_control_context("deferred_init", action="begin")
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(self._deferred_init)
+        main.post(self._deferred_init)
 
     def _deferred_init(self) -> None:
         if self._disposed:
@@ -958,7 +941,7 @@ def create_sidebar_rich_text_control(ctx: Any, root_window: Any, placeholder_ctr
             return None
 
         impl = field_model.getImplementationName() if hasattr(field_model, "getImplementationName") else "?"
-        _set_model_property(field_model, "Name", RICH_CONTROL_NAME)
+        set_prop(field_model, "Name", RICH_CONTROL_NAME)
         _apply_rich_control_style_defaults_on_model(field_model, root_window)
 
         rich_flag = field_model.getPropertyValue("RichText") if hasattr(field_model, "getPropertyValue") else None
@@ -1133,8 +1116,8 @@ def append_text_chunk(control: Any, text: str, style_window: Any = None, ctx: An
         if model is None or not hasattr(model, "createTextCursor"):
             return
         # Do not setFocus on stream. setFocus + focus_preserved(query) stole
-        # document typing (exp 10): stock Toolkit has no getFocusWindow
-        # (PyUNO hasattr lies). SelectAll on the rich peer scrolls (exp 6/7, 17 revert).
+        # document typing: stock Toolkit has no getFocusWindow
+        # (PyUNO hasattr lies). SelectAll on the rich peer scrolls without stealing focus.
         cursor = model.createTextCursor()
         cursor.gotoEnd(False)
         apply_rich_control_para_margins(cursor)
@@ -1233,7 +1216,7 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
         if model is not None:
             was_readonly = getattr(model, "ReadOnly", None)
             if was_readonly:
-                _set_model_property(model, "ReadOnly", False)
+                set_prop(model, "ReadOnly", False)
         try:
             if hasattr(control, "setFocus"):
                 control.setFocus()
@@ -1242,5 +1225,5 @@ def reveal_rich_control_caret(control: Any, ctx: Any = None, reason: str = "unsp
             log.exception("reveal_rich_control_caret failed")
         finally:
             if was_readonly and model is not None:
-                _set_model_property(model, "ReadOnly", True)
+                set_prop(model, "ReadOnly", True)
 

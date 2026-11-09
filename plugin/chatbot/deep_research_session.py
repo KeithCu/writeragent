@@ -23,13 +23,20 @@ if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
 DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS = """DEEP RESEARCH MODE:
-You perform multi-step public web research and write formatted results into the active Writer document when appropriate.
+You perform multi-step public web research and write formatted results into the active document when appropriate.
 
 WORKFLOW:
 1. Read document context when helpful (get_document_content / get_document_tree / search_in_document).
 2. Run deep_research_web for the user's research query. This may take several minutes (parallel searches, adaptive rounds).
-3. Convert the plain-text report to HTML and insert it with apply_document_content (JSON array of HTML strings; target end unless the user asked otherwise). Do NOT paste the full report into reply_to_user.
-4. reply_to_user with a brief HTML summary of what you researched and where it was inserted.
+3. reply_to_user with a brief HTML summary of what you researched. Do NOT paste the full report into reply_to_user; highlight key findings only.
+
+TOOLS:
+- deep_research_web: multi-step adaptive web research only (not the shallow web_research tool).
+- reply_to_user: short HTML confirmation when the turn is complete."""
+
+DEEP_RESEARCH_WRITER_INSERT_INSTRUCTIONS = """WRITER DOCUMENT INSERT (apply_document_content is in your tool list):
+After step 2, convert the plain-text report to HTML and insert it with apply_document_content (JSON array of HTML strings; target end unless the user asked otherwise). Do NOT paste the full report into reply_to_user.
+Then reply_to_user with a brief HTML summary of what you researched and where it was inserted.
 
 HTML RULES (CRITICAL):
 - apply_document_content content must be a JSON array of HTML strings — no Markdown (#, **, ```).
@@ -37,10 +44,20 @@ HTML RULES (CRITICAL):
 - Do NOT use HTML entity escaping (&lt;p&gt;) — send real tags.
 - Rewrite plain-text deep_research_web results as structured HTML (headings, paragraphs, lists) before apply_document_content.
 
-TOOLS:
-- deep_research_web: multi-step adaptive web research only (not the shallow web_research tool).
-- apply_document_content: the ONLY way to write research into the document.
-- reply_to_user: short chat confirmation when the turn is complete."""
+- apply_document_content: the ONLY way to write research into the document."""
+
+DEEP_RESEARCH_REPLY_ONLY_INSTRUCTIONS = """OUTPUT (no document insert tools):
+Your reply_to_user HTML summary is the only output the user receives from this research run. Include the most important findings there; do not claim text was inserted into the document."""
+
+
+def compose_deep_research_mode_instructions(tool_names: list[str] | tuple[str, ...]) -> str:
+    """Base deep-research prompt plus Writer insert steps only when apply_document_content is available."""
+    parts = [DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS.strip()]
+    if "apply_document_content" in tool_names:
+        parts.append(DEEP_RESEARCH_WRITER_INSERT_INSTRUCTIONS.strip())
+    else:
+        parts.append(DEEP_RESEARCH_REPLY_ONLY_INSTRUCTIONS.strip())
+    return "\n\n".join(parts)
 
 class DeepResearchWebTool(SubAgentResearchWebBase):
     """Multi-step public web research (sidebar Deep Research only; not shallow web_research)."""
@@ -56,8 +73,9 @@ class DeepResearchWebTool(SubAgentResearchWebBase):
     doc_types: list[str] | None = ["writer", "calc", "draw", "impress"]
     name: str | None = "deep_research_web"
     description: str = (
-        "Run breadth/depth public web research on a topic. Returns plain text; "
-        "format as HTML and insert with apply_document_content."
+        "Run breadth/depth public web research on a topic. Returns plain text. "
+        "Summarize findings in reply_to_user; insert formatted HTML with apply_document_content "
+        "only when that tool is in your tool list."
     )
     deep_research: ClassVar[bool] = True
 
@@ -68,7 +86,8 @@ def _run_deep_research_agent(ctx: ToolContext, *, query: str = "", history_text:
 
     tools = collect_sub_agent_tools(ctx, "deep_research", include_document_research=False)
     tool_names = [t.name for t in tools if t.name]
-    instructions = get_sub_agent_instructions(DEEP_RESEARCH_SUB_AGENT_INSTRUCTIONS, tool_names=tool_names)
+    mode_text = compose_deep_research_mode_instructions(tool_names)
+    instructions = get_sub_agent_instructions(mode_text, tool_names=tool_names)
     return run_smol_side_turn(
         ctx,
         query=query,

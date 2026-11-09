@@ -23,6 +23,14 @@ from plugin.doc.document_research_grep import (
 from plugin.framework.url_utils import path_to_file_url
 
 
+class _SequentialCancel:
+    def __init__(self, values: list[bool]) -> None:
+        self._values = iter(values)
+
+    def is_cancelled(self) -> bool:
+        return next(self._values)
+
+
 def test_resolve_grep_candidates_budget_filter():
     with tempfile.TemporaryDirectory() as tmp:
         budget = os.path.join(tmp, "Budget_2026.ods")
@@ -173,6 +181,7 @@ def test_grep_nearby_files_aggregates_hits(mock_resolve, mock_search, mock_open,
     result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "Q4", file_subset="budget")
 
     assert result["status"] == "ok"
+    assert result["matched_case_sensitive"] is False
     assert result["files_scanned"] == 1
     assert result["files_with_hits"] == 1
     assert len(result["hits"]) == 1
@@ -228,18 +237,14 @@ def test_grep_nearby_files_stop_checker(mock_resolve, mock_search, mock_open, mo
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], False)
 
-    stopped = {"n": 0}
-
-    def stop_after_first():
-        stopped["n"] += 1
-        return stopped["n"] > 1
+    cancel = _SequentialCancel([False, True])
 
     result = grep_nearby_files(
         MagicMock(),
         MagicMock(),
         MagicMock(),
         "x",
-        stop_checker=stop_after_first,
+        cancel=cancel,
     )
 
     assert result["status"] == "error"
@@ -428,14 +433,17 @@ def test_grep_text_in_writer_stop_checker_skips_later_paragraphs():
 
     services.document.get_paragraph_ranges.return_value = [para1, para2, para3]
 
-    stop_checker = MagicMock(return_value=True)
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
+    scope.cancel()
 
     _, partial = _grep_text_in_writer(
         model,
         services,
         pattern="first",
         max_results=5,
-        stop_checker=stop_checker,
+        cancel=scope,
     )
 
     para2.getString.assert_not_called()
@@ -577,7 +585,7 @@ def test_grep_nearby_files_invalid_regex_does_not_open_files(mock_resolve, mock_
 @patch("plugin.doc.document_research_grep.open_document_for_read")
 @patch("plugin.doc.document_research_grep._grep_text_in_calc")
 @patch("plugin.doc.document_research_grep.resolve_grep_candidates")
-def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mock_open, mock_close):
+def test_grep_nearby_files_runs_uno_only_when_current(mock_resolve, mock_search, mock_open, mock_close):
     mock_resolve.return_value = (
         [{"path": "/tmp/Budget.ods", "name": "Budget.ods", "url": "file:///b", "doc_type_guess": "calc", "is_open": False}],
         False,
@@ -589,7 +597,7 @@ def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mo
         False,
     )
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_execute:
+    with patch("plugin.framework.queue_executor.main.call") as mock_execute:
         def side_effect(func, *args, **kwargs):
             return func(*args, **kwargs)
         mock_execute.side_effect = side_effect
@@ -601,20 +609,20 @@ def test_grep_nearby_files_runs_uno_on_main_thread(mock_resolve, mock_search, mo
 
 @patch("plugin.doc.document_research.os.listdir")
 @patch("plugin.doc.document_research.resolve_listing_directory")
-@patch("plugin.framework.thread_guard.on_main_thread", return_value=True)
+@patch("plugin.framework.queue_executor.main.is_current", return_value=True)
 def test_grep_nearby_files_stop_checker_aborts_during_directory_scan(mock_omt, mock_rld, mock_listdir):
     mock_rld.return_value = "/tmp"
     # Create enough files to trigger the modulo check at idx % 50 == 0
     mock_listdir.return_value = [f"file{i}.ods" for i in range(100)]
 
-    stop_checker = MagicMock(side_effect=[False, True])
+    cancel = _SequentialCancel([False, True])
 
     result = grep_nearby_files(
         MagicMock(),
         MagicMock(),
         MagicMock(),
         "Q4",
-        stop_checker=stop_checker,
+        cancel=cancel,
     )
 
     assert result["status"] == "error"
@@ -634,18 +642,14 @@ def test_grep_nearby_files_stop_during_last_file_is_user_stopped(mock_resolve, m
     mock_open.return_value = (MagicMock(), "calc", None, True)
     mock_search.return_value = ([{"sheet": "S", "cell": "A1", "value": "x"}], True)
 
-    calls = {"n": 0}
-
-    def stop_after_top():
-        calls["n"] += 1
-        return calls["n"] > 1
+    cancel = _SequentialCancel([False, True])
 
     result = grep_nearby_files(
         MagicMock(),
         MagicMock(),
         MagicMock(),
         "x",
-        stop_checker=stop_after_top,
+        cancel=cancel,
     )
 
     assert result["status"] == "error"
@@ -684,7 +688,7 @@ def test_grep_nearby_files_marshal_timeout_records_error_and_continues(
             raise TimeoutError("timed out")
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=mock_execute):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=mock_execute):
         result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "hit")
 
     assert result["status"] == "ok"
@@ -710,7 +714,7 @@ def test_grep_nearby_files_closes_when_search_raises(
     mock_search.side_effect = RuntimeError("boom")
 
     with patch(
-        "plugin.framework.queue_executor.execute_on_main_thread",
+        "plugin.framework.queue_executor.main.call",
         side_effect=lambda fn, *args, **kwargs: fn(*args, **kwargs),
     ):
         result = grep_nearby_files(MagicMock(), MagicMock(), MagicMock(), "query")
@@ -857,3 +861,24 @@ def test_grep_text_in_draw_caps_shape_snippet():
 
     matches, partial = _grep_text_in_draw(model, "a", max_results=1)
     assert matches[0]["text"] == "a" * 200 + "…"
+
+
+def test_grep_nearby_files_tool_wrapper_matched_case_sensitive():
+    from plugin.doc.document_research_grep_tool import GrepNearbyFiles
+    tool = GrepNearbyFiles()
+    ctx = MagicMock()
+    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
+
+    with patch("plugin.doc.document_research_grep_tool.grep_nearby_files") as mock_grep:
+        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": False}
+        res_default = tool.execute(ctx, pattern="search_term")
+        assert res_default["status"] == "ok"
+        assert res_default["matched_case_sensitive"] is False
+        assert mock_grep.call_args.kwargs["case_sensitive"] is False
+
+        mock_grep.return_value = {"status": "ok", "hits": [], "matched_case_sensitive": True}
+        res_cs = tool.execute(ctx, pattern="search_term", case_sensitive=True)
+        assert res_cs["status"] == "ok"
+        assert res_cs["matched_case_sensitive"] is True
+        assert mock_grep.call_args.kwargs["case_sensitive"] is True

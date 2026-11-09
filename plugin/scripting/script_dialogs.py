@@ -92,12 +92,7 @@ def show_new_script_dialog(
                     # A disabled box can still report State 1. can_attach is the
                     # same predicate that disabled it.
                     attach = bool(can_attach and get_checkbox_state(cc) == 1)
-                    # What was wrong: OK accepted INIT/Init while Attach was checked.
-                    # How it happened: the dialog only called is_reserved_script_name.
-                    # Those spellings are not display prefixes. attach_document_script
-                    # rejects them because they are the workbook init keys.
-                    # Why this works: new_script_name_error is that same predicate,
-                    # so the dialog stays open on the storage sentence.
+                    # new_script_name_error blocks reserved init names before attach, matching attach_document_script rejection for INIT/Init.
                     message = new_script_name_error(t, attach=attach)
                     if message is not None:
                         peer = None
@@ -108,11 +103,7 @@ def show_new_script_dialog(
                                 "show_new_script_dialog: dialog peer unavailable",
                                 exc_info=True,
                             )
-                        # What was wrong: this msgbox used the document frame while
-                        # execute() was still on the stack, so the box could open
-                        # under the modal dialog.
-                        # Why this works: parent_window is the dialog peer. None
-                        # keeps msgbox's frame parent.
+                        # parent_window is the modal dialog peer so the error box stacks above execute(), not under the document frame.
                         msgbox(ctx, _("Error"), message, parent_window=peer)
                         return
                     outcome = (t, attach)
@@ -133,9 +124,7 @@ def show_new_script_dialog(
                 try:
                     edit.setFocus()
                 except Exception:
-                    # What was wrong: setFocus ran before the dispose finally.
-                    # A focus failure skipped execute() and leaked the dialog.
-                    # Why this works: focus is best-effort; dispose still runs.
+                    # setFocus failure is logged only; execute() and dispose still run so the dialog is not leaked.
                     log.debug("show_new_script_dialog: setFocus failed", exc_info=True)
             dlg.execute()
             return outcome

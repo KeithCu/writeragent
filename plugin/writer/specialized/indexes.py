@@ -28,17 +28,18 @@ refresh does not rewrite it.
 import logging
 from typing import Any, Callable, cast
 
+from plugin.doc.text_helpers import iter_elements
 from plugin.framework.errors import reraise_if_disposed, uno_read
 from plugin.framework.uno_context import create_property_value
 
-from plugin.writer.format import content_has_markup
+from plugin.writer.html_import import content_has_markup
 from plugin.writer.specialized_base import (
     ToolWriterIndexBase,
     enum_param,
     index_error,
     target_params,
 )
-from ..search import parse_non_negative_int
+from ..search import CASE_SENSITIVE_DESCRIPTION, parse_non_negative_int
 from ..target_resolver import resolve_target_cursor
 
 log = logging.getLogger("writeragent.writer.specialized.indexes")
@@ -320,16 +321,6 @@ def _entry_before(found: Any, content: str) -> tuple[str, str]:
     return entry[:160], after[:160]
 
 
-def _enum_has_more(enum: Any) -> bool:
-    """True only when ``hasMoreElements()`` is True.
-
-    ``if not enum.hasMoreElements()`` never stops on pytest MagicMock (the
-    return is another mock). Same rule as ``hyperlink_fixup._enum_has_more``.
-    """
-    # Probes degrade; a disposed document must not read as an empty result.
-    return uno_read(lambda: enum.hasMoreElements() is True, False)
-
-
 def _resolve_toc_target(
     tool: Any, doc: Any, index: Any
 ) -> tuple[Any, Any, int | None, dict[str, Any] | None]:
@@ -366,11 +357,19 @@ def _resolve_toc_target(
     return idx, idx.getAnchor(), index_position, None
 
 
-def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple[Any | None, str | None]:
+def toc_match(
+    doc: Any,
+    anchor: Any,
+    old_content: str,
+    occurrence: Any,
+    *,
+    case_sensitive: bool | None = None,
+) -> tuple[Any | None, str | None]:
     """The *occurrence* search hit that lies inside the TOC anchor."""
     from .. import search as search_mod
 
-    ranges = search_mod.find_all_ranges(doc, old_content) or []
+    cs = search_mod.resolve_case_sensitive(case_sensitive)
+    ranges = search_mod.find_all_ranges(doc, old_content, case_sensitive=cs) or []
     text = anchor.getText()
     inside = [
         found for found in ranges
@@ -386,7 +385,13 @@ def toc_match(doc: Any, anchor: Any, old_content: str, occurrence: Any) -> tuple
 
 
 def _locate_toc_entry(
-    tool: Any, doc: Any, old_content: Any, index: Any, occurrence: Any
+    tool: Any,
+    doc: Any,
+    old_content: Any,
+    index: Any,
+    occurrence: Any,
+    *,
+    case_sensitive: bool | None = None,
 ) -> tuple[Any, Any, Any, dict[str, Any] | None]:
     occ, occurrence_error = parse_non_negative_int(occurrence)
     if occurrence_error:
@@ -394,7 +399,9 @@ def _locate_toc_entry(
     idx, anchor, _pos, err = _resolve_toc_target(tool, doc, index)
     if err is not None:
         return None, None, None, err
-    found, find_error = toc_match(doc, anchor, str(old_content).strip(), occ)
+    found, find_error = toc_match(
+        doc, anchor, str(old_content).strip(), occ, case_sensitive=case_sensitive
+    )
     if find_error:
         return None, None, None, tool._tool_error(find_error, code="NOT_FOUND")
     return idx, anchor, found, None
@@ -443,14 +450,9 @@ def _commit_toc_mutation(
                     idx.setPropertyValue("IsProtected", True)
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    # Bugfix: Returning inside a finally block swallowed any active
-                    # exception raised by mutate() (and triggers SyntaxWarning under
-                    # PEP 765 in Python 3.14+). This happened because early code
-                    # returned tool._tool_error directly inside the except block
-                    # within finally. We stash the protection restore error in
-                    # restore_err and return it after finally exits, allowing any
-                    # mutate() exception to propagate cleanly while preserving rollback
-                    # on protection restore failure.
+                    # Protection restore errors go in restore_err and are returned only
+                    # after finally exits, so mutate() exceptions propagate and Python
+                    # 3.14+ does not warn on return inside finally.
                     restore_err = tool._tool_error(
                         "Could not restore table-of-contents protection; the edit was rolled back."
                     )
@@ -523,8 +525,7 @@ def _paragraphs_in_anchor(anchor: Any) -> list[Any]:
     # compareRegionStarts(a, b) is 1 when a starts before b and -1 when after.
     end = anchor.getEnd()
     rows: list[Any] = []
-    while _enum_has_more(enum):
-        para = enum.nextElement()
+    for para in iter_elements(enum):
         if _contained(text, anchor, para):
             rows.append(para)
         elif uno_read(lambda: int(text.compareRegionStarts(para.getStart(), end)) < 0, False):
@@ -540,8 +541,7 @@ def _paragraph_element(found: Any) -> Any | None:
     """
     enum = found.createEnumeration()
     text = found.getText()
-    while _enum_has_more(enum):
-        para = enum.nextElement()
+    for para in iter_elements(enum):
         if _contained(text, para, found):
             return para
     return None
@@ -566,8 +566,7 @@ def _paragraph_hyperlink(para: Any) -> str:
     other = ""
     portions = uno_read(lambda: para.createEnumeration(), None)
     if portions is not None:
-        while _enum_has_more(portions):
-            portion = portions.nextElement()
+        for portion in iter_elements(portions):
             # Some portion types have no HyperLinkURL. Disposal is not that case.
             url = uno_read(lambda: portion.getPropertyValue("HyperLinkURL") or "", "")
             if not isinstance(url, str) or not url:
@@ -649,10 +648,8 @@ def _char_props(para: Any) -> dict[str, Any]:
     match a customized TOC.
     """
     props: dict[str, Any] = {}
-    # A failed enumeration reads as None, which _enum_has_more treats as empty.
     portions: Any = uno_read(lambda: para.createEnumeration(), None)
-    while _enum_has_more(portions):
-        portion = portions.nextElement()
+    for portion in iter_elements(portions):
         # A non-Text portion and an unreadable one both read as "" and are skipped.
         chunk = uno_read(lambda: (portion.getString() or "") if portion.getPropertyValue("TextPortionType") == "Text" else "", "")
         if not isinstance(chunk, str) or not chunk:
@@ -809,6 +806,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry before) and text_after, plus the outline URL before and after when the match is one |outline link."},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["old_content", "content"],
     }
@@ -832,7 +830,12 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 return self._tool_error("hyperlink_url must be a non-empty string.", code="INVALID_PARAM")
             override = _one_line(raw_url, "")
         idx, _anchor, found, err = _locate_toc_entry(
-            self, doc, old_content, kwargs.get("index"), kwargs.get("occurrence")
+            self,
+            doc,
+            old_content,
+            kwargs.get("index"),
+            kwargs.get("occurrence"),
+            case_sensitive=kwargs.get("case_sensitive"),
         )
         if err is not None:
             return err
@@ -885,7 +888,7 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
         dry_run: bool,
     ) -> dict[str, Any]:
         from ..edit_review import collapsed_anchor
-        from ..format import replace_preserving_format
+        from ..html_import import replace_preserving_format
         from ..hyperlink_fixup import (
             capture_outline_hyperlinks,
             restore_outline_hyperlinks,
@@ -902,7 +905,8 @@ class IndexesRefreshTocEntry(ToolWriterIndexBase):
                 doc, found, content, ctx.ctx, in_undo_context=True, split_author=False)
             try:
                 lived = (_select_paragraph(point).getString() or "")[:160]
-            except Exception:
+            except Exception as exc:
+                reraise_if_disposed(exc)
                 lived = ""
             if lived:
                 preview["text_after"] = lived
@@ -941,6 +945,7 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only. Omit for the first. Body text with the same words is not a match."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the entry that would be removed) and an empty text_after."},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["old_content"],
     }
@@ -956,7 +961,12 @@ class IndexesDeleteTocEntry(ToolWriterIndexBase):
                 "indexes_delete_toc_entry takes plain text so the entry match stays a substring.",
                 code="INVALID_PARAM")
         idx, anchor, found, err = _locate_toc_entry(
-            self, doc, old_content, kwargs.get("index"), kwargs.get("occurrence")
+            self,
+            doc,
+            old_content,
+            kwargs.get("index"),
+            kwargs.get("occurrence"),
+            case_sensitive=kwargs.get("case_sensitive"),
         )
         if err is not None:
             return err
@@ -1043,6 +1053,7 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             "index": {"type": "integer", "minimum": 0, "description": "Document index position from indexes_list. Omit when the document has exactly one TOC."},
             "occurrence": {"type": "integer", "minimum": 0, "description": "0-based match inside the TOC only, when position is before or after. Omit for the first."},
             "dry_run": {"type": "boolean", "description": "Do not edit. Report text (the sibling entry) and text_after (the row that would be inserted)."},
+            "case_sensitive": {"type": "boolean", "description": f"For old_content: {CASE_SENSITIVE_DESCRIPTION}"},
         },
         "required": ["content"],
     }
@@ -1106,7 +1117,13 @@ class IndexesInsertTocEntry(ToolWriterIndexBase):
             ]
             ref = entries[-1] if entries else (paragraphs[-1] if paragraphs else None)
         else:
-            found, find_error = toc_match(doc, anchor, str(old_content).strip(), occurrence)
+            found, find_error = toc_match(
+                doc,
+                anchor,
+                str(old_content).strip(),
+                occurrence,
+                case_sensitive=kwargs.get("case_sensitive"),
+            )
             if find_error:
                 return self._tool_error(find_error, code="NOT_FOUND")
             ref = _paragraph_element(found)
@@ -1258,22 +1275,21 @@ class IndexesListCites(ToolWriterIndexBase):
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
 
-        from ..search import describe_match_location
+        from ..search import LocationLabeler
 
         fields = doc.getTextFields()
         enum = fields.createEnumeration()
         cites: list[Any] = []
-        hf_labels: dict[int, str] = {}
+        labeler = LocationLabeler(doc)
         scanned = 0
-        while _enum_has_more(enum):
-            field = enum.nextElement()
+        for field in iter_elements(enum):
             scanned += 1
             if not is_bibliography_text_field(field):
                 continue
             # Probes degrade; a disposed document must not read as an empty result.
             empty: dict[str, Any] = {}
             mapped = uno_read(lambda: fields_sequence_to_dict(field.getPropertyValue("Fields")), empty)
-            location = uno_read(lambda: describe_match_location(field.getAnchor(), doc, hf_labels), "unknown")
+            location = uno_read(lambda: labeler.describe(field.getAnchor()), "unknown")
             presentation = uno_read(lambda: field.getPresentation(False), "")
             cites.append({
                 "id": len(cites) + 1,
@@ -1333,7 +1349,9 @@ class IndexesCreate(ToolWriterIndexBase):
             index.CreateFromOutline = create_from_outline
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            cursor = resolve_target_cursor(
+                ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive")
+            )
         except ValueError as ve:
             return self._tool_error(str(ve))
 
@@ -1415,7 +1433,9 @@ class IndexesAddMark(ToolWriterIndexBase):
         old_content = kwargs.get("old_content")
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            cursor = resolve_target_cursor(
+                ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive")
+            )
         except ValueError as ve:
             return self._tool_error(str(ve))
 

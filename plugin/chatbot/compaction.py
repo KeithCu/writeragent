@@ -30,11 +30,56 @@ import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from plugin.chatbot.chat_session import message_text, request_tail
+from plugin.framework.send_cancellation import is_cancelled
+
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.send_cancellation import SendCancellation
 
 
 log = logging.getLogger(__name__)
+
+
+def _auth_error_line(exc: BaseException) -> str:
+    from plugin.framework.client.auth import AuthError
+    from plugin.framework.errors import format_error_message
+    from plugin.framework.i18n import _
+
+    if not isinstance(exc, AuthError):
+        raise TypeError("expected AuthError")
+    if exc.code == "missing_api_key":
+        return "\n" + _("Configure an API key to compact.") + "\n"
+    return "\n" + format_error_message(exc) + "\n"
+
+
+def auth_line_for_error(exc: BaseException) -> str | None:
+    """Sidebar line for auth failures from compaction HTTP, else None."""
+    import urllib.error
+
+    from plugin.framework.client.auth import AuthError
+    from plugin.framework.errors import format_error_message
+
+    if isinstance(exc, AuthError):
+        return _auth_error_line(exc)
+    if isinstance(exc, urllib.error.HTTPError) and exc.code == 401:
+        return "\n" + format_error_message(exc) + "\n"
+    return None
+
+
+def auth_line_for_client(client: "LlmClient") -> str | None:
+    """Pre-check auth before ``compact_session``; None when the client can call the API."""
+    from plugin.framework.client.auth import AuthError, resolve_auth_for_config
+
+    cfg = client.config
+    if not isinstance(cfg, dict):
+        return None
+    try:
+        resolve_auth_for_config(dict(cfg))
+    except AuthError as exc:
+        return _auth_error_line(exc)
+    return None
 
 CHARS_PER_TOKEN = 4
 # Tier constants. COMPACTION_RATIO_SMALL is the llama.cpp product number.
@@ -60,7 +105,6 @@ IMAGE_BLOCK_TOKENS = 2000  # OpenClaw compaction.ts:278 (Hermes default is 1500)
 # https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L661
 PRUNE_MIN_CHARS = 200
 MAX_TOOL_CALL_ARGS_CHARS = 4000  # _summary_lines / _format_tool_calls assistant tool_calls cap
-DOCUMENT_MARKERS = ("[DOCUMENT CONTENT]", "[END DOCUMENT]")
 _SUMMARY_TRUNCATION_MARKER = "\n\n[Compaction summary truncated to fit budget]"
 _SUMMARIZER_TURN_TRUNCATION_MARKER = "\n[turn truncated to fit summarizer]"
 
@@ -230,23 +274,17 @@ def estimate_tokens_rough(text: Any) -> int:
 
 def flatten_content(content: Any) -> tuple[str, int, int]:
     """Return (text, image_count, audio_count). Never str() a content list."""
-    if isinstance(content, str):
-        return content, 0, 0
     if not isinstance(content, list):
-        return "", 0, 0
-    texts = []
+        return (message_text(content), 0, 0) if isinstance(content, str) else ("", 0, 0)
     n_img = n_aud = 0
     for part in content:
-        if not isinstance(part, dict):
-            continue
-        kind = part.get("type")
-        if kind == "text" and isinstance(part.get("text"), str):
-            texts.append(part["text"])
-        elif kind == "image_url":
-            n_img += 1
-        elif kind == "input_audio":
-            n_aud += 1
-    return " ".join(texts), n_img, n_aud
+        if isinstance(part, dict):
+            kind = part.get("type")
+            if kind == "image_url":
+                n_img += 1
+            elif kind == "input_audio":
+                n_aud += 1
+    return message_text(content), n_img, n_aud
 
 
 def estimate_message_tokens(msg: dict[str, Any]) -> int:
@@ -272,8 +310,13 @@ def tool_schema_tokens(tools: Any) -> int:
 
 
 def _summary_budget(window: int) -> int:
-    """Token allowance for the summary pair, summarizer max_tokens, and char cap."""
+    """Token allowance for the retained summary pair and remainder math."""
     return min(1024, max(256, window // 8))
+
+
+def _summarizer_max_out(window: int) -> int:
+    """max_tokens for the summarizer LLM call only (reasoning models need more headroom)."""
+    return min(4096, max(512, window // 8))
 
 
 def should_compact(tokens: int, window: int | None) -> bool:
@@ -282,9 +325,16 @@ def should_compact(tokens: int, window: int | None) -> bool:
     return tokens >= int(window * compaction_ratio(window))
 
 
-def keep_recent_tokens(window: int, system_tokens: int, tool_tokens: int, force: bool = False) -> int | None:
+def keep_recent_tokens(
+    window: int,
+    system_tokens: int,
+    tool_tokens: int,
+    force: bool = False,
+    *,
+    snapshot_tokens: int = 0,
+) -> int | None:
     reserve = gen_reserve(window)
-    remainder = window - system_tokens - tool_tokens - _summary_budget(window) - reserve
+    remainder = window - system_tokens - snapshot_tokens - tool_tokens - _summary_budget(window) - reserve
     if remainder < MIN_TAIL_TOKENS:
         return None  # document+system+tools already fill the window
     # Floor of KEEP_RECENT_FRACTION (0.30). int(window * 0.30) matches
@@ -305,7 +355,7 @@ def find_cut_index(messages: list[dict[str, Any]], keep_tokens: int, start_index
     (``context_compressor.py:2589-2608``); Hermes has a ``min_tail``
     message-count floor, WA is a pure token ceiling.
     https://github.com/NousResearch/hermes-agent/blob/v2026.9.7/agent/context_compressor.py#L2589-L2608
-    start_index is 1 (skip DOCUMENT CONTENT) or the previous
+    start_index is 1 (skip base system prompt) or the previous
     first_kept_index. None if nothing to compact or if even the last
     user turn cannot fit in keep_tokens.
     """
@@ -471,14 +521,10 @@ def _format_tool_calls(msg: dict[str, Any]) -> str:
     return " ".join(parts)
 
 
-def _strip_document_span(text: str) -> str:
-    if DOCUMENT_MARKERS[0] not in text:
-        return text
-    start = text.find(DOCUMENT_MARKERS[0])
-    end = text.find(DOCUMENT_MARKERS[1])
-    if end >= 0:
-        return (text[:start] + text[end + len(DOCUMENT_MARKERS[1]):]).strip()
-    return text[:start].strip()
+def _is_slash_local_message(msg: dict[str, Any]) -> bool:
+    from plugin.chatbot.rich_text_paste import SLASH_LOCAL
+
+    return bool(msg.get(SLASH_LOCAL))
 
 
 def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
@@ -491,9 +537,10 @@ def _summary_lines(messages: list[dict[str, Any]]) -> list[str]:
     """
     lines = []
     for i, msg in enumerate(messages):
+        if _is_slash_local_message(msg):
+            continue
         role = msg.get("role") or ""
         text, n_img, n_aud = flatten_content(msg.get("content"))
-        text = _strip_document_span(text)
         if role == "assistant":
             calls = _format_tool_calls(msg)
             if calls:
@@ -532,6 +579,10 @@ def sanitize_tool_pairs(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     while i < n:
         msg = messages[i]
         if msg.get("_open_transcript"):
+            i += 1
+            continue
+
+        if _is_slash_local_message(msg):
             i += 1
             continue
         if msg.get("role") == "assistant" and (msg.get("tool_calls") or []):
@@ -620,9 +671,7 @@ def messages_for_llm(session: Any) -> list[dict[str, Any]]:
     if state is None:
         return sanitize_tool_pairs(list(messages))
     tail = _apply_tail_stubs(messages, state.first_kept_index, state.stubbed_tool_call_ids)
-    # Bugfix: The cut may land on an assistant message, and summary_pair includes
-    # an assistant ack by default. Strict backends reject adjacent assistant rows.
-    # Dropping the ack keeps the cut and tool pairs intact without adjacent assistant messages.
+    # When the cut starts on an assistant row, omit_ack avoids adjacent assistant messages.
     omit_ack = bool(tail) and tail[0].get("role") == "assistant"
     view = [messages[0]] + summary_pair(state.summary, omit_ack=omit_ack) + tail
     return sanitize_tool_pairs(view)
@@ -633,9 +682,7 @@ def is_context_overflow_error(text: str | None) -> bool:
     lower = (text or "").lower()
     if any(m in lower for m in _PROCESS_DEATH_MARKERS):
         return False
-    # Bugfix: "tpm" was previously a substring in _NON_OVERFLOW_MARKERS, which
-    # caused false-positive matches on words like "footpm". Using \btpm\b
-    # matches TPM as a whole word (e.g. "TPM", "foo-tpm-70b") without matching substrings.
+    # TPM rate limits match as whole word (\\btpm\\b), not substrings like "footpm".
     if any(m in lower for m in _NON_OVERFLOW_MARKERS) or _TPM_WORD.search(lower):
         return False
     if any(m in lower for m in _OVERFLOW_MARKERS):
@@ -707,18 +754,28 @@ def _choose_cut(messages: list[dict[str, Any]], keep: int, prev_kept: int) -> tu
     return cut_for(work), stubbed_ids
 
 
-def _summarizer_user_body(conversation_text: str, previous_summary: str) -> str:
+def _summarizer_user_body(
+    conversation_text: str,
+    previous_summary: str,
+    *,
+    focus: str | None = None,
+) -> str:
     temporal = _temporal_anchoring_rule()
     if previous_summary:
-        return (
+        body = (
             "<previous-summary>\n" + previous_summary + "\n</previous-summary>\n\n"
             + "<conversation>\n" + conversation_text + "\n</conversation>\n\n"
             + UPDATE_SUMMARIZATION_PROMPT + temporal
         )
-    return (
-        "<conversation>\n" + conversation_text + "\n</conversation>\n\n"
-        + SUMMARIZATION_PROMPT + temporal
-    )
+    else:
+        body = (
+            "<conversation>\n" + conversation_text + "\n</conversation>\n\n"
+            + SUMMARIZATION_PROMPT + temporal
+        )
+    focus_text = (focus or "").strip()
+    if focus_text:
+        body += "\n\nKeep details about: " + focus_text
+    return body
 
 
 def _next_summary_chunk(
@@ -728,9 +785,10 @@ def _next_summary_chunk(
     window: int,
     max_out: int,
     previous_summary: str,
+    focus: str | None = None,
 ) -> tuple[str, int] | None:
     def fits(text: str) -> bool:
-        body = _summarizer_user_body(text, previous_summary)
+        body = _summarizer_user_body(text, previous_summary, focus=focus)
         tokens = (
             estimate_message_tokens({"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT})
             + estimate_tokens_rough(body)
@@ -775,8 +833,9 @@ def _summarize_bounded(
     window: int,
     max_out: int,
     previous_summary: str,
-    stop_checker: Callable[[], bool] | None,
+    cancel: SendCancellation | None,
     stale: Callable[[], bool],
+    focus: str | None = None,
 ) -> tuple[str | None, str]:
     lines = _summary_lines(slice_messages)
     if not lines:
@@ -786,7 +845,7 @@ def _summarize_bounded(
     idx = 0
 
     while idx < len(lines):
-        if (stop_checker and stop_checker()) or stale():
+        if is_cancelled(cancel) or stale():
             return None, "aborted"
 
         next_chunk = _next_summary_chunk(
@@ -795,35 +854,65 @@ def _summarize_bounded(
             window=window,
             max_out=max_out,
             previous_summary=running,
+            focus=focus,
         )
         if next_chunk is None:
             return None, "failed"
 
         chunk_text, next_idx = next_chunk
-        user_body = _summarizer_user_body(chunk_text, running)
+        user_body = _summarizer_user_body(chunk_text, running, focus=focus)
 
-        try:
-            result = client.request_with_tools(
+        summarizer_extra = {"reasoning": {"effort": "low"}}
+
+        def _request_summary(max_tokens_out: int) -> dict[str, Any]:
+            return client.request_with_tools(
                 [
                     {"role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT},
                     {"role": "user", "content": user_body},
                 ],
-                max_tokens=max_out,
+                max_tokens=max_tokens_out,
                 tools=None,
                 stream=False,
-                stop_checker=stop_checker,
+                cancel=cancel,
                 prepend_dev_build_system_prefix=False,
+                chat_extra=summarizer_extra,
             )
-        except Exception:
-            log.exception("Compaction failed")
-            return None, "failed"
 
-        if stop_checker and stop_checker():
-            return None, "aborted"
+        # Reasoning models may burn max_tokens on thinking and return empty content.
+        retry_cap = min(max(max_out * 2, 2048), 8192, window)
+        attempt_outs = (max_out, retry_cap) if retry_cap > max_out else (max_out,)
 
-        content = (result or {}).get("content") or ""
-        if not content.strip():
-            return None, "failed"
+        content = ""
+        finish_reason: str | None = None
+        for attempt_idx, max_tokens_out in enumerate(attempt_outs):
+            try:
+                result = _request_summary(max_tokens_out)
+            except Exception as exc:
+                if auth_line_for_error(exc) is not None:
+                    raise
+                log.exception("Compaction failed")
+                return None, "failed"
+            if is_cancelled(cancel):
+                return None, "aborted"
+            if result is None:
+                return None, "failed"
+            content = (result or {}).get("content") or ""
+            finish_reason = (result or {}).get("finish_reason")
+            if content.strip():
+                break
+            if attempt_idx + 1 >= len(attempt_outs):
+                log.warning(
+                    "Compaction summarizer still empty after retry (finish_reason=%s, max_out=%s)",
+                    finish_reason,
+                    max_tokens_out,
+                )
+                return None, "failed"
+            log.warning(
+                "Compaction summarizer empty (finish_reason=%s, max_out=%s); retrying with max_out=%s",
+                finish_reason,
+                max_tokens_out,
+                attempt_outs[attempt_idx + 1],
+            )
 
         running = _cap_running_summary(content, window)
         idx = next_idx
@@ -838,9 +927,10 @@ def compact_session(
     window: int | None,
     tools: Any = None,
     max_tokens: int | None = None,
-    stop_checker: Callable[[], bool] | None = None,
+    cancel: SendCancellation | None = None,
     force: bool = False,
     status_callback: Callable[[str], None] | None = None,
+    focus: str | None = None,
 ) -> CompactResult:
     """May call LlmClient (blocking). Must run off the UI thread.
 
@@ -857,7 +947,14 @@ def compact_session(
     state = getattr(session, "compaction", None)
     # Hermes estimate_request_tokens_rough (model_metadata.py:2155-2167):
     # count the request, not just the transcript.
-    before = estimate_tokens(view) + tool_tokens
+    gate_tokens = estimate_tokens(view) + tool_tokens
+    tail = request_tail(session)
+    tail_tokens = (
+        estimate_message_tokens({"role": "user", "content": tail})
+        if tail
+        else 0
+    )
+    before = gate_tokens + tail_tokens
     if window is None or window <= 0:
         # No denominator → no remaining-budget clamp. Skip proactive *and* force.
         return CompactResult(False, "no_window", before, before)
@@ -866,7 +963,7 @@ def compact_session(
         return CompactResult(False, "below_threshold", before, before)
 
     system_tokens = estimate_message_tokens(messages[0])
-    keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force)
+    keep = keep_recent_tokens(window, system_tokens, tool_tokens, force=force, snapshot_tokens=tail_tokens)
     if keep is None:
         return CompactResult(False, "nothing_to_compact", before, before)
 
@@ -881,23 +978,21 @@ def compact_session(
     if status_callback:
         status_callback("Compacting conversation...")
 
-    max_out = _summary_budget(window)
+    max_out = _summarizer_max_out(window)
     if max_tokens is not None and max_tokens > 0:
         max_out = min(max_out, max_tokens)
 
     previous = state.summary if state else ""
-    # Bugfix: The slice was sent in full with only max_tokens capped, so on force=True
-    # or a reloaded history the summarizer prompt itself overflowed, compact_session
-    # returned "failed", and should_retry_overflow stopped retrying. Chunks keep each
-    # request inside window - gen_reserve.
+    # Summarize in bounded chunks so the summarizer prompt stays inside window - gen_reserve.
     summary, reason = _summarize_bounded(
         client,
         slice_to_summarize,
         window=window,
         max_out=max_out,
         previous_summary=previous,
-        stop_checker=stop_checker,
+        cancel=cancel,
         stale=lambda: session.messages is not messages,
+        focus=focus,
     )
     if summary is None:
         return CompactResult(False, reason, before, before)
@@ -914,7 +1009,7 @@ def compact_session(
         stubbed_tool_call_ids=stubbed_ids,
         kept_message_id=id(messages[new_cut]),
     )
-    after = estimate_tokens(messages_for_llm(session)) + tool_tokens
+    after = estimate_tokens(messages_for_llm(session)) + tool_tokens + tail_tokens
     reserve = gen_reserve(window)
     if after > window - reserve:
         session.compaction = state  # revert; do not ship a too-large view

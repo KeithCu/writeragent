@@ -135,3 +135,19 @@ config:
     type: list
     default: []
     internal: true
+  host:
+    type: string
+    default: "localhost"
+    internal: true
+  use_ssl:
+    type: boolean
+    default: false
+    internal: true
+  ssl_cert:
+    type: string
+    default: ""
+    internal: true
+  ssl_key:
+    type: string
+    default: ""
+    internal: true

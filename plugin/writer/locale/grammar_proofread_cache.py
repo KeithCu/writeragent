@@ -10,15 +10,20 @@ Sentence-boundary tables and ``looks_complete_sentence`` live in ``grammar_proof
 from __future__ import annotations
 
 import copy
-from typing import Any
+import logging
+from typing import Any, Iterable
 
-from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_checker_identity, grammar_registry
+log = logging.getLogger("writeragent.grammar")
+
+from plugin.writer.locale import grammar_settings
+from .grammar_persistence import SentenceCacheEntry, get_persistence, grammar_registry
 from .grammar_proofread_locale import (
-    GRAMMAR_CACHE_NORMALIZATION_RE,
     MAX_CACHE_SIZE,
     MAX_RECENT_INCOMPLETE_SCAN,
     fingerprint_for_text,
     looks_complete_sentence,
+    normalize_for_sentence_cache,
+    sentence_identity_fp,
 )
 
 
@@ -27,58 +32,10 @@ def _sanitize_checker_identity(identity: str) -> str:
     return identity.replace("|", "/")
 
 
-def resolve_checker_identity(checker_identity: str | None = None) -> str:
-    """Return the L1/L2 checker identity, defaulting to the active grammar checker."""
-    if checker_identity is not None:
-        return checker_identity
-    return grammar_checker_identity()
-
-
-def ignore_rules_clear() -> None:
-    with grammar_registry.lock:
-        grammar_registry.ignored_rules.clear()
-
-
-def ignore_rule_add(rule_id: str) -> None:
-    with grammar_registry.lock:
-        grammar_registry.ignored_rules.add(str(rule_id))
-
-
-def ignored_rules_snapshot() -> set[str]:
-    with grammar_registry.lock:
-        return set(grammar_registry.ignored_rules)
-
-
-def _normalize_for_sentence_cache(text: str) -> str:
-    """Canonical form for cache key that preserves first sentence terminator.
-
-    - rstrip() whitespace (preserves existing "Hello." vs "Hello. " behavior).
-    - Keep everything up to and including the *first* sentence terminator.
-    - Ignore any additional trailing punctuation after the first terminator.
-    - This makes "Hello." and "Hello..." share a cache entry, and
-      "Hello?" and "Hello?..." share one, but "Hello?" and "Hello." remain distinct.
-
-    The regex below matches all sentence terminators in ``grammar_proofread_locale.GRAMMAR_SENTENCE_TERMINATORS``
-    (the full Unicode STerm set). Both ``looks_complete_sentence`` and cache key normalization
-    are fully aligned and use the exact same character set.
-    """
-    s = text.rstrip()
-    if not s:
-        return s
-    match = GRAMMAR_CACHE_NORMALIZATION_RE.search(s)
-    if match:
-        return match.group(1)
-    return s
-
-
-def sentence_identity_fp(sentence: str) -> str:
-    """Stable fingerprint for cache lookup: normalize then hash (same key space as L1 cache keys)."""
-    return fingerprint_for_text(_normalize_for_sentence_cache(sentence))
-
-
 def sentence_cache_key_prefix(locale_key: str, checker_identity: str | None = None) -> str:
     """Prefix for every sentence-cache OrderedDict key: ``sent|<locale>|<identity>|``."""
-    ident = _sanitize_checker_identity(resolve_checker_identity(checker_identity))
+    ident_raw = grammar_settings.checker_identity() if checker_identity is None else checker_identity
+    ident = _sanitize_checker_identity(ident_raw)
     return f"sent|{locale_key}|{ident}|"
 
 
@@ -114,9 +71,8 @@ def _clip_errors_to_canonical_length(errors: list[dict[str, Any]], canonical_len
         ):
             continue
         if length == 0:
-            # Missing length used to fall through ``effective_len <= 0`` and
-            # drop. Only an explicit zero is an insert; an omitted length is
-            # not one.
+            # Only an explicit zero n_error_length counts as an insert; omitted
+            # length must not be clipped by the effective_len <= 0 path.
             if "n_error_length" in e:
                 clipped.append(e)
             continue
@@ -165,7 +121,7 @@ def _populate_memory_cache_only(
     ``SentenceCacheEntry(fp, canon, is_complete, clipped_errors)``. The OrderedDict key is not
     part of that value.
     """
-    canon = _normalize_for_sentence_cache(sentence)
+    canon = normalize_for_sentence_cache(sentence)
     fp = fingerprint_for_text(canon)
     key = _sentence_l1_key(locale_key, checker_identity, fp)
     clipped = _clip_errors_to_canonical_length(errors, len(canon))
@@ -202,7 +158,7 @@ def cache_get_sentence(
     checker_identity: str | None = None,
 ) -> list[dict[str, Any]] | None:
     """Return cached errors for this exact sentence (relative to sentence start = 0)."""
-    ident = resolve_checker_identity(checker_identity)
+    ident = grammar_settings.checker_identity() if checker_identity is None else checker_identity
     # The key already ends in fp; one fingerprint serves both (no double SHA-256).
     fp = sentence_identity_fp(sentence)
     key = _sentence_l1_key(locale_key, ident, fp)
@@ -242,7 +198,7 @@ def cache_put_sentence(
     checker_identity: str | None = None,
 ) -> None:
     """Cache errors for this sentence text (errors must have offsets relative to sentence start)."""
-    ident = resolve_checker_identity(checker_identity)
+    ident = grammar_settings.checker_identity() if checker_identity is None else checker_identity
     # Tier 1 (global LRU) + Tier 2 (document persistence): always warm L1; L2 when doc_id is set.
     entry = _populate_memory_cache_only(
         locale_key, sentence, errors, ident
@@ -279,4 +235,35 @@ def cache_put_sentence(
                 scan_count += 1
             for k in to_remove:
                 grammar_registry.sentence_cache.pop(k, None)
+
+
+def store_sentence_result(
+    ctx: Any,
+    doc_id: str,
+    locale: str,
+    text: str,
+    raw_errors: Iterable[dict[str, Any]],
+    checker_identity: str | None = None,
+    *,
+    alt_locale: str = "",
+    ignore_set: Any | None = None,
+) -> list[dict[str, Any]]:
+    """Normalize raw errors, cache the sentence payload, and return active (non-ignored) errors."""
+    from dataclasses import asdict
+    from plugin.framework.grammar_rule_ids import grammar_bcp47_tags_match
+    from .grammar_ignore_rules import IgnoreSet
+    from .grammar_proofread_text import normalize_errors_for_text
+
+    norm_errors = normalize_errors_for_text(text, raw_errors, ctx, locale)
+    if ignore_set is None:
+        ignore_set = IgnoreSet.for_document(ctx, doc_id)
+
+    payload = [asdict(e) for e in norm_errors]
+    cache_put_sentence(locale, text, payload, ctx=ctx, doc_id=doc_id, checker_identity=checker_identity)
+    if alt_locale and not grammar_bcp47_tags_match(alt_locale, locale):
+        log.debug("[grammar] Double caching for %s (detected %s)", alt_locale, locale)
+        cache_put_sentence(alt_locale, text, payload, ctx=ctx, doc_id=doc_id, checker_identity=checker_identity)
+
+    active_payload = [d for d in payload if ignore_set.allows(str(d.get("rule_identifier", "")))]
+    return active_payload
 

@@ -24,9 +24,11 @@ from plugin.chatbot.tool_loop_state import (
     ExitLoopEffect,
     LogAgentEffect,
     MessageRole,
+    OUTCOME_STATUS_TEXT,
     SpawnFinalStreamEffect,
     SpawnLLMWorkerEffect,
     SpawnToolWorkerEffect,
+    SendOutcome,
     ToolLoopUIEffect,
     TriggerNextToolEffect,
     UIEffectKind,
@@ -38,18 +40,19 @@ from plugin.framework.stream_batch import StreamQueueKind
 from plugin.framework.client.model_fetcher import has_native_vision, set_native_audio_support
 from plugin.framework.html_stripper import StreamingHTMLStripper
 from plugin.framework.json_utils import safe_json_loads
-from plugin.framework.config import get_config_bool
+from plugin.framework.config import get_config
 from plugin.framework.errors import (
     DocumentDisposedError,
     ToolExecutionError,
     best_effort,
     format_error_payload,
-    is_tool_document_disposed,
+    is_disposal,
     resolve_exception_message,
 )
 from plugin.framework.logging import agent_log, update_activity_state
-from plugin.framework.queue_executor import execute_on_main_thread
-from plugin.framework.send_cancellation import capture_send_stop
+from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.framework.tool import ToolContext
 from plugin.framework.worker_pool import run_in_background
 
@@ -159,6 +162,11 @@ def format_delegate_result_chat_line(func_args: Mapping[str, Any], result_data: 
     if verb:
         return f"[delegate ({domain}) {verb}: {_result_note(result_data)}]\n"
     cache_block = web_research_cache_chat_text(result_data) if domain == "web_research" else ""
+    # Vision gateway shortcut (local OCR) surfaces a user-facing message; other
+    # delegate domains carry long internal workflow text that must stay off chat.
+    msg = result_data.get("message")
+    if domain == "vision" and isinstance(msg, str) and msg.strip():
+        return cache_block + f"[delegate ({domain}): {msg.strip()}]\n"
     return cache_block + f"[delegate ({domain}): done]\n"
 
 
@@ -262,6 +270,8 @@ class TurnController:
     active_execute_tool_fn: Callable[..., Any] | None
     active_query_text: str | None
     active_supports_status: bool
+    slash_sidebar_only: bool
+    outcome: SendOutcome | None
 
     def __init__(
         self,
@@ -292,6 +302,8 @@ class TurnController:
         self.active_execute_tool_fn = None
         self.active_query_text = None
         self.active_supports_status = False
+        self.slash_sidebar_only = False
+        self.outcome = None
 
     def same_messages(self) -> bool:
         """Clear replaces the list. A write against the old list must not land."""
@@ -334,9 +346,8 @@ class TurnController:
     def put(self, item: Any) -> bool:
         """Enqueue only while this turn is alive.
 
-        After abort the item is dropped. It is not parked on a queue for a
-        later drain. This used to write the raw queue, so a control item
-        could pass text still in the batcher, and callers had to flush by hand.
+        After abort the item is dropped, not parked for a later drain. Aborted turns must
+        not leave control items that bypass the live batcher.
         """
         if not self.alive:
             return False
@@ -382,6 +393,17 @@ class TurnController:
         leftover = best_effort(stripper.finalize, "stripper finalize on stop failed", default="")
         return leftover if isinstance(leftover, str) else ""
 
+    def take_open_text(self, host: Any) -> str:
+        """Finish the stripper, fold any leftover tail into the open row, and return the open text.
+
+        The open row is not sent to the model and is replaced when the committed assistant
+        message is added, so any terminal path that closes a turn must read the open text first.
+        """
+        tail = self.take_stripper_tail()
+        if tail:
+            self.fold_chunk(host, tail)
+        return self.open_text()
+
     def close_stopped(self, host: Any, partial: str | None = None) -> None:
         """Finalise this turn after Stop.
 
@@ -404,10 +426,7 @@ class TurnController:
         if self._stop_committed:
             return
         self._stop_committed = True
-        tail = self.take_stripper_tail()
-        if tail:
-            self.fold_chunk(host, tail)
-        emitted = self.open_text()
+        emitted = self.take_open_text(host)
         fallback = partial.strip() if isinstance(partial, str) else ""
         chosen = emitted or (fallback if fallback != "No response." else "")
         if chosen:
@@ -468,24 +487,23 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     Skip HTML rerender after an API error. Drain ERROR appends ``[API error: …]``;
     rerender looks up the previous HTML assistant message and
     ``rollback_rich_insert`` would delete that error line
-    (Packet F HTTP 429/500 looked like a leftover hello).
+    (HTTP 429/500 errors looked like a leftover hello).
 
     Skip rerender after Stop. The Stop path already stored the partial answer
     and the ``[Stopped by user]`` row, then painted that list. A second paint
     is not required. The old splice truncated the tail and pasted the answer
-    without the marker (Packet B1).
+    without the marker.
 
     Empty / truncated STREAM_DONE must AddMessageEffect the banner (see
     ``tool_loop_state``) so this path does not paste the previous HTML assistant
-    over ``[Response truncated]`` / ``[No text from model]`` (Packet C).
+    over ``[Response truncated]`` / ``[No text from model]``.
     """
-    # Append a leftover unclosed tag when the rerender did not replace
-    # the control. The Error path clears the stripper without finalize(),
-    # and the default sidebar has the rich widget, so Stop and error would
-    # drop that tail. A successful rerender already replaced it from the
-    # session.
+    # Append a leftover unclosed tag on success when rerender did not replace
+    # the control (a successful rerender already replaced it from the session).
+    # Stop and terminal error paths finish the stripper earlier in take_open_text,
+    # folding the tail into the committed assistant message.
     replaced = False
-    if getattr(listener, "_terminal_status", None) != "Error" and allow_rerender:
+    if not send_outcome_is_error(listener) and allow_rerender:
         rerender = getattr(listener, "rerender_rich_text_session", None)
         if callable(rerender):
             replaced = rerender() is True
@@ -502,7 +520,7 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
     # close_stopped only persisted the line on session.messages, so the
     # control never drew [Stopped by user].
     stop_requested = getattr(listener, "stop_requested", False) or not allow_rerender
-    if stop_requested and getattr(listener, "_terminal_status", None) != "Error":
+    if stop_requested and not send_outcome_is_error(listener):
         if turn is not None:
             if turn._stop_banner_appended:
                 return
@@ -523,6 +541,41 @@ def finalize_sidebar_assistant_response(listener: Any, *, allow_rerender: bool =
                 set_control_text(control, cur + _STOP_LINE)
 
 
+def assign_send_outcome(host: Any, outcome: SendOutcome | None) -> None:
+    """Record how this send ended. None means an earlier path already explained itself."""
+    turn = current_turn(host)
+    if turn is not None:
+        turn.outcome = outcome
+    else:
+        host._orphan_send_outcome = outcome
+
+
+def send_outcome_terminal_display(host: Any) -> str:
+    """Map the turn outcome to the status-line literals ``_close_turn_ui`` expects."""
+    turn = current_turn(host)
+    if turn is not None:
+        oc = turn.outcome
+    else:
+        oc = getattr(host, "_orphan_send_outcome", None)
+    if oc is None:
+        return ""
+    return OUTCOME_STATUS_TEXT[oc]
+
+
+def send_outcome_is_error(host: Any) -> bool:
+    turn = current_turn(host)
+    if turn is not None:
+        return turn.outcome == "error"
+    return getattr(host, "_orphan_send_outcome", None) == "error"
+
+
+def send_outcome_is_stopped(host: Any) -> bool:
+    turn = current_turn(host)
+    if turn is not None:
+        return turn.outcome == "stopped"
+    return getattr(host, "_orphan_send_outcome", None) == "stopped"
+
+
 def abort_turn(host: Any) -> None:
     """Stop, a mode change, or dispose. The host still names this turn until ``drop_turn``."""
     turn = current_turn(host)
@@ -535,6 +588,8 @@ def drop_turn(host: Any) -> None:
     turn = current_turn(host)
     if turn is None:
         return
+    if turn.outcome is not None:
+        host._orphan_send_outcome = turn.outcome
     turn.abort()
     host._turn = None
 
@@ -550,6 +605,10 @@ def begin_send_turn(host: Any) -> TurnController:
         previous.abort()
     session = getattr(host, "session", None)
     turn = TurnController(session)
+    orphan = getattr(host, "_orphan_send_outcome", None)
+    if orphan is not None:
+        turn.outcome = orphan
+        host._orphan_send_outcome = None
     host._turn = turn
     return turn
 
@@ -665,18 +724,17 @@ def _queue_tool_failure(call_id: str, func_name: str, func_args_str: str, exc: B
 
     A closed document is not a normal tool error. Turning every exception
     into a JSON payload and queuing ``TOOL_DONE`` lets the loop continue.
-    ``is_tool_document_disposed`` is the tool-boundary check;
-    ``is_disposed_exception`` also matches a bare ``RuntimeException``
-    from a live document.
+    ``is_disposal`` is the tool-boundary check; a bare ``RuntimeException``
+    from a live document is not disposal.
 
     Classify against ``model``, the document closed over at spawn. Reading
     ``host._active_model`` when the worker finishes scores the failure
     against a later send's live document, so a bare ``RuntimeException``
-    fails ``is_tool_document_disposed`` and is queued as ``TOOL_DONE``.
+    fails ``is_disposal`` and is queued as ``TOOL_DONE``.
     The same capture keeps the tool from running on the new send.
     """
     formatted = format_error_payload(exc)
-    if is_tool_document_disposed(exc, model):
+    if is_disposal(exc):
         put_for_turn(turn, (StreamQueueKind.ERROR, formatted))
         return
     put_for_turn(turn, (StreamQueueKind.TOOL_DONE, call_id, func_name, func_args_str, json.dumps(formatted, default=str)))
@@ -731,13 +789,14 @@ class ToolLoopActionHost(Protocol):
     session: Any
     image_model_selector: Any
     audio_wav_path: str | None
-    _terminal_status: str
+    _send_cancellation: SendCancellation | None
+    _tool_calling: Any
+    _tool_loop_interpreter: Any
+    rich_text_widget: Any
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None: ...
     def _set_status(self, text: str) -> None: ...
     def _get_document_model(self) -> Any: ...
-    _tool_calling: Any
-    def resolve_stop_checker(self) -> Callable[[], bool]: ...
 
 
 def build_tool_execute_fn(
@@ -761,12 +820,12 @@ def build_tool_execute_fn(
         ctx: Any,
         status_callback: Callable[[str], None] | None = None,
         append_thinking_callback: Callable[[str], None] | None = None,
-        stop_checker: Callable[[], bool] | None = None,
         *,
         captured_turn: Any = None,
-        send_cancellation: Any = None,
+        # Caller passes the spawn-time scope; never read host._send_cancellation here (drain clears it).
+        send_cancellation: SendCancellation | None = None,
     ) -> str:
-        from plugin.main import get_tools as _get_tools
+        from plugin.app import get_tools as _get_tools
 
         approval_cb: Any = None
         chat_append_cb: Any = None
@@ -786,7 +845,7 @@ def build_tool_execute_fn(
         prompt_for_web = False
         if needs_web_research_ui:
             try:
-                prompt_for_web = get_config_bool("chatbot.prompt_for_web_research")
+                prompt_for_web = bool(get_config("chatbot.prompt_for_web_research"))
             except Exception as ex:
                 # Fail closed. Leaving approval_cb as None after a config
                 # error skips Accept/Change/Reject: web_research prompts only
@@ -799,9 +858,6 @@ def build_tool_execute_fn(
                 )
                 return json.dumps(format_error_payload(err), default=str)
 
-        # Workers pass the checker captured at spawn. Direct
-        # callers (tests) omit it and still run on that thread.
-        checker = stop_checker if stop_checker is not None else host.resolve_stop_checker()
         if prompt_for_web:
 
             def _web_approval(query_for_engine: str, tool_name: str, args: Any) -> Any:
@@ -812,7 +868,7 @@ def build_tool_execute_fn(
                     return (False, None)
                 # event.wait() ignored Stop. Sidebar close latches the
                 # checker and never sets the event, so this worker parked.
-                if not wait_for_approval(event, checker) or not getattr(event, "approved", False):
+                if not wait_for_approval(event, send_cancellation) or not getattr(event, "approved", False):
                     put_for_turn(captured_turn, (StreamQueueKind.STOPPED,))
                     return (False, None)
                 return (True, getattr(event, "query_override", None))
@@ -826,7 +882,7 @@ def build_tool_execute_fn(
             # Async gateways (delegate_to_specialized_draw_toolset) run
             # execute_fn on the worker; hasattr(doc, "getDrawPages") is UNO.
             active_page_idx = best_effort(
-                lambda: execute_on_main_thread(lambda: DrawBridge(doc).get_active_page_index()),
+                lambda: main.call(lambda: DrawBridge(doc).get_active_page_index()),
                 f"execute_fn: failed to get active page index for {doc_type_str}",
             )
 
@@ -839,7 +895,6 @@ def build_tool_execute_fn(
             active_page_index=active_page_idx,
             status_callback=status_callback,
             append_thinking_callback=append_thinking_callback,
-            stop_checker=checker,
             approval_callback=approval_cb,
             chat_append_callback=chat_append_cb,
             set_active_domain_callback=set_active_domain,
@@ -901,7 +956,9 @@ class ToolLoopEffectInterpreter:
             if target is None:
                 return True
             turn, q = target
-            host._tool_calling._spawn_final_stream(q, turn.active_client, turn.active_max_tokens)
+            host._tool_calling._spawn_final_stream(
+                q, turn.active_client, turn.active_max_tokens, tools=turn.active_tools
+            )
         elif isinstance(effect, UpdateDocumentContextEffect):
             return self._refresh_document_context()
         elif isinstance(effect, ToolLoopUIEffect):
@@ -928,9 +985,8 @@ class ToolLoopEffectInterpreter:
     def _refresh_document_context(self) -> bool:
         """Refresh the document snapshot. Return True when the drain should stop.
 
-        A missing or disposed document used to be logged at debug and the
-        tool loop kept going with the previous snapshot. That is the same
-        failure _do_send already ends on.
+        A missing or disposed document stops the drain, matching _do_send. Do not keep
+        streaming with a stale snapshot.
         """
         host = self.host
         turn = running_turn(host)
@@ -941,7 +997,7 @@ class ToolLoopEffectInterpreter:
 
         def _fail(message: str) -> bool:
             host._append_response(message)
-            host._terminal_status = "Error"
+            assign_send_outcome(host, "error")
             host._set_status("Error")
             return True
 
@@ -958,7 +1014,7 @@ class ToolLoopEffectInterpreter:
             turn.session.refresh_document_context(doc, host.ctx)
             return False
         except Exception as exc:
-            if is_tool_document_disposed(exc, doc):
+            if is_disposal(exc):
                 log.debug("Tool loop: document disposed during context refresh", exc_info=True)
                 return _fail("\n[Document closed or unavailable.]\n")
             log.exception("Tool loop: failed to refresh document context after mutating tool")
@@ -969,9 +1025,11 @@ class ToolLoopEffectInterpreter:
         if effect.kind == UIEffectKind.APPEND:
             host._append_response(effect.text)
         elif effect.kind == UIEffectKind.STATUS:
-            host._set_status(effect.text)
-            if effect.text in ("Stopped", "Ready", "Error"):
-                host._terminal_status = effect.text
+            if effect.outcome is not None:
+                host._set_status(OUTCOME_STATUS_TEXT[effect.outcome])
+                assign_send_outcome(host, effect.outcome)
+            else:
+                host._set_status(effect.text)
         elif effect.kind == UIEffectKind.TOOL_RUNNING:
             status_text, run_line = format_tool_running_ui(effect.func_name, effect.func_args or {})
             host._set_status(status_text)
@@ -1057,18 +1115,15 @@ class ToolLoopEffectInterpreter:
         # disposed-document check.
         spawn_doc = turn.model
         supports_status = turn.active_supports_status
-        # Scope and checker from this send. execute_fn must not read the
+        # Scope from this send. execute_fn must not read the
         # panel field when the tool later runs.
-        bound_scope, bound_stop = capture_send_stop(host)
+        bound_scope = spawn_scope(host)
 
-        # Bugfix: getText ran for every tool whenever the sidebar combobox
-        # existed, and execute_on_main_thread re-raises, so a disposed or
-        # unwired control left _spawn_tool_worker and the drain treated it as
-        # a stream error. Only image_generate uses the override; a widget
-        # failure leaves that call's arguments unchanged.
+        # image_generate alone reads the image model combobox; getText failures must not
+        # abort unrelated tool workers or become stream errors.
         if effect.func_name == "image_generate" and isinstance(func_args, dict) and host.image_model_selector:
             image_model_override = best_effort(
-                lambda: execute_on_main_thread(lambda: host.image_model_selector.getText()),
+                lambda: main.call(lambda: host.image_model_selector.getText()),
                 "image model selector unusable; image_generate keeps its arguments",
             )
             if image_model_override:
@@ -1088,12 +1143,11 @@ class ToolLoopEffectInterpreter:
             try:
                 # Stop can land after spawn and before this body. Do not start
                 # the tool; the drain's on_stopped path closes the turn.
-                if bound_stop() or not turn.alive:
+                if is_cancelled(bound_scope) or not turn.alive:
                     turn.put((StreamQueueKind.STOPPED,))
                     return
 
                 call_kwargs: dict[str, Any] = {
-                    "stop_checker": bound_stop,
                     "send_cancellation": bound_scope,
                     "captured_turn": turn,
                 }

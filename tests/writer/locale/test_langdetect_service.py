@@ -12,7 +12,8 @@ import pytest
 
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL
 from plugin.writer.locale.langdetect_service import detect_languages
-from plugin.framework.constants import EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
+from plugin.framework.constants import WORKER_POOL_EMBEDDINGS
+from plugin.scripting.session_key import SessionKind
 from plugin.framework.errors import ToolExecutionError
 from plugin.scripting.config_limits import long_trusted_worker_timeout_sec
 
@@ -35,7 +36,7 @@ def test_detect_languages_happy_path(ctx) -> None:
     kwargs = mock_run.call_args.kwargs
     assert kwargs["domain"] == "langdetect"
     assert kwargs["additional_data"] == {"texts": ["Bonjour.", ""]}
-    assert kwargs["session_id"] == f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:langdetect"
+    assert kwargs["session_id"] == f"{SessionKind.EMBEDDINGS.value}:langdetect"
     assert kwargs["timeout_sec"] == long_trusted_worker_timeout_sec()
     assert kwargs["worker_pool"] == WORKER_POOL_EMBEDDINGS
 

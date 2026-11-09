@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Import ppt-master PPTX into Impress via LibreOffice's native PPTX filter.
 
-Picture shapes are reimported in ``uno_shape_postprocess`` so closing the
+Picture shapes are reimported in ``shape_clone`` so closing the
 hidden source does not dispose a graphic the target still references. A
 slide is emptied of its previous shapes only after that slide's copy
 reports at least one shape.
@@ -17,13 +17,42 @@ from pathlib import Path
 from typing import Any
 
 from plugin.contrib.ppt_master.coords import DEFAULT_SLIDE_HEIGHT_HMM, DEFAULT_SLIDE_WIDTH_HMM
-from plugin.draw.bridge import DrawBridge, find_notes_shape
-from plugin.framework.errors import best_effort, is_disposed_exception
+from plugin.draw.bridge import DrawBridge, notes_text, set_notes_text
+from plugin.draw.shape_clone import clone_shape
+from plugin.framework.errors import ToolExecutionError, best_effort, format_error_payload, is_disposal
 from plugin.framework.uno_context import get_desktop
-from plugin.ppt_master.adapter.uno_shape_postprocess import copy_shapes_to_page
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.thread_guard import main_thread_only
 
 log = logging.getLogger(__name__)
+
+
+def copy_shapes_to_page(source_page: Any, target_doc: Any, target_page: Any, uno_ctx: Any | None = None) -> int:
+    """Copy all shapes from *source_page* to *target_page*; return count copied."""
+    copied = 0
+    for i in range(source_page.getCount()):
+        src = source_page.getByIndex(i)
+        try:
+            result = clone_shape(target_doc, target_page, src, uno_ctx=uno_ctx)
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            log.warning("clone_shape failed: %s", exc)
+            continue
+        if result.empty_group_message is not None:
+            try:
+                target_page.remove(result.shape)
+            except Exception as exc:
+                if is_disposal(exc):
+                    raise
+                # Non-disposal remove failure leaves an unplaced clone on the page;
+                # log so it is recorded why removal failed.
+                log.debug("remove empty-group clone failed", exc_info=True)
+            log.warning("clone_shape empty group: %s", result.empty_group_message)
+            continue
+        if result.graphic_shapes > result.graphic_reimports:
+            log.warning("PPTX picture reimport failed; left Graphic unset rather than alias the hidden source pool")
+        copied += 1
+    return copied
 
 
 def _hidden_load_props() -> tuple[Any, ...]:
@@ -66,7 +95,7 @@ def _apply_target_page_size(page: Any) -> None:
 def _trim_appended_shapes(page: Any, keep_count: int) -> None:
     """Drop shapes ``add`` appended past *keep_count*.
 
-    ``clone_shape_to_page`` appends. A copy that reports no successes can
+    ``copy_shapes_to_page`` appends. A copy that reports no successes can
     still have added a shape before that clone failed; those are not user
     content and are removed from the end.
     """
@@ -89,27 +118,15 @@ def _drop_page(pages: Any, page: Any) -> None:
 def _copy_page_notes(source_page: Any, target_page: Any) -> None:
     """Copy the source NotesShape onto the target NotesShape, including "".
 
-    find_notes_shape is the NotesShape lookup the notes tools use. Header,
-    footer, and date fields also implement getString/setString and can
-    precede the NotesShape. clear_page_shapes only removes slide shapes, so
-    write the notes shape even when the text is empty; otherwise a re-import
-    of empty notes leaves the previous text (or writes chrome into the first
-    setString shape).
+    Slide shape cleanup never touches the notes page, so write empty notes
+    too; otherwise a re-import of empty notes leaves the previous slide's text.
     """
     try:
-        src_shape = find_notes_shape(source_page.getNotesPage())
-        # No NotesShape means the source has no speaker-notes body. hasattr
-        # is the wrong probe: a PyUNO method can be callable and still fail
-        # hasattr, and that false miss would look like empty notes.
-        notes_text = ""
-        if src_shape is not None:
-            notes_text = str(src_shape.getString() or "").strip()
-        tgt_shape = find_notes_shape(target_page.getNotesPage())
-        if tgt_shape is None:
-            return
-        tgt_shape.setString(notes_text)
+        raw = notes_text(source_page)
+        notes_str = "" if raw is None else raw.strip()
+        set_notes_text(target_page, notes_str)
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         # A non-disposed notes error (corrupt NotesShape) is logged and this
         # slide's notes are skipped so the rest of the deck still imports.
@@ -130,14 +147,13 @@ def _import_slides_from_source(
     source_pages = source_doc.getDrawPages()
     source_count = int(source_pages.getCount())
     if source_count < 1:
-        return {"status": "error", "message": "PPTX contains no slides."}
+        return format_error_payload(ToolExecutionError("PPTX contains no slides."))
 
     indices = slide_indices if slide_indices is not None else list(range(source_count))
-    # Reject a bad index before any slide is replaced. Doing it inside the
-    # loop used to commit earlier slides and then fail.
+    # Validate every index before replacing slides so a bad index does not commit partial imports.
     for src_index in indices:
         if src_index < 0 or src_index >= source_count:
-            return {"status": "error", "message": f"PPTX slide index out of range: {src_index}"}
+            return format_error_payload(ToolExecutionError(f"PPTX slide index out of range: {src_index}"))
 
     bridge = DrawBridge(target_doc)
     pages = bridge.get_pages()
@@ -151,28 +167,31 @@ def _import_slides_from_source(
         # trims what it appended, or drops a slide this call just created,
         # and leaves an existing slide's shapes in place.
         replace = clear_existing or out_index > 0
-        existed = execute_on_main_thread(lambda: out_index < int(pages.getCount()))
-        target_page = execute_on_main_thread(lambda: _ensure_target_page(bridge, out_index))
-        previous_count = execute_on_main_thread(lambda: int(target_page.getCount()))
-        copied = execute_on_main_thread(lambda: copy_shapes_to_page(source_page, target_doc, target_page, uno_ctx=ctx))
+        existed = out_index < int(pages.getCount())
+        target_page = _ensure_target_page(bridge, out_index)
+        previous_count = int(target_page.getCount())
+        copied = copy_shapes_to_page(source_page, target_doc, target_page, uno_ctx=ctx)
         if copied < 1:
             if not existed:
-                execute_on_main_thread(lambda: _drop_page(pages, target_page))
+                _drop_page(pages, target_page)
             else:
-                trim_count = previous_count
-                execute_on_main_thread(lambda: _trim_appended_shapes(target_page, trim_count))
-            return {"status": "error", "message": f"No shapes copied from PPTX slide {src_index + 1}"}
+                _trim_appended_shapes(target_page, previous_count)
+            return format_error_payload(
+                ToolExecutionError(f"No shapes copied from PPTX slide {src_index + 1}")
+            )
         if replace:
-            drop_count = previous_count
-            execute_on_main_thread(lambda: _drop_front_shapes(target_page, drop_count))
-        execute_on_main_thread(lambda: _apply_target_page_size(target_page))
-        execute_on_main_thread(lambda: bridge.set_current_page_index(out_index))
-        execute_on_main_thread(lambda: _copy_page_notes(source_page, target_page))
+            _drop_front_shapes(target_page, previous_count)
+        _apply_target_page_size(target_page)
+        bridge.set_current_page_index(out_index)
+        _copy_page_notes(source_page, target_page)
         results.append({"slide_index": out_index, "source_slide_index": src_index, "shapes_copied": copied})
 
     return {"status": "ok", "slides": len(results), "route": "pptx_to_odp", "results": results}
 
 
+# UNO load/save and slide copy; callers off the main thread must not enter here
+# (export_project_to_doc and evaluate_slide_fidelity marshal via main.call).
+@main_thread_only
 def import_pptx_to_doc(
     ctx: Any,
     target_doc: Any,
@@ -185,7 +204,7 @@ def import_pptx_to_doc(
     pptx_path = Path(pptx_path).expanduser().resolve()
     source_doc = load_pptx_as_impress_doc(ctx, pptx_path)
     if source_doc is None:
-        return {"status": "error", "message": f"PPTX import failed: {pptx_path.name}"}
+        return format_error_payload(ToolExecutionError(f"PPTX import failed: {pptx_path.name}"))
     try:
         if save_mirror_odp is not None:
             save_mirror_odp = Path(save_mirror_odp).expanduser().resolve()
@@ -201,6 +220,7 @@ def import_pptx_to_doc(
         best_effort(lambda: source_doc.close(True), "close source pptx doc")
 
 
+@main_thread_only
 def import_pptx_slide_to_odp(
     ctx: Any,
     pptx_path: Path,

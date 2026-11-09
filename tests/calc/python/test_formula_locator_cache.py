@@ -11,7 +11,6 @@ from unittest.mock import MagicMock
 from plugin.calc.python.formula_locator_cache import (
     CELL_FLAG_FORMULA,
     bind_formula_locate_memo,
-    extract_code_from_py_formula,
     is_matching_py_formula,
     iter_range_formula_texts,
     locate_formula_cell_in_doc,
@@ -44,27 +43,25 @@ def test_is_matching_py_formula_variants():
     assert not is_matching_py_formula(f'=PY("{code_a}")', code_b)
 
 
-def test_extract_code_from_py_formula():
-    assert extract_code_from_py_formula('=PY("plt.plot([1, 2])")') == "plt.plot([1, 2])"
-    assert extract_code_from_py_formula('=PYTHON("x = ""hello""", A1:B10)') == 'x = "hello"'
-    assert (
-        extract_code_from_py_formula(
-            '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("import matplotlib.pyplot as plt\nplt.show()")'
-        )
-        == "import matplotlib.pyplot as plt\nplt.show()"
+def test_is_matching_py_formula_pins():
+    assert is_matching_py_formula('=PY("plt.plot([1, 2])")', "plt.plot([1, 2])")
+    assert is_matching_py_formula('=PYTHON("x = ""hello""", A1:B10)', 'x = "hello"')
+    assert is_matching_py_formula(
+        '=ORG.EXTENSION.WRITERAGENT.PYTHONFUNCTION.PY("import matplotlib.pyplot as plt\nplt.show()")',
+        "import matplotlib.pyplot as plt\nplt.show()",
     )
-    assert (
-        extract_code_from_py_formula(
-            '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("result = 1")'
-        )
-        == "result = 1"
+    assert is_matching_py_formula(
+        '=ORG.COLLABORAOFFICE.SHEET.ADDIN.PYTHONCOMPUTEFUNCTIONS.GETPY("result = 1")',
+        "result = 1",
     )
-    assert extract_code_from_py_formula("=SUM(A1:A10)") is None
-    assert extract_code_from_py_formula("") is None
-    assert extract_code_from_py_formula('XPY("hello")') is None
-    assert extract_code_from_py_formula('=CONCAT("PY(""x"")")') is None
-    assert extract_code_from_py_formula('{=PY("result = 1")}') == "result = 1"
-    assert extract_code_from_py_formula('=PY("x")+1') == "x"
+    assert is_matching_py_formula('{=PY("result = 1")}', "result = 1")
+    # Pin change B: tail after call is not a match
+    assert not is_matching_py_formula('=PY("x")+1', "x")
+    # Pin change A: tail inside call is not a match
+    assert not is_matching_py_formula('=PY("x"+1)', "x")
+    # Pin change C: heads not in _PY_CALLS do not match
+    assert not is_matching_py_formula('=GETPY("x")', "x")
+    assert not is_matching_py_formula('=ORG.EXTENSION.OTHER.FOO.PY("x")', "x")
 
 
 def test_locate_memo_reuses_result_inside_bind():

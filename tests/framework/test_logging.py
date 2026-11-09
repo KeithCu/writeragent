@@ -39,7 +39,7 @@ class TestInitLogging:
 
         self._saved_config_path = config_mod._resolved_config_path
         self._saved_debug_path = logging_mod._shared()["debug_log_path"]
-        self._saved_hooks = getattr(sys, "_writeragent_exception_hooks_installed", False)
+        self._saved_hooks = getattr(sys, "_writeragent_excepthook", None)
         self._saved_excepthook = sys.excepthook
         import threading
 
@@ -54,15 +54,14 @@ class TestInitLogging:
         config_mod.reset_config_for_tests()
         config_mod._resolved_config_path = None
         logging_mod._shared()["debug_log_path"] = None
-        # What was wrong: these lived on the logging module. A second import
-        # did not see them. Tests must reset the sys copies or they leak.
-        setattr(sys, "_writeragent_debug_file_handler", None)
-        setattr(sys, "_writeragent_exception_hooks_installed", False)
+        # Debug state lives on ``sys``, not the logging module. A second import
+        # would miss stale copies unless each test clears these slots.
+        logging_mod._debug_slot()["handler"] = None
+        sys.__dict__.pop("_writeragent_excepthook", None)
         for h in list(log.handlers):
             log.removeHandler(h)
 
     def _release_debug_handlers(self) -> None:
-        import sys
 
         import plugin.framework.logging as logging_mod
 
@@ -74,7 +73,7 @@ class TestInitLogging:
                 except Exception:
                     pass
         logging_mod._shared()["debug_log_path"] = None
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
 
     def teardown_method(self):
         import sys
@@ -84,8 +83,11 @@ class TestInitLogging:
 
         config_mod._resolved_config_path = self._saved_config_path
         logging_mod._shared()["debug_log_path"] = self._saved_debug_path
-        setattr(sys, "_writeragent_debug_file_handler", None)
-        setattr(sys, "_writeragent_exception_hooks_installed", self._saved_hooks)
+        logging_mod._debug_slot()["handler"] = None
+        if self._saved_hooks is not None:
+            setattr(sys, "_writeragent_excepthook", self._saved_hooks)
+        else:
+            sys.__dict__.pop("_writeragent_excepthook", None)
         sys.excepthook = self._saved_excepthook
         import threading
 
@@ -313,6 +315,103 @@ class TestInitLogging:
 
             self._release_debug_handlers()
 
+    def test_repeated_init_logging_preserves_cache_and_level(self):
+        """Repeated init_logging with the same level must not call setLevel or clear logger._cache."""
+        mock_ctx = MagicMock()
+        with patch("plugin.framework.config.get_config", return_value="INFO"):
+            init_logging(mock_ctx)
+
+        assert log.level == logging.INFO
+
+        # Warm up the cache for a logger in the plugin hierarchy
+        probe_logger = logging.getLogger("plugin.test_cache_probe")
+        assert probe_logger.isEnabledFor(logging.INFO) is True
+        assert probe_logger.isEnabledFor(logging.DEBUG) is False
+        assert len(getattr(probe_logger, "_cache", {})) > 0
+
+        # Repeated init_logging with the same level should NOT call setLevel,
+        # leaving Manager._clear_cache() uncalled and probe_logger._cache intact.
+        with patch("plugin.framework.config.get_config", return_value="INFO"):
+            init_logging(mock_ctx)
+
+        assert log.level == logging.INFO
+        assert len(getattr(probe_logger, "_cache", {})) > 0
+
+        # When the log level actually changes, setLevel is called and clears _cache.
+        with patch("plugin.framework.config.get_config", return_value="DEBUG"):
+            init_logging(mock_ctx)
+
+        assert log.level == logging.DEBUG
+        assert len(getattr(probe_logger, "_cache", {})) == 0
+
+    def test_init_logging_does_not_hold_init_lock_across_config(self):
+        import plugin.framework.logging as logging_mod
+
+        lock_samples: dict[str, bool] = {}
+
+        def spy_init_config(ctx=None):
+            lock_samples["init_config"] = logging_mod._shared()["init_lock"].locked()
+
+        def spy_get_config(key, default=None):
+            lock_samples[key] = logging_mod._shared()["init_lock"].locked()
+            if key == "enable_agent_log":
+                return True
+            if key == "core.log_level":
+                return "WARN"
+            return default
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as tmp:
+            mock_ctx = MagicMock()
+            with (
+                patch("plugin.framework.config.init_config", side_effect=spy_init_config),
+                patch("plugin.framework.config.user_config_dir", return_value=tmp),
+                patch("plugin.framework.config.get_config", side_effect=spy_get_config),
+            ):
+                init_logging(mock_ctx)
+
+            assert "init_config" in lock_samples
+            assert "enable_agent_log" in lock_samples
+            assert "core.log_level" in lock_samples
+            assert all(locked is False for locked in lock_samples.values())
+
+            self._release_debug_handlers()
+
+    def test_init_logging_none_does_not_wait_on_blocked_init_config(self):
+        import threading
+
+        in_init_config = threading.Event()
+        release_init_config = threading.Event()
+
+        def blocking_init_config(ctx):
+            if ctx is not None:
+                in_init_config.set()
+                release_init_config.wait(timeout=5.0)
+
+        mock_ctx = MagicMock()
+        thread_a = None
+        thread_b = None
+        try:
+            with (
+                patch("plugin.framework.config.init_config", side_effect=blocking_init_config),
+                patch("plugin.framework.config.user_config_dir", return_value="/nonexistent/missing/dir"),
+                patch("plugin.framework.config.get_config", return_value="WARN"),
+            ):
+                thread_a = threading.Thread(target=init_logging, args=(mock_ctx,), name="test-init-a")
+                thread_b = threading.Thread(target=init_logging, args=(None,), name="test-init-b")
+
+                thread_a.start()
+                assert in_init_config.wait(timeout=2.0) is True
+
+                thread_b.start()
+                thread_b.join(timeout=2.0)
+                assert not thread_b.is_alive()
+        finally:
+            release_init_config.set()
+            if thread_a is not None:
+                thread_a.join(timeout=2.0)
+            if thread_b is not None:
+                thread_b.join(timeout=2.0)
+            self._release_debug_handlers()
 
 
 class TestLogRedaction:
@@ -450,7 +549,7 @@ def test_watchdog_clears_hung_status_when_activity_resumes():
         update_activity_state("chat", round_num=2, tool_name="edit")
         with shared["activity_lock"]:
             shared["activity"]["last_activity"] = 0.0
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=immediate):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=immediate):
             logging_mod._watchdog_check(ctrl)
             assert ctrl.text.startswith("Hung:")
             update_activity_state("chat", round_num=2)
@@ -658,21 +757,20 @@ class TestOptionalFlushFileHandler:
 
     def test_watchdog_check_flushes_debug_log(self):
         from plugin.framework.logging import _watchdog_check
-        import sys
 
         import plugin.framework.logging as logging_mod
 
         mock_handler = MagicMock(spec=OptionalFlushFileHandler)
-        old_h = getattr(sys, "_writeragent_debug_file_handler", None)
+        old_h = logging_mod._debug_slot()["handler"]
         try:
-            setattr(sys, "_writeragent_debug_file_handler", mock_handler)
+            logging_mod._debug_slot()["handler"] = mock_handler
             # Idle: no phase. A stalled phase left by an earlier test would
             # also run the once-per-stall stack dump, which flushes again.
             with patch.dict(logging_mod._shared()["activity"], {"phase": ""}):
                 _watchdog_check(None)
             mock_handler.flush.assert_called_once_with(force=True)
         finally:
-            setattr(sys, "_writeragent_debug_file_handler", old_h)
+            logging_mod._debug_slot()["handler"] = old_h
 
 
 def test_redact_api_keys_by_endpoint_and_exact_secret_names() -> None:
@@ -720,25 +818,26 @@ def test_excepthook_is_not_wrapped_twice() -> None:
 
     saved_hook = sys.excepthook
     saved_thread = getattr(threading, "excepthook", None)
-    saved_flag = getattr(sys, "_writeragent_exception_hooks_installed", False)
+    saved_flag = getattr(sys, "_writeragent_excepthook", None)
     try:
         def sentinel(*_args):
             return None
 
         sys.excepthook = sentinel
-        setattr(sys, "_writeragent_exception_hooks_installed", False)
+        sys.__dict__.pop("_writeragent_excepthook", None)
         logging_mod._install_global_exception_hooks()
         first = sys.excepthook
-        assert getattr(first, "_writeragent_hook", False) is True
         assert first is not sentinel
-        setattr(sys, "_writeragent_exception_hooks_installed", False)
         logging_mod._install_global_exception_hooks()
         assert sys.excepthook is first
     finally:
         sys.excepthook = saved_hook
         if saved_thread is not None:
             threading.excepthook = saved_thread
-        setattr(sys, "_writeragent_exception_hooks_installed", saved_flag)
+        if saved_flag is not None:
+            setattr(sys, "_writeragent_excepthook", saved_flag)
+        else:
+            sys.__dict__.pop("_writeragent_excepthook", None)
 
 
 def test_log_record_factory_is_not_wrapped_twice() -> None:
@@ -748,22 +847,20 @@ def test_log_record_factory_is_not_wrapped_twice() -> None:
     logging_mod._install_safe_log_record_factory()
     second = logging.getLogRecordFactory()
     assert second is first
-    assert getattr(second, "_writeragent_safe_factory", False) is True
 
 
 def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
-    import sys
 
     import plugin.framework.logging as logging_mod
 
     path_a = str(tmp_path / "a.log")
     path_b = str(tmp_path / "b.log")
     saved_path = logging_mod._shared()["debug_log_path"]
-    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    saved_handler = logging_mod._debug_slot()["handler"]
     first = None
     second = None
     try:
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
         logging_mod._shared()["debug_log_path"] = path_a
         first = logging_mod._shared_debug_file_handler()
         closed: list[int] = []
@@ -778,7 +875,7 @@ def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
             second = logging_mod._shared_debug_file_handler()
             assert closed == [1]
             assert second is not first
-            assert getattr(sys, "_writeragent_debug_file_handler") is second
+            assert logging_mod._debug_slot()["handler"] is second
             assert logging_mod._shared_debug_file_handler() is second
             assert closed == [1]
     finally:
@@ -790,29 +887,28 @@ def test_debug_handler_closes_previous_when_path_changes(tmp_path) -> None:
                 logging.FileHandler.close(handler)
             except Exception:
                 pass
-        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        logging_mod._debug_slot()["handler"] = saved_handler
 
 
 def test_debug_handler_is_stored_on_sys(tmp_path) -> None:
-    import sys
 
     import plugin.framework.logging as logging_mod
 
     path = str(tmp_path / "writeragent_debug.log")
     saved_path = logging_mod._shared()["debug_log_path"]
-    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    saved_handler = logging_mod._debug_slot()["handler"]
     handler = None
     try:
         logging_mod._shared()["debug_log_path"] = path
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
         handler = logging_mod._shared_debug_file_handler()
-        assert getattr(sys, "_writeragent_debug_file_handler") is handler
+        assert logging_mod._debug_slot()["handler"] is handler
         assert logging_mod._shared_debug_file_handler() is handler
     finally:
         logging_mod._shared()["debug_log_path"] = saved_path
         if handler is not None:
             handler.close()
-        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        logging_mod._debug_slot()["handler"] = saved_handler
 
 
 def test_start_watchdog_is_dedicated_and_idempotent() -> None:
@@ -820,17 +916,20 @@ def test_start_watchdog_is_dedicated_and_idempotent() -> None:
 
     import plugin.framework.logging as logging_mod
 
-    saved = getattr(sys, "_writeragent_watchdog_started", False)
+    saved = getattr(sys, "_writeragent_watchdog", None)
     try:
-        setattr(sys, "_writeragent_watchdog_started", False)
+        sys.__dict__.pop("_writeragent_watchdog", None)
         with patch("plugin.framework.worker_pool.run_in_background") as run:
             logging_mod.start_watchdog_thread(None, status_control=None)
             logging_mod.start_watchdog_thread(None, status_control=None)
         assert run.call_count == 1
         assert run.call_args.kwargs.get("dedicated") is True
-        assert getattr(sys, "_writeragent_watchdog_started") is True
+        assert getattr(sys, "_writeragent_watchdog", False) is True
     finally:
-        setattr(sys, "_writeragent_watchdog_started", saved)
+        if saved is not None:
+            setattr(sys, "_writeragent_watchdog", saved)
+        else:
+            sys.__dict__.pop("_writeragent_watchdog", None)
 
 
 def test_watchdog_dumps_thread_stacks_on_stall() -> None:
@@ -983,9 +1082,9 @@ def test_watchdog_hung_goes_to_sender_control():
 
         logging_mod._watchdog_check(default_ctrl)
 
-        from plugin.framework.queue_executor import default_executor
-        while default_executor.pending_work_count() > 0:
-            default_executor.process_queue()
+        from plugin.framework.queue_executor import main
+        while main.pending_work_count() > 0:
+            main.process_queue()
 
         assert "Hung" in sender_ctrl.text
         assert default_ctrl.text == ""
@@ -1011,9 +1110,9 @@ def test_watchdog_ending_turn_clears_hung():
 
     logging_mod.update_activity_state("")
 
-    from plugin.framework.queue_executor import default_executor
-    while default_executor.pending_work_count() > 0:
-        default_executor.process_queue()
+    from plugin.framework.queue_executor import main
+    while main.pending_work_count() > 0:
+        main.process_queue()
 
     assert sender_ctrl.text == ""
 
@@ -1054,7 +1153,7 @@ def test_update_activity_state_clears_omitted_tool_name():
         with shared["activity_lock"]:
             act["last_activity"] = 0.0
 
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=immediate):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=immediate):
             logging_mod._watchdog_check(ctrl)
 
         assert ctrl.text == "Hung: tool_loop round 2"
@@ -1088,14 +1187,13 @@ def test_redact_anthropic_and_google_image_blocks() -> None:
 
 def test_second_import_shares_state_and_handler(tmp_path) -> None:
     import importlib.util
-    import sys
     import plugin.framework.logging as logging_mod
 
     path = str(tmp_path / "writeragent_debug.log")
     saved_path = logging_mod._shared()["debug_log_path"]
-    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    saved_handler = logging_mod._debug_slot()["handler"]
     logging_mod._shared()["debug_log_path"] = path
-    setattr(sys, "_writeragent_debug_file_handler", None)
+    logging_mod._debug_slot()["handler"] = None
     first_handler = logging_mod._shared_debug_file_handler()
     try:
         spec = importlib.util.spec_from_file_location("writeragent_logging_second_copy", logging_mod.__file__)
@@ -1110,14 +1208,14 @@ def test_second_import_shares_state_and_handler(tmp_path) -> None:
         assert act["round_num"] == 4
         assert act["tool_name"] == "edit"
 
-        assert second._shared_debug_file_handler() is getattr(sys, "_writeragent_debug_file_handler")
+        assert second._shared_debug_file_handler() is logging_mod._debug_slot()["handler"]
         assert second._shared_debug_file_handler() is first_handler
     finally:
         update_activity_state("")
         logging_mod._shared()["debug_log_path"] = saved_path
         if first_handler is not None:
             first_handler.close()
-        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        logging_mod._debug_slot()["handler"] = saved_handler
 
 
 def test_rotate_if_large_second_thread_keeps_oversized_backup(tmp_path) -> None:
@@ -1274,7 +1372,6 @@ def test_rotate_reopen_oserror_does_not_propagate(tmp_path) -> None:
 
 
 def test_watchdog_check_continues_when_flush_raises(tmp_path) -> None:
-    import sys
     import plugin.framework.logging as logging_mod
 
     shared = logging_mod._shared()
@@ -1282,11 +1379,11 @@ def test_watchdog_check_continues_when_flush_raises(tmp_path) -> None:
         saved_activity = dict(shared["activity"])
         saved_hung = shared["hung_shown"]
         saved_stacks = shared["stacks_dumped"]
-    saved_handler = getattr(sys, "_writeragent_debug_file_handler", None)
+    saved_handler = logging_mod._debug_slot()["handler"]
 
     log_path = str(tmp_path / "test_watchdog_check.log")
     handler = OptionalFlushFileHandler(log_path, encoding="utf-8")
-    setattr(sys, "_writeragent_debug_file_handler", handler)
+    logging_mod._debug_slot()["handler"] = handler
 
     try:
         with patch("logging.FileHandler.flush", side_effect=OSError("flush failed")):
@@ -1304,7 +1401,7 @@ def test_watchdog_check_continues_when_flush_raises(tmp_path) -> None:
             shared["activity"].update(saved_activity)
             shared["hung_shown"] = saved_hung
             shared["stacks_dumped"] = saved_stacks
-        setattr(sys, "_writeragent_debug_file_handler", saved_handler)
+        logging_mod._debug_slot()["handler"] = saved_handler
         handler.close()
 
 
@@ -1370,49 +1467,243 @@ def test_start_watchdog_resets_flag_when_background_start_fails() -> None:
     import sys
     import plugin.framework.logging as logging_mod
 
-    saved = getattr(sys, "_writeragent_watchdog_started", False)
+    saved = getattr(sys, "_writeragent_watchdog", None)
     try:
-        setattr(sys, "_writeragent_watchdog_started", False)
+        sys.__dict__.pop("_writeragent_watchdog", None)
         with patch("plugin.framework.worker_pool.run_in_background", side_effect=RuntimeError("pool down")):
             with pytest.raises(RuntimeError, match="pool down"):
                 logging_mod.start_watchdog_thread(None)
-        assert getattr(sys, "_writeragent_watchdog_started") is False
+        assert getattr(sys, "_writeragent_watchdog", False) is False
 
         with patch("plugin.framework.worker_pool.run_in_background") as mock_run:
             logging_mod.start_watchdog_thread(None)
             assert mock_run.call_count == 1
             assert mock_run.call_args.kwargs.get("dedicated") is True
-            assert getattr(sys, "_writeragent_watchdog_started") is True
+            assert getattr(sys, "_writeragent_watchdog", False) is True
     finally:
-        setattr(sys, "_writeragent_watchdog_started", saved)
+        if saved is not None:
+            setattr(sys, "_writeragent_watchdog", saved)
+        else:
+            sys.__dict__.pop("_writeragent_watchdog", None)
 
 
 def test_log_record_factory_pyuno_str_failure_uses_placeholder() -> None:
+    """PyUNO proxies become ``<pyuno>`` with no ``str`` or ``repr`` call.
+
+    ``str(pyuno)`` is a deep UNO call (``getImplementationName`` and the
+    service list) and must not run while the handler lock is held.
+    """
+    calls: list[str] = []
+
     class pyuno:
         def __str__(self) -> str:
-            raise RuntimeError("disposed")
-
-    failing = pyuno()
-    factory = logging.getLogRecordFactory()
-    record1 = factory("test", logging.INFO, "file.py", 10, "value=%s", (failing,), None, None, None)
-    assert record1.args == ("<pyuno>",)
-
-    class pyuno:  # type: ignore[no-redef]
-        def __str__(self) -> str:
+            calls.append("str")
             return "proxy-ok"
 
-    ok = pyuno()
-    record2 = factory("test", logging.INFO, "file.py", 10, "value=%s", (ok,), None, None, None)
-    assert record2.args == ("proxy-ok",)
+        def __repr__(self) -> str:
+            calls.append("repr")
+            return "proxy-repr"
+
+    proxy = pyuno()
+    factory = logging.getLogRecordFactory()
+    record1 = factory("test", logging.INFO, "file.py", 10, "value=%s", (proxy,), None, None, None)
+    assert record1.args == ("<pyuno>",)
+    assert calls == []
 
     plain_args = ("text",)
-    record3 = factory("test", logging.INFO, "file.py", 10, "value=%s", plain_args, None, None, None)
-    assert record3.args == ("text",)
-    assert record3.args is plain_args
+    record_plain = factory("test", logging.INFO, "file.py", 10, "value=%s", plain_args, None, None, None)
+    assert record_plain.args == ("text",)
+    assert record_plain.args is plain_args
 
-    record4 = factory("test", logging.INFO, "file.py", 10, "value=%s", args=(failing,), exc_info=None, func=None, sinfo=None)
-    assert record4.args == ("<pyuno>",)
+    record_kwargs = factory("test", logging.INFO, "file.py", 10, "value=%s", args=(proxy,), exc_info=None, func=None, sinfo=None)
+    assert record_kwargs.args == ("<pyuno>",)
 
+    record_msg = factory("test", logging.INFO, "file.py", 10, proxy, (), None, None, None)
+    assert record_msg.msg == "<pyuno>"
+
+    nested = ({"d": proxy, proxy: "key"}, [proxy])
+    record_nested = factory("test", logging.INFO, "file.py", 10, "value=%s %s", nested, None, None, None)
+    assert record_nested.args == ({"d": "<pyuno>", "<pyuno>": "key"}, ["<pyuno>"])
+    assert calls == []
+
+
+class _FormatHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+        self.exc_text_at_emit: list[str | None] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.exc_text_at_emit.append(record.exc_text)
+        self.messages.append(self.format(record))
+
+
+def _isolated_logger(name: str) -> tuple[logging.Logger, _FormatHandler]:
+    logger = logging.getLogger(name)
+    logger.handlers.clear()
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False
+    handler = _FormatHandler()
+    logger.addHandler(handler)
+    return logger, handler
+
+
+def test_log_emit_does_not_stringify_pyuno() -> None:
+    calls: list[str] = []
+
+    class pyuno:
+        def __str__(self) -> str:
+            calls.append("str")
+            return "from-str"
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            return "from-repr"
+
+    proxy = pyuno()
+    logger, handler = _isolated_logger("writeragent.test.pyuno-emit")
+    try:
+        logger.debug("v=%s", proxy)
+        logger.debug(proxy)  # type: ignore[arg-type]
+        logger.debug("v=%s", {"d": proxy})
+        logger.debug("v=%s", [proxy])
+    finally:
+        logger.handlers.clear()
+    assert calls == []
+    assert handler.messages == ["v=<pyuno>", "<pyuno>", "v={'d': '<pyuno>'}", "v=['<pyuno>']"]
+
+
+def test_log_does_not_deep_str_uno_struct() -> None:
+    calls: list[str] = []
+
+    class UnoStruct(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+
+        def __init__(self, message: str = "element exists") -> None:
+            super().__init__(message)
+            self.Message = message
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("deep str called")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("deep repr called")
+
+    obj = UnoStruct()
+    logger, handler = _isolated_logger("writeragent.test.uno-struct-emit")
+    try:
+        logger.warning("v=%s", obj)
+        logger.warning("%r", obj)
+        logger.warning("v=%s", [obj])
+        logger.warning("v=%s", {obj: 1})
+        try:
+            raise obj
+        except Exception:
+            logger.exception("failed")
+    finally:
+        logger.handlers.clear()
+
+    assert calls == []
+    assert len(handler.messages) == 5
+    for msg in handler.messages:
+        assert "element exists" in msg
+        assert "<UNO " in msg
+
+
+def test_log_exception_chained_uno_struct_does_not_deep_str() -> None:
+    calls: list[str] = []
+
+    class UnoStruct(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+
+        def __init__(self, message: str = "root uno error") -> None:
+            super().__init__(message)
+            self.Message = message
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("deep str called")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("deep repr called")
+
+    logger, handler = _isolated_logger("writeragent.test.uno-chain-emit")
+    try:
+        try:
+            try:
+                raise UnoStruct()
+            except UnoStruct as uno_err:
+                raise ValueError("wrapper error") from uno_err
+        except ValueError:
+            logger.exception("failed")
+    finally:
+        logger.handlers.clear()
+
+    assert calls == []
+    assert len(handler.messages) == 1
+    msg = handler.messages[0]
+    assert "<UNO UnoStruct: root uno error>" in msg
+    assert "ValueError: wrapper error" in msg
+    assert "direct cause of the following exception" in msg
+
+
+@pytest.mark.parametrize("has_message,message_value", [(True, 123), (False, None)])
+def test_logged_uno_label_non_str_or_missing_message(has_message: bool, message_value: Any) -> None:
+    calls: list[str] = []
+
+    class UnoStruct:
+        __pyunostruct__ = "com.sun.star.beans.PropertyValue"
+
+        def __init__(self) -> None:
+            if has_message:
+                self.Message = message_value
+
+        def __str__(self) -> str:
+            calls.append("str")
+            raise AssertionError("deep str called")
+
+        def __repr__(self) -> str:
+            calls.append("repr")
+            raise AssertionError("deep repr called")
+
+    obj = UnoStruct()
+    logger, handler = _isolated_logger("writeragent.test.uno-edge-emit")
+    try:
+        logger.warning("v=%s", obj)
+    finally:
+        logger.handlers.clear()
+
+    assert calls == []
+    assert len(handler.messages) == 1
+    assert handler.messages[0] == "v=<UNO UnoStruct: >"
+
+
+def test_exception_text_is_formatted_before_handler_emit() -> None:
+    phase = {"emit": False}
+    calls: list[bool] = []
+
+    class Boom(Exception):
+        def __str__(self) -> str:
+            calls.append(phase["emit"])
+            return "boom"
+
+    logger, handler = _isolated_logger("writeragent.test.exc-text")
+    try:
+        try:
+            raise Boom()
+        except Boom:
+            logger.exception("failed")
+    finally:
+        logger.handlers.clear()
+    assert calls
+    assert all(flag is False for flag in calls)
+    assert handler.exc_text_at_emit
+    assert handler.exc_text_at_emit[0]
+    assert "boom" in handler.exc_text_at_emit[0]
+    assert "Boom" in handler.messages[0]
 
 
 def test_debug_log_max_bytes_env(monkeypatch):

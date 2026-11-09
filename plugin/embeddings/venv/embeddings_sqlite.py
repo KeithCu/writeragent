@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
+import re
 import sqlite3
-import time
+import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -173,6 +175,75 @@ CREATE VIRTUAL TABLE IF NOT EXISTS {tbl_name} USING vec0(
 """
 
 
+def _opts_tokens(opts: str) -> set[str]:
+    return {part.strip().casefold() for part in opts.split(",") if part.strip()}
+
+
+def _path_for_mount_match(path: str | Path) -> str:
+    """Normalize *path* for prefix comparison against psutil mount points."""
+    text = str(path)
+    if sys.platform == "win32":
+        return os.path.normpath(text)
+    return os.path.realpath(text)
+
+
+def _longest_mount_partition(path: str | Path, partitions: list[Any]) -> Any | None:
+    """Pick the disk_partitions row whose mountpoint is the longest prefix of *path*."""
+    target = _path_for_mount_match(path)
+    best_len = -1
+    best_part: Any | None = None
+    for part in partitions:
+        mp = str(part.mountpoint)
+        if target == mp:
+            mp_len = len(mp)
+        elif mp == "/" and target.startswith("/"):
+            mp_len = 1
+        elif target.startswith(mp.rstrip("/") + "/") or target.startswith(mp.rstrip("\\") + "\\"):
+            mp_len = len(mp.rstrip("/\\"))
+        else:
+            continue
+        if mp_len > best_len:
+            best_len = mp_len
+            best_part = part
+    return best_part
+
+
+def _partition_is_local(path: str | Path, part: Any) -> bool:
+    """Classify a psutil disk_partitions row as local or remote."""
+    fstype = str(part.fstype or "").strip()
+    opts = str(part.opts or "")
+    if sys.platform == "win32":
+        # Mapped shares and local NTFS both report NTFS; psutil tags DRIVE_REMOTE in opts.
+        return "remote" not in _opts_tokens(opts)
+    if sys.platform == "darwin":
+        # psutil copies MNT_LOCAL into a ``local`` mount option token.
+        return "local" in _opts_tokens(opts)
+    from plugin.contrib.fstype_network import fstype_is_network
+
+    if not fstype:
+        return True
+    return not fstype_is_network(fstype)
+
+
+def path_is_local_disk(path: str | Path) -> bool:
+    """Check whether a folder resides on a local disk rather than a network mount."""
+    path_text = str(path)
+    if path_text.startswith(("\\\\", "//")):
+        return False
+    try:
+        import psutil
+    except ImportError:
+        return True
+    try:
+        partitions = psutil.disk_partitions(all=True)
+    except Exception:
+        return True
+    part = _longest_mount_partition(path, partitions)
+    if part is None:
+        return True
+    return _partition_is_local(path, part)
+
+
 def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
     """Open corpus.db with row factory.
 
@@ -184,7 +255,21 @@ def connect_corpus_db(db_path: str | Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
     conn = dbapi.connect(str(path))
     conn.row_factory = dbapi.Row
-    conn.execute("PRAGMA journal_mode=WAL")
+    wanted = "wal" if path_is_local_disk(path.parent) else "delete"
+    # WAL on a local disk; a known network filesystem uses DELETE so two
+    # hosts do not share one WAL; an unrecognized type stays WAL.
+    if wanted == "wal":
+        res = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+    else:
+        res = conn.execute("PRAGMA journal_mode=DELETE").fetchone()
+    actual = str(res[0]).casefold() if res else ""
+    if actual != wanted:
+        log.warning(
+            "Corpus database journal mode mismatch in %s: wanted %s, got %s",
+            path.parent,
+            wanted,
+            actual,
+        )
     return cast(sqlite3.Connection, conn)
 
 
@@ -248,6 +333,93 @@ def rebuild_fts_corpus_index(conn: sqlite3.Connection) -> None:
 def corpus_chunk_count(conn: sqlite3.Connection) -> int:
     row = conn.execute("SELECT COUNT(*) AS c FROM chunks").fetchone()
     return int(row["c"] if row else 0)
+
+
+def stored_model_dim(conn: sqlite3.Connection, model: str) -> int | None:
+    """Return embedding dimension recorded for *model*, or None when unknown.
+
+    On a cold corpus ``model_metadata`` may not exist yet. macOS often opens the
+    DB via pysqlite3; its ``OperationalError`` is not a subclass of stdlib
+    ``sqlite3.OperationalError``, so missing-table errors must be caught per
+    connection (see ``_conn_operational_error``).
+    """
+    try:
+        row = conn.execute(
+            "SELECT dim FROM model_metadata WHERE embedding_model = ?",
+            (model,),
+        ).fetchone()
+        if row is not None:
+            return int(row["dim"])
+    except _conn_operational_error(conn):
+        pass
+    return None
+
+
+def _missing_vector_chunk_row(row: Any) -> dict[str, Any]:
+    return {
+        "chunk_id": int(row["chunk_id"]),
+        "doc_url": str(row["doc_url"] or ""),
+        "para_index": int(row["para_index"] or 0),
+        "char_start": int(row["char_start"] or 0),
+        "char_end": int(row["char_end"] or 0),
+        "content_hash": str(row["content_hash"] or ""),
+        "text": str(row["text"] or "").strip(),
+        "file_mtime": float(row["file_mtime"] or 0.0),
+    }
+
+
+def _vec_table_if_exists(conn: sqlite3.Connection, model: str) -> str | None:
+    slug = model_slug(model)
+    tbl_name = f"vec_chunks_{slug}"
+    has_table = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (tbl_name,),
+    ).fetchone()
+    if not has_table:
+        return None
+    return tbl_name
+
+
+def missing_vector_chunks(
+    conn: sqlite3.Connection,
+    model: str,
+) -> list[dict[str, Any]]:
+    """Return chunk rows that have no vector in the active model's vec_chunks table.
+
+    When the vec table does not exist yet, every chunk row is returned (cold corpus).
+    """
+    tbl_name = _vec_table_if_exists(conn, model)
+    if tbl_name:
+        _load_vec_extension(conn)
+        sql = f"""
+            SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
+            FROM chunks
+            WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name})
+            """
+    else:
+        sql = """
+            SELECT chunk_id, doc_url, para_index, char_start, char_end, content_hash, body AS text, file_mtime
+            FROM chunks
+            """
+    rows = conn.execute(sql).fetchall()
+    return [_missing_vector_chunk_row(row) for row in rows]
+
+
+def has_missing_vector_chunks(conn: sqlite3.Connection, model: str) -> bool:
+    """True when at least one chunk row lacks a vector for *model*."""
+    tbl_name = _vec_table_if_exists(conn, model)
+    if tbl_name:
+        _load_vec_extension(conn)
+        row = conn.execute(
+            f"""
+            SELECT 1 FROM chunks
+            WHERE chunk_id NOT IN (SELECT chunk_id FROM {tbl_name})
+            LIMIT 1
+            """
+        ).fetchone()
+    else:
+        row = conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone()
+    return row is not None
 
 
 def _fts_index_row(conn: sqlite3.Connection, chunk_id: int) -> None:
@@ -540,6 +712,54 @@ def vec0_search(
     return candidates
 
 
+_NEAR_SLASH_RE = re.compile(r"(.+?)\s+NEAR\s*/\s*(\d+)\s+(.+)", re.IGNORECASE)
+_FTS5_NEAR_CALL_RE = re.compile(r"\bNEAR\s*\(", re.IGNORECASE)
+_BOOL_RE = re.compile(r"\b(AND|OR|NOT)\b", re.IGNORECASE)
+
+
+def _escape_fts_token(token: str) -> str:
+    cleaned = str(token or "").strip()
+    if not cleaned:
+        return '""'
+    escaped = cleaned.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def build_match_query(query: str, *, near_slop: int = 10) -> str:
+    """Build an FTS5 MATCH expression (multi-word defaults to NEAR with slop)."""
+    raw = str(query or "").strip()
+    if not raw:
+        raise ValueError("query is required")
+    slop = max(0, int(near_slop))
+
+    if _FTS5_NEAR_CALL_RE.search(raw):
+        return raw
+    if _BOOL_RE.search(raw):
+        return raw
+
+    near_match = _NEAR_SLASH_RE.search(raw)
+    if near_match:
+        left_tokens = [t for t in near_match.group(1).split() if t.strip()]
+        right_tokens = [t for t in near_match.group(3).split() if t.strip()]
+        dist = int(near_match.group(2))
+        tokens = left_tokens + right_tokens
+        if not tokens:
+            raise ValueError("NEAR query has no terms")
+        quoted = " ".join(_escape_fts_token(t) for t in tokens)
+        return f"NEAR({quoted}, {dist})"
+
+    tokens = [t for t in raw.split() if t.strip()]
+    if len(tokens) == 1:
+        return _escape_fts_token(tokens[0])
+    quoted = " ".join(_escape_fts_token(t) for t in tokens)
+    return f"NEAR({quoted}, {slop})"
+
+
+def strip_fts_snippet_markers(snippet: str) -> str:
+    """Remove FTS5 snippet() highlight brackets; readable plain text for agents and UI."""
+    return str(snippet or "").replace("[", "").replace("]", "")
+
+
 def fts_corpus_search(
     conn: sqlite3.Connection,
     query: str,
@@ -549,8 +769,6 @@ def fts_corpus_search(
     doc_url_filter: str | None = None,
 ) -> list[dict[str, Any]]:
     """BM25 + NEAR search on unified corpus.db passages (rowid = chunk_id)."""
-    from plugin.embeddings.venv.folder_fts import build_match_query, strip_fts_snippet_markers
-
     limit = max(1, min(int(k or 10), 50))
     match_expr = build_match_query(str(query or ""), near_slop=near_slop)
 
@@ -849,124 +1067,28 @@ def sync_file_paragraph_state_in_db(
     )
 
 
-def _open_index_db(db_path: Path) -> Any:
-    """Open corpus.db and ensure base schema (including indexed_* tables)."""
-    conn = connect_corpus_db(db_path)
-    ensure_schema(conn)
-    return conn
-
-
-def get_file_index_state(db_path: Path, doc_url: str) -> dict[str, float | int]:
-    """Return stored file_mtime, last_indexed_at, and paragraph count for *doc_url*."""
-    if not db_path.is_file():
-        return {"file_mtime": 0.0, "last_indexed_at": 0.0, "chunk_count": 0}
-    conn = _open_index_db(db_path)
-    try:
-        return get_file_index_info(conn, doc_url)
-    finally:
-        conn.close()
-
-
-def file_is_stale(db_path: Path, doc_url: str, file_mtime: float) -> bool:
-    """True when *file_mtime* is newer than the mtime stored for *doc_url*."""
-    if not db_path.is_file():
-        return True
-    conn = _open_index_db(db_path)
-    try:
-        return file_is_stale_in_db(conn, doc_url, file_mtime)
-    finally:
-        conn.close()
-
-
-def mark_file_indexed(db_path: Path, doc_url: str, file_mtime: float, *, indexed_at: float | None = None, paragraphs: dict[str, str] | None = None) -> None:
-    """Advance last_indexed_at/file_mtime for *doc_url* in corpus.db."""
-    ts = float(indexed_at if indexed_at is not None else time.time())
-    conn = _open_index_db(db_path)
-    try:
-        mark_file_indexed_in_db(conn, doc_url, file_mtime, indexed_at=ts, paragraphs=paragraphs)
-    finally:
-        conn.close()
-
-
-def get_all_indexed_urls(db_path: Path) -> list[str]:
-    """Return a list of all doc_url entries in corpus.db's indexed_files."""
-    if not db_path.is_file():
-        return []
-    conn = _open_index_db(db_path)
-    try:
-        return get_all_indexed_urls_in_db(conn)
-    finally:
-        conn.close()
-
-
-def remove_file_from_index(db_path: Path, doc_url: str) -> None:
-    """Remove a file's freshness metadata from corpus.db."""
-    if not db_path.is_file():
-        return
-    conn = _open_index_db(db_path)
-    try:
-        remove_file_from_index_in_db(conn, doc_url)
-    finally:
-        conn.close()
-
-
-def diff_chunk_rows(
-    db_path: Path,
-    doc_url: str,
-    chunks: list[Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Return (rows_to_index, keys_to_delete) comparing extracted chunks to corpus.db.
-
-    ``doc_url`` is required so an empty extract still finds that document's
-    stored rows and returns them as deletes.
-    """
-    if not db_path.is_file():
-        from plugin.embeddings.embeddings_fs import ParagraphChunk, chunk_to_index_row
-
-        to_index = [chunk_to_index_row(c) for c in chunks if isinstance(c, ParagraphChunk)]
-        return to_index, []
-    conn = _open_index_db(db_path)
-    try:
-        return diff_chunk_rows_in_db(conn, doc_url, chunks)
-    finally:
-        conn.close()
-
-
-def sync_file_paragraph_state(db_path: Path, doc_url: str, chunks: list[Any], file_mtime: float) -> None:
-    """Update paragraph hashes in corpus.db after a successful index pass."""
-    conn = _open_index_db(db_path)
-    try:
-        sync_file_paragraph_state_in_db(conn, doc_url, chunks, file_mtime, indexed_at=time.time())
-    finally:
-        conn.close()
-
-
 __all__ = [
     "connect_corpus_db",
     "corpus_chunk_count",
     "delete_by_chunk_locator",
     "delete_by_doc_para",
     "delete_paragraph_keys",
-    "diff_chunk_rows",
     "diff_chunk_rows_in_db",
     "ensure_schema",
-    "file_is_stale",
     "file_is_stale_in_db",
     "fts_corpus_search",
-    "get_all_indexed_urls",
     "get_all_indexed_urls_in_db",
     "get_file_index_info",
-    "get_file_index_state",
+    "has_missing_vector_chunks",
     "insert_paragraph_rows",
     "load_embeddings_for_candidates",
-    "mark_file_indexed",
     "mark_file_indexed_in_db",
+    "missing_vector_chunks",
     "paragraph_body_for_locator",
     "paragraph_bodies_for_locators",
     "rebuild_fts_corpus_index",
-    "remove_file_from_index",
     "remove_file_from_index_in_db",
-    "sync_file_paragraph_state",
+    "stored_model_dim",
     "sync_file_paragraph_state_in_db",
     "upsert_chunk_with_vector",
     "vec0_search",

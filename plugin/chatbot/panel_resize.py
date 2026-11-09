@@ -3,7 +3,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_listeners import BaseWindowListener
 
 log = logging.getLogger(__name__)
@@ -356,7 +356,7 @@ def _clamp_to_column(x: int, w: int, width: int, right_margin: int) -> tuple[int
 
 def _measure(ctrl: Any, method: str) -> tuple[int, int] | None:
     """(width, height) from XLayoutConstrains on a control, or None."""
-    size: Any = uno_probe(getattr(ctrl, method, None), None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
+    size: Any = uno_read(getattr(ctrl, method, None), None)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]  # pyright: ignore[reportArgumentType]
     if size is None:
         return None
     w, h = getattr(size, "Width", 0), getattr(size, "Height", 0)
@@ -435,8 +435,8 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
     def relayout_now(self, win: Any, viewport_w: int = 0) -> None:
         if not win:
             return
-        # Do not wait for deck negotiation. Keith create-time: root=320 with
-        # max_child_right=1087 seeded the H-bar until the first widen.
+        # Do not wait for deck negotiation: initial root width with
+        # wider child bounds seeds the horizontal scrollbar until the first widen.
         if viewport_w > 0:
             self._viewport_w = viewport_w
         if self._in_relayout:
@@ -495,9 +495,9 @@ class _PanelResizeListener(BaseWindowListener):  # pyright: ignore[reportUnusedC
         # Cap h against the parent window height (getPosSize().Height) and
         # 3000px. In Calc's sidebar, moving bottom controls down resizes the
         # container, which fires windowResized with a larger height and
-        # repeats (test_e12).
+        # repeats in Calc dual-panel resize loops.
         if self._parent_window is not None:
-            pr = uno_probe(self._parent_window.getPosSize, None)
+            pr = uno_read(self._parent_window.getPosSize, None)
             if pr is not None and pr.Height > 0 and h > pr.Height:
                 h = int(pr.Height)
         if h > 3000:

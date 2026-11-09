@@ -19,7 +19,7 @@ String extraction and catalog updates are driven by [`scripts/extract_strings.py
 
 2. **XDL dialogs**: English strings in `.xdl` files are not read by `xgettext` directly. [`scripts/extract_xdl_strings.py`](../scripts/extract_xdl_strings.py) generates a temporary `plugin/xdl_strings.py` containing `_()` calls so those strings are picked up; that stub is removed after extraction.
 
-3. **Input list & xgettext**: Python files are collected depth-first and written to a temporary list file passed to `xgettext` via `-f`. `--keyword=N_` is passed on both `extract-strings` and `refresh-pot` paths (extracts `_` and `N_`).
+3. **Input list & xgettext**: Python files are collected depth-first and written to a temporary list file passed to `xgettext` via `-f`. `--keyword=N_` is passed on both `extract-strings` and `refresh-pot` paths (extracts `_` and `N_`). Slash-command English ids are registered with `N_("help")`, …; translators map those msgids to a localized alias in each locale's catalog. At runtime `_()` resolves the display name and typed-alias matching for the active catalog only; a missing or identity translation keeps the English id.
 
 4. **Module metadata**: [`scripts/merge_module_yaml_into_pot.py`](../scripts/merge_module_yaml_into_pot.py) merges translatable entries from `plugin/**/module.yaml` (titles, labels, helpers, `button_text`, options) into the same POT, deduplicated by `msgid`. `button_text` is the button caption (`dlg:value` → `Label`); `translate_dialog` already calls `_()` on it, so a missing catalog entry stays English. Requires `polib` and PyYAML.
 

@@ -25,21 +25,50 @@ CellInspector, and CellManipulator per call using ``ctx.doc``.
 from __future__ import annotations
 
 import logging
+from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable
-
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception, is_real_disposal, uno_probe
+from plugin.framework.errors import ToolExecutionError, WriterAgentException, is_disposal, uno_call, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-from plugin.calc.address_utils import format_range, index_to_column, parse_range_string, quote_sheet_name, split_sheet_prefix
-from plugin.calc.bridge import CalcBridge
+from plugin.calc.address_utils import format_range, index_to_column, quote_sheet_name, range_shape, split_sheet_prefix
+from plugin.calc.bridge import CalcBridge, is_agent_visible_sheet
 from plugin.calc.base import ToolCalcRangeBase
-from plugin.calc.inspector import CellInspector
+from plugin.calc.calc_utils import range_args
+from plugin.calc.inspector import CellInspector, grid_to_rows
 from plugin.calc.manipulator import CellManipulator, _parse_formula_or_values_string, _values_length_mismatch_message
 from plugin.doc.compound_undo import WriterCompoundUndo
 from plugin.doc.visual_helpers import parse_color_to_uno_int
+
+
+_WRITE_VALUES_CELL_ERR = (
+    "Each cell in values must be string, number, boolean, or null; got {kind}."
+)
+
+
+def _write_values_cell_ok(cell: Any) -> bool:
+    if cell is None:
+        return True
+    return isinstance(cell, (str, int, float, bool))
+
+
+def _write_values_grid_cell_error(parsed_vals: list[Any]) -> str | None:
+    """Reject nested structures before UNO."""
+    if not parsed_vals:
+        return None
+    if isinstance(parsed_vals[0], (list, tuple)):
+        for row in parsed_vals:
+            if not isinstance(row, (list, tuple)):
+                return _WRITE_VALUES_CELL_ERR.format(kind=type(row).__name__)
+        cells: Any = chain.from_iterable(parsed_vals)
+    else:
+        cells = parsed_vals
+    for cell in cells:
+        if not _write_values_cell_ok(cell):
+            return _WRITE_VALUES_CELL_ERR.format(kind=type(cell).__name__)
+    return None
 
 # Verbose per-cell dicts blow chat/tool context (issue 405: A1:H500 → HTTP 400).
 # Inspector.read_range stays uncapped for UNO tests and internal callers.
@@ -62,7 +91,7 @@ _DISTINCT_PEEK_MAX_ROWS = 2000
 _DISTINCT_PEEK_LIST_CAP = 12
 _DISTINCT_PEEK_HIGH_CARDINALITY = 40
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 
 def _opt_bool(kwargs: dict[str, Any], key: str, *, default: bool | None = None) -> tuple[bool | None, str | None]:
@@ -92,6 +121,90 @@ def _strict_int(kwargs: dict[str, Any], key: str, minimum: int | None = None, *,
     return raw, None
 
 
+def _parse_structure_start(
+    structure_type: str, start_raw: Any
+) -> tuple[int | str | None, str | None, str | None]:
+    """Validate structure start; optional sheet prefix from a qualified string.
+
+    Strict start validation: non-ASCII digits, floats, bools, and cell addresses rejected.
+
+    Returns (start, sheet_prefix, error_message).
+    """
+    sheet_prefix: str | None = None
+    local_raw = start_raw
+
+    if isinstance(start_raw, str):
+        sheet_prefix, local = split_sheet_prefix(start_raw.strip())
+        local_raw = local
+
+    if structure_type == "rows":
+        if type(local_raw) is int:
+            row_val = local_raw
+        elif isinstance(local_raw, str) and local_raw.isascii() and local_raw.isdigit():
+            row_val = int(local_raw)
+        else:
+            return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
+        if row_val < 1:
+            return None, sheet_prefix, 'start for rows must be a 1-based row number (for example 5 or "5")'
+        return row_val, sheet_prefix, None
+
+    if isinstance(local_raw, str) and local_raw.isascii() and local_raw.isalpha():
+        return local_raw.upper(), sheet_prefix, None
+    return None, sheet_prefix, 'start for columns must be a column letter (for example "C")'
+
+
+def _execute_structure_tool(
+    tool: ToolBase,
+    ctx: ToolContext,
+    *,
+    structure_type: str,
+    start_raw: Any,
+    count: int,
+    insert: bool,
+) -> dict[str, Any]:
+    start, sheet_prefix, start_err = _parse_structure_start(structure_type, start_raw)
+    if start_err:
+        return tool._tool_error(start_err)
+
+    if sheet_prefix is not None and not is_agent_visible_sheet(sheet_prefix):
+        return tool._tool_error(f"Cannot modify internal sheet '{sheet_prefix}'.")
+
+    bridge = CalcBridge(ctx.doc)
+    manipulator = CellManipulator(bridge)
+    mutator = manipulator.insert_structure if insert else manipulator.delete_structure
+    mutator_kwargs: dict[str, Any] = {"count": count}
+    if sheet_prefix is not None:
+        mutator_kwargs["sheet"] = bridge.get_sheet(sheet_prefix)
+    try:
+        assert start is not None
+        result = mutator(structure_type, start, **mutator_kwargs)
+        return {"status": "ok", "message": result}
+    except Exception as e:
+        # Disposal and UnoObjectError must re-raise so execute_safe keeps the right code.
+        if is_disposal(e) or isinstance(e, WriterAgentException):
+            raise
+        return tool._tool_error(str(e))
+
+
+def _structure_tool_execute(tool: ToolBase, ctx: ToolContext, kwargs: dict[str, Any], *, insert: bool) -> dict[str, Any]:
+    structure_type: str = kwargs["structure_type"]
+    assert structure_type in ("rows", "columns")
+
+    count, err = _strict_int(kwargs, "count", 1, default=1)
+    if err:
+        return tool._tool_error(err)
+    assert count is not None
+
+    return _execute_structure_tool(
+        tool,
+        ctx,
+        structure_type=structure_type,
+        start_raw=kwargs["start"],
+        count=count,
+        insert=insert,
+    )
+
+
 def _opt_color(kwargs: dict[str, Any], key: str) -> tuple[int | None, str | None]:
     raw = kwargs.get(key)
     if raw is None:
@@ -115,12 +228,7 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
     takes the sheet from resolved.getSpreadsheet().getName() and always
     uses '.'.
     """
-    # Bugfix: Clipped addresses for oversized reads lost sheet prefixes for named
-    # ranges or lost quote-escaping on sheet names with apostrophes/special chars.
-    # This happened because _format_sheet_address only looked at the input range_name
-    # string and dropped quotes without re-escaping. _sheet_prefix_for_clip preserves
-    # the original quotes and separator (or falls back to the resolved sheet) with
-    # doubled apostrophes so Calc resolves clipped ranges on the proper sheet.
+    # _sheet_prefix_for_clip keeps sheet prefix and quote escaping when clipping oversized reads.
     sheet, _unused_local = split_sheet_prefix(range_name)
     if sheet:
         sep = "!" if "!" in range_name else "."
@@ -138,16 +246,8 @@ def _sheet_prefix_for_clip(range_name: str, resolved: Any) -> str:
     return ""
 
 
-def _range_args(raw: Any) -> list[Any]:
-    if not raw:
-        return []
-    if isinstance(raw, str):
-        return [raw]
-    return list(raw)
-
-
 def _manipulator_context(ctx: ToolContext, range_arg: Any) -> tuple[CellManipulator, list[Any]]:
-    return CellManipulator(CalcBridge(ctx.doc)), _range_args(range_arg)
+    return CellManipulator(CalcBridge(ctx.doc)), range_args(range_arg)
 
 
 def _undo_action_count(doc: Any) -> int:
@@ -155,20 +255,19 @@ def _undo_action_count(doc: Any) -> int:
         titles = doc.getUndoManager().getAllUndoActionTitles()
         return len(titles) if titles is not None else 0
 
-    return uno_probe(_do, 0)
+    return uno_read(_do, 0)
 
 
 def _undo_titled_group(doc: Any, title: str, prev_count: int = 0) -> bool:
     """Undo the group we just closed, only when its title is the newest one and count grew."""
-    def _do_undo() -> bool:
-        um = doc.getUndoManager()
-        titles = um.getAllUndoActionTitles()
-        if titles and len(titles) > prev_count and titles[0] == title:
-            um.undo()
-            return True
+    um = uno_read(lambda: doc.getUndoManager(), None)
+    if um is None:
         return False
-
-    return uno_probe(_do_undo, False)
+    titles = uno_read(lambda: um.getAllUndoActionTitles(), ())
+    if titles and len(titles) > prev_count and titles[0] == title:
+        uno_call(lambda: um.undo(), "undo titled group")
+        return True
+    return False
 
 
 def _mutate_ranges(
@@ -203,7 +302,7 @@ def _mutate_ranges(
             return {"status": "ok", "message": single}
         return {"status": "ok", "message": done_message}
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise
         entered = group.entered
         undone = _undo_titled_group(doc, undo_title, prev_count) if entered else False
@@ -246,7 +345,7 @@ def _preview_if_large(bridge: Any, range_name: str) -> dict[str, Any] | None:
             "start_row": sr,
         }
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         raise ToolExecutionError(f"Could not size range {range_name}: {e}")
 
@@ -266,11 +365,7 @@ def _column_distinct_peek(data_array: Any, *, start_column: int = 0) -> list[dic
     Columns whose first cell is text treat that cell as a header label and scan
     subsequent rows; numeric or blank first cells are counted as data including row 0.
     """
-    # Bugfix: Numeric or empty top-row values were skipped from distinct counts
-    # when a column had no text header. This happened because the function sliced
-    # data_array[1:] globally across all columns. Checking each column's row 0 cell
-    # allows text headers to label columns while non-text cells are counted as data
-    # starting from row 0.
+    # Per-column row 0 decides header vs data so numeric or empty headers do not hide distinct values.
     if not data_array:
         return []
     header_row = data_array[0]
@@ -330,23 +425,10 @@ def _try_column_distinct_peek(bridge: Any, range_name: str, preview: dict[str, A
                 entry["scanned_rows"] = _DISTINCT_PEEK_MAX_ROWS
         return peek
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         log.exception("Could not compute column distinct peek for %s", range_name)
         return None
-
-
-def _a1_range_shape(range_name: str) -> tuple[int, int, int] | None:
-    """``(cell_count, rows, cols)`` for an A1 range, or None for named/invalid refs."""
-    try:
-        _unused_sheet, local = split_sheet_prefix(range_name)
-        (c0, r0), (c1, r1) = parse_range_string(local)
-    except Exception:
-        # Named ranges and deal.pre misses skip this gate; manipulator still checks 1-D.
-        return None
-    cols = abs(c1 - c0) + 1
-    rows = abs(r1 - r0) + 1
-    return cols * rows, rows, cols
 
 
 def _normalize_source_arg(raw: Any) -> tuple[str | None, str | None]:
@@ -368,15 +450,34 @@ class ReadCellRange(ToolBase):
         "(headers or a few dozen cells). A large dump overloads chat context; oversized reads "
         "return a peek plus size only. Row-wise transforms use write_formula_range (fill-down); "
         "reductions that spill a small result use =PY into one empty cell outside the data. "
-        "Date/time-formatted numeric "
-        "cells return an ISO 8601 string in `value` with `type` and `format_category` of date, "
-        "time, or datetime, plus `format_code` (Calc FormatString, observability only). "
-        "Elapsed/stopwatch formats (`[HH]:MM:SS`, …) return `PTnHnMnS` (e.g. PT30H) with "
-        "type/format_category duration. Supports lists for non-contiguous areas."
+        "Default `format=rows` returns a 2D `rows` array of cell values (ISO 8601 dates/times, "
+        "`PTnHnMnS` durations, formula errors as display strings) plus sparse `formulas` and "
+        "`types` maps only where needed. Use `format=cells` for one object per cell "
+        "(address, value, formula, type, format_category, format_code). "
+        "Supports lists for non-contiguous areas."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["\'Data Sheet\'!B2"]). Sheet prefixes target that sheet without switching the active sheet.')}},
+        "properties": {
+            "range": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": (
+                    'Cell range(s) (e.g. ["A1:D10"], ["Sheet1.A1:C5"], ["\'Data Sheet\'!B2"]). '
+                    "Sheet prefixes target that sheet without switching the active sheet."
+                ),
+            },
+            "format": {
+                "type": "string",
+                "enum": ["rows", "cells"],
+                "default": "rows",
+                "description": (
+                    "rows (default): 2D values, formulas and date/time types only where present. "
+                    "cells: one object per cell with address, value, formula, type, "
+                    "format_category, and format_code."
+                ),
+            },
+        },
         "required": ["range"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -384,15 +485,21 @@ class ReadCellRange(ToolBase):
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        wire_format = kwargs.get("format", "rows")
+        if wire_format is None:
+            wire_format = "rows"
+        if not isinstance(wire_format, str) or wire_format not in ("rows", "cells"):
+            return self._tool_error('format must be "rows" or "cells"')
+
         bridge = CalcBridge(ctx.doc)
         inspector = CellInspector(bridge)
-        rn = _range_args(kwargs["range"])
+        rn = range_args(kwargs["range"])
 
         if len(rn) == 0:
             return self._tool_error("range is required")
         if len(rn) == 1:
-            return self._read_one(bridge, inspector, rn[0])
-        results = [self._read_one(bridge, inspector, r) for r in rn]
+            return self._read_one(bridge, inspector, rn[0], wire_format)
+        results = [self._read_one(bridge, inspector, r, wire_format) for r in rn]
         failed = [item["range"] for item in results if item.get("status") != "ok"]
         if failed:
             return {
@@ -405,31 +512,47 @@ class ReadCellRange(ToolBase):
             return {"status": "ok", "result": [item["result"][0] for item in results]}
         return {"status": "ok", "result": results}
 
-    def _read_one(self, bridge: Any, inspector: Any, range_name: str) -> dict[str, Any]:
+    def _wire_result(
+        self,
+        grid: list[list[dict[str, Any]]],
+        wire_format: str,
+        range_name: str,
+    ) -> list[Any]:
+        if wire_format == "cells":
+            return [grid]
+        return [grid_to_rows(grid, range_name=range_name)]
+
+    def _read_one(self, bridge: Any, inspector: Any, range_name: str, wire_format: str) -> dict[str, Any]:
         """Read one range; preview-only when the full grid would swamp chat context."""
         try:
             preview = _preview_if_large(bridge, range_name)
             if preview is None:
                 grid = inspector.read_range(range_name, include_format_info=True)
-                return {"status": "ok", "result": [grid], "range": range_name}
+                return {"status": "ok", "result": self._wire_result(grid, wire_format, range_name), "range": range_name}
             grid = inspector.read_range(preview["preview_range"], include_format_info=True)
+            # Size metadata uses row_count/column_count/cell_count so it cannot collide with result[0]["rows"] (2D values).
             payload: dict[str, Any] = {
                 "status": "ok",
                 "truncated": True,
                 "message": _READ_CELL_RANGE_TRUNCATED_MSG.format(rows=preview["rows"], columns=preview["columns"], cells=preview["cells"]),
                 "range": range_name,
                 "preview_range": preview["preview_range"],
-                "rows": preview["rows"],
-                "columns": preview["columns"],
-                "cells": preview["cells"],
-                "result": [grid],
+                "row_count": preview["rows"],
+                "column_count": preview["columns"],
+                "cell_count": preview["cells"],
+                "result": self._wire_result(grid, wire_format, range_name),
             }
             distincts = _try_column_distinct_peek(bridge, range_name, preview)
             if distincts:
                 payload["column_distincts"] = distincts
+            payload["hint"] = (
+                "Peek only (%s). Row-wise formulas: write_formula_range on a 1-column or 1-row range. "
+                "A small reduction: =PY in one empty cell outside the data."
+                % preview["preview_range"]
+            )
             return payload
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             log.exception("Failed to read range %s", range_name)
             return {"status": "error", "range": range_name, "message": str(exc) or type(exc).__name__}
@@ -441,8 +564,9 @@ class WriteCellRange(ToolBase):
     name: str | None = "write_formula_range"
     description: str = (
         "Writes formulas or values to a cell range(s) efficiently. Single string fills entire range; "
-        "JSON array must match range size exactly (one value per cell); or multiline CSV from a start "
-        "cell. Use an empty string or empty array to clear contents. Supports lists for non-contiguous "
+        "a 2-D array (one inner array per row) must match the range; or multiline CSV from a start "
+        "cell. A JSON string of an array is still accepted. Use an empty string or empty array to clear contents. "
+        "Supports lists for non-contiguous "
         "areas. A single ordinary Calc formula into a 1-column or 1-row range fill-down/across "
         "adjusts relative A1 refs ($ stays absolute). Prefer plain values/ISO "
         "dates for static cells; use an '=' formula only when the cell must stay live (e.g. TODAY(), "
@@ -476,8 +600,14 @@ class WriteCellRange(ToolBase):
             # and not the main tool description). #657 replaced the old
             # pin-workaround with fill-down teaching; a JSON array of copied
             # =B2*… still pins every row to the first ref.
+            # string|array|null on chat + MCP: _normalize_schema_for_strict_providers
+            # keeps real unions (same pattern as apply_document_content content).
             "values": {
-                "type": "string",
+                "type": ["string", "array", "null"],
+                "items": {
+                    "type": ["array", "string", "number", "boolean", "null"],
+                    "items": {"type": ["string", "number", "boolean", "null"]},
+                },
                 "description": (
                     "Required unless source is set (do not pass both). "
                     "Single string: fills the entire range with that value or formula "
@@ -485,12 +615,13 @@ class WriteCellRange(ToolBase):
                     "multi-cell column or row is fill-down/across — relative A1 refs "
                     "adjust per cell ($ stays absolute). Prefer that for a related "
                     "rate or tax column. In formulas, other sheets are Sheet.A1 "
-                    "(dot), not Excel Sheet!A1. JSON array: exact per-cell contents; "
-                    "must have exactly as many elements as cells in the range "
-                    '(e.g. \'["a", "b"]\' for 2 cells). Repeating the same '
-                    "=B2*…-style formula in every element pins every row to the "
+                    "(dot), not Excel Sheet!A1. 2-D array: one inner array per row; "
+                    "must match the range. Cells are string, number, boolean, or null "
+                    '(e.g. [["a", 1], ["b", null]] for A1:B2). Repeating the same '
+                    "=B2*…-style formula in every cell pins every row to the "
                     "first ref — use one formula string over the whole column "
-                    "range instead. Empty string/array clears the range. "
+                    "range instead. A JSON string of a flat or 2-D array is still "
+                    "accepted. Empty string or empty array clears. "
                     "A top-level FILTER/SORT/UNIQUE (or SEQUENCE and other "
                     "array functions) is entered as an array formula over its "
                     "result; occupied cells besides the origin are refused. "
@@ -547,22 +678,20 @@ class WriteCellRange(ToolBase):
         # source-only calls pass validate). Missing must not fall through as clear.
         if fov is None:
             return self._tool_error("values is required when source is omitted")
-        # Bugfix: top-level bool in values was converted to string "True"/"False"
-        # instead of being rejected to match the tool parameter schema.
         if isinstance(fov, bool):
-            return self._tool_error("values must be a string, number, or JSON array, not a boolean")
-        # Normalize: schema is string for Gemini; accept number/list from other providers
+            return self._tool_error("values must be a string, number, or array, not a boolean")
+        # Bare number → string for fill; native list passes through unchanged.
         if isinstance(fov, (int, float)):
             fov = str(fov)
 
-        single_cell = len(rn) == 1 and _a1_range_shape(rn[0]) == (1, 1, 1)
+        single_cell = len(rn) == 1 and range_shape(rn[0]) == (1, 1, 1)
         parsed_vals = _parse_formula_or_values_string(fov, single_cell_range=single_cell) if isinstance(fov, str) else (fov if isinstance(fov, list) else None)
         if parsed_vals is not None and len(parsed_vals) > 0:
             if isinstance(parsed_vals[0], (list, tuple)):
                 r_cnt = len(parsed_vals)
                 c_cnt = len(parsed_vals[0]) if r_cnt > 0 else 0
                 for r in rn:
-                    shape = _a1_range_shape(r)
+                    shape = range_shape(r)
                     if shape is None:
                         continue
                     n_cells, rows, cols = shape
@@ -572,12 +701,17 @@ class WriteCellRange(ToolBase):
             else:
                 n_vals = len(parsed_vals)
                 for r in rn:
-                    shape = _a1_range_shape(r)
+                    shape = range_shape(r)
                     if shape is None:
                         continue
                     n_cells, rows, cols = shape
                     if n_vals != n_cells:
                         return self._tool_error(_values_length_mismatch_message(r, n_vals, n_cells, rows, cols))
+
+        if parsed_vals is not None:
+            cell_err = _write_values_grid_cell_error(parsed_vals)
+            if cell_err:
+                return self._tool_error(cell_err)
 
         array_flag, err = _opt_bool(kwargs, "array")
         if err:
@@ -617,8 +751,23 @@ class InsertCellHtml(ToolBase):
     """Insert HTML as rich text into a single cell (active sheet)."""
 
     name: str | None = "insert_cell_html"
-    description: str = "Parses HTML with the same filter as Writer and pastes rich text into one cell on the active sheet (e.g. <b>, <i>, <a href>, line breaks). Does not support images or embedded objects. Clears existing cell text. Use set_style for table-wide borders."
-    parameters: dict[str, Any] | None = {"type": "object", "properties": {"cell": {"type": "string", "description": 'Single cell (e.g. "A1") on the active sheet.'}, "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."}}, "required": ["cell", "html"]}
+    description: str = (
+        "Parses HTML with the same filter as Writer and pastes rich text into one cell "
+        "(e.g. <b>, <i>, <a href>, line breaks). A sheet prefix (Sheet2.A1, 'Data Sheet'.B2) "
+        "selects that sheet; otherwise the active sheet. Does not support images or embedded objects. "
+        "Clears existing cell text. Use set_style for table-wide borders."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "cell": {
+                "type": "string",
+                "description": 'Single cell (e.g. "A1" or "Sheet2.A1").',
+            },
+            "html": {"type": "string", "description": "HTML fragment or small document (UTF-8)."},
+        },
+        "required": ["cell", "html"],
+    }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
     is_mutation: bool | None = True
 
@@ -631,8 +780,10 @@ class InsertCellHtml(ToolBase):
         assert isinstance(html, str)
         if not addr:
             return self._tool_error("cell is required")
+        # Cell addresses use the bridge so sheet prefixes resolve (same as other cell tools).
+        _prefix, local = split_sheet_prefix(addr)
         try:
-            parse_address(addr)
+            parse_address(local)
         except ValueError as e:
             return self._tool_error(f"Invalid cell address: {e}")
 
@@ -698,8 +849,7 @@ class SetCellStyle(ToolBase):
         if len(rn) == 0:
             return self._tool_error("range is required")
 
-        # Bugfix: Style calls with no properties performed empty mutations and opened
-        # useless undo steps. Checking if all style properties are None avoids this.
+        # Reject style calls where every property is None—empty mutations create useless undo steps.
         if all(v is None for v in style_kwargs.values()):
             return self._tool_error("No style properties were provided.")
 
@@ -724,7 +874,11 @@ class MergeCells(ToolBase):
     description: str = "Merges the specified cell range(s). Typically used for main headers. Write text with write_formula_range and style with set_style after merging. Supports lists for non-contiguous areas."
     parameters: dict[str, Any] | None = {
         "type": "object",
-        "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')}, "center": {"type": "boolean", "description": "Center content (default: true)"}},
+        "properties": {
+            "range": {"type": "array", "items": {"type": "string"}, "description": ('Range(s) to merge (e.g. ["A1:D1"] or ["A1:B1", "C1:D1"]).')},
+            "center": {"type": "boolean", "description": "Center content (default: true)"},
+            "unmerge": {"type": "boolean", "description": "Split merged cells instead of merging (default: false)"},
+        },
         "required": ["range"],
     }
     uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
@@ -736,9 +890,15 @@ class MergeCells(ToolBase):
         if err:
             return self._tool_error(err)
         assert center is not None
+        unmerge, err = _opt_bool(kwargs, "unmerge", default=False)
+        if err:
+            return self._tool_error(err)
+        assert unmerge is not None
 
         def _apply_merge(r: Any) -> str:
-            manipulator.merge_cells(r, center=center)
+            manipulator.merge_cells(r, center=center, unmerge=unmerge)
+            if unmerge:
+                return f"Unmerged cells {r}"
             return f"Merged cells {r}"
 
         return _mutate_ranges(
@@ -754,14 +914,14 @@ class MergeCells(ToolBase):
 class SortRange(ToolCalcRangeBase):
     """Sort a range by a column."""
 
-    name: str | None = "sort_range"
+    name: str | None = "range_sort"
     # Action-time key/direction and "use this tool, don't rewrite the
     # block" live here. Do not restack another SORT Don't/Do into
     # CALC_CORE (flash merges adjacent identical shapes).
     description: str = (
         "Stable one-column sort of the specified range(s) by values in one column. "
         "Multi-key sorts are multiple calls (two stable one-column passes). "
-        "Do call sort_range to reorder rows (not rewrite the block with "
+        "Do call range_sort to reorder rows (not rewrite the block with "
         "write_formula_range) because hand-written order often leaves labels mid-table. "
         "Pick sort_column for the metric to order by (0-based within the range); "
         "set ascending=false when largest values should come first. "
@@ -803,7 +963,7 @@ class SortRange(ToolCalcRangeBase):
             ctx.doc,
             rn,
             "WriterAgent: Sort range",
-            lambda r: manipulator.sort_range(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
+            lambda r: manipulator.range_sort(r, sort_column=sort_column, ascending=ascending, has_header=has_header),
             f"Sorted {len(rn)} ranges",
         )
 
@@ -826,44 +986,25 @@ class DeleteStructure(ToolBase):
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        # Bugfix: delete_structure accepted invalid start values (e.g. non-ASCII digits like '²',
-        # floats, or column '3' which produced negative indices) and invalid counts (bools, floats).
-        # This happened because start and count were passed directly without validating
-        # types and ranges. Validating start and count strictly returns tool errors before
-        # modifying document structures.
-        structure_type: str = kwargs["structure_type"]
-        assert structure_type in ("rows", "columns")
+        return _structure_tool_execute(self, ctx, kwargs, insert=False)
 
-        count, err = _strict_int(kwargs, "count", 1, default=1)
-        if err:
-            return self._tool_error(err)
-        assert count is not None
 
-        start_raw = kwargs["start"]
-        if structure_type == "rows":
-            if type(start_raw) is int:
-                row_val = start_raw
-            elif isinstance(start_raw, str) and start_raw.isascii() and start_raw.isdigit():
-                row_val = int(start_raw)
-            else:
-                return self._tool_error('start for rows must be a 1-based row number (for example 5 or "5")')
-            if row_val < 1:
-                return self._tool_error('start for rows must be a 1-based row number (for example 5 or "5")')
-            start: int | str = row_val
-        else:
-            if not (isinstance(start_raw, str) and start_raw.isascii() and start_raw.isalpha()):
-                return self._tool_error('start for columns must be a column letter (for example "C")')
-            start = start_raw.upper()
+class InsertStructure(ToolBase):
+    """Insert rows or columns."""
 
-        manipulator = CellManipulator(CalcBridge(ctx.doc))
-        try:
-            result = manipulator.delete_structure(structure_type, start, count=count)
-            return {"status": "ok", "message": result}
-        except Exception as e:
-            # Bugfix: a closed document raises DisposedException from delete_structure, and this
-            # except turned that into a tool error.
-            # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-            # Any other failure stays on the existing error path.
-            if is_real_disposal(e):
-                raise
-            return self._tool_error(str(e))
+    name: str | None = "insert_structure"
+    description: str = "Inserts empty rows or columns. Use for structural changes; prefer ranges for data operations."
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "structure_type": {"type": "string", "enum": ["rows", "columns"], "description": "Type of structure to insert."},
+            "start": {"type": ["integer", "string"], "description": ('For rows: 1-based row number (e.g. 5); for columns: column letter (e.g. "C"). Sheet prefix allowed (e.g. Sheet2.5).')},
+            "count": {"type": "integer", "description": "Number to insert (default 1)."},
+        },
+        "required": ["structure_type", "start"],
+    }
+    uno_services: list[str] | None = ["com.sun.star.sheet.SpreadsheetDocument"]
+    is_mutation: bool | None = True
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        return _structure_tool_execute(self, ctx, kwargs, insert=True)

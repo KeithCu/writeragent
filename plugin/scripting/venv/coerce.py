@@ -16,7 +16,7 @@ import math
 import warnings
 import re
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, cast, overload
 
 from plugin.framework.deal_shim import deal
 from plugin.scripting.calc_range import CalcRange, ensure_rectangular_2d
@@ -34,9 +34,7 @@ _LO_ERROR_TOKENS = frozenset(
     }
 )
 
-# The sign used to sit in the ignored prefix, so "-1,234.50" and "$-123" became
-# positive floats. Capture one sign before or after the currency symbol. Two
-# signs ("+-5") is not a single number.
+# Capture one leading/trailing sign before the currency symbol so negatives like "-1,234.50" and "$-123" parse correctly; two signs mean not a number.
 _SIGN = r"([+-])?"
 _NUMBER = r"([\d,]+(?:\.\d+)?)"
 _CURRENCY_CHARS = r"[$€£¥₹]"
@@ -53,13 +51,10 @@ class CoerceResult:
 
 
 @deal.post(lambda result: isinstance(result, list) and len(set(result)) == len(result))
-def _dedupe_column_names(names: list[str]) -> list[str]:
+def dedupe_column_names(names: list[str]) -> list[str]:
     """Unique labels, one per input, on the default ``CalcRange.to_pandas`` path.
 
-    The counter used to be stored only under the raw base. ``['a', 'a', 'a_1']``
-    therefore emitted ``a_1`` twice (the generated suffix and the later header),
-    and the uniqueness postcondition raised ``deal.PostContractError``. A suffix
-    is skipped when that label was already emitted.
+    Suffix counters skip labels already emitted so ``['a', 'a', 'a_1']`` does not duplicate ``a_1`` and trip the deal uniqueness postcondition.
     """
     seen: set[str] = set()
     out: list[str] = []
@@ -106,8 +101,7 @@ def is_missing_value(value: Any) -> bool:
     return False
 
 
-# ISBLANK used to call is_missing_value, so ISBLANK("#VALUE!") was True.
-# Blank is only None or a stripped empty string; error tokens and NaN are not blank.
+# is_blank_value is only None or ""; error tokens and NaN are not blank (unlike is_missing_value).
 # NA() is float nan. None and "" are not NA.
 def is_blank_value(value: Any) -> bool:
     """True for None or a stripped empty string. Errors and NaN are not blank."""
@@ -193,7 +187,7 @@ def _normalize_input_grid(data: Any) -> list[list[Any]]:
                             keys.append(key)
             return [[key for key in keys]] + [[row.get(key) if isinstance(row, dict) else None for key in keys] for row in data]
         return ensure_rectangular_2d(data)
-    # A raw ndarray used to be stored as the single cell of a 1x1 frame.
+    # 0-D and 1-D/2-D ndarrays expand to grids; higher rank stays a single wrapped cell.
     try:
         import numpy as np
 
@@ -250,6 +244,22 @@ def _is_date_like_column_name(name: str) -> bool:
     return any(tok in _DATE_NAME_TOKENS for tok in tokens)
 
 
+def date_column(df: Any) -> Any:
+    """Find the first column in *df* whose name looks like a date/time token."""
+    return next(
+        (col for col in df.columns if _is_date_like_column_name(str(col))),
+        None,
+    )
+
+
+def flat_label(col: Any) -> str:
+    """Flatten a pandas column label. MultiIndex tuples become ``A / x`` with empty levels skipped."""
+    if isinstance(col, tuple):
+        parts = [str(part).strip() for part in col if part is not None and str(part).strip() != ""]
+        return " / ".join(parts) if parts else "value"
+    return str(col)
+
+
 def _coerce_column_types(
     df: Any,
     *,
@@ -293,9 +303,7 @@ def _coerce_column_types(
     for col in target_date_cols:
         series = out[col]
         # A numeric dtype, including nullable Float64, must go through
-        # parse_date_column: format="mixed" on that dtype used to store
-        # 45292 as nanoseconds since 1970, and integer years 2019/2020 used to
-        # become 1905-07-11 / 1905-07-12 because this loop always used unit="D".
+        # parse_date_column handles numeric and mixed string dates so serials and year integers are not misread as Excel day units only.
         out[col] = parse_date_column(series, date_origin=date_origin)
 
     # 2. General string inference if requested
@@ -328,15 +336,11 @@ def _coerce_column_types(
 
 def _column_labels(df: Any) -> list[str]:
     """Return DataFrame columns as a list of string labels."""
-    return [str(c) for c in df.columns]
+    return [flat_label(c) for c in df.columns]
 
 
 def _build_metadata(df: Any, *, sheet_hint: str | None, dropped_rows: int) -> dict[str, Any]:
-    # What was wrong: resolve_df on a DataFrame with duplicate labels raised
-    # AttributeError: 'DataFrame' object has no attribute 'dtype'.
-    # How: df[col] is a DataFrame when that label appears twice.
-    # Why this fixes it: df.dtypes has one dtype per column position, so duplicate
-    # labels are classified instead of looked up by name.
+    # Classify columns with df.dtypes by position so duplicate header labels do not make df[col] a sub-frame without .dtype.
     import pandas as pd
 
     numeric_cols: list[str] = []
@@ -375,12 +379,18 @@ def resolve_df(
         return data
     # DataFrame duck-type. Do not send it through grid_to_dataframe: that would
     # treat column names as a header row. CalcRange is unwrapped by
-    # _normalize_input_grid inside coerce_to_dataframe.
+    # _normalize_input_grid inside grid_to_dataframe.
     if hasattr(data, "columns") and hasattr(data, "index"):
         df = data.copy()
         return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=0))
     hint = (sheet_hint or data.address) if isinstance(data, CalcRange) else sheet_hint
-    return coerce_to_dataframe(data, headers=headers, header_row=header_row, sheet_hint=hint)
+    resolved_header: int | None = header_row if headers else None
+    return grid_to_dataframe(
+        data,
+        header_row=resolved_header,
+        parse_strings=True,
+        sheet_hint=hint,
+    )
 
 
 def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
@@ -425,16 +435,7 @@ def parse_date_column(series: Any, *, date_origin: str = "1899-12-30") -> Any:
     not_num = ~is_num_cell
     if not_num.any():
         str_slice = series[not_num]
-        # What was wrong: without format="mixed", pandas locks onto the first cell,
-        # so "2024-01-03" plus "01/01/2024" plus "2024-01-02 15:30:00" parsed as one
-        # timestamp and three NaTs (verified on this series through resolve_df, which leaves
-        # the column as object because "notes" blocks promotion). _order_by_date then sorted
-        # those rows last and portfolio_tearsheet dropped them.
-        # How it happened: pd.to_datetime guesses a single format across the series by default.
-        # Why this change fixes it: format="mixed" parses each cell individually, matching
-        # _coerce_column_types. Mixed offsets return object and .dt raises; when the result
-        # is not datetime64, the fallback calls pd.to_datetime without format to keep one
-        # offset and NaT for the rest without raising AttributeError.
+        # format="mixed" parses heterogeneous date strings per cell; fallback handles mixed time zones without dropping rows in tearsheet paths.
         # Mixed offsets make pandas 2 emit a FutureWarning; the fallback result is intended
         # (one offset, NaT for the rest), so silence just that warning. pandas 3 raises
         # ValueError ("Mixed timezones detected") instead; take the same fallback.
@@ -587,11 +588,7 @@ def coerce_bool(value: Any, *, name: str = "value", default: bool = False) -> bo
     try:
         import numpy as np
 
-        # What was wrong: coerce_bool(np.bool_(True)) raised ValueError.
-        # How: np.bool_ is not a subclass of bool or of np.integer. islogical
-        # already treats it as logical.
-        # Why this fixes it: a NumPy bool is returned with bool(value) before
-        # the 0/1 integer checks.
+        # np.bool_ is converted with bool() before integer 0/1 checks because it is not a Python bool subclass.
         if isinstance(value, np.bool_):
             return bool(value)
     except ImportError:
@@ -671,16 +668,12 @@ def auto_numeric(
     flags: list[str] | None = None,
 ) -> list[Any]:
     if requested is not None:
-        return numeric_columns(df, requested)
-    # What was wrong: numeric_columns stringifies labels, so column 0 became "0"
-    # and df["0"] raised KeyError on a DataFrame passed into the helper. Skipped
-    # date and id columns were also silent, so a scheduling solve could drop a
-    # real cost column and still return status: ok.
-    # How it happened: resolve_df keeps a DataFrame's columns, and the auto path
-    # indexed with the stringified name. dropped_rows already appends to flags;
-    # this path did not.
-    # Why this change: select select_dtypes(include="number") labels as they are,
-    # and append one flag per skipped column when the caller passes a list.
+        resolved = resolve_columns(df, requested, numeric=False)
+        if isinstance(resolved, dict):
+            raise ValueError(resolved["message"])
+        return resolved
+    # Labels are returned as-is (int column 0 stays int) because df[str(0)] raises KeyError.
+    # Date/id-like columns are skipped unless the caller passes an explicit column list.
     cols = list(df.select_dtypes(include="number").columns)
     kept: list[Any] = []
     for col in cols:
@@ -697,17 +690,93 @@ def auto_numeric(
     return kept
 
 
-def numeric_columns(df: Any, columns: list[str] | None = None) -> list[str]:
-    """Return *columns* when given (an empty list returns []), else all numeric column names. Unknown names raise."""
-    if isinstance(columns, str):
-        columns = [columns]
-    existing_labels = set(_column_labels(df))
-    if columns is not None:
-        missing = [c for c in columns if c not in existing_labels and c not in df.columns]
-        if missing:
-            raise ValueError(f"Unknown columns: {', '.join(missing)}")
-        return list(columns)
-    return _column_labels(df.select_dtypes(include="number"))
+def column_by_label(df: Any, name: Any) -> Any:
+    """Resolve a column label in *df*, matching exact label first, then str(col) == str(name)."""
+    if name is None:
+        return None
+    try:
+        if name in df.columns:
+            return name
+    except Exception:
+        pass
+    name_str = str(name)
+    for col in df.columns:
+        if str(col) == name_str:
+            return col
+    return None
+
+
+@overload
+def resolve_columns(
+    df: Any,
+    requested: None = None,
+    *,
+    numeric: bool = False,
+    helper: str | None = None,
+) -> list[Any]: ...
+
+
+@overload
+def resolve_columns(
+    df: Any,
+    requested: Any,
+    *,
+    numeric: bool = False,
+    helper: str | None = None,
+) -> list[Any] | dict[str, Any]: ...
+
+
+def resolve_columns(
+    df: Any,
+    requested: Any = None,
+    *,
+    numeric: bool = False,
+    helper: str | None = None,
+) -> list[Any] | dict[str, Any]:
+    """Resolve requested column names against *df*.
+
+    Matches by exact label first, then by str(col) == str(name).
+    When numeric=True, rejects non-numeric columns.
+    Returns a list of matching column labels in *df*, or an error dict.
+    """
+    if requested is None:
+        if numeric:
+            return list(df.select_dtypes(include="number").columns)
+        return list(df.columns)
+
+    if isinstance(requested, (str, int, float)):
+        req_list = [requested]
+    elif isinstance(requested, (list, tuple)):
+        req_list = list(requested)
+    else:
+        req_list = list(requested)
+
+    if not req_list:
+        return []
+
+    matched: list[Any] = []
+    missing: list[str] = []
+    for req in req_list:
+        col = column_by_label(df, req)
+        if col is None:
+            missing.append(str(req))
+        else:
+            matched.append(col)
+
+    if missing:
+        from plugin.scripting.venv.results import error_result
+
+        return error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper=helper)
+
+    if numeric:
+        num_set = set(df.select_dtypes(include="number").columns)
+        bad = [str(c) for c in matched if c not in num_set]
+        if bad:
+            from plugin.scripting.venv.results import error_result
+
+            return error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
+
+    return matched
 
 
 def _apply_index_col(df: Any, index_col: int | None) -> Any:
@@ -771,7 +840,7 @@ def grid_to_dataframe(
             # Labels, not values. parse_strings on this row turned "00123" into the
             # column name "123.0" and str(2024.0) into "2024.0".
             raw_headers = [_coerce_cell(cell, parse=False) for cell in grid[header_idx]]
-            col_names = _dedupe_column_names([header_label(h) for h in raw_headers])
+            col_names = dedupe_column_names([header_label(h) for h in raw_headers])
             body = grid[header_idx + 1 :]
         else:
             width = max((len(row) for row in grid), default=0)
@@ -793,35 +862,6 @@ def grid_to_dataframe(
     df = _coerce_column_types(df, parse_strings=parse_strings, date_cols=date_cols, date_origin=date_origin)
     df = _apply_index_col(df, index_col)
     return CoerceResult(df=df, metadata=_build_metadata(df, sheet_hint=sheet_hint, dropped_rows=dropped_rows))
-
-
-def coerce_to_dataframe(
-    data: Any,
-    *,
-    headers: bool = True,
-    header_row: int = 0,
-    parse_strings: bool = True,
-    date_cols: list[str | int] | bool = False,
-    date_origin: str = "1899-12-30",
-    sheet_hint: str | None = None,
-    index_col: int | None = None,
-) -> CoerceResult:
-    """Compatibility wrapper: ``headers=False`` maps to ``header_row=None``.
-
-    Analysis tools historically defaulted to parsing currency/percent strings; keep
-    that default here so trusted helpers stay useful on pasted text sheets. User
-    ``CalcRange.to_pandas()`` defaults ``parse_strings=False``.
-    """
-    resolved_header: int | None = header_row if headers else None
-    return grid_to_dataframe(
-        data,
-        header_row=resolved_header,
-        index_col=index_col,
-        parse_strings=parse_strings,
-        date_cols=date_cols,
-        date_origin=date_origin,
-        sheet_hint=sheet_hint,
-    )
 
 
 def table_from_df(df: Any, *, name: str, max_rows: int = 50) -> dict[str, Any]:

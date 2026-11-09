@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Iterator
 
-from plugin.doc.text_helpers import skip_tracked_deletions
+from plugin.doc.text_helpers import FAILED, iter_elements, skip_tracked_deletions
 from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.uno_context import uno_same
 from plugin.writer.math.math_mml_export import (
@@ -20,8 +20,6 @@ from plugin.writer.math.math_mml_export import (
 )
 
 log = logging.getLogger("writeragent.writer")
-# uno_read default where None is a real UNO result.
-_FAILED: Any = object()
 
 
 # com.sun.star.text.ControlCharacter.PARAGRAPH_BREAK
@@ -42,9 +40,8 @@ def _fallback_insert_para_text(dest_text: Any, cursor: Any, el: Any) -> None:
 
 
 def _iter_portions(portions: Any) -> Iterator[tuple[Any, str]]:
-    while portions.hasMoreElements() is True:
+    for portion in iter_elements(portions):
         try:
-            portion = portions.nextElement()
             kind = portion.getPropertyValue("TextPortionType")
         except Exception:
             break
@@ -203,11 +200,10 @@ def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
 ) -> None:
     """Re-apply the source paragraph's direct formatting to the copy just written.
 
-    The copy is made with setString, which carries plain text and nothing else — so a range read
-    used to hand the caller a flattened slice where a block quote was indistinguishable from body
-    text. Done as a second pass over character OFFSETS rather than by inserting run by run: the
-    text is already in place, so there is no insertion-point bookkeeping to get wrong, and a
-    failure here degrades to the old plain-text result instead of corrupting the copy.
+    setString copies plain text only; this second pass repaints direct Para*/Char* formatting
+    over character offsets so block quotes and body text stay distinguishable. Offset painting
+    avoids run-by-run insertion bookkeeping, and failures here leave plain text intact instead
+    of corrupting the scratch copy.
     """
     def paragraph_start() -> tuple[Any, Any]:
         # The copy always appends, so the paragraph just written is the one at the document end.
@@ -225,8 +221,8 @@ def _paint_direct_formatting(  # pyright: ignore[reportUnusedFunction]
         para_cursor.gotoEndOfParagraph(True)
         _copy_properties(para, para_cursor, _COPIED_PARA_PROPERTIES, style)
 
-    # A refused Para* used to return here and skip the Char* loop, dropping bold/colour
-    # for the whole range — the reason the temp-doc path exists. Log and keep painting.
+    # Para* refusal is logged and the Char* loop still runs so direct character formatting
+    # is not dropped for the entire copied range.
     best_effort(paint_paragraph, "_paint_direct_formatting: paragraph properties skipped")
 
     offset = 0  # position within the visible (tracked-deletions removed) paragraph text
@@ -253,14 +249,10 @@ def _supports_service(obj: Any, name: str) -> bool:
 
 def _iter_xtext_paragraphs(text_obj: Any) -> Iterator[Any]:
     """Yield paragraphs under *text_obj*, descending into table cells."""
-    enum = uno_read(lambda: text_obj.createEnumeration(), _FAILED)
-    if enum is _FAILED:
+    enum = uno_read(lambda: text_obj.createEnumeration(), FAILED)
+    if enum is FAILED:
         return
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
+    for el in iter_elements(enum):
         if _supports_service(el, "com.sun.star.text.TextTable"):
             try:
                 names = el.getCellNames() or ()
@@ -285,12 +277,12 @@ def _goto_doc_end(doc: Any) -> None:
 
 def _copy_field_into(dest_doc: Any, dest_text: Any, dest_cursor: Any, src_field: Any) -> bool:
     """Recreate *src_field* in *dest_doc* (used for table-cell fields)."""
-    services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], _FAILED)
-    if services is _FAILED or not services:
+    services = uno_read(lambda: [s for s in src_field.getSupportedServiceNames() if str(s).startswith("com.sun.star.text.textfield.")], FAILED)
+    if services is FAILED or not services:
         return False
     svc = sorted(services, key=len)[-1]
-    new_field = uno_read(lambda: dest_doc.createInstance(svc), _FAILED)
-    if new_field is _FAILED:
+    new_field = uno_read(lambda: dest_doc.createInstance(svc), FAILED)
+    if new_field is FAILED:
         return False
     # Page-style clone copies header/footer fields through this helper
     # (test_copy_page_style_clones_next_page_number_and_roman). The old XHTML
@@ -352,11 +344,7 @@ def _copy_cell_xtext(
         return
     first_para = True
     deletion_state = [False]
-    while para_enum.hasMoreElements() is True:
-        try:
-            para = para_enum.nextElement()
-        except Exception:
-            break
+    for para in iter_elements(para_enum):
         if _supports_service(para, "com.sun.star.text.TextTable"):
             # Recreate the nested table inside dest_cell (same walk as body _copy_table).
             _copy_table(para, dest_doc, dest_cell, math_records=math_records)
@@ -379,7 +367,7 @@ def _copy_cell_xtext(
         _copy_visible_portions(portions, dest_doc, dest_cell, dest_cursor, para, math_records, deletion_state)
 
 
-def _writer_cell_position(name: str) -> tuple[int, int] | None:
+def writer_cell_position(name: str) -> tuple[int, int] | None:
     """Parse a Writer cell name the way ``SwXTextTable::GetCellPosition`` does.
 
     Writer letters are base 52 (A–Z, a–z, then AA…). Spreadsheet ``parse_a1``
@@ -441,7 +429,7 @@ def _writer_table_copy_layout(table: Any) -> tuple[int, int, list[str]]:
     max_row = max(rows - 1, 0)
     max_col = max(cols - 1, 0)
     for cell_name in names:
-        pos = _writer_cell_position(cell_name)
+        pos = writer_cell_position(cell_name)
         if pos is None:
             continue
         col_idx, row_idx = pos
@@ -519,11 +507,7 @@ def _copy_xtext_by_portions(
         return
     first_para = True
     deletion_state = [False]
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
+    for el in iter_elements(enum):
         if _supports_service(el, "com.sun.star.text.TextTable"):
             _copy_table(el, dest_doc, math_records=math_records)
             _goto_doc_end(dest_doc)
@@ -554,19 +538,10 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
     clipboard, and does not open a scratch Writer or run XHTML / flat ODF.
     Returns how many fields were inserted.
 
-    Bugfix: xtext_to_content used to controller.select the live header or
-    footer, getTransferable / insertTransferable into a hidden Writer, export
-    XHTML (in-process libxslt, stderr "XSL Vendor: 'libxslt'") and flat ODF,
-    then temp_doc.close(True) while that selection and clipboard could still
-    alias header nodes, fields, and titled draw frames. A titled AT_PARAGRAPH
-    graphic makes the ODF export hit the default rule in LibreOffice
-    filter/source/xslt/odf2xhtml/export/common/body.xsl (match="*"), which
-    logs "Using default element rule for ODF element 'svg:title'.". glibc
-    then reported "malloc(): unsorted double linked list corrupted", or
-    soffice died SIGSEGV 139 / VCL SalAbort. Python usually saw that on a
-    later pages.getByName ("Binary URP bridge disposed"), sometimes many
-    tests later in the pooled soffice (GHA 38526445257, 38584920511,
-    38584636315). This walk never selects and never exports.
+    The walk copies inside the live document without selecting, clipboard transfer,
+    or in-process XHTML/ODF export — that export path could corrupt soffice when
+    header/footer content includes titled AT_PARAGRAPH graphics. Fields and direct
+    formatting are preserved by the enumeration instead.
     """
     cursor = dest_text.createTextCursor()
     cursor.gotoStart(False)
@@ -584,11 +559,7 @@ def _copy_flow_into_xtext(doc: Any, src_text: Any, dest_text: Any) -> int:  # py
         return 0
 
     first_para = True
-    while enum.hasMoreElements() is True:
-        try:
-            el = enum.nextElement()
-        except Exception:
-            break
+    for el in iter_elements(enum):
         if _supports_service(el, "com.sun.star.text.TextTable"):
             _copy_table(el, doc, dest_text)
             cursor = dest_text.createTextCursor()
@@ -714,13 +685,10 @@ def _copy_xtext_into_doc(  # pyright: ignore[reportUnusedFunction]
 ) -> None:
     """Copy *src_text* (body, header, footer, cell) into *dest_doc*'s body.
 
-    Bugfix: this called controller.select on the user's document and
-    insertTransferable into the scratch Writer, then xtext_to_content ran
-    XHTML and closed that Writer. That moved the visible caret and is the
-    select + clipboard + hidden-export pattern that corrupted the heap on
-    header reads (see _copy_flow_into_xtext). Portion copy keeps fields,
-    tables, and direct formatting. Anchored graphics are cloned afterwards
-    because setString in the portion walk would drop a graphic inserted first.
+    Portion copy moves header/footer/body text into the scratch Writer without
+    selecting the user's document or running hidden XHTML export (see
+    _copy_flow_into_xtext). Anchored graphics are cloned after the text walk
+    because an early graphic insert would be dropped by subsequent setString steps.
     """
     _copy_xtext_by_portions(src_text, dest_doc, math_records=math_records)
     _copy_anchored_graphics(src_doc, src_text, dest_doc)

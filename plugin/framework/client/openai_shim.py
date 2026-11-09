@@ -11,7 +11,15 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from .anthropic_shim import AnthropicShim
-from .base_provider_shim import BaseProviderShim, canonical_aspect_ratio, canonical_resolution, coerce_image_data_url, coerce_raw_b64, effort_payload
+from .shim_helpers import openai_model_leaf, annotate_anthropic_cache
+from .base_provider_shim import (
+    BaseProviderShim,
+    canonical_aspect_ratio,
+    canonical_resolution,
+    coerce_image_data_url,
+    coerce_raw_b64,
+    effort_payload,
+)
 from .google_shim import GoogleShim
 from .grok_shim import GrokShim
 from .responses_shim import (
@@ -30,23 +38,9 @@ _OPENAI_REASONING_PREFIXES = ("o1", "o3", "o4", "gpt-5", "gpt-6")
 
 def _openai_reasoning_model(model_name: str | None) -> bool:
     """True for OpenAI model families that reject ``max_tokens``."""
-    name = str(model_name or "").strip().lower()
+    name = openai_model_leaf(model_name)
     if not name:
         return False
-    # Fine-tune ids are ft:<base>:<org>:<suffix>:<id>. Splitting on '/' first
-    # turned ft:gpt-5-mini:org/team:name:id into team:name:id, so the gpt-5
-    # base kept max_tokens and api.openai.com returned 400. The base is the
-    # field after ft:, including when a provider prefix sits in front
-    # (openai/ft:...). A '/' inside that base (ft:openai/gpt-5-mini:...) is
-    # stripped afterwards.
-    # https://developers.openai.com/api/reference/resources/fine_tuning/subresources/jobs/methods/create
-    ft_at = name.find("ft:")
-    if ft_at != -1 and (ft_at == 0 or name[ft_at - 1] in "/:"):
-        base = name[ft_at + 3 :].split(":", 1)[0]
-        if base:
-            name = base
-    if "/" in name:
-        name = name.rsplit("/", 1)[-1]
     # ChatGPT snapshots (gpt-5-chat-latest, gpt-5.1-chat-latest,
     # gpt-5.2-chat-latest, gpt-6-chat-latest) accept max_tokens and a non-default
     # temperature. Their model pages do not list reasoning-token support; gpt-5.1 does.
@@ -59,12 +53,7 @@ def _openai_reasoning_model(model_name: str | None) -> bool:
 
 
 def _pick_size(width: int, height: int, landscape: str, portrait: str, square: str) -> str:
-    """Bucket WxH into one of three vendor sizes.
-
-    ``width=0`` used to divide as 0 and pick the portrait size. ``height=0``
-    already became square. Both axes must be positive or the ratio is treated
-    as square. ``image_generate`` can pass 0 after ``(n // 64) * 64``.
-    """
+    """Bucket WxH into one of three vendor sizes. Both axes must be positive or square is used."""
     ratio = (width / height) if width and height else 1.0
     if ratio > 1.2:
         return landscape
@@ -86,7 +75,7 @@ class OpenAIShim(BaseProviderShim):
     """
 
     def _chat_payload(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
     ) -> dict[str, Any]:
         # api.openai.com Chat Completions rejects reasoning_details. The Responses
         # branch does not call this method, so that key stays on messages there.
@@ -96,7 +85,7 @@ class OpenAIShim(BaseProviderShim):
             else message
             for message in messages
         ]
-        data = super()._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
+        data = super()._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice)
         # api.openai.com o1/o3/o4 and gpt-5 reject max_tokens and any
         # temperature other than the default (1), which is HTTP 400. This
         # class is only constructed for provider openai; Groq, OpenRouter,
@@ -112,7 +101,18 @@ class OpenAIShim(BaseProviderShim):
         return data
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None,
+        tools: list[dict[str, Any]] | None,
+        stream: bool,
+        model_name: str | None,
+        response_format: dict[str, Any] | None,
+        chat_extra: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if uses_responses_api(model_name, tools):
             level = self._requested_effort_level(chat_extra)
@@ -121,11 +121,22 @@ class OpenAIShim(BaseProviderShim):
             mapped = frag.get("reasoning_effort") or (frag.get("reasoning") or {}).get("effort")
             data = responses_payload(
                 messages, max_tokens, temperature, tools, stream, model_name, response_format,
+                tool_choice=tool_choice,
                 effort=mapped or level,
             )
-            return self._post(self._url("/responses"), data)
+            headers = self._apply_cache_route(data, cache_session_id)
+            return self._post(self._url("/responses"), data, headers=headers)
         return super().build_chat_request(
-            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra,
+            messages,
+            max_tokens,
+            temperature,
+            tools,
+            stream,
+            model_name,
+            response_format,
+            chat_extra,
+            tool_choice=tool_choice,
+            cache_session_id=cache_session_id,
         )
 
     def parse_response_chunk(
@@ -213,8 +224,6 @@ class OllamaShim(BaseProviderShim):
         return self._post(url, data)
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
-        # A non-dict body, or a list entry that is not a string, used to be
-        # returned as-is. The caller base64-decodes each item and then raises.
         if not isinstance(response_data, dict):
             return []
         images = response_data.get("images")
@@ -230,6 +239,35 @@ class OllamaShim(BaseProviderShim):
 
 class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
+
+    def build_chat_request(
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None,
+        tools: list[dict[str, Any]] | None,
+        stream: bool,
+        model_name: str | None,
+        response_format: dict[str, Any] | None,
+        chat_extra: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
+    ) -> tuple[str, str, bytes, dict[str, str]]:
+        if isinstance(model_name, str) and model_name.startswith("anthropic/"):
+            messages = annotate_anthropic_cache(messages)
+        return super().build_chat_request(
+            messages,
+            max_tokens,
+            temperature,
+            tools,
+            stream,
+            model_name,
+            response_format,
+            chat_extra,
+            tool_choice=tool_choice,
+            cache_session_id=cache_session_id,
+        )
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:
         # ``steps`` is on the shared signature. OpenRouter /images has no steps field.

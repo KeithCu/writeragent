@@ -20,7 +20,7 @@ from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
 from plugin.notebook.form_lookup import find_control_shape_by_name
 from plugin.notebook.notebook_runner import _leading_text_cursor, _paragraph_has_frame, flush_ui_idle
 from plugin.notebook.writer_importer import import_ipynb_to_writer
-from plugin.testing_runner import native_test, show_window
+from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import with_native_doc
 
 _SENTINEL = "WA_NB_SENTINEL"
@@ -225,7 +225,7 @@ def _fire_run_button_via_get_control(_ctx, doc, hex_id: str) -> str:
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
     """Import must attach one form-level listener, not N controller.getControl(model)."""
     from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
@@ -276,7 +276,7 @@ def test_import_wires_form_listener_without_getcontrol_loop(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
     from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
     from plugin.notebook.notebook_controls import (
@@ -345,7 +345,7 @@ def test_run_button_getcontrol_keeps_controls_and_splits_output(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_first_of_consecutive_code_cells_keeps_next_controls(ctx, doc):
     """Running cell N must not delete cell N+1's ▶, TextField, or source (medium In[2]/In[3])."""
     from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
@@ -395,23 +395,22 @@ def test_run_first_of_consecutive_code_cells_keeps_next_controls(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_apply_run_result_stdout_is_own_paragraph(ctx, doc):
     """Live Writer: stdout under the code cell must not concatenate onto the next heading."""
     from plugin.notebook.cell_registry import insert_output_start_bookmark, new_code_cell_entry
+    from plugin.notebook.layout import STYLE_MD_H2, STYLE_NOTEBOOK_IN
     from plugin.notebook.notebook_runner import apply_run_result, clear_cell_output
     from plugin.notebook.writer_importer import (
-        _STYLE_MD_H2,
-        _STYLE_NOTEBOOK_IN,
         _append_body_paragraph,
         _ensure_notebook_import_styles,
     )
 
     _ensure_notebook_import_styles(doc)
-    _append_body_paragraph(doc, "In [ ]:", _STYLE_NOTEBOOK_IN, lead_break=False)
+    _append_body_paragraph(doc, "In [ ]:", STYLE_NOTEBOOK_IN, lead_break=False)
     cell = new_code_cell_entry(0, None, "nb_cell_0_code")
     insert_output_start_bookmark(doc, cell.output_start_bookmark)
-    _append_body_paragraph(doc, _AFTER_HEADING, _STYLE_MD_H2, lead_break=True)
+    _append_body_paragraph(doc, _AFTER_HEADING, STYLE_MD_H2, lead_break=True)
 
     def _gap() -> int:
         paras = _paragraphs(doc)
@@ -485,13 +484,14 @@ def _output_text_for_cell(doc, cell) -> str:
         _is_next_cell_boundary,
         _paragraph_string,
     )
-    from plugin.notebook.writer_importer import _STYLE_NOTEBOOK_IN, _resolve_para_style
+    from plugin.notebook.layout import STYLE_NOTEBOOK_IN
+    from plugin.notebook.writer_importer import resolve_para_style
 
     start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
     if start is None:
         return ""
     text = doc.getText()
-    notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
+    notebook_in = resolve_para_style(doc, STYLE_NOTEBOOK_IN)
     end = text.createTextCursorByRange(start)
     while end.gotoNextParagraph(False):
         if _is_next_cell_boundary(end.ParaStyleName, _paragraph_string(end), notebook_in):
@@ -505,7 +505,7 @@ def _output_text_for_cell(doc, cell) -> str:
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
     """Live ▶ on the small NumPy fixture: in-cell replace, tight Output, In [1] then [2]."""
     assert _SMALL_IPYNB.is_file(), f"missing fixture {_SMALL_IPYNB}"
@@ -626,7 +626,7 @@ def test_small_numpy_button_rerun_stays_in_cell_and_counts_from_one(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_cell_execution_error_no_msgbox(ctx, doc):
     """Failed ▶ writes traceback under the cell; no WriterAgent modal."""
     from plugin.notebook.cell_registry import cell_id_to_hex, load_registry
@@ -732,7 +732,7 @@ def _three_cell_stop_ipynb_path() -> Path:
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_all_two_cells_share_kernel(ctx, doc):
     """Run All: cell 2 sees cell 1's binding on the shared notebook kernel."""
     from plugin.notebook.cell_registry import load_registry
@@ -765,7 +765,7 @@ def test_run_all_two_cells_share_kernel(ctx, doc):
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_run_all_stop_skips_remaining_cells(ctx, doc):
     """Stop after the first cell must not start the long / later cells."""
     from plugin.notebook.cell_registry import load_registry
@@ -832,7 +832,7 @@ def _tiny_failing_ipynb_path() -> Path:
 
 
 @native_test
-@with_native_doc("writer", hidden=not show_window)
+@with_native_doc("writer", hidden=not current_office().options.show_window)
 def test_paragraph_has_frame_true_on_imported_control_paragraphs(ctx, doc):
     """_paragraph_has_frame must see TextPortionType Frame on ▶ and the code field.
 

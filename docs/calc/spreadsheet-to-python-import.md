@@ -165,7 +165,7 @@ This plan is **in-workbook** conversion (formulas stay in Calc as `=PY()`). It d
 | Bulk read values + formulas | [`CellInspector.read_range`](../../plugin/calc/inspector.py) |
 | Bulk write | [`CellManipulator.write_formula_range`](../../plugin/calc/manipulator.py) |
 | `=PY()` parse/rebuild | [`python_formula_edit.py`](../../plugin/calc/python/formula_edit.py) |
-| `data` / `result` contract | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`python_function.py`](../../plugin/calc/python/function.py) |
+| `data` / `result` contract | [`calc_addin_data.py`](../../plugin/calc/calc_addin_data.py), [`function.py`](../../plugin/calc/python/function.py) |
 | Precedents | [`formula_dep_chain.py`](../../plugin/calc/formula_dep_chain.py), regex in inspector |
 | Function catalog | [`list_calc_functions`](../../plugin/calc/formulas.py) → `FunctionDescriptions` |
 | Formula pre-eval / oracle | [`evaluate_formula`](../../plugin/calc/formulas.py) (sheet-copy pattern) |
@@ -265,7 +265,7 @@ There is **no separate file importer** in v1: LibreOffice is the loader. Convers
 | Constant date | Serial or formatted | Same (document `#` formats copied) |
 | Calc formula | `=SUM(A1:A10)` | `=PY("result = np.sum(data)"; A1:A10)` |
 | Homogeneous column | `=A2*2` filled down | Single matrix `=PY` with vectorized `data` (Phase 4) |
-| Existing `=PY()` / `=PYTHON()` | As-is | Normalize via `parse_python_formula` / `rebuild_python_formula_with_data` |
+| Existing `=PY()` / `=PYTHON()` | As-is | Normalize via `PyFormula.parse` / `PyFormula.compose` |
 | Array formula | `{=…}` | **TODO** — keep Calc formula |
 | Reference to other sheet | `=Sheet2.A1` | `=PY(…; Sheet2.A1)` if UNO range resolves; else TODO |
 | Pivot / CF / chart | N/A | Unchanged (not formula cells) |
@@ -390,7 +390,7 @@ flowchart TB
 | `get_sheet_summary` | Bounds + headers hint | Dict | 1 |
 | `list_calc_functions` | Filterable catalog | List[dict] | 3 / docs |
 | `evaluate_formula` | Oracle for one cell | Evaluated value | 9 Verify |
-| `detect_and_explain_errors` | Pre-flight errors | Error report | 1 optional |
+| `error_detect` | Pre-flight errors | Error report | 1 optional |
 
 ### Table B — Emission & execution APIs
 
@@ -400,7 +400,7 @@ flowchart TB
 | `calc_addin_data_to_python` | Shape check for `data` | Max cells `scripting.python_max_data_cells` |
 | `to_calc_compatible` | Egress type coercion | No raw int in matrices |
 | `write_formula_range` | Apply converted grid | Semicolon formulas; `=` prefix → formula |
-| `parse_python_formula` / `rebuild_python_formula_with_data` | Round-trip existing PY | String-level only |
+| `PyFormula.parse` / `PyFormula.compose` | Round-trip existing PY | String-level only |
 | `python_editor` / Monaco | Edit generated code | Manual fix for TODO cells |
 | `run_venv_python_script` | Chat dry-run | Does not write sheet alone |
 | `WorkerResultSession` | Matrix spill cache | Manual range today |
@@ -413,7 +413,7 @@ flowchart TB
 | `write_formula_range` | Agent apply after user confirms |
 | `convert_spreadsheet_to_python` | **New** — full pipeline |
 | `list_calc_functions` | Agent lookup unsupported function |
-| `detect_and_explain_errors` | Pre/post validation |
+| `error_detect` | Pre/post validation |
 | `delegate_to_specialized_calc_toolset` | N/A for v1 |
 
 ### Table D — External libraries (research; not shipped)

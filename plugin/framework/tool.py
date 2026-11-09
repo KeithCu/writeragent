@@ -38,21 +38,24 @@ import logging
 import queue
 import time
 from abc import ABC, abstractmethod
-from typing import Any, Callable, ClassVar, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Callable, ClassVar, NamedTuple, cast
+
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
 
 from plugin.framework.errors import (
     WriterAgentException,
+    document_is_disposed,
     format_error_payload,
-    is_document_disposed,
-    is_real_disposal,
-    is_tool_document_disposed,
+    is_disposal,
     make_tool_error,
+    name_miss_details,
     resolve_exception_message,
-    safe_json_loads,
 )
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.worker_pool import run_in_background
-from plugin.framework.thread_guard import assert_main_thread, on_main_thread
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.thread_guard import assert_main_thread
+from plugin.framework.queue_executor import main
 
 from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, deal
 from plugin.framework.tool_schema import (
@@ -98,7 +101,6 @@ class ToolContext:
         python_tool_domain: Optional domain string for Python execution scopes.
         status_callback: Optional callback for status updates (Writer tools).
         append_thinking_callback: Optional callback for thinking text (Writer tools).
-        stop_checker: Optional callable () -> bool; if present and returns True, tool should stop.
         approval_callback: Optional callable for human-in-the-loop approval.
         chat_append_callback: Optional callable(str) to append plain text to the chat response.
         set_active_domain_callback: Optional callable to update the active domain.
@@ -117,14 +119,13 @@ class ToolContext:
     active_page_index: int | None
     status_callback: Callable[[str], None] | None
     append_thinking_callback: Callable[[str], None] | None
-    stop_checker: Callable[[], bool] | None
     approval_callback: Callable[[str], bool] | None
     chat_append_callback: Callable[[str], None] | None
     set_active_domain_callback: Callable[[str | None], None] | None
     active_domain: str | None
     python_tool_domain: str | None
     read_only_target: bool
-    send_cancellation: Any | None
+    send_cancellation: SendCancellation | None
     uno_services_supported: frozenset[str]
 
     __slots__: ClassVar[tuple[str, ...]] = (
@@ -136,7 +137,6 @@ class ToolContext:
         "active_page_index",
         "status_callback",
         "append_thinking_callback",
-        "stop_checker",
         "approval_callback",
         "chat_append_callback",
         "set_active_domain_callback",
@@ -157,14 +157,13 @@ class ToolContext:
         active_page_index: int | None = None,
         status_callback: Any = None,
         append_thinking_callback: Any = None,
-        stop_checker: Any = None,
         approval_callback: Any = None,
         chat_append_callback: Any = None,
         set_active_domain_callback: Any = None,
         active_domain: str | None = None,
         python_tool_domain: str | None = None,
         read_only_target: bool = False,
-        send_cancellation: Any = None,
+        send_cancellation: SendCancellation | None = None,
         uno_services_supported: Any = None,
     ) -> None:
         # crosshair: off
@@ -176,7 +175,6 @@ class ToolContext:
         self.active_page_index = active_page_index
         self.status_callback = status_callback
         self.append_thinking_callback = append_thinking_callback
-        self.stop_checker = stop_checker
         self.approval_callback = approval_callback
         self.chat_append_callback = chat_append_callback
         self.set_active_domain_callback = set_active_domain_callback
@@ -187,14 +185,12 @@ class ToolContext:
         if uno_services_supported is not None:
             self.uno_services_supported = uno_services_supported
         else:
-            from plugin.doc.doc_type import uno_services_for_doc_type_label
+            from plugin.framework import doc_type as _doc_type
 
-            self.uno_services_supported = uno_services_for_doc_type_label(doc_type)
-        if send_cancellation is not None and stop_checker is None:
-            self.stop_checker = send_cancellation.is_cancelled
+            self.uno_services_supported = _doc_type.uno_services_for_doc_type_label(doc_type)
 
     def derive(self, **overrides: Any) -> ToolContext:
-        """Derive a new context copying every slot then applying overrides, with __init__ applying uno_services_supported and stop_checker rules."""
+        """Derive a new context copying every slot then applying overrides, with __init__ applying uno_services_supported rules."""
         values = {name: getattr(self, name) for name in self.__slots__}
         values.update(overrides)
         return ToolContext(**values)
@@ -224,7 +220,6 @@ def _tool_arg_matches_type(value: Any, schema_type: Any) -> bool:
             return True
         if one == "null" and value is None:
             return True
-        # Unknown names (``"str"``) used to accept any value. They match nothing.
     return False
 
 
@@ -382,7 +377,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             if not self.is_async():
                 assert_main_thread(self.name or "synchronous tool")
                 if self.requires_document and ctx is not None and getattr(ctx, "doc", None) is not None:
-                    if is_document_disposed(ctx.doc):
+                    if document_is_disposed(ctx.doc):
                         return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED")
             # Async / review-wait tools skip this probe so wait can run off the main thread.
             # EditReviewSession.wait_for_review must detect dispose itself. Do not "fix" by
@@ -392,26 +387,16 @@ class ToolBase(_ToolErrorMixin, ABC):
 
         except Exception as e:
             _log.exception("Tool '%s' execution failed", self.name if self.name else "<unknown>")
-            doc = getattr(ctx, "doc", None) if ctx is not None else None
-            # Bugfix: The pre-execute probe is skipped for async tools so review-wait can
-            # run off the UI thread, but the exception handler still called getImplementationName
-            # via is_tool_document_disposed on background worker threads. Marshaling that probe
-            # to the main thread deadlocks when the UI thread is inside _execute_with_timeout's join(),
-            # while running it directly off-thread violates UNO thread safety.
-            # When off the main thread, check only for real disposal exceptions (DisposedException /
-            # DocumentDisposedError) without probing the document model, letting a bare
-            # RuntimeException fall through to TOOL_EXECUTION_ERROR.
-            if on_main_thread():
-                disposed = is_tool_document_disposed(e, doc)
+            # Off the main thread, check only for real disposal exceptions without probing UNO.
+            if main.is_current():
+                disposed = is_disposal(e)
             else:
-                disposed = is_real_disposal(e)
+                disposed = is_disposal(e)
 
             if disposed:
                 # UNO DisposedException often has an empty str() and the text in .Message; use the same resolver as the branch below.
                 return self._tool_error("Document was closed or disposed by LibreOffice", code="DOCUMENT_DISPOSED", original_error=resolve_exception_message(e), error_type=type(e).__name__)
-            # Returning _tool_error() already keeps the code. Raising
-            # ConfigError used to be rewritten as
-            # TOOL_EXECUTION_ERROR and lose details.
+            # Format domain exceptions directly to preserve code and details.
             if isinstance(e, WriterAgentException):
                 return format_error_payload(e)
             # Bare RuntimeException often has an empty message; fall back to the type name.
@@ -434,7 +419,15 @@ class ToolBase(_ToolErrorMixin, ABC):
             return self._tool_error(msg, code="UNO_OBJECT_ERROR", getter_name=getter_name)
         return getattr(doc, getter_name)()
 
-    def get_item(self, doc: Any, getter_name: str, item_name: str, missing_msg: str | None = None, not_found_msg: str | None = None) -> Any:
+    def get_item(
+        self,
+        doc: Any,
+        getter_name: str,
+        item_name: str,
+        missing_msg: str | None = None,
+        not_found_msg: str | None = None,
+        list_tool: str | None = None,
+    ) -> Any:
         """Helper to fetch a specific item from a document's collection.
 
         Args:
@@ -443,6 +436,7 @@ class ToolBase(_ToolErrorMixin, ABC):
             item_name: Name of the item to retrieve.
             missing_msg: Error message if the collection getter is missing.
             not_found_msg: Error message if the item doesn't exist.
+            list_tool: When set, adds ``details.hint`` / ``details.similar`` on a name miss.
 
         Returns:
             The UNO item object, or a dict with {"status": "error", "message": ..., "available": [...]}
@@ -454,7 +448,14 @@ class ToolBase(_ToolErrorMixin, ABC):
         if not collection.hasByName(item_name):
             available = list(collection.getElementNames())
             msg = not_found_msg or f"Item '{item_name}' not found."
-            return self._tool_error(msg, code="UNO_OBJECT_ERROR", item_name=item_name, getter_name=getter_name, available=available)
+            extra: dict[str, Any] = {
+                "item_name": item_name,
+                "getter_name": getter_name,
+                "available": available,
+            }
+            if list_tool:
+                extra.update(name_miss_details(item_name, [str(n) for n in available], list_tool))
+            return self._tool_error(msg, code="UNO_OBJECT_ERROR", **extra)
 
         return collection.getByName(item_name)
 
@@ -501,8 +502,8 @@ def tool_supports_document(tool: ToolBase, *, doc_type: str | None, uno_services
 
     services = uno_services_supported
     if not services and doc_type:
-        from plugin.doc.doc_type import uno_services_for_doc_type_label
-        services = uno_services_for_doc_type_label(doc_type)
+        from plugin.framework import doc_type as _doc_type
+        services = _doc_type.uno_services_for_doc_type_label(doc_type)
 
     if tool.uno_services is not None and services:
         if any(svc in services for svc in tool.uno_services):
@@ -576,6 +577,18 @@ def prepare_tool_call(tool: ToolBase, ctx: Any, tool_name: str, tool_kwargs: dic
     return PreparedToolCall(kwargs, ignored, common_details, None)
 
 
+class SchemaFilterContext(NamedTuple):
+    """Inputs for application-registered ``ToolRegistry.schema_filters``."""
+
+    protocol: str
+    active_domain: str | None
+    doc: Any
+    doc_type: str | None
+    ctx: Any
+    uno_services: frozenset[str]
+    tools: list[Any]
+
+
 class ToolRegistry:
     """Registers and dispatches tools.
 
@@ -587,7 +600,9 @@ class ToolRegistry:
     def __init__(self, services: Any) -> None:
         self._services = services
         self._tools: dict[str, ToolBase] = {}  # name -> ToolBase instance
-        # Shared names (shape_upsert / manage_charts) last-wins the instance but
+        self.schema_filters: list[Callable[[list[dict[str, Any]], SchemaFilterContext], list[dict[str, Any]]]] = []
+        self.tool_filters: list[Callable[[list[Any], Any], list[Any]]] = []
+        # Shared names (shape_upsert / chart_upsert) last-wins the instance but
         # must keep the union of required_core_tools. ClassVar cannot be set on
         # the instance, so store the merge here.
         self._required_core_union: dict[str, frozenset[str]] = {}
@@ -670,7 +685,7 @@ class ToolRegistry:
         self,
         doc: Any = None,
         doc_type: str | None = None,
-        names: Any = None,
+        names: frozenset[str] | None = None,
         filter_doc_type: bool = True,
         exclude_tiers: Any = _DEFAULT_EXCLUDE_TIERS,
         active_domain: str | None = None,
@@ -683,9 +698,8 @@ class ToolRegistry:
             doc: Optional document model (legacy; prefer doc_type + uno_services_supported).
             doc_type: Optional string indicating compatibility ("writer", "calc", "draw").
             uno_services_supported: Cached UNO service names from sidebar/MCP (no live doc probe).
-            names: Optional collection of exact tool names. ``None`` applies
-                no name filter. An empty collection matches nothing. A bare
-                string is that one name, not a substring.
+            names: Optional frozenset of exact tool names. ``None`` applies
+                no name filter. An empty frozenset matches nothing.
             filter_doc_type: If True, filters by doc model services or doc_type. Defaults to True.
             exclude_tiers: Tiers to omit from the result. If omitted, excludes
                 ``specialized``, ``specialized_control``, and ``mcp`` so nested
@@ -694,7 +708,7 @@ class ToolRegistry:
             active_domain: If provided, dynamically includes specialized tools for this domain,
                 the specialized_workflow_finished tool, and names listed in
                 ``required_core_tools`` whose tier is ``core`` or ``specialized``.
-            ctx: Optional ToolContext or context used to filter vision specialized tools.
+            ctx: Optional ToolContext or context for filtering vision specialized tools.
         """
         # crosshair: off
         tools: Any = self._tools.values()
@@ -702,15 +716,15 @@ class ToolRegistry:
         # Doc-type probe is main-thread-only because get_document_type accesses UNO.
         # In release builds @main_thread_only logs and continues rather than raising,
         # so off-thread callers must avoid probing UNO directly.
-        if doc_type is None and doc is not None and filter_doc_type and on_main_thread():
-            from plugin.doc.doc_type import doc_type_str_from_doc
+        if doc_type is None and doc is not None and filter_doc_type and main.is_current():
+            from plugin.framework import doc_type as _doc_type
 
-            doc_type = doc_type_str_from_doc(doc)
+            doc_type = _doc_type.doc_type_str_from_doc(doc)
         if uno_services_supported is None and doc is not None and filter_doc_type:
-            from plugin.doc.doc_type import get_document_uno_services
+            from plugin.framework import doc_type as _doc_type
 
-            if on_main_thread():
-                uno_services_supported = get_document_uno_services(doc)
+            if main.is_current():
+                uno_services_supported = _doc_type.get_document_uno_services(doc)
 
         tools = [
             t for t in tools
@@ -753,21 +767,13 @@ class ToolRegistry:
         else:
             if to_exclude:
                 tools = [t for t in tools if getattr(t, "tier", None) not in to_exclude]
-        # Only None skips the filter. Callers pass tool names, not a substring
-        # to search. ``if names`` treats ``[]`` and ``""`` as no filter and
-        # returns every tool. A bare string is iterable, so ``t.name in
-        # "target"`` matches the tool named ``get``. A str is one exact name;
-        # any other collection becomes a set, and an empty set matches nothing.
         if names is not None:
-            if isinstance(names, str):
-                name_set = frozenset((names,))
-            else:
-                name_set = frozenset(names)
-            tools = [t for t in tools if t.name in name_set]
+            tools = [t for t in tools if t.name in names]
         if ctx is not None:
-            from plugin.vision.vision_availability import filter_vision_specialized_tools
-
-            tools = filter_vision_specialized_tools(list(tools), ctx)
+            filtered = list(tools)
+            for filt in self.tool_filters:
+                filtered = filt(filtered, ctx)
+            tools = filtered
         return list(tools)
 
     def get_schemas(self, protocol: str = "openai", active_domain: str | None = None, **kwargs: Any) -> list[dict[str, Any]]:
@@ -788,20 +794,18 @@ class ToolRegistry:
         # so off-thread callers must avoid probing UNO directly.
         doc = kwargs.get("doc")
         doc_type = kwargs.get("doc_type")
-        if doc_type is None and doc is not None and on_main_thread():
-            from plugin.doc.doc_type import doc_type_str_from_doc
+        if doc_type is None and doc is not None and main.is_current():
+            from plugin.framework import doc_type as _doc_type
 
-            doc_type = doc_type_str_from_doc(doc)
+            doc_type = _doc_type.doc_type_str_from_doc(doc)
 
         if doc_type is not None:
             kwargs["doc_type"] = doc_type
 
         tools = self.get_tools(active_domain=active_domain, **kwargs)
-        # Probed services tell Impress (PresentationDocument) from Draw; both carry doc_type "draw".
-        from plugin.doc.doc_type import uno_services_for_document
-        from plugin.doc.specialized_base import narrow_delegate_domain_enums
+        from plugin.framework import doc_type as _doc_type
 
-        uno_services = kwargs.get("uno_services_supported") or uno_services_for_document(doc, doc_type)
+        uno_services = kwargs.get("uno_services_supported") or _doc_type.uno_services_for_document(doc, doc_type)
         if protocol == "openai":
             from plugin.framework.client.model_fetcher import get_current_endpoint, get_text_model, has_native_vision
 
@@ -809,22 +813,23 @@ class ToolRegistry:
             if has_native_vision(get_text_model(), get_current_endpoint()) is False:
                 tools = [t for t in tools if t.name != "get_image"]
             convert = to_openai_schema
-            peer_domain: str | None = active_domain
         else:
             convert = to_mcp_schema
-            peer_domain = None
 
-        schemas = narrow_delegate_domain_enums(
-            [convert(t, doc_type=doc_type) for t in tools], tools, uno_services
-        )
+        schemas = [convert(t, doc_type=doc_type) for t in tools]
         ctx = kwargs.get("ctx")
-        if protocol == "openai" and ctx is not None:
-            from plugin.vision.vision_availability import filter_vision_delegate_schemas
-
-            schemas = filter_vision_delegate_schemas(schemas, ctx)
-        from plugin.doc.peer_message import filter_peer_message_schemas
-
-        return filter_peer_message_schemas(schemas, ctx, doc=doc, active_domain=peer_domain)
+        filter_ctx = SchemaFilterContext(
+            protocol=protocol,
+            active_domain=active_domain,
+            doc=doc,
+            doc_type=doc_type,
+            ctx=ctx,
+            uno_services=uno_services,
+            tools=list(tools),
+        )
+        for filt in self.schema_filters:
+            schemas = filt(schemas, filter_ctx)
+        return schemas
 
     def get(self, name: str) -> ToolBase | None:
         """Get a tool by name, or None."""
@@ -970,10 +975,6 @@ class ToolRegistry:
 
             # Check document compatibility using cached doc_type / UNO services (no live doc probe).
             if not tool_supports_document(tool, doc_type=ctx.doc_type, uno_services_supported=getattr(ctx, "uno_services_supported", None)):
-                # A registered tool whose uno_services/doc_types miss this document
-                # used to raise ValueError, and ``except ValueError`` re-raised it
-                # into the model as a traceback. Unknown names stay UNKNOWN_TOOL.
-                # This path is a stable tool error the model can read.
                 return make_tool_error(
                     f"Tool '{tool_name}' does not support the current document.",
                     code="UNSUPPORTED_DOCUMENT",
@@ -994,9 +995,6 @@ class ToolRegistry:
             # Sync tools are marshaled to the LO main thread so MCP long-running and any
             # other worker-thread caller cannot touch UNO off-thread.
             runner = tool.execute if bypass_thread_guard else tool.execute_safe
-            # Bugfix: getattr(tool, "timeout", 0) returned None when a tool had timeout = None.
-            # Subsequent `timeout <= 0` comparisons raised TypeError inside _execute_impl,
-            # which converted into a TOOL_REGISTRY_ERROR.
             # Coerce missing, None, boolean, or non-numeric timeout values to 0.0 (no timeout).
             raw = getattr(tool, "timeout", 0) or 0
             if isinstance(raw, bool) or not isinstance(raw, (int, float)):
@@ -1004,20 +1002,14 @@ class ToolRegistry:
             else:
                 timeout = float(raw)
 
-            # Bugfix: A spread model dict (e.g. from MCP or host RPC) containing keys
-            # named 'ctx' or 'tool_name' collided with parameters on _execute_impl
-            # before the try block, and keys named 'timeout', 'tool_name', 'run_threaded',
-            # or 'ctx' collided with parameters on _execute_with_timeout.
-            # Passing tool_kwargs as a dict to _execute_impl and invoking the runner via
-            # a zero-argument closure prevents keyword parameter collisions and keeps
-            # declared schema properties in kwargs.
+            # Invoking runner via a zero-argument closure prevents keyword parameter collisions with caller kwargs.
             def _run_tool() -> Any:
                 return runner(ctx, **kwargs)
 
             if bypass_thread_guard or tool.is_async():
                 result = self._execute_with_timeout(_run_tool, timeout, tool_name)
             else:
-                result = execute_on_main_thread(_run_tool)
+                result = main.call(_run_tool)
 
             # Ensure any returned dict with status='error' includes full context details
             if isinstance(result, dict) and result.get("status") == "error":
@@ -1025,9 +1017,7 @@ class ToolRegistry:
                 if isinstance(result_details, dict):
                     cast("dict[str, Any]", result)["details"] = {**common_details, **result_details}
 
-            # The dropped keys used to vanish silently: image_insert(paragraph_index=70) -- the
-            # name image_list reports -- dropped the index and put the image at the view cursor
-            # with status ok (relato #25). Say which arguments were not used.
+            # Record any ignored parameters in the result.
             if ignored and isinstance(result, dict):
                 cast("dict[str, Any]", result).setdefault("ignored_parameters", ignored)
 

@@ -38,21 +38,14 @@ two UNO OriginalNames — do not expect that API to make these files interop.
 from __future__ import annotations
 
 import logging
-import re
 from typing import Any
 
+from plugin.calc.python.formula_edit import _PY_CALLS
 from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
+from plugin.calc.python.undo import undo_lock
 from plugin.framework.errors import best_effort, reraise_if_disposed
 
 log = logging.getLogger(__name__)
-
-# Core stores the service + IDL method, uppercased. Collabora's methods are the
-# usual scaddins ``get*`` shape; ours are ``py`` / ``python``.
-_COLLABORA_ADDIN_PREFIX = re.compile(
-    r"^(\s*\{?\s*=\s*)ORG\.COLLABORAOFFICE\.SHEET\.ADDIN\.PYTHONCOMPUTEFUNCTIONS\."
-    r"(GETPYTHON|GETPY)\s*\(",
-    re.IGNORECASE,
-)
 
 
 def rewrite_collabora_addin_prefix(formula: str) -> str:
@@ -62,10 +55,34 @@ def rewrite_collabora_addin_prefix(formula: str) -> str:
     The prefix (leading whitespace/optional ``{``, ``=``, spacing) is preserved,
     the argument text is copied byte-for-byte. Non-matching formulas are returned unchanged.
     """
-    match = _COLLABORA_ADDIN_PREFIX.match(formula)
-    if match is None:
+    if not isinstance(formula, str):
         return formula
-    return match.group(1) + ("PYTHON" if match.group(2).upper() == "GETPYTHON" else "PY") + "(" + formula[match.end() :]
+    i = 0
+    n = len(formula)
+    while i < n and formula[i].isspace():
+        i += 1
+    if i < n and formula[i] == "{":
+        i += 1
+        while i < n and formula[i].isspace():
+            i += 1
+    if i >= n or formula[i] != "=":
+        return formula
+    i += 1
+    while i < n and formula[i].isspace():
+        i += 1
+    alias_start = i
+    for alias, spelling in _PY_CALLS:
+        if not spelling.startswith("get"):
+            continue
+        if formula[alias_start : alias_start + len(alias)].upper() == alias:
+            j = alias_start + len(alias)
+            while j < n and formula[j].isspace():
+                j += 1
+            if j < n and formula[j] == "(":
+                target = "PYTHON" if spelling == "getpython" else "PY"
+                return formula[:alias_start] + target + formula[j:]
+            return formula
+    return formula
 
 
 def _rewrite_sheet_formulas(sheet: Any) -> int:
@@ -130,13 +147,11 @@ def maybe_rewrite_collabora_py_formulas(doc: Any) -> int:
     except Exception:
         log.debug("collabora PY rewrite: isModified failed", exc_info=True)
     changed = 0
-    # A scan failure used to be logged and swallowed here. auto_open already logs it.
+    # Scan failures propagate; auto_open already logs them.
     doc.lockControllers()
     try:
         # Reuses the shared hidden/locked undo context; do not create a new undo-context module.
-        from plugin.calc.python.function import _undo_lock
-
-        with _undo_lock(doc):
+        with undo_lock(doc):
             sheets = doc.getSheets()
             for i in range(int(sheets.getCount())):
                 changed += _rewrite_sheet_formulas(sheets.getByIndex(i))

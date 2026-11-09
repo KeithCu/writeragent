@@ -1,12 +1,12 @@
 from unittest.mock import MagicMock, patch
 
 from plugin.writer.editselection import do_extend_selection, do_edit_selection
-from plugin.framework.config import set_configs
+from plugin.framework.config import save
 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_uses_non_empty_range(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
     ctx = MagicMock()
@@ -45,7 +45,7 @@ def test_extend_selection_uses_non_empty_range(mock_create_client, mock_stream_c
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_falls_back_to_index0_if_all_empty(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
     ctx = MagicMock()
@@ -80,13 +80,13 @@ def test_extend_selection_falls_back_to_index0_if_all_empty(mock_create_client, 
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     # Setup mocks
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
     ctx = MagicMock()
-    # Extend/Edit have no Stop control; this stands in for a user clicking Stop.
+    # apply_chunk still does not consult a checker; this stands in for a user clicking Stop.
     ctx.stop_checker = MagicMock(return_value=True)
 
     model = MagicMock()
@@ -110,13 +110,13 @@ def test_extend_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_edit_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_client, mock_stream_completion):
-    set_configs({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     # Setup mocks
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
     ctx = MagicMock()
-    # Extend/Edit have no Stop control; this stands in for a user clicking Stop.
+    # apply_chunk still does not consult a checker; this stands in for a user clicking Stop.
     ctx.stop_checker = MagicMock(return_value=True)
 
     model = MagicMock()
@@ -141,7 +141,7 @@ def test_edit_selection_in_hand_chunk_lands_even_with_stop_checker(mock_create_c
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_fails_closed_on_stop_checker_error(mock_create_client, mock_stream_completion):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
@@ -166,7 +166,7 @@ def test_extend_selection_fails_closed_on_stop_checker_error(mock_create_client,
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_fails_when_setString_fails(mock_create_client, mock_stream_completion, mock_msgbox):
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_client = MagicMock()
     mock_create_client.return_value = mock_client
 
@@ -202,7 +202,7 @@ def test_extend_selection_on_error_long_error_does_not_raise_contract_error(mock
     from plugin.framework.deal_shim import DEAL_MAX_MSGID
     from plugin.framework.errors import format_error_message
 
-    set_configs({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'extend_selection_max_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_create_client.return_value = MagicMock()
     ctx = MagicMock()
     model = MagicMock()
@@ -226,7 +226,7 @@ def test_edit_selection_on_error_long_error_does_not_raise_contract_error(mock_c
     from plugin.framework.deal_shim import DEAL_MAX_MSGID
     from plugin.framework.errors import format_error_message
 
-    set_configs({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
+    save({'edit_selection_max_new_tokens': 100, 'doc.agent_edit_review_mode': 'none', 'additional_instructions': ''})
     mock_create_client.return_value = MagicMock()
     ctx = MagicMock()
     model = MagicMock()
@@ -293,6 +293,140 @@ def test_edit_selection_empty_text_shows_message_before_prompt(mock_get_str, moc
 
 
 @patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_preset_skips_prompt_and_validates_client_first(
+    mock_create_client, mock_stream,
+):
+    save({"edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    with patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection.prompt_for_edit_instructions") as mock_prompt:
+        do_edit_selection(ctx, model, preset_instruction="Fix typos")
+
+    mock_prompt.assert_not_called()
+    assert mock_create_client.called
+    assert mock_stream.called
+
+
+@patch("plugin.writer.editselection.stream_completion")
+@patch("plugin.writer.editselection.create_validated_client")
+@patch("plugin.writer.editselection.msgbox")
+def test_edit_selection_preset_whole_body_without_select_first_msgbox(
+    mock_msgbox, mock_create_client, mock_stream,
+):
+    save({"edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    mock_create_client.return_value = MagicMock()
+    ctx = MagicMock()
+    model = MagicMock()
+    body = MagicMock()
+    cursor = MagicMock()
+    body.createTextCursor.return_value = cursor
+    model.getText.return_value = body
+    model.CurrentController.getSelection.return_value = None
+
+    with patch("plugin.writer.editselection.selected_text_range", return_value=None), \
+         patch("plugin.doc.text_helpers.get_string_without_tracked_deletions", return_value="Para one\nPara two"), \
+         patch("plugin.doc.text_helpers.normalize_linebreaks", return_value="Para one\nPara two"), \
+         patch("plugin.writer.edit_review.refuse_tracked_insert_or_delete"), \
+         patch("plugin.writer.editselection.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.editselection.get_config", return_value=100), \
+         patch("plugin.writer.editselection.WriterStreamedRewriteSession") as session_cls:
+        do_edit_selection(
+            ctx,
+            model,
+            preset_instruction="Proofread",
+            allow_whole_document=True,
+        )
+
+    mock_msgbox.assert_not_called()
+    assert mock_stream.called
+    prompt = mock_stream.call_args.args[2]
+    assert "Para one\nPara two" in prompt
+    assert "Preserve paragraph breaks" in prompt
+    assert session_cls.call_args.kwargs.get("preserve_paragraph_breaks") is True
+
+
+@patch("plugin.writer.editselection.create_validated_client")
+def test_edit_selection_preset_length_empty_notifies_sidebar(mock_create_client):
+    import json
+
+    from plugin.framework.client.llm_client import LlmClient
+    from plugin.tests.testing_utils import MockContext, create_mock_http_response
+
+    save({"chatbot.edit_selection_max_new_tokens": 100, "doc.agent_edit_review_mode": "none", "additional_instructions": ""})
+    ctx = MockContext()
+    client = LlmClient({"endpoint": "https://api.openai.com", "api_key": "sk-test", "model": "gpt-4"}, ctx)
+    mock_create_client.return_value = client
+    model = MagicMock()
+    text_range = MagicMock()
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+    sidebar_lines: list[str] = []
+    session_inst = MagicMock()
+    session_inst.generated_text = ""
+    session_inst.finish.return_value = None
+    session_inst.doc = model
+
+    sse_lines = [
+        f'data: {json.dumps({"choices": [{"finish_reason": "length", "delta": {}}]})}'.encode(),
+        b"data: [DONE]\n\n",
+    ]
+    resp = create_mock_http_response(sse_lines=sse_lines)
+
+    def sync_run_stream(
+        ctx_arg,
+        client_arg,
+        prompt,
+        system_prompt,
+        max_tokens,
+        apply_chunk_fn,
+        on_done_fn,
+        on_error_fn,
+        **kwargs,
+    ):
+        completion_out = kwargs.get("completion_out")
+        finish = client_arg.stream_completion(
+            prompt,
+            system_prompt,
+            max_tokens,
+            append_callback=lambda t: apply_chunk_fn(t, False),
+            cancel=kwargs.get("cancel"),
+        )
+        if completion_out is not None:
+            completion_out["finish_reason"] = finish
+        on_done_fn()
+
+    with (
+        patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"),
+        patch("plugin.writer.editselection.WriterStreamedRewriteSession", return_value=session_inst),
+        patch("plugin.chatbot.selection.run_stream_completion_async", side_effect=sync_run_stream),
+        patch("http.client.HTTPSConnection") as mock_https,
+    ):
+        mock_conn = MagicMock()
+        mock_https.return_value = mock_conn
+        mock_conn.getresponse.return_value = resp
+        do_edit_selection(
+            ctx,
+            model,
+            preset_instruction="shorten",
+            sidebar_notify=sidebar_lines.append,
+        )
+
+    assert sidebar_lines
+    assert "tokens" in sidebar_lines[0].lower()
+
+
+@patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.prompt_for_edit_instructions")
 @patch("plugin.writer.editselection.create_validated_client", return_value=None)
 def test_edit_selection_no_client_skips_prompt(mock_create_client, mock_prompt, mock_stream):
@@ -342,7 +476,7 @@ def test_both_commands_write_model_lru_once(
 ):
     # Seed both token caps: LRU test exercises Extend then Edit, and without these
     # get_config_int raises once create_validated_client is mocked through.
-    set_configs(
+    save(
         {
             "extend_selection_max_tokens": 100,
             "edit_selection_max_new_tokens": 100,
@@ -375,7 +509,7 @@ def test_both_commands_write_model_lru_once(
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_extend_selection_uses_extend_system_prompt(mock_create_client, mock_stream):
-    set_configs({
+    save({
         "extend_selection_max_tokens": 100,
         "doc.agent_edit_review_mode": "none",
         "additional_instructions": "chat extra",
@@ -402,7 +536,7 @@ def test_extend_selection_uses_extend_system_prompt(mock_create_client, mock_str
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_edit_selection_uses_edit_system_prompt(mock_create_client, mock_stream):
-    set_configs({
+    save({
         "edit_selection_max_new_tokens": 100,
         "doc.agent_edit_review_mode": "none",
         "additional_instructions": "chat extra",
@@ -429,7 +563,7 @@ def test_edit_selection_uses_edit_system_prompt(mock_create_client, mock_stream)
 @patch("plugin.writer.editselection.stream_completion")
 @patch("plugin.writer.editselection.create_validated_client")
 def test_edit_selection_dialog_extras_win_over_config(mock_create_client, mock_stream):
-    set_configs({
+    save({
         "edit_selection_max_new_tokens": 100,
         "doc.agent_edit_review_mode": "none",
         "additional_instructions": "chat extra",
@@ -453,4 +587,89 @@ def test_edit_selection_dialog_extras_win_over_config(mock_create_client, mock_s
     assert mock_stream.call_args.args[3] == "dialog extra"
 
 
+def test_extend_selection_stop_scope_finishes_and_appends():
+    import threading
+    import time
+    from types import SimpleNamespace
+    from plugin.framework.send_cancellation import SendCancellation
 
+    save({
+        "extend_selection_max_tokens": 100,
+        "doc.agent_edit_review_mode": "none",
+        "additional_instructions": "",
+    })
+
+    scope = SendCancellation()
+    chunk_queued = threading.Event()
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.stopped = False
+
+        def stop(self) -> None:
+            self.stopped = True
+
+        def stream_completion(self, prompt, system_prompt, max_tokens, **kwargs):
+            append_cb = kwargs["append_callback"]
+            append_cb("CHUNK")
+            chunk_queued.set()
+            deadline = time.monotonic() + 5.0
+            cancel = kwargs.get("cancel")
+            while cancel is not None and not cancel.is_cancelled():
+                if time.monotonic() > deadline:
+                    raise TimeoutError("Cancel deadline exceeded")
+                time.sleep(0.01)
+            return "stop"
+
+    fake_client = FakeClient()
+
+    def side_canceller():
+        if chunk_queued.wait(timeout=5.0):
+            scope.cancel()
+
+    canceller_thread = threading.Thread(target=side_canceller)
+    canceller_thread.start()
+
+    ctx = MagicMock()
+    model = MagicMock()
+    text_range = MagicMock()
+    text_range.getString.return_value = "orig"
+    selection = MagicMock()
+    selection.getCount.return_value = 1
+    selection.getByIndex.return_value = text_range
+    model.CurrentController.getSelection.return_value = selection
+
+    call_order: list[str] = []
+    session = MagicMock()
+    session.doc = model
+    session.generated_text = "CHUNK"
+
+    def _append(text: str) -> None:
+        call_order.append("append_chunk")
+
+    def _finish() -> str:
+        call_order.append("finish")
+        return ""
+
+    def _abort() -> None:
+        call_order.append("abort_and_restore")
+
+    session.append_chunk.side_effect = _append
+    session.finish.side_effect = _finish
+    session.abort_and_restore.side_effect = _abort
+
+    fake_host = SimpleNamespace(
+        _send_cancellation=scope,
+        sidebar_state=SimpleNamespace(send=SimpleNamespace(is_busy=True, is_recording=False)),
+    )
+
+    with patch("plugin.writer.editselection.create_validated_client", return_value=fake_client), \
+         patch("plugin.writer.editselection.get_string_without_tracked_deletions", return_value="orig"), \
+         patch("plugin.writer.editselection.WriterStreamedAppendSession", return_value=session):
+        do_extend_selection(ctx, model, host=fake_host)
+
+    canceller_thread.join(timeout=5.0)
+
+    assert fake_client.stopped is True
+    assert call_order == ["append_chunk", "finish"]
+    assert not session.abort_and_restore.called

@@ -205,8 +205,8 @@ def test_sync_request_307_keeps_method_and_body():
 def test_sync_request_ipv6_literal_keeps_brackets():
     """``[::1]`` must stay bracketed when the origin is rebuilt.
 
-    What was wrong: ``hostname`` strips brackets, so ``http://[::1]:11434/v1``
-    became ``http://::1:11434`` and ``_explicit_port`` raised ``INVALID_URL``.
+    IPv6 literals must keep brackets when the origin is rebuilt. Stripping them
+    breaks ``http://[::1]:11434/v1`` and makes port parsing raise ``INVALID_URL``.
     """
     from plugin.framework.client.http_security import origin_and_path
 
@@ -277,11 +277,11 @@ def test_sync_request_bad_port_is_network_error():
 def test_sync_request_malformed_bracket_url_is_network_error():
     """Unmatched brackets are ``INVALID_URL``, not a raw ``ValueError``.
 
-    What was wrong: ``urlparse`` raises ``ValueError`` for ``http://[::1``,
-    ``http://[::1]extra``, and ``http://[]/v1`` before ``_explicit_port``.
-    ``sync_request`` calls ``origin_and_path`` outside its try.
+    Malformed bracket URLs must return ``NetworkError`` before ``sync_request``
+    calls ``origin_and_path`` outside its try. Raw ``urlparse`` ``ValueError``
+    must not escape for ``http://[::1``, trailing junk, or empty brackets.
     """
-    from plugin.framework.client.http_security import _apply_redirect, origin_and_path, public_target
+    from plugin.framework.client.http_security import apply_redirect, origin_and_path, public_target
 
     for url in ("http://[::1", "http://[::1]extra", "http://[]/v1"):
         with pytest.raises(NetworkError) as raised:
@@ -297,7 +297,7 @@ def test_sync_request_malformed_bracket_url_is_network_error():
         assert raised_sync.value.code == "INVALID_URL"
         assert not isinstance(raised_sync.value, ValueError)
         with pytest.raises(NetworkError) as raised_redir:
-            _apply_redirect("GET", None, {}, "http://example.invalid/v1", 302, url)
+            apply_redirect("GET", None, {}, "http://example.invalid/v1", 302, url)
         assert raised_redir.value.code == "INVALID_URL"
         assert not isinstance(raised_redir.value, ValueError)
 

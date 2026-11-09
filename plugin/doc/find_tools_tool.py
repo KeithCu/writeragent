@@ -26,11 +26,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.doc.doc_type import agent_label_for_doc_type
+from plugin.framework.doc_type import agent_label_for_doc_type
+from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, get_specialized_domain_catalog
 from plugin.framework.prompts import (
     IMPRESS_DRAW_SIDEBAR_ONLY_DOMAINS,
     WRITER_SIDEBAR_ONLY_DOMAINS,
-    get_specialized_domain_catalog,
 )
 from plugin.framework.tool import ToolBase, ToolContext
 
@@ -54,18 +54,13 @@ def get_domain_guidance(domain: str, *, agent_label: str | None = "Writer") -> s
     Returns ``""`` when there is no supplementary hint beyond ``specialized_domain_description``.
     """
     if domain == "footnotes":
-        return ("For footnotes_insert: if the task quotes or names the document anchor "
-                "(e.g. a sentence), pass that exact string as insert_after so the "
-                "note is placed after that text.")
+        return DOMAIN_LOOP_HINTS["footnotes"][None]
     if domain == "charts":
         if agent_label == "Calc":
-            return "When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
+            return DOMAIN_LOOP_HINTS["charts"]["Calc"]
         if agent_label is None:
-            return ("For charts: in Calc you MUST pass an explicit data range (e.g. "
-                    "data_range='A1:B10'); in Writer or Draw/Impress you MUST pass both the "
-                    "`headers` and `rows` parameters.")
-        return ("When creating or editing a chart in Writer or Draw/Impress, you MUST "
-                "specify both the `headers` and `rows` parameters.")
+            return DOMAIN_LOOP_HINTS["charts"][None]
+        return DOMAIN_LOOP_HINTS["charts"]["Writer"]
     if domain == "images":
         from plugin.framework.prompts import images_specialized_sub_agent_hint
 

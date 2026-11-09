@@ -175,7 +175,6 @@ def test_brainstorming_session_tool_returns_ok(mock_instr, mock_examples, mock_b
         ctx=MagicMock(),
         doc_type="writer",
         services={"tools": registry},
-        stop_checker=lambda: False,
     )
     tool = BrainstormingSessionTool()
     result = tool.execute(ctx, query="hello", history_text="", topic="topic")

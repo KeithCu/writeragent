@@ -34,17 +34,20 @@ import threading
 import time
 from typing import Any, Callable, Literal
 
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
+from plugin.framework.worker_pool import run_in_background
+
 from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC, USER_AGENT
 from plugin.framework.errors import NetworkError, format_error_message
 
 from . import http_security
-from .errors import _format_http_error_response
+from .errors import RETRYABLE_HTTP_STATUS, format_http_error_response
 from .provider_detection import is_openrouter_endpoint
 from .request_controls import (
-    RETRY_MAX_ATTEMPTS,
     RETRY_MAX_DELAY_SEC,
-    RETRYABLE_HTTP_STATUS,
     RequestPacer,
+    RetryBudget,
+    StreamOverload,
     backoff_delay_sec,
     clear_host_gap,
     emit_retry_status,
@@ -58,6 +61,7 @@ from .request_controls import (
     request_model_from_body,
     retry_after_exceeds_cap,
     ssl_mode_for,
+    stopped_error,
     wait_abortable,
     wait_host_gap,
 )
@@ -65,16 +69,10 @@ from .ssl_helpers import get_unverified_ssl_context, get_verified_ssl_context
 
 log = logging.getLogger(__name__)
 
-CONNECTION_ERRORS = (http.client.HTTPException, OSError)
-RetryAction = Literal["retry", "stop"]
 _MAX_REDIRECTS = 5
 
 HttpObserve = Callable[[Any, str, str, Any], str]
 HttpSender = Callable[..., http.client.HTTPResponse]
-
-
-def _stopped_error() -> NetworkError:
-    return NetworkError("LLM request aborted by Stop", code="STOPPED")
 
 
 def parse_strict_json(raw: Any) -> Any:
@@ -218,15 +216,15 @@ class LlmHttpTransport:
 
     def _raise_if_stopped(
         self,
-        stop_checker: Callable[[], bool] | None,
+        cancel: SendCancellation | None,
         conn: http.client.HTTPConnection | http.client.HTTPSConnection | None = None,
     ) -> None:
-        if stop_checker is not None and stop_checker():
+        if is_cancelled(cancel):
             if conn is not None:
                 self._drop_stopped_connection(conn)
             else:
                 self.close()
-            raise _stopped_error()
+            raise stopped_error()
 
     def send(
         self,
@@ -235,19 +233,16 @@ class LlmHttpTransport:
         body: Any,
         headers: dict[str, str],
         *,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
         status_callback: Callable[[str], None] | None = None,
-        _stale_resend: bool = True,
+        _allow_stale_resend: bool = True,
     ) -> http.client.HTTPResponse:
         """Send one request on the persistent connection and return its response."""
         key = self.pacing_key_for_model(request_model_from_body(body))
-        if not wait_host_gap(key, stop_checker, status_callback):
-            raise _stopped_error()
+        if not wait_host_gap(key, cancel, status_callback):
+            raise stopped_error()
         conn = self.get_connection()
-        # The timeout used to be stored only when the socket was opened.
-        # ``LlmClient._timeout`` reads ``request_timeout`` on every call, so a
-        # later change never reached a keep-alive connection. Connect still
-        # uses the short connect budget; read uses Settings request_timeout.
+        # Refresh read timeout from Settings on each request for keep-alive connections.
         read_timeout = self._timeout_getter()
         sock = getattr(conn, "sock", None)
         # Captured before connect(). A socket http.client already holds is a
@@ -258,18 +253,19 @@ class LlmHttpTransport:
             # A reused keep-alive socket is already set; request() must not
             # be asked to connect again or it replaces that socket.
             # Stop already latched: do not start DNS.
-            self._raise_if_stopped(stop_checker, conn)
-            self._connect_abortable(conn, stop_checker)
+            self._raise_if_stopped(cancel, conn)
+            self._connect_abortable(conn, cancel)
             sock = getattr(conn, "sock", None)
         conn.timeout = read_timeout
         if sock is not None:
             sock.settimeout(read_timeout)
-        self._raise_if_stopped(stop_checker, conn)
+        self._raise_if_stopped(cancel, conn)
         self._pacer.wait_before_send()
-        self._raise_if_stopped(stop_checker, conn)
+        self._raise_if_stopped(cancel, conn)
         if not any(k.lower() == "user-agent" for k in headers):
             headers = dict(headers)
             headers["User-Agent"] = USER_AGENT
+        allow_stale_resend = _allow_stale_resend
         try:
             conn.request(method, path, body=body, headers=headers)
             self._pacer.mark_sent()
@@ -284,13 +280,14 @@ class LlmHttpTransport:
             # failure while connecting a new socket still uses the budget.
             # Close and send this same request once. Do not reconnect if Stop
             # was requested.
-            if (stop_checker is not None and stop_checker()) or not reused_socket or not _stale_resend:
+            if is_cancelled(cancel) or not reused_socket or not allow_stale_resend:
                 raise
             log.debug("Keep-alive socket failed before a response; reconnecting once")
             self._drop_stopped_connection(conn)
-            return self.send(method, path, body, headers, stop_checker=stop_checker, status_callback=status_callback, _stale_resend=False)
+            allow_stale_resend = False
+            return self.send(method, path, body, headers, cancel=cancel, status_callback=status_callback, _allow_stale_resend=False)
 
-    def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, stop_checker: Callable[[], bool] | None) -> None:
+    def _connect_abortable(self, conn: http.client.HTTPConnection | http.client.HTTPSConnection, cancel: SendCancellation | None) -> None:
         """Connect without waiting out the read budget, and without ignoring Stop.
 
         ``http.client.connect`` blocks inside ``getaddrinfo`` before it assigns
@@ -301,8 +298,6 @@ class LlmHttpTransport:
         deadlock). Poll Stop and the connect deadline, then close whatever
         socket has appeared. Do not wait for DNS to finish.
         """
-        from plugin.framework.worker_pool import run_in_background
-
         outcome: dict[str, Any] = {}
         cancelled = threading.Event()
         conn.timeout = LLM_CONNECT_TIMEOUT_SEC
@@ -322,10 +317,10 @@ class LlmHttpTransport:
         handle = run_in_background(_do_connect, name="http-connect", dedicated=True)
         deadline = time.monotonic() + float(LLM_CONNECT_TIMEOUT_SEC)
         while not outcome.get("done"):
-            if stop_checker is not None and stop_checker():
+            if is_cancelled(cancel):
                 cancelled.set()
                 self._drop_stopped_connection(conn)
-                raise _stopped_error()
+                raise stopped_error()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 cancelled.set()
@@ -346,29 +341,52 @@ class LlmHttpTransport:
         path: str,
         retries_left: int,
         emitted_any: bool,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
         status_callback: Callable[[str], None] | None = None,
         attempt: int = 1,
         secrets: list[str] | None = None,
         observe_http_error: HttpObserve | None = None,
-    ) -> RetryAction:
+    ) -> None:
         """On non-200: retry 429/503/529 while attempts remain; else raise.
 
         Reads the error body once. ``observe_http_error`` is the chat 500
         diagnostic hook; catalog and speech omit it and still get redaction.
+        A normal return means the caller should retry.
         """
-        err_body = response.read().decode("utf-8", errors="replace")
+        if is_cancelled(cancel):
+            self.close()
+            raise stopped_error()
+        raw_body = response.read()
+        if isinstance(raw_body, (bytes, bytearray)):
+            err_body = raw_body.decode("utf-8", errors="replace")
+        elif isinstance(raw_body, str):
+            err_body = raw_body
+        else:
+            err_body = str(raw_body or "")
+        if not isinstance(err_body, str):
+            err_body = str(err_body)
         wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_target(path))
         if observe_http_error is not None:
             message = observe_http_error(response, err_body, path, request_body)
         else:
-            message = _format_http_error_response(int(response.status), str(getattr(response, "reason", "") or ""), err_body)
+            try:
+                st = int(response.status)
+            except (TypeError, ValueError):
+                st = 500
+            message = format_http_error_response(st, str(getattr(response, "reason", "") or ""), err_body)
         message = http_security.redact_secrets(message, wire_secrets)
+        if not isinstance(message, str):
+            message = str(message)
         safe_target = http_security.public_target(path)
         if observe_http_error is None:
             log.error("HTTP %s for %s: %s", response.status, safe_target, message)
         self.close()
-        status = int(response.status)
+        if is_cancelled(cancel):
+            raise stopped_error()
+        try:
+            status = int(response.status)
+        except (TypeError, ValueError):
+            status = 500
         model = request_model_from_body(request_body)
         retry_after = parse_retry_after(response.getheader("Retry-After"))
         if retry_after is None:
@@ -384,9 +402,10 @@ class LlmHttpTransport:
             remember_host_gap(self.pacing_key_for_model(model), delay)
             log.warning("Retrying HTTP %s after %.3fs (Retry-After=%s attempt=%s left=%s)", status, delay, retry_after, attempt, retries_left)
             emit_retry_status(status_callback, delay)
-            if not wait_abortable(delay, stop_checker):
-                return "stop"
-            return "retry"
+            if not wait_abortable(delay, cancel):
+                clear_host_gap(self.pacing_key_for_model(model))
+                raise stopped_error()
+            return
         raise NetworkError(message, code="HTTP_ERROR", details=details)
 
     def exchange(
@@ -396,7 +415,7 @@ class LlmHttpTransport:
         body: Any,
         headers: dict[str, str] | None = None,
         *,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
         status_callback: Callable[[str], None] | None = None,
         parse_json: bool = False,
         sender: HttpSender | None = None,
@@ -406,6 +425,7 @@ class LlmHttpTransport:
         observe_http_error: HttpObserve | None = None,
         retry_log_message: str = "Retrying HTTP request on a fresh connection",
         max_bytes: int | None = None,
+        on_bad_request: Callable[[bytes], bytes | None] | None = None,
     ) -> HttpResult:
         """Buffered request with the shared stop, timeout, retry, and redaction.
 
@@ -417,136 +437,247 @@ class LlmHttpTransport:
         the method and body. A redirect onto another host drops secret
         headers and opens a new connection. That host is not kept as the
         persistent chat endpoint.
+
+        This method owns redirect handling and response reads;
+        :meth:`RetryBudget.run_with_retries` only sequences attempts.
+        Streaming uses :meth:`stream` on the same transport with the same split.
         """
+        budget = RetryBudget(
+            self,
+            cancel=cancel,
+            status_callback=status_callback,
+            on_bad_request=on_bad_request,
+        )
         wire_headers = dict(headers or {})
         self._redirect_origin = None
-
-        sends_left = RETRY_MAX_ATTEMPTS
         redirects_followed = 0
-        model = request_model_from_body(body)
+        current_model: str | None = None
+        wire_secrets: list[str] | None = None
+
+        def on_connection_error(err: Exception) -> None:
+            budget.connection_outcome(
+                err,
+                fatal=budget.body_in_hand,
+                attempt_charged=budget.attempt_charged,
+                secrets=wire_secrets,
+                path=path,
+                model=current_model,
+                retry_log_message=retry_log_message,
+                close_on_fatal=False,
+            )
+
+        def dispatch(current_body: Any) -> tuple[Literal["again", "done"], Any]:
+            nonlocal method, path, wire_headers, redirects_followed, current_model, wire_secrets
+            current_model = request_model_from_body(current_body)
+            wire_secrets = http_security.collect_secrets(
+                secrets,
+                http_security.secrets_from_headers(wire_headers),
+                http_security.secrets_from_target(path),
+            )
+            budget.body_in_hand = False
+            budget.attempt_charged = False
+
+            self._raise_if_stopped(cancel)
+            # A custom sender is bound to the caller's connection. After a
+            # cross-origin redirect, send() on this transport uses the new host.
+            if sender is not None and self._redirect_origin is None:
+                response = sender(method, path, current_body, wire_headers, cancel=cancel, status_callback=status_callback)
+            else:
+                response = self.send(
+                    method,
+                    path,
+                    current_body,
+                    wire_headers,
+                    cancel=cancel,
+                    status_callback=status_callback,
+                )
+            status = int(getattr(response, "status", 0) or 0)
+            if status in http_security.REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
+                # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
+                # catalogs, and update checks follow Location. One hop
+                # rewrites method/body, then loops. The retry budget is
+                # for 429/503, not for a redirect the server asked for.
+                current_url = self._absolute_url(path)
+                hop = http_security.apply_redirect(
+                    method,
+                    current_body,
+                    wire_headers,
+                    current_url,
+                    status,
+                    (response.getheader("Location") or ""),
+                )
+                if hop is not None:
+                    response.read()
+                    new_method, new_body, new_headers, new_origin, new_path, cross_origin = hop
+                    if cross_origin:
+                        self._redirect_origin = new_origin
+                        self.close()
+                    log.debug("Following HTTP %s to %s", status, http_security.public_target(new_origin + new_path))
+                    method = new_method
+                    wire_headers = new_headers
+                    path = new_path
+                    redirects_followed += 1
+                    return "again", new_body
+
+            if status != 200:
+                attempt = budget.charge_send(status=True)
+                self.handle_http_status(
+                    response,
+                    request_body=current_body,
+                    path=path,
+                    retries_left=budget.sends_left,
+                    emitted_any=False,
+                    cancel=cancel,
+                    status_callback=status_callback,
+                    attempt=attempt,
+                    secrets=wire_secrets,
+                    observe_http_error=observe_http_error,
+                )
+                if on_retry is not None:
+                    on_retry()
+                return "again", current_body
+
+            budget.clear_pacing_gap_when_unspent(current_model)
+            if max_bytes is not None:
+                raw = self._read_bounded_response(response, max_bytes=max_bytes, cancel=cancel)
+            else:
+                raw = response.read()
+            budget.body_in_hand = True
+            if after_read is not None:
+                after_read(response)
+            parsed = parse_strict_json(raw) if parse_json else None
+            return "done", HttpResult(
+                status=status,
+                body=raw,
+                content_type=response.getheader("Content-Type") or "",
+                parsed=parsed,
+            )
+
         try:
-            while True:
-                wire_secrets = http_security.collect_secrets(secrets, http_security.secrets_from_headers(wire_headers), http_security.secrets_from_target(path))
-                body_in_hand = False
-                # True once this iteration has already spent one attempt on a non-200.
-                attempt_charged = False
-                try:
-                    self._raise_if_stopped(stop_checker)
-                    # A custom sender is bound to the caller's connection. After a
-                    # cross-origin redirect, send() on this transport uses the new host.
-                    if sender is not None and self._redirect_origin is None:
-                        response = sender(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
-                    else:
-                        response = self.send(method, path, body, wire_headers, stop_checker=stop_checker, status_callback=status_callback)
-                    status = int(getattr(response, "status", 0) or 0)
-                    if status in http_security._REDIRECT_STATUSES and redirects_followed < _MAX_REDIRECTS:
-                        # A CDN 301/302/307 is not a failure. Image URLs, TTS audio,
-                        # catalogs, and update checks follow Location. One hop
-                        # rewrites method/body, then loops. The retry budget is
-                        # for 429/503, not for a redirect the server asked for.
-                        current_url = self._absolute_url(path)
-                        hop = http_security._apply_redirect(
-                            method,
-                            body,
-                            wire_headers,
-                            current_url,
-                            status,
-                            (response.getheader("Location") or ""),
-                        )
-                        if hop is not None:
-                            response.read()
-                            new_method, new_body, new_headers, new_origin, new_path, cross_origin = hop
-                            if cross_origin:
-                                self._redirect_origin = new_origin
-                                self.close()
-                            log.debug("Following HTTP %s to %s", status, http_security.public_target(new_origin + new_path))
-                            method = new_method
-                            body = new_body
-                            wire_headers = new_headers
-                            path = new_path
-                            redirects_followed += 1
-                            continue
-                    if status != 200:
-                        sends_left -= 1
-                        attempt_charged = True
-                        action = self.handle_http_status(
-                            response,
-                            request_body=body,
-                            path=path,
-                            retries_left=sends_left,
-                            emitted_any=False,
-                            stop_checker=stop_checker,
-                            status_callback=status_callback,
-                            attempt=RETRY_MAX_ATTEMPTS - sends_left,
-                            secrets=wire_secrets,
-                            observe_http_error=observe_http_error,
-                        )
-                        if action == "stop":
-                            raise _stopped_error()
-                        if on_retry is not None:
-                            on_retry()
-                        continue
-                    if sends_left == RETRY_MAX_ATTEMPTS:
-                        clear_host_gap(self.pacing_key_for_model(model))
-                    if max_bytes is not None:
-                        raw = self._read_bounded_response(response, max_bytes=max_bytes, stop_checker=stop_checker)
-                    else:
-                        raw = response.read()
-                    body_in_hand = True
-                    if after_read is not None:
-                        after_read(response)
-                    parsed = parse_strict_json(raw) if parse_json else None
-                    return HttpResult(
-                        status=status,
-                        body=raw,
-                        content_type=response.getheader("Content-Type") or "",
-                        parsed=parsed,
-                    )
-                except NetworkError:
-                    raise
-                except CONNECTION_ERRORS as exc:
-                    if body_in_hand:
-                        raise NetworkError(http_security.redact_secrets(format_error_message(exc), wire_secrets), code="CONNECTION_LOST", details={"url": http_security.public_target(path)}) from exc
-                    # handle_http_status reads the error body, and that read can
-                    # raise IncompleteRead, a reset, or a timeout. The non-200
-                    # branch above already decremented sends_left. Charging
-                    # again would consume two of the three attempts for one
-                    # failed read, and the last try would never run.
-                    if not attempt_charged:
-                        sends_left -= 1
-                    action = self.handle_connection_error(
-                        exc,
-                        path=http_security.public_target(path),
-                        retries_left=sends_left,
-                        retry_log_message=retry_log_message,
-                        stop_checker=stop_checker,
-                        status_callback=status_callback,
-                        attempt=RETRY_MAX_ATTEMPTS - sends_left,
-                        model=model,
-                        secrets=wire_secrets,
-                    )
-                    if action == "stop":
-                        raise _stopped_error()
-                    continue
+            return budget.run_with_retries(body, dispatch, on_connection_error)
         finally:
             if self._redirect_origin is not None:
                 self._redirect_origin = None
                 self.close()
 
-    def handle_connection_error(self, err: Exception, *, path: str, retries_left: int, retry_log_message: str, stop_checker: Callable[[], bool] | None = None, status_callback: Callable[[str], None] | None = None, attempt: int = 1, model: str | None = None, secrets: list[str] | None = None) -> RetryAction:
+    def stream(
+        self,
+        method: str,
+        path: str,
+        body: Any,
+        headers: dict[str, str],
+        consume: Callable[[Any, RetryBudget], str | None],
+        *,
+        cancel: SendCancellation | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        wire_secrets: list[str] | None = None,
+        on_bad_request: Callable[[bytes], bytes | None] | None = None,
+    ) -> str | None:
+        """SSE streaming with the shared retry loop; dispatch lives on the transport like ``exchange``.
+
+        Builds the ``RetryBudget``. Stop raises ``stopped_error()``; ``_run_streaming_loop`` maps that to finish reason ``stop``.
+        ``consume``'s return value passes through, including a model finish_reason of ``stop``.
+        """
+        budget = RetryBudget(
+            self,
+            cancel=cancel,
+            status_callback=status_callback,
+            on_bad_request=on_bad_request,
+        )
+        current_model: str | None = None
+
+        def on_connection_error(err: Exception) -> None:
+            budget.connection_outcome(
+                err,
+                fatal=budget.emitted_any,
+                attempt_charged=budget.attempt_charged,
+                secrets=None,
+                path=path,
+                model=current_model,
+                retry_log_message="Retrying streaming request on fresh connection",
+                close_on_fatal=True,
+            )
+
+        def dispatch(current_body: Any) -> tuple[Literal["again", "done"], Any]:
+            nonlocal current_model
+            if budget.stopped():
+                self.close()
+                raise stopped_error()
+
+            current_model = request_model_from_body(current_body)
+            budget.attempt_charged = False
+
+            response = self.send(
+                method,
+                path,
+                current_body,
+                headers,
+                cancel=cancel,
+                status_callback=status_callback,
+            )
+            if response.status != 200:
+                attempt = budget.charge_send(status=True)
+                self.handle_http_status(
+                    response,
+                    request_body=current_body,
+                    path=path,
+                    retries_left=budget.sends_left,
+                    emitted_any=budget.emitted_any,
+                    cancel=cancel,
+                    status_callback=status_callback,
+                    attempt=attempt,
+                    secrets=wire_secrets,
+                    observe_http_error=None,
+                )
+                return "again", current_body
+
+            budget.clear_pacing_gap_when_unspent(current_model)
+
+            try:
+                res = consume(response, budget)
+                return "done", res
+            except StreamOverload:
+                if budget.emitted_any or budget.sends_left <= 0:
+                    raise
+                attempt = budget.charge_send(status=False)
+                delay = backoff_delay_sec(attempt=attempt)
+                remember_host_gap(
+                    self.pacing_key_for_model(current_model),
+                    delay,
+                )
+                emit_retry_status(status_callback, delay)
+                if not wait_abortable(delay, cancel):
+                    raise stopped_error()
+                return "again", current_body
+
+        return budget.run_with_retries(body, dispatch, on_connection_error)
+
+    def handle_connection_error(
+        self,
+        err: Exception,
+        *,
+        path: str,
+        retries_left: int,
+        retry_log_message: str,
+        cancel: SendCancellation | None = None,
+        status_callback: Callable[[str], None] | None = None,
+        attempt: int = 1,
+        model: str | None = None,
+        secrets: list[str] | None = None,
+    ) -> None:
         """Close failed connections and decide whether a request should retry."""
         # Stop closes the socket, which looks like a broken pipe. Check
-        # stop_checker before log.error so a user cancel is debug, not ERROR.
-        if stop_checker and stop_checker():
+        # cancel before log.error so a user cancel is debug, not ERROR.
+        if is_cancelled(cancel):
             log.debug("Connection closed by user stop; exiting streaming loop")
             self.close()
-            return "stop"
+            raise stopped_error()
         log.error("Connection error, closing: %s" % http_security.redact_secrets(str(err), secrets))
         self.close()
         if retries_left > 0 and enable_local_unverified(self._endpoint_parts()[1], err):
             # Immediate reopen: TLS mode just changed; do not add backoff.
             self.close()
-            return "retry"
+            return
 
         err_msg = http_security.redact_secrets(format_error_message(err), secrets)
         if retries_left > 0:
@@ -557,9 +688,10 @@ class LlmHttpTransport:
             # on that host and leave ``:free`` unpaced. Chat already uses pacing_key.
             remember_host_gap(self.pacing_key_for_model(model), delay)
             emit_retry_status(status_callback, delay)
-            if not wait_abortable(delay, stop_checker):
-                return "stop"
-            return "retry"
+            if not wait_abortable(delay, cancel):
+                clear_host_gap(self.pacing_key_for_model(model))
+                raise stopped_error()
+            return
         log.error("Connection retry failed: %s" % err_msg)
         raise NetworkError(err_msg, code="CONNECTION_ERROR", details={"url": path}) from err
 
@@ -568,7 +700,7 @@ class LlmHttpTransport:
         response: Any,
         *,
         max_bytes: int,
-        stop_checker: Callable[[], bool] | None = None,
+        cancel: SendCancellation | None = None,
     ) -> bytes:
         # Check Content-Length first when provided by server
         cl = response.getheader("Content-Length")
@@ -580,7 +712,7 @@ class LlmHttpTransport:
             except ValueError:
                 pass
 
-        # 1s socket timeout during chunked read allows checking stop_checker
+        # 1s socket timeout during chunked read allows checking cancel
         sock = getattr(getattr(getattr(response, "fp", None), "raw", None), "_sock", None)
         if sock is not None and hasattr(sock, "settimeout"):
             try:
@@ -593,11 +725,11 @@ class LlmHttpTransport:
         read_timeout = self._timeout_getter()
         deadline = time.monotonic() + read_timeout
         while True:
-            self._raise_if_stopped(stop_checker)
+            self._raise_if_stopped(cancel)
             try:
                 chunk = response.read(65536)
             except (TimeoutError, socket.timeout):
-                self._raise_if_stopped(stop_checker)
+                self._raise_if_stopped(cancel)
                 if time.monotonic() > deadline:
                     raise TimeoutError("HTTP read timed out")
                 continue

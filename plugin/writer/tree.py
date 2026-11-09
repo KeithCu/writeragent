@@ -24,10 +24,9 @@ from __future__ import annotations
 import logging
 from typing import Any, NamedTuple, cast
 
-from plugin.framework.errors import ToolExecutionError
+from plugin.framework.errors import ToolExecutionError, name_miss_details
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
-from plugin.doc.paragraph_search import confirm_paragraph_index
 from plugin.doc.text_helpers import (
     build_heading_tree,
     find_heading_by_chapter_number,
@@ -40,7 +39,7 @@ from plugin.doc.text_helpers import (
 log = logging.getLogger("writeragent.writer.nav.tree")
 
 
-def _collect_heading_indices(node: dict[str, Any]) -> list[int]:
+def collect_heading_indices(node: dict[str, Any]) -> list[int]:
     """Heading paragraph indices in document order (iter_heading_nodes yields them ordered)."""
     return [n["para_index"] for n in iter_heading_nodes(node) if n.get("para_index", -1) >= 0]
 
@@ -58,12 +57,24 @@ def _iter_body_paragraphs(para_ranges: list[Any], start_idx: int, end_idx: int):
             yield idx, element
 
 
-def _named_doc_item(doc: Any, getter: str, unsupported: str, missing: str, name: str) -> Any:
+def _named_doc_item(
+    doc: Any,
+    getter: str,
+    unsupported: str,
+    missing: str,
+    name: str,
+    *,
+    list_tool: str | None = None,
+) -> Any:
     if not hasattr(doc, getter):
         raise ToolExecutionError(unsupported)
     container = getattr(doc, getter)()
     if not container.hasByName(name):
-        raise ToolExecutionError(missing % name)
+        details: dict[str, Any] | None = None
+        if list_tool:
+            names = [str(n) for n in container.getElementNames()]
+            details = name_miss_details(name, names, list_tool)
+        raise ToolExecutionError(missing % name, details=details)
     return container.getByName(name)
 
 
@@ -236,7 +247,7 @@ class TreeService(ServiceBase):
     def _load_tree_context(self, doc: Any) -> _TreeContext:
         para_ranges = self._doc_svc.get_paragraph_ranges(doc)
         tree = self.build_heading_tree(doc, elements=para_ranges)
-        heading_indices = _collect_heading_indices(tree)
+        heading_indices = collect_heading_indices(tree)
         total = len(para_ranges)
         next_heading_map = {
             h_idx: (heading_indices[i + 1] if i + 1 < len(heading_indices) else total)
@@ -328,16 +339,18 @@ class TreeService(ServiceBase):
             raise not_placed_err from exc
         if anchor is None:
             raise not_placed_err
-        para_idx, para_ranges, text_obj = self._paragraph_at_anchor(doc, anchor)
-        placed = confirm_paragraph_index(text_obj, anchor, para_ranges, para_idx)
+        placed, para_ranges, _ = self._paragraph_at_anchor(doc, anchor)
         if placed is None:
-            if (
-                accept_name is not None
-                and isinstance(para_idx, int)
-                and 0 <= para_idx < len(para_ranges)
-                and getattr(para_ranges[para_idx], "getName", lambda: None)() == accept_name
-            ):
-                return para_idx
+            if accept_name is not None:
+                # If unplaced in paragraphs, check if it maps to the accepted table
+                from plugin.doc.paragraph_search import find_paragraph_for_range
+                raw_idx = find_paragraph_for_range(anchor, para_ranges)
+                if (
+                    isinstance(raw_idx, int)
+                    and 0 <= raw_idx < len(para_ranges)
+                    and getattr(para_ranges[raw_idx], "getName", lambda: None)() == accept_name
+                ):
+                    return raw_idx
             raise not_placed_err
         return placed
 
@@ -377,6 +390,7 @@ class TreeService(ServiceBase):
                 "Document does not support sections",
                 "Section '%s' not found",
                 loc_value,
+                list_tool="section_list",
             )
             anchor = section.getAnchor()
             para_idx, _para_ranges, _text_obj = self._paragraph_at_anchor(doc, anchor)
@@ -421,6 +435,7 @@ class TreeService(ServiceBase):
                 "Document does not support tables",
                 "Table '%s' not found",
                 loc_value,
+                list_tool="table_list",
             )
             placed = self._confirm_anchor_placement(
                 doc,
@@ -440,21 +455,22 @@ class TreeService(ServiceBase):
         bookmarks = doc.getBookmarks()
         if not bookmarks.hasByName(bookmark_name):
             hint = "Bookmark '%s' not found." % bookmark_name
+            names = [str(n) for n in bookmarks.getElementNames()]
+            details = name_miss_details(bookmark_name, names, "bookmark_list")
             if bookmark_name.startswith("_mcp_"):
                 hint += " Use heading_text:<text> locator for resilient heading addressing, or call get_document_tree to refresh bookmarks."
                 existing = [n for n in bookmarks.getElementNames() if n.startswith("_mcp_")]
                 if existing:
                     hint += " Existing bookmarks: " + ", ".join(existing[:10])
-            raise ToolExecutionError(hint)
+            raise ToolExecutionError(hint, details=details)
         bm = bookmarks.getByName(bookmark_name)
         # Paragraph index for a bookmark that still has a name.
         #
-        # find_paragraph_for_range returns None when the anchor cannot be
+        # paragraph_index_for_anchor returns None when the anchor cannot be
         # placed. A stale _mcp_ mark after save/reopen or bookmark_cleanup
         # still has a name, so it must not resolve to a paragraph.
-        # confirm_paragraph_index keeps 0 only when the anchor start
-        # is inside that paragraph. Anything else is an error, not a
-        # location.
+        # Index 0 is kept only when the anchor start is inside that paragraph.
+        # Anything else is an error, not a location.
         para_idx = self._confirm_anchor_placement(
             doc,
             bm,

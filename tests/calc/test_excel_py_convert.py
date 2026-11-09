@@ -59,8 +59,8 @@ from plugin.calc.excel_py_convert.xlsx_write import (
     write_excel_python_xlsx,
 )
 from plugin.calc.python.formula_edit import (
+    PyFormula,
     escape_code_for_formula,
-    rebuild_python_formula_with_data,
 )
 
 
@@ -677,7 +677,7 @@ def test_export_object_suppress_exact_trailer_only():
 
 
 def test_reverse_preserves_headers_false_and_return_type():
-    formula = rebuild_python_formula_with_data("x = data", ["A1:A2"])
+    formula = PyFormula.compose("x = data", ["A1:A2"])
     cell = convert_dag_formula_to_excel(
         formula,
         cell="Z1",
@@ -775,15 +775,15 @@ def test_dag_meta_payload_roundtrip():
 def test_excel_escape_skips_calc_sanitizer():
     code = "x = float(1)"
     assert escape_code_for_formula(code) == code
-    calc = rebuild_python_formula_with_data(code, [])
-    xlsx = rebuild_python_formula_with_data(code, [], separator=",")
+    calc = PyFormula.compose(code, [])
+    xlsx = PyFormula.compose(code, [], separator=",")
     assert "float(1)" in calc
     assert "float(1)" in xlsx
     assert xlsx.endswith('")')
 
 
 def test_roundtrip_via_formula_string():
-    formula = rebuild_python_formula_with_data(
+    formula = PyFormula.compose(
         "df = pd.DataFrame(data[1:], columns=data[0])",
         ["A3:F23"],
     )
@@ -1505,7 +1505,7 @@ def test_parse_excel_xlsx_bare_anchor_first_wins(tmp_path: Path):
 
 
 def test_script_bank_name_collision_raises():
-    """Two source sheets that previously collided must receive distinct bank sheet names."""
+    """Two source sheets whose sanitized names would collide must receive distinct bank sheet names."""
     from plugin.calc.excel_py_convert.models import ConvertedCell, ConversionReport
     from plugin.calc.excel_py_convert.script_bank import code_sheet_name_for, collect_script_bank
 

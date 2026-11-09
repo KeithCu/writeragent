@@ -50,7 +50,7 @@ def test_add_slide_impress_defaults_to_text_layout():
     ctx = _impress_ctx()
     page = MagicMock()
     page.Layout = 20
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=1)
         out = AddSlide().execute(ctx)
     assert out["status"] == "ok"
@@ -64,7 +64,7 @@ def test_add_slide_blank_and_none_escape():
     ctx = _impress_ctx()
     page = MagicMock()
     page.Layout = 20
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page)
         out = AddSlide().execute(ctx, layout="none")
     assert out["status"] == "ok"
@@ -72,7 +72,7 @@ def test_add_slide_blank_and_none_escape():
     assert page.Layout == 20
 
     page.Layout = 20
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page)
         out = AddSlide().execute(ctx, layout="blank")
     assert out["layout"] == "blank"
@@ -83,7 +83,7 @@ def test_add_slide_draw_ignores_layout():
     ctx = _draw_ctx()
     page = MagicMock()
     page.Layout = 99
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=0)
         out = AddSlide().execute(ctx, layout="text")
     assert out["status"] == "ok"
@@ -94,7 +94,7 @@ def test_add_slide_draw_ignores_layout():
 
 def test_add_slide_unknown_layout_errors_before_create():
     ctx = _impress_ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         out = AddSlide().execute(ctx, layout="not_a_layout")
     assert out["status"] == "error"
     bridge_cls.return_value.create_slide.assert_not_called()
@@ -105,7 +105,7 @@ def test_add_slide_reports_inserted_index_not_stale_active():
     ctx = _impress_ctx()
     page = MagicMock()
     page.Layout = 20
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=0, page_count=1)
         out = AddSlide().execute(ctx)
     assert out["active_page_index"] == 1
@@ -118,7 +118,7 @@ def test_add_slide_reports_landed_index_for_page_zero():
     page = MagicMock()
     page.Layout = 20
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.pages.inherit_master_from_neighbor", return_value="Designed") as inherit,
     ):
         bridge_cls.return_value = _add_slide_bridge(page, active_idx=2, page_count=3, landed=0)
@@ -131,7 +131,7 @@ def test_add_slide_reports_landed_index_for_page_zero():
 
 def test_delete_slide_refuses_only_page():
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 1
         out = DeleteSlide().execute(ctx, page=0)
@@ -142,7 +142,7 @@ def test_delete_slide_refuses_only_page():
 
 def test_delete_slide_removes_page_when_another_remains():
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 2
         bridge.get_active_page_index.return_value = 0
@@ -188,7 +188,7 @@ def test_duplicate_slide_rejects_none_copy():
 
 def test_duplicate_slide_ok():
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 2
         bridge.get_active_page_index.return_value = 1
@@ -199,16 +199,18 @@ def test_duplicate_slide_ok():
 
 
 def test_duplicate_slide_out_of_range():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_pages.return_value.getCount.return_value = 1
-        out = DuplicateSlide().execute(ctx, page=5)
-    assert out["status"] == "error"
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.resolve_page.side_effect = ToolExecutionError("Page index 5 out of range.")
+        with pytest.raises(ToolExecutionError):
+            DuplicateSlide().execute(ctx, page=5)
 
 
 def test_move_slide_failure():
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value.move_slide.return_value = False
         out = MoveSlide().execute(ctx, from_page=0, to_page=2)
     assert out["status"] == "error"
@@ -216,7 +218,7 @@ def test_move_slide_failure():
 
 def test_move_slide_ok():
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.move_slide.return_value = True
         bridge.get_active_page_index.return_value = 1
@@ -227,7 +229,7 @@ def test_move_slide_ok():
 
 def test_rename_slide_ok():
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 3
         bridge.rename_slide.return_value = True
@@ -247,7 +249,7 @@ def test_move_slide_reports_rollback_message():
     from plugin.draw.bridge import PageExchangeRollbackError
 
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge_cls.return_value.move_slide.side_effect = PageExchangeRollbackError("shapes are on the last slide")
         out = MoveSlide().execute(ctx, from_page=0, to_page=1)
     assert out["status"] == "error"
@@ -264,7 +266,7 @@ def test_add_slide_cleanup_reraises_dispose():
     ctx = _impress_ctx()
     page = MagicMock()
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
     ):
         bridge = _add_slide_bridge(page)
@@ -278,7 +280,7 @@ def test_add_slide_cleanup_still_returns_layout_error_when_remove_fails():
     ctx = _impress_ctx()
     page = MagicMock()
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
     ):
         bridge = _add_slide_bridge(page)
@@ -296,7 +298,7 @@ def test_set_active_page_delegates_and_is_not_a_mutation():
     assert tool.detects_mutation() is False
 
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 3
         bridge.set_current_page_index.return_value = True
@@ -314,7 +316,7 @@ def test_set_active_page_reraises_dispose():
         pass
 
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 3
         bridge.set_current_page_index.side_effect = DisposedException("controller disposed")
@@ -324,9 +326,10 @@ def test_set_active_page_reraises_dispose():
 
 def test_set_active_page_false_is_tool_error():
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value.getCount.return_value = 3
+        bridge.resolve_page.return_value = (MagicMock(), 1)
         bridge.set_current_page_index.return_value = False
         out = SetActivePage().execute(ctx, page=1)
     assert out["status"] == "error"
@@ -335,12 +338,14 @@ def test_set_active_page_false_is_tool_error():
 
 
 def test_set_active_page_out_of_range():
+    from plugin.framework.errors import ToolExecutionError
+
     ctx = _ctx()
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
-        bridge.get_pages.return_value.getCount.return_value = 1
-        out = SetActivePage().execute(ctx, page=5)
-    assert out["status"] == "error"
+        bridge.resolve_page.side_effect = ToolExecutionError("Page index 5 out of range.")
+        with pytest.raises(ToolExecutionError):
+            SetActivePage().execute(ctx, page=5)
     bridge.set_current_page_index.assert_not_called()
 
 
@@ -348,7 +353,7 @@ def test_add_slide_switches_only_after_layout():
     ctx = _impress_ctx()
     page = MagicMock()
     page.Layout = 20
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.create_slide.return_value = (page, 4)
         bridge.get_pages.return_value.getCount.return_value = 4
@@ -366,7 +371,7 @@ def test_add_slide_skips_switch_when_post_insert_fails():
     ctx = _impress_ctx()
     page = MagicMock()
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeError("no master")),
     ):
         bridge = _add_slide_bridge(page)
@@ -383,7 +388,7 @@ def test_add_slide_activate_false_does_not_switch():
     ctx = _impress_ctx()
     page = MagicMock()
     page.Layout = 20
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = _add_slide_bridge(page, active_idx=2)
         bridge_cls.return_value = bridge
         out = AddSlide().execute(ctx, activate=False)
@@ -404,7 +409,7 @@ def test_list_pages_uses_page_name():
     pages_mock.getCount.return_value = 3
     pages_mock.getByIndex.side_effect = [p0, p1, p2]
 
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages_mock
         bridge.get_active_page_index.return_value = 0
@@ -427,7 +432,7 @@ def test_list_pages_reraises_dispose_from_name():
     pages_mock.getCount.return_value = 1
     pages_mock.getByIndex.return_value = _DisposedPage()
 
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
         bridge = bridge_cls.return_value
         bridge.get_pages.return_value = pages_mock
         with pytest.raises(DisposedException):
@@ -439,7 +444,7 @@ def test_add_slide_reports_actual_active_page_when_switch_fails():
     page = MagicMock()
     page.Layout = 20
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.pages.inherit_master_from_neighbor", return_value=""),
     ):
         bridge = _add_slide_bridge(page, active_idx=1, page_count=4, landed=3)
@@ -458,7 +463,7 @@ def test_add_slide_cleans_up_after_live_runtime_error():
     ctx = _impress_ctx()
     page = MagicMock()
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeException("master write failed")),
     ):
         bridge = _add_slide_bridge(page)
@@ -475,7 +480,7 @@ def test_add_slide_reports_cleanup_failed_for_live_remove_error():
     ctx = _impress_ctx()
     page = MagicMock()
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.pages.inherit_master_from_neighbor", side_effect=RuntimeException("master write failed")),
     ):
         bridge = _add_slide_bridge(page)
@@ -494,9 +499,13 @@ def test_read_slide_text_returns_shape_text_and_notes():
     s1 = MagicMock()
     s1.Name = "Title"
     s1.getString.return_value = "Hello"
+    s1.supportsService.return_value = False
+    s1.getShapeType.return_value = "com.sun.star.drawing.TextShape"
     s2 = MagicMock()
     s2.Name = "Empty"
     s2.getString.return_value = "   "
+    s2.supportsService.return_value = False
+    s2.getShapeType.return_value = "com.sun.star.drawing.TextShape"
 
     page = MagicMock()
     page.getCount.return_value = 2
@@ -506,10 +515,10 @@ def test_read_slide_text_returns_shape_text_and_notes():
     notes_shape.getString.return_value = "Note"
 
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.bridge.find_notes_shape", return_value=notes_shape),
     ):
-        bridge_cls.get_slide_for_tool.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = ReadSlideText().execute(ctx)
 
     assert out["status"] == "ok"
@@ -525,19 +534,23 @@ def test_read_slide_text_skips_failing_shapes():
 
     s1 = MagicMock()
     s1.getString.side_effect = ValueError("failing shape")
+    s1.supportsService.return_value = False
+    s1.getShapeType.return_value = "com.sun.star.drawing.TextShape"
     s2 = MagicMock()
     s2.Name = "GoodShape"
     s2.getString.return_value = "Good"
+    s2.supportsService.return_value = False
+    s2.getShapeType.return_value = "com.sun.star.drawing.TextShape"
 
     page = MagicMock()
     page.getCount.return_value = 2
     page.getByIndex.side_effect = [s1, s2]
 
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.bridge.find_notes_shape", return_value=None),
     ):
-        bridge_cls.get_slide_for_tool.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         out = ReadSlideText().execute(ctx)
 
     assert out["status"] == "ok"
@@ -554,16 +567,18 @@ def test_read_slide_text_reraises_dispose():
 
     shape = MagicMock()
     shape.getString.side_effect = DisposedException("shape disposed")
+    shape.supportsService.return_value = False
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
 
     page = MagicMock()
     page.getCount.return_value = 1
     page.getByIndex.return_value = shape
 
     with (
-        patch("plugin.draw.bridge.DrawBridge") as bridge_cls,
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
         patch("plugin.draw.bridge.find_notes_shape", return_value=None),
     ):
-        bridge_cls.get_slide_for_tool.return_value = page
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
         with pytest.raises(DisposedException):
             ReadSlideText().execute(ctx)
 
@@ -593,8 +608,8 @@ def test_get_presentation_info_reports_deck():
     ctx.doc = doc
     ctx.active_page_index = None
 
-    with patch("plugin.draw.bridge.DrawBridge") as bridge_cls:
-        bridge_cls.return_value.get_active_page_index.return_value = 1
+    with patch("plugin.draw.pages.DrawBridge") as bridge_cls:
+        bridge_cls.return_value.active_or_ctx_index.return_value = 1
         out = GetPresentationInfo().execute(ctx)
 
     assert out["slide_count"] == 2
@@ -602,4 +617,115 @@ def test_get_presentation_info_reports_deck():
     assert out["height_mm"] == 190
     assert out["master_slides"] == ["Default"]
     assert out["is_impress"] is True
-    assert out["active_page_index"] == 1
+
+
+def _non_table_shape_mock(**kwargs):
+    shape = MagicMock(**kwargs)
+    shape.supportsService.return_value = False
+    shape.getShapeType.return_value = "com.sun.star.drawing.TextShape"
+    return shape
+
+
+def test_read_slide_text_group_child_and_table():
+    child = _non_table_shape_mock()
+    child.Name = ""
+    child.getString.return_value = "Child text"
+
+    group = MagicMock()
+    group.getShapeType.return_value = "com.sun.star.drawing.GroupShape"
+    group.getString.return_value = "Group container"
+    group.getCount.return_value = 1
+    group.getByIndex.return_value = child
+    group.supportsService.return_value = False
+
+    table = MagicMock()
+    table.Name = "DataTable"
+    table.getShapeType.return_value = "com.sun.star.drawing.TableShape"
+    table.supportsService.return_value = True
+
+    page = MagicMock()
+    page.getCount.return_value = 2
+    page.getByIndex.side_effect = lambda i: group if i == 0 else table
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    ctx.active_page_index = 0
+
+    with (
+        patch("plugin.draw.pages.DrawBridge") as bridge_cls,
+        patch("plugin.draw.bridge.find_notes_shape", return_value=None),
+        patch("plugin.draw.pages.table_cells_for_shape", side_effect=lambda shape: [["A", "B"], ["1", "2"]] if getattr(shape, "Name", None) == "DataTable" else None),
+    ):
+        bridge_cls.return_value.resolve_page.return_value = (page, 0)
+        out = ReadSlideText().execute(ctx)
+
+    assert out["status"] == "ok"
+    assert out["texts"] == [
+        {"index": "0.0", "text": "Child text", "shape_name": ""},
+        {"index": 1, "text": "A\tB\n1\t2", "shape_name": "DataTable"},
+    ]
+
+
+def test_search_slides_page_and_shape_name():
+    from plugin.draw.pages import SearchSlides
+
+    page = MagicMock()
+    with patch("plugin.draw.pages.iter_shape_text_units", return_value=[(0, "Title", "Hello world")]):
+        with patch("plugin.draw.pages.DrawBridge") as bridge_cls, patch(
+            "plugin.draw.bridge.notes_text", return_value="Note line"
+        ):
+            pages = MagicMock()
+            pages.getCount.return_value = 1
+            pages.getByIndex.return_value = page
+            bridge_cls.return_value.get_pages.return_value = pages
+            ctx = MagicMock()
+            ctx.doc = MagicMock()
+            out = SearchSlides().execute(ctx, pattern="o")
+    assert out["status"] == "ok"
+    assert out["matched_case_sensitive"] is False
+    shape_hits = [m for m in out["matches"] if m.get("shape_name") == "Title"]
+    assert shape_hits[0]["page"] == 0
+    assert shape_hits[0]["text"] == "o"
+    notes_hits = [m for m in out["matches"] if m.get("shape_name") == "Notes"]
+    assert notes_hits and notes_hits[0]["text"] == "o"
+
+    # Explicit case_sensitive=True
+    with patch("plugin.draw.pages.iter_shape_text_units", return_value=[(0, "Title", "Hello world")]):
+        with patch("plugin.draw.pages.DrawBridge") as bridge_cls, patch(
+            "plugin.draw.bridge.notes_text", return_value="Note line"
+        ):
+            bridge_cls.return_value.get_pages.return_value = pages
+            out_cs = SearchSlides().execute(ctx, pattern="H", case_sensitive=True)
+    assert out_cs["status"] == "ok"
+    assert out_cs["matched_case_sensitive"] is True
+
+
+def test_search_slides_cap_hint():
+    from plugin.draw.pages import SearchSlides
+
+    units = [(0, "S", "hit")] * 5
+    with patch("plugin.draw.pages.iter_shape_text_units", return_value=units), patch(
+        "plugin.draw.pages.DrawBridge"
+    ) as bridge_cls, patch("plugin.draw.bridge.notes_text", return_value=None):
+        pages = MagicMock()
+        pages.getCount.return_value = 1
+        pages.getByIndex.return_value = MagicMock()
+        bridge_cls.return_value.get_pages.return_value = pages
+        ctx = MagicMock()
+        ctx.doc = MagicMock()
+        out = SearchSlides().execute(ctx, pattern="hit", max_results=2)
+    assert out["returned"] == 2
+    assert out["count"] == 5
+    assert out["hint"] == "Showing 2 of 5. Narrow the query. This tool has no offset."
+
+
+def test_search_slides_rejects_bad_regex_and_empty_pattern():
+    from plugin.draw.pages import SearchSlides
+
+    ctx = MagicMock()
+    ctx.doc = MagicMock()
+    empty = SearchSlides().execute(ctx, pattern="")
+    assert empty["status"] == "error"
+    bad = SearchSlides().execute(ctx, pattern="[", regex=True)
+    assert bad["status"] == "error"
+    assert bad.get("code") == "INVALID_REGEX"

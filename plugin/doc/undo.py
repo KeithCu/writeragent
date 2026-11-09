@@ -12,9 +12,13 @@ action and to tell the user."""
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
+from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 from plugin.framework.tool import ToolBase, ToolContext
+
+log = logging.getLogger("writeragent.undo")
 
 
 def _get_undo_manager(doc: Any) -> Any:
@@ -22,96 +26,6 @@ def _get_undo_manager(doc: Any) -> Any:
     if hasattr(doc, "getUndoManager"):
         return doc.getUndoManager()
     raise RuntimeError("Document does not support undo.")
-
-
-class UndoUnavailable(RuntimeError):
-    """Raised when an undo manager cannot be entered or is locked."""
-
-
-def _undo_titles(mgr: Any) -> tuple[str, ...] | None:
-    """Undo-stack titles, or None when they cannot be read (rollback is then refused)."""
-    from plugin.framework.errors import reraise_if_disposed
-
-    try:
-        titles = mgr.getAllUndoActionTitles()
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        return None
-    return tuple(titles or ())
-
-
-def commit_or_rollback(doc: Any, title: str, mutate: Any) -> dict[str, Any] | None:
-    """Run mutate inside an undo context with title.
-
-    Missing or locked undo manager raises UndoUnavailable.
-    Rolls back on error dict or exception from mutate, and re-raises real disposal.
-    `mutate` returns an error dict or None; any dict is treated as an error.
-    """
-    from plugin.framework.errors import is_real_disposal, reraise_if_disposed
-
-    try:
-        mgr = _get_undo_manager(doc)
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        raise UndoUnavailable("Document does not support undo.") from exc
-
-    if mgr is None:
-        raise UndoUnavailable("Undo manager is missing.")
-
-    try:
-        if mgr.isLocked():
-            raise UndoUnavailable("Undo manager is locked.")
-        before = _undo_titles(mgr)
-        mgr.enterUndoContext(title)
-    except UndoUnavailable:
-        raise
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        raise UndoUnavailable(f"Failed to enter undo context: {exc}") from exc
-
-    error: dict[str, Any] | None = None
-    exc_cause: Exception | None = None
-    try:
-        res = mutate()
-        if isinstance(res, dict):
-            error = res
-    except Exception as exc:
-        exc_cause = exc
-    finally:
-        left = False
-        try:
-            mgr.leaveUndoContext()
-            left = True
-        except Exception as exc:
-            if is_real_disposal(exc):
-                exc_cause = exc
-            elif error is None and exc_cause is None:
-                error = {
-                    "status": "error",
-                    "code": "UNDO_CONTEXT_LEAK",
-                    "message": f"Could not close the undo context; the document may stay in one undo group ({exc}).",
-                }
-        failed = error is not None or exc_cause is not None
-        if failed and left and before is not None:
-            try:
-                titles = tuple(mgr.getAllUndoActionTitles() or ())
-                if titles != before and titles and titles[0] == title:
-                    mgr.undo()
-            except Exception as rollback_exc:
-                reraise_if_disposed(rollback_exc)
-                # Keep the original cause and use a code distinct from a clean rollback.
-                cause = str(error.get("message")) if error and error.get("message") else str(exc_cause)
-                error = {
-                    "status": "error",
-                    "code": "ROLLBACK_FAILED",
-                    "message": f"Rollback failed; the document may be only partly edited ({rollback_exc}). Cause: {cause}",
-                }
-                exc_cause = None
-
-    if exc_cause is not None:
-        reraise_if_disposed(exc_cause)
-        raise exc_cause
-    return error
 
 
 def commit_or_rollback_mutation(
@@ -124,17 +38,19 @@ def commit_or_rollback_mutation(
     **extra_error: Any,
 ) -> dict[str, Any] | None:
     """Execute mutate inside an undo transaction, reporting tool errors on failure."""
-    from plugin.framework.errors import is_real_disposal
+    from plugin.framework.errors import is_disposal
 
     try:
-        return commit_or_rollback(doc, undo_title, mutate)
+        outcome = commit_or_rollback(doc, undo_title, mutate)
     except UndoUnavailable:
         return tool._tool_error(
             undo_unavailable_msg,
             code="UNDO_UNAVAILABLE",
         )
     except Exception as e:
-        if is_real_disposal(e):
+        # Mutate failures are returned on UndoOutcome; this path is for rare wrapper faults
+        # (e.g. session snapshot) so tools still get extra_error instead of a raw traceback.
+        if is_disposal(e):
             raise
         err = tool._tool_error(
             f"{rollback_msg} ({e}).",
@@ -143,6 +59,16 @@ def commit_or_rollback_mutation(
         # _tool_error nests kwargs under details; callers also read them top-level.
         err.update(extra_error)
         return err
+    if outcome.mutate_error is not None:
+        mut_exc = outcome.mutate_error
+        err = tool._tool_error(
+            f"{rollback_msg} ({mut_exc}).",
+            **extra_error,
+        )
+        # _tool_error nests kwargs under details; callers also read them top-level.
+        err.update(extra_error)
+        return err
+    return outcome.error
 
 
 def _undo_steps(kwargs: dict[str, Any]) -> int:

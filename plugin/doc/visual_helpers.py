@@ -19,19 +19,17 @@ from typing import Any
 
 from com.sun.star.awt import Point
 
-from plugin.doc.doc_type import (
+from plugin.framework.doc_type import (
     DOCUMENT_SERVICES,
     WEB_DOCUMENT_SERVICE,
     DocumentType,
     doc_type_label_for_enum,
     get_document_type,
 )
-from plugin.framework.errors import is_real_disposal, reraise_if_disposed, uno_read
+from plugin.doc.text_helpers import FAILED
+from plugin.framework.errors import is_disposal, reraise_if_disposed, uno_read
 
 log = logging.getLogger(__name__)
-
-# uno_read default where None is a real UNO result (an attribute that exists but is None).
-_FAILED: Any = object()
 
 WRITER_GRAPHIC_SERVICE = "com.sun.star.text.TextGraphicObject"
 _TEXT_GRAPHIC_SERVICE = "com.sun.star.text.GraphicObject"
@@ -53,12 +51,7 @@ _ANCHOR_TYPE_INDEX = {
 def anchor_type_index(raw: Any) -> int | None:
     """Map TextContentAnchorType to the 0-4 index the set-properties tools write.
 
-    What was wrong: image_get_info and frame_get_info always returned anchor_type None.
-    How it happened: getPropertyValue("AnchorType") is a pyuno enum. .value is the
-    name ("AT_PARAGRAPH"), so int(name) raises ValueError, and int(enum) raises
-    TypeError. Both were swallowed. html_import.py already reads that .value name.
-    Why this change: the name is the stable token. The integers are the IDL order
-    those tools pass to setPropertyValue.
+    AnchorType is a pyuno enum: use .value name or the IDL index map—int(enum) fails silently otherwise.
     """
     if type(raw) is int and raw in _ANCHOR_TYPE_INDEX.values():
         return raw
@@ -69,7 +62,7 @@ def anchor_type_index(raw: Any) -> int | None:
 def get_visual_doc_type(doc: Any) -> str:
     """Return the visual-tool document label used by image and shape helpers.
 
-    Delegates to :func:`plugin.doc.doc_type.get_document_type` for the
+    Delegates to :func:`plugin.framework.doc_type.get_document_type` for the
     shared Writer/Calc/Draw/Impress map. Web documents are checked first because
     they also support TextDocument and would otherwise look like Writer.
     Unknown models keep the legacy ``\"writer\"`` default (not ``\"unknown\"``).
@@ -92,9 +85,7 @@ UNITS_PER_INCH = 2540
 PX_PER_INCH = 96
 
 
-# Bugfix: int(mm) * 100 truncated fractional millimetres to whole millimetres
-# (e.g. 12.7 mm became 12 mm / 1200 units). Rounding float(mm) * 100 preserves
-# fractional millimetre inputs to the nearest 1/100 mm LibreOffice unit.
+# round(float(mm) * 100) preserves fractional millimetres in 1/100 mm units—int(mm) truncates.
 def mm_to_unit(mm: int | float) -> int:
     """Nearest LibreOffice 1/100 mm. Python round (half to even)."""
     return int(round(float(mm) * 100))
@@ -149,7 +140,7 @@ def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
         if px is not None and getattr(px, "Width", 0) > 0 and getattr(px, "Height", 0) > 0:
             return int(px.Width), int(px.Height)
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
     try:
         hmm = safe_get_property(graphic, "Size100thMM")
@@ -157,7 +148,7 @@ def graphic_pixel_size(graphic: Any) -> tuple[int | None, int | None]:
             # units_to_px rounds (1000 1/100 mm → 38 px) and applies minimum=1.
             return units_to_px(float(hmm.Width), float(hmm.Height))
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
     return None, None
 
@@ -352,7 +343,7 @@ def is_graphic_object(obj: Any) -> bool:
     if obj is None:
         return False
 
-    # Service probe first: Draw/Impress shapes used to pay a failing Graphic read here.
+    # Service probe first—Graphic property reads fail on non-graphic shapes.
     try:
         if obj.supportsService(WRITER_GRAPHIC_SERVICE) or obj.supportsService(_TEXT_GRAPHIC_SERVICE) or obj.supportsService(DRAW_GRAPHIC_SERVICE):
             return True
@@ -370,8 +361,8 @@ def is_graphic_object(obj: Any) -> bool:
 
 def _controller_selection(model: Any) -> Any | None:
     # Callers catch Exception. uno_read covers getCurrentController and getSelection.
-    controller = uno_read(lambda: model.getCurrentController(), _FAILED)
-    if controller is _FAILED:
+    controller = uno_read(lambda: model.getCurrentController(), FAILED)
+    if controller is FAILED:
         controller = getattr(model, "CurrentController", None)
     if controller is None:
         return None
@@ -474,7 +465,7 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
             if graphic is None:
                 return []
             name = _graphic_object_name(graphic)
-            return [(name, graphic)] if name else []
+            return [(name, graphic)]
 
         if hasattr(selection, "getCount"):
             graphics_from_sel: list[tuple[str, Any]] = []
@@ -507,8 +498,7 @@ def graphic_objects_in_selection(doc: Any) -> list[tuple[str, Any]]:
             return _graphics_in_text_range(doc, selection)
         return []
     except Exception as ex:
-        # Disposal used to become [] here, so vision/image tools reported NO_IMAGE_SELECTED for a
-        # closed document. Ordinary UNO failures still return [].
+        # Re-raise disposal; other errors return [] so live documents can report no selection.
         reraise_if_disposed(ex)
         log.debug("graphic_objects_in_selection failed: %s", ex)
         return []
@@ -523,8 +513,8 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
     inside = doc_type or get_visual_doc_type(doc)
     # A closed document raises DocumentDisposedError (uno_read) so execute_safe reports
     # DOCUMENT_DISPOSED; any other failure stays on the missing-page path.
-    controller = uno_read(lambda: doc.CurrentController, _FAILED)
-    if controller is _FAILED:
+    controller = uno_read(lambda: doc.CurrentController, FAILED)
+    if controller is FAILED:
         controller = uno_read(lambda: doc.getCurrentController(), None)
 
     def _writer_draw_page() -> Any | None:
@@ -542,27 +532,25 @@ def get_active_draw_page(doc: Any, doc_type: str | None = None) -> Any | None:
             sheet = uno_read(lambda: controller.getActiveSheet(), None)
         if sheet is None:
             return None
-        page = uno_read(lambda: sheet.getDrawPage(), _FAILED)
-        return uno_read(lambda: sheet.DrawPage, None) if page is _FAILED else page
+        page = uno_read(lambda: sheet.getDrawPage(), FAILED)
+        return uno_read(lambda: sheet.DrawPage, None) if page is FAILED else page
 
     page = uno_read(lambda: controller.CurrentPage, None)
     if page is not None:
         return page
-    page = uno_read(lambda: controller.getCurrentPage(), _FAILED)
-    if page is not _FAILED:
+    page = uno_read(lambda: controller.getCurrentPage(), FAILED)
+    if page is not FAILED:
         return page
 
     def first_page() -> Any:
         pages = doc.getDrawPages()
-        return pages.getByIndex(0) if pages.getCount() > 0 else _FAILED
+        return pages.getByIndex(0) if pages.getCount() > 0 else FAILED
 
-    page = uno_read(first_page, _FAILED)
-    return _writer_draw_page() if page is _FAILED else page
+    page = uno_read(first_page, FAILED)
+    return _writer_draw_page() if page is FAILED else page
 
 
-# Bugfix: Calc ignored page_index entirely and always returned the active sheet's
-# draw page, because getDrawPages() is Draw/Impress-specific and Calc sheets each
-# have their own draw page accessed via sheet.getDrawPage().
+# Calc: page_index selects sheet.getDrawPage(); getDrawPages() is Draw/Impress-only.
 def draw_page_for_insert(model: Any, inside: str, page_index: int | None = None) -> Any:
     if page_index is not None and inside in ("draw", "impress", "calc"):
         calc = inside == "calc"
@@ -637,7 +625,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
                         graphics.append(item)
             return graphics
         except Exception as ex:
-            if is_real_disposal(ex):
+            if is_disposal(ex):
                 raise
             log.debug("list_graphic_objects calc sheets failed: %s", ex)
 
@@ -650,7 +638,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
                 if is_graphic_object(shape):
                     graphics.append((shape.getName() if hasattr(shape, "getName") else "", shape))
         except Exception as ex:
-            if is_real_disposal(ex):
+            if is_disposal(ex):
                 raise
             log.debug("list_graphic_objects calc failed: %s", ex)
         return graphics
@@ -662,7 +650,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
             try:
                 page_list = [pages.getByIndex(i) for i in range(pages.getCount())]
             except Exception as ex:
-                if is_real_disposal(ex):
+                if is_disposal(ex):
                     raise
                 log.debug("list_graphic_objects draw/impress pages failed: %s", ex)
         if not page_list:
@@ -676,7 +664,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
                     if is_graphic_object(shape):
                         graphics.append((shape.getName(), shape))
         except Exception as ex:
-            if is_real_disposal(ex):
+            if is_disposal(ex):
                 raise
             log.debug("list_graphic_objects draw/impress failed: %s", ex)
         return graphics
@@ -686,7 +674,7 @@ def list_graphic_objects(doc: Any, doc_type: str | None = None) -> list[tuple[st
         for name in graphic_objects.getElementNames():
             graphics.append((name, graphic_objects.getByName(name)))
     except Exception as ex:
-        if is_real_disposal(ex):
+        if is_disposal(ex):
             raise
         log.debug("list_graphic_objects writer failed: %s", ex)
     return graphics
@@ -709,7 +697,7 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
                 if p is not None:
                     pages_list.append(p)
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("remove_graphic_from_draw_pages getSheets failed: %s", exc)
         if not pages_list:
@@ -721,7 +709,7 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
             pages = doc.getDrawPages()
             pages_list = [pages.getByIndex(i) for i in range(pages.getCount())]
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             page = get_active_draw_page(doc)
             if page is None:
@@ -736,16 +724,12 @@ def remove_graphic_from_draw_pages(doc: Any, graphic: Any) -> bool:
                 if shape is graphic or shape == graphic:
                     page.remove(graphic)
                     return True
-                # Identity is the shape the caller resolved. A same name on
-                # a different shape used to delete the first hit, so two
-                # shapes named alike could drop the wrong one. Remember name
-                # hits and delete only when the name is unique.
+                # Identity match first; else collect same-name hits and delete only when unique on the page.
                 if target_name and uno_read(lambda: hasattr(shape, "getName") and str(shape.getName() or "") == target_name, False):
                     name_hits.append((page, shape))
     except Exception as ex:
-        # Disposal used to become False, and image_delete reported
-        # IMAGE_NOT_FOUND for a closed document.
-        if is_real_disposal(ex):
+        # Re-raise disposal; other errors return False (IMAGE_NOT_FOUND on live docs).
+        if is_disposal(ex):
             raise
         log.debug("remove_graphic_from_draw_pages failed: %s", ex)
         return False

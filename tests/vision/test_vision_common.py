@@ -57,8 +57,7 @@ def test_css_inline_unavailable_result():
 
 
 def test_merge_vision_params_logs_exception_and_drops_ctx_gate():
-    # What was wrong: ctx is not None gate skipped Settings when ctx=None, and except Exception: pass swallowed errors.
-    # Why this change: verify config failures are logged and config works with ctx=None.
+    # merge_vision_params must work with ctx=None; config read failures are logged, not swallowed.
     with patch("plugin.framework.config.get_config", side_effect=Exception("config read failed")), patch(
         "plugin.vision.vision_common.log.exception"
     ) as mock_log:
@@ -68,8 +67,7 @@ def test_merge_vision_params_logs_exception_and_drops_ctx_gate():
 
 
 def test_resolve_engine_valid_and_unknown():
-    # What was wrong: resolve_engine accepted typos like "padle" and silently used docling.
-    # Why this change: reject unknown engines with ValueError.
+    # Unknown engine names (e.g. "padle") must raise ValueError, not silently default to docling.
     assert resolve_engine({"engine": "docling"}) == "docling"
     assert resolve_engine({"engine": "paddle"}) == "paddle"
     with pytest.raises(ValueError, match="Unknown vision engine 'padle'"):
@@ -77,8 +75,7 @@ def test_resolve_engine_valid_and_unknown():
 
 
 def test_table_to_tsv_lines_preserves_empty_cells():
-    # What was wrong: if str(c) dropped empty cells and misaligned table columns.
-    # Why this change: table_to_tsv_lines keeps empty cells.
+    # table_to_tsv_lines must preserve empty cells so columns stay aligned.
     table = {
         "columns": ["Col1", "", "Col3"],
         "rows": [["A", "", "C"], ["D", "E", ""]],
@@ -88,8 +85,7 @@ def test_table_to_tsv_lines_preserves_empty_cells():
 
 
 def test_bbox_to_xywh_bottomleft_flip():
-    # What was wrong: BOTTOMLEFT coord_origin with t > b yielded height 0 and unflipped y.
-    # Why this change: flip y with page_height and compute positive height abs(t - b).
+    # BOTTOMLEFT boxes must flip y with page_height and use abs(t - b) for height when t > b.
     docling_box = {"l": 10.0, "b": 20.0, "r": 50.0, "t": 60.0, "coord_origin": "BOTTOMLEFT"}
     box = bbox_to_xywh(docling_box, page_height=100.0)
     assert box == [10, 40, 40, 40]

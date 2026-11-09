@@ -27,15 +27,14 @@ project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
 from plugin.embeddings.embeddings_cache import (  # noqa: E402
+    CorpusMeta,
     corpus_db_path,
     corpus_meta_path,
     index_is_empty,
-    read_corpus_meta,
 )
-from plugin.embeddings.folder_fts_cache import fts_db_path, fts_index_is_empty, fts_meta_path  # noqa: E402
 from plugin.embeddings.venv.embeddings_index import EMBEDDINGS_VENV_PIP_INSTALL, hybrid_search, knn_search  # noqa: E402
 from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search  # noqa: E402
-from plugin.embeddings.venv.folder_fts import search_folder_fts  # noqa: E402
+from plugin.embeddings.venv.embeddings_sqlite import build_match_query, connect_corpus_db, fts_corpus_search  # noqa: E402
 
 DEFAULT_FOLDER = Path("~/Desktop/Writing")
 DEFAULT_K = 10
@@ -55,7 +54,8 @@ def _clamp_k(k: int) -> int:
 def _resolve_model(meta_path: Path, model_override: str | None) -> str:
     if model_override and model_override.strip():
         return model_override.strip()
-    meta = read_corpus_meta(meta_path)
+    meta_obj = CorpusMeta.load(meta_path)
+    meta = meta_obj.data if meta_obj.is_valid else {}
     model = (meta.get("embedding_model") or "").strip()
     return model or DEFAULT_MODEL
 
@@ -190,33 +190,34 @@ def search_folder_fts_cli(
     if not query_text:
         raise SearchFolderError("query is required")
 
-    db_path = fts_db_path(str(listing_root), create_parent=False)
-    meta_path = fts_meta_path(str(listing_root), create_parent=False)
+    db_path = corpus_db_path(str(listing_root), create_parent=False)
+    meta_path = corpus_meta_path(str(listing_root), create_parent=False)
 
-    if fts_index_is_empty(meta_path, db_path):
+    if index_is_empty(meta_path, db_path):
         raise SearchFolderError(
             f"No FTS index under {listing_root / 'writeragent_embeddings'}. "
             f"Enable folder FTS in WriterAgent or build with: "
-            f".venv/bin/python -c \"from plugin.embeddings.venv.folder_fts import maintain_folder_fts; "
-            f"maintain_folder_fts({listing_root!r})\""
+            f".venv/bin/python -c \"from plugin.embeddings.venv.embeddings_folder_maintain import maintain_folder_corpus; "
+            f"maintain_folder_corpus({listing_root!r}, search_mode='fts')\""
         )
 
     k_clamped = _clamp_k(k)
-    result = search_folder_fts(
-        str(db_path),
-        query_text,
-        k=k_clamped,
-        near_slop=max(0, int(near_slop)),
-    )
-    hits = result.get("hits") or []
+    slop = max(0, int(near_slop))
+    match_expr = build_match_query(query_text, near_slop=slop)
+    conn = connect_corpus_db(db_path)
+    try:
+        hits = fts_corpus_search(conn, query_text, k=k_clamped, near_slop=slop)
+    finally:
+        conn.close()
+
     return {
         "status": "ok",
         "backend": "fts",
         "folder": str(listing_root),
         "query": query_text,
         "k": k_clamped,
-        "near_slop": max(0, int(near_slop)),
-        "match": result.get("match"),
+        "near_slop": slop,
+        "match": match_expr,
         "hits": hits,
     }
 

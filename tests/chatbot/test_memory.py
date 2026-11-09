@@ -190,16 +190,19 @@ class TestMemoryWriteConcurrency:
         assert (leftovers) == ([]), "atomic-write temp files must not leak"
 
 
-def test_upsert_rejects_non_json_user_md(tmp_path):
+def test_upsert_migrates_prose_user_md(tmp_path):
     ctx = object()
     tool = MemoryTool()
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)):
+        from plugin.chatbot.memory import _LEGACY_PROSE_KEY
+
         store = MemoryStore()
-        store.write("name: Andre\n")
-        before = store.read()
+        store.write("# Test User Profile\n")
         res = tool.execute(ctx, key="favorite_language", content="Python")
-    assert res["status"] != "ok"
-    assert store.read() == before
+    assert res["status"] == "ok", res
+    data = json.loads(store.read())
+    assert data[_LEGACY_PROSE_KEY] == "# Test User Profile"
+    assert data["favorite_language"] == "Python"
 
 
 def test_upsert_dotted_key_does_not_replace_string(tmp_path):
@@ -224,25 +227,14 @@ def test_upsert_null_content_pops_key(tmp_path):
         assert json.loads(store.read()) == {"name": "Ada"}
 
 
-def test_write_fsyncs_before_replace(tmp_path):
-    order: list[str] = []
-    real_fsync = os.fsync
-    real_replace = os.replace
-
-    def _fsync(fd: int) -> None:
-        order.append("fsync")
-        real_fsync(fd)
-
-    def _replace(src: str, dst: str) -> None:
-        order.append("replace")
-        real_replace(src, dst)
-
+def test_write_replaces_without_fsync(tmp_path):
     with patch("plugin.chatbot.memory.user_config_dir", return_value=str(tmp_path)), patch(
-        "plugin.framework.config.os.fsync", side_effect=_fsync
-    ), patch("plugin.framework.config.os.replace", side_effect=_replace):
+        "plugin.framework.config.os.fsync"
+    ) as mock_fsync, patch("plugin.framework.config.os.replace", wraps=os.replace) as mock_replace:
         store = MemoryStore()
         store.write('{"name": "Ada"}')
-    assert order == ["fsync", "replace"]
+    mock_fsync.assert_not_called()
+    mock_replace.assert_called_once()
     assert json.loads(store.read()) == {"name": "Ada"}
 
 

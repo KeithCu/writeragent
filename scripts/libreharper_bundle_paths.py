@@ -64,13 +64,17 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/module_graph.py",
     "plugin/framework/uno_bootstrap.py",
     "plugin/framework/logging.py",
+    "plugin/framework/process_global.py",
     "plugin/framework/uno_context.py",
     "plugin/framework/vcl_pumping.py",
     "plugin/framework/worker_pool.py",
     # harper.py imports ManagedSubprocess at load; the LibreHarper import-closure test requires this file.
     "plugin/framework/managed_subprocess.py",
+    # managed_subprocess.py imports scrub_subprocess_env at load time.
+    "plugin/framework/subprocess_env.py",
     "plugin/framework/async_drain_guard.py",
     "plugin/framework/queue_executor.py",
+    "plugin/framework/dev_build.py",
     "plugin/framework/send_cancellation.py",
     "plugin/framework/llm_lanes.py",
     "plugin/framework/uno_listeners.py",
@@ -85,10 +89,12 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/framework/client/__init__.py",
     # requests.py calls LocalHttpsCertificateFallback for local HTTPS retries.
     "plugin/framework/client/request_controls.py",
-    # requests.py does ``from .errors import _format_http_error_response``.
+    # requests.py does ``from .errors import format_http_error_response``.
     "plugin/framework/client/errors.py",
     # errors.py does ``from .responses_shim import responses_failed_message``.
     "plugin/framework/client/responses_shim.py",
+    # responses_shim.py imports its pure helpers from shim_helpers.py.
+    "plugin/framework/client/shim_helpers.py",
     "plugin/framework/client/ssl_helpers.py",
     "plugin/framework/client/provider_detection.py",
     "plugin/chatbot/dialogs.py",
@@ -111,6 +117,7 @@ LIBREHARPER_PLUGIN_FILES: tuple[str, ...] = (
     "plugin/writer/locale/grammar_persistence.py",
     "plugin/writer/locale/grammar_ignore_rules.py",
     "plugin/writer/locale/grammar_obs.py",
+    "plugin/writer/locale/grammar_settings.py",
     "plugin/writer/locale/grammar_worker.py",
     "plugin/contrib/__init__.py",
     "plugin/contrib/lsp/__init__.py",

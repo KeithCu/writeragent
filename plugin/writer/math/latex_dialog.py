@@ -12,7 +12,7 @@ import uno
 
 from plugin.framework.uno_listeners import BaseActionListener
 from plugin.framework.uno_context import get_active_document
-from plugin.framework.config import get_config, get_config_str, set_config
+from plugin.framework.config import get_config, save
 from plugin.framework.errors import best_effort, resolve_exception_message
 from plugin.chatbot.dialogs import (
     get_checkbox_state,
@@ -22,18 +22,14 @@ from plugin.chatbot.dialogs import (
     msgbox_with_report,
 )
 from plugin.framework.i18n import _
-from plugin.doc.doc_type import is_writer
+from plugin.framework.doc_type import is_writer
 from plugin.writer.math.math_mml_convert import (
     convert_latex_to_starmath,
     insert_writer_math_formula,
     replace_writer_math_formula,
 )
-# What was wrong: Importing individual helper functions from math_mml_export into latex_dialog
-#   bound them locally at module load time. UNO and unit tests patch plugin.writer.math.math_mml_export.*,
-#   which failed to affect latex_dialog's calls to the unpatched local references.
-# How it happened: cf457aa16 (#1984) replaced module imports with direct function imports.
-# Why this change: Keep math_mml_export imported as a module and access helpers as module attributes
-#   (math_mml_export.selected_math_embeds, etc.) so test patches and dynamic overrides take effect.
+# math_mml_export is imported as a module so tests and runtime patch helper attributes
+# on that namespace; direct function imports would bind unpatched references at load time.
 from plugin.writer.math import math_mml_export
 from plugin.scripting.editor_host import launch_monaco_editor, monaco_editor_available
 
@@ -178,13 +174,16 @@ def _apply_latex_to_writer(
             # str() of a PyUNO exception is often empty; the detail is in .Message.
             return False, resolve_exception_message(exc)
         msg = _("Formula updated.")
+        save({"last_latex_input": latex})
     else:
         controller = doc.getCurrentController()
         view_cursor = controller.getViewCursor()
         insert_writer_math_formula(doc, view_cursor, starmath, display_block=display_block)
-        set_config("last_latex_display_block", display_block)
+        patch: dict[str, Any] = {"last_latex_input": latex}
+        if display_block is not None:
+            patch["last_latex_display_block"] = display_block
+        save(patch)
         msg = _("Formula inserted.")
-    set_config("last_latex_input", latex)
     return True, msg
 
 
@@ -196,7 +195,7 @@ def insert_latex_math_dialog(ctx: Any) -> None:
             msgbox(ctx, _("Error"), _("This command is only available in Writer documents."))
             return
 
-        last_latex = get_config_str("last_latex_input")
+        last_latex = get_config("last_latex_input")
         last_display = bool(get_config("last_latex_display_block"))
         prefill = _selection_latex_prefill(ctx, doc, last_latex)
         if prefill is None:

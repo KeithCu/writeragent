@@ -11,23 +11,24 @@ import logging
 import math
 from typing import Any
 
-from plugin.scripting.calc_functions_common import QUANT_HELPER_NAMES as HELPER_NAMES
+from plugin.scripting.helper_registry import helper
 from plugin.scripting.venv.coerce import (
+    date_column,
+    flat_label,
     is_missing_value as _is_missing_value,
     parse_date_column,
     resolve_df as _resolve_df,
 )
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    error_result as _error_result,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    parse_trusted_spec as _parse_trusted_spec,
+    run_domain,
 )
 
 log = logging.getLogger(__name__)
 
 _INDICATOR_NAMES = ("macd", "rsi", "bbands")
-_DATE_COLUMN_NAMES = frozenset({"date", "datetime", "timestamp"})
 
 
 def _flatten_tickers(raw_tickers: Any) -> list[str]:
@@ -60,91 +61,38 @@ def _flatten_tickers(raw_tickers: Any) -> list[str]:
     return clean
 
 
-def _date_column(df: Any) -> Any:
-    return next(
-        (col for col in df.columns if str(col).strip().lower() in _DATE_COLUMN_NAMES),
-        None,
-    )
-
-
 def _order_by_date(df: Any) -> Any:
     """Sort ascending on a date column. Sheet order stays when there is none.
 
-    MACD and RSI follow row order. A newest-first sheet used to be left as-is,
-    so the path was reversed and the indicators were silently wrong. The date
-    text itself is not rewritten.
+    Sort by detected date column ascending so MACD/RSI match row order; newest-first sheets would otherwise reverse indicators. Date text is not rewritten.
     """
-    col = _date_column(df)
+    col = date_column(df)
     if col is None:
         return df
-    # What was wrong: pd.to_datetime on a mixed object column interpreted numeric
-    # serials as nanoseconds since 1970 (e.g. 45293 -> 1970-01-01 00:00:00.000045293),
-    # which sorted 1970 before calendar strings like 2024-01-01.
-    # How it happened: a pure serial column sorts the same either way because nanoseconds
-    # are monotonic, but mixed object columns (e.g. serial 45293, string 2024-01-01,
-    # and not-a-date) sorted out of calendar order. resolve_df leaves that column as
-    # object because not-a-date blocks all-datetime promotion.
-    # Why this change fixes it: parse_date_column resolves Calc serials with epoch
-    # 1899-12-30 and handles strings/invalid cells, sorting string 2024-01-01, then
-    # serial 45293, then invalid cells.
+    # parse_date_column resolves Calc serials (epoch 1899-12-30) and mixed dates for sorting.
     parsed = parse_date_column(df[col])
     order = parsed.reset_index(drop=True).sort_values(kind="mergesort", na_position="last").index
     return df.iloc[order]
 
 
 def _stringify_datetimes(df: Any) -> None:
-    """Turn datetime columns into text before ``tolist()``.
-
-    What was wrong: only columns named Date or Datetime were stringified, and
-    ``select_dtypes(datetime64)`` misses timezone-aware columns. ``tolist()``
-    then yielded ``pandas.Timestamp``.
-    How it happened: the host unpickler allows builtins and a few NumPy
-    reconstructors, not pandas, so the frame failed before egress.
-    Why this change: every datetime64 and datetimetz column becomes text,
-    including an unnamed yfinance index that ``reset_index`` calls ``index``.
-    """
+    """Turn datetime64 and datetimetz columns into text before tolist() for pickle egress."""
     for col in df.select_dtypes(include=["datetime64", "datetimetz"]).columns:
         df[col] = df[col].astype(str)
-
-
-def _column_label(col: Any) -> str:
-    """Flatten a MultiIndex label. ``("Close", "AAPL")`` becomes ``Close / AAPL``.
-
-    ``multi_level_index=False`` only drops the ticker level for a single
-    ticker. Several tickers stay a MultiIndex, and keeping ``c[0]`` made
-    every Close column the same name. ``reset_index`` pads the index name
-    with an empty level, so blank parts are skipped.
-    """
-    if isinstance(col, tuple):
-        parts = [str(part).strip() for part in col if str(part).strip()]
-        return " / ".join(parts)
-    return str(col)
 
 
 def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     """Extract date column if present and coerce remaining columns to numeric returns."""
     import pandas as pd
 
-    date_col = _date_column(df)
+    date_col = date_column(df)
     dates = None
     if date_col is not None:
-        # What was wrong: pd.to_datetime interpreted Calc serial numbers (e.g. 45292)
-        # and year integers as nanoseconds since 1970 instead of calendar dates.
-        # How it happened: pd.to_datetime treats numeric values without unit as nanoseconds;
-        # because the resulting 1970 timestamps were not NaT, portfolio_tearsheet annualized
-        # a one-day span and never warned about missing dates.
-        # Why this change fixes it: parse_date_column resolves Calc serials (epoch 1899-12-30)
-        # and 1900-2200 year values into proper calendar dates.
+        # parse_date_column resolves Calc serials and years into calendar dates.
         dates = parse_date_column(df[date_col])
         df = df.drop(columns=[date_col])
 
-    # What was wrong: pd.to_numeric turns datetime64, timezone-aware datetimes, and
-    # timedeltas into int64 nanoseconds (pandas 2.3.3: 2024-01-01 becomes 1704067200000000000).
-    # How it happened: resolve_df promotes every all-date object column regardless of name
-    # (Period, Unnamed: 0), and a DataFrame argument is copied with its dtypes kept, so
-    # that column was averaged into the tearsheet and into mean_historical_return / Ledoit-Wolf.
-    # Why this change fixes it: dropping those dtypes after the named date column is removed
-    # keeps the date index and leaves real return columns, including a numeric Year.
+    # Drop datetime/timedelta columns before pd.to_numeric to prevent conversion to int64 nanoseconds.
     extra_time = list(
         df.select_dtypes(include=["datetime64", "datetimetz", "timedelta64"]).columns
     )
@@ -156,6 +104,7 @@ def _returns_frame_from_df(df: Any) -> tuple[Any, Any]:
     return numeric_df, dates
 
 
+@helper("quant")
 def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
     try:
         import yfinance as yf  # type: ignore
@@ -164,7 +113,7 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
 
     tickers = _flatten_tickers(params.get("tickers", []))
     if not tickers:
-        return _error_result("INVALID_PARAMS", "tickers parameter is required.", helper="fetch_historical_data")
+        return error_result("INVALID_PARAMS", "tickers parameter is required.", helper="fetch_historical_data")
 
     start_date = params.get("start_date")
     end_date = params.get("end_date")
@@ -196,12 +145,12 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
             download_kwargs.pop("multi_level_index")
             data = yf.download(tickers, **download_kwargs)
         if data is None or getattr(data, "empty", True):
-            return _error_result("NO_DATA", f"No data returned for ticker(s): {', '.join(tickers)}.", helper="fetch_historical_data")
+            return error_result("NO_DATA", f"No data returned for ticker(s): {', '.join(tickers)}.", helper="fetch_historical_data")
 
         data = data.reset_index()
         _stringify_datetimes(data)
 
-        columns = [_column_label(col) for col in data.columns]
+        columns = [flat_label(col) for col in data.columns]
         records = data.values.tolist()
 
         return _ok_result(
@@ -213,9 +162,10 @@ def fetch_historical_data(params: dict[str, Any]) -> dict[str, Any]:
         )
     except Exception as e:
         log.exception("Error in fetch_historical_data")
-        return _error_result("EXECUTION_ERROR", str(e), helper="fetch_historical_data")
+        return error_result("EXECUTION_ERROR", str(e), helper="fetch_historical_data")
 
 
+@helper("quant")
 def technical_analysis(
     params: dict[str, Any],
     data: Any,
@@ -231,7 +181,7 @@ def technical_analysis(
 
     raw_indicators = params.get("indicators", _INDICATOR_NAMES)
     # A string is one indicator name, not a sequence of characters.
-    # An unknown name is INVALID_PARAMS. An int used to be replaced with
+    # An unknown name is INVALID_PARAMS. An int must not be replaced with.
     # the default list and return ok.
     if raw_indicators is None:
         indicators = list(_INDICATOR_NAMES)
@@ -240,7 +190,7 @@ def technical_analysis(
     elif isinstance(raw_indicators, (list, tuple)):
         indicators = list(raw_indicators)
     else:
-        return _error_result(
+        return error_result(
             "INVALID_PARAMS",
             f"indicators must be a name or a list. Supported: {', '.join(_INDICATOR_NAMES)}.",
             helper="technical_analysis",
@@ -248,7 +198,7 @@ def technical_analysis(
 
     unknown = [str(ind) for ind in indicators if str(ind).strip().lower() not in _INDICATOR_NAMES]
     if unknown:
-        return _error_result(
+        return error_result(
             "INVALID_PARAMS",
             f"Unknown indicator(s): {', '.join(unknown)}. Supported: {', '.join(_INDICATOR_NAMES)}.",
             helper="technical_analysis",
@@ -262,7 +212,7 @@ def technical_analysis(
         # headers=False leaves integer column labels. str() before lower().
         close_col = next((c for c in df.columns if str(c).strip().lower() == "close"), None)
         if not close_col:
-            return _error_result(
+            return error_result(
                 "MISSING_COLUMN",
                 "Could not find 'Close' column for technical analysis.",
                 helper="technical_analysis",
@@ -287,9 +237,10 @@ def technical_analysis(
         )
     except Exception as e:
         log.exception("Error in technical_analysis")
-        return _error_result("EXECUTION_ERROR", str(e), helper="technical_analysis")
+        return error_result("EXECUTION_ERROR", str(e), helper="technical_analysis")
 
 
+@helper("quant")
 def portfolio_tearsheet(
     params: dict[str, Any],
     data: Any,
@@ -309,11 +260,11 @@ def portfolio_tearsheet(
         df = res.df
 
         if df.empty:
-            return _error_result("INVALID_DATA", "Input data is empty.", helper="portfolio_tearsheet")
+            return error_result("INVALID_DATA", "Input data is empty.", helper="portfolio_tearsheet")
 
         numeric_df, dates = _returns_frame_from_df(df)
         if numeric_df.empty:
-            return _error_result("INVALID_DATA", "No numeric data columns found for portfolio tearsheet.", helper="portfolio_tearsheet")
+            return error_result("INVALID_DATA", "No numeric data columns found for portfolio tearsheet.", helper="portfolio_tearsheet")
 
         col_param = params.get("column")
         if col_param is not None and str(col_param).strip() != "":
@@ -323,7 +274,7 @@ def portfolio_tearsheet(
             if col_param not in numeric_df.columns:
                 matches = [col for col in numeric_df.columns if str(col) == str(col_param)]
                 if len(matches) != 1:
-                    return _error_result("INVALID_PARAMS", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
+                    return error_result("INVALID_PARAMS", f"Specified column {col_param!r} not found in numeric columns.", helper="portfolio_tearsheet")
                 col_param = matches[0]
             returns = numeric_df[col_param]
         else:
@@ -336,7 +287,7 @@ def portfolio_tearsheet(
         if dates is not None:
             dates = dates.loc[returns.index]
         if returns.empty:
-            return _error_result("INVALID_DATA", "No valid numeric returns found.", helper="portfolio_tearsheet")
+            return error_result("INVALID_DATA", "No valid numeric returns found.", helper="portfolio_tearsheet")
 
         # Drop NaT rows. A synthetic daily index is reported in the warning.
         warnings: list[str] = []
@@ -345,9 +296,7 @@ def portfolio_tearsheet(
             returns = returns.loc[valid_mask]
             dates = dates.loc[valid_mask]
             returns.index = dates
-            # Drawdown follows date order. A newest-first sheet used to
-            # keep that order, so the path was reversed. Duplicate dates
-            # are averaged, same as the forecast time-series prep.
+            # Sort returns by date ascending before drawdown so newest-first sheets are not reversed; duplicate dates are averaged.
             returns = returns.sort_index(kind="mergesort")
             if not returns.index.is_unique:
                 returns = returns.groupby(level=0).mean()
@@ -359,11 +308,7 @@ def portfolio_tearsheet(
             )
 
         metrics = qs.reports.metrics(returns, display=False)
-        # What was wrong: a Series has .iloc but shape is (n,), so shape[1] raised
-        # IndexError and the outer handler returned EXECUTION_ERROR instead of to_dict().
-        # How it happened: the guard was written for quantstats' one-column DataFrame.
-        # Why this change fixes it: isinstance(..., pd.DataFrame) keeps that path and
-        # lets a Series hit the existing else.
+        # Handle both DataFrame (multi-col) and Series (1D) metrics returns.
         if isinstance(metrics, pd.DataFrame) and metrics.shape[1] >= 1:
             metrics_dict = {str(k): v for k, v in metrics.iloc[:, 0].to_dict().items()}
         elif isinstance(metrics, dict):
@@ -378,9 +323,10 @@ def portfolio_tearsheet(
         )
     except Exception as e:
         log.exception("Error in portfolio_tearsheet")
-        return _error_result("EXECUTION_ERROR", str(e), helper="portfolio_tearsheet")
+        return error_result("EXECUTION_ERROR", str(e), helper="portfolio_tearsheet")
 
 
+@helper("quant")
 def efficient_frontier(
     params: dict[str, Any],
     data: Any,
@@ -403,14 +349,7 @@ def efficient_frontier(
         # Case-insensitive date column, shared with portfolio_tearsheet
         # (Date, datetime, timestamp, and the same names in other cases).
         numeric_df = _returns_frame_from_df(df)[0]
-        # What was wrong: a hole in one asset still came back status ok.
-        # How it happened: CovarianceShrinkage.ledoit_wolf does np.nan_to_num
-        # (pypfopt/risk_models.py), so NaN becomes 0 and ±inf becomes ~1e308.
-        # mean_historical_return skips NaN via prod() and count()
-        # (pypfopt/expected_returns.py). Mean and covariance then disagree.
-        # Why this change: drop a blank column first, then any row that is
-        # not fully finite, so both calls see the same days. An empty column
-        # dropped with how="any" would have thrown away every row.
+        # Drop fully empty columns then non-finite rows so mean and covariance see identical rows.
         numeric_df = numeric_df.replace([math.inf, -math.inf], float("nan"))
         n_cols_before = int(numeric_df.shape[1])
         numeric_df = numeric_df.dropna(axis=1, how="all")
@@ -419,7 +358,7 @@ def efficient_frontier(
         numeric_df = numeric_df.dropna()
         n_dropped_rows = n_rows_before - int(len(numeric_df))
         if numeric_df.empty or numeric_df.shape[1] < 2:
-            return _error_result("INVALID_DATA", "Need at least two numeric assets for efficient frontier.", helper="efficient_frontier")
+            return error_result("INVALID_DATA", "Need at least two numeric assets for efficient frontier.", helper="efficient_frontier")
         notes: list[str] = []
         if n_empty_cols:
             noun = "column" if n_empty_cols == 1 else "columns"
@@ -428,7 +367,7 @@ def efficient_frontier(
             noun = "row" if n_dropped_rows == 1 else "rows"
             notes.append(f"Dropped {n_dropped_rows} {noun} with missing or non-finite returns.")
 
-        # A non-numeric rate used to escape as EXECUTION_ERROR. A weight_bounds
+        # A non-numeric rate must not escape as EXECUTION_ERROR. A weight_bounds.
         # value that was not a pair was ignored, and the library default ran.
         raw_rfr = params.get("risk_free_rate", 0.02)
         try:
@@ -436,7 +375,7 @@ def efficient_frontier(
             if not math.isfinite(rfr):
                 raise ValueError
         except (TypeError, ValueError):
-            return _error_result(
+            return error_result(
                 "INVALID_PARAMS",
                 "risk_free_rate must be a finite number.",
                 helper="efficient_frontier",
@@ -454,7 +393,7 @@ def efficient_frontier(
                     raise ValueError
                 bounds = (lo, hi)
             except (TypeError, ValueError):
-                return _error_result(
+                return error_result(
                     "INVALID_PARAMS",
                     "weight_bounds must be a pair of finite numbers.",
                     helper="efficient_frontier",
@@ -475,7 +414,7 @@ def efficient_frontier(
         )
     except Exception as e:
         log.exception("Error in efficient_frontier")
-        return _error_result("EXECUTION_ERROR", str(e), helper="efficient_frontier")
+        return error_result("EXECUTION_ERROR", str(e), helper="efficient_frontier")
 
 
 def run_quant(
@@ -484,24 +423,4 @@ def run_quant(
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC and Run Python Script."""
-    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, headers, header_row, ctx = parsed
-
-    # Every data helper needs headers and header_row. Dropping them makes
-    # tearsheet and frontier treat a header row as a price.
-    if helper == "fetch_historical_data":
-        result = fetch_historical_data(params)
-    elif helper == "technical_analysis":
-        result = technical_analysis(params, data, headers=headers, header_row=header_row)
-    elif helper == "portfolio_tearsheet":
-        result = portfolio_tearsheet(params, data, headers=headers, header_row=header_row)
-    elif helper == "efficient_frontier":
-        result = efficient_frontier(params, data, headers=headers, header_row=header_row)
-    else:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {helper!r}", helper=helper)
-
-    if result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-    return result
+    return run_domain("quant", spec, data, context=context)

@@ -138,13 +138,7 @@ def _cleanup_stale_native_backups(bin_dir: str) -> None:
                 for _generation, stale in asides:
                     _remove_quiet(stale)
                 continue
-            # What was wrong: a failed redownload could leave the only copy
-            # of a native at dest.old, and the next startup deleted it.
-            # How it happened: _atomic_replace_native renames dest aside, then
-            # if both the new replace and the restore fail, dest is missing.
-            # This sweep removed every .old file.
-            # Why this change: when dest is absent, rename the newest aside
-            # back and only then delete older asides.
+            # When dest is missing after a failed replace, restore the newest .old aside before deleting older backups so the only native copy is not lost.
             _generation, newest = asides[-1]
             try:
                 os.replace(newest, dest)
@@ -224,13 +218,7 @@ def _atomic_replace_native(partial_path: str, dest_path: str) -> None:
             try:
                 os.replace(aside, dest_path)
             except OSError:
-                # What was wrong: if restoring dest from the aside also failed,
-                # the exception propagated and the next startup sweep deleted
-                # the aside, which was the only remaining copy.
-                # How it happened: the restore os.replace was unguarded, and
-                # the sweep treated every .old file as disposable.
-                # Why this change: log the failed restore and leave the aside
-                # so the startup sweep can rename it back.
+                # Failed restore is logged and the .old aside is kept so startup recovery can still restore the native binary.
                 log.exception(
                     "Failed to restore %s after native replace failed; backup left at %s",
                     dest_path,
@@ -273,11 +261,7 @@ def _download_url_to_file(
     # and the background worker) clobber each other. mkstemp gives each
     # download its own partial file.
     fd, partial_path = tempfile.mkstemp(dir=dest_dir, suffix=".partial")
-    # Bugfix:
-    # What was wrong: fd was closed only by os.fdopen, which ran only after urlopen returned.
-    # How it happened: urlopen raises HTTPError, URLError, or timeout, and finally unlinks while
-    # the fd is still open — Windows then leaves the mkstemp partial because os.remove fails and is swallowed.
-    # Why this change: own the fd with with os.fdopen before the request so the with closes it before the unlink.
+    # os.fdopen wraps the download so the temp fd closes before unlink on failure; otherwise Windows can leave partial mkstemp files locked.
     try:
         digest = hashlib.sha256()
         with os.fdopen(fd, "wb") as fh:

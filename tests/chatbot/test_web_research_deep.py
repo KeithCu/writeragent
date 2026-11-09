@@ -2,10 +2,9 @@
 
 import threading
 import time
-
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 from plugin.chatbot.web_research_deep import (
     ResearchProgress,
@@ -21,6 +20,29 @@ from plugin.chatbot.web_research_deep import (
     run_deep_research,
 )
 from plugin.framework.errors import ToolExecutionError
+from plugin.framework.send_cancellation import SendCancellation
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
+
+
+def _research_config_side_effect(cfg_int, *, cache_enabled=True, cache_max_mb=50):
+    def side_effect(key: str):
+        if key == "chatbot.web_research_cache_enabled":
+            return cache_enabled
+        if key == "chatbot.web_cache_max_mb":
+            return cache_max_mb
+        if key == "chatbot.web_research_browser":
+            return "off"
+        if key == "chatbot.prompt_for_web_research":
+            return False
+        if key == "chat_max_tokens":
+            return 2048
+        return cfg_int(key)
+    return side_effect
 
 
 class TestDeepResearchParsers:
@@ -123,7 +145,7 @@ class TestDeepResearchParsers:
             {"query": "elevator physics", "researchGoal": "mass"},
             run_web_agent=lambda query, goal: "prose without a url",
             llm_chat=llm_chat,
-            stop_checker=lambda: False,
+            stop_checker=None,
             acc=_ResearchAccumulator(),
             progress=ResearchProgress(max_sub_queries=3),
             status_callback=None,
@@ -189,7 +211,7 @@ class TestRunDeepResearch:
             "topic",
             llm_chat=llm_chat,
             worker_factory=lambda: (run_web_agent, llm_chat, lambda: None),
-            stop_checker=lambda: True,
+            stop_checker=_cancelled_scope().is_cancelled,
             status_callback=None,
             breadth=1,
             max_rounds=1,
@@ -678,6 +700,28 @@ class TestRunDeepResearch:
         assert assess_called is False
 
 
+def _tool_execute_get_config(key: str):
+    if key == "chatbot.web_research_cache_enabled":
+        return True
+    if key == "chatbot.web_cache_max_mb":
+        return 50
+    if key == "chatbot.web_cache_validity_days":
+        return 30
+    if key == "chatbot.web_research_browser":
+        return "off"
+    if key == "chat_max_tokens":
+        return 2048
+    if key == "chatbot.max_tool_rounds":
+        return 15
+    if "breadth" in key:
+        return 4
+    if "depth" in key:
+        return 2
+    if "sub_agent" in key:
+        return 0
+    return 50
+
+
 class TestWebResearchExecuteDeepKwarg:
     @patch("plugin.chatbot.web_research._run_web_agent")
     def test_default_calls_run_web_agent_once(self, mock_run):
@@ -692,19 +736,15 @@ class TestWebResearchExecuteDeepKwarg:
         ctx.append_thinking_callback = None
         ctx.approval_callback = None
         ctx.chat_append_callback = None
-        ctx.stop_checker = None
         ctx.send_cancellation = None
 
         with (
             patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en", "english")),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
             patch("plugin.framework.config.user_config_dir", return_value=None),
-            patch("plugin.framework.config.get_config_int", side_effect=lambda key: 15 if "max_tool" in key else 50),
-            patch("plugin.framework.config.get_config_int_safe", return_value=0),
             patch("plugin.framework.config.get_api_config", return_value={}),
+            patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
             patch("plugin.framework.client.llm_client.LlmClient"),
             patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
-            patch("plugin.framework.config.get_config", return_value="off"),
         ):
             out = tool.execute(ctx, query="test query")
 
@@ -726,19 +766,15 @@ class TestWebResearchExecuteDeepKwarg:
         ctx.append_thinking_callback = None
         ctx.approval_callback = None
         ctx.chat_append_callback = None
-        ctx.stop_checker = None
         ctx.send_cancellation = None
 
         with (
             patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en", "english")),
-            patch("plugin.framework.config.get_config_bool_safe", return_value=False),
             patch("plugin.framework.config.user_config_dir", return_value=None),
-            patch("plugin.framework.config.get_config_int", side_effect=lambda key: 4 if "breadth" in key else (2 if "depth" in key else 15)),
-            patch("plugin.framework.config.get_config_int_safe", return_value=0),
             patch("plugin.framework.config.get_api_config", return_value={}),
+            patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
             patch("plugin.framework.client.llm_client.LlmClient"),
             patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
-            patch("plugin.framework.config.get_config", return_value="off"),
         ):
             out = tool.execute(ctx, query="deep topic", deep=True)
 
@@ -759,7 +795,6 @@ def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
     ctx.append_thinking_callback = None
     ctx.approval_callback = None
     ctx.chat_append_callback = None
-    ctx.stop_checker = None
     ctx.send_cancellation = None
     edited = "edited paris bistro"
     written: dict[str, str] = {}
@@ -773,12 +808,9 @@ def test_deep_change_writes_cache_under_the_edited_query(tmp_path):
         patch("plugin.chatbot.web_research._run_deep_web_research", return_value=("REPORT", edited)),
         patch("plugin.chatbot.web_research._write_research_cache", side_effect=_write),
         patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")),
-        patch("plugin.framework.config.get_config_bool_safe", return_value=True),
         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)),
-        patch("plugin.framework.config.get_config_int", return_value=30),
-        patch("plugin.framework.config.get_config_int_safe", return_value=50),
         patch("plugin.framework.config.get_api_config", return_value={}),
-        patch("plugin.framework.config.get_config", return_value="off"),
+        patch("plugin.framework.config.get_config", side_effect=_tool_execute_get_config),
         patch("plugin.framework.client.llm_client.LlmClient"),
         patch("plugin.chatbot.smol_agent.WriterAgentSmolModel"),
     ):
@@ -856,7 +888,8 @@ def test_chat_completion_sync_stop_checker_not_finish_reason():
     from plugin.framework.errors import ToolExecutionError
 
     client = LlmClient.__new__(LlmClient)
-    client._stopped = False
+    client._owned = SendCancellation()
+    client.stopped = lambda: client._owned.is_cancelled()
     messages = [{"role": "user", "content": "hi"}]
     seen: dict[str, object] = {}
 
@@ -866,30 +899,30 @@ def test_chat_completion_sync_stop_checker_not_finish_reason():
 
     client.request_with_tools = fake_request
 
-    def not_stopped() -> bool:
-        return False
-
     def stopped() -> bool:
-        return True
+        return client.stopped()
+
+    live_scope = SendCancellation()
+    cancelled_scope = _cancelled_scope()
 
     assert client.chat_completion_sync(messages) == "done"
-    assert client.chat_completion_sync(messages, stop_checker=not_stopped) == "done"
-    assert seen.get("stop_checker") is not_stopped
+    assert client.chat_completion_sync(messages, cancel=live_scope) == "done"
+    assert seen.get("cancel") is live_scope
 
     with pytest.raises(ToolExecutionError) as raised:
-        client.chat_completion_sync(messages, stop_checker=stopped)
+        client.chat_completion_sync(messages, cancel=cancelled_scope)
     assert raised.value.code == "USER_STOPPED"
 
-    # The latch alone is not a stop for callers that never passed a checker.
-    client._stopped = True
+    client._owned.cancel()
     assert client.chat_completion_sync(messages) == "done"
     with pytest.raises(ToolExecutionError) as raised_latch:
-        client.chat_completion_sync(messages, stop_checker=not_stopped)
+        client.chat_completion_sync(messages, cancel=live_scope)
     assert raised_latch.value.code == "USER_STOPPED"
 
 
 def _deep_preview_params(approval_callback):
     from plugin.chatbot.web_research import WebAgentRunParams
+    from plugin.framework.send_cancellation import SendCancellation
 
     api = MagicMock()
     api.config = {}
@@ -904,13 +937,12 @@ def _deep_preview_params(approval_callback):
         cache_max_mb=0,
         cache_max_age_days=30,
         cdp_url=None,
-        stop_checker=None,
         status_callback=None,
         append_thinking_callback=None,
         approval_callback=approval_callback,
         chat_append_callback=None,
         outer_query="topic",
-        cancellation_scope=object(),
+        cancel=SendCancellation(),
     )
 
 
@@ -921,8 +953,8 @@ def test_deep_preview_reject_stops_the_run():
         params = _deep_preview_params(lambda q, tool, args, decision=decision: decision)
         with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
              patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
-             patch("plugin.framework.config.get_config_int", return_value=1), \
-             patch("plugin.framework.config.get_config_int_safe", return_value=1):
+             patch("plugin.framework.config.get_config", return_value=1), \
+             patch("plugin.framework.config.get_config", return_value=1):
             out = _run_deep_web_research(MagicMock(), "topic", params)
         answer, used_query = out
         assert isinstance(answer, dict)
@@ -949,8 +981,8 @@ def test_deep_preview_approval_uses_edited_query():
 
     with patch("plugin.contrib.smolagents.default_tools.DuckDuckGoSearchTool") as ddg, \
          patch("plugin.chatbot.web_research_deep.run_deep_research", return_value="report") as run_deep, \
-         patch("plugin.framework.config.get_config_int", return_value=1), \
-         patch("plugin.framework.config.get_config_int_safe", return_value=1), \
+         patch("plugin.framework.config.get_config", return_value=1), \
+         patch("plugin.framework.config.get_config", return_value=1), \
          patch("plugin.framework.client.llm_client.LlmClient", return_value=MagicMock()), \
          patch("plugin.chatbot.smol_agent.WriterAgentSmolModel", return_value=MagicMock()), \
          patch("plugin.chatbot.web_research._run_web_agent", side_effect=_capture_agent):
@@ -970,20 +1002,23 @@ def test_deep_preview_approval_uses_edited_query():
 class _RecordingClient:
     instances: list["_RecordingClient"] = []
 
-    def __init__(self, config, ctx, cancellation_scope=None):
+    def __init__(self, config, ctx, cancel=None):
         self.config = config
         self.ctx = ctx
-        self.cancellation_scope = cancellation_scope
-        self._stopped = False
+        self.cancel = cancel
+        self._owned = SendCancellation()
         self.kinds: list[str] = []
-        self.saw_stop_checker = False
+        self.saw_cancel = False
         _RecordingClient.instances.append(self)
 
     def stop(self):
-        self._stopped = True
+        self._owned.cancel()
+
+    def stopped(self) -> bool:
+        return self._owned.is_cancelled()
 
     def chat_completion_sync(self, messages, max_tokens=512, **kwargs):
-        self.saw_stop_checker = "stop_checker" in kwargs
+        self.saw_cancel = "cancel" in kwargs
         combined = "\n".join(str(m.get("content") or "") for m in messages)
         if "extract key learnings" in combined:
             self.kinds.append("extract")
@@ -1027,32 +1062,27 @@ def _execute_deep_with_recording_client(tmp_path, *, extract_raises: bool, synth
     ctx.append_thinking_callback = None
     ctx.approval_callback = None
     ctx.chat_append_callback = None
-    ctx.stop_checker = lambda: False
-    scope = object()
+    from plugin.framework.send_cancellation import SendCancellation
+
+    scope = SendCancellation()
     ctx.send_cancellation = scope
 
     def _cfg_int(key):
-        if key == "web_cache_validity_days":
+        if key == "chatbot.web_cache_validity_days":
             return 30
         if "breadth" in key:
             return 1
-        if key == "web_cache_max_mb":
+        if key == "chatbot.web_cache_max_mb":
             return 50
-        return 8
-
-    def _cfg_int_safe(key):
         if "max_rounds" in key:
             return 1
         if "sub_agent" in key:
             return 0
-        return 50
+        return 8
 
-    with patch("plugin.framework.config.get_config_bool_safe", return_value=True), \
-         patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
-         patch("plugin.framework.config.get_config_int", side_effect=_cfg_int), \
-         patch("plugin.framework.config.get_config_int_safe", side_effect=_cfg_int_safe), \
+    with patch("plugin.framework.config.user_config_dir", return_value=str(tmp_path)), \
+         patch("plugin.framework.config.get_config", side_effect=_research_config_side_effect(_cfg_int)), \
          patch("plugin.framework.config.get_api_config", return_value={"model": "test-model"}), \
-         patch("plugin.framework.config.get_config", return_value="off"), \
          patch("plugin.chatbot.web_research_cache.resolve_research_locale", return_value=("en_US", "english")), \
          patch("plugin.chatbot.web_research_cache._research_cache_embedding_configured", return_value=False), \
          patch("plugin.framework.client.llm_client.LlmClient", _RecordingClient), \
@@ -1082,12 +1112,12 @@ def test_user_stopped_during_sub_query_or_synthesis_is_not_cached(tmp_path):
         assert len(instances) >= 2
         parent = instances[0]
         workers = instances[1:]
-        assert parent.cancellation_scope is scope
-        assert all(worker.cancellation_scope is scope for worker in workers)
+        assert parent.cancel is scope
+        assert all(worker.cancel is scope for worker in workers)
         assert all(worker.config is parent.config for worker in workers)
         assert "extract" not in parent.kinds
         assert any("extract" in worker.kinds for worker in workers)
-        assert parent.saw_stop_checker
+        assert parent.saw_cancel
         if synth_raises:
             assert "synth" in parent.kinds
         else:
@@ -1114,7 +1144,7 @@ def test_process_one_sub_query_extracts_unique_urls_from_context():
         {"query": "links", "researchGoal": "links"},
         run_web_agent=lambda _query, _goal: "see https://a.test/1 and https://b.test/2 and https://a.test/1",
         llm_chat=lambda _messages, _max=0: '{"learnings": []}',
-        stop_checker=lambda: False,
+        stop_checker=None,
         acc=_ResearchAccumulator(),
         progress=ResearchProgress(max_sub_queries=3),
         status_callback=None,

@@ -22,8 +22,9 @@ import re
 from xml.etree import ElementTree as ET  # nosemgrep: use-defused-xml  # local .xlsx ZIP parts
 from typing import TYPE_CHECKING, Any, Callable, Sequence
 
+from plugin.calc.address_utils import canonical, is_cell_token
 from plugin.calc.excel_py_convert.ooxml_util import find_all, find_child
-from plugin.calc.python.formula_edit import rebuild_python_formula_with_code_ref, rebuild_python_formula_with_data
+from plugin.calc.python.formula_edit import PyFormula
 
 if TYPE_CHECKING:
     import zipfile
@@ -46,7 +47,6 @@ CODE_SHEET_NOTE = (
     "Enable shared-kernel session mode for multi-cell Excel scripts."
 )
 
-_RE_A1 = re.compile(r"^\$?([A-Za-z]+)\$?(\d+)$")
 _SAFE_SHEET = re.compile(r"[^\w]+", re.UNICODE)
 # Binding-only sandbox xl accepts "%Pn%" strings (same as excel_xl.make_xl).
 _P_TOKEN_RE = re.compile(r"^%P(\d+)%$", re.IGNORECASE)
@@ -69,15 +69,6 @@ def code_sheet_name_for(source_sheet: str) -> str:
     return f"{CODE_SHEET_PREFIX}{safe[:budget]}_{digest}"
 
 
-def normalize_bank_a1(cell: str) -> str:
-    """Strip ``$``; return uppercase A1 (``H4``)."""
-    raw = (cell or "").replace("$", "").strip()
-    m = _RE_A1.match(raw)
-    if not m:
-        raise ValueError(f"invalid bank A1 address: {cell!r}")
-    return f"{m.group(1).upper()}{m.group(2)}"
-
-
 def resolve_bank_cell_reference(
     code: str,
     lookup_fn: Callable[[str, str], str | None],
@@ -90,12 +81,14 @@ def resolve_bank_cell_reference(
     m = BANK_REF_RE.match(code.strip())
     if not m:
         return None
-    return lookup_fn(m.group(1), normalize_bank_a1(m.group(2)))
+    return lookup_fn(m.group(1), canonical(m.group(2)))
 
 
 def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) -> str:
     """Sheet-qualified ref: ``py_code_Pivots.H4`` or ``py_code_Pivots!H4``."""
-    a1 = normalize_bank_a1(cell_a1)
+    if not is_cell_token(cell_a1):
+        raise ValueError(f"invalid bank A1 address: {cell_a1!r}")
+    a1 = canonical(cell_a1)
     sheet = code_sheet_name_for(source_sheet)
     sep = "!" if excel_bang else "."
     return f"{sheet}{sep}{a1}"
@@ -103,7 +96,7 @@ def code_bank_ref(source_sheet: str, cell_a1: str, *, excel_bang: bool = False) 
 
 def should_inline_code(code: str, data_args: Sequence[str] = ()) -> bool:
     """True when the escaped ``=PY("…")`` formula for *code* fits Calc ``MAXSTRLEN`` (budget 1000)."""
-    return len(rebuild_python_formula_with_data(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
+    return len(PyFormula.compose(code or "", list(data_args))) <= INLINE_CODE_MAX_CHARS
 
 
 def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";") -> str:
@@ -115,13 +108,14 @@ def formula_for_converted_cell(cell: ConvertedCell, *, separator: str = ";") -> 
     args = list(cell.data_args)
     excel_syntax = separator == ","
     if should_inline_code(cell.converted_code, args):
-        return rebuild_python_formula_with_data(cell.converted_code, args, separator=separator)
+        return PyFormula.compose(cell.converted_code, args, separator=separator)
     if not cell.cell or not cell.sheet:
         raise ValueError(f"script too long ({len(cell.converted_code)} chars) to inline")
     try:
-        return rebuild_python_formula_with_code_ref(
+        return PyFormula.compose(
             code_bank_ref(cell.sheet, cell.cell, excel_bang=excel_syntax),
             args,
+            code_is_ref=True,
             separator=separator,
         )
     except ValueError as exc:
@@ -139,11 +133,10 @@ def collect_script_bank(report: ConversionReport) -> tuple[dict[str, dict[str, s
             continue
         if should_inline_code(cell.converted_code, cell.data_args):
             continue
-        try:
-            a1 = normalize_bank_a1(cell.cell)
-        except ValueError as exc:
-            warnings.append(f"{cell.sheet}!{cell.cell}: {exc}")
+        if not is_cell_token(cell.cell):
+            warnings.append(f"{cell.sheet}!{cell.cell}: invalid bank A1 address: {cell.cell!r}")
             continue
+        a1 = canonical(cell.cell)
         code_sheet = code_sheet_name_for(cell.sheet)
         # Two source sheets that sanitize to the same py_code_* bank name
         # fail the conversion. A per-cell warning that keeps the first

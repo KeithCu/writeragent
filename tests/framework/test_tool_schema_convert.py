@@ -214,6 +214,72 @@ def test_optional_scalar_nullable_mcp():
     props = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
     assert props["max_chars"]["type"] == ["integer", "null"]
     assert props["document_url"]["type"] == ["string", "null"]
+    assert props["scope"]["type"] == "string"
+    assert None not in props["scope"].get("enum", [])
+    assert "full" in props["scope"]["enum"]
+
+
+@pytest.mark.parametrize(
+    "schema_fn,scope_type,scope_enum",
+    [
+        ("openai", ["string", "null"], lambda e: None in e and "full" in e),
+        ("mcp", "string", lambda e: None not in e and "full" in e),
+    ],
+)
+def test_optional_enum_nullable_openai_vs_mcp(schema_fn, scope_type, scope_enum):
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    tool = GetDocumentContent()
+    if schema_fn == "openai":
+        props = to_openai_schema(tool)["function"]["parameters"]["properties"]
+    else:
+        props = to_mcp_schema(tool)["inputSchema"]["properties"]
+    assert props["scope"]["type"] == scope_type
+    assert scope_enum(props["scope"].get("enum", []))
+    assert props["max_chars"]["type"] == ["integer", "null"]
+
+
+def test_mcp_optional_enum_nested_object():
+    params = {
+        "type": "object",
+        "properties": {
+            "outer": {
+                "type": "object",
+                "properties": {
+                    "inner_scope": {"type": "string", "enum": ["a", "b"]},
+                },
+            },
+        },
+    }
+    mcp = _normalize_schema_for_strict_providers(params, for_mcp=True)
+    inner = mcp["properties"]["outer"]["properties"]["inner_scope"]
+    assert inner["type"] == "string"
+    assert inner["enum"] == ["a", "b"]
+    assert None not in inner["enum"]
+
+
+def test_mcp_writer_optional_enums_no_null_in_enum():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
+    from plugin.writer.outline import GetDocumentTree
+    from plugin.writer.styles import ApplyStyle
+
+    def assert_mcp_string_enum(props, key):
+        prop = props[key]
+        assert prop["type"] == "string", key
+        assert None not in prop.get("enum", []), key
+
+    adc = to_mcp_schema(ApplyDocumentContent())["inputSchema"]["properties"]
+    assert_mcp_string_enum(adc, "position")
+    assert_mcp_string_enum(adc, "target")
+    sty = to_mcp_schema(ApplyStyle())["inputSchema"]["properties"]
+    assert_mcp_string_enum(sty, "target")
+    assert_mcp_string_enum(sty, "clear_direct")
+    assert_mcp_string_enum(sty, "family")
+    gdc = to_mcp_schema(GetDocumentContent())["inputSchema"]["properties"]
+    assert_mcp_string_enum(gdc, "scope")
+    gdt = to_mcp_schema(GetDocumentTree())["inputSchema"]["properties"]
+    assert_mcp_string_enum(gdt, "strategy")
 
 
 def test_required_scalar_not_nullable():
@@ -287,7 +353,7 @@ def test_empty_properties_strips_kwargs_before_any_provider():
     tools = [{
         "type": "function",
         "function": {
-            "name": "list_sheets",
+            "name": "sheet_list",
             "parameters": {"type": "object", "properties": {}},
         },
     }]
@@ -296,7 +362,7 @@ def test_empty_properties_strips_kwargs_before_any_provider():
         "tool_calls": [{
             "id": "c1",
             "type": "function",
-            "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+            "function": {"name": "sheet_list", "arguments": '{"hallucinated": "yes"}'},
         }],
     }]
     out = normalize_outbound_tool_calls(messages, tools)
@@ -311,7 +377,7 @@ def test_normalize_outbound_accepts_tuple_messages_and_tools():
     tools = ({
         "type": "function",
         "function": {
-            "name": "list_sheets",
+            "name": "sheet_list",
             "parameters": {"type": "object", "properties": {}},
         },
     },)
@@ -320,7 +386,7 @@ def test_normalize_outbound_accepts_tuple_messages_and_tools():
         "tool_calls": [{
             "id": "c1",
             "type": "function",
-            "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+            "function": {"name": "sheet_list", "arguments": '{"hallucinated": "yes"}'},
         }],
     },)
     out = normalize_outbound_tool_calls(messages, tools)
@@ -368,26 +434,40 @@ def test_coerce_call_args_wraps_array_range_and_formula_values():
 
     props = {
         "range": {"type": "array", "items": {"type": "string"}},
-        "values": {"type": "string"},
+        "values": {
+            "type": ["string", "array", "null"],
+            "items": {
+                "type": ["array", "string", "number", "boolean", "null"],
+                "items": {"type": ["string", "number", "boolean", "null"]},
+            },
+        },
     }
     out = coerce_call_args("write_formula_range", props, {"range": "A1", "values": ["a", 1]})
     assert out["range"] == ["A1"]
-    assert out["values"] == '["a", 1]'
+    assert out["values"] == ["a", 1]
+    empty = coerce_call_args("write_formula_range", props, {"range": "A1", "values": []})
+    assert empty["values"] == []
+    number = coerce_call_args("write_formula_range", props, {"range": "A1", "values": 3})
+    assert number["values"] == "3"
     plain = coerce_call_args("other", {"range": {"type": "string"}}, {"range": "A1"})
     assert plain["range"] == "A1"
 
 
-def test_write_formula_range_mcp_widens_values_to_string_or_array():
-    """#374 Bug 2: MCP hosts reject native arrays when schema is string-only."""
+def test_write_formula_range_values_schema_string_array_union():
+    """Chat and MCP share the source values union (same guard as apply_document_content)."""
     from plugin.calc.cells import WriteCellRange
 
     tool = WriteCellRange()
     openai = to_openai_schema(tool)["function"]["parameters"]["properties"]["values"]
     mcp = to_mcp_schema(tool)["inputSchema"]["properties"]["values"]
-    # values is optional (source-only copy); strict providers get string|null.
-    assert openai["type"] == ["string", "null"]
-    assert mcp["type"] == ["string", "array"]
-    assert mcp["items"]["type"] == ["string", "number"]
+    item_types = ["array", "string", "number", "boolean", "null"]
+    for schema in (openai, mcp):
+        assert schema["type"] == ["string", "array", "null"]
+        assert schema["items"]["type"] == item_types
+        assert schema["items"]["items"]["type"] == ["string", "number", "boolean", "null"]
+    dumped = json.dumps(to_openai_schema(tool))
+    assert "anyOf" not in dumped
+    assert "oneOf" not in dumped
     openai_params = to_openai_schema(tool)["function"]["parameters"]
     assert "source" in openai_params["properties"]
     assert openai_params["required"] == ["range"]
@@ -418,8 +498,8 @@ def test_mcp_string_range_stays_string():
     assert nested["type"] == "string"
 
 
-def test_list_conditional_formats_range_is_array_mcp_widens():
-    """list_conditional_formats uses the same array range schema as other Calc tools."""
+def test_conditional_formatting_list_range_is_array_mcp_widens():
+    """conditional_formatting_list uses the same array range schema as other Calc tools."""
     from plugin.calc.conditional import ListConditionalFormats
 
     tool = ListConditionalFormats()
@@ -494,7 +574,7 @@ def test_set_style_schema_omits_number_format_but_scripting_may_pass_it():
     ctx.read_only_target = False
     ctx.uno_services_supported = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
     with patch.object(tool, "execute_safe", return_value={"status": "ok"}) as exe, patch(
-        "plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()
+        "plugin.framework.tool.main.call", side_effect=lambda fn: fn()
     ):
         # Unknown LLM keys still stripped; scripting_only number_format is preserved.
         registry.execute(
@@ -527,7 +607,7 @@ def test_set_style_strips_number_format_for_non_script_callers(caller):
     ctx.read_only_target = False
     ctx.uno_services_supported = frozenset({"com.sun.star.sheet.SpreadsheetDocument"})
     with patch.object(tool, "execute_safe", return_value={"status": "ok"}) as exe, patch(
-        "plugin.framework.tool.execute_on_main_thread", side_effect=lambda fn: fn()
+        "plugin.framework.tool.main.call", side_effect=lambda fn: fn()
     ):
         registry.execute(
             "set_style",

@@ -18,8 +18,8 @@ import os
 from typing import Any, cast
 
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.doc.doc_type import is_calc, is_draw, is_writer
-from plugin.scripting.client import run_viz as client_run_viz
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
+from plugin.scripting.helper_registry import names
 from plugin.scripting.payload_codec import (
     find_image_payloads,
     is_image_payload,
@@ -32,92 +32,41 @@ from plugin.framework.i18n import _
 
 log = logging.getLogger(__name__)
 
-from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
-
 _DRAW_PLOT_SIZE = (400, 300)
 
-_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "quick_plot": {},
-    "correlation_heatmap": {"method": "pearson"},
-    "time_series_plot": {"date_col": "Date", "value_col": "Amount"},
-}
-
-_HELPER_DESCRIPTIONS: dict[str, str] = {
-    "quick_plot": "Auto line/bar chart of one numeric column in the data range.",
-    "correlation_heatmap": "Heatmap of pairwise correlations (matplotlib/seaborn).",
-    "time_series_plot": "Line plot for date_col vs value_col.",
-}
-
-_VIZ_VENV_EXPORTS = frozenset(HELPER_NAMES) | {"run_viz"}
+_VIZ_VENV_EXPORTS = names("viz") | {"run_viz"}
 
 install_lazy_exports(globals(), "viz", _VIZ_VENV_EXPORTS)
 
 
 # --- Templates ---
 
-from plugin.scripting.helper_domain import DomainFacadeConfig, run_trusted_calc_data_helper
+
+def get_viz_script_templates() -> dict[str, str]:
+    from plugin.scripting.domain_registry import get_domain_wiring
+
+    return get_domain_wiring("viz").templates()
 
 
-_API = DomainFacadeConfig(
-    tag="viz",
-    helper_names=HELPER_NAMES,
-    default_params=_DEFAULT_PARAMS,
-    descriptions=_HELPER_DESCRIPTIONS,
-    import_module="writeragent.scripting.viz",
-    run_name="run_viz",
-    shipped_templates=HELPER_NAMES - {"plot_data"},
-    leading_data=True,
-    extra_comment_lines=("# Set the data range in the toolbar (or select cells), then Run.",),
-)
+def parse_viz_script_header(code: str) -> Any:
+    from plugin.scripting.domain_registry import get_domain_wiring
 
-get_viz_script_templates = _API.get_templates
-parse_viz_script_header = _API.parse_header
-
-
-# --- Runner ---
-
-
-def run_trusted_viz(
-    uno_ctx: Any,
-    doc: Any,
-    *,
-    helper: str,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    """Fetch Calc data and run a trusted viz helper in the user venv."""
-    return run_trusted_calc_data_helper(
-        uno_ctx,
-        doc,
-        helper=helper,
-        helper_names=HELPER_NAMES,
-        error_code="VIZ_ERROR",
-        empty_data_message="No data to plot",
-        client_run=client_run_viz,
-        require_calc_or_writer=True,
-        **kwargs,
-    )
+    return get_domain_wiring("viz").parse_header(code)
 
 
 # --- Egress ---
 
 def is_viz_result(value: Any) -> bool:
     """True when *value* matches the compact viz helper result contract."""
-    # A nested image inside some other helper used to claim the whole result
-    # as a plot, so later domains never ran.
+    # Require viz helper name or top-level image contract so a nested image dict inside another helper does not skip later domain handlers.
     if not isinstance(value, dict) or "status" not in value:
         return False
     helper = value.get("helper")
-    return (isinstance(helper, str) and helper in HELPER_NAMES) or is_image_payload(value.get("image"))
+    return (isinstance(helper, str) and helper in names("viz")) or is_image_payload(value.get("image"))
 
 
 def _unlink_plot_temp(path: str) -> None:
-    # What was wrong: Writer and Draw plot insert wrote a temp file and returned,
-    # so each insert leaked one SVG/PNG.
-    # How: GraphicURL embeds before it returns, and a path under the temp directory
-    # is not linked (_should_link_image_path).
-    # Why this fixes it: this function owns the path it just wrote, so finally
-    # unlinks it even when insert raises. Calc unlinks in image_egress.
-    # PlotDataTool's returned image_path is a different call and stays.
+    # Unlinks the temp plot file after embed because Writer/Draw paths under the system temp dir are not linked elsewhere; without unlink, each insert leaks an SVG/PNG.
     try:
         os.unlink(path)
     except OSError:
@@ -188,7 +137,7 @@ def _images_claimed_as_plot(result_data: Any) -> list[dict[str, Any]]:
         return []
     if isinstance(result_data, dict):
         helper = result_data.get("helper")
-        if isinstance(helper, str) and helper in HELPER_NAMES:
+        if isinstance(helper, str) and helper in names("viz"):
             return find_image_payloads(result_data)
         image = result_data.get("image")
         if is_image_payload(image):

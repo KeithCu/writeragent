@@ -15,8 +15,8 @@ from plugin.calc.address_utils import format_range_address, qualify_a1, split_sh
 from plugin.calc.base import ToolCalcPythonSqlBase
 from plugin.calc.calc_addin_data import check_python_data_size
 from plugin.doc.document_research import get_document_directory, resolve_listing_directory, open_document_for_read, close_document_research_document
-from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposed_exception, uno_probe
-from plugin.framework.queue_executor import execute_on_main_thread
+from plugin.framework.errors import CalcError, ToolExecutionError, UnoObjectError, format_error_payload, is_disposal, uno_read
+from plugin.framework.queue_executor import main
 from plugin.scripting.config_limits import configured_python_max_data_cells
 from plugin.scripting.venv.duckdb_sql import (
     FLAT_FILE_EXTS,
@@ -123,7 +123,6 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
 
         task_hint = str(kwargs.get("task_hint") or "") or None
 
-        from plugin.framework.thread_guard import on_main_thread
         from plugin.scripting.client import run_folder_sql
 
         def _load_sql_inputs() -> dict[str, Any]:
@@ -171,8 +170,7 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
                     raise ToolExecutionError(f"Folder file {bn!r} was not found under the document folder", code="MISSING_FILE")
                 if ext in EXCEL_EXTENSIONS + (".ods",):
                     # Office files that exist must preload or fail loud. A silent
-                    # (None, None) skip used to append the basename to direct_files
-                    # so SQL ran without the table and looked like a missing FROM.
+                    # (None, None) skip must not treat the basename as a flat file without a loaded table.
                     office_grid = _read_sibling_office_file_as_grid(ctx.ctx, full_path, file_spec)
                     preloaded[table_name] = {"grid": office_grid, "headers": headers}
                     continue
@@ -195,15 +193,15 @@ class QueryFolderSqlTool(ToolCalcPythonSqlBase):
         # Hop only the UNO preload when the caller is a worker; the IPC
         # stays on this thread. One function that both reads the sheets and
         # calls run_folder_sql pushes the SQL and the venv IPC onto the UI
-        # thread via execute_on_main_thread and freezes Calc. Callers that
+        # thread via main.call and freezes Calc. Callers that
         # are already on main (tests, sync entry) run the preload inline so
         # they do not deadlock the UI thread.
         try:
-            if on_main_thread():
+            if main.is_current():
                 prepared = _load_sql_inputs()
             else:
-                # execute_on_main_thread is typed Any; _load_sql_inputs returns this dict.
-                prepared = cast("dict[str, Any]", execute_on_main_thread(_load_sql_inputs))
+                # main.call is typed Any; _load_sql_inputs returns this dict.
+                prepared = cast("dict[str, Any]", main.call(_load_sql_inputs))
         except ToolExecutionError as exc:
             return format_error_payload(exc)
 
@@ -268,7 +266,7 @@ def parse_table_source_spec(spec: Any, *, default_headers: bool = True) -> dict[
 def _container_element_names(container: Any) -> list[str]:
     if container is None or not hasattr(container, "getElementNames"):
         return []
-    return uno_probe(lambda: [str(n) for n in container.getElementNames()], [])
+    return uno_read(lambda: [str(n) for n in container.getElementNames()], [])
 
 
 def _available_named_sources(doc: Any) -> str:
@@ -300,10 +298,10 @@ def _range_address_to_qualified_a1(doc: Any, addr: Any) -> str:
 
 
 def _named_object_to_qualified_a1(doc: Any, obj: Any, *, label: str) -> str:
-    cells = uno_probe(lambda: obj.getReferredCells(), None)
+    cells = uno_read(lambda: obj.getReferredCells(), None)
     addr = cells.getRangeAddress() if cells is not None and hasattr(cells, "getRangeAddress") else None
     if addr is None:
-        addr = uno_probe(lambda: obj.getDataArea(), None)
+        addr = uno_read(lambda: obj.getDataArea(), None)
     if addr is None:
         raise ToolExecutionError(f"{label} does not refer to a cell range", code="DUCKDB_SQL_ERROR")
     return _range_address_to_qualified_a1(doc, addr)
@@ -393,14 +391,14 @@ def _source_is_open_workbook(ctx: Any, full_path: str) -> bool:
     from plugin.framework.uno_context import resolve_document_by_url
 
     url = uno.systemPathToFileUrl(os.path.normpath(os.path.abspath(full_path)))
-    return uno_probe(lambda: resolve_document_by_url(ctx, url)[0] is not None, False)
+    return uno_read(lambda: resolve_document_by_url(ctx, url)[0] is not None, False)
 
 
 def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
     """Save As ODS to *dest* (atomic replace via a ``.partial`` sibling)."""
     import uno
 
-    from plugin.writer.format import create_property_value
+    from plugin.framework.uno_context import create_property_value
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Unique per writer: a fixed ".partial" name let two cache writes unlink
@@ -410,7 +408,7 @@ def _export_model_to_cached_ods(model: Any, dest: Path) -> None:
         url = uno.systemPathToFileUrl(str(tmp.resolve()))
         props = (create_property_value("FilterName", "calc8"), create_property_value("Overwrite", True))
         model.storeToURL(url, props)
-        # Bugfix: a storeToURL that wrote nothing used to be published as a hit.
+        # Empty storeToURL output must fail—do not publish a zero-byte cache file.
         if not tmp.is_file() or tmp.stat().st_size == 0:
             raise OSError(f"storeToURL wrote no data to {tmp}")
         os.replace(str(tmp), str(dest))
@@ -427,9 +425,9 @@ def _resolve_sibling_open_path(ctx: Any, full_path: str) -> tuple[str, bool, Ods
     Cache only ``.xlsx``/``.xls`` that are not already open. Native ``.ods``
     and the live workbook always open the source path.
     """
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    if not is_cacheable_office_source(full_path) or not get_config_bool_safe("calc.ods_cache_enabled"):
+    if not is_cacheable_office_source(full_path) or not get_config("calc.ods_cache_enabled"):
         return full_path, False, None
     if _source_is_open_workbook(ctx, full_path):
         return full_path, False, None
@@ -452,8 +450,7 @@ def _maybe_write_ods_cache(model: Any, full_path: str, *, opened_flag: bool, ent
     try:
         _export_model_to_cached_ods(model, entry.ods)
         if cache_entry(full_path) != entry:
-            # Bugfix: the source changed while it was imported; this ODS holds
-            # the old content, so a sidecar would make the next lookup stale.
+            # Source changed during import—drop partial ODS so the sidecar cannot serve stale grids.
             log.debug("ODS cache write skipped: source changed during import: %s", full_path)
             try:
                 entry.ods.unlink(missing_ok=True)
@@ -510,7 +507,7 @@ def _read_sibling_office_file_as_grid(ctx: Any, full_path: str, parsed: dict[str
     except ToolExecutionError:
         raise
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         raise _sibling_office_error(full_path, f"failed to read used range: {exc}") from exc
     finally:

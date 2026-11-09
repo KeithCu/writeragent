@@ -1,17 +1,20 @@
 """LibrePy bootstrap registers Settings and Run Python Script handlers."""
 
 import sys
-from unittest.mock import MagicMock
+import threading
+from unittest.mock import MagicMock, patch
 
 
+import plugin.bootstrap as bootstrap
+from plugin.framework.errors import WriterAgentException
 from plugin.framework.main_shared import get_action_handler
 
 
 def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
     import plugin.main_core as main_core
 
-    main_core._initialized = False
-    main_core._bootstrapping = False
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
     monkeypatch.setattr(
@@ -31,15 +34,15 @@ def test_bootstrap_registers_settings_and_run_python(monkeypatch) -> None:
         assert get_action_handler("main.settings") is not None
         assert get_action_handler("scripting.run_python_dialog") is not None
     finally:
-        main_core._initialized = False
-        main_core._bootstrapping = False
+        bootstrap.mark_uninitialized()
+        bootstrap.clear_bootstrap_error()
 
 
 def test_bootstrap_defers_settings_import(monkeypatch) -> None:
     import plugin.main_core as main_core
 
-    main_core._initialized = False
-    main_core._bootstrapping = False
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
     monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
     monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
     monkeypatch.setattr(
@@ -60,15 +63,15 @@ def test_bootstrap_defers_settings_import(monkeypatch) -> None:
         assert get_action_handler("main.settings") is not None
         assert get_action_handler("scripting.run_python_dialog") is not None
     finally:
-        main_core._initialized = False
-        main_core._bootstrapping = False
+        bootstrap.mark_uninitialized()
+        bootstrap.clear_bootstrap_error()
 
 
 def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
     import plugin.main_core as main_core
 
-    main_core._initialized = False
-    main_core._bootstrapping = False
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
 
     calls = 0
 
@@ -96,13 +99,12 @@ def test_bootstrap_reentry_returns_without_lock(monkeypatch) -> None:
     try:
         main_core.bootstrap(MagicMock())
         assert calls == 1
-        assert main_core._initialized is True
-        assert main_core._bootstrapping is False
+        assert bootstrap.bootstrap_initialized()
         assert not hasattr(main_core, "_init_lock")
         assert not hasattr(main_core, "_DISPATCH_PROTOCOL")
     finally:
-        main_core._initialized = False
-        main_core._bootstrapping = False
+        bootstrap.mark_uninitialized()
+        bootstrap.clear_bootstrap_error()
 
 
 def test_execute_inits_logging_before_bootstrap(monkeypatch) -> None:
@@ -183,7 +185,7 @@ def test_dispatch_command_reports_handler_failure(monkeypatch) -> None:
     monkeypatch.setattr("plugin.main_core.report_action_failure", fake_report)
     monkeypatch.setattr(main_core, "bootstrap", lambda _ctx: None)
 
-    def bad_handler():
+    def bad_handler(_frame=None):
         raise RuntimeError("boom")
 
     register_action_handler("test", "action", bad_handler)
@@ -250,4 +252,104 @@ def test_dispatch_survives_report_failure(monkeypatch) -> None:
     monkeypatch.setattr(main_core, "_dispatch_command", boom)
     # Must not raise
     handler.dispatch(url, ())
+
+
+def test_calc_menu_failure_does_not_abort_handlers_or_notebook_wiring(monkeypatch) -> None:
+    import plugin.main_core as main_core
+
+    bootstrap.mark_uninitialized()
+    bootstrap.clear_bootstrap_error()
+    monkeypatch.setattr("plugin.framework.config.init_config", lambda _ctx: None)
+    monkeypatch.setattr("plugin.framework.i18n.init_i18n", lambda _ctx: None)
+    monkeypatch.setattr(
+        "plugin.scripting.native_binaries.ensure_native_binaries_on_path",
+        lambda: None,
+    )
+
+    def raising_calc_menu(_ctx):
+        raise RuntimeError("calc menu exploded")
+
+    monkeypatch.setattr(
+        "plugin.calc.python.editor_context_menu.install_calc_cell_context_menu",
+        raising_calc_menu,
+    )
+    notebook_wired = []
+    monkeypatch.setattr(
+        "plugin.notebook.notebook_controls.install_notebook_run_button_wiring",
+        lambda _ctx: notebook_wired.append(True),
+    )
+    try:
+        main_core.bootstrap(MagicMock())
+        assert get_action_handler("scripting.run_python_dialog") is not None
+        assert notebook_wired == [True]
+    finally:
+        bootstrap.mark_uninitialized()
+        bootstrap.clear_bootstrap_error()
+
+
+def test_bootstrap_off_main_thread_raises():
+    """Calling bootstrap off-thread when uninitialized raises BOOTSTRAP_OFF_THREAD."""
+    import plugin.main_core as main_core
+
+    bootstrap.mark_uninitialized()
+    caught: list[Exception] = []
+
+    def run_boot():
+        try:
+            main_core.bootstrap(MagicMock())
+        except Exception as exc:
+            caught.append(exc)
+
+    t = threading.Thread(target=run_boot)
+    t.start()
+    t.join()
+
+    assert len(caught) == 1
+    assert isinstance(caught[0], WriterAgentException)
+    assert caught[0].code == "BOOTSTRAP_OFF_THREAD"
+    assert not bootstrap.bootstrap_initialized()
+
+
+def test_librepy_bootstrap_finish_arms_webview_probe():
+    """_librepy_bootstrap_finish arms exactly one webview probe on background pool."""
+    import plugin.main_core as main_core
+    from plugin.scripting import editor_host
+
+    editor_host.reset_webview_probe_state()
+    ctx = MagicMock()
+    try:
+        with (
+            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
+            patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
+        ):
+            main_core._librepy_bootstrap_finish(ctx)
+            probe_calls = [c for c in mock_bg.call_args_list if c[1].get("name") == "webview-probe"]
+            assert len(probe_calls) == 1
+            assert probe_calls[0][0][0] == editor_host._webview_probe_worker
+    finally:
+        editor_host.reset_webview_probe_state()
+
+
+def test_librepy_bootstrap_finish_skips_webview_probe_under_eval_harness(monkeypatch):
+    """_librepy_bootstrap_finish does not arm webview probe under Policy.eval_harness."""
+    import plugin.main_core as main_core
+    from plugin.framework.queue_executor import MainThread, Policy
+    from plugin.scripting import editor_host
+
+    editor_host.reset_webview_probe_state()
+    ctx = MagicMock()
+    monkeypatch.setattr(MainThread, "_policy", Policy.eval_harness)
+    try:
+        with (
+            patch("plugin.framework.config.get_config", return_value=False),
+            patch("plugin.scripting.editor_host.resolve_editor_python", return_value=("/fake/python", "")),
+            patch("plugin.scripting.editor_host.run_in_background") as mock_bg,
+        ):
+            main_core._librepy_bootstrap_finish(ctx)
+            mock_bg.assert_not_called()
+    finally:
+        editor_host.reset_webview_probe_state()
+
+
 

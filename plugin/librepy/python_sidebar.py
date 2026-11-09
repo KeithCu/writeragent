@@ -14,22 +14,20 @@ from plugin.calc.navigation import navigate_to_cell
 from plugin.calc.python.cell_discovery import PythonCellInfo, list_python_cells_in_doc
 from plugin.calc.python.diagnostics import DiagnosticEntry, DiagnosticFilter, diagnostics_detail_text, get_diagnostics_store
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_visible, translate_dialog
-from plugin.framework.config import get_config_str
+from plugin.framework.config import get_config
 from plugin.framework.i18n import _
 from plugin.framework.main_shared import get_action_handler
-from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.thread_guard import guard_uno
 from plugin.framework.uno_listeners import BaseActionListener, BaseActivationEventListener, BaseItemListener, BaseWindowListener
-from plugin.doc.doc_type import is_calc
+from plugin.framework.doc_type import is_calc
 from plugin.scripting.sandbox import resolve_venv_python
 from plugin.librepy.sidebar_menus import HEADER_BUTTON_IDS, invoke_action_handler, wire_sidebar_header_buttons
 from plugin.scripting.session_manager import existing_calc_session_id, python_session_mode
 
 log = logging.getLogger(__name__)
 
-# What was wrong: _FILTER_LABELS called _() at module import time before locale was initialized.
-# How it happened: module-level tuple evaluation called gettext at import.
-# Why this change: translate lazily via _filter_choices() and match translated label, then English msgid.
+# Filter labels translate lazily in _filter_choices(); gettext must not run at import.
 _FILTER_MSGIDS: tuple[tuple[str, DiagnosticFilter], ...] = (("All", "all"), ("Errors", "errors"), ("Output", "output"))
 
 
@@ -67,9 +65,7 @@ def compute_python_sidebar_layout(width: int, height: int, snapshot: dict[str, t
     content_bottom = max(rect[1] + rect[3] for rect in snapshot.values())
     flex_sum = sum(snapshot[name][3] for name in flex_names)
     leftover = height - _BOTTOM_MARGIN - (content_bottom - flex_sum)
-    # What was wrong: short sidebar panels overflowed the bottom margin because clamping to min flex height exceeded leftover space.
-    # How it happened: each flex control clamped independently to min_flex_height without checking the total deck budget.
-    # Why this change: scale against leftover budget and shrink from the bottom controls backward so controls fit within height.
+    # Flex heights scale to the leftover deck budget so short panels do not overflow the bottom margin.
     budget = max(0, leftover)
     new_heights: dict[str, int]
     if flex_sum <= 0:
@@ -240,7 +236,7 @@ def format_runtime_status(ctx: Any) -> str:
     """Compact status text: session mode + venv path resolution (no package probe)."""
     mode = python_session_mode()
     mode_label = _("Shared kernel") if mode == "shared" else _("Isolated")
-    venv = (get_config_str("scripting.python_venv_path") or "").strip()
+    venv = str(get_config("scripting.python_venv_path") or "").strip()
     if not venv:
         return _("{mode}\nVenv: (LibreOffice embedded Python)").format(mode=mode_label)
     exe = resolve_venv_python(venv)
@@ -312,9 +308,7 @@ class PythonSidebarController:
                 lambda c: c.addActivationEventListener(self._activation_listener),
                 "sidebar activation listener add failed",
             )
-        # What was wrong: an exception during initial refresh aborted __init__, leaking activation listeners and breaking panel disposal.
-        # How it happened: self.refresh() ran unprotected before controller assignment in PythonPanelElement.
-        # Why this change: catch and log exceptions from initial refresh so construction completes and listeners can be cleaned up.
+        # Initial refresh failures log but do not abort __init__ or leak activation listeners.
         try:
             self.refresh()
         except Exception:
@@ -411,9 +405,7 @@ class PythonSidebarController:
             log.debug("wire header toolbar failed", exc_info=True)
 
     def _schedule_refresh(self, entry: DiagnosticEntry | None = None, *, full: bool = False) -> None:
-        # What was wrong: inline refresh during diagnostic events scanned the sheet on every =PY() recalc.
-        # How it happened: record() invokes listeners synchronously, triggering full sheet cell scans inline.
-        # Why this change: coalesce refreshes and post to main thread, skipping if already disposed or pending.
+        # Coalesce diagnostic refreshes onto the main thread; synchronous =PY() recalc must not full-scan inline.
         if self._disposed:
             return
         if entry is not None and entry.workbook_key:
@@ -425,7 +417,7 @@ class PythonSidebarController:
         if self._refresh_pending:
             return
         self._refresh_pending = True
-        post_to_main_thread(self._run_scheduled_refresh)
+        main.post(self._run_scheduled_refresh)
 
     def _run_scheduled_refresh(self) -> None:
         self._refresh_pending = False
@@ -441,9 +433,7 @@ class PythonSidebarController:
         except Exception:
             log.exception("python sidebar scheduled refresh failed")
 
-    # What was wrong: _calc_document fell back to desktop active Calc document, binding wrong documents or Writer frames to Calc.
-    # How it happened: get_calc_document_from_ctx was called when frame resolve failed or when resolving outside the frame.
-    # Why this change: resolve only via frame.getController().getModel(), returning None if not Calc or resolve fails.
+    # Calc model comes only from this sidebar frame's controller; no desktop active-document fallback.
     def _calc_document(self) -> Any | None:
         """Return the Calc model for this sidebar frame, or None for Writer frames and failed resolves."""
         frame = self.frame
@@ -591,31 +581,20 @@ class PythonSidebarController:
         if doc is not None:
             navigate_to_cell(doc, self.ctx, entry.address)
 
-    def _run_action(self, command: str, fallback: Callable[[], None]) -> None:
+    def _run_action(self, command: str) -> None:
         handler = get_action_handler(command)
-        if handler:
-            invoke_action_handler(handler, command=command)
+        if handler is None:
+            log.info("No handler registered for %s", command)
             return
-        fallback()
+        invoke_action_handler(handler, frame=self.frame, command=command)
 
     def _on_edit_cell(self) -> None:
         # Prefer selecting the highlighted cell first.
         self._on_cell_selected()
-
-        def _fallback() -> None:
-            from plugin.calc.python.editor import open_python_cell_editor
-
-            open_python_cell_editor(self.ctx)
-
-        self._run_action("scripting.edit_python_cell", _fallback)
+        self._run_action("scripting.edit_python_cell")
 
     def _on_run_script(self) -> None:
-        def _fallback() -> None:
-            from plugin.scripting.python_runner import run_python_dialog
-
-            run_python_dialog(self.ctx)
-
-        self._run_action("scripting.run_python_dialog", _fallback)
+        self._run_action("scripting.run_python_dialog")
 
     def _on_edit_init(self) -> None:
         from plugin.calc.python.init_script_editor import open_init_script_editor
@@ -623,25 +602,11 @@ class PythonSidebarController:
         open_init_script_editor(self.ctx)
 
     def _on_reset(self) -> None:
-        def _fallback() -> None:
-            from plugin.scripting.session_manager import reset_workbook_python_session
-
-            reset_workbook_python_session(self.ctx)
-
-        self._run_action("scripting.reset_python_session", _fallback)
+        self._run_action("scripting.reset_python_session")
         self.refresh()
 
     def _on_settings(self) -> None:
-        def _fallback() -> None:
-            try:
-                from plugin.framework.main_shared import open_dialog_safely
-                from plugin.librepy.settings import open_librepy_settings
-
-                open_dialog_safely(open_librepy_settings, "Failed to open settings")
-            except Exception:
-                log.debug("open settings failed", exc_info=True)
-
-        self._run_action("main.settings", _fallback)
+        self._run_action("main.settings")
 
 
 class _Action(BaseActionListener):

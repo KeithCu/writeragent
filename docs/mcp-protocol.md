@@ -33,7 +33,7 @@ The chosen binary must be on `PATH`. `start()` stores a different `last_error` w
 
 **Port rebind:** Changing `mcp.mcp_port` while MCP is enabled stops and starts the HTTP listener so the socket matches Settings. A port-only save emits `config:changed` with `key="mcp.mcp_port"` (a bulk `key=""` is only used when more than one key changes). Both paths rebind when the live port differs. MCP does not need a LibreOffice restart.
 
-**Tunnel restart:** A provider or token change terminates the old subprocess and starts a new one. The old process's exit callback is ignored unless that process is still the one `TunnelManager` is tracking, so it cannot clear the new process or force a reconnect. A pending reconnect timer is the same kind of callback: `Timer.cancel()` does not stop one that has already started. The provider binary check runs with the tunnel lock released, and the retry callback is ignored unless that timer is still the one `TunnelManager` is tracking, so it cannot start a second tunnel. Tailscale `pre_start` and `post_stop` are both `tailscale funnel --https=443 off` (`funnel <localport> off` is rejected by current Tailscale and must not be used). This off removes the shared HTTPS/443 handler (a user Serve on 443 goes with it); `funnel reset` and `serve reset` are not used because they clear every port. `pre_start` runs with the lock released; `start()` spawns `tailscale funnel <port>` only when that start's epoch and generation are still current. `TerminateProcessEffect.provider` is the provider that owned the process being stopped. Giving up after max retries, an auth failure, and leaving Tailscale while `RECONNECTING` or `FAILED` all emit that effect, so `post_stop` runs after the subprocess is already gone. Funnel/serve config persists on tailscaled. The reset is a background thread that captured the tunnel generation when it was scheduled; it no-ops when a newer Tailscale session has bumped that generation, so a late reset cannot clear a Funnel the new session already configured. Spawn writes `writeragent-tailscale-funnel-armed` next to `writeragent.json` before the CLI starts. A later process whose tunnel is still `STOPPED` runs `tailscale funnel --https=443 off` when that marker is present, which covers LibreOffice being killed while Funnel was armed. The marker is removed only after that command exits 0. A non-zero exit, an exception, or a reset that loses the generation race leaves the marker in place. The in-flight count stops a second idle `stop()` from starting another reset before the first body finishes. When the count returns to zero and the marker is still there, the next idle `stop()` tries again. An idle `stop()` that was already stopped and has no marker does not reset, so a settings save does not wipe Funnel.
+**Tunnel restart:** A provider or token change terminates the old subprocess and starts a new one. The old process's exit callback is ignored unless that process is still the one `TunnelManager` is tracking, so it cannot clear the new process or force a reconnect. A pending reconnect timer is the same kind of callback: `Timer.cancel()` does not stop one that has already started. The provider binary check runs with the tunnel lock released, and the retry callback is ignored unless that timer is still the one `TunnelManager` is tracking, so it cannot start a second tunnel. Tailscale `pre_start` and `post_stop` are both `tailscale funnel --https=443 off` (`funnel <localport> off` is rejected by current Tailscale and must not be used). This off removes the shared HTTPS/443 handler (a user Serve on 443 goes with it); `funnel reset` and `serve reset` are not used because they clear every port. `pre_start` runs with the lock released; `start()` spawns `tailscale funnel <port>` only when that start's epoch and generation are still current. `TerminateProcessEffect.provider` is the provider that owned the process being stopped. Giving up after max retries, an auth failure, and leaving Tailscale while `RECONNECTING` or `FAILED` all emit that effect, so `post_stop` runs after the subprocess is already gone. Funnel/serve config persists on tailscaled. The reset is a background thread that captured the tunnel generation when it was scheduled; it no-ops when a newer Tailscale session has bumped that generation, so a late reset cannot clear a Funnel the new session already configured. On normal LibreOffice quit, registered quit hooks run `TunnelManager.stop_for_quit()` before `shutdown_all`, which terminates the tunnel CLI and schedules `tailscale funnel --https=443 off` in the background without joining; if the process exits before reset finishes, the armed marker triggers a retry on the next process. Spawn writes `writeragent-tailscale-funnel-armed` next to `writeragent.json` before the CLI starts. A later process whose tunnel is still `STOPPED` runs `tailscale funnel --https=443 off` when that marker is present, which covers LibreOffice being killed while Funnel was armed. The marker is removed only after that command exits 0. A non-zero exit, an exception, or a reset that loses the generation race leaves the marker in place. The in-flight count stops a second idle `stop()` from starting another reset before the first body finishes. When the count returns to zero and the marker is still there, the next idle `stop()` tries again. An idle `stop()` that was already stopped and has no marker does not reset, so a settings save does not wipe Funnel.
 
 **Start failures:** If the HTTP listener cannot bind (usually port already in use), Toggle / Settings / Status show `host:port`, the exception line, and guidance to free the port or change `mcp.mcp_port` — not only “check the debug log”. Port conflicts do not offer Report bug. Full traceback remains in `writeragent_debug.log`. Formatter: `format_bind_failure(...)` in [`plugin/framework/http_server.py`](../plugin/framework/http_server.py).
 
@@ -118,7 +118,7 @@ Homelab / LocalAI setups typically need **no** entries in `mcp.cors_allowed_orig
 
 **Origin ACL (shipped):** If `Origin` is present and **not** `is_safe_origin()`, every method and path (`/mcp`, `/health`, `/debug`, …) returns **HTTP 403**, empty body, **no** `Access-Control-*` headers. Requests with **no** `Origin` (Claude Code, curl, most MCP clients) are unchanged. Loopback and private/LAN defaults stay as above — this is not Nelson’s empty allow list. Implementation: `origin_is_forbidden` / `reject_forbidden_origin` in [`plugin/mcp/cors.py`](../plugin/mcp/cors.py). Tests: [`tests/mcp/test_cors.py`](../tests/mcp/test_cors.py).
 
-**Session (shipped):** One `Mcp-Session-Id` for the whole soffice process, minted on first successful `initialize` and never rotated. Implementation: [`plugin/mcp/mcp_session.py`](../plugin/mcp/mcp_session.py) (`_mint_session_id_once`, `_mcp_session_id`, `_reject_stale_session`). A notifications-only JSON-RPC batch (HTTP 202, empty body) sends that header the same way a single notification does. `DELETE /mcp` returns **405** (`Allow: GET, POST, OPTIONS`, `handle_mcp_delete` in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py)) and does **not** terminate that id — every client shares it. A later POST/GET whose `Mcp-Session-Id` does not match (LibreOffice restarted) returns **HTTP 404** JSON-RPC `INVALID_REQUEST` (“Session expired… Call initialize again.”); that 404 carries `Mcp-Protocol-Version` and CORS headers but never `Mcp-Session-Id`, so it does not advertise the live id. Spec clients recover on 404, not 409. Missing session header is still allowed (CLI / curl / first contact). `initialize` sent as one JSON-RPC object is always allowed with a stale or missing id (recovery after restart). An `initialize` call must not be part of a JSON-RPC batch; batches containing `initialize` are rejected immediately with HTTP 400 JSON-RPC `INVALID_REQUEST` before processing or session minting. Send `initialize` by itself as a single JSON-RPC object.
+**Session (shipped):** One `Mcp-Session-Id` for the whole soffice process, minted on first successful `initialize` and never rotated. Implementation: [`plugin/mcp/mcp_session.py`](../plugin/mcp/mcp_session.py) (`mint_session_id_once`, `mcp_session_id`, `reject_stale_session`). A notifications-only JSON-RPC batch (HTTP 202, empty body) sends that header the same way a single notification does. `DELETE /mcp` returns **405** (`Allow: GET, POST, OPTIONS`, `handle_mcp_delete` in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py)) and does **not** terminate that id — every client shares it. A later POST/GET whose `Mcp-Session-Id` does not match (LibreOffice restarted) returns **HTTP 404** JSON-RPC `INVALID_REQUEST` (“Session expired… Call initialize again.”); that 404 carries `Mcp-Protocol-Version` and CORS headers but never `Mcp-Session-Id`, so it does not advertise the live id. Spec clients recover on 404, not 409. Missing session header is still allowed (CLI / curl / first contact). `initialize` sent as one JSON-RPC object is always allowed with a stale or missing id (recovery after restart). An `initialize` call must not be part of a JSON-RPC batch; batches containing `initialize` are rejected immediately with HTTP 400 JSON-RPC `INVALID_REQUEST` before processing or session minting. Send `initialize` by itself as a single JSON-RPC object.
 
 **Troubleshooting — OPTIONS succeeds but MCP never connects**
 
@@ -276,13 +276,24 @@ open document, and with several it returns `NO_ACTIVE_DOCUMENT` naming them so t
 `document_url` — two Writer documents are one type, and picking "the" Writer document would edit
 the wrong one.
 
-#### Sidebar chat core vs MCP core (Writer)
+#### Tool counts by surface
 
-Same registry, different filters:
+Registry totals at a typical build: **225** registered tools (core 42, specialized 173, specialized_control 6, mcp 2, chat 2). Default sidebar listing excludes `specialized`, `specialized_control`, and **mcp** tiers; MCP **`delegate`** mode excludes only `specialized` + `specialized_control` and adds MCP helpers such as `list_open_documents`.
+
+| App | Sidebar chat | MCP `tools/list` (`delegate`) | `direct_flat` (vision venv absent) |
+|-----|--------------|--------------------------------|-------------------------------------|
+| Writer | 17 | 16 | 130 (129) |
+| Calc | 18 | 17 | 95 (94) |
+| Draw | 25 | 24 | 83 (82) |
+| Impress | 25 | 24 | 83 (82) |
+
+**Notes:** Delegate ≈ sidebar minus chat-tier peer tools, plus `list_open_documents`. Parentheses on `direct_flat` are when `extract_structure_from_image` is dropped (vision venv not configured). Sidebar may also hide `get_image` for text-only models; these counts **include** `get_image`. Writer sidebar-only (omitted from `direct_flat`): `brainstorm_research_web`, `deep_research_web`, `save_design_spec`, `write_document_section`, `writing_research_web`. Calc: `deep_research_web`. Draw/Impress: `apply_ppt_master_native_enhance`, `apply_ppt_master_template_fill`, `deep_research_web`, `export_presentation_project`, `validate_ppt_master_project`.
+
+The Writer-only row below is illustrative; use the table above for integration planning.
 
 | Surface | Schema protocol | Tier filter | Writer size (today) | Notable deltas |
 |---------|-----------------|-------------|---------------------|----------------|
-| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | ~14 tools | No `list_open_documents`; `get_image` only if the selected text model is vision-capable |
+| **Sidebar chat** | `openai` | Default excludes `specialized`, `specialized_control`, **and** `mcp` | **17** tools | No `list_open_documents`; `get_image` only if the selected text model is vision-capable |
 | **MCP `tools/list` (`delegate`)** | `mcp` | Excludes only `specialized` + `specialized_control` | **16** tools | Adds `list_open_documents`, `get_image`; every schema also gets optional `document_url` |
 
 Chat also gets the full specialized-delegation block in the **system prompt**; MCP puts routing hints on the delegate tool’s schema/`initialize.instructions` instead (see below).
@@ -307,8 +318,8 @@ Other MCP surfaces (for integrators):
 |---------|--------|----------------------------|
 | **`tools/list`** | Implemented | **Primary** — use the delegate gateway tool metadata above |
 | **`initialize` → `instructions`** | Connection-time local date/time + tool-choice guidance (multi-doc targeting via `list_open_documents` / `document_url`, `tools/list` type filter) + mode hint + pointer to the on-demand manual (`get_guidance` topics, per document type) | Does not include the full chat prompt or UNO/threading internals; the behavioral manual is pulled per topic via `get_guidance`. Clock is fixed until the client reconnects; hosts **may** ignore `instructions` (verify Page Assist / Claude Desktop) |
-| **`prompts/list` / `prompts/get`** | Empty | Could expose full system prompt later; not implemented |
-| **`resources/list` / `resources/read`** | Empty | Not used for guidance |
+| **`prompts/list` / `prompts/get`** | Implemented | Serve `get_guidance` topics for the document resolved like `tools/list` (`X-Document-URL` or active document) |
+| **`resources/list` / `resources/read`** | Empty list / not implemented | Not used for guidance |
 | **`GET /`** | Server name, version, routes | Does **not** return agent instructions (older docs were wrong) |
 
 If a client ignores `initialize.instructions` and only binds tools from `tools/list`, the delegate tool entry is the intended place to learn **which `domain` to pick** and **how to write `task`**.
@@ -417,8 +428,8 @@ An experimental config, `mcp.tool_exposure_mode` (default `delegate`), controls 
 
 | Mode | `tools/list` | For |
 |------|--------------|-----|
-| `delegate` *(default)* | core + MCP helpers (~16 Writer / ~15 Calc); specialized reached via the `delegate_*` gateway | unchanged behavior |
-| `direct_flat` | core **+ all MCP-reachable specialized** (already doc-type filtered, so **~76 on Calc / ~99 on Writer**, not the full cross-app catalog at once; Writer sidebar-only flows excluded) | clients with native tool-search (Claude API; OpenAI `defer_loading`) |
+| `delegate` *(default)* | core + MCP helpers (Writer **16** / Calc **17** / Draw **24** / Impress **24** in delegate mode); specialized reached via the `delegate_*` gateway | unchanged behavior |
+| `direct_flat` | core **+ all MCP-reachable specialized** (doc-type filtered — Writer **130** (129 without vision), Calc **95** (94), Draw **83** (82), Impress **83** (82); sidebar-only flows excluded) | clients with native tool-search (Claude API; OpenAI `defer_loading`) |
 | `direct_discovery` | core **+ a `find_tools` search tool** | any client (engine-agnostic) |
 
 In both direct modes the specialized tools are invoked **by name** — which already works, since `tools/call` routes through the registry, not the advertised list.
@@ -442,7 +453,7 @@ The direct modes **add** direct access; they don't remove delegation. The `deleg
 The MCP server is **implemented and opt-in** (default off). Live summary (paths under `plugin/`):
 
 - **HTTP + JSON-RPC:** [`plugin/mcp/server.py`](../plugin/mcp/server.py), [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py), [`plugin/mcp/wire_types.py`](../plugin/mcp/wire_types.py), [`plugin/mcp/cors.py`](../plugin/mcp/cors.py), package wiring in [`plugin/mcp/__init__.py`](../plugin/mcp/__init__.py). Endpoints: `/mcp`, `/health`, `/`, optional localhost `POST /debug` (see [Current HTTP MCP (2026)](#current-http-mcp-2026)).
-- **Main-thread marshalling:** [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`execute_on_main_thread`, queue drain via `com.sun.star.awt.AsyncCallback`). Chat streaming uses [`plugin/framework/async_stream.py`](../plugin/framework/async_stream.py) separately — MCP does **not** piggyback on the chat drain loop.
+- **Main-thread marshalling:** [`plugin/framework/queue_executor.py`](../plugin/framework/queue_executor.py) (`main.call`, `main.post`, queue drain via `com.sun.star.awt.AsyncCallback`). Chat streaming uses [`plugin/framework/async_stream.py`](../plugin/framework/async_stream.py) separately — MCP does **not** piggyback on the chat drain loop.
 - **Document targeting** (two supported paths):
   - **Preferred:** `document_url` in `tools/call` arguments (popped before tool dispatch). Best for multi-document clients (Cursor, Hermes, custom agents).
   - **Fallback:** `X-Document-URL` HTTP header.
@@ -479,13 +490,13 @@ Ported from `libreoffice-mcp-extension/pythonpath/uno_bridge.py` and adapted to 
 |---|---|
 | Styles | `style_list`, `style_get_info` |
 | Comments | `comment_list`, `add_comment`, `comment_delete`; specialized: `comment_scan_tasks`, `comment_workflow_get`, `comment_workflow_set`, `comment_check_stop` |
-| Track changes | `track_changes_start` / `stop` / `list` / `show`, `manage_tracked_changes` |
-| Tables | `table_list`, `table_get_cells`, `table_set_cell`, `manage_table_structure` |
+| Track changes | `tracking_start` / `stop` / `list` / `show`, `tracking_manage` |
+| Tables | `table_list`, `table_get_cells`, `table_set_cell`, `table_manage_structure` |
 
 ### Updated: `core/document_tools.py`
 
 - Removed 7 legacy unused functions (all superseded by `apply_document_content` /
-  `get_document_content` / `find_text`).
+  `get_document_content` / `search_in_document`).
 - Imports `WRITER_OPS_TOOLS` from `writer_ops.py` and adds all 12 new functions to
   `TOOL_DISPATCH`. `WRITER_TOOLS` went from 5 tools to 17.
 
@@ -668,22 +679,15 @@ would never be serviced if we only drained there.
 
 ### Reference: `core/mcp_server.py` (archive — live is `plugin/mcp/`)
 
-Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpers, `GET /tools`, `POST /tools/{name}`, header-based `_resolve_document`. **Shipped surface is JSON-RPC on `/mcp`** in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) + [`plugin/mcp/server.py`](../plugin/mcp/server.py), with `document_url` args and `X-Document-URL` fallback, all UNO work via `execute_on_main_thread`.
+Early REST sketch: thin HTTP server reusing `execute_tool()` / Calc / Draw helpers, `GET /tools`, `POST /tools/{name}`, header-based `_resolve_document`. **Shipped surface is JSON-RPC on `/mcp`** in [`plugin/mcp/mcp_protocol.py`](../plugin/mcp/mcp_protocol.py) + [`plugin/mcp/server.py`](../plugin/mcp/server.py), with `document_url` args and `X-Document-URL` fallback, all UNO work via `main.call`.
 
 ---
 
 ## Tool List for External Clients
 
-When the MCP server is enabled, external clients will see all tools that WriterAgent exposes
-to its own embedded AI:
+When the MCP server is enabled, external clients see the same **core-tier** tools WriterAgent exposes to sidebar chat for the resolved document type (counts in [Tool counts by surface](#tool-counts-by-surface)), not the full specialized registry unless `mcp.tool_exposure_mode` is `direct_flat` or `direct_discovery`.
 
-**Writer**: `get_document_content` (`scope`, `max_chars`, `start`/`end`, `include_images` — default strips inline `data:image` base64; `start`/`end` are plain-text offsets in the `document_length` space; `max_chars` counts returned HTML), `apply_document_content`, `find_text`,
-`style_list`, `style_get_info`, `comment_list`, `add_comment`, `comment_delete`,
-`track_changes_start` / `stop` / `list` / `show`, `manage_tracked_changes`,
-`table_list`, `table_get_cells`, `table_set_cell`,
-`manage_table_structure`,
-`table_insert`, `table_delete`,
-`image_generate` (create or edit with `source_image='selection'`).
+**Writer (core examples):** `get_document_content`, `apply_document_content`, `search_in_document`, `apply_style`, `get_document_tree`, `style_list`, `style_get_info`, `comment_list`, `add_comment`, `comment_delete`, **`comment_edit`**, `tracking_start` / `stop` / `list` / `show`, `tracking_manage`, `table_*`, `image_generate` (…). Specialized UNO tools (`style_list` as domain tool, pages, charts, …) are reached via **`delegate_to_specialized_writer_toolset`** unless direct exposure mode is enabled — see the count table instead of duplicating every specialized name here.
 
 **Calc / Draw**: Core-tier tools registered from `plugin/calc/` and `plugin/draw/` (same registry MCP `tools/list` uses).
 
@@ -713,6 +717,7 @@ The mutating edit tools return **structured, machine-readable fields** alongside
 - `occurrence` — optional 0-based selector for one replaceable Writer text match when `target="search"`; it cannot be combined with `all_matches=true`. Successful edits (replace and `position=before/after`) echo `occurrence`. Out of range uses `code: OCCURRENCE_OUT_OF_RANGE` and `use 0..N-1`. Empty replaceable ranges fall through to the existing miss / drawing-shape path (same as omitting `occurrence`).
 - `position=before/after` — `inserted: true` and no `replaced_count`. Inline content lands at the exact match edge; block content (`<p>`, headings, lists, tables) lands before/after the paragraph that holds the match, and `snapped_to_paragraph: true` says the insert moved off the match edge to get there.
 - If a replacement raises mid-`all_matches`, the existing abort behavior stands (no partial-replace handling — the call surfaces the error).
+- `dry_run=true` — does not edit; returns `replaceable` and `not_replaceable` lists (see §4).
 
 **`apply_style`** — `applied` (bool), `target`, and `matched` (only when `target="search"`; a search miss returns `status:"error"`, `applied:false`, `matched:false`).
 
@@ -724,11 +729,10 @@ These fields are intended for clients to avoid parsing message strings; branch o
 
 ## Security Notes
 
-- Bind to `localhost` only. Never expose to external interfaces by default.
-- No authentication is implemented. Any process on the local machine can call the tools.
-  Acceptable for a developer/power-user tool; document this clearly.
-- The HTTP server should be **opt-in** (`mcp_enabled: false` default). Auto-start should
-  require the user to enable it in Settings.
+- Bind to `localhost` only by default. Never expose to external interfaces without understanding the risk.
+- **No authentication** on the MCP HTTP API. Any process on the local machine can call the tools when the listener is up.
+- **Optional public tunnels** (Settings → Expose via public tunnel — Cloudflare, Bore, ngrok, Tailscale; see [Public tunnel (optional)](#current-http-mcp-2026)) publish the same unauthenticated `/mcp` endpoint. Anyone who obtains the public URL can invoke tools against open documents in that LibreOffice instance.
+- The HTTP server should be **opt-in** (`mcp_enabled: false` default). It starts when the user enables MCP and saves Settings, or uses Toggle / Status menu actions — not silently on every launch.
 
 ---
 
@@ -930,7 +934,7 @@ mechanism.
 
 WriterAgent doesn't have the bookmark/locator system yet, but the same principle applies
 to existing descriptions. For example, `style_list` says "they may be localized" — that's
-good. The `find_text` description mentions "LO strips search string to plain to match" — that
+good. The **standalone extension's** `find_text` description mentions "LO strips search string to plain to match" — that
 explains a gotcha that would otherwise produce confusing failures. This is the right instinct;
 do more of it.
 
@@ -959,22 +963,22 @@ to enable track changes, False to disable."}` — functional but doesn't say whe
 (e.g. `"body"`, `"table 'Table1' cell B2"`, `"shape 'Callout 1'"`, `"comment by 'Ana'"`).
 `context` is the enclosing paragraph or shape/comment text.
 
-Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false**),
+Parameters: `pattern` (required), `regex` (default **false**), `case_sensitive` (default **false**; shared constant `SEARCH_CASE_SENSITIVE_DEFAULT` in [`search.py`](../plugin/writer/search.py)),
 `max_results` (default 20), `return_offsets` (default **false** — body literal offsets only; no regex,
-no shapes/comments). Invalid regex with zero hits returns `code: INVALID_REGEX`.
+no shapes/comments). Invalid regex with zero hits returns `code: INVALID_REGEX`. Search tools across domains share this default (omitted or JSON `null` means case-insensitive), and every tool result that executes a search reports the mode that ran in `matched_case_sensitive`.
 
 `max_results` must be a positive integer. Body, table, and text frame searches use LibreOffice/ICU regex, while floating shapes and comments use Python `re` after a Python `re.compile` validation check; `SEARCH_FAILED` includes the underlying exception text. A zero-width match stops the text-model walk, preserves `status: "ok"`, and sets `truncated: true` with a warning. A global cap of 10000 matches covers body text plus shapes and comments. `return_offsets=true` drops non-body `XText` hits (such as headers, footers, tables, and frames) while counting tracked deletions in the offset space. A failure while computing `return_offsets` (closed document or UNO error) is not `status: ok` with an empty `ranges` list; it is `DOCUMENT_DISPOSED` or `TOOL_EXECUTION_ERROR`.
 
-`apply_document_content` `dry_run=true` previews edit-reachable matches plus shape/comment counts
-(see `edit_reach_note` in the result). Replaceable body/table/frame rows include `occurrence` (0-based,
-the index to pass back); shape/comment rows do not. `replaceable_count` is the edit-path index space.
-An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with those `matches` in `details` so the
-caller can recover. Regex on the edit path uses the same INVALID_REGEX check.
+`apply_document_content` `dry_run=true` previews edit-reachable matches in `replaceable` plus shape/comment
+previews in `not_replaceable` (see `edit_reach_note` in the result). Replaceable body/table/frame rows include
+`occurrence` (0-based, the index to pass back); `not_replaceable` rows have no `occurrence`. `replaceable_count`
+is the edit-path index space. An out-of-range `occurrence` returns `OCCURRENCE_OUT_OF_RANGE` with `replaceable`
+and `not_replaceable` in `details` so the caller can recover. Regex on the edit path uses the same INVALID_REGEX check.
 
 #### 4b. (historical) Collabora `context_paragraphs` comparison
 
 Collabora's `search_in_document` had a `context_paragraphs` parameter (default: 1) that returned
-N paragraphs around each match. WriterAgent's older `find_text` returned only `{start, end, text}`
+N paragraphs around each match. The **standalone extension's** `find_text` returned only `{start, end, text}`
 per match. The current search tool uses a single enclosing-paragraph `context` string instead.
 
 #### 5. Index / field refresh (implemented)
@@ -1013,7 +1017,7 @@ embedded AI gets.
 that the standalone extension ignores entirely because it doesn't use the Markdown/HTML
 import path. WriterAgent's system prompt covers this thoroughly and correctly.
 
-#### 3. `find_text` "LO strips to plain" warning
+#### 3. Standalone extension `find_text` "LO strips to plain" warning
 
 The note that LibreOffice strips formatted text to plain for search is critical — it means
 the AI can search for "Chapter 1" even if the document has it formatted bold. The standalone
@@ -1022,8 +1026,8 @@ behavior when a formatted-text search fails.
 
 #### 4. `apply_document_content` description is more complete
 
-WriterAgent's description covers the full range of targets in one sentence and cross-
-references `find_text` for the range workflow. The standalone extension's `replace_in_document`
+WriterAgent's `search_in_document` / `apply_document_content` descriptions cover the full range of targets in one sentence and cross-
+reference each other for the range workflow. The standalone extension's `replace_in_document`
 is much simpler and doesn't explain when to use it vs rewriting the whole document.
 
 ---
@@ -1051,19 +1055,17 @@ apply_document_content markup, or use set_paragraph_style (see uno_bridge) for d
 
 ### What they have that WriterAgent lacks and should eventually add
 
-In priority order:
+In priority order (updated 2026-11-05):
 
-1. **`context` in search** — `search_in_document` now returns enclosing-paragraph `context`
-   strings; offset mode remains body-only via `return_offsets`.
+1. ~~**`context` in search**~~ — **Shipped:** `search_in_document` returns enclosing-paragraph `context` strings; offset mode remains body-only via `return_offsets`.
 
-2. **`set_paragraph_style` (direct)** — currently in WriterAgent as dead code. The `style_list`
-   tool makes this useful: AI discovers style names, then applies them directly. Consider
-   re-exposing it now that `style_list` exists.
+2. **`set_paragraph_style` (direct)** — not a registered tool name today. The `style_list`
+   tool makes a direct style-by-name API useful; consider exposing something equivalent now that `style_list` exists (do not treat removed `find_text` / markdown tool names as the live surface).
 
 3. **`set_document_protection`** — useful for "lock the document while I review AI edits" workflow.
 
-4. **`get_document_properties` / `set_document_properties`** — document metadata (title,
-   author, subject). Occasionally useful; low priority.
+4. ~~**`document_properties_get` / `document_properties_set`**~~ — **Shipped** as fields-domain specialized tools (title,
+   author, subject, keywords, user-defined properties; product `WriterAgent*` names are read-only).
 
 ---
 
@@ -1072,32 +1074,35 @@ In priority order:
 Use this list to keep MCP and related tooling moving forward. Nothing here is required for
 current functionality.
 
-### MCP / protocol
+### MCP / protocol (still open)
 
-- **Stdio proxy for Claude Desktop** (Path A in “Critical distinction” above): small script
-  that talks JSON-RPC over stdio to Claude and forwards to WriterAgent’s HTTP server. No
-  change to WriterAgent; lets Claude Desktop use WriterAgent as an MCP server.
-- **JSON-RPC in the server** (Path B): optional `POST /` with `method=tools/list` etc. for
-  clients that expect strict MCP JSON-RPC instead of REST. Only if a client needs it.
-- **Optional `file_path` (or URL) on tool calls**: if clients need to target by path in the
-  request body as well as (or instead of) the `X-Document-URL` header, extend the handler
-  to accept it.
+- **Auto-start on LO launch**: optional `XJob` with `onFirstVisibleTask` that starts the
+  MCP server if `mcp_enabled` is true, so the server is up without opening Settings first.
+  Shipped half: server starts when Settings saves with MCP enabled or via Toggle / Status menu.
 
-### Tool and prompt improvements (from “Tool Description and System Prompt Analysis” below)
+### Shipped since this doc was written (removed from backlog)
 
-- **Tool descriptions**: e.g. add to `apply_document_content`: “Plain-text replacements via
+- **Stdio proxy:** [`scripts/mcp_bridge.py`](../scripts/mcp_bridge.py) for stdio MCP clients.
+- **JSON-RPC on `/mcp`:** streamable HTTP + JSON-RPC 2.0 ([Current HTTP MCP (2026)](#current-http-mcp-2026)).
+- **`document_url` on `tools/call`:** preferred targeting ([Document Targeting](#document-targeting-implemented)).
+- **`find_tools` + `mcp.tool_exposure_mode`:** `direct_flat` / `direct_discovery` ([Exposing specialized tools directly](#exposing-specialized-tools-directly-mcptool_exposure_mode-experimental)).
+- **`get_document_tree`:** core-tier outline tool.
+- **Search `context` on `search_in_document`.**
+- **`apply_style`:** core-tier style application (including search target).
+
+### Tool and prompt improvements (optional)
+
+- **Tool descriptions:** e.g. add to `apply_document_content`: “Plain-text replacements via
   `target='search'` automatically preserve character formatting.” Add usage hints to
   `set_track_changes` and similar.
-- **`find_text` context**: optional parameter to return N characters (or paragraphs) around
-  each match so the AI can confirm it’s editing the right place.
-- **`set_paragraph_style` (direct)**: re-expose so the AI can apply a style by name after
-  `style_list`. Other items from “What they have that WriterAgent lacks” (e.g. document
-  protection, document properties) as needed. Index/field refresh is already
+- **`set_document_protection`** and other protection UX as needed. Index/field refresh remains
   `indexes_update_all` / `fields_update_all`.
 
 ### Dynamic Domain Discovery ("Learn-on-the-Fly")
 
-To solve the "monstrous schema" problem (60+ specialized tools) without over-burdening the MCP host's context or relying on unreliable `list_changed` notifications, we could implement a **Manual Discovery Pattern**.
+**Superseded in part by shipped `find_tools(domain?)` in `direct_discovery` mode** — the manual-discovery sketch below is historical; live workflow is `find_tools()` → domain → `tools/call` by name.
+
+*Historical sketch:*
 
 *   **The Idea:** Instead of listing every specialized tool in `tools/list`, we provide a "Toolbox Discovery" tool.
 *   **The Tools:**
@@ -1109,11 +1114,3 @@ To solve the "monstrous schema" problem (60+ specialized tools) without over-bur
     3.  The server returns the documentation for `create_shape`, `edit_shape`, etc.
     4.  The host "learns" the API on-the-fly and calls `execute_specialized_tool` with the correct parameters.
 *   **Benefit:** Zero schema bloat on the host, no refetching required, and it leverages the server's existing validation logic.
-
-### Other
-
-- **Auto-start on LO launch**: optional `XJob` with `onFirstVisibleTask` that starts the
-  MCP server if `mcp_enabled` is true, so the server is up without opening Settings first.
-  Currently the server starts when the user saves Settings with MCP enabled or uses Toggle.
-- **Document tree / outline tool**: `get_document_tree()` (e.g. from `libreoffice-mcp-extension`
-  `uno_bridge.py`) for better context on long documents; see AGENTS.md “Document Tree Tool”.

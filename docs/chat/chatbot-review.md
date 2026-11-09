@@ -6,7 +6,7 @@ The tree is in good structural shape. The pure tool-loop FSM, frame-only documen
 
 Coverage:
 
-- Send / FSM: `state_machine.py`, `tool_loop_state.py`, `tool_loop_actions.py`, `tool_loop.py`, `send_state.py`, `send_handlers.py`, `sticky_reply.py`, `chat_sidebar_mode.py`, `panel.py`
+- Send / FSM: `tool_loop_state.py`, `tool_loop_actions.py`, `tool_loop.py`, `send_state.py`, `send_handlers.py`, `sticky_reply.py`, `chat_sidebar_mode.py`, `panel.py`
 - Panel shell: `panel_factory.py`, `panel_wiring.py`, `panel_resize.py`, `sidebar_state.py`, `sidebar_test_hooks.py`, `dialogs.py`
 - Settings: `dialog_views.py`, `settings_dialog.py`, `settings_fields.py`, `settings_tab_order.py`, `config_ui_helpers.py`, `module_config_dialog.py`, `quick_setup.py`, `eval_dashboard_ui.py`, `hamburger_menu.py`
 - Transcript: `rich_text.py`, `rich_text_control.py`, `rich_text_paste.py`, `slash_commands.py`, `slash_popup.py`, `selection.py`, `external_editor.py`
@@ -20,7 +20,7 @@ Constraints for any follow-up (from `plugin/chatbot/AGENTS.md` and the root `AGE
 - Do not merge smol or librarian into the main chat FSM. No second HTTP client. Smol stays on `WriterAgentSmolModel` → `LlmClient.request_with_tools`.
 - Send and the tool loop refresh through `ChatSession.refresh_document_context`. They must not import `get_document_context_for_chat` or `panel_factory`.
 - The factory resolves the document from the frame only and must not import `get_document_context_for_chat`.
-- Stop uses `resolve_stop_checker()`. Queue items start with a `StreamQueueKind` enum member. No raw threads.
+- Stop uses `SendCancellation` (spawn-time `host._send_cancellation` closed over in workers). Queue items start with a `StreamQueueKind` enum member. No raw threads.
 - Do not split `panel.py` or `dialog_views.py` just because they are long. Prefer one existing function over a new module.
 
 ## Fix these first
@@ -37,7 +37,7 @@ Clear latches `STOP_CLICKED` and wipes the widget (`plugin/chatbot/panel.py` `Cl
 
 Related, same area:
 
-- A disposed document becomes a normal tool error and the loop continues. `execute_fn`'s `except Exception` in `plugin/chatbot/tool_loop_actions.py` (around line 263) turns `DisposedException` into a JSON tool payload and queues `TOOL_DONE`. Use `is_tool_document_disposed` (not `is_disposed_exception`, which treats any `RuntimeException` as disposal). Queue `StreamQueueKind.ERROR` and let the existing error handler end the loop.
+- A disposed document becomes a normal tool error and the loop continues. `execute_fn`'s `except Exception` in `plugin/chatbot/tool_loop_actions.py` (around line 263) turns `DisposedException` into a JSON tool payload and queues `TOOL_DONE`. Use `is_disposal` (bare `RuntimeException` is not disposal). Queue `StreamQueueKind.ERROR` and let the existing error handler end the loop.
 - Web, librarian, brainstorm, writing-plan, PPT, and deep-research answers are still persisted from the `chatbot-send-handler` worker (`plugin/chatbot/send_handlers.py`, the `persist_assistant_on_turn` calls around the answer puts). The agent path was moved onto the drain because a worker write raced Clear. Put the answer on the existing `STREAM_DONE` payload and persist it in `on_stream_done`.
 - The API-error banner is widget-only (`plugin/chatbot/tool_loop.py` `_handle_stream_error`). The user row is stored and the assistant row is not, so a retry adds a second user row with a hole. `persist_assistant_on_turn` the same banner. Skip that write when `on_error` returns true (overflow respawn or audio fallback).
 - The agent user line is painted before it is in history. `spawn_effects_for_start` appends the user query, then the worker can return before `add_user_message` (disposed document, unknown backend). Append the user line in the same place as `add_user_message`, after the backend checks.
@@ -69,7 +69,7 @@ Shallow exact lookup tries the bare word key before `{lang}|{words}` (`plugin/ch
 
 Try the bare key only when `snowball_lang == "english"`. Keep the English bare-then-prefixed order. `tests/chatbot/test_web_research_cache.py` and `docs/chat/search.md` lock that order. Deep lookup already uses only `deep|{lang}|{words}`.
 
-Also: `resolve_research_locale` (`plugin/chatbot/web_research_cache.py` around line 118) treats any exception from the document, including disposal, as `("en_US", "english")`. Re-raise `is_disposed_exception`. Leave the timeout and cancel fallbacks.
+Also: `resolve_research_locale` (`plugin/chatbot/web_research_cache.py` around line 118) treats any exception from the document, including disposal, as `("en_US", "english")`. Re-raise `is_disposal`. Leave the timeout and cancel fallbacks.
 
 Embedding backfill reads missing keys, drops the cache lock, embeds, then `INSERT OR REPLACE` (`plugin/chatbot/web_research_cache.py` `store_research_cache_embeddings`). Eviction can delete the parent row in that window. The later insert does not check that `web_cache` still has the key. Orphans are not served (lookup joins `web_cache`) but nothing deletes them, and the size cap sums only `web_cache.size`. Insert only while the parent row still exists, in the same transaction.
 
@@ -159,22 +159,22 @@ These remove a second copy of a fact. None of them need a new file.
 - `apply_settings_result` (`plugin/chatbot/settings_dialog.py`) saves `key.replace("__", ".")`. `apply_field_specs_result` (`plugin/chatbot/settings_fields.py`) saves `spec["config_key"]`. For `audio` and `calc` those match. A module name with a dot would diverge. Use `spec.get("config_key") or key.replace("__", ".")`. No current module name contains a dot.
 - Vision tab steps are a second page list (`plugin/chatbot/module_config_dialog.py` `_TAB_PAGE_MAP`). A new `page:` in `vision/module.yaml` gets a button and a Step, and `_setup_tabs` never listens. Walk `btn_tab_*` in control order and assign Step 1..n, which is the order the generator writes.
 - `resolve_research_stem_language` (`plugin/chatbot/web_research_cache.py`) has no callers. Callers use `resolve_research_locale`. Delete the wrapper.
-- `run_deep_research(..., depth=)` (`plugin/chatbot/web_research_deep.py`) is unused. Production rounds come from `chatbot.deep_research_max_rounds`. The parameter only applies when `max_rounds == 3`, so it is not a real alias of `chatbot.deep_research_depth`. Delete the parameter. Keep the config key.
+- Deep Research rounds are controlled only by `chatbot.deep_research_max_rounds`; the old `depth` parameter and `chatbot.deep_research_depth` config key are removed.
 - `approval_required` in `plugin/chatbot/web_research_chat.py` is deleted and ignored. Only a test still passes it.
 - `_cache_key_inputs` (`plugin/chatbot/web_research.py`) now applies the fluff filter once: one ordered-unique list, with a sorted copy for the storage key. Storage keys are sorted and embedding text keeps order, on purpose (`docs/chat/search.md`).
-- `get_optional` turns a disposed window into "control missing" (`plugin/chatbot/dialogs.py` around line 1056). Re-raise `is_disposed_exception`. Callers that must ignore teardown already have `suppress_disposed`. Keep `None` for a missing name.
+- `get_optional` turns a disposed window into "control missing" (`plugin/chatbot/dialogs.py` around line 1056). Re-raise `is_disposal`. Callers that must ignore teardown already have `suppress_disposed`. Keep `None` for a missing name.
 - `docs/chat/sidebar-implementation.md` still says the first mode follows an empty `USER.md`. The factory uses `librarian_default_mode` / `chatbot.librarian_invoked`, which matches `plugin/chatbot/AGENTS.md`. Update that sentence. Do not change the factory to match the doc.
 - A long traceback drops the bug-report environment. The cap is 7500 raw characters, applied before `urlencode` (`plugin/chatbot/bug_report.py` `_compose_issue_body`). When the exception fills the budget, version, OS, locale, Python, endpoint, and model are discarded. Reserve a short environment header and put the exception tail in what remains. Cap the encoded URL. A failed open logs the full URL. The template has no API-key field.
 - Extend/Edit from the hamburger uses the sidebar frame (`get_document_from_frame`). The menubar still calls the handler with no frame, so it edits the focused document. Writer still uses `get_string_without_tracked_deletions`.
 - `_setup_module_tabs` wraps `setup_module_tabs` in `except Exception: pass` (`plugin/chatbot/dialog_views.py`). `setup_module_tabs` already logs. Drop the outer try, or log.
 - The eval dashboard translates when `load_writeragent_dialog` loads `EvalDialog`.
 
-### Slash popup (flag is off)
+### Slash popup
 
-`ENABLE_SLASH` is false, and `QueryKeyListener` does not call `handle_key` while it is false. Ask Enter still sends. These contracts are in the code so turning the flag on does not revive the headed bugs:
+`ENABLE_SLASH` is true in product builds. `QueryKeyListener` always calls `handle_key`; when the popup consumes Enter, Send does not run. These contracts are in the code so the overlay does not revive the headed bugs:
 
 - Frame and toolkit `XKeyHandler`s call `_on_document_key` → `handle_key(..., from_overlay=False)` (nav only). The listbox listener calls `_on_list_key` → `from_overlay=True`. `from_overlay=True` appends printable characters to Ask and returns true, so it must not be used on handlers that also see document keys.
-- Accept and Esc post `run_slash_command` / `hide` with `post_to_main_thread` (`_defer_to_next_turn`). The key or mouse callback returns before `hide()` disposes the toolkit window. There is no inline fallback: that would dispose on the listener stack. Ask textChanged (`on_query_text`) posts `hide` and `_show_matches` through the same helper. A `TimeoutError` from `post_to_main_thread` is logged and does not run that work on the listener stack.
+- Accept and Esc post ``run_slash_command(cmd, host, …)`` / ``hide`` with ``main.post`` (``_defer_to_next_turn``). The key or mouse callback returns before ``hide()`` disposes the toolkit window. There is no inline fallback: that would dispose on the listener stack. Ask textChanged (``on_query_text``) posts ``hide`` and ``_show_matches`` through the same helper. A ``TimeoutError`` from ``main.post`` is logged and does not run that work on the listener stack.
 - `_show_matches` calls `reposition()` once, before `setVisible`. It does not reposition after the overlay is mapped (`getPosSize` on Ask after the overlay exists deadlocks VCL — `plugin/chatbot/panel.py`). The host is a `floatingwindow` with WindowAttributes 0: a borderless VCL overlap window in the document frame, not a system window. A `"window"` + TOP host was a `WorkWindow`, which the toolkit gives a WM title bar on qt6/kf6. Create measures the dialog-to-frame offset once (`_overlay_offset`, accessible screen locations of the host at 0,0 and of Ask), and `reposition` adds it to the dialog-local rectangle. Height comes from the listbox `getMinimumSize(0, rows)`.
 - The toolkit `XKeyHandler` is added when the controller is created (flag on) and removed only by `dispose()` from panel `disposing`. The sidebar `FocusManager` is also an Application key listener and consumes Esc in panel content (focus jumps to the panel title). Listeners run in registration order, so ours must be registered at panel creation, before the deck connects the panel's key handler. Do not attach it per show or detach it in `hide()`.
 - The `[mock]` commands are not in `SLASH_COMMANDS`. Only `enable_mock_slash_commands()` from the debug-only sidebar test hooks registers them.
@@ -186,8 +186,8 @@ These remove a second copy of a fact. None of them need a new file.
 Verified and not a fix:
 
 - Both `next_state` functions stay pure. Stop cannot emit a spawn (`stop_effects_exclude_spawns`, `stopped_effects_exclude_tool_spawns`). Side effects stay in the interpreters.
-- Stop uses `resolve_stop_checker()` bound to the `SendCancellation` created in `StartSendEffect`. `disposing` cancels that same scope and sets `_panel_teardown` so the `finally` does not write status, arm the mic, or clear `_send_cancellation`. MCP `mcp:request` / `mcp:result` unsubscribe from the services bus saved as `_mcp_event_bus`. `grammar:status` stays on `get_event_bus()`. MCP result UI, Ask text changes, and audio auto-stop callbacks no-op once teardown has started or `ctx` is `None`. Approval chrome is restored from `_approval_ui_backup`.
-- Queue items are `StreamQueueKind`. LLM and async tools use `run_in_background(..., dedicated=True)`. The UI thread drains. Sync tools run on the drain on purpose. The sync `execute_fn` path does receive `resolve_stop_checker()` via the default argument. A long sync tool still blocks Stop until it returns. That is the shape of sync work on the UI thread. Do not add a thread for it.
+- Stop uses `SendCancellation` created in `StartSendEffect`. `disposing` cancels that same scope and sets `_panel_teardown` so the `finally` does not write status, arm the mic, or clear `_send_cancellation`. MCP `mcp:request` / `mcp:result` unsubscribe from the services bus saved as `_mcp_event_bus`. `grammar:status` stays on `get_event_bus()`. MCP result UI, Ask text changes, and audio auto-stop callbacks no-op once teardown has started or `ctx` is `None`. Approval chrome is restored from `_approval_ui_backup`.
+- Queue items are `StreamQueueKind`. LLM and async tools use `run_in_background(..., dedicated=True)`. The UI thread drains. Sync tools run on the drain on purpose. The sync `execute_fn` path checks `cancel.is_cancelled()`. A long sync tool still blocks Stop until it returns. That is the shape of sync work on the UI thread. Do not add a thread for it.
 - Chat send and a successful mutating tool refresh through `ChatSession.refresh_document_context`. This area does not import `get_document_context_for_chat` or call `uno.getComponentContext()`. The document comes from the frame.
 - Tool-loop history writes go through `persist_*_on_turn`. `compact_session` aborts if `session.messages` was replaced. `messages_for_llm` always runs `sanitize_tool_pairs`.
 - `SEND_CLICKED` while busy is ignored. `STOP_CLICKED` keeps `is_busy` until completion. Image and agent Stop are not overwritten to Ready when status is Error or Stopped.
@@ -211,7 +211,7 @@ These live outside `plugin/chatbot` and show up in the findings above.
 
 - `plugin/framework/async_stream.py` `_finish_on_stop` / `_apply_queued_display`: the stop tail is applied after Clear, and `TOOL_DONE` in that queue is dropped before `_handle_stream_stopped`.
 - `plugin/framework/client/llm_client.py` `request_with_tools`: stop still returns accumulated content. The chatbot worker ignores it. Partial `tool_calls` must not be executed.
-- `plugin/framework/errors.py`: `is_tool_document_disposed` is the tool-boundary predicate. `is_disposed_exception` is the UI heuristic and matches a bare `RuntimeException`.
+- `plugin/framework/errors.py`: `is_disposal` is the strict disposal predicate (`DocumentDisposedError` and `DisposedException` only). UI lifecycle uses `suppress_disposed` / `_looks_like_teardown` for broader bridge teardown.
 - `plugin/scripting/host_rpc.py` and `plugin/scripting/venv_worker.py`: PPT document binding and cancel. See item 6.
 - `plugin/audio/tts_service.py` `sync_tts_ui`: Together voices use the live endpoint argument. OpenRouter voice rows call `_saved_endpoint_is_openrouter()`, which reads the saved URL. Before OK, an OpenRouter choice still builds voices as if the old host were current.
 - `plugin/framework/config.py` `validate()` already runs `endpoint_from_selector_text`. Do not add a second normalizer in the settings dialog.

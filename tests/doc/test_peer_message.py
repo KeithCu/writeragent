@@ -67,6 +67,13 @@ def setup_function():
     reset_sentry_state()
 
 
+@pytest.fixture(autouse=True)
+def _register_prompt_catalog_for_peer_tests():
+    from tests.tool_registry_filters import register_prompt_catalog_for_tests
+
+    register_prompt_catalog_for_tests()
+
+
 def teardown_function():
     reset_peer_queues()
     reset_sentry_state()
@@ -241,7 +248,8 @@ def test_list_v1_peers_magicmock_ctx_does_not_hang():
 
 
 def test_outer_prompt_with_peers_has_no_peer_send_tools():
-    from plugin.framework.prompts import format_peer_outer_delegate_hint, get_chat_system_prompt_for_document
+    from plugin.doc.peer_prompt import format_peer_outer_delegate_hint
+    from plugin.framework.prompts import get_chat_system_prompt_for_document
 
     model = MagicMock()
     model.supportsService.side_effect = lambda s: s == "com.sun.star.text.TextDocument"
@@ -583,7 +591,10 @@ def test_registry_chat_tier_on_default_list():
 
 
 def test_schemas_main_hides_specialized_shows_when_peers_open():
+    from tests.tool_registry_filters import append_production_tool_registry_filters
+
     registry = ToolRegistry(services=None)
+    append_production_tool_registry_filters(registry)
     registry.register(SendPeerWork())
     registry.register(SendPeerResult())
     peers = [{"name": "Budget.ods", "uid": "u2", "url": "file:///tmp/Budget.ods", "type": "calc"}]
@@ -669,7 +680,7 @@ def test_is_mutation_false_and_sync():
 
 
 def test_prompts_outer_thin_inner_choice():
-    from plugin.framework.prompts import (
+    from plugin.doc.peer_prompt import (
         PEER_INNER_CHOICE_RULES,
         PEER_OUTER_DELEGATE_HINT,
         format_peer_outer_delegate_hint,
@@ -784,7 +795,7 @@ def test_prompts_outer_thin_inner_choice():
 
 def test_outer_hint_idle_after_send_and_conditional_reply():
     """Outer hint encodes idle-after-send and MUST-reply after work envelopes."""
-    from plugin.framework.prompts import (
+    from plugin.doc.peer_prompt import (
         PEER_OUTER_DELEGATE_HINT,
         PEER_OUTER_IDLE_AFTER_SEND,
         annotate_outer_peer_wait,
@@ -832,7 +843,7 @@ def test_outer_hint_idle_after_send_and_conditional_reply():
 
 def test_annotate_outer_peer_delivery_pending():
     """Non-delivery specialize returns stamp still-required delivery for the outer."""
-    from plugin.framework.prompts import (
+    from plugin.doc.peer_prompt import (
         PEER_OUTER_DELIVERY_STILL_REQUIRED,
         annotate_outer_peer_delivery_pending,
         looks_like_peer_work_envelope,

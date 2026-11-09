@@ -20,6 +20,20 @@ def _first_paragraph(doc):
 
 
 @native_test
+def test_has_more_elements_returns_python_bool(ctx):
+    """PyUNO maps sal_Bool from hasMoreElements() to bool, not integer 1."""
+    with TestingFactory.native_doc(ctx, "writer") as doc:
+        enum = doc.getText().createEnumeration()
+        first = enum.hasMoreElements()
+        assert first is True
+        assert type(first) is bool
+        enum.nextElement()
+        second = enum.hasMoreElements()
+        assert second is False
+        assert type(second) is bool
+
+
+@native_test
 def test_get_string_without_tracked_deletions_paragraph_bold_run_no_newline(ctx):
     """A paragraph with a bold run must stay one line (portions are not paragraphs)."""
     with TestingFactory.native_doc(ctx, "writer") as doc:

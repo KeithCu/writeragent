@@ -13,6 +13,8 @@ from contextlib import contextmanager
 from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
+from plugin.framework.queue_executor import main
+
 import pytest
 
 from plugin.framework.frame_session import (
@@ -247,10 +249,10 @@ def test_listener_disposing_does_not_remove_listener():
 def test_stale_panel_dispose_does_not_release_the_bound_panels_listeners():
     """A late dispose of the previous sidebar must not detach the rebound session.
 
-    What was wrong: release_panel kept self.panel when the argument was not
-    the bound panel, then still called release_listeners. How: the same frame
-    reuses the session and bind_panel points it at the new element; the old
-    element's dispose still runs. Why: listeners belong to the bound panel.
+    When the frame rebinds a new sidebar, ``release_panel`` with the old panel
+    must not call ``release_listeners`` if that panel is no longer bound.
+    Otherwise a late dispose on the previous element strips listeners from the
+    current session.
     """
     controller = _Controller()
     session = open_frame_session(_frame(controller), "doc-a")
@@ -327,10 +329,9 @@ class _HoldingController:
 def test_frame_disposing_releases_listeners_before_sidebar_teardown():
     """Frame disposing before sidebar teardown must detach listeners.
 
-    What was wrong: dispose set _closed and cleared the Python lists without
-    remove*. release_panel then returned immediately, and the listeners still
-    closed over the session. Why: dispose releases them, and a later
-    release_panel does not remove them a second time.
+    ``dispose`` must call UNO ``remove*`` before clearing Python lists. If it
+    only sets ``_closed``, ``release_panel`` returns early while native
+    listeners still close over the session.
     """
     controller = _HoldingController()
     frame = _frame(controller)
@@ -465,7 +466,7 @@ def _thread_violation(where: str) -> RuntimeError:
 
 
 def test_thread_violation_from_get_controller_is_not_a_silent_install():
-    """Off-thread getController used to log at debug and skip the click handler."""
+    """Off-thread getController must raise, not log at debug and skip wiring."""
     frame = MagicMock()
     frame.getController.side_effect = _thread_violation("getController")
     session = FrameSession(frame, "doc-a")
@@ -524,8 +525,7 @@ def test_thread_violation_from_add_mouse_click_handler_is_not_a_silent_install()
 
 def test_ordinary_attach_error_stays_a_debug_log(caplog):
     """A non-guard RuntimeError is still not a failed install."""
-    # What was wrong: logger.debug calls are stripped in release builds.
-    # Why: skip when running against stripped release bundle.
+    # Release bundles strip log.debug; skip this assertion there.
     from tests.harness.strip_bundle import skip_if_release_build
 
     skip_if_release_build("log.debug stripped in release bundle")
@@ -624,7 +624,7 @@ def test_restore_focus_skips_when_the_window_probe_fails():
 def test_restore_focus_off_main_thread_makes_no_uno_calls():
     session, frame, query = _active_session()
     frame.getContainerWindow.reset_mock()
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False):
+    with patch.object(main, "is_current", return_value=False):
         session.restore_focus()
     frame.getContainerWindow.assert_not_called()
     query.setFocus.assert_not_called()

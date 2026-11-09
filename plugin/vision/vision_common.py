@@ -11,9 +11,9 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-HELPER_NAMES = frozenset({"extract_text", "extract_structure", "detect_objects", "detect_layout", "recognize_pipeline", "perceptual_hash"})
+HELPER_NAMES = frozenset({"extract_text", "extract_structure"})
 
-IMPLEMENTED_HELPERS = frozenset({"extract_text", "extract_structure"})
+IMPLEMENTED_HELPERS = HELPER_NAMES
 
 DEFAULT_ENGINE = "docling"
 ENGINES = frozenset({"docling", "paddle"})
@@ -22,7 +22,7 @@ DEFAULT_OCR_BACKEND = "rapidocr"
 # Financial statements and comparison tables often exceed 50 body rows.
 MAX_TABLE_ROWS = 200
 
-# plugin.scripting.ipc.DEFAULT_MAX_PAYLOAD_BYTES is 16 MiB. Leave 1 MiB for the
+# plugin.framework.ipc.DEFAULT_MAX_PAYLOAD_BYTES is 16 MiB. Leave 1 MiB for the
 # spec/context pickle wrapper so a max-size image still fits in one frame.
 VISION_IMAGE_MAX_BYTES = 15 * 1024 * 1024
 
@@ -260,14 +260,18 @@ def table_from_span_cells(
             continue
         spans.append({"row": row, "col": col, "rowspan": rowspan, "colspan": colspan})
     data_rows = grid[1:]
-    return {
+    truncated = len(data_rows) > MAX_TABLE_ROWS
+    out: dict[str, Any] = {
         "name": name,
         "columns": list(grid[0]),
         "rows": [list(row) for row in data_rows[:MAX_TABLE_ROWS]],
         "spans": spans,
-        "truncated": len(data_rows) > MAX_TABLE_ROWS,
+        "truncated": truncated,
         "total_rows": len(data_rows),
     }
+    if truncated:
+        out["hint"] = "Table shows the first rows of total_rows."
+    return out
 
 
 def table_to_tsv_lines(table: dict[str, Any]) -> list[str]:

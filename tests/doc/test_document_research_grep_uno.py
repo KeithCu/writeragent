@@ -11,14 +11,14 @@ import uno
 
 from plugin.doc.document_research_grep import grep_nearby_files
 from plugin.framework.uno_context import get_desktop
-from plugin.main import get_services
-from plugin.testing_runner import native_test, show_window
+from plugin.app import get_services
+from plugin.testing_runner import current_office, native_test
 from plugin.tests.testing_utils import TestingFactory, with_native_doc
 
 
 def _create_grep_test_env(ctx, active_doc):
     temp_dir = tempfile.mkdtemp(prefix="wa_grep_")
-    hidden = not show_window
+    hidden = not current_office().options.show_window
 
     budget = TestingFactory.create_native_doc(ctx, "calc", hidden=hidden)
     sheet = budget.Sheets.getByIndex(0)
@@ -74,7 +74,7 @@ def _desktop_component_count(ctx) -> int:
 
 
 @native_test
-@with_native_doc("calc", hidden=not show_window)
+@with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_grep_budget_calc_hit_excludes_notes_from_subset(ctx, doc):
     temp_dir = _create_grep_test_env(ctx, doc)
     try:
@@ -105,7 +105,7 @@ def test_grep_budget_calc_hit_excludes_notes_from_subset(ctx, doc):
 
 
 @native_test
-@with_native_doc("calc", hidden=not show_window)
+@with_native_doc("calc", hidden=not current_office().options.show_window)
 def test_grep_writer_paragraph_snippet(ctx, doc):
     temp_dir = _create_grep_test_env(ctx, doc)
     try:

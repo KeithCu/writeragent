@@ -48,7 +48,7 @@ When enumerating the collection returned by `getRedlines()`, each element repres
 - `RedlineAuthor` (string): The name of the user who made the change.
 - `RedlineDateTime` (`com.sun.star.util.DateTime`): The timestamp when the change was made (contains Year, Month, Day, Hours, Minutes, etc.).
 - `RedlineComment` (string): An optional comment attached to the tracked change.
-- `RedlineIdentifier` (string): An internal identifier for the redline. It is not a stable identity by itself. `manage_tracked_changes` treats a resolve as successful only when `redline_identity_key` for that index drops by one and every other key stays. A stacked Delete reuses the identifier (`review_scan.py`).
+- `RedlineIdentifier` (string): An internal identifier for the redline. It is not a stable identity by itself. `tracking_manage` treats a resolve as successful only when `redline_identity_key` for that index drops by one and every other key stays. A stacked Delete reuses the identifier (`review_scan.py`).
 
 ## Comments / Annotations
 
@@ -63,7 +63,8 @@ In LibreOffice Writer, "Comments" are internally referred to as `Annotation` tex
 3. Attach the field to a `TextRange` (e.g., a search match, not only the view cursor) using `insertTextContent` on that range. `add_comment` spans the matched passage and can reply via `parent_name`.
 
 ### Managing Annotations
-- **Listing:** Annotations are part of the document's text fields. You can retrieve them via `doc.getTextFields()`. Iterate through the enumeration, and if `field.supportsService("com.sun.star.text.textfield.Annotation")`, it is a comment. Agent-facing list is `comment_list` (name + author + resolved), not an index from tracking. `comment_list` reports `location` (body, table cell, header/footer) via `describe_match_location`; `paragraph_index` is present only when the comment anchor belongs to the main body text (`uno_same(anchor.getText(), doc.getText())`).
+- **Listing:** Annotations are part of the document's text fields. You can retrieve them via `doc.getTextFields()`. Iterate through the enumeration, and if `field.supportsService("com.sun.star.text.textfield.Annotation")`, it is a comment. Agent-facing list is `comment_list` (name + author + resolved), not an index from tracking. `comment_list` reports `location` (body, table cell, header/footer) via `describe_match_location`; `paragraph_index` is present only when the comment anchor belongs to the main body text (`uno_same(anchor.getText(), doc.getText())`). Results are paged (`start_index`, `max_comments`, `has_more`, `next_index`) like `tracking_list`.
+- **Editing:** `comment_edit` changes only the `Content` property; author, date, parent, and resolved status are unchanged.
 - **Resolving:** `comment_resolve` resolves an annotation and optionally inserts a threaded reply. Resolve replies are assigned a unique, non-empty `Name` prior to insert so they appear in subsequent `comment_list` calls with their own addressable name.
 - **Deleting:** Call `removeTextContent` on the text field, which disposes one field (`SwXTextField::dispose`). Agent-facing `comment_delete` by `name` removes that annotation and every reply whose `ParentName` chain reaches it. Delete by `author` removes annotations with that author only.
 
@@ -130,4 +131,4 @@ Before `select`, the tool saves `controller.getSelection()`. After the dispatch 
 
 ### What the shipped tool returns
 
-`track_changes_list` reports, per change, the author and type plus the change **text** (for a deletion, the removed text via `RedlineText`) and its **location** (body, table cell, header/footer, and so on), along with the document's current review mode. That is enough for a model to decide what to accept or reject without a second lookup. After a single accept or reject the tool tells the caller to run `track_changes_list` again because indexes shift. `track_changes_show` takes the Writer `RedlineDisplayType` path only when the document has `getRedlines`. Calc gets the stub. The list is capped at `max_changes` rows (default 100) from `start_index` (default 0); `has_more` says whether rows remain and `next_index` is where to continue.
+`tracking_list` reports, per change, the author and type plus the change **text** (for a deletion, the removed text via `RedlineText`) and its **location** (body, table cell, header/footer, and so on), along with the document's current review mode. That is enough for a model to decide what to accept or reject without a second lookup. After a single accept or reject the tool tells the caller to run `tracking_list` again because indexes shift. `tracking_show` takes the Writer `RedlineDisplayType` path only when the document has `getRedlines`. Calc gets the stub. The list is capped at `max_changes` rows (default 100) from `start_index` (default 0); `has_more` says whether rows remain and `next_index` is where to continue.

@@ -13,12 +13,29 @@ import pytest
 
 from plugin.chatbot import compaction as C
 from plugin.framework.client import model_fetcher as MF
+from plugin.framework.send_cancellation import SendCancellation
+
+
+class _CancelWhen:
+    """Duck-typed cancel scope for tests with dynamic ``is_cancelled``."""
+
+    def __init__(self, predicate):
+        self._predicate = predicate
+
+    def is_cancelled(self):
+        return self._predicate()
 
 
 class DummySession:
-    def __init__(self, messages):
+    def __init__(self, messages, document_context=""):
         self.messages = messages
         self.compaction = None
+        self.document_context = document_context
+
+    def messages_for_request(self):
+        from plugin.chatbot.chat_session import ChatSession
+
+        return ChatSession.messages_for_request(self)
 
 
 class GuardConfig(dict):
@@ -272,10 +289,10 @@ def test_estimate_tokens_rough_ascii_cjk_cyrillic():
 
 
 def test_document_content_never_in_summary_or_replaced_in_view():
-    live = _system_doc(2000)
-    live["content"] = "LIVE PROMPT\n\n[DOCUMENT CONTENT]\nsecret-doc\n[END DOCUMENT]"
+    live = {"role": "system", "content": "LIVE PROMPT"}
     session = DummySession(
-        [live, _msg("user", 1000), _msg("assistant", 1000), _msg("user", 1000)]
+        [live, _msg("user", 1000), _msg("assistant", 1000), _msg("user", 1000)],
+        document_context="secret-doc",
     )
     client = DummyClient()
     C.compact_session(session, client, window=4096)
@@ -286,10 +303,72 @@ def test_document_content_never_in_summary_or_replaced_in_view():
     view = C.messages_for_llm(session)
     assert view[0] is live or view[0]["content"] == live["content"]
     assert "LIVE PROMPT" in view[0]["content"]
-    assert "[DOCUMENT CONTENT]" in view[0]["content"]
-    # Defensive strip if a caller ever passed index 0.
-    assert "secret-doc" not in "\n".join(C._summary_lines([live]))
+    assert "secret-doc" not in view[0]["content"]
+    req = session.messages_for_request()
+    assert "secret-doc" in str(req[-1]["content"])
     assert "[DOCUMENT CONTENT]" not in "\n".join(C._summary_lines(session.messages[1:]))
+
+
+def test_token_estimates_and_keep_recent_with_snapshot():
+    from plugin.chatbot.chat_session import request_tail
+
+    base_sys = {"role": "system", "content": "You are a helpful assistant."}
+    session = DummySession([base_sys, _msg("user", 10)], document_context="Short doc")
+    view = C.messages_for_llm(session)
+    assert C.estimate_message_tokens(view[0]) == C.estimate_message_tokens(base_sys)
+
+    tail = request_tail(session)
+    assert "Short doc" in tail
+    expected_snap_tokens = C.estimate_message_tokens({"role": "user", "content": tail})
+    assert expected_snap_tokens > 0
+
+    assert C.keep_recent_tokens(4096, 2000, 0, snapshot_tokens=500) == 828
+
+    client = DummyClient(content="summary")
+    res = C.compact_session(session, client, window=4096, force=False)
+    expected_before = C.estimate_tokens(view) + expected_snap_tokens
+    assert res.tokens_before == expected_before
+
+
+def test_compaction_counts_tail_tokens_without_document():
+    """Compaction counts tail tokens whether or not there is a document."""
+    base_sys = {"role": "system", "content": "You are a helpful assistant."}
+    session_no_doc = DummySession([base_sys, _msg("user", 10)], document_context="")
+    client = DummyClient(content="summary")
+    res = C.compact_session(session_no_doc, client, window=4096, force=False)
+    view = C.messages_for_llm(session_no_doc)
+    assert res.tokens_before == C.estimate_tokens(view)
+
+def test_large_document_snapshot_triggers_proactive_compaction():
+    # Session whose transcript tokens alone are under threshold (4096 * 0.70 = 2867),
+    # but a large document snapshot pushes total request tokens over threshold.
+    live = {"role": "system", "content": "Base"}
+    session = DummySession(
+        [
+            live,
+            _msg("user", 300),
+            _msg("assistant", 300),
+            _msg("user", 300),
+            _msg("assistant", 300),
+            _msg("user", 300),
+            _msg("assistant", 300),
+            _msg("user", 300),
+            _msg("assistant", 300),
+        ],
+        document_context="Short doc",
+    )
+    client = DummyClient(content="summary")
+
+    res1 = C.compact_session(session, client, window=4096, force=False)
+    assert res1.compacted is False
+    assert res1.reason == "below_threshold"
+    assert session.compaction is None
+
+    # Large document context pushes total tokens over threshold to trigger compaction
+    session.document_context = "x" * 2400
+    res2 = C.compact_session(session, client, window=4096, force=False)
+    assert res2.compacted is True
+    assert session.compaction is not None
 
 
 # --- 5. Tool-pair integrity ----------------------------------------------------
@@ -667,9 +746,8 @@ def test_resolve_context_window_slash_lru_unknown_is_none():
 def _clear_v1_context_cache_keys(substr):
     import plugin.framework.client.model_fetcher as mf
 
-    for store in (mf._model_fetch_cache, mf._model_fetch_image_cache, mf._model_context_cache):
-        for key in [k for k in store if substr in k]:
-            store.pop(key, None)
+    for key in [k for k in list(mf._catalog_memos) if substr in k]:
+        mf._catalog_memos.pop(key, None)
 
 
 def test_resolve_context_window_prefers_cached_live_over_catalog():
@@ -802,9 +880,6 @@ def test_update_path_slices_only_new_unsummarized_turns():
     assert "<previous-summary>" in update_body
     assert "first-summary" in update_body
     assert "[DOCUMENT CONTENT]" not in update_body
-    # Already-summarized prefix is not re-sent: first user turn of the original
-    # history lived at index 1 and was in the first slice.
-    assert C.DOCUMENT_MARKERS[0] not in update_body
 
 
 # --- 14. No panel / lane import ------------------------------------------------
@@ -1052,8 +1127,10 @@ def test_status_callback_only_when_summarizer_runs():
 def test_stop_checker_aborts_without_mutating():
     session = DummySession(_history_3x1000())
     client = DummyClient()
+    scope = SendCancellation()
+    scope.cancel()
     result = C.compact_session(
-        session, client, window=4096, stop_checker=lambda: True
+        session, client, window=4096, cancel=scope
     )
     assert result.reason == "aborted"
     assert session.compaction is None
@@ -1142,7 +1219,7 @@ def test_stop_checker_after_http_returns_aborts():
         # False on first call (preflight check), True on second call (after client.request_with_tools)
         return calls["n"] > 1
 
-    result = C.compact_session(session, client, window=4096, stop_checker=_checker)
+    result = C.compact_session(session, client, window=4096, cancel=_CancelWhen(_checker))
     assert result.reason == "aborted"
     assert result.compacted is False
     assert session.compaction is None
@@ -1179,7 +1256,7 @@ def test_flatten_content_and_tool_name_fallbacks():
         {"type": "text", "text": "world"},
     ]
     text, n_img, n_aud = C.flatten_content(mixed_content)
-    assert text == "hello world"
+    assert text == "hello\nstray_string\nworld"
     assert n_img == 0
     assert n_aud == 0
 
@@ -1361,10 +1438,16 @@ def test_summarizer_one_call_when_slice_fits():
     assert result.compacted is True
     assert len(client.calls) == 1
     call = client.calls[0]
-    assert call["max_tokens"] == C._summary_budget(4096)
+    assert call["max_tokens"] == C._summarizer_max_out(4096)
     assert call["stream"] is False
     assert call["tools"] is None
     assert call["prepend_dev_build_system_prefix"] is False
+
+
+def test_summarizer_max_out_exceeds_summary_pair_budget_on_large_windows():
+    window = 32768
+    assert C._summary_budget(window) == 1024
+    assert C._summarizer_max_out(window) == 4096
 
 
 def test_summarizer_chunks_when_slice_exceeds_window():
@@ -1450,9 +1533,6 @@ def test_summarizer_second_chunk_failure_does_not_publish():
 def test_summarizer_stop_between_chunks_aborts():
     calls_count = 0
 
-    def stop_checker():
-        return calls_count >= 1
-
     class CountingClient(DummyClient):
         def request_with_tools(self, messages, **kwargs):
             nonlocal calls_count
@@ -1470,8 +1550,75 @@ def test_summarizer_stop_between_chunks_aborts():
     ]
     session = DummySession(msgs)
     client = CountingClient(content="test-summary")
-    result = C.compact_session(session, client, window=4096, force=True, stop_checker=stop_checker)
+    result = C.compact_session(
+        session, client, window=4096, force=True, cancel=_CancelWhen(lambda: calls_count >= 1)
+    )
 
     assert result.reason == "aborted"
     assert session.compaction is None
 
+
+def test_compact_session_summarizer_user_body_includes_focus():
+    session = DummySession(_history_3x1000())
+    client = DummyClient(content="test summary")
+    result = C.compact_session(session, client, window=4096, focus="budget")
+    assert result.compacted
+    assert client.calls
+    user_messages = [m for m in client.calls[0]["messages"] if m.get("role") == "user"]
+    assert user_messages
+    assert "Keep details about: budget" in user_messages[-1]["content"]
+
+
+def test_summarizer_retries_after_length_or_empty_content():
+    class RetryClient(DummyClient):
+        def request_with_tools(self, messages, **kwargs):
+            self.calls.append({"messages": messages, **kwargs})
+            if len(self.calls) == 1:
+                return {"content": None, "finish_reason": "length"}
+            return {"content": "recovered summary", "finish_reason": "stop"}
+
+    session = DummySession(_history_3x1000())
+    client = RetryClient(content="unused")
+    result = C.compact_session(session, client, window=4096)
+    assert result.compacted is True
+    assert len(client.calls) == 2
+    assert client.calls[0].get("chat_extra") == {"reasoning": {"effort": "low"}}
+    assert client.calls[1]["max_tokens"] > client.calls[0]["max_tokens"]
+
+
+def test_summarizer_accepts_length_when_partial_content_present():
+    class PartialLengthClient(DummyClient):
+        def request_with_tools(self, messages, **kwargs):
+            self.calls.append({"messages": messages, **kwargs})
+            return {"content": "partial but usable", "finish_reason": "length"}
+
+    session = DummySession(_history_3x1000())
+    client = PartialLengthClient(content="unused")
+    result = C.compact_session(session, client, window=4096)
+    assert result.compacted is True
+    assert len(client.calls) == 1
+
+
+def test_compact_session_propagates_auth_errors():
+    from plugin.framework.client.auth import AuthError
+    import urllib.error
+
+    client_missing = DummyClient(error=AuthError("missing", code="missing_api_key"))
+    with pytest.raises(AuthError):
+        C.compact_session(DummySession(_history_3x1000()), client_missing, window=4096)
+
+    client_401 = DummyClient(
+        error=urllib.error.HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+    )
+    with pytest.raises(urllib.error.HTTPError):
+        C.compact_session(DummySession(_history_3x1000()), client_401, window=4096)
+
+    client_runtime = DummyClient(error=RuntimeError("summarizer down"))
+    result = C.compact_session(DummySession(_history_3x1000()), client_runtime, window=4096)
+    assert result.reason == "failed"

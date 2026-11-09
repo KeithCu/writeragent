@@ -22,12 +22,12 @@ from pathlib import Path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
 
+from plugin.framework.subprocess_env import scrub_subprocess_env  # noqa: E402
 from plugin.scripting.sandbox import (  # noqa: E402
     resolve_libreoffice_python,
     resolve_venv_python,
-    scrub_subprocess_env,
 )
-from plugin.scripting.venv_worker import PythonWorkerManager  # noqa: E402
+from plugin.scripting.venv_worker import PythonWorkerManager, shutdown_venv_workers_for_tests  # noqa: E402
 
 TEXT_NS = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
 DEFAULT_ODT = project_root / "scripts" / "longdocsample.odt"
@@ -283,7 +283,10 @@ def main() -> int:
             )
             print_row(model, stats)
     finally:
-        PythonWorkerManager.shutdown_all()
+        from plugin.framework.warm_child import supervisor
+
+        supervisor.shutdown_all()
+        shutdown_venv_workers_for_tests()
 
     return 0
 

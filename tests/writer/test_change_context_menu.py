@@ -16,8 +16,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from plugin.framework.uno_listeners import ListenerBoundary
-from plugin.writer import change_context_menu
-from plugin.writer.change_context_menu import _install_doc_event_listener
+from plugin.writer import change_context_menu, review_view_attachment as rva
+
+
+def _registered_controllers() -> list[tuple[Any, Any]]:
+    return [(c, i) for att in rva.attachments().values() for c, i, _h in att.controllers]
 
 
 class DisposedException(Exception):
@@ -30,17 +33,15 @@ class RuntimeException(Exception):
 
 @pytest.fixture(autouse=True)
 def _reset_context_menu_state():
-    orig_listener = change_context_menu._doc_listener
-    orig_registered = list(change_context_menu._registered)
+    orig_listener = rva._doc_listener
     orig_interceptor_cls = change_context_menu._interceptor_cls
-    change_context_menu._doc_listener = None
-    change_context_menu._registered.clear()
+    rva.reset_all()
     change_context_menu._interceptor_cls = None
     try:
         yield
     finally:
-        change_context_menu._doc_listener = orig_listener
-        change_context_menu._registered[:] = orig_registered
+        rva.reset_all()
+        rva._doc_listener = orig_listener
         change_context_menu._interceptor_cls = orig_interceptor_cls
 
 
@@ -48,7 +49,7 @@ def _build_listener() -> Any:
     ctx = MagicMock()
     broadcaster = MagicMock()
     ctx.getServiceManager.return_value.createInstanceWithContext.return_value = broadcaster
-    _install_doc_event_listener(ctx)
+    rva.install(ctx)
     return broadcaster.addDocumentEventListener.call_args[0][0]
 
 
@@ -129,10 +130,16 @@ class _StubController:
     def releaseContextMenuInterceptor(self, interceptor: Any) -> None:  # noqa: N802 -- UNO API
         self.removed.append(interceptor)
 
+    def addMouseClickHandler(self, handler: Any) -> None:  # noqa: N802 -- UNO API
+        pass
+
+    def removeMouseClickHandler(self, handler: Any) -> None:  # noqa: N802 -- UNO API
+        pass
+
 
 def test_register_controller_dedups_by_uno_identity(monkeypatch):
     monkeypatch.setattr(
-        "plugin.framework.uno_context.uno_same",
+        "plugin.writer.review_view_attachment.uno_same",
         lambda a, b: a is not None and b is not None and getattr(a, "ident", None) == getattr(b, "ident", None),
     )
     model = MagicMock()
@@ -146,14 +153,34 @@ def test_register_controller_dedups_by_uno_identity(monkeypatch):
         "_make_interceptor",
         lambda m: SimpleNamespace(_model=m),
     )
+    monkeypatch.setattr(
+        "plugin.writer.review_click_popup._make_handler",
+        lambda m, detach: MagicMock(),
+    )
 
-    change_context_menu._register_controller(ctrl1)
+    rva.register_controller(ctrl1)
     assert len(ctrl1.registered) == 1
-    assert len(change_context_menu._registered) == 1
+    assert len(_registered_controllers()) == 1
 
-    change_context_menu._register_controller(ctrl2)
+    rva.register_controller(ctrl2)
     assert len(ctrl2.registered) == 0
-    assert len(change_context_menu._registered) == 1
+    assert len(_registered_controllers()) == 1
+
+
+def _seed_controller_hooks(
+    controller: Any,
+    interceptor: Any,
+    click_handler: Any | None = None,
+) -> None:
+    handler = click_handler if click_handler is not None else MagicMock()
+    model = getattr(interceptor, "_model", None)
+    key = rva.attachment_key(model) if model is not None else "test:%d" % id(controller)
+    with rva._lock:
+        attachment = rva._attachments.get(key)
+        if attachment is None:
+            attachment = rva.ReviewViewAttachment(key=key, model=model)
+            rva._attachments[key] = attachment
+        attachment.controllers.append((controller, interceptor, handler))
 
 
 def test_unload_removes_interceptor_and_pair():
@@ -166,12 +193,13 @@ def test_unload_removes_interceptor_and_pair():
     interceptor1 = SimpleNamespace(_model=model1)
     interceptor2 = SimpleNamespace(_model=model2)
 
-    change_context_menu._registered = [(ctrl1, interceptor1), (ctrl2, interceptor2)]
+    _seed_controller_hooks(ctrl1, interceptor1)
+    _seed_controller_hooks(ctrl2, interceptor2)
 
-    change_context_menu._unregister_model(model1)
+    rva.unregister_controllers_for_model(model1)
     assert ctrl1.removed == [interceptor1]
     assert ctrl2.removed == []
-    assert change_context_menu._registered == [(ctrl2, interceptor2)]
+    assert _registered_controllers() == [(ctrl2, interceptor2)]
 
 
 def test_unload_swallows_removal_disposal():
@@ -183,24 +211,25 @@ def test_unload_swallows_removal_disposal():
         raise RuntimeError("gone")
 
     ctrl.releaseContextMenuInterceptor = _raise_gone
-    change_context_menu._registered = [(ctrl, interceptor)]
+    _seed_controller_hooks(ctrl, interceptor)
 
-    change_context_menu._unregister_model(model)
-    assert change_context_menu._registered == []
+    rva.unregister_controllers_for_model(model)
+    assert _registered_controllers() == []
 
 
 def test_on_unload_event_removes_registered_interceptor():
-    model = SimpleNamespace(ident="m")
+    model = MagicMock()
+    model.supportsService.return_value = True
     ctrl = _StubController("c", model)
     interceptor = SimpleNamespace(_model=model)
 
-    change_context_menu._registered = [(ctrl, interceptor)]
+    _seed_controller_hooks(ctrl, interceptor)
     listener = _build_listener()
 
     event = SimpleNamespace(EventName="OnUnload", ViewController=None, Source=model)
     listener.documentEventOccured(event)
     assert ctrl.removed == [interceptor]
-    assert change_context_menu._registered == []
+    assert _registered_controllers() == []
 
 
 @pytest.fixture

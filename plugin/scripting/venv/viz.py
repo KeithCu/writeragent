@@ -12,18 +12,17 @@ import logging
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
+    column_by_label,
     parse_date_column,
+    resolve_columns,
     resolve_df as _resolve_df,
 )
+from plugin.scripting.helper_registry import helper
+from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    _sheet_layout_flags,
-    dispatch_common_kwargs,
-    error_result as _error_result,
     missing_package_error as _missing_package_error,
-    resolve_spec_helper,
+    run_domain,
 )
-
-from plugin.scripting.calc_functions_common import VIZ_HELPER_NAMES as HELPER_NAMES
 
 log = logging.getLogger(__name__)
 
@@ -37,33 +36,9 @@ _MAX_SVG_BYTES = 8 * 1024 * 1024
 # --- Core Helper Implementations (Venv Execution Path) ---
 
 
-def _column_by_label(df: Any, name: Any) -> Any:
-    # What was wrong: integer column 0 was reported as NON_NUMERIC_COLUMN
-    # because the requested or stringified name was looked up on an Index
-    # with integer labels.
-    # How it happened: resolve_df keeps DataFrame column labels as-is, but
-    # numeric_columns and caller lookups stringified the names.
-    # Why this change: resolve a requested name against actual Index labels:
-    # exact membership first, otherwise the first column whose str(col) == str(name).
-    if name is None:
-        return None
-    try:
-        if name in df.columns:
-            return name
-    except Exception:
-        pass
-    name_str = str(name)
-    for col in df.columns:
-        if str(col) == name_str:
-            return col
-    return None
-
-
 def _figure_payload(fig: Any) -> dict[str, Any]:
     # Render only. _open_figure closes the figure, including when savefig raises.
-    # Closing here used to run only after a successful render, so a failure left
-    # the figure registered on the warm worker. The next sandbox cell returns
-    # whatever pyplot still has open.
+    # _open_figure closes the figure even when savefig fails so the warm worker does not leak pyplot state into the next cell.
     from plugin.scripting.venv.venv_sandbox import _figure_to_image_payload
 
     payload = _figure_to_image_payload(fig)
@@ -102,33 +77,6 @@ def _open_figure(plt: Any, figsize: tuple[int, int]) -> Iterator[tuple[Any, Any]
             log.debug("failed to close viz figure", exc_info=True)
 
 
-def _non_numeric_column(df: Any, name: Any, *, helper: str) -> dict[str, Any] | None:
-    # numeric_columns returns a requested name that exists and does not check
-    # dtype. quick_plot and plot_data then called Series.astype(float), and a
-    # text column raised ValueError. The worker reported that as a generic
-    # VIZ_ERROR. select_dtypes(include="number") is the same test as
-    # analysis._reject_non_numeric, so bool is not numeric.
-    if name not in set(df.select_dtypes(include="number").columns):
-        return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {name}", helper=helper)
-    return None
-
-
-def _resolve_y_column(df: Any, y_col: Any, *, helper: str) -> Any:
-    # quick_plot and plot_data both fell back to the first numeric column when
-    # y named nothing. A typo plotted another series instead of reporting it.
-    if y_col is not None:
-        name = _column_by_label(df, y_col)
-        if name is None:
-            return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {y_col}", helper=helper)
-    else:
-        numeric = list(df.select_dtypes(include="number").columns)
-        if not numeric:
-            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper=helper)
-        name = numeric[0]
-    rejected = _non_numeric_column(df, name, helper=helper)
-    return rejected if rejected is not None else name
-
-
 def _require_matplotlib() -> Any | None:
     try:
         import matplotlib.pyplot as plt
@@ -139,6 +87,7 @@ def _require_matplotlib() -> Any | None:
         return None
 
 
+@helper("viz")
 def quick_plot(
     data: Any,
     *,
@@ -162,11 +111,18 @@ def quick_plot(
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    y_name = _resolve_y_column(df, y_col, helper="quick_plot")
-    if isinstance(y_name, dict):
-        return y_name
+    if y_col is not None:
+        resolved_y = resolve_columns(df, [y_col], numeric=True, helper="quick_plot")
+        if isinstance(resolved_y, dict):
+            return resolved_y
+        y_name = resolved_y[0]
+    else:
+        numeric = resolve_columns(df, None, numeric=True)
+        if isinstance(numeric, dict) or not numeric:
+            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="quick_plot")
+        y_name = numeric[0]
 
-    resolved_x = _column_by_label(df, x_col)
+    resolved_x = column_by_label(df, x_col)
 
     with _open_figure(plt, (8, 4)) as (fig, ax):
         y_float = df[y_name].astype(float)
@@ -209,6 +165,7 @@ def _parse_chart_type(raw: Any) -> str | dict[str, Any]:
     )
 
 
+@helper("viz")
 def plot_data(
     data: Any,
     *,
@@ -231,21 +188,27 @@ def plot_data(
     df = coerced.df
     x_col = spec.get("x")
     y_col = spec.get("y")
-    # hue used to set a legend title and result["legend"] without splitting or
-    # coloring series. Nothing in the tool schema passes it. Ignore the key.
+    # hue is ignored: the tool schema does not expose it and honoring it would mis-label series without real grouping.
     title = str(spec.get("title") or "Plot")
 
-    y_name = _resolve_y_column(df, y_col, helper="plot_data")
-    if isinstance(y_name, dict):
-        return y_name
+    if y_col is not None:
+        resolved_y = resolve_columns(df, [y_col], numeric=True, helper="plot_data")
+        if isinstance(resolved_y, dict):
+            return resolved_y
+        y_name = resolved_y[0]
+    else:
+        numeric = resolve_columns(df, None, numeric=True)
+        if isinstance(numeric, dict) or not numeric:
+            return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns to plot.", helper="plot_data")
+        y_name = numeric[0]
 
-    resolved_x = _column_by_label(df, x_col)
+    resolved_x = column_by_label(df, x_col)
 
     scatter_x: Any = None
     if chart_type == "scatter":
         if resolved_x is not None:
-            rejected_x = _non_numeric_column(df, resolved_x, helper="plot_data")
-            if rejected_x is not None:
+            rejected_x = resolve_columns(df, [resolved_x], numeric=True, helper="plot_data")
+            if isinstance(rejected_x, dict):
                 return rejected_x
             scatter_x = resolved_x
         else:
@@ -283,6 +246,7 @@ def plot_data(
         return _ok_viz("plot_data", fig, chart_type=chart_type, title=title)
 
 
+@helper("viz")
 def correlation_heatmap(
     data: Any,
     *,
@@ -321,9 +285,7 @@ def correlation_heatmap(
 
             sns.heatmap(corr, annot=n_cols <= 8, fmt=".2f", cmap="coolwarm", ax=ax)
         except Exception as exc:
-            # Heatmap used to be guarded only for ImportError. Any other seaborn
-            # error skipped the imshow fallback and skipped plt.close.
-            # ImportError stays silent: missing seaborn is the expected fallback.
+            # Non-ImportError seaborn failures fall back to imshow; ImportError stays quiet when seaborn is simply absent.
             if not isinstance(exc, ImportError):
                 log.debug("seaborn heatmap failed; using imshow", exc_info=True)
             im = ax.imshow(corr.values, cmap="coolwarm", aspect="auto")
@@ -338,6 +300,7 @@ def correlation_heatmap(
         return _ok_viz("correlation_heatmap", fig, chart_type="heatmap", title=ax.get_title())
 
 
+@helper("viz")
 def time_series_plot(
     data: Any,
     *,
@@ -364,9 +327,7 @@ def time_series_plot(
     if date_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Unknown date column {date_col!r}", helper="time_series_plot")
 
-    # historical_value_col used to fall back to value_col when absent from df,
-    # silently plotting the wrong data or obscuring the missing column name.
-    # When provided, it must name an existing column.
+    # When historical_value_col is set, it must exist in the frame so missing columns surface as UNKNOWN_COLUMN instead of silently reusing value_col.
     if historical_value_col:
         if historical_value_col not in df.columns:
             return _error_result(
@@ -424,12 +385,7 @@ def time_series_plot(
         assert lower_values is not None and upper_values is not None
         band_mask = dated & lower_values.notna() & upper_values.notna()
 
-    # What was wrong: an all-null forecast column bypassed INSUFFICIENT_DATA
-    # because the guard checked column presence instead of valid data points,
-    # opening an empty figure. Also, a valid confidence band alone was ignored.
-    # How it happened: the guard only tested hist_mask.any() or forecast_col in series.columns.
-    # Why this change: require at least one plottable row across history, forecast,
-    # or confidence band before opening a figure.
+    # Require at least one plottable history, forecast, or confidence-band row so all-null forecast columns cannot open an empty figure.
     has_hist = bool(hist_mask.any())
     has_forecast = bool(forecast_mask is not None and forecast_mask.any())
     has_band = bool(band_mask is not None and band_mask.any())
@@ -467,55 +423,10 @@ def time_series_plot(
         return _ok_viz("time_series_plot", fig, chart_type="line", title=ax.get_title())
 
 
-def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
-
-    if name == "quick_plot":
-        if "y_cols" in params:
-            return _error_result("INVALID_PARAMS", "quick_plot takes y_col, not y_cols", helper="quick_plot")
-        return quick_plot(data, x_col=params.get("x_col"), y_col=params.get("y_col"), **common)
-    if name == "plot_data":
-        return plot_data(data, spec=params.get("spec") if isinstance(params.get("spec"), dict) else params, **common)
-    if name == "correlation_heatmap":
-        return correlation_heatmap(data, method=params.get("method", "pearson"), **common)
-    if name == "time_series_plot":
-        if not params.get("date_col") or not params.get("value_col"):
-            return _error_result(
-                "MISSING_PARAM",
-                "time_series_plot requires params.date_col and params.value_col",
-                helper=name,
-            )
-        optional: dict[str, Any] = {key: str(params[key]) if params.get(key) else None for key in ("forecast_col", "lower_col", "upper_col", "historical_value_col")}
-        return time_series_plot(
-            data,
-            date_col=str(params["date_col"]),
-            value_col=str(params["value_col"]),
-            **optional,
-            **common,
-        )
-    return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
-
-
 def run_viz(
     spec: dict[str, Any] | str,
     data: Any,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted viz helpers."""
-    res = resolve_spec_helper(spec, helper_names=HELPER_NAMES)
-    if isinstance(res, dict):
-        return res
-    helper, spec_dict = res
-
-    params = spec_dict.get("params")
-    if params is None:
-        params = {k: v for k, v in spec_dict.items() if k not in ("helper", "headers", "header_row")}
-    if not isinstance(params, dict):
-        params = {}
-
-    layout = _sheet_layout_flags(spec_dict)
-    if isinstance(layout, dict):
-        return layout
-    headers, header_row = layout
-    ctx = context if isinstance(context, dict) else {}
-    return _dispatch_helper(helper, data, params, headers=headers, header_row=header_row, context=ctx)
+    return run_domain("viz", spec, data, context=context)

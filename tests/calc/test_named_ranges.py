@@ -307,6 +307,7 @@ def test_named_range_tools_error_handling():
     res_info = tool_info.execute(ctx, name="NonExistent")
     assert res_info["status"] == "error"
     assert res_info["code"] == "NAMED_RANGE_NOT_FOUND"
+    assert "named_range_list" in res_info["details"]["hint"]
 
     # 2. Add duplicate
     named_ranges.hasByName.return_value = True

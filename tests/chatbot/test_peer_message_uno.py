@@ -63,9 +63,8 @@ def _hidden_prop():
 
 
 def _load(ctx, factory_url):
-    # Name the factory on stderr so a 30s faulthandler dump shows swriter vs
-    # simpress. GHA 34419828920 hung at line 109 — Writer after a raw Impress
-    # close, not the Impress load itself (that would be the next _load line).
+    # Log factory URL so a faulthandler dump shows whether a hang is on load or
+    # on teardown after a prior Impress close (swriter vs simpress).
     _progress("peer_message_uno: load start %s" % factory_url)
     desktop = get_desktop(ctx)
     doc = desktop.loadComponentFromURL(factory_url, "_blank", 0, (_hidden_prop(),))
@@ -73,22 +72,18 @@ def _load(ctx, factory_url):
     return doc
 
 
-# After the first Windows Impress raw close in this file. A second
-# ``close(True)`` killed soffice (GHA 34547869791). Reset is not required
-# — the suite ends and the runner recycles office.
+# Set after the first Windows Impress raw close in this file. A second
+# ``close(True)`` can exit soffice; the runner recycles at suite end instead.
 _windows_impress_raw_closed = False
 
 
 def _windows_skip_impress_close() -> bool:
     """True after this suite already raw-closed one Impress on Windows.
 
-    GHA 34547869791: skip-close unblocked Writer+Writer. First Impress
-    raw close returned (~21 ms). Second Impress raw close raised
-    ``DisposedException`` after ~7 s and soffice exited 0 — fail-closed
-    the catalog test and skipped remaining suites. Leftover Impress from
-    a skipped *last* close is OK: this is the last test in the file and
-    recycle kills soffice. Do not skip the first close — leftover
-    Impress before a later Writer load hangs (34537826720).
+    The first Impress raw close must run; leftover Impress before another Writer
+    load can hang the factory. Skip only a second raw close in this file, when
+    recycle will tear down soffice anyway. Leftover Impress after that skip is
+    acceptable because this is the last test in the module.
     """
     return _windows_impress_raw_closed
 
@@ -96,12 +91,9 @@ def _windows_skip_impress_close() -> bool:
 def _windows_skip_doc_close() -> bool:
     """True when this suite must not call Writer/Calc ``close_doc``.
 
-    GHA 34544965319: ``test_peer_missing_deck_is_clear_error`` ran *before*
-    any Impress in this file. First ``close_doc`` (``other``, uid=30)
-    returned; the second (``writer``, uid=29) hung 30s at ``doc.close``.
-    Dual hidden-Writer ``close_doc`` is the hang — leftover Impress from
-    *this* suite is not required. Drop the proxy on win32. POSIX still
-    ``close_doc``.
+    On Windows, dual hidden-Writer ``close_doc`` calls can hang at ``doc.close``.
+    Drop the proxy instead of ``close_doc`` for Writer/Calc here. POSIX still
+    uses the harness ``close_doc`` path.
     """
     return sys.platform == "win32"
 
@@ -116,12 +108,10 @@ def _doc_uid(doc) -> str:
 def _close(doc):
     """Close Writer/Calc via harness ``close_doc`` (GC + 50 ms, then ``doc.close``).
 
-    POSIX: same path as ``@with_native_doc``. Windows: drop the proxy —
-    GHA 34544965319 hung 30s on the *second* Writer ``close_doc`` in
-    ``test_peer_missing_deck_is_clear_error`` before any Impress in this
-    file. Logs uid and start/done/skip so the next red dump names which
-    close hung. Impress teardown is ``_teardown_peer_pair``. Do not fold
-    Draw-family settle into ``close_doc``.
+    POSIX uses the same path as ``@with_native_doc``. On Windows, drop the proxy
+    instead of ``close_doc``. Progress logs name uid and phase so hangs are
+    identifiable. Impress teardown is ``_teardown_peer_pair``; do not fold
+    draw-family settle into ``close_doc``.
     """
     if doc is None:
         return None
@@ -129,9 +119,9 @@ def _close(doc):
     if _windows_skip_doc_close():
         _progress("peer_message_uno: skip close (windows) uid=%s" % uid)
         # Leftover hidden docs poison later suites' close_doc (34544965319).
-        from plugin.testing_runner import request_office_recycle_after_suite
+        from plugin.testing_runner import current_office
 
-        request_office_recycle_after_suite()
+        current_office().request_recycle()
         return None
     _progress("peer_message_uno: close_doc start uid=%s" % uid)
     TestingFactory.close_doc(doc)
@@ -170,41 +160,23 @@ def _reactivate_writer_after_impress(ctx, writer):
 def _teardown_peer_pair(writer, impress, ctx=None):
     """Close the Writer+Impress peer pair without poisoning the next load.
 
-    What was wrong: GHA 34518091151 hung 30s in ``TestingFactory.close_doc``
-    at ``doc.close(True)`` while this suite closed Impress with Writer still
-    open. #710's ``settle_after_draw_family_close`` never ran. Later
-    Writer-first + GC/sleep then close/dispose also hung (34532953982 /
-    34535868114). Skipping close (34537826720) unblocked the first test
-    then hung the next ``private:factory/swriter`` load — leftover Impress
-    wedges later Writer factory loads (same family as #710).
-
-    Why this: Windows keeps Writer open and uses a bare Impress
-    ``close(True)`` (the only close that returned, #710 / 34419828920),
-    drops the proxy, post-close settles, and re-activates Writer (#707).
-    Do **not** then ``close_doc`` the sibling Writer — GHA 34540353452
-    raw-closed Impress in ~25 ms, settle + ``setActiveFrame`` returned,
-    then ``TestingFactory.close_doc`` hung 30s at Writer ``close(True)``.
-    Leftover Writer is not the poison (keeper Writer already exists);
-    leftover Impress is. GHA 34544965319: dual hidden-Writer
-    ``close_doc`` hung *before* any Impress in this file — ``_close``
-    skips all Writer/Calc ``close_doc`` on win32. GHA 34547869791:
-    first Impress raw close returned; the second killed soffice
-    (exited 0). Skip that second close — leftover last Impress dies
-    with recycle. This path still asks the runner to recycle office
-    so later suites are not poisoned. POSIX still closes Writer
-    first, then the Draw-family path (setModified + pre-close settle
-    + ``close(True)``) and the same post-close settle. Not a product
-    fix.
+    On Windows, close Impress with a bare ``close(True)`` while Writer stays
+    open, drop the proxy, post-close settle, and re-activate Writer. Do **not**
+    ``close_doc`` the sibling Writer afterward—leftover Impress, not the keeper
+    Writer, wedges the next factory load. ``_close`` skips Writer/Calc
+    ``close_doc`` on win32; skip a second Impress raw close when it would exit
+    soffice and request runner recycle instead. POSIX closes Writer first, then
+    the Draw-family path (setModified + pre-close settle + ``close(True)``) with
+    the same post-close settle. Harness-only; not a product fix.
     """
     had_impress = impress is not None
     if had_impress and _draw_family_raw_close():
-        from plugin.testing_runner import request_office_recycle_after_suite
+        from plugin.testing_runner import current_office
 
         if _windows_skip_impress_close():
-            # Second raw close exited soffice 0 (34547869791). Last test
-            # in this file — leftover Impress dies with recycle.
+            # A second raw close can exit soffice; skip and recycle instead.
             _progress("peer_message_uno: skip second impress close (windows)")
-            request_office_recycle_after_suite()
+            current_office().request_recycle()
             return None, None
         _progress("peer_message_uno: close impress start")
         close_draw_family_doc(impress)
@@ -213,12 +185,11 @@ def _teardown_peer_pair(writer, impress, ctx=None):
         settle_after_draw_family_close()
         _progress("peer_message_uno: impress post-close settle done")
         _reactivate_writer_after_impress(ctx, writer)
-        # Drop the proxy only. close_doc hung 30s here (34540353452).
-        # Writer+Writer close_doc also hung before any Impress
-        # (34544965319). Recycle so later suites are not poisoned.
+        # Drop the proxy only; ``close_doc`` on the keeper Writer can hang.
+        # Request recycle so later suites do not inherit a wedged office.
         global _windows_impress_raw_closed
         _windows_impress_raw_closed = True
-        request_office_recycle_after_suite()
+        current_office().request_recycle()
         _progress("peer_message_uno: skip writer close after impress")
         return None, None
     _progress("peer_message_uno: close writer start")

@@ -14,8 +14,8 @@ from typing import Any
 import pytest
 
 import plugin.ppt_master.venv.ipc as ppt_ipc
-import plugin.scripting.ipc as scripting_ipc
-from plugin.scripting.ipc import IpcFrameError, pack_pickle_frame, read_pickle_frame
+import plugin.framework.ipc as scripting_ipc
+from plugin.framework.ipc import IpcFrameError, pack_pickle_frame, read_pickle_frame
 
 
 def test_write_frame_uses_claimed_stream_including_size_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -56,7 +56,7 @@ def test_read_host_response_uses_claimed_stdin(monkeypatch: pytest.MonkeyPatch) 
 def test_emit_worker_event_survives_stdout_claim() -> None:
     code = """
 import sys
-from plugin.scripting.ipc import claim_ipc_channel
+from plugin.framework.ipc import claim_ipc_channel
 from plugin.ppt_master.venv.ipc import emit_worker_event
 
 claim_ipc_channel()

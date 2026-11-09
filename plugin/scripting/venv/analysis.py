@@ -10,6 +10,7 @@ from collections.abc import Iterable
 import json
 import logging
 import math
+import os
 from typing import Any, cast
 
 from plugin.scripting.venv.coerce import (
@@ -17,23 +18,23 @@ from plugin.scripting.venv.coerce import (
     coerce_float,
     coerce_int,
     coerce_str_list,
+    flat_label,
     parse_date_column,
-    numeric_columns as _numeric_columns,
+    resolve_columns,
     resolve_df as _resolve_df,
     table_from_df as _table_from_df,
-    _dedupe_column_names,
+    dedupe_column_names,
 )
+from plugin.scripting.helper_registry import helper
+from plugin.scripting.venv.results import error_result as _error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    dispatch_common_kwargs,
-    error_result as _error_result,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    run_trusted_spec,
+    run_domain,
 )
 from plugin.scripting.venv.map_range import map_over_range
 
 from plugin.scripting.calc_functions_common import (
-    ANALYSIS_HELPER_NAMES as HELPER_NAMES,
     ANALYSIS_MAX_TABLE_ROWS as MAX_TABLE_ROWS,
     ANALYSIS_DATA_TABLE_ROWS as DATA_TABLE_ROWS,
     ANALYSIS_MAX_COLS as MAX_COLS,
@@ -84,23 +85,13 @@ def _table(name: str, columns: list[Any], rows: list[list[Any]]) -> dict[str, An
 
 
 def _coerce_columns(value: Any, name: str, helper: str) -> list[str] | None | dict[str, Any]:
-    # A string column list was previously iterated as characters (e.g.
-    # metrics="Sales" -> S, a, l, e, s; agg="mean" -> tuple of letters).
+    # Column names must be a real string list: a bare string would be iterated
+    # character-by-character (metrics="Sales" -> S,a,l,e,s; agg="mean" -> letters).
     # None is already None from coerce_str_list
     try:
         return coerce_str_list(value, name=name)
     except ValueError as exc:
         return _error_result("INVALID_PARAM", str(exc), helper=helper)
-
-
-def _reject_non_numeric(df: Any, names: list[str], *, helper: str) -> dict[str, Any] | None:
-    # _numeric_columns returns requested names without checking dtype, so
-    # .astype(float) raised and run_analysis reported ANALYSIS_FAILED.
-    numeric_set = set(df.select_dtypes(include="number").columns)
-    bad = [n for n in names if n not in numeric_set]
-    if bad:
-        return _error_result("NON_NUMERIC_COLUMN", f"Non-numeric columns: {', '.join(bad)}", helper=helper)
-    return None
 
 
 def _reject_duplicate_columns(df: Any, *, helper: str) -> dict[str, Any] | None:
@@ -109,18 +100,6 @@ def _reject_duplicate_columns(df: Any, *, helper: str) -> dict[str, Any] | None:
     if dupes:
         return _error_result("INVALID_PARAM", f"Duplicate column names: {', '.join(dupes)}", helper=helper)
     return None
-
-
-def _resolve_numeric(df: Any, columns: list[str] | None, *, helper: str) -> list[str] | dict[str, Any]:
-    try:
-        numeric_cols = _numeric_columns(df, columns)
-    except ValueError as exc:
-        return _error_result("UNKNOWN_COLUMN", str(exc), helper=helper)
-    if columns is not None:
-        rejected = _reject_non_numeric(df, numeric_cols, helper=helper)
-        if rejected is not None:
-            return rejected
-    return numeric_cols
 
 
 def _format_single_currency(value: Any, symbol: str = "$", decimals: int = 2) -> str:
@@ -133,6 +112,7 @@ def _format_single_currency(value: Any, symbol: str = "$", decimals: int = 2) ->
     return f"{symbol}{num:,.{decimals}f}"
 
 
+@helper("analysis")
 def format_currency(values: Any, *, symbol: str = "$", decimals: int = 2) -> Any:
     """Format numeric values as currency strings (Excel init-script helper)."""
     return map_over_range(
@@ -153,6 +133,7 @@ def _format_single_percent(value: Any, decimals: int = 1) -> str:
     return f"{num * 100:.{decimals}f}%"
 
 
+@helper("analysis")
 def format_percent(values: Any, *, decimals: int = 1) -> Any:
     """Format numeric values as percentage strings."""
     return map_over_range(
@@ -164,8 +145,8 @@ def format_percent(values: Any, *, decimals: int = 1) -> Any:
 
 
 def _formatted_cells(formatted: Any) -> list[str]:
-    # The spec path previously iterated a scalar string (counting characters)
-    # and wrapped each grid row as a single cell, which egress stored as a tuple.
+    # Flatten nested grid rows into one string list. A scalar string must not be
+    # iterated by character, or egress would store one tuple per letter.
     if isinstance(formatted, (list, tuple)):
         cells: list[str] = []
         for item in formatted:
@@ -177,7 +158,7 @@ def _formatted_cells(formatted: Any) -> list[str]:
     return [str(formatted)]
 
 
-def _format_cells_result(name: str, formatted: Any) -> dict[str, Any]:
+def _format_cells_result(name: str, formatted: Any) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
     cells = _formatted_cells(formatted)
     return _ok_result(
         name,
@@ -226,6 +207,7 @@ def _describe_columns_from_profile(
     return column_summaries, flags
 
 
+@helper("analysis")
 def describe_data(
     data: Any,
     *,
@@ -263,28 +245,16 @@ def describe_data(
     cols = list(df.columns)[:max_cols_val]
     limited = df[cols].copy()
 
+    # ProfileReport() phones home (requests.get to packages.ydata.ai, no
+    # timeout) unless this is set. A stalled connection blocked the call
+    # until pytest-timeout killed the xdist worker (GHA 41390860441).
+    os.environ["YDATA_PROFILING_NO_ANALYTICS"] = "1"
     try:
         from data_profiling import ProfileReport  # type: ignore[import-not-found, ty:unresolved-import]  # pyright: ignore[reportMissingImports]
     except ImportError:
         return _missing_package_error("describe_data", "fg-data-profiling")
 
-    # What was wrong: minimal config sets pool_size to 0, and
-    # pandas_get_series_descriptions treats 0 as multiprocessing.cpu_count().
-    # It submits every column to a ThreadPoolExecutor and blocks in
-    # future.result(). Those threads call pandas/NumPy at once, and the
-    # library also wraps the futures in an inner tqdm that stays enabled
-    # when progress_bar=False. On an xdist worker that already initialized
-    # OpenBLAS on the main thread, that pool deadlocks.
-    # How it happened: CI `make pytest` uses --timeout=300 --timeout-method=thread.
-    # The timer thread calls os._exit(1). execnet then closes with EOF and no
-    # remote error, so xdist reports "Not properly terminated" and
-    # "worker 'gw3' crashed" (GHA 38782180627,
-    # test_run_analysis_dispatches_helper). The thread method never raises,
-    # so there is no Failed: Timeout line. The same call returns in about 2s
-    # when the race does not trip.
-    # Why this fixes it: pool_size=1 is the library knob that describes each
-    # column on one worker thread, so NumPy is not entered from several
-    # Python threads.
+    # pool_size=1 avoids OpenBLAS deadlocks from multi-threaded NumPy calls in minimal profiling.
     profile = ProfileReport(limited, minimal=True, progress_bar=False, pool_size=1)
     report_json = json.loads(profile.to_json())
     variables = report_json.get("variables", {})
@@ -332,6 +302,7 @@ def _safe_float(value: Any) -> float | None:
     return round(number, 6)
 
 
+@helper("analysis")
 def kpi_summary(
     data: Any,
     metrics: Any,
@@ -357,20 +328,16 @@ def kpi_summary(
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    missing = [m for m in coerced_metrics if m not in df.columns]
-    if missing:
-        return _error_result("UNKNOWN_COLUMN", f"Unknown metrics: {', '.join(missing)}", helper="kpi_summary")
-
-    rejected = _reject_non_numeric(df, coerced_metrics, helper="kpi_summary")
-    if rejected is not None:
-        return rejected
+    resolved_metrics = resolve_columns(df, coerced_metrics, numeric=True, helper="kpi_summary")
+    if isinstance(resolved_metrics, dict):
+        return resolved_metrics
 
     aggs = [str(a).strip().lower() for a in coerced_agg]
     unknown_aggs = [a for a in aggs if a not in _AGG_FUNCS]
     if unknown_aggs:
         return _error_result("INVALID_PARAM", f"Unknown aggregation(s): {', '.join(unknown_aggs)}", helper="kpi_summary")
 
-    summary = df[coerced_metrics].agg(aggs).round(6)
+    summary = df[resolved_metrics].agg(aggs).round(6)
     table = _table_from_df(summary.reset_index().rename(columns={"index": "metric"}), name="kpi_summary")
     return _ok_result(
         "kpi_summary",
@@ -392,6 +359,7 @@ def _choice(value: Any, allowed: tuple[str, ...], msg: str, helper: str) -> str 
     return _error_result("INVALID_PARAM", msg, helper=helper)
 
 
+@helper("analysis")
 def detect_outliers(
     data: Any,
     *,
@@ -429,7 +397,7 @@ def detect_outliers(
     if df.empty:
         return _ok_result("detect_outliers", metrics={"outlier_count": 0}, tables=[], flags=[], metadata=coerced.metadata)
 
-    resolved_cols = _resolve_numeric(df, coerced_cols, helper="detect_outliers")
+    resolved_cols = resolve_columns(df, coerced_cols, numeric=True, helper="detect_outliers")
     if isinstance(resolved_cols, dict):
         return resolved_cols
     numeric_cols = resolved_cols
@@ -453,10 +421,8 @@ def detect_outliers(
         mask = col_mask.any(axis=1)
         per_column = {str(col): int(cast("Any", col_mask[col].sum())) for col in numeric_cols}
     elif method_name == "isolation_forest":
-        # Missing scikit-learn previously raised an unhandled ImportError when
-        # isolation_forest was requested, failing the run_analysis contract.
-        # Catching ImportError and returning MISSING_PACKAGE with package name
-        # "scikit-learn" matches the shared helper contract.
+        # Without this guard a missing scikit-learn install raises ImportError and
+        # breaks the run_analysis helper contract; return MISSING_PACKAGE instead.
         try:
             from sklearn.ensemble import IsolationForest
         except ImportError:
@@ -531,15 +497,12 @@ class QuickStats:
             if isinstance(coerced_cols, dict):
                 return coerced_cols
             cols_list = coerced_cols or []
-            missing = [c for c in cols_list if c not in self.df.columns]
-            if missing:
-                return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper="quick_stats")
-            rejected = _reject_non_numeric(self.df, cols_list, helper="quick_stats")
-            if rejected is not None:
-                return rejected
-            numeric_columns = list(cols_list)
+            res = resolve_columns(self.df, cols_list, numeric=True, helper="quick_stats")
+            if isinstance(res, dict):
+                return res
+            numeric_columns = list(res)
         else:
-            cols = self.metadata.get("numeric_cols") or _numeric_columns(self.df)
+            cols = self.metadata.get("numeric_cols") or resolve_columns(self.df, numeric=True)
             numeric_columns = [c for c in cols if c in self.df.columns]
 
         columns: list[str] = ["Metric", "Value"]
@@ -561,6 +524,7 @@ class QuickStats:
         )
 
 
+@helper("analysis")
 def quick_stats(
     data: Any,
     *,
@@ -579,6 +543,7 @@ def quick_stats(
     ).tooltip()
 
 
+@helper("analysis")
 def clean_and_prepare(
     data: Any,
     *,
@@ -737,29 +702,19 @@ def _normalize_aggfunc(
 
 
 def _flatten_result_columns(df: Any) -> Any:
-    # str of a MultiIndex tuple became "('Sales', 'Q1')" and "('Region', '')",
-    # which is what egress writes as a header.
     import pandas as pd
 
     if not isinstance(df.columns, pd.MultiIndex):
         return df
 
-    out_cols: list[str] = []
-    for col_tuple in df.columns:
-        parts = [
-            str(part).strip()
-            for part in col_tuple
-            if part is not None and str(part).strip() != ""
-        ]
-        joined = "_".join(parts) if parts else "value"
-        out_cols.append(joined)
-
-    deduped = _dedupe_column_names(out_cols)
+    out_cols = [flat_label(col) for col in df.columns]
+    deduped = dedupe_column_names(out_cols)
     res = df.copy()
     res.columns = deduped
     return res
 
 
+@helper("analysis")
 def pivot_aggregate(
     data: Any,
     *,
@@ -820,6 +775,7 @@ def pivot_aggregate(
     )
 
 
+@helper("analysis")
 def group_summary(
     data: Any,
     *,
@@ -845,20 +801,19 @@ def group_summary(
 
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
-    missing = [m for m in coerced_by + coerced_metrics if m not in df.columns]
-    if missing:
-        return _error_result("UNKNOWN_COLUMN", f"Unknown columns: {', '.join(missing)}", helper="group_summary")
-
-    rejected = _reject_non_numeric(df, coerced_metrics, helper="group_summary")
-    if rejected is not None:
-        return rejected
+    resolved_by = resolve_columns(df, coerced_by, helper="group_summary")
+    if isinstance(resolved_by, dict):
+        return resolved_by
+    resolved_metrics = resolve_columns(df, coerced_metrics, numeric=True, helper="group_summary")
+    if isinstance(resolved_metrics, dict):
+        return resolved_metrics
 
     norm_agg, err = _normalize_aggfunc(aggfunc, helper="group_summary", key_columns=coerced_metrics)
     if err is not None:
         return err
     assert norm_agg is not None
 
-    grouped = df.groupby(coerced_by)[coerced_metrics].agg(norm_agg).reset_index()
+    grouped = df.groupby(resolved_by)[resolved_metrics].agg(norm_agg).reset_index()
     grouped = _flatten_result_columns(grouped)
     table = _table_from_df(grouped, name="group_summary", max_rows=DATA_TABLE_ROWS)
     return _ok_result(
@@ -869,6 +824,7 @@ def group_summary(
     )
 
 
+@helper("analysis")
 def compare_periods(
     data: Any,
     *,
@@ -891,9 +847,10 @@ def compare_periods(
     if date_col not in df.columns or value_col not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Need columns {date_col!r} and {value_col!r}", helper="compare_periods")
 
-    rejected = _reject_non_numeric(df, [value_col], helper="compare_periods")
-    if rejected is not None:
+    rejected = resolve_columns(df, [value_col], numeric=True, helper="compare_periods")
+    if isinstance(rejected, dict):
         return rejected
+    value_col = rejected[0]
 
     agg_name = str(agg or "sum").strip().lower()
     if agg_name not in ("sum", "mean", "last"):
@@ -946,6 +903,7 @@ def compare_periods(
     )
 
 
+@helper("analysis")
 def correlation_matrix(
     data: Any,
     *,
@@ -1006,6 +964,7 @@ def correlation_matrix(
     )
 
 
+@helper("analysis")
 def run_regression(
     data: Any,
     *,
@@ -1030,12 +989,13 @@ def run_regression(
     if target not in df.columns:
         return _error_result("UNKNOWN_COLUMN", f"Unknown target {target!r}", helper="run_regression")
 
-    rejected_target = _reject_non_numeric(df, [target], helper="run_regression")
-    if rejected_target is not None:
+    rejected_target = resolve_columns(df, [target], numeric=True, helper="run_regression")
+    if isinstance(rejected_target, dict):
         return rejected_target
+    target = rejected_target[0]
 
     if features is None:
-        feature_cols = [c for c in _numeric_columns(df) if c != target]
+        feature_cols = [c for c in resolve_columns(df, numeric=True) if c != target]
     else:
         coerced_features = _coerce_columns(features, "features", "run_regression")
         if isinstance(coerced_features, dict):
@@ -1055,9 +1015,10 @@ def run_regression(
     if missing:
         return _error_result("UNKNOWN_COLUMN", f"Unknown features: {', '.join(missing)}", helper="run_regression")
 
-    rejected_features = _reject_non_numeric(df, feature_cols, helper="run_regression")
-    if rejected_features is not None:
+    rejected_features = resolve_columns(df, feature_cols, numeric=True, helper="run_regression")
+    if isinstance(rejected_features, dict):
         return rejected_features
+    feature_cols = rejected_features
 
     # dropna keeps ±inf; statsmodels then returned status: ok with r_squared nan
     # and coefficients ±inf (reproduced with y = inf on the third row of
@@ -1117,6 +1078,7 @@ def run_regression(
     )
 
 
+@helper("analysis")
 def cluster_numeric(
     data: Any,
     *,
@@ -1154,9 +1116,7 @@ def cluster_numeric(
     coerced = _resolve_df(data, headers=headers, header_row=header_row, sheet_hint=sheet_hint)
     df = coerced.df
 
-    # _numeric_columns returns requested names without checking dtype, so
-    # .astype(float) raised and run_analysis reported ANALYSIS_FAILED.
-    resolved_cols = _resolve_numeric(df, coerced_cols, helper="cluster_numeric")
+    resolved_cols = resolve_columns(df, coerced_cols, numeric=True, helper="cluster_numeric")
     if isinstance(resolved_cols, dict):
         return resolved_cols
     numeric_cols = resolved_cols
@@ -1233,6 +1193,7 @@ def cluster_numeric(
     )
 
 
+@helper("analysis")
 def monte_carlo(
     data: Any,
     *,
@@ -1262,7 +1223,7 @@ def monte_carlo(
     if df.empty:
         return _error_result("INSUFFICIENT_DATA", "No data for monte_carlo", helper="monte_carlo")
 
-    numeric_cols = _numeric_columns(df)
+    numeric_cols = resolve_columns(df, numeric=True)
     if not numeric_cols:
         return _error_result("NO_NUMERIC_COLUMNS", "No numeric columns for monte_carlo", helper="monte_carlo")
 
@@ -1282,9 +1243,9 @@ def monte_carlo(
 
     import pandas as pd
 
-    # The rename dict previously collapsed two "index" keys, and the summary
-    # stats were taken over the whole cumulative grid of an order shuffle whose
-    # terminal value does not vary.
+    # Build one summary row per simulation column. Two "index" keys in a rename
+    # dict would collapse; stats must target each path's terminal value, not the
+    # full cumulative grid (order shuffles do not change the final total).
     rows_data = []
     for col in cumsum.columns:
         path = cumsum[col]
@@ -1312,85 +1273,10 @@ def monte_carlo(
     )
 
 
-_DISPATCH_KEYS: dict[str, tuple[str, ...]] = {
-    "describe_data": ("include_outliers", "max_cols"),
-    "kpi_summary": ("metrics", "agg"),
-    "detect_outliers": ("columns", "method", "threshold"),
-    "quick_stats": ("numeric_columns",),
-    "clean_and_prepare": ("drop_duplicates", "fill_numeric", "fill_categorical"),
-    "pivot_aggregate": ("index", "columns", "values", "aggfunc"),
-    "group_summary": ("by", "metrics", "aggfunc"),
-    "compare_periods": ("date_col", "value_col", "period", "calc", "agg"),
-    "correlation_matrix": ("method", "min_abs"),
-    "run_regression": ("target", "features", "add_constant"),
-    "cluster_numeric": ("columns", "n_clusters", "method", "scale"),
-    "monte_carlo": ("sims", "bust", "goal"),
-}
-
-
-def _decimals(params: dict[str, Any], default: int, helper: str) -> int | dict[str, Any]:
-    try:
-        decimals = coerce_int(params.get("decimals", default), name="decimals")
-    except ValueError as exc:
-        return _error_result("INVALID_PARAM", str(exc), helper=helper)
-    if decimals < 0:
-        return _error_result("INVALID_PARAM", f"decimals must be an integer >= 0, got {decimals!r}", helper=helper)
-    return decimals
-
-
-def _dispatch_helper(name: str, data: Any, params: dict[str, Any], *, headers: bool, header_row: int, context: dict[str, Any]) -> dict[str, Any]:
-    common = dispatch_common_kwargs(context, headers=headers, header_row=header_row)
-
-    if name == "kpi_summary":
-        if not params.get("metrics"):
-            return _error_result("MISSING_PARAM", "kpi_summary requires params.metrics", helper=name)
-    elif name == "pivot_aggregate":
-        if not params.get("index") or not params.get("values"):
-            return _error_result("MISSING_PARAM", "pivot_aggregate requires params.index and params.values", helper=name)
-    elif name == "group_summary":
-        if not params.get("by") or not params.get("metrics"):
-            return _error_result("MISSING_PARAM", "group_summary requires params.by and params.metrics", helper=name)
-    elif name == "compare_periods":
-        if not params.get("date_col") or not params.get("value_col"):
-            return _error_result("MISSING_PARAM", "compare_periods requires params.date_col and params.value_col", helper=name)
-    elif name == "run_regression":
-        if not params.get("target"):
-            return _error_result("MISSING_PARAM", "run_regression requires params.target", helper=name)
-    elif name == "format_currency":
-        symbol = params.get("symbol", "$")
-        if not isinstance(symbol, str):
-            return _error_result("INVALID_PARAM", f"symbol must be a string, got {symbol!r}", helper=name)
-        decimals = _decimals(params, 2, name)
-        if isinstance(decimals, dict):
-            return decimals
-        values = params.get("values", data)
-        return _format_cells_result(name, format_currency(values, symbol=symbol, decimals=decimals))
-    elif name == "format_percent":
-        decimals = _decimals(params, 1, name)
-        if isinstance(decimals, dict):
-            return decimals
-        values = params.get("values", data)
-        return _format_cells_result(name, format_percent(values, decimals=decimals))
-    elif name not in _DISPATCH_KEYS:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
-
-    fn = globals()[name]
-    picked = {key: params[key] for key in _DISPATCH_KEYS[name] if key in params}
-    return cast("dict[str, Any]", fn(data, **picked, **common))
-
-
 def run_analysis(
     spec: dict[str, Any] | str,
     data: Any,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher — single trusted entry for host RPC and future tools."""
-    return run_trusted_spec(
-        spec,
-        data,
-        context,
-        helper_names=HELPER_NAMES,
-        dispatch_fn=_dispatch_helper,
-        domain="Analysis",
-        error_code="ANALYSIS_FAILED",
-    )
+    return run_domain("analysis", spec, data, context=context)

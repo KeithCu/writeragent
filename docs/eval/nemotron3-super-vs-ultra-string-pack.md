@@ -37,7 +37,7 @@ Stored `total_cost_usd` in this run JSON is still 0 (Value column fix is a separ
 
 | Task | Cat | Ultra C / HP | Super C / HP | ΔC | What happened |
 |---|---|---|---|---:|---|
-| `data_sorting` | structural | 1.00 / T | 0.00 / F | +1.00 | Ultra sorted cleanly. Super burned **~390k tokens**, `max_tool_rounds`, oracle `header row is not first` — sheet header destroyed (Aardvark / n/a / huge constants). Classic hand-rewrite / sort thrash; Tips B `sort_range` failure mode. |
+| `data_sorting` | structural | 1.00 / T | 0.00 / F | +1.00 | Ultra sorted cleanly. Super burned **~390k tokens**, `max_tool_rounds`, oracle `header row is not first` — sheet header destroyed (Aardvark / n/a / huge constants). Classic hand-rewrite / sort thrash; Tips B `range_sort` failure mode. |
 | `section_refactor` | structural | 1.00 / T | 0.80 / F | +0.20 | Super missing expected substring `See the Goal` (rewrote to HTML + bold “Goal”). Ultra kept the phrase. |
 | `reformat_resume` | creative | 0.90 / T | 0.76 / T | +0.14 | Both hard-pass; Ultra edged judge/quality. |
 | `logical_rewriting` | creative | 0.94 / T | 0.90 / T | +0.04 | Noise-level. |
@@ -80,7 +80,7 @@ Super’s Correctness lead is mostly **creative + one bad Ultra table**, not a b
 5. **Tokens ≠ quality.** Super used **~45% more** total tokens (~1.37M vs ~0.95M) and still lost hard-pass rate. Extra tokens show up as sort thrash (`data_sorting` ~390k) and long cleanup paths, not as a universal thoroughness win. Catalog price still favors Super per token ($0.085/$0.4 vs $0.625/$3.125 per M).
 
 6. **No product cheat recommended from this pair alone.**  
-   Failures map to known general levers already on the board (sort via `sort_range`, don’t invent headers; table totals in the named column; summary must include named figures; don’t delegate Writer cleanup to `domain=python`). Keep tips general — not Nemotron-specific.
+   Failures map to known general levers already on the board (sort via `range_sort`, don’t invent headers; table totals in the named column; summary must include named figures; don’t delegate Writer cleanup to `domain=python`). Keep tips general — not Nemotron-specific.
 
 ---
 

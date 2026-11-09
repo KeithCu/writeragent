@@ -77,6 +77,29 @@ def _job(name: str, conclusion: str, when: str) -> dict[str, Any]:
     return {"name": name, "conclusion": conclusion, "completed_at": when, "status": "completed"}
 
 
+def _run_with_event(
+    run_id: int,
+    sha: str,
+    html_url: str,
+    *,
+    created_at: str = "2026-09-09T10:00:00Z",
+    event: str = "workflow_dispatch",
+) -> dict[str, Any]:
+    return {
+        "id": run_id,
+        "head_sha": sha,
+        "html_url": html_url,
+        "created_at": created_at,
+        "event": event,
+    }
+
+
+def _release_verify_runs_empty(url: str) -> dict[str, Any] | None:
+    if "/workflows/release-verify.yml/runs" in url:
+        return {"workflow_runs": []}
+    return None
+
+
 def test_collect_status_picks_newest_matching_jobs() -> None:
     """Fixtures use real KeithCu/writeragent run ids / SHAs / URLs."""
     runs = {
@@ -134,6 +157,9 @@ def test_collect_status_picks_newest_matching_jobs() -> None:
     }
 
     def fetch(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "/workflows/crosshair-deep.yml/runs" in url:
             return {"workflow_runs": runs["crosshair-deep.yml"]}
         if "/workflows/pr-ci.yml/runs" in url:
@@ -272,6 +298,9 @@ def test_main_writes_index_and_never_embeds_token(tmp_path: Path, monkeypatch: p
     monkeypatch.setenv("GITHUB_REPOSITORY", "KeithCu/writeragent")
 
     def fetch(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "crosshair-deep.yml" in url:
             return {
                 "workflow_runs": [
@@ -525,6 +554,9 @@ def test_collect_status_uses_cached_hints_and_stops_early() -> None:
     jobs_called: list[int] = []
 
     def fetch(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "crosshair-deep.yml" in url:
             return {"workflow_runs": []}
         if "pr-ci.yml" in url and "/jobs" not in url:
@@ -574,6 +606,9 @@ def test_collect_status_supersedes_cached_hint_when_newer_run_exists() -> None:
     }
 
     def fetch(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "crosshair-deep.yml" in url:
             return {"workflow_runs": []}
         if "pr-ci.yml" in url and "/jobs" not in url:
@@ -604,6 +639,9 @@ def test_collect_status_skips_pr_runs_when_ubuntu_typecheck_resolved() -> None:
     job_calls = []
 
     def fetch(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "crosshair-deep.yml" in url:
             return {"workflow_runs": []}
         if "pr-ci.yml" in url and "/jobs" not in url:
@@ -647,6 +685,9 @@ def test_collect_status_ignores_cancelled_job_and_shows_previous_green_job() -> 
     }
 
     def fetch(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "crosshair-deep.yml" in url:
             return {"workflow_runs": []}
         if "pr-ci.yml" in url and "/jobs" not in url:
@@ -699,6 +740,9 @@ def test_collect_status_ignores_cancelled_job_and_shows_previous_green_job() -> 
     }
 
     def fetch_all_cancelled(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "crosshair-deep.yml" in url:
             return {"workflow_runs": []}
         if "pr-ci.yml" in url and "/jobs" not in url:
@@ -723,6 +767,167 @@ def test_render_json_includes_run_ids() -> None:
     assert data["rows"][0]["suite"] == "Test & Typecheck"
     assert data["rows"][0]["run_id"] == 33780513241
     assert data["rows"][0]["run_attempt"] == 2
+
+
+def test_parse_cached_rows_accepts_rows_without_source_field() -> None:
+    specs = suite_specs()
+    now = datetime(2026, 9, 9, 12, 0, 0, tzinfo=timezone.utc)
+    cached = {
+        "rows": [
+            {
+                "suite": "Test & Typecheck",
+                "os": "windows-latest",
+                "conclusion": "success",
+                "sha": "96912c4",
+                "when": "2026-09-03T18:15:33Z",
+                "run_url": "url",
+                "run_id": 33788378302,
+            },
+        ]
+    }
+    rows = parse_cached_rows(cached, specs, max_age_days=60, now=now)
+    win = [r for r in rows.values() if r.suite == "Test & Typecheck" and r.os == "windows-latest"][0]
+    assert win.source == ""
+
+
+def test_collect_status_release_verify_beats_older_pr_ci_windows() -> None:
+    now = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+    runs = {
+        "crosshair-deep.yml": [],
+        "pr-ci.yml": [
+            _run_with_event(
+                500,
+                "sha_pr_fail",
+                "https://github.com/KeithCu/writeragent/actions/runs/500",
+                created_at="2026-09-19T10:00:00Z",
+            ),
+        ],
+        "release-verify.yml": [
+            _run_with_event(
+                600,
+                "sha_rv_ok",
+                "https://github.com/KeithCu/writeragent/actions/runs/600",
+                created_at="2026-09-20T10:00:00Z",
+            ),
+        ],
+    }
+
+    def fetch(url: str) -> dict[str, Any]:
+        if "crosshair-deep.yml" in url:
+            return {"workflow_runs": runs["crosshair-deep.yml"]}
+        if "pr-ci.yml" in url and "/jobs" not in url:
+            return {"workflow_runs": runs["pr-ci.yml"]}
+        if "release-verify.yml" in url and "/jobs" not in url:
+            return {"workflow_runs": runs["release-verify.yml"]}
+        if "/500/jobs" in url:
+            return {"jobs": [_job("Test & Typecheck (windows-latest)", "failure", "2026-09-19T10:05:00Z")]}
+        if "/600/jobs" in url:
+            return {"jobs": [_job("Release Verify (windows-latest)", "success", "2026-09-20T10:05:00Z")]}
+        raise AssertionError(f"unexpected URL: {url}")
+
+    rows = collect_status(fetch, "KeithCu/writeragent", max_age_days=60, now=now)
+    win = {(r.suite, r.os): r for r in rows}[("Test & Typecheck", "windows-latest")]
+    assert win.conclusion == "success"
+    assert win.sha == "sha_rv_"
+    assert win.source == "Release Verify"
+    assert win.run_id == 600
+
+
+def test_collect_status_pr_ci_beats_older_release_verify_windows() -> None:
+    now = datetime(2026, 9, 20, 12, 0, 0, tzinfo=timezone.utc)
+    runs = {
+        "crosshair-deep.yml": [],
+        "pr-ci.yml": [
+            _run_with_event(
+                700,
+                "sha_pr_ok",
+                "https://github.com/KeithCu/writeragent/actions/runs/700",
+                created_at="2026-09-20T11:00:00Z",
+            ),
+        ],
+        "release-verify.yml": [
+            _run_with_event(
+                600,
+                "sha_rv_fail",
+                "https://github.com/KeithCu/writeragent/actions/runs/600",
+                created_at="2026-09-19T10:00:00Z",
+            ),
+        ],
+    }
+
+    def fetch(url: str) -> dict[str, Any]:
+        if "crosshair-deep.yml" in url:
+            return {"workflow_runs": runs["crosshair-deep.yml"]}
+        if "pr-ci.yml" in url and "/jobs" not in url:
+            return {"workflow_runs": runs["pr-ci.yml"]}
+        if "release-verify.yml" in url and "/jobs" not in url:
+            return {"workflow_runs": runs["release-verify.yml"]}
+        if "/700/jobs" in url:
+            return {"jobs": [_job("Test & Typecheck (windows-latest)", "success", "2026-09-20T11:05:00Z")]}
+        if "/600/jobs" in url:
+            return {"jobs": [_job("Release Verify (windows-latest)", "failure", "2026-09-19T10:05:00Z")]}
+        raise AssertionError(f"unexpected URL: {url}")
+
+    rows = collect_status(fetch, "KeithCu/writeragent", max_age_days=60, now=now)
+    win = {(r.suite, r.os): r for r in rows}[("Test & Typecheck", "windows-latest")]
+    assert win.conclusion == "success"
+    assert win.sha == "sha_pr_"
+    assert win.source == "PR CI"
+    assert win.run_id == 700
+
+
+def test_render_json_omits_source() -> None:
+    rows = [
+        StatusRow(
+            "Test & Typecheck",
+            "windows-latest",
+            "success",
+            "96912c4",
+            "2026-09-03T18:15:33Z",
+            "url",
+            run_id=1,
+            source="Release Verify",
+        ),
+    ]
+    raw = render_json(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
+    import json
+
+    data = json.loads(raw)
+    assert "source" not in data["rows"][0]
+
+
+def test_render_html_omits_source_column() -> None:
+    rows = [
+        StatusRow(
+            "Test & Typecheck",
+            "windows-latest",
+            "success",
+            "96912c4",
+            "2026-09-03T18:15:33Z",
+            "",
+            source="PR CI",
+        ),
+    ]
+    page = render_html(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
+    assert "<th>Source</th>" not in page
+    assert ">PR CI</td>" not in page
+
+
+def test_render_svg_omits_source_column() -> None:
+    rows = [
+        StatusRow(
+            "Test & Typecheck",
+            "windows-latest",
+            "success",
+            "96912c4",
+            "2026-09-03T18:15:33Z",
+            "",
+            source="Release Verify",
+        ),
+    ]
+    svg = render_svg(rows, repo="KeithCu/writeragent", generated_at="2026-09-09T12:00:00Z")
+    assert ">Source</text>" not in svg
+    assert "Release Verify" not in svg
 
 
 def test_collect_status_re_evaluates_in_progress_cached_hint() -> None:
@@ -759,6 +964,9 @@ def test_collect_status_re_evaluates_in_progress_cached_hint() -> None:
     }
 
     def fetch(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "crosshair-deep.yml" in url:
             return {"workflow_runs": []}
         if "pr-ci.yml" in url and "/jobs" not in url:
@@ -811,6 +1019,9 @@ def test_collect_status_re_evaluates_on_higher_run_attempt() -> None:
     }
 
     def fetch(url: str) -> dict[str, Any]:
+        empty_rv = _release_verify_runs_empty(url)
+        if empty_rv is not None:
+            return empty_rv
         if "crosshair-deep.yml" in url:
             return {"workflow_runs": []}
         if "pr-ci.yml" in url and "/jobs" not in url:

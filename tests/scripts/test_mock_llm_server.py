@@ -1209,10 +1209,10 @@ def test_mutate_and_calc_draw_thin_tools():
     assert mut.tool_name == "apply_document_content"
     assert mut.tool_args and mut.tool_args["target"] == "end"
     sheets = decide_completion(
-        {"messages": [{"role": "user", "content": "list sheets"}], "tools": _tools("list_sheets")},
+        {"messages": [{"role": "user", "content": "list sheets"}], "tools": _tools("sheet_list")},
         cfg,
     )
-    assert sheets.tool_name == "list_sheets"
+    assert sheets.tool_name == "sheet_list"
     sheets_core = decide_completion(
         {
             "messages": [{"role": "user", "content": "list sheets"}],
@@ -1434,6 +1434,51 @@ def test_summarize_chat_payload_doc_len_and_current_query():
     rec2 = summarize_chat_payload(with_tools)
     assert rec2["last_assistant_tool_calls"] == ["web_research"]
     assert "web_research" in rec2["called_tools"]
+
+
+def test_document_content_len_and_words_snapshot_header():
+    from scripts.mock_llm_server import _extract_document_words, document_content_len
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    doc = "Welcome to WriterAgent with important words."
+    snap = snapshot_text(doc)
+    # User send format: list of content blocks
+    messages_user = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "text", "text": snap}]},
+    ]
+    assert document_content_len(messages_user) == len(doc)
+    words = _extract_document_words(messages_user)
+    assert "WriterAgent" in words
+    assert "Welcome" in words
+
+    # Tool loop format: snapshot folded into the last tool result message
+    messages_tool = [
+        {"role": "system", "content": "You are helpful."},
+        {"role": "tool", "content": f"result\n\n{snap}", "tool_call_id": "1"},
+    ]
+    assert document_content_len(messages_tool) == len(doc)
+    words_tool = _extract_document_words(messages_tool)
+    assert "WriterAgent" in words_tool
+
+
+def test_current_query_strips_folded_document_snapshot():
+    from scripts.mock_llm_server import current_query_text, summarize_chat_payload
+    from plugin.framework.client.shim_helpers import snapshot_text
+
+    snap = snapshot_text("Sidebar body text.")
+    joined = "hello\n\n" + snap
+    assert current_query_text(joined) == "hello"
+
+    payload = {
+        "stream": True,
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "hello"}, {"type": "text", "text": snap}]},
+        ],
+        "tools": [],
+    }
+    rec = summarize_chat_payload(payload)
+    assert rec["current_query"] == "hello"
 
 
 def test_fail_tool_followup_http500():
@@ -1757,7 +1802,7 @@ _WRITER_OUTER = (
     "get_document_tree",
 )
 _CALC_OUTER = (
-    "list_sheets",
+    "sheet_list",
     "write_formula_range",
     "delegate_to_specialized_calc_toolset",
 )
@@ -1978,13 +2023,13 @@ def test_scripted_rules_branch_writer_vs_calc():
     cfg = MockLLMConfig(
         delay_ms=0,
         rules=[
-            CompletionRule(tools_any=("write_formula_range",), tool_name="list_sheets", tool_args={}),
+            CompletionRule(tools_any=("write_formula_range",), tool_name="sheet_list", tool_args={}),
             CompletionRule(tools_any=("apply_document_content",), content="<p>writer branch</p>"),
         ],
     )
     calc = decide_completion(_payload("hello", _CALC_OUTER), cfg)
     writer = decide_completion(_payload("hello", _WRITER_OUTER), cfg)
-    assert calc.tool_name == "list_sheets"
+    assert calc.tool_name == "sheet_list"
     assert writer.content and "writer branch" in writer.content
 
 

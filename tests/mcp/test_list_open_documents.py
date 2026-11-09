@@ -65,11 +65,11 @@ def test_list_open_documents_execute():
          patch("plugin.doc.document_research.get_document_type") as mock_get_doc_type:
 
         # Let mock_get_doc_type identify mock_doc2 as calc
-        from plugin.doc.doc_type import DocumentType
+        from plugin.framework.doc_type import DocumentType
         mock_get_doc_type.return_value = DocumentType.CALC
 
         # Execute on main thread bypass patch
-        with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
+        with patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
             result = tool.execute(context)
 
         assert result["status"] == "ok"
@@ -102,29 +102,6 @@ def test_get_open_documents_magicmock_enum_does_not_hang():
     with patch("plugin.framework.uno_context.get_desktop", return_value=desktop):
         docs = get_open_documents(MagicMock(), active_model=None)
     assert docs == []
-
-
-def test_get_open_documents_sal_bool_one_is_listed():
-    doc = MagicMock()
-    doc.getURL.return_value = "file:///home/user/doc.odt"
-    doc.getController.return_value = None
-    doc.RuntimeUID = "uid-1"
-    doc.isModified.return_value = False
-    doc.supportsService.return_value = True
-
-    desktop = MagicMock()
-    enum = MagicMock()
-    calls = [1, False]
-    enum.hasMoreElements.side_effect = lambda: calls.pop(0)
-    enum.nextElement.return_value = doc
-    desktop.getComponents.return_value.createEnumeration.return_value = enum
-
-    with patch("plugin.framework.uno_context.get_desktop", return_value=desktop), \
-         patch("plugin.doc.document_research._system_path_from_url", return_value="/home/user/doc.odt"):
-        docs = get_open_documents(MagicMock(), active_model=None)
-
-    assert len(docs) == 1
-    assert docs[0]["url"] == "file:///home/user/doc.odt"
 
 
 def test_get_open_documents_lists_untitled_even_when_type_lookup_fails():

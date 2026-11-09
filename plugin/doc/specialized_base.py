@@ -23,24 +23,26 @@ import logging
 from types import SimpleNamespace
 from typing import Any, cast, Type, ClassVar
 
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.errors import is_disposal
 from plugin.framework.tool import ToolBase, ToolContext, field_from_tool_arguments, tool_supports_document
 from plugin.framework.prompts import (
-    _catalog_entries_from_base,
     attach_sheets_create_completion_instruction,
     DELEGATE_SPECIALIZED_TASK_PARAM_HINT,
     images_specialized_sub_agent_hint,
     python_specialized_sub_agent_hint,
-    looks_like_peer_work_envelope,
     get_document_research_workflow_hint,
+)
+from plugin.doc.peer_prompt import (
     annotate_outer_peer_delivery_pending,
     annotate_outer_peer_wait,
+    looks_like_peer_work_envelope,
 )
+from plugin.doc.specialized_catalog import DOMAIN_LOOP_HINTS, catalog_entries_from_base
 from plugin.framework.i18n import _
 from plugin.chatbot.smol_agent import SmolToolAdapter, run_inner_tool_agent
 from plugin.doc.peer_message import PEER_RESULT_TOOL_NAME, PEER_TOOL_NAMES
 from plugin.doc.specialized_shapes_context import format_shapes_canvas_context
-from plugin.framework import queue_executor
+from plugin.framework.queue_executor import main
 
 log = logging.getLogger("writeragent.specialized")
 
@@ -81,7 +83,7 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
         return last_user is not None and looks_like_peer_work_envelope(last_user.get("content"))
 
     try:
-        return bool(queue_executor.execute_on_main_thread(_probe))
+        return bool(main.call(_probe))
     except Exception as e:
         # CancelledError stringifies to ""; %r keeps the class in the warning.
         log.warning("peer-work turn probe failed: %r", e)
@@ -91,16 +93,12 @@ def _outer_turn_is_peer_work(ctx: Any) -> bool:
 def _main_thread_or_warn(fn: Any, what: str) -> Any:
     """Marshal fn to the main thread. Re-raise real document disposal.
 
-    Bugfix: a closed document raises DisposedException while reading the shapes
-    canvas, Calc context, or open-document list. Those except blocks turned
-    disposal into a missing page or a partial prompt. Re-raise real disposal so
-    execute_safe reports DOCUMENT_DISPOSED. Any other failure keeps the empty
-    context.
+    Re-raise document disposal when building specialized context; other failures keep the empty fallback.
     """
     try:
-        return queue_executor.execute_on_main_thread(fn)
+        return main.call(fn)
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         log.warning("Failed to get %s for sub-agent: %s", what, e)
         return ""
@@ -122,7 +120,7 @@ class DelegateToSpecializedBase(ToolBase):
         # for_discovery=True would put Calc-hidden domains back into the schema.
         self._domains: list[str] = sorted({
             e["domain"]
-            for e in _catalog_entries_from_base(
+            for e in catalog_entries_from_base(
                 agent_label=self._agent_label,
                 ctx=None,
                 for_discovery=False,
@@ -144,10 +142,7 @@ class DelegateToSpecializedBase(ToolBase):
     def domains_for_services(self, uno_services: frozenset[str]) -> list[str]:
         """Sorted enum domains with a base class that runs on a document supporting *uno_services*.
 
-        Bugfix: a Draw (DrawingDocument only) document was offered Impress-only domains
-        (headers_footers, speaker_notes, slide_*) whose bases declare PresentationDocument,
-        and picking one returned "No specialized tools found". Keyed on probed services,
-        not the doc_type label: Impress's label is the family "draw" too (K082 regression).
+        Narrow domains by probed UNO services, not doc_type—Draw-only docs must not see Impress-only toolsets.
         """
         assert uno_services, "caller must skip narrowing when services are unknown"
         supported = {
@@ -169,9 +164,7 @@ class DelegateToSpecializedBase(ToolBase):
 
     def requires_document_lock(self, arguments: Any = None) -> bool:
         domain = field_from_tool_arguments(arguments, "domain")
-        # Bugfix: a non-string domain (dict or list) is unhashable. requires_document_lock
-        # runs before schema validation, so `domain in _READ_ONLY_DOMAINS` raised TypeError.
-        # Non-strings keep the lock; execute() then returns the invalid-domain error.
+        # requires_document_lock runs before schema validation—non-string domain must not hit _READ_ONLY_DOMAINS membership.
         if isinstance(domain, str) and domain in self._READ_ONLY_DOMAINS:
             return False
         return super().requires_document_lock(arguments)
@@ -180,9 +173,7 @@ class DelegateToSpecializedBase(ToolBase):
         domain = kwargs.get("domain")
         task = kwargs.get("task")
 
-        # Bugfix: Non-string domain (e.g. unhashable dict or None) cannot match any registered
-        # domain and would fail inside ToolRegistry.get_tools frozenset lookups. Return the
-        # standard invalid-domain error directly.
+        # Non-string domain cannot enter ToolRegistry frozenset lookups—return invalid-domain error directly.
         no_tools = f"No specialized tools found for domain '{domain}'. Ensure the tools are implemented and registered."
         if not isinstance(domain, str):
             return self._tool_error(no_tools)
@@ -207,15 +198,15 @@ class DelegateToSpecializedBase(ToolBase):
 
             if ctx.status_callback:
                 ctx.status_callback(_("Running local OCR on selected image(s)..."))
-            # Gateway shortcut: no sub-agent parses task — always insert after graphic(s).
-            return ExtractStructureFromImage().execute(ctx, insert_into_document=True)
+            insert = ctx.doc_type not in ("draw", "impress")
+            return ExtractStructureFromImage().execute(ctx, insert_into_document=insert)
 
         if domain == "document_research":
             try:
                 from plugin.embeddings.embeddings_indexer import enqueue_folder_index
 
-                # Sub-agent runs on a worker thread; resolve_index_context reads the active doc path via UNO.
-                queue_executor.execute_on_main_thread(lambda: enqueue_folder_index(ctx.ctx, ctx.services, ctx.doc))
+                # Sub-agent runs on a worker thread; this main.call is the UNO listing inside enqueue_folder_index. Stale-schema deletion runs on the corpus-index-* thread, not inside the marshal.
+                main.call(lambda: enqueue_folder_index(ctx.ctx, ctx.doc))
             except Exception:
                 log.debug("embeddings index wakeup failed", exc_info=True)
 
@@ -258,7 +249,7 @@ class DelegateToSpecializedBase(ToolBase):
             return tools, peer_catalog, document_research_hint
 
         # get_tools(doc=...) calls doc.supportsService — must not run on the sub-agent worker.
-        domain_tools, peer_catalog, document_research_hint = queue_executor.execute_on_main_thread(
+        domain_tools, peer_catalog, document_research_hint = main.call(
             _fetch_domain_tools
         )
 
@@ -271,7 +262,7 @@ class DelegateToSpecializedBase(ToolBase):
         ctx.active_domain = domain
         # When an accepted inner peer send ran, the outer must Ready (not keep tooling).
         # Inner tool results that already carry web-research-style `instruction`
-        # (create_sheet, etc.) so specialized finish can forward them to the outer.
+        # (sheet_create, etc.) so specialized finish can forward them to the outer.
         cap = SimpleNamespace(
             peer_send_invoked=False,
             peer_result_send_invoked=False,
@@ -314,9 +305,7 @@ class DelegateToSpecializedBase(ToolBase):
 
             hints: list[str] = []
             if domain == "footnotes":
-                hints.append(
-                    " For footnotes_insert: if the task quotes or names the document anchor (e.g. a sentence), pass that exact string as insert_after so the note is placed after that text; the task executor cannot move the view cursor."
-                )
+                hints.append(" " + (DOMAIN_LOOP_HINTS["footnotes"].get(self._agent_label) or DOMAIN_LOOP_HINTS["footnotes"]["Writer"]))
             # Page size stays on the shapes loop (and the inner domain agent when
             # shapes is requested). The outer python agent passes layout in task.
             if domain == "shapes":
@@ -329,9 +318,12 @@ class DelegateToSpecializedBase(ToolBase):
 
             if domain == "charts":
                 hints.append(
-                    " When creating a chart in Calc, you MUST specify the data range explicitly (e.g. data_range='A1:B10')."
-                    if self._agent_label == "Calc"
-                    else " When creating or editing a chart in Writer or Draw/Impress, you MUST specify both the `headers` and `rows` parameters."
+                    " "
+                    + (
+                        DOMAIN_LOOP_HINTS["charts"]["Calc"]
+                        if self._agent_label == "Calc"
+                        else DOMAIN_LOOP_HINTS["charts"]["Writer"]
+                    )
                 )
 
             # Identity only: truthiness on a guard-proxied doc trips UNO bool on the MCP/long-running
@@ -374,7 +366,7 @@ class DelegateToSpecializedBase(ToolBase):
             examples_key = f"{self._agent_label.lower()}:{domain}"
 
             def tool_call_handler(step: Any) -> None:
-                if step.name == "create_sheet":
+                if step.name == "sheet_create":
                     cap.create_sheet_ran = True
                 # Peer delivery is recorded in _CaptureInstructionAdapter.forward from
                 # the tool return, not from this pre-execution call.
@@ -412,7 +404,7 @@ class DelegateToSpecializedBase(ToolBase):
             payload = dict(final_ans)
         else:
             payload = {"status": "ok", "message": _("Specialized task ({domain}) completed.").format(domain=domain), "result": str(final_ans)}
-        # Outer never sees create_sheet's inner-only ok string; forward the same
+        # Outer never sees sheet_create's inner-only ok string; forward the same
         # `instruction` field web research uses when empty tabs were created.
         if domain == "sheets" or cap.create_sheet_ran or cap.captured_tool_results:
             payload = attach_sheets_create_completion_instruction(
@@ -433,16 +425,7 @@ class DelegateToSpecializedBase(ToolBase):
             payload = annotate_outer_peer_wait(payload, peer_send_invoked=cap.peer_send_invoked)
 
         # Discussion #2029:
-        # What was wrong: non-dict final answers (free text from subagents) and runs
-        # where inner tools raised errors were reported as status: "ok", masking errors
-        # and making unfinished subagent runs appear successful to the caller.
-        # How it happened: execute wrapped any non-status return in a provisional ok payload
-        # without inspecting inner tool execution results or requiring specialized_workflow_finished.
-        # Why this change fixes it: inner tool errors are converted to status: "error" with code
-        # SPECIALIZED_TOOL_ERROR and their messages. Discussion #2268: a finish answer stays
-        # in answer only; message and error carry just the tool-error text. Runs without
-        # specialized_workflow_finished returning and without tool errors become status: "incomplete"
-        # with code SPECIALIZED_WORKFLOW_INCOMPLETE and the model text on message.
+        # Map inner tool errors to status error/incomplete; free-text answers without finish are not silent ok.
         is_finished = cap.workflow_finished or (isinstance(final_ans, dict) and final_ans.get("finished") is True)
         if cap.inner_tool_errors:
             combined_message = "; ".join(

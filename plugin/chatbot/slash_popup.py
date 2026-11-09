@@ -4,7 +4,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Steerable slash-command completion menu attached to the sidebar Ask field.
 
-Prototype: disabled (ENABLE_SLASH = False) and kept on purpose; it will be enabled one day. Do not suggest deleting it.
+Shipped: ``ENABLE_SLASH = True`` — Ask-box ``/`` completion overlay is enabled in product builds.
 
 A native ``PopupMenu`` is modal — the user could not keep typing. The XDL
 placeholder is ``dlg:menulist`` (LibreOffice dialog.dtd has no ``listbox``).
@@ -31,15 +31,20 @@ from plugin.chatbot.slash_commands import (
     SlashCommand,
     classify_slash_key,
     filter_slash_commands,
-    format_slash_item,
+    format_slash_popup_item,
+    get_slash_command,
     load_slash_lru,
+    parse_slash_text,
     run_slash_command,
+    slash_ask_past_command_name,
+    slash_command_tokens,
+    slash_display_name,
     slash_typed_prefix,
 )
-from plugin.framework.errors import best_effort, suppress_disposed, uno_probe
-from plugin.framework.uno_listeners import BaseKeyListener, BaseMouseListener
+from plugin.framework.errors import best_effort, suppress_disposed, uno_read
+from plugin.framework.uno_listeners import BaseKeyHandler, BaseKeyListener, BaseMouseListener
 
-log = logging.getLogger("writeragent.slash_popup")
+log = logging.getLogger(__name__)
 
 # Slash-overlay tracing is very noisy. Set True to log these steps to the
 # debug log even when log_level is DEBUG. Stays False in tree (same pattern
@@ -62,14 +67,14 @@ def _defer_to_next_turn(fn: Any, *args: Any) -> None:
     ``accept_selected`` → ``run_slash_command`` → ``hide()`` (and Esc →
     ``hide()``) ``dispose()`` the toolkit window from inside its own
     ``XKeyHandler`` / ``XMouseListener`` while VCL is still in that callback.
-    ``post_to_main_thread`` enqueues once AsyncCallback exists (the headed
+    ``main.post`` enqueues once AsyncCallback exists (the headed
     sidebar). The listener returns before dispose. An inline fallback is
     the same deadlock, so a failed post is only logged.
     """
     try:
-        from plugin.framework.queue_executor import post_to_main_thread
+        from plugin.framework.queue_executor import main
 
-        post_to_main_thread(fn, *args)
+        main.post(fn, *args)
     except Exception:
         log.warning("slash popup: could not defer main-thread turn", exc_info=True)
 
@@ -79,8 +84,8 @@ def _dispose(obj: Any, msg: str) -> None:
         best_effort(obj.dispose, msg)
 
 
-# Feature flag: slash-command popup is currently disabled until stable.
-ENABLE_SLASH = False
+# Feature flag: set False only to park the overlay without removing wiring.
+ENABLE_SLASH = True
 
 _POPUP_MAX_ROWS = 6
 _POPUP_ROW_PX = 14
@@ -100,11 +105,40 @@ def _list_height(ctrl: Any, rows: int) -> int:
     """
     n = min(max(rows, 1), _POPUP_MAX_ROWS)
     fn = getattr(ctrl, "getMinimumSize", None)
-    size = uno_probe(lambda: fn(0, n), None) if callable(fn) else None
+    size = uno_read(lambda: fn(0, n), None) if callable(fn) else None
     height = getattr(size, "Height", None)
     if isinstance(height, int) and height > 0:
         return height
     return _overlay_height(n)
+
+
+def _hscroll_height(ctrl: Any, rows: int, entries: int, width: int) -> int:
+    """Extra height for the list's horizontal scrollbar, or 0 when none shows.
+
+    The toolkit ``listbox`` is always ``WB_AUTOHSCROLL`` (vclxtoolkit.cxx),
+    and ``CalcBlockSize(0, n)`` sizes n rows with no scrollbar. A row wider
+    than the list makes ImplListBox show an HScroll inside those n rows, so a
+    single match was half hidden (QA B7). ``CalcBlockSize(1, n)`` is one 'X'
+    wide, so it adds VCL's own ScrollBarSize (HiDPI-scaled, native theme) to
+    the height. Call after ``addItems``: the widths come from the entries.
+    Text width is read with lines > entries; with fewer lines CalcBlockSize
+    pads the width by a VScroll (by a scrollbar even at 1 of 1 rows).
+    """
+    fn = getattr(ctrl, "getMinimumSize", None)
+    if not callable(fn):
+        return 0
+    n = min(max(rows, 1), _POPUP_MAX_ROWS)
+    full = uno_read(lambda: fn(0, n), None)
+    narrow = uno_read(lambda: fn(1, n), None)
+    text = uno_read(lambda: fn(0, max(entries, n) + 1), None)
+    sizes = (getattr(text, "Width", None), getattr(full, "Height", None), getattr(narrow, "Height", None))
+    if not all(isinstance(v, int) for v in sizes):
+        return 0
+    full_w, full_h, narrow_h = (int(v or 0) for v in sizes)
+    bar = max(0, narrow_h - full_h)
+    # More matches than rows: the VScroll takes the same width from the rows.
+    avail = int(width) - (bar if entries > n else 0)
+    return bar if full_w > avail else 0
 
 
 def _printable_key_char(key_char: Any) -> str | None:
@@ -135,11 +169,11 @@ def _location_on_screen(obj: Any) -> tuple[int, int] | None:
     get_acc = getattr(obj, "getAccessibleContext", None)
     if not callable(get_acc):
         return None
-    acc = uno_probe(get_acc, None)
+    acc = uno_read(get_acc, None)
     fn = getattr(acc, "getLocationOnScreen", None) if acc is not None else None
     if not callable(fn):
         return None
-    pt = uno_probe(fn, None)
+    pt = uno_read(fn, None)
     if pt is None:
         return None
     x = getattr(pt, "X", None)
@@ -179,7 +213,7 @@ def _overlay_offset(host: Any, ask: Any, qr: Any, ctx: Any = None) -> tuple[int,
     VCL's accessible screen location, so the difference holds even where
     absolute screen coordinates are not real (Wayland).
     """
-    origin = uno_probe(lambda: _host_origin(host, ctx), None)
+    origin = uno_read(lambda: _host_origin(host, ctx), None)
     ask_xy = _location_on_screen(ask)
     if origin is None or ask_xy is None:
         return None
@@ -222,12 +256,12 @@ def _query_peer(query_control: Any) -> Any:
     if not callable(get_peer):
         _ovlog("getPeer missing query=%s", type(query_control).__name__)
         return None
-    return uno_probe(get_peer, None)
+    return uno_read(get_peer, None)
 
 
 def _toolkit_for_peer(peer: Any) -> Any:
     if peer is not None and hasattr(peer, "getToolkit"):
-        return uno_probe(peer.getToolkit, None)
+        return uno_read(peer.getToolkit, None)
     return None
 
 
@@ -312,26 +346,14 @@ def _create_ask_peer_listbox(
     return win, host, offset
 
 
-def _make_slash_key_handler(host: Any, label: str) -> Any:
-    try:
-        import unohelper
-        from com.sun.star.awt import XKeyHandler
-    except ImportError:
-        return None
-
-    class _Handler(unohelper.Base, XKeyHandler):  # type: ignore[misc]
-        def disposing(self, Source: Any) -> None:  # noqa: N802, N803 -- UNO signature
-            return
-
-        def keyPressed(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
-            code = int(getattr(aEvent, "KeyCode", 0) or 0)
-            mods = int(getattr(aEvent, "Modifiers", 0) or 0)
-            ch = getattr(aEvent, "KeyChar", None)
+def _make_slash_key_handler(host: Any, label: str) -> BaseKeyHandler:
+    class _Handler(BaseKeyHandler):
+        def on_key_pressed(self, e: Any) -> bool:
+            code = int(getattr(e, "KeyCode", 0) or 0)
+            mods = int(getattr(e, "Modifiers", 0) or 0)
+            ch = getattr(e, "KeyChar", None)
             _ovlog("%s keyPressed code=%s mods=%s char=%r", label, code, mods, ch)
             return bool(host.handle_key(code, mods, ch, from_overlay=False))
-
-        def keyReleased(self, aEvent: Any) -> bool:  # noqa: N802 -- UNO XKeyHandler
-            return False
 
     return _Handler()
 
@@ -451,34 +473,38 @@ class SlashPopupController:
         text = get_control_text(self.query_control) or ""
         dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(str(text).strip())))
 
-    def on_query_text(self, text: str) -> None:
-        """Open or narrow the popup from the current Ask-box contents."""
+    def on_query_text(self, text: str) -> bool:
+        """Open or narrow the popup from the current Ask-box contents. Returns True if TEXT_UPDATED should be skipped."""
         if not ENABLE_SLASH:
             _ovlog("on_query_text disabled (ENABLE_SLASH=False)")
-            return
+            return False
+        snippet = text[:40] if isinstance(text, str) else text
+        _ovlog("query_text entered raw=%r", snippet)
         prefix = slash_typed_prefix(text)
-        _ovlog("on_query_text prefix=%r text=%r", prefix, (text[:40] if isinstance(text, str) else text))
+        _ovlog("on_query_text prefix=%r text=%r", prefix, snippet)
+        if slash_ask_past_command_name(text):
+            _ovlog("on_query_text hide (command name complete with arg or space)")
+            _defer_to_next_turn(self.hide)
+            return False
         if prefix is None:
             _ovlog("on_query_text hide (not a slash prefix)")
-            # Bugfix: post_to_main_thread raises TimeoutError when the pending
-            # list is full before AsyncCallback exists (queue_executor.post).
-            # hide() / _show_matches() on this Ask textChanged stack deadlock
-            # VCL. _defer_to_next_turn logs the failure and does not run them.
+            # hide on the textChanged stack can deadlock VCL when main.post is full; defer to next turn.
             _defer_to_next_turn(self.hide)
-            return
-        matches = filter_slash_commands(text, load_slash_lru())
+            return False
+        matches = filter_slash_commands(
+            text,
+            load_slash_lru(),
+            getattr(self.send_listener, "cached_doc_type", None),
+        )
         _ovlog("on_query_text matches=%s names=%s", len(matches), [c.name for c in matches[:8]])
         if not matches:
             _ovlog("on_query_text hide (no matches)")
             _defer_to_next_turn(self.hide)
-            return
-        # Never createWindow/setVisible inside Ask textChanged — returning from that
-        # callback after a mapped TOP overlay deadlocks VCL and eats later keystrokes.
-        if self._open and matches == self._matches:
-            _ovlog("on_query_text same matches skip recreate")
-            return
-        _defer_to_next_turn(self._show_matches, matches)
-        _ovlog("on_query_text posted show n=%s", len(matches))
+        elif not (self._open and matches == self._matches):
+            _defer_to_next_turn(self._show_matches, matches)
+            _ovlog("on_query_text posted show n=%s", len(matches))
+        _ovlog("query_text skip TEXT_UPDATED slash prefix")
+        return True
 
     def _show_matches(self, matches: list[SlashCommand]) -> None:
         _ovlog(
@@ -500,8 +526,10 @@ class SlashPopupController:
         self._matches = matches
         self._selected = 0
         self._open = True
-        self.reposition()
+        # Fill before reposition: the HScroll check measures the entries.
+        # Both run before setVisible (addItems/setPosSize on a mapped host deadlock).
         self._fill_visible_list()
+        self.reposition()
         _ovlog("filled before show")
         host = self._popup_floater
         if host is not None:
@@ -539,6 +567,8 @@ class SlashPopupController:
         from_overlay: bool = False,
     ) -> bool:
         """True when the popup consumed the key (do not Send / insert newline)."""
+        if not ENABLE_SLASH:
+            return False
         _ovlog("handle_key code=%s mods=%s open=%s overlay=%s", key_code, modifiers, self._open, from_overlay)
         if not self._open:
             return False
@@ -576,23 +606,53 @@ class SlashPopupController:
         self._select_row(self._selected)
 
     def complete_selected(self) -> None:
-        name = self.selected_name
-        if not name:
+        if not self._matches:
             return
+        name = slash_display_name(self._matches[self._selected])
         set_control_text(self.query_control, "/" + name)
         self.on_query_text("/" + name)
 
     def accept_selected(self) -> None:
+        from plugin.chatbot.dialogs import get_control_text
+
+        host = self.send_listener
+        raw = get_control_text(self.query_control) or ""
+        parsed = parse_slash_text(raw.strip())
+        typed = raw.strip()
+        # Bugfix (QA N1): exact "/explain" + Enter should run, not complete to "/explain ".
+        # The same is true for the active locale's alias ("/解説" when that is explain).
+        if parsed is not None:
+            cmd, arg = parsed
+            first = typed.split()[0] if typed else ""
+            token = first[1:].lower() if first.startswith("/") else ""
+            if token in slash_command_tokens(cmd) and not slash_ask_past_command_name(raw):
+                # Bugfix (QA N1): ANSWER presets return False so Send runs _do_send; without
+                # SEND_CLICKED the draft stays in Ask until a second Enter.
+                def _accept_exact_or_send() -> None:
+                    from plugin.chatbot.send_state import SendEvent, SendEventKind
+                    from plugin.chatbot.slash_commands import SlashResult
+
+                    result = run_slash_command(cmd, host, arg, from_popup=False)
+                    if result is SlashResult.CONTINUE_SEND:
+                        # Bugfix (QA F1): SEND_COMPLETED clears has_text; exact /preset + Enter
+                        # must sync Ask before SEND_CLICKED or send_state ignores the click.
+                        host.sync_has_text_from_query()
+                        host.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
+
+                _defer_to_next_turn(_accept_exact_or_send)
+                return
         name = self.selected_name
         if not name:
             _ovlog("accept_selected no name selected=%s matches=%s", self._selected, [c.name for c in self._matches])
             return
         _ovlog("accept_selected name=%s", name)
-        # run_slash_command → hide() disposes the list. Post so the key or
-        # mouse callback returns before dispose. hide() is not called again
-        # here; a second hide would TEXT_UPDATED while the window still exists.
-        host = self.send_listener
-        _defer_to_next_turn(run_slash_command, name, host)
+        arg = parsed[1] if parsed is not None and parsed[0].name == name else ""
+        cmd_obj = get_slash_command(name)
+        if cmd_obj is None:
+            return
+        # Bugfix (QA B1): from_popup=True completes "/name " for presets instead of
+        # running them with an empty argument from the partial filter text.
+        _defer_to_next_turn(lambda: run_slash_command(cmd_obj, host, arg, from_popup=True))
 
     def accept_row_at_y(self, y: int) -> bool:
         """Accept the command under mouse Y. Ignores chrome / off-list clicks."""
@@ -633,6 +693,7 @@ class SlashPopupController:
             height = _list_height(ctrl, rows)
             one = _list_height(ctrl, 1)
             self._row_px = max(1, (height - one) // (rows - 1)) if rows > 1 else one
+            height += _hscroll_height(ctrl, rows, len(self._matches), max(20, int(qr.Width)))
             x, y, w, h = _above_ready_rect(qr, rows, status_top=status_top, height=height)
             _ovlog(
                 "reposition Ask=%sx%s@%s,%s popup_bounds=%s,%s %sx%s rows=%s toolkit=%s origin=%s",
@@ -658,7 +719,7 @@ class SlashPopupController:
         ctrl = self.control
         if ctrl is None:
             return
-        labels = tuple(format_slash_item(cmd) for cmd in self._matches)
+        labels = tuple(format_slash_popup_item(cmd) for cmd in self._matches)
         add = getattr(ctrl, "addItems", None)
         if callable(add):
             try:
@@ -685,8 +746,6 @@ class SlashPopupController:
             _ovlog("%s key handler: no addKeyHandler", label)
             return None
         handler = _make_slash_key_handler(self, label)
-        if handler is None:
-            return None
         try:
             add(handler)
             _ovlog("%s key handler attached", label)
@@ -704,7 +763,7 @@ class SlashPopupController:
         if not callable(get_controller):
             _ovlog("frame key handler: no controller")
             return
-        controller = uno_probe(get_controller, None)
+        controller = uno_read(get_controller, None)
         handler = self._attach_key_handler(controller, "frame")
         if handler is not None:
             self._key_handlers["frame"] = (controller, handler)

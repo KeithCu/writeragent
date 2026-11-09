@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
+from typing import Any
 
 import numpy as np
 import pytest
@@ -26,17 +27,17 @@ import plugin.scripting.calc_functions as calc
 _INF = float("inf")
 
 # (function, kind, args, "nan" or an error token)
-_BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
+_BAD_INPUTS: list[tuple[str, str, tuple[Any, ...], Any]] = [
     # tdist: zero x is a real probability. Zero df, zero tails, and a tail
     # count outside 1 or 2 are #NUM! (NaN here).
-    ("tdist", "text", ("text", 10, 2), "nan"),
-    ("tdist", "blank", (None, 10, 2), "nan"),
-    ("tdist", "blank-empty", ("", 10, 2), "nan"),
+    ("tdist", "text", ("text", 10, 2), ValueError),
+    ("tdist", "blank", (None, 10, 2), TypeError),
+    ("tdist", "blank-empty", ("", 10, 2), ValueError),
     ("tdist", "zero-df", (1.96, 0, 2), "nan"),
     ("tdist", "zero-tails", (1.96, 10, 0), "nan"),
     ("tdist", "out-of-range-x", (-1, 10, 2), "nan"),
     ("tdist", "out-of-range-tails", (1, 10, 3), "nan"),
-    ("tdist", "out-of-range-inf-tails", (1, 10, _INF), "nan"),
+    ("tdist", "out-of-range-inf-tails", (1, 10, _INF), OverflowError),
     # textafter / textbefore: instance 0 and a text instance are already tested.
     ("textafter", "blank", ("", "-", 1), "nan"),
     ("textafter", "blank-delimiter", ("a-b", "", 1), "nan"),
@@ -53,17 +54,17 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("textsplit", "blank-text", ("", ","), "nan"),
     # time: text hour and a negative remainder are already tested. Zero is a
     # real time (0).
-    ("time", "blank", (None, 0, 0), "nan"),
-    ("time", "blank-empty", ("", 0, 0), "nan"),
+    ("time", "blank", (None, 0, 0), TypeError),
+    ("time", "blank-empty", ("", 0, 0), ValueError),
     ("time", "out-of-range-inf", (_INF, 0, 0), "nan"),
     ("timevalue", "text", ("abc",), "nan"),
     ("timevalue", "blank", ("",), "nan"),
     ("timevalue", "blank-none", (None,), "nan"),
     ("timevalue", "zero", (0,), "nan"),
     ("timevalue", "out-of-range", ("25:00:00",), "nan"),
-    ("tinv", "text", ("nope", 10), "nan"),
-    ("tinv", "blank", (None, 10), "nan"),
-    ("tinv", "blank-empty", ("", 10), "nan"),
+    ("tinv", "text", ("nope", 10), ValueError),
+    ("tinv", "blank", (None, 10), TypeError),
+    ("tinv", "blank-empty", ("", 10), ValueError),
     ("tinv", "zero-prob", (0, 10), "nan"),
     ("tinv", "zero-df", (0.05, 0), "nan"),
     ("tinv", "out-of-range-prob", (1.5, 10), "nan"),
@@ -84,14 +85,14 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("ttest", "zero-type", ([1, 2, 3], [2, 3, 4], 2, 0), "nan"),
     ("ttest", "out-of-range-tails", ([1, 2, 3], [2, 3, 4], 3, 1), "nan"),
     ("ttest", "out-of-range-type", ([1, 2, 3], [2, 3, 4], 2, 4), "nan"),
-    ("ttest", "out-of-range-inf-tails", ([1, 2, 3], [2, 3, 4], _INF, 1), "nan"),
+    ("ttest", "out-of-range-inf-tails", ([1, 2, 3], [2, 3, 4], _INF, 1), OverflowError),
     # unichar: a negative code point is already NaN.
-    ("unichar", "text", ("A",), "nan"),
-    ("unichar", "blank", (None,), "nan"),
-    ("unichar", "blank-empty", ("",), "nan"),
+    ("unichar", "text", ("A",), ValueError),
+    ("unichar", "blank", (None,), TypeError),
+    ("unichar", "blank-empty", ("",), ValueError),
     ("unichar", "zero", (0,), "nan"),
     ("unichar", "out-of-range", (0x110000,), "nan"),
-    ("unichar", "out-of-range-inf", (_INF,), "nan"),
+    ("unichar", "out-of-range-inf", (_INF,), OverflowError),
     # vara / varpa: text, blank, and zero are coerced to numbers (variance 0
     # when there are enough). Fewer than two samples is the error for VARA;
     # VARPA of one number is 0, and only the empty call is NaN.
@@ -106,7 +107,7 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("weekday", "out-of-range-negative", (-10**9,), "nan"),
     ("weekday", "out-of-range-inf", (_INF,), "nan"),
     ("weekday", "out-of-range-type", (44927, 0), "nan"),
-    ("weekday", "text-type", (44927, "nope"), "nan"),
+    ("weekday", "text-type", (44927, "nope"), ValueError),
     ("weeknum", "text", ("nope",), "nan"),
     ("weeknum", "blank", (None,), "nan"),
     ("weeknum", "blank-empty", ("",), "nan"),
@@ -114,11 +115,11 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("weeknum", "out-of-range-negative", (-10**9,), "nan"),
     ("weeknum", "out-of-range-inf", (_INF,), "nan"),
     ("weeknum", "out-of-range-type", (44927, 0), "nan"),
-    ("weeknum", "text-type", (44927, "x"), "nan"),
+    ("weeknum", "text-type", (44927, "x"), ValueError),
     # weibull: x of 0 is a real cdf. Zero or negative shape/scale is #NUM!.
-    ("weibull", "text", ("x", 1, 1), "nan"),
-    ("weibull", "blank", (None, 1, 1), "nan"),
-    ("weibull", "blank-empty", ("", 1, 1), "nan"),
+    ("weibull", "text", ("x", 1, 1), ValueError),
+    ("weibull", "blank", (None, 1, 1), TypeError),
+    ("weibull", "blank-empty", ("", 1, 1), ValueError),
     ("weibull", "zero-alpha", (1, 0, 1), "nan"),
     ("weibull", "zero-beta", (1, 1, 0), "nan"),
     ("weibull", "out-of-range-x", (-1, 1, 1), "nan"),
@@ -170,12 +171,12 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("yearfrac", "text-basis", (44927, 45292, "b"), "nan"),
     ("yearfrac", "out-of-range-inf", (_INF, 45292, 1), "nan"),
     # The YIELD* helpers are stubs: every input, including these, is NaN.
-    ("yielddisc", "text", ("a", "b", "c", "d"), "nan"),
-    ("yielddisc", "blank", (None, None, None, None), "nan"),
+    ("yielddisc", "text", ("a", "b", "c", "d"), ValueError),
+    ("yielddisc", "blank", (None, None, None, None), TypeError),
     ("yielddisc", "zero", (0, 0, 0, 0), "nan"),
     ("yielddisc", "out-of-range", (-1, -2, 0, 0), "nan"),
-    ("yieldmat", "text", ("a", "b", "c", "d", "e"), "nan"),
-    ("yieldmat", "blank", (None, None, None, None, None), "nan"),
+    ("yieldmat", "text", ("a", "b", "c", "d", "e"), ValueError),
+    ("yieldmat", "blank", (None, None, None, None, None), TypeError),
     ("yieldmat", "zero", (0, 0, 0, 0, 0), "nan"),
     ("yieldmat", "out-of-range", (-1, -2, -3, 0, 0), "nan"),
     # ztest: a negative sigma is a real scale. Zero sigma and zero variance
@@ -186,13 +187,13 @@ _BAD_INPUTS: list[tuple[str, str, tuple, str]] = [
     ("ztest", "blank-none", (None, 1), "nan"),
     ("ztest", "zero-sigma", ([1, 2, 3], 2, 0), "nan"),
     ("ztest", "zero-variance", ([5, 5, 5], 5), "nan"),
-    ("ztest", "text-x", ([1, 2, 3], "x"), "nan"),
-    ("ztest", "blank-x", ([1, 2, 3], None), "nan"),
-    ("ztest", "text-sigma", ([1, 2, 3], 2, "s"), "nan"),
+    ("ztest", "text-x", ([1, 2, 3], "x"), ValueError),
+    ("ztest", "blank-x", ([1, 2, 3], None), TypeError),
+    ("ztest", "text-sigma", ([1, 2, 3], 2, "s"), ValueError),
 ]
 
 
-def _case_id(case: tuple[str, str, tuple, str]) -> str:
+def _case_id(case: tuple[str, str, tuple[Any, ...], Any]) -> str:
     name, kind, _unused_args, _unused_expected = case
     return f"{name}-{kind}"
 
@@ -202,8 +203,12 @@ def _case_id(case: tuple[str, str, tuple, str]) -> str:
     _BAD_INPUTS,
     ids=[_case_id(case) for case in _BAD_INPUTS],
 )
-def test_t_z_bad_input(name: str, kind: str, args: tuple, expected: str) -> None:
+def test_t_z_bad_input(name: str, kind: str, args: tuple[Any, ...], expected: Any) -> None:
     """Text, blank, zero, and out-of-range inputs return the helper's error."""
+    if isinstance(expected, type) and issubclass(expected, BaseException):
+        with pytest.raises(expected):
+            getattr(calc, name)(*args)
+        return
     result = getattr(calc, name)(*args)
     if expected == "nan":
         assert isinstance(result, float) and math.isnan(result), (name, kind, result)
@@ -483,7 +488,8 @@ def test_flag_strings_follow_getdouble():
     assert calc.unique([[1, 2], [3, 4]], "0") == [[1, 2], [3, 4]]
     assert calc.unique([[1, 2]], "FALSE") == "#VALUE!"
     assert math.isclose(calc.weibull(1, 1, 1, "0"), calc.weibull(1, 1, 1, False))
-    assert math.isnan(calc.weibull(1, 1, 1, "FALSE"))
+    with pytest.raises(ValueError):
+        calc.weibull(1, 1, 1, "FALSE")
     assert calc.textsplit("a,,b", ",", ignore_empty="0") == [["a", "", "b"]]
     assert math.isnan(calc.textsplit("a-b", "-", ignore_empty="FALSE"))
 

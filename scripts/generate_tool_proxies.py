@@ -124,6 +124,17 @@ def _get_schema_type(schema: dict) -> str:
     return str(t)
 
 
+def _qualify_proxy_annotation(annotation: str, shadowed: frozenset[str]) -> str:
+    """Avoid class-body method names shadowing builtins in parameter annotations."""
+    if "list" in shadowed:
+        annotation = annotation.replace("list[", "builtins.list[")
+    if "dict" in shadowed:
+        annotation = annotation.replace("dict[", "builtins.dict[")
+    if "type" in shadowed and annotation.startswith("type"):
+        annotation = annotation.replace("type", "builtins.type", 1)
+    return annotation
+
+
 def _python_type(schema: dict) -> str:
     """JSON Schema property -> Python annotation with type arguments.
 
@@ -164,7 +175,7 @@ def _param_default(schema: dict) -> str:
     Only called when "default" in schema. There is no per-type default table
     because a boolean True made apply_document_content(..., dry_run=True) a
     silent no-op. Optionals without a schema default stay None in
-    schema_to_signature so _rpc_call can drop them.
+    schema_to_signature so call_host_tool can drop them.
     """
     return repr(schema["default"])
 
@@ -189,7 +200,7 @@ class ParamRecord(NamedTuple):
 
 
 def _collect_params(tool: "ToolBase") -> list[ParamRecord]:
-    # Read tool.parameters directly, not get_parameters(doc_type). ManageCharts.get_parameters
+    # Read tool.parameters directly, not get_parameters(doc_type). Chart tools' get_parameters
     # strips Calc or Writer/Draw fields per doc_type, but proxy stubs must keep the union.
     # The only other get_parameters override is run_venv_python_script
     # (in API_EXCLUDED_TOOLS).
@@ -496,49 +507,22 @@ def generate_module(tools: list["ToolBase"]) -> str:
         'per-tool classes are the public script API (IDE jump and types). Change this',
         'generator if the file is too large; do not slim the generated module by hand.',
         '"""',
-        'import os',
-        'from typing import Any',
+        'from __future__ import annotations',
+        'from typing import Any, TYPE_CHECKING',
         'from plugin.framework.constants import WORKFLOW_TASK_PREFIXES as _WORKFLOW_TASK_PREFIXES',
+        '',
+        'if TYPE_CHECKING:',
+        '    import builtins  # proxy methods named list/dict shadow builtins in annotations',
         '',
         '# Re-export so venv scripts and tests share the comment-scan prefix tuple.',
         'WORKFLOW_TASK_PREFIXES = _WORKFLOW_TASK_PREFIXES',
         '',
-        '',
-        '# Detect if running in-process (LibreOffice host) or out-of-process (Venv worker)',
-        'IS_WORKER = os.environ.get("WRITERAGENT_IS_WORKER") == "1"',
-        '',
-        '',
-        'def _rpc_call(tool_name: str, **kwargs: Any) -> dict[str, Any]:',
-        '    """Send a tool call to the LibreOffice host and block for the result.',
-        '    Strips None kwargs so tool defaults apply.',
-        '    """',
-        '    kwargs = {k: v for k, v in kwargs.items() if v is not None}',
-        '    # Compute workers set this before importing plugin code. They have no',
-        '    # office and no host pipe. The branch below would call get_ctx();',
-        '    # exchange_tool_call would write a tool frame onto the pool stdio pipe.',
-        '    if os.environ.get("WRITERAGENT_COMPUTE_WORKER") == "1":',
-        '        raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")',
-        '    if not IS_WORKER:',
-        '        try:',
-        '            from plugin.scripting.host_rpc import execute_tool',
-        '',
-        '            return execute_tool(tool_name, kwargs, caller="script")',
-        '        except Exception as e:',
-        '            # Keep error .code from the RPC exception instead of dropping it',
-        '            code = getattr(e, "code", None)',
-        '            err = RuntimeError(f"Failed to execute tool in-process: {e}")',
-        '            if code is not None:',
-        '                setattr(err, "code", code)',
-        '            raise err from e',
-        '',
-        '    from plugin.scripting.ipc import exchange_tool_call',
-        '',
-        '    return exchange_tool_call(tool_name, kwargs)',
+        'from plugin.scripting.host_tool_call import call_host_tool',
         '',
         '',
         'def get_active_document_type() -> str:',
         '    """Return the active document\'s type (\'writer\', \'calc\', \'draw\', or \'unknown\')."""',
-        '    res = _rpc_call("list_open_documents")',
+        '    res = call_host_tool("list_open_documents")',
         '    for doc in res.get("documents", []):',
         '        if doc.get("is_active"):',
         '            return doc.get("doc_type", "unknown")',
@@ -619,13 +603,26 @@ def generate_module(tools: list["ToolBase"]) -> str:
         lines.append(f'    """Proxy for {namespace} tools."""')
         lines.append("")
 
+        import builtins as _builtins_mod
+
+        proxy_method_names = frozenset(_proxy_method_name(n) for n, _unused in tool_list)
+        shadowed_names = proxy_method_names & set(dir(_builtins_mod))
+
         for short_name, tool in sorted(tool_list, key=lambda x: x[0]):
             # domain_verb strip can yield a Python keyword (style_import -> import).
             short_name = _proxy_method_name(short_name)
             params = _collect_params(tool)
 
-            pos = [f"{p.py_name}: {p.annotation}" for p in params if p.required]
-            kw = [f"{p.py_name}: {p.annotation} = {p.default}" for p in params if not p.required]
+            pos = [
+                f"{p.py_name}: {_qualify_proxy_annotation(p.annotation, shadowed_names)}"
+                for p in params
+                if p.required
+            ]
+            kw = [
+                f"{p.py_name}: {_qualify_proxy_annotation(p.annotation, shadowed_names)} = {p.default}"
+                for p in params
+                if not p.required
+            ]
 
             all_params_list = ["self"] + pos
             if kw:
@@ -644,7 +641,7 @@ def generate_module(tools: list["ToolBase"]) -> str:
 
             lines.append(f"    def {short_name}({all_params}) -> dict[str, Any]:")
             _append_docstring(lines, _method_doc_lines(tool, params=params))
-            lines.append(f'        return _rpc_call("{tool.name}"{kwargs_body})')
+            lines.append(f'        return call_host_tool("{tool.name}"{kwargs_body})')
             lines.append("")
 
         # Singleton instance (keep DOMAIN_TOOLS key as registered domain string)
@@ -703,7 +700,11 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     with _mock_uno():
-        from plugin.main import get_tools
+        from plugin.main import bind
+
+        bind()
+
+        from plugin.app import get_tools
 
         with tempfile.TemporaryDirectory(prefix="wa-proxies-") as tmp_dir:
             _config_in_scratch_dir(tmp_dir)

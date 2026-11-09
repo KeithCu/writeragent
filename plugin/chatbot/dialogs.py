@@ -44,7 +44,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Sequence
 from plugin.framework.uno_listeners import BaseActionListener
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ from plugin.framework.errors import best_effort
 from plugin.framework.uno_context import get_ctx, get_desktop, get_extension_url, process_events_to_idle
 from plugin.framework.i18n import _
 
-log = logging.getLogger("writeragent.dialogs")
+log = logging.getLogger(__name__)
 
 
 # ── Simple message box ──────────────────────────────────────────────
@@ -146,8 +146,7 @@ def show_approval_dialog(ctx: Any, description: str, tool_name: str = "", parent
         message = (description or _("Proceed with this action?")) + ("\n\n" + _("Tool: %s") % tool_name if tool_name else "")
         log.debug("show_approval_dialog: tool_name=%s parent_frame=%s", tool_name, parent_frame is not None)
         # 4 = QUERYBOX, 3 = BUTTONS_YES_NO. Result 2 = Yes (Approve), 3 = No (Reject), 1 = OK
-        # msgbox() disposes in a finally. This box used to return after execute()
-        # and leak the toolkit window. A dispose failure must not flip Yes/No.
+        # Dispose the approval box after execute(); dispose failure must not change Yes/No.
         result = _execute_message_box(ctx, window, 4, 3, title, message)
         return result in (1, 2)
     except Exception:
@@ -651,6 +650,42 @@ def is_checkbox_control(ctrl: Any) -> bool:
             return True
         return hasattr(ctrl.getModel(), "State")
     return bool(best_effort(_check, "is_checkbox_control exception", default=False))
+
+
+def set_prop(obj: Any, name: str, value: Any) -> bool:
+    """Safely set a property on a UNO object or model via setattr or setPropertyValue."""
+    if obj is None:
+        return False
+    try:
+        setattr(obj, name, value)
+        return True
+    except Exception:  # noqa: S110 - setattr failed; probe setPropertyValue
+        pass
+    if hasattr(obj, "setPropertyValue"):
+        try:
+            obj.setPropertyValue(name, value)
+            return True
+        except Exception:  # noqa: S110 - setPropertyValue failed on UNO object
+            pass
+    return False
+
+
+def set_combo_items(ctrl: Any, items: Sequence[str], selected: str = "") -> None:
+    """Populate a UNO ComboBox or ListBox with items and optionally set selected text."""
+    if not ctrl:
+        return
+    labels = tuple(items)
+    # Real UNO ComboBox and ListBox controls expose removeItems and addItems via XComboBox / XListBox.
+    count = ctrl.getItemCount()
+    if count:
+        ctrl.removeItems(0, count)
+    if labels:
+        ctrl.addItems(labels, 0)
+
+    if selected:
+        set_control_text(ctrl, selected)
+    elif ctrl.getItemCount() == 0 and hasattr(ctrl, "setText"):
+        ctrl.setText("")
 
 
 def _set_control_prop(ctrl: Any, value: bool | int, method_name: str, prop_name: str, log_label: str) -> None:

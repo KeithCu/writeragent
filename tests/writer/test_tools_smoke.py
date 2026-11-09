@@ -2,6 +2,7 @@
 
 from unittest.mock import patch
 
+
 from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
 
 # Locale tests swap com.sun.star.* for empty modules during collection.
@@ -9,7 +10,7 @@ from plugin.tests.testing_utils import WriterDocStub, setup_uno_mocks
 # NoSuchElementException / XInitialization back before later imports.
 setup_uno_mocks()
 
-from plugin.main import get_tools
+from plugin.app import get_tools
 
 
 class TestWriterToolsSmoke:
@@ -69,6 +70,7 @@ class TestWriterToolsSmoke:
             "comment_workflow_set",
             "comment_check_stop",
             "comment_list",
+            "comment_edit",
         ):
             assert (name) in (names), f"expected comments tool {name!r}"
         assert ("comment_workflow") not in (names)
@@ -84,11 +86,11 @@ class TestWriterToolsSmoke:
         doc = WriterDocStub()
         names = {t.name for t in registry.get_tools(doc=doc, active_domain="tracking", exclude_tiers=())}
         for name in (
-            "track_changes_start",
-            "track_changes_stop",
-            "track_changes_list",
-            "track_changes_show",
-            "manage_tracked_changes",
+            "tracking_start",
+            "tracking_stop",
+            "tracking_list",
+            "tracking_show",
+            "tracking_manage",
         ):
             assert (name) in (names), f"expected tracking tool {name!r}"
         for leftover in (

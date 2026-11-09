@@ -12,7 +12,7 @@ from plugin.draw.base import ToolDrawPptMasterBase
 from plugin.ppt_master.client import (
     apply_native_enhance,
     apply_template_fill,
-    export_project_to_impress,
+    export_project_to_doc,
     validate_project_structure,
 )
 from plugin.ppt_master.paths import PPT_MASTER_INSTALL_CMD, apply_data_root_env, data_root_status
@@ -52,7 +52,7 @@ class ExportPresentationProject(ToolDrawPptMasterBase):
         path = kwargs.get("project_path")
         if not path:
             return self._tool_error("project_path is required.", code="MISSING_PATH")
-        return export_project_to_impress(ctx.ctx, ctx.doc, path)
+        return export_project_to_doc(ctx.doc, path, ctx.ctx, cancel=ctx.send_cancellation)
 
 
 class ValidatePptMasterProject(ToolDrawPptMasterBase):
@@ -92,7 +92,7 @@ class ApplyPptMasterTemplateFill(ToolDrawPptMasterBase):
         plan_path = kwargs.get("fill_plan_path")
         if not plan_path:
             return self._tool_error("fill_plan_path is required.", code="MISSING_PATH")
-        return apply_template_fill(ctx.ctx, ctx.doc, plan_path)
+        return apply_template_fill(ctx.doc, plan_path)
 
 
 class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
@@ -112,4 +112,4 @@ class ApplyPptMasterNativeEnhance(ToolDrawPptMasterBase):
         path = kwargs.get("project_path")
         if not path:
             return self._tool_error("project_path is required.", code="MISSING_PATH")
-        return apply_native_enhance(ctx.ctx, ctx.doc, path)
+        return apply_native_enhance(ctx.doc, path)

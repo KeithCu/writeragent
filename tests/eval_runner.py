@@ -22,24 +22,21 @@ from plugin.framework.logging import log
 from plugin.doc.document_helpers import get_document_context_for_chat
 from plugin.framework.prompts import get_chat_system_prompt_for_document
 from scripts.lib.pricing import fetch_openrouter_pricing, calculate_cost
-from plugin.main import get_tools
+from plugin.app import get_tools
 
 
-def _on_main_thread(fn, *args, **kwargs):
+def _call_on_main(fn, *args, **kwargs):
     """Run document and tool work on the UI thread.
 
-    What was wrong: the benchmark's model call and its ``registry.execute``
-    shared the dialog thread, so Run froze LibreOffice. The model call now
-    stays on the worker that ``run_suite`` started. Document reads and tool
-    execution would have moved with it and touched the open document off the
-    main thread. Those calls are posted back; the HTTP client is not.
+    The benchmark HTTP call runs on the suite worker so the eval dialog stays
+    responsive. Document reads and ``registry.execute`` must post back to the
+    main thread; UNO must not run from the worker. The HTTP client stays on the worker.
     """
-    from plugin.framework.queue_executor import execute_on_main_thread
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if on_main_thread():
+    if main.is_current():
         return fn(*args, **kwargs)
-    return execute_on_main_thread(fn, *args, timeout=120, **kwargs)
+    return main.call(fn, *args, timeout=120, **kwargs)
 
 
 class EvalRunner:
@@ -68,11 +65,11 @@ class EvalRunner:
         log.info(f"[Eval] Running {name}...")
         
         # 0. Capture state before (open document: main thread).
-        pre_state = _on_main_thread(self._get_document_state, category)
+        pre_state = _call_on_main(self._get_document_state, category)
         
         # 1. Capture initial state/context
-        system_prompt = _on_main_thread(get_chat_system_prompt_for_document, self.doc, "")
-        doc_context = _on_main_thread(get_document_context_for_chat, self.doc, 8000, ctx=self.ctx)
+        system_prompt = _call_on_main(get_chat_system_prompt_for_document, self.doc, "")
+        doc_context = _call_on_main(get_document_context_for_chat, self.doc, 8000, ctx=self.ctx)
         
         messages = [
             {"role": "system", "content": system_prompt},
@@ -80,12 +77,12 @@ class EvalRunner:
         ]
         
         # Choose tools based on category
-        registry = _on_main_thread(get_tools)
+        registry = _call_on_main(get_tools)
         doc_type = category.lower()
         if doc_type == "multimodal":
-            tools = _on_main_thread(registry.get_schemas, "openai")
+            tools = _call_on_main(registry.get_schemas, "openai")
         else:
-            tools = _on_main_thread(registry.get_schemas, "openai", doc_type=doc_type)
+            tools = _call_on_main(registry.get_schemas, "openai", doc_type=doc_type)
             
         start_time = time.time()
         try:
@@ -103,7 +100,7 @@ class EvalRunner:
                 func = tc.get("function", {})
                 t_name = func.get("name")
                 t_args_str = func.get("arguments", "{}")
-                from plugin.framework.errors import safe_json_loads
+                from plugin.framework.json_utils import safe_json_loads
                 t_args = safe_json_loads(t_args_str)
                 if not isinstance(t_args, dict):
                     t_args = {}
@@ -116,14 +113,14 @@ class EvalRunner:
                     def _run_tool(name=t_name, ctx=tctx, tool_args=t_args):
                         registry.execute(name, ctx, **tool_args)
 
-                    _on_main_thread(_run_tool)
+                    _call_on_main(_run_tool)
                 except Exception as e:
                     log.error(f"[Eval] Tool {t_name} failed: {e}")
             
             # 4. Success Verification
             passed = False
             if verify_fn:
-                passed = _on_main_thread(verify_fn, self.doc, self.ctx, pre_state)
+                passed = _call_on_main(verify_fn, self.doc, self.ctx, pre_state)
             else:
                 # Use LLM-as-a-Judge for semantic verification
                 passed = self._verify_with_judge(name, task, category)
@@ -147,7 +144,7 @@ class EvalRunner:
         """Use a cheaper/different model to judge if the task was successful."""
         log.info(f"[Eval] Judging {name}...")
         # Snapshot current state on the main thread; the judge call itself is HTTP.
-        doc_context = _on_main_thread(get_document_context_for_chat, self.doc, 8000, ctx=self.ctx)
+        doc_context = _call_on_main(get_document_context_for_chat, self.doc, 8000, ctx=self.ctx)
         
         judge_prompt = f"""
 You are an expert evaluator for LibreOffice automation.

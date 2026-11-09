@@ -23,7 +23,13 @@ from plugin.writer.specialized_base import (
     index_error,
 )
 from plugin.framework.errors import ToolExecutionError, uno_read
-from plugin.writer.search import find_occurrence_range, parse_non_negative_int
+from plugin.writer.record_changes import is_recording_changes
+from plugin.writer.search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    find_occurrence_range,
+    parse_non_negative_int,
+    resolve_case_sensitive,
+)
 
 
 NOTE_TYPES: list[str] = ["footnote", "endnote"]
@@ -80,7 +86,7 @@ class FootnotesInsert(ToolWriterFootnoteBase):
                 ),
             },
             "occurrence": {"type": "integer", "description": ("0-based index when insert_after matches multiple times (default 0 = first match).")},
-            "case_sensitive": {"type": "boolean", "description": "Search matching for insert_after (default true)."},
+            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
         },
         "required": ["note", "text"],
     }
@@ -92,26 +98,16 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         label = kwargs.get("label", "")
 
         insert_after = str(kwargs.get("insert_after") or "")
+        has_search = bool(insert_after.strip())
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         doc = ctx.doc
 
-        if insert_after.strip():
-            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
-            if occ_err:
-                return self._tool_error(occ_err)
-            occurrence = 0 if occ_val is None else occ_val
-
-            case_sensitive = bool(kwargs.get("case_sensitive", True))
-
-            # Shared LO search: NBSP/space normalization plus the newline-chained fallback.
-            try:
-                rng = find_occurrence_range(
-                    doc, insert_after, occurrence=occurrence, case_sensitive=case_sensitive)
-            except IndexError:
-                return self._tool_error(
-                    f"No match for insert_after_text at occurrence {occurrence} "
-                    "(not enough occurrences).")
-            if rng is None:
-                return self._tool_error("No match for insert_after_text in the document.")
+        if has_search:
+            rng_or_err = self._resolve_insert_range(doc, insert_after, kwargs.get("occurrence", 0), case_sensitive)
+            if isinstance(rng_or_err, dict):
+                rng_or_err["matched_case_sensitive"] = case_sensitive
+                return rng_or_err
+            rng = rng_or_err
         else:
             # View cursor: active insertion point in the UI.
             ctrl = doc.getCurrentController()
@@ -142,7 +138,32 @@ class FootnotesInsert(ToolWriterFootnoteBase):
         # Set text inside the note
         note.setString(text)
 
-        return {"status": "ok", "message": f"Successfully inserted {note_type}.", "label": note.getLabel()}
+        res: dict[str, Any] = {"status": "ok", "message": f"Successfully inserted {note_type}.", "label": note.getLabel()}
+        if has_search:
+            res["matched_case_sensitive"] = case_sensitive
+        return res
+
+    def _resolve_insert_range(
+        self, doc: Any, insert_after: str, raw_occurrence: Any, case_sensitive: bool
+    ) -> Any:
+        occ_val, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
+        if occ_err:
+            return self._tool_error(occ_err)
+        occurrence = 0 if occ_val is None else occ_val
+
+        # Shared LO search: NBSP/space normalization plus the newline-chained fallback.
+        try:
+            rng = find_occurrence_range(
+                doc, insert_after, occurrence=occurrence, case_sensitive=case_sensitive
+            )
+        except IndexError:
+            return self._tool_error(
+                f"No match for insert_after_text at occurrence {occurrence} "
+                "(not enough occurrences)."
+            )
+        if rng is None:
+            return self._tool_error("No match for insert_after_text in the document.")
+        return rng
 
 
 class FootnotesList(ToolWriterFootnoteBase):
@@ -230,7 +251,7 @@ class FootnotesDelete(ToolWriterFootnoteBase):
         if after < before:
             return {"status": "ok", "message": f"Successfully deleted {note_type} at index {index}."}
         # With change tracking on, anchor clearing records a tracked deletion instead of removing the note immediately.
-        if uno_read(lambda: bool(ctx.doc.getPropertyValue("RecordChanges")), False):
+        if uno_read(lambda: is_recording_changes(ctx.doc), False):
             return {
                 "status": "ok",
                 "tracked": True,

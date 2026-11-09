@@ -160,6 +160,18 @@ def test_extract_text_docling_unrelated_vision_error_does_not_fallback(mock_conv
     assert "model failed" in result["message"]
 
 
+@patch("plugin.vision.venv.vision._run_backend")
+def test_run_vision_missing_backend_module_records_missing_module(mock_run_backend):
+    docling = "plugin.vision.venv.vision_docling"
+    mock_run_backend.side_effect = ModuleNotFoundError(f"No module named {docling!r}", name=docling)
+
+    result = run_vision({"helper": "extract_text", "params": {}}, b"png-bytes", {})
+
+    assert result["status"] == "error"
+    assert result["code"] == "VISION_ERROR"
+    assert result.get("details") == {"missing_module": docling}
+
+
 @patch("plugin.vision.venv.vision_paddle.decode_image_bytes")
 @patch("plugin.vision.venv.vision_paddle._get_paddle_ocr")
 def test_extract_text_paddle_engine_maps_regions(mock_get_engine, mock_decode):
@@ -376,8 +388,7 @@ def test_run_vision_rejects_oversized_image():
 
 @patch("plugin.vision.venv.vision_docling._convert_image_bytes")
 def test_paddle_fallback_failure_preserves_docling_error(mock_convert):
-    # What was wrong: an unhandled exception in the Paddle fallback replaced the original Docling error with VISION_ERROR.
-    # Why this change: verify the fallback failure is caught and logged, returning the original docling_result.
+    # Paddle fallback failures must not mask the original Docling error; return the docling_result after logging.
     mock_convert.side_effect = ImportError("docling is not installed")
 
     with patch("plugin.vision.venv.vision_paddle.extract_text", side_effect=RuntimeError("paddle crashed")):

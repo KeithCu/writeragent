@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from plugin.draw.bridge import DrawBridge, find_notes_shape
-from plugin.framework.errors import is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, format_error_payload, is_disposal
 
 log = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
                     shape.setString(str(notes))
                     applied += 1
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 failures.append(f"slide {idx} notes: {exc}")
                 log.warning("apply enhancement notes failed on slide %s: %s", idx, exc)
@@ -66,15 +66,15 @@ def apply_enhancement_project(doc: Any, project_path: Path) -> dict[str, Any]:
                 applied += 1
             except Exception as exc:
                 # A dead document must not look like a successful apply.
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 failures.append(f"slide {idx} transition: {exc}")
                 log.warning("apply enhancement transition failed on slide %s: %s", idx, exc)
     if failures:
-        return {
-            "status": "error",
-            "applied": applied,
-            "failed": len(failures),
-            "message": "Failed to apply enhancement: " + "; ".join(failures) + ".",
-        }
+        payload = format_error_payload(
+            ToolExecutionError("Failed to apply enhancement: " + "; ".join(failures) + ".")
+        )
+        payload["applied"] = applied
+        payload["failed"] = len(failures)
+        return payload
     return {"status": "ok", "applied": applied}

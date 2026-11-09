@@ -14,13 +14,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.chatbot.send_state import SendEventKind
-from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP
+from plugin.chatbot.slash_commands import KEY_ESCAPE, KEY_RETURN, KEY_TAB, KEY_UP, SlashResult
 from plugin.chatbot.slash_popup import (
     SlashPopupController,
     _POPUP_MAX_ROWS,
     _POPUP_ROW_PX,
     _above_ready_rect,
     _create_ask_peer_listbox,
+    _hscroll_height,
     _list_height,
     _overlay_height,
     _printable_key_char,
@@ -29,8 +30,7 @@ from plugin.chatbot.slash_popup import (
 
 
 @pytest.fixture(autouse=True)
-def _enable_slash_for_unit_tests(monkeypatch):
-    monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", True)
+def _slash_popup_unit_test_env(monkeypatch):
     # Most tests drive the [mock] rows, like the mock-LLM sidebar harness.
     monkeypatch.setattr("plugin.chatbot.slash_commands._mock_commands_enabled", True)
 
@@ -132,13 +132,13 @@ class _StubBoxProxy:
 
 @pytest.fixture(autouse=True)
 def _inline_idle_overlay_show(monkeypatch):
-    """CI has UNO AsyncCallback so post_to_main_thread queues; unit tests need inline."""
+    """CI has UNO AsyncCallback so post queues; unit tests need inline."""
 
     def _run(fn, *args, **kwargs):
         fn(*args, **kwargs)
 
     monkeypatch.setattr("plugin.chatbot.slash_popup._create_ask_peer_listbox", _stub_create_ask_peer_listbox)
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_run):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=_run):
         yield
 
 
@@ -147,7 +147,12 @@ def _controller(lru: list[str] | None = None) -> tuple[SlashPopupController, Any
     query = _Query()
     query._stub_overlay = True
     query._stub_boxes = []
-    send = SimpleNamespace(query_control=query, slash_popup=None)
+    send = SimpleNamespace(
+        query_control=query,
+        slash_popup=None,
+        sync_has_text_from_query=MagicMock(),
+        cached_doc_type=None,
+    )
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=lru or []):
         popup = SlashPopupController(placeholder, send, query)
     send.slash_popup = popup
@@ -174,7 +179,9 @@ def test_product_popup_lists_no_mock_commands(monkeypatch):
     popup, _box = _controller(lru=["mock-bravo"])
     with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=["mock-bravo"]):
         popup.on_query_text("/")
-    assert popup.visible_names == ["help", "clear", "stop"]
+    assert "mock-bravo" not in popup.visible_names
+    assert popup.visible_names[:3] == ["help", "clear", "stop"]
+    assert "summarize" in popup.visible_names
 
 
 def test_he_leaves_help_selected():
@@ -311,6 +318,151 @@ def test_click_row_accepts_command_chrome_does_not_dump_help():
     send.append_output.assert_called_once()
     assert "Slash commands:" in send.append_output.call_args[0][0]
 
+
+def test_enter_on_exact_explain_runs_not_completes_draft():
+    from plugin.chatbot.slash_commands import filter_slash_commands
+
+    popup, _box = _controller()
+    send = popup.send_listener
+    query = popup.query_control
+    query.text = "/explain"
+    send.dispatch = MagicMock()
+    send.sync_has_text_from_query = MagicMock()
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
+    popup._open = True
+    popup._matches = filter_slash_commands("/explain")
+    popup._selected = 0
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND) as run_cmd:
+                with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+                    popup.accept_selected()
+                    assert run_cmd.call_args.args[0].name == "explain"
+                    run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
+                    set_text.assert_not_called()
+                    send.sync_has_text_from_query.assert_called_once()
+                    send.dispatch.assert_called_once()
+                    from plugin.chatbot.send_state import SendEventKind
+
+                    assert send.dispatch.call_args[0][0].kind == SendEventKind.SEND_CLICKED
+
+
+def test_enter_exact_continue_send_starts_send_when_has_text_was_false():
+    """QA F1: one Enter after exact /preset must sync Ask then SEND_CLICKED."""
+    from plugin.chatbot.send_state import SendButtonState, SendEvent, SendEventKind, SendMode, next_state
+
+    popup, _box = _controller()
+    send = popup.send_listener
+    query = popup.query_control
+    query.text = "/summarize"
+    send.sidebar_state = SimpleNamespace(
+        send=SendButtonState(SendMode.IDLE, has_text=False, has_audio=False, audio_supported=True)
+    )
+
+    def sync_has_text() -> None:
+        send.sidebar_state = SimpleNamespace(
+            send=next_state(
+                send.sidebar_state.send,
+                SendEvent(SendEventKind.TEXT_UPDATED, has_text=True),
+            ).state
+        )
+
+    send.sync_has_text_from_query = sync_has_text
+    events: list[SendEvent] = []
+
+    def capture(event: SendEvent) -> None:
+        events.append(event)
+        if event.kind == SendEventKind.SEND_CLICKED:
+            tr = next_state(send.sidebar_state.send, event)
+            send.sidebar_state = SimpleNamespace(send=tr.state)
+
+    send.dispatch = capture
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
+    popup._open = True
+    from plugin.chatbot.slash_commands import filter_slash_commands
+
+    popup._matches = filter_slash_commands("/summarize")
+    popup._selected = 0
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND):
+                popup.accept_selected()
+
+    assert [event.kind for event in events] == [SendEventKind.SEND_CLICKED]
+    assert send.sidebar_state.send.is_busy is True
+
+
+def test_enter_on_exact_translate_runs_with_empty_arg():
+    from plugin.chatbot.slash_commands import filter_slash_commands
+
+    popup, _box = _controller()
+    send = popup.send_listener
+    query = popup.query_control
+    query.text = "/translate"
+    send.dispatch = MagicMock()
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
+    popup._open = True
+    popup._matches = filter_slash_commands("/translate")
+    popup._selected = 0
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.slash_popup._defer_to_next_turn", side_effect=lambda fn, *a: fn()):
+            with patch("plugin.chatbot.slash_popup.run_slash_command", return_value=SlashResult.CONTINUE_SEND) as run_cmd:
+                with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+                    popup.accept_selected()
+                    assert run_cmd.call_args.args[0].name == "translate"
+                    run_cmd.assert_called_once_with(run_cmd.call_args.args[0], send, "", from_popup=False)
+                    set_text.assert_not_called()
+
+
+def test_enter_on_summarize_completes_ask_draft_not_rewrite():
+    popup, _box = _controller()
+    send = popup.send_listener
+    query = popup.query_control
+    send.dispatch = MagicMock()
+    send.append_output = MagicMock()
+    send.clear_ask = MagicMock()
+    send.hide_popup = MagicMock(side_effect=popup.hide)
+    send.slash_run_rewrite = MagicMock()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/su")
+    with patch("plugin.chatbot.slash_commands.record_slash_lru"):
+        with patch("plugin.chatbot.dialogs.set_control_text") as set_text:
+            assert popup.handle_key(KEY_RETURN, 0) is True
+            set_text.assert_called_once_with(query, "/summarize ")
+    send.slash_run_rewrite.assert_not_called()
+    send.append_output.assert_not_called()
+
+
+def test_tone_with_argument_closes_popup_and_does_not_consume_enter():
+    popup, _box = _controller()
+    query = popup.query_control
+    query.text = "/tone very formal"
+    send = popup.send_listener
+    send.dispatch = MagicMock()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        assert popup.on_query_text("/tone very formal") is False
+    assert popup.is_open is False
+    assert popup.handle_key(KEY_RETURN, 0) is False
+    send.dispatch.assert_called_once()
+    event = send.dispatch.call_args[0][0]
+    assert event.kind is SendEventKind.TEXT_UPDATED
+
+
+def test_popup_list_labels_use_short_popup_formatter():
+    popup, box = _controller()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/t")
+    tone_row = next(label for label in box.items if label.startswith("/tone"))
+    assert "<" not in tone_row
+    assert " — " in tone_row
+
+
 def test_printable_key_char_skips_controls():
     assert _printable_key_char("h") == "h"
     assert _printable_key_char("\n") is None
@@ -353,20 +505,42 @@ def test_document_key_handler_does_not_steal_printable():
     assert popup.visible_names == ["help"]
 
 
-def test_frame_and_toolkit_sources_are_nav_only():
-    import inspect
+def test_slash_key_handler_key_pressed_behaviour() -> None:
     from plugin.chatbot.slash_popup import _make_slash_key_handler
 
-    handler_src = inspect.getsource(_make_slash_key_handler)
+    calls: list[tuple[int, int, str | None, bool]] = []
+
+    class FakeHost:
+        def handle_key(self, code: int, mods: int, ch: str | None, *, from_overlay: bool) -> int:
+            calls.append((code, mods, ch, from_overlay))
+            return 1
+
+    host = FakeHost()
+    handler = _make_slash_key_handler(host, "frame")
+    ev = SimpleNamespace(KeyCode=1280, Modifiers=0, KeyChar="\x1b")
+
+    result = handler.keyPressed(ev)
+    assert result is True
+    assert type(result) is bool
+    assert calls == [(1280, 0, "\x1b", False)]
+
+    def _failing_handle_key(*args: Any, **kwargs: Any) -> int:
+        raise ValueError("broken key handler")
+
+    host.handle_key = _failing_handle_key  # type: ignore[method-assign]
+    assert handler.keyPressed(ev) is False
+
+
+def test_frame_and_toolkit_sources_are_nav_only():
+    import inspect
+
     attach = inspect.getsource(SlashPopupController._attach_key_handler)
     frame = inspect.getsource(SlashPopupController._attach_frame_keys)
     toolkit = inspect.getsource(SlashPopupController._attach_toolkit_keys)
     listed = inspect.getsource(SlashPopupController._attach_keys)
-    assert "from_overlay=False" in handler_src
     assert "_make_slash_key_handler" in attach
     assert "_attach_key_handler" in frame
     assert "_attach_key_handler" in toolkit
-    assert "from_overlay=True" not in handler_src
     assert "from_overlay=True" not in attach
     assert "from_overlay=True" in listed
 
@@ -425,7 +599,7 @@ def test_esc_defers_hide_and_restores_send_for_slash_draft():
     popup._popup_floater = floater
     send.dispatch.reset_mock()
     posted, capture = _capture_posts()
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=capture):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=capture):
         assert popup.handle_key(KEY_ESCAPE) is True
     win.dispose.assert_not_called()
     floater.dispose.assert_not_called()
@@ -457,17 +631,17 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
     popup.control = win
     popup._popup_floater = floater
     posted, capture = _capture_posts()
-    with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=capture):
+    with patch("plugin.framework.queue_executor.main.post", side_effect=capture):
         assert popup.handle_key(KEY_RETURN, 0) is True
     win.dispose.assert_not_called()
     assert popup.is_open is True
     send.append_output.assert_not_called()
     assert len(posted) == 1
     fn, args, kwargs = posted[0]
-    assert getattr(fn, "__name__", "") == "run_slash_command"
+    assert callable(fn)
     with patch("plugin.chatbot.slash_commands.record_slash_lru"):
         with patch("plugin.chatbot.dialogs.set_control_text"):
-            fn(*args, **kwargs)
+            fn()
     win.dispose.assert_called_once()
     floater.dispose.assert_called_once()
     assert popup.is_open is False
@@ -476,7 +650,7 @@ def test_accept_defers_command_so_dispose_is_not_inside_callback():
 
 
 def test_query_text_post_timeout_does_not_run_inline(caplog):
-    """TimeoutError from post_to_main_thread must not hide or show on this stack.
+    """TimeoutError from post must not hide or show on this stack.
 
     Ask textChanged used to catch the timeout and call hide / _show_matches
     inline, which deadlocks VCL. _defer_to_next_turn only logs.
@@ -488,9 +662,9 @@ def test_query_text_post_timeout_does_not_run_inline(caplog):
     def _timeout(*_args, **_kwargs):
         raise TimeoutError("marshal post timed out")
 
-    with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
         with patch(
-            "plugin.framework.queue_executor.post_to_main_thread",
+            "plugin.framework.queue_executor.main.post",
             side_effect=_timeout,
         ):
             popup.on_query_text("hello")  # prefix is None → defer hide
@@ -530,7 +704,7 @@ def test_fill_failure_logs_warning(caplog):
         raise RuntimeError("addItems")
 
     box.addItems = _boom
-    with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
         popup._fill_visible_list()
     assert any("fill addItems failed" in r.message and r.levelno == logging.WARNING for r in caplog.records)
 
@@ -547,7 +721,7 @@ def test_frame_key_attach_failure_logs_warning(caplog):
         controller = MagicMock()
         controller.addKeyHandler.side_effect = RuntimeError("attach")
         popup.send_listener.frame = SimpleNamespace(getController=lambda: controller)
-        with caplog.at_level(logging.WARNING, logger="writeragent.slash_popup"):
+        with caplog.at_level(logging.WARNING, logger="plugin.chatbot.slash_popup"):
             popup._attach_frame_keys()
         assert any(
             "frame key handler attach failed" in r.message and r.levelno == logging.WARNING
@@ -562,7 +736,7 @@ def test_slash_disabled_when_flag_false(monkeypatch, caplog):
     monkeypatch.setattr("plugin.chatbot.slash_popup.ENABLE_SLASH", False)
     monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
     popup, _box = _controller()
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
         popup.on_query_text("/")
     assert popup.is_open is False
     assert not any("[SLASH-OV]" in r.message for r in caplog.records)
@@ -572,7 +746,7 @@ def test_ovlog_silent_when_verbose_off(caplog, monkeypatch):
     from plugin.chatbot.slash_popup import _ovlog
 
     monkeypatch.setattr("plugin.chatbot.slash_popup.SLASH_OV_VERBOSE_DEBUG", False)
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
         _ovlog("query_text entered raw=%r", "/he")
     assert not any("[SLASH-OV]" in r.message for r in caplog.records)
 
@@ -582,7 +756,7 @@ def test_ovlog_emits_debug_when_verbose(caplog, monkeypatch):
     from tests.harness.strip_bundle import module_source_contains
 
     monkeypatch.setattr(slash_popup, "SLASH_OV_VERBOSE_DEBUG", True)
-    with caplog.at_level(logging.DEBUG, logger="writeragent.slash_popup"):
+    with caplog.at_level(logging.DEBUG, logger="plugin.chatbot.slash_popup"):
         slash_popup._ovlog("query_text entered raw=%r", "/he")
     if not module_source_contains(slash_popup, "log.debug"):
         return
@@ -821,3 +995,54 @@ def test_overlay_offset_without_peer_accessibility(monkeypatch):
 
     assert _overlay_offset(host, ask, _R(10, 851, 400, 60), ctx) == (1010 - 10 - 10, 951 - 51 - 851)
     assert len(made) == 1 and made[0].parent is host and made[0].disposed
+
+
+class _VclList:
+    """VCLXListBox.getMinimumSize stand-in: ListBox::CalcBlockSize semantics."""
+
+    def __init__(self, row_px: int, text_w: int, bar: int, border: int = 2):
+        self.row_px, self.text_w, self.bar, self.border = row_px, text_w, bar, border
+
+    def getMinimumSize(self, cols, rows):
+        h = rows * self.row_px
+        w = cols * 8 if cols else self.text_w
+        if w < self.text_w:
+            h += self.bar
+        return SimpleNamespace(Width=w + 2 * self.border, Height=h + 2 * self.border)
+
+
+def test_hscroll_height_only_when_rows_wider_than_list():
+    # Keith 2026-11-03: "/tr" -> one /translate row, half hidden by the HScroll.
+    wide = _VclList(row_px=36, text_w=900, bar=24)  # HiDPI-ish
+    assert _hscroll_height(wide, 1, 1, 700) == 24
+    narrow = _VclList(row_px=18, text_w=300, bar=12)
+    assert _hscroll_height(narrow, 1, 1, 400) == 0
+    # 7 matches in 6 rows: the VScroll eats width, so 395px text overflows 400.
+    assert _hscroll_height(narrow, 6, 7, 310) == 12
+    assert _hscroll_height(SimpleNamespace(), 1, 1, 400) == 0
+
+
+def test_single_wide_match_list_is_tall_enough_for_row_and_hscroll():
+    popup, _box = _controller()
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/")
+    popup._matches = popup._matches[:1]
+    host = _Win()
+    lst = _VclList(row_px=18, text_w=5000, bar=14)
+    popup.control = lst
+    popup._popup_floater = host
+    popup._ask_origin = (0, 0)
+    popup.reposition()
+    assert host.pos[-1][3] == 18 + 4 + 14
+    assert popup._row_px == 18 + 4
+
+
+def test_show_matches_fills_before_reposition():
+    popup, _box = _controller()
+    order: list[str] = []
+    fill, repos = popup._fill_visible_list, popup.reposition
+    popup._fill_visible_list = lambda: (order.append("fill"), fill())[1]  # type: ignore[method-assign]
+    popup.reposition = lambda: (order.append("reposition"), repos())[1]  # type: ignore[method-assign]
+    with patch("plugin.chatbot.slash_popup.load_slash_lru", return_value=[]):
+        popup.on_query_text("/")
+    assert order[:2] == ["fill", "reposition"]

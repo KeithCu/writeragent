@@ -26,20 +26,20 @@ from typing import TYPE_CHECKING, Any
 from plugin.framework.errors import (
     ToolExecutionError,
     UnoObjectError,
-    is_disposed_exception,
+    is_disposal,
     reraise_if_disposed,
-    uno_probe,
+    uno_read,
 )
 from plugin.framework.tool import ToolBaseDummy
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.calc_utils import resolve_sheet_and_cell
-from plugin.scripting.analysis import HELPER_NAMES
+from plugin.scripting.helper_registry import names
 
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 
 # Prefer non-Java solvers first so hidden Calc documents (no frame/controller) do not hit
@@ -139,7 +139,7 @@ class GoalSeekTool(ToolBaseDummy):
             # as ToolExecutionError makes execute_safe report
             # TOOL_EXECUTION_ERROR, and the native runner keeps going on a
             # dead document.
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             raise ToolExecutionError(str(e)) from e
 
@@ -196,7 +196,7 @@ class SolverTool(ToolBaseDummy):
 
             def _try_solver_service(svc: str) -> bool:
                 nonlocal solver, selected_engine_label
-                instance = uno_probe(lambda: smgr.createInstanceWithContext(svc, ctx.ctx), None)
+                instance = uno_read(lambda: smgr.createInstanceWithContext(svc, ctx.ctx), None)
                 if not instance or _should_reject_solver_for_headless(engine_name, instance):
                     return False
                 solver = instance
@@ -236,7 +236,7 @@ class SolverTool(ToolBaseDummy):
                             impl_name = _solver_impl_name(el)
                             if _impl_name_is_java_nlp_headless_unsafe(impl_name):
                                 continue
-                            s = uno_probe(lambda: el.createInstanceWithContext(ctx.ctx), None)
+                            s = uno_read(lambda: el.createInstanceWithContext(ctx.ctx), None)
                             if not s or _should_reject_solver_for_headless(engine_name, s):
                                 continue
                             solver = s
@@ -288,12 +288,12 @@ class SolverTool(ToolBaseDummy):
 
         except Exception as e:
             # Same dispose guard as Goal Seek: do not wrap a dead document.
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             raise ToolExecutionError(str(e)) from e
 
 
-_ANALYZE_DATA_HELPERS = ", ".join(sorted(HELPER_NAMES))
+_ANALYZE_DATA_HELPERS = ", ".join(sorted(names("analysis")))
 
 
 def extract_calc_data_tool_args(
@@ -334,14 +334,14 @@ def write_anchor_result(
     insert_fn: Any,
 ) -> dict[str, Any]:
     """Write result to output anchor; record non-disposal write errors on the result."""
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
 
     def _write() -> None:
         sheet, col, row = parse_output_anchor(output_range)
         insert_fn(ctx.doc, ctx.ctx, result, sheet_name=sheet, start_col=col, start_row=row)
 
     try:
-        execute_on_main_thread(_write)
+        main.call(_write)
         return result
     except Exception as exc:
         # Propagate document disposal; ordinary write errors are recorded on the result.
@@ -387,11 +387,11 @@ class AnalyzeDataTool(ToolBaseDummy):
         if getattr(ctx, "active_domain", None) == "analysis" and data is not None:
             return self._tool_error("analysis domain requires data_range (A1 address string) only. Do not pass raw data values — the host must resolve the range out-of-band.")
 
-        from plugin.calc.analysis_runner import run_trusted_analysis
+        from plugin.scripting.helper_domain import run_domain
         from plugin.calc.analysis_egress import insert_analysis_result_into_calc
 
         try:
-            result = run_trusted_analysis(ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
+            result = run_domain("analysis", ctx.ctx, ctx.doc, helper=helper, params=params, data_range=dr, data=data, headers=headers, task_hint=task_hint)
         except ToolExecutionError as exc:
             return self._tool_error(str(exc), code=getattr(exc, "code", "ANALYSIS_ERROR"))
         except Exception as exc:

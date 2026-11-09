@@ -388,10 +388,22 @@ def test_section_read_missing_section():
     ctx = MagicMock()
     ctx.doc = doc
 
-    res = SectionRead().execute(ctx, section="Missing")
+    res = SectionRead().execute(ctx, section="Intre")
     assert res["status"] == "error"
-    assert "Section 'Missing' not found." in res["message"]
+    assert "Section 'Intre' not found." in res["message"]
     assert res["details"]["available"] == ["Intro"]
+    assert "section_list" in res["details"]["hint"]
+    assert "Intro" in res["details"]["similar"]
 
 
+def test_clone_heading_block_without_writer_tree_service_is_tool_error():
+    from plugin.framework.service import ServiceRegistry
 
+    services = ServiceRegistry()
+    services.register("document", DocumentService())
+    ctx = MagicMock()
+    ctx.doc = _doc()
+    ctx.services = services
+    result = CloneHeadingBlock().execute(ctx, paragraph_index=1)
+    assert result["status"] == "error"
+    assert result.get("code") == "SERVICE_UNAVAILABLE"

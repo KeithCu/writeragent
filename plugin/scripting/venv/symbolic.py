@@ -16,13 +16,13 @@ import inspect
 import re
 from typing import Any, Callable
 
-from plugin.scripting.calc_functions_common import SYMBOLIC_HELPER_NAMES as HELPER_NAMES
+from plugin.scripting.helper_registry import helper
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    error_result as _error_result,
     is_blank_param,
     missing_package_error as _missing_package_error,
     ok_result as _ok_result,
-    parse_trusted_spec as _parse_trusted_spec,
+    run_domain,
 )
 
 _MAX_SYMBOLIC_EXPR_CHARS = 10_000
@@ -182,17 +182,13 @@ def _public_signature(func: Callable[..., Any]) -> inspect.Signature:
     return raw.replace(parameters=params)
 
 
-_HELPERS: dict[str, Callable[..., dict[str, Any]]] = {}
-
-
 def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[str, Any]]:
     """Resolve sympy once and turn helper failures into result dicts.
 
     The wrapper passes the module in, so helpers do not look it up again and
     do not assert on it. Those asserts disappeared under ``python -O``.
     Parse failures raise ``_SymbolicError`` directly. A ``ValueError`` from
-    ``simplify``, ``integrate``, or ``solve`` used to be labeled PARSE_ERROR
-    because this wrapper caught every ValueError from the whole body.
+    Math ``ValueError`` from simplify/integrate/solve is distinct from parse failures so users see the right error code.
     """
     public_sig = _public_signature(func)
 
@@ -205,17 +201,17 @@ def _symbolic_helper(func: Callable[..., dict[str, Any]]) -> Callable[..., dict[
         try:
             return func(sp, *args, **kwargs)
         except _SymbolicError as exc:
-            return _error_result(exc.code, str(exc), helper=helper)
+            return error_result(exc.code, str(exc), helper=helper)
         except Exception as exc:
-            return _error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
+            return error_result("SYMBOLIC_ERROR", str(exc), helper=helper)
 
     # inspect.signature follows __wrapped__ unless this is set, and would
     # then require `sp`. Run Python Script templates bind the public kwargs.
     setattr(wrapper, "__signature__", public_sig)
-    _HELPERS[func.__name__] = wrapper
     return wrapper
 
 
+@helper("symbolic")
 @_symbolic_helper
 def symbolic_simplify(sp: Any, *, expression: Any) -> dict[str, Any]:
     """Simplify a symbolic expression."""
@@ -225,6 +221,7 @@ def symbolic_simplify(sp: Any, *, expression: Any) -> dict[str, Any]:
     return _ok_result("symbolic_simplify", latex=latex, text=str(simplified), writer_cleanup_hints=[])
 
 
+@helper("symbolic")
 @_symbolic_helper
 def differentiate(sp: Any, *, expression: Any, variable: Any = "x") -> dict[str, Any]:
     """Differentiate *expression* with respect to *variable* (default ``x``).
@@ -239,6 +236,7 @@ def differentiate(sp: Any, *, expression: Any, variable: Any = "x") -> dict[str,
     return _ok_result("differentiate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
+@helper("symbolic")
 @_symbolic_helper
 def integrate(
     sp: Any,
@@ -264,7 +262,7 @@ def integrate(
         result = sp.integrate(expr, sym)
 
     # integrate returns Integral(...) when it has no closed form and the
-    # helper used to report that object as success.
+    # helper must not report that object as success.
     if result.has(sp.Integral):
         raise _SymbolicError("NO_CLOSED_FORM", f"No closed form: {result}")
 
@@ -272,6 +270,7 @@ def integrate(
     return _ok_result("integrate", latex=latex, text=str(result), variable=str(sym), writer_cleanup_hints=[])
 
 
+@helper("symbolic")
 @_symbolic_helper
 def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, Any]:
     """Solve one equation for *variable*.
@@ -331,6 +330,7 @@ def solve_equation(sp: Any, *, equation: Any, variable: Any = "x") -> dict[str, 
     )
 
 
+@helper("symbolic")
 @_symbolic_helper
 def latex_to_math_object(sp: Any, *, latex: Any) -> dict[str, Any]:
     """Normalize a math string for Writer Math insert.
@@ -351,49 +351,10 @@ def latex_to_math_object(sp: Any, *, latex: Any) -> dict[str, Any]:
     return _ok_result("latex_to_math_object", latex=trimmed, text=trimmed, writer_cleanup_hints=[])
 
 
-def _dispatch_helper(name: str, params: dict[str, Any]) -> dict[str, Any]:
-    """Call *name* with the parameters that function accepts.
-
-    The old lambdas repeated ``str(p.get(...) or "x")``. Defaults live on the
-    functions. ``None`` for an optional parameter keeps that default, so JSON
-    ``0`` is passed through. A missing required string is ``""``, which is
-    what those lambdas passed, so the helper's own empty check still runs.
-    """
-    func = _HELPERS.get(name)
-    if func is None:
-        return _error_result("UNKNOWN_HELPER", f"Unknown helper {name!r}", helper=name)
-    # Public signature only. The wrapper injects sympy and hides `sp`.
-    sig = inspect.signature(func)
-    kwargs: dict[str, Any] = {}
-    for pname, param in sig.parameters.items():
-        value = params.get(pname)
-        if value is None:
-            if param.default is not inspect.Parameter.empty:
-                continue
-            value = ""
-        kwargs[pname] = value
-    if name == "latex_to_math_object" and is_blank_param(kwargs.get("latex"), strip=True):
-        # Callers used to send the formula as `expression`. A blank latex
-        # string fell through via `or`. Numeric 0 does not.
-        expression = params.get("expression")
-        if not is_blank_param(expression, strip=True):
-            kwargs["latex"] = expression
-    return func(**kwargs)
-
-
 def run_symbolic(
     spec: dict[str, Any] | str,
     data: Any = None,
     context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Spec-driven dispatcher for trusted symbolic helpers."""
-    del data  # reserved for future numeric substitution from sheet data
-    parsed = _parse_trusted_spec(spec, helper_names=HELPER_NAMES, context=context)
-    if isinstance(parsed, dict):
-        return parsed
-    helper, params, _headers, _header_row, ctx = parsed
-
-    result = _dispatch_helper(helper, params)
-    if result.get("status") == "ok" and ctx:
-        result["context"] = {k: v for k, v in ctx.items() if k in ("sheet_name", "range_a1", "task_hint")}
-    return result
+    return run_domain("symbolic", spec, data, context=context)

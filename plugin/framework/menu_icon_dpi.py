@@ -132,8 +132,6 @@ def probe_vcl_dpi_scale(ctx: Any = None) -> float | None:
     often has no usable style window at menu-icon time.
     """
     try:
-        # The debug line used to call _candidate_windows again, so a total
-        # miss built the desktop/frame list twice.
         windows = _candidate_windows(ctx)
         for win in windows:
             scale = _ppm_scale(win)

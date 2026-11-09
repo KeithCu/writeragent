@@ -19,11 +19,11 @@ def test_ping_suppresses_until_interval():
         "plugin.embeddings.venv.heartbeat_throttle.time.monotonic",
         side_effect=[0.0, 1.0, 5.0],
     ):
-        hb.ping({"phase": "a"})
+        hb.emit({"phase": "a"})
         assert recorded == [{"phase": "a"}]
-        hb.ping({"phase": "b"})
+        hb.emit({"phase": "b"})
         assert recorded == [{"phase": "a"}]
-        hb.ping({"phase": "c"})
+        hb.emit({"phase": "c"})
         assert recorded == [{"phase": "a"}, {"phase": "c"}]
 
 
@@ -35,12 +35,12 @@ def test_force_bypasses_interval():
         "plugin.embeddings.venv.heartbeat_throttle.time.monotonic",
         side_effect=[0.0, 0.0],
     ):
-        hb.ping({"phase": "a"})
-        hb.force({"phase": "forced"})
+        hb.emit({"phase": "a"})
+        hb.emit({"phase": "forced"}, immediate=True)
         assert recorded == [{"phase": "a"}, {"phase": "forced"}]
 
 
 def test_none_callback_is_noop():
     hb = HeartbeatThrottle(None)
-    hb.ping({})
-    hb.force({})
+    hb.emit({})
+    hb.emit({}, immediate=True)

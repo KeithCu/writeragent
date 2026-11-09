@@ -220,7 +220,7 @@ duckdb.sql("SELECT dept, AVG(revenue) FROM sheet1 GROUP BY 1").df()
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-`query_folder_sql` is an async chat tool. Sheet, named-range, and hidden sibling reads stay on the UI thread (`execute_on_main_thread` when the caller is not already there). `run_folder_sql` — the venv IPC — stays on that worker. A disposed document during the grid read propagates so the tool boundary reports `DOCUMENT_DISPOSED`. A sheet name that contains an apostrophe is quoted by doubling it (`'O''Brien'.C5:D6`); [`split_sheet_prefix`](../../plugin/calc/address_utils.py) turns that back into `O'Brien`.
+`query_folder_sql` is an async chat tool. Sheet, named-range, and hidden sibling reads stay on the UI thread (`main.run` when the caller is not already there). `run_folder_sql` — the venv IPC — stays on that worker. A disposed document during the grid read propagates so the tool boundary reports `DOCUMENT_DISPOSED`. A sheet name that contains an apostrophe is quoted by doubling it (`'O''Brien'.C5:D6`); [`split_sheet_prefix`](../../plugin/calc/address_utils.py) turns that back into `O'Brien`.
 
 **Key insight from research:** The hard part is not DuckDB — it is **defining the table catalog** (which ranges, which files, column names, size limits). Calc ingress is already solved for analysis; DuckDB sits **after** `coerce_to_dataframe`.
 

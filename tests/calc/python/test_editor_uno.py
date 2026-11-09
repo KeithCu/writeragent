@@ -15,7 +15,7 @@ from plugin.tests.testing_utils import with_native_doc
 def test_follow_ref_save_writes_code_cell_keeps_absolute_ref(ctx, doc):
     """Live Calc must keep $A$1 after follow-ref save (format_py_data_range strips $)."""
     from plugin.calc.python.editor import _apply_cell_save, _resolve_code_ref_cell
-    from plugin.calc.python.formula_edit import parse_python_formula, py_code_arg_is_cell_ref
+    from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     sheet = doc.getSheets().getByIndex(0)
     code_cell = sheet.getCellByPosition(0, 0)
@@ -26,7 +26,7 @@ def test_follow_ref_save_writes_code_cell_keeps_absolute_ref(ctx, doc):
     formula_cell.setFormula("=PY($A$1; C1:C1)")
 
     stored = str(formula_cell.getFormula() or "")
-    parts = parse_python_formula(stored)
+    parts = PyFormula.parse(stored)
     assert parts is not None, stored
     assert py_code_arg_is_cell_ref(parts.code), parts.code
 
@@ -48,7 +48,7 @@ def test_follow_ref_save_writes_code_cell_keeps_absolute_ref(ctx, doc):
     assert result.get("ok") is True
     assert code_cell.getString() == "result = 99"
     after = str(formula_cell.getFormula() or "")
-    reparsed = parse_python_formula(after)
+    reparsed = PyFormula.parse(after)
     assert reparsed is not None, after
     assert py_code_arg_is_cell_ref(reparsed.code), after
     assert "99" not in after
@@ -78,7 +78,7 @@ def _py_cell_error_code(cell) -> int:
 def test_follow_ref_save_empty_data_still_evaluates(ctx, doc):
     """Native follow save always sends Data: '' — rewriting =PY($A$1) must not 508."""
     from plugin.calc.python.editor import _apply_cell_save
-    from plugin.calc.python.formula_edit import parse_python_formula, py_code_arg_is_cell_ref
+    from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     sheet = doc.getSheets().getByIndex(0)
     code_cell = sheet.getCellByPosition(0, 0)
@@ -89,7 +89,7 @@ def test_follow_ref_save_empty_data_still_evaluates(ctx, doc):
     before_formula = str(formula_cell.getFormula() or "")
     before_err = _py_cell_error_code(formula_cell)
     before_val = formula_cell.getValue()
-    parts = parse_python_formula(before_formula)
+    parts = PyFormula.parse(before_formula)
     assert parts is not None, before_formula
     assert py_code_arg_is_cell_ref(parts.code), parts.code
 
@@ -106,7 +106,7 @@ def test_follow_ref_save_empty_data_still_evaluates(ctx, doc):
     assert result.get("ok") is True
     assert code_cell.getString() == "result = 99"
     after = str(formula_cell.getFormula() or "")
-    reparsed = parse_python_formula(after)
+    reparsed = PyFormula.parse(after)
     assert reparsed is not None, after
     assert py_code_arg_is_cell_ref(reparsed.code), after
     assert after.count(")") == 1, after
@@ -131,10 +131,10 @@ def _addr_tuple(cell):
 
 def _follow_save_live(doc, formula_cell, code_cell, new_code, data_binding_text):
     from plugin.calc.python.editor import _apply_cell_save
-    from plugin.calc.python.formula_edit import parse_python_formula, py_code_arg_is_cell_ref
+    from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     stored = str(formula_cell.getFormula() or "")
-    parts = parse_python_formula(stored)
+    parts = PyFormula.parse(stored)
     assert parts is not None, stored
     assert py_code_arg_is_cell_ref(parts.code), parts.code
     result = _apply_cell_save(
@@ -156,7 +156,7 @@ def _follow_save_live(doc, formula_cell, code_cell, new_code, data_binding_text)
 def test_follow_sheet_qualified_refs(ctx, doc):
     """Sheet2.A1 vs Sheet1.A1 must not collapse; quoted sheet names resolve; missing sheets do not."""
     from plugin.calc.python.editor import _resolve_code_ref_cell
-    from plugin.calc.python.formula_edit import parse_python_formula, py_code_arg_is_cell_ref
+    from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     sheets = doc.getSheets()
     if not sheets.hasByName("Sheet2"):
@@ -178,7 +178,7 @@ def test_follow_sheet_qualified_refs(ctx, doc):
     assert _addr_tuple(resolved) != _addr_tuple(formula_a1)
     assert code_a1.getString() == "result = 8"
     assert "Sheet2" in after
-    reparsed = parse_python_formula(after)
+    reparsed = PyFormula.parse(after)
     assert reparsed is not None
     assert py_code_arg_is_cell_ref(reparsed.code)
     assert after.count(")") == 1
@@ -205,7 +205,7 @@ def test_follow_sheet_qualified_refs(ctx, doc):
 @with_native_doc("calc")
 def test_follow_data_binding_change_clear_and_two_ranges(ctx, doc):
     """Data lives on the formula cell: change, clear, and two-range rewrite keep the code ref."""
-    from plugin.calc.python.formula_edit import parse_python_formula, py_code_arg_is_cell_ref
+    from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     sheet = doc.getSheets().getByIndex(0)
     code_cell = sheet.getCellByPosition(0, 0)
@@ -232,7 +232,7 @@ def test_follow_data_binding_change_clear_and_two_ranges(ctx, doc):
     assert "$A$1" in after_clear or "A1" in after_clear
     assert after_clear.count(")") == 1
     assert not after_clear.endswith("))")
-    reparsed = parse_python_formula(after_clear)
+    reparsed = PyFormula.parse(after_clear)
     assert reparsed is not None
     assert py_code_arg_is_cell_ref(reparsed.code)
 
@@ -249,7 +249,7 @@ def test_follow_data_binding_change_clear_and_two_ranges(ctx, doc):
 @with_native_doc("calc")
 def test_follow_python_alias_and_relative_a1(ctx, doc):
     """=PYTHON($A$1) and relative =PY(A1) follow; mixed $ tokens stay on data rewrite."""
-    from plugin.calc.python.formula_edit import parse_python_formula, py_code_arg_is_cell_ref
+    from plugin.calc.python.formula_edit import PyFormula, py_code_arg_is_cell_ref
 
     sheet = doc.getSheets().getByIndex(0)
     code_cell = sheet.getCellByPosition(0, 0)
@@ -262,7 +262,7 @@ def test_follow_python_alias_and_relative_a1(ctx, doc):
     )
     assert code_cell.getString() == "result = 6"
     assert after_alias == before
-    assert py_code_arg_is_cell_ref(parse_python_formula(after_alias).code)
+    assert py_code_arg_is_cell_ref(PyFormula.parse(after_alias).code)
 
     formula_cell.setFormula("=PY(A1; C1:C1)")
     _unused_rel, rel_parts, after_rel = _follow_save_live(

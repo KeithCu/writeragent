@@ -24,8 +24,7 @@ from plugin.framework.send_cancellation import get_current_send_cancellation
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-# Same logger name as before the move so warning records do not change logger.
-log = logging.getLogger("writeragent.framework.queue_executor")
+log = logging.getLogger(__name__)
 
 _LLM_REQUEST_LOCK = threading.Lock()
 _GRAMMAR_INFLIGHT_CV = threading.Condition(threading.Lock())
@@ -42,10 +41,19 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
 
     A single global lock exists for single-slot local servers (like Ollama or llama.cpp)
     that can only process one request at a time process-wide.
+
+    `status_callback` must not block, marshal (`main.call`/`main.run`/`main.post`),
+    or take a lock another thread can hold while waiting on this lane (this
+    lane's lock, or SolarMutex via marshalling). Short leaf locks such as a
+    queue's mutex are fine. Waiting text runs after a failed acquire, while this
+    call does not hold the lock (another thread may). Resume text runs after
+    this call has acquired the lock and before `yield`; it means the request is
+    starting. The lock is not reentrant, so acquiring it from the callback
+    deadlocks. Callers only enqueue a status item or log.
     """
     if timeout is None:
-        from plugin.framework.config import get_config_int
-        timeout = float(get_config_int("request_timeout") or 60)
+        from plugin.framework.config import get_config
+        timeout = float(get_config("request_timeout") or 60)
 
     deadline = time.monotonic() + timeout
     notified_status = False
@@ -65,10 +73,7 @@ def llm_request_lane(timeout: float | None = None, status_callback: Callable[[st
             notified_status = True
 
     try:
-        # Bugfix: the resume callback ran after acquire and before this try, so a
-        # raise skipped release() and every later lane wait (chat, grammar limit 1,
-        # compaction) timed out for the process. Keep it inside the hold so another
-        # request cannot pass it; finally still releases, and the with-body does not run.
+        # Run resume callback inside try so exceptions do not leak the acquired lock.
         if notified_status and status_callback is not None:
             status_callback(resume_status or "")
         yield
@@ -92,8 +97,7 @@ def grammar_llm_request_gate(max_in_flight: int, timeout: float = 60.0) -> Gener
         return
     global _GRAMMAR_INFLIGHT_COUNT
     with _GRAMMAR_INFLIGHT_CV:
-        # Bugfix: wait(timeout=timeout) restarted the full timeout on every full-gate
-        # wakeup. wait_for keeps one deadline from entry and still takes a free slot.
+        # wait_for enforces a single overall deadline across wakeups.
         if not _GRAMMAR_INFLIGHT_CV.wait_for(lambda: _GRAMMAR_INFLIGHT_COUNT < max_in_flight, timeout):
             log.warning("grammar_llm_request_gate timed out after %ss waiting for slot", timeout)
             raise TimeoutError("Timed out waiting for grammar request gate slot after %ss" % timeout)

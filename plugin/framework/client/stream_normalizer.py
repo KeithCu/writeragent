@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 from plugin.framework.deal_shim import DEAL_MAX_SHAPE_DIM, deal
-from .response_normalizers import _text_of
+from .response_normalizers import text_of
 
 log = logging.getLogger(__name__)
 
@@ -153,18 +153,10 @@ def _merge_reasoning_details(entries: list[Any]) -> list[Any]:
 
 @deal.post(lambda result: isinstance(result, dict) and set(result.keys()) <= {"reasoning", "reasoning_content", "reasoning_details"})
 def _streaming_replay(text: str, meta: Mapping[str, Any]) -> dict[str, Any]:
-    # Bugfix: Previously _streaming_replay called _truncate_reasoning_string(text) upfront.
-    # When source was "reasoning_details", the truncated text was attached alongside the
-    # full original signature in reasoning.text, causing Anthropic via OpenRouter to reject
-    # the replay with a signature mismatch. Truncation must only apply to raw string fields
-    # (reasoning / reasoning_content), leaving signed reasoning_details blocks untruncated.
+    # Truncate only raw string reasoning fields, leaving signed reasoning_details blocks intact.
     # crosshair: off
     encrypted_raw = meta.get("encrypted_fragments")
     encrypted_fragments: list[Any] = encrypted_raw if isinstance(encrypted_raw, list) else []
-    # Bugfix: The DEAL_MAX_SHAPE_DIM slice existed so the @deal.pre length cap would pass;
-    # that cap is a contract domain (plugin/framework/deal_shim.py), not a product limit;
-    # truncating encrypted fragments corrupts the blob the next request must echo.
-    # The pre no longer caps length, so the slice is gone.
     merged_encrypted = _merge_reasoning_details(encrypted_fragments)
     source = meta.get("source")
 
@@ -232,7 +224,6 @@ def iterate_sse(stream: Any) -> Iterator[str]:
 
         if line_str.startswith(b"data:"):
             # Payload is everything after "data:" (starts at index 5)
-            # One bad byte used to raise UnicodeDecodeError and abort the stream.
             payload = line_str[5:].decode("utf-8", errors="replace").strip()
             yield payload
         elif line_str.startswith(b"{"):
@@ -278,9 +269,9 @@ def _thinking_text_from_delta(delta: dict[str, Any]) -> str:
             if isinstance(item, dict):
                 item_type = item.get("type")
                 if item_type in ("reasoning.text", "thought", "reasoning"):
-                    parts.append(_text_of(item.get("text")))
+                    parts.append(text_of(item.get("text")))
                 elif item_type == "reasoning.summary":
-                    parts.append(_text_of(item.get("summary")))
+                    parts.append(text_of(item.get("summary")))
         if parts:
             return "".join(parts)
     return ""
@@ -323,9 +314,7 @@ def normalize_delta(delta: object) -> None:
     """Normalize delta for Mistral/Azure compat before accumulate_delta.
     LiteLLM: streaming_handler.py ~L847 (role), ~L853 (type), ~L820 (arguments).
     """
-    # Plain dict only. Non-dicts and dict subclasses (OrderedDict, CrossHair AttrDict)
-    # no-op: pre used to require `type is dict` and crashed MiniMax/OpenRouter eval
-    # (`expected type(delta) is dict`). See docs/eval/stream-normalizer-delta-crash.md.
+    # Plain dict only. Non-dicts and dict subclasses (OrderedDict, CrossHair AttrDict) no-op.
     if type(delta) is not dict:
         return
     delta = cast("dict[str, Any]", delta)
@@ -404,13 +393,7 @@ class ThinkTagStreamSplitter:
                 for p_len in range(max_p, 0, -1):
                     suffix = text[-p_len:]
                     if not self._seen_open and p_len >= 2 and close_tag.startswith(suffix):
-                        # Bugfix: what was wrong: a suffix that is only a prefix of </think>
-                        # was classified as thinking, so HTML such as </p> went to on_thinking.
-                        # How it happened: the partial-close arm assumed a close-only tag.
-                        # Why the hold fixes it: storing the entire remainder in _buf lets the
-                        # next chunk either complete </think> or be ordinary text, and Extend/Edit
-                        # apply_chunk (plugin/writer/editselection.py and plugin/calc/editselection.py)
-                        # drops is_thinking chunks, so falsely classifying ordinary text loses it.
+                        # Hold possible partial close tag in _buf until next chunk confirms or rejects it.
                         self._buf = text
                         partial_match = True
                         break
@@ -486,11 +469,7 @@ def strip_think_tags(text: str | None) -> tuple[str, str | None]:
 
     clean = _THINK_TAG_BLOCK_RE.sub(repl, text)
 
-    # Bugfix: Close-only </think> applies only when the original string had no <think>,
-    # and every </think> acts as a separator (all segments except the last are thoughts,
-    # and the last is clean content). When the original string did contain <think>, any
-    # literal tag after a real block must stay in the content; the old pass treated the first
-    # leftover </think> as a close-only marker and deleted the answer text in front of it.
+    # Close-only </think> applies only when the original string had no <think>.
     if "<think>" not in text:
         if "</think>" in clean:
             parts = clean.split("</think>")

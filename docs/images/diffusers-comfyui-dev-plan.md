@@ -61,7 +61,7 @@ AI Horde was removed; `provider="aihorde"` still maps to `"endpoint"`.
 
 **Invariants to preserve:**
 
-- `generate_image` stays **async** on the tool worker; UNO (selection read, insert) stays on the main thread via `execute_on_main_thread`.
+- `generate_image` stays **async** on the tool worker; UNO (selection read, insert) stays on the main thread via `main.call`.
 - Provider returns **temp file paths** (PNG/WebP); [`image_tools.insert_image`](../../plugin/writer/images/image_tools.py) embeds or links as today.
 - **`status_callback`** should report queue/progress where backends support it (ComfyUI WebSocket events).
 

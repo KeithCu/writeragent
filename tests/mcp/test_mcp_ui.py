@@ -8,6 +8,8 @@ import threading
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.mcp import mcp_ui
 from plugin.mcp.mcp_ui import (
     CopyMcpConfigListener,
@@ -21,8 +23,16 @@ from plugin.mcp.mcp_ui import (
 from plugin.mcp.tunnel import TunnelManager
 
 
+@pytest.fixture(autouse=True)
+def _isolate_snippet_cache_from_loaded_mcp_module(monkeypatch: pytest.MonkeyPatch) -> None:
+    """sync_mcp_config_snippet falls back to current_tunnel(); pin it to None so the result does not depend on other tests' module lifecycle."""
+    import plugin.mcp as mcp_mod
+
+    monkeypatch.setattr(mcp_mod, "_current_module", None)
+
+
 class TestMcpUi:
-    @patch("plugin.mcp.mcp_ui.get_config_int_safe", return_value=18765)
+    @patch("plugin.mcp.mcp_ui.get_config", return_value=18765)
     def test_build_mcp_config_snippet_default(self, mock_port):
         snippet = build_mcp_config_snippet()
         parsed = json.loads(snippet)
@@ -211,7 +221,7 @@ def test_refresh_rechecks_dialog_before_applying_snippet() -> None:
 
     mcp_ui.set_active_settings_dialog(dlg)
     try:
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=_capture):
             mcp_ui._refresh_active_snippet()
         assert len(posted) == 1
         mcp_ui.clear_active_settings_dialog(dlg)
@@ -220,7 +230,7 @@ def test_refresh_rechecks_dialog_before_applying_snippet() -> None:
 
         mcp_ui.set_active_settings_dialog(dlg)
         posted.clear()
-        with patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=_capture):
+        with patch("plugin.framework.queue_executor.main.post", side_effect=_capture):
             mcp_ui._refresh_active_snippet()
         posted[0]()
         snippet.setText.assert_called()
@@ -271,7 +281,7 @@ def test_test_tunnel_listener_restores_button_when_probe_raises() -> None:
         with (
             patch("plugin.mcp.tunnel.test_tunnel_connectivity", side_effect=RuntimeError("boom")),
             patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
             patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
         ):
             listener = mcp_ui.TestTunnelListener(ctx, dlg)
@@ -306,7 +316,7 @@ def test_test_tunnel_listener_skips_apply_when_dialog_closed() -> None:
         with (
             patch("plugin.mcp.tunnel.test_tunnel_connectivity", return_value=(True, "ok", "https://x/mcp")),
             patch("plugin.framework.worker_pool.run_in_background", side_effect=fake_run_in_background),
-            patch("plugin.framework.queue_executor.post_to_main_thread", side_effect=lambda fn: fn()),
+            patch("plugin.framework.queue_executor.main.post", side_effect=lambda fn: fn()),
             patch("plugin.chatbot.dialogs.msgbox") as mock_msgbox,
             patch("plugin.mcp.mcp_ui.set_checkbox_state") as mock_set_checkbox,
         ):
@@ -440,7 +450,7 @@ def test_sync_pops_a_retired_url_under_the_cache_lock(monkeypatch: Any) -> None:
     mcp_ui._active_settings_dialog_lock = lock  # type: ignore[assignment]
 
     dlg, snippet = _snippet_dialog()
-    monkeypatch.setattr("plugin.mcp._shared_tunnel", None)
+    monkeypatch.setattr("plugin.mcp.current_tunnel", lambda: None)
 
     t = threading.Thread(target=sync_mcp_config_snippet, args=(dlg,))
     try:

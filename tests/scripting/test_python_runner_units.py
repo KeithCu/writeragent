@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.python_runner import execute_and_insert_result
+from tests.scripting.python_runner_test_support import execute_and_insert_result
 from plugin.scripting.units import get_units_script_templates
 
 
@@ -90,7 +90,7 @@ def test_execute_and_insert_units_uses_body_params_not_header(mock_venv, mock_in
     assert outcome["ok"] is True
     from unittest.mock import ANY
 
-    mock_venv.assert_called_once_with(ctx, code, data=None, bindings=None, session_id=None, script_session_id=ANY)
+    mock_venv.assert_called_once_with(code, data=None, bindings=None, session_id=None, script_session_id=ANY)
     assert "millimeter" in mock_insert.call_args.args[2].get("formatted", "")
 
 

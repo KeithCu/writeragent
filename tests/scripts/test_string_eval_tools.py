@@ -80,7 +80,9 @@ def test_apply_search_all_matches_no_match_errors():
 
 def test_apply_full_and_end():
     s = StringDocState("a")
-    s.apply_document_content(target="full_document", content="<h1>x</h1>")
+    r = s.apply_document_content(target="full_document", content="<h1>x</h1>")
+    assert r["paragraph_count"] == 1
+    assert r["headings"] == [{"level": 1, "text": "x"}]
     assert s.get_html() == "<h1>x</h1>"
     s.apply_document_content(target="end", content="y")
     assert s.get_html().endswith("y")
@@ -152,14 +154,14 @@ def test_dispatch_unsupported_writer_tool():
 
 def test_calc_sort_range_integer_column():
     state = CalcStringState("Product\tRevenue\nWidget\t1200\nTool\t2100")
-    res = state.sort_range(sort_column=1, ascending=False)
+    res = state.range_sort(sort_column=1, ascending=False)
     assert res["status"] == "ok"
     assert state._grid[1][0] == "Tool"
 
 
 def test_calc_sort_mixed_types_non_numeric_last() -> None:
     state = CalcStringState("Product\tRevenue\nWidget\t1200\nAardvark\tn/a\nTool\t2100")
-    res = state.sort_range(sort_column=1, ascending=False)
+    res = state.range_sort(sort_column=1, ascending=False)
     assert res["status"] == "ok"
     names = [row[0] for row in state._grid[1:]]
     assert names[-1] == "Aardvark"

@@ -148,8 +148,8 @@ def test_sales_dataset_has_zip_column_from_real_zctas() -> None:
 
 
 def _is_sql_results_formula(formula: str) -> bool:
-    """Live SQL_DuckDB RESULTS: sheet-only ``con.sql`` or join ``run_sql``."""
-    return "con.sql(sql)" in formula or "run_sql(" in formula
+    """Live SQL_DuckDB RESULTS: sheet-only ``con.sql`` or join ``query_folder_df`` / ``run_sql``."""
+    return "con.sql(sql)" in formula or "query_folder_df(" in formula or "run_sql(" in formula
 
 
 def test_sql_demo_scenarios_include_sheet_and_join() -> None:
@@ -239,7 +239,7 @@ def _assert_ods_formulas_and_layout(xml: str) -> None:
     results = [f for f in formula_attrs if _is_sql_results_formula(f)]
     assert len(results) == 3
     sheet_only = [f for f in results if "con.sql(sql)" in f]
-    join = [f for f in results if "run_sql(" in f]
+    join = [f for f in results if "query_folder_df(" in f or "run_sql(" in f]
     assert len(sheet_only) == 2
     assert len(join) == 1
     assert "session_duckdb()" in sheet_only[0]
@@ -327,7 +327,7 @@ def _assert_results_formula_is_short_and_quote_safe(
     assert '"' not in payload
     assert "data[0]" in payload and "data[1]" in payload
     if join:
-        assert "run_sql(" in payload
+        assert "query_folder_df(" in payload or "run_sql(" in payload
         assert "scoped_dir" in payload
         assert ZIP_INCOME_CSV_NAME in payload
         assert "session_duckdb" not in payload
@@ -474,7 +474,7 @@ def test_duckdb_join_from_cell_code_is_quote_safe_and_under_cap() -> None:
     code = duckdb_join_from_cell_code("sales", ZIP_INCOME_CSV_NAME)
     assert len(code) <= RESULTS_PY_CODE_MAX_LEN
     assert '"' not in code
-    assert "run_sql(" in code
+    assert "query_folder_df(" in code
     assert "scoped_dir" in code
     assert ZIP_INCOME_CSV_NAME in code
     assert "data[0]" in code and "data[1]" in code
@@ -499,7 +499,7 @@ def test_ods_formula_join_results_named_range_not_rematched() -> None:
     assert formula is not None
     out = ods_formula(formula)
     assert SALES_NAMED_RANGE in out
-    assert "run_sql(" in out
+    assert "query_folder_df(" in out
     assert "[.A40:.A54]" in out
     assert _NESTED_SHEET_REF.search(out) is None
 
@@ -547,7 +547,7 @@ def test_fixture_xlsx_sql_results_formulas_are_short_and_quote_safe() -> None:
     assert wb.defined_names[MARKETING_NAMED_RANGE].attr_text == _xlsx_named_range_address(
         "Statistics_ML", MARKETING_RANGE_XLSX
     )
-    join_formulas = [f for unused_coord, f in formulas if "run_sql(" in f]
+    join_formulas = [f for unused_coord, f in formulas if "query_folder_df(" in f or "run_sql(" in f]
     sheet_formulas = [f for unused_coord, f in formulas if "con.sql(sql)" in f]
     assert len(join_formulas) == 1
     assert len(sheet_formulas) == 2
@@ -557,7 +557,7 @@ def test_fixture_xlsx_sql_results_formulas_are_short_and_quote_safe() -> None:
         rest = formula[formula.rindex('"') + 1 :]
         sql_arg = rest.rsplit(",", 1)[-1].strip().rstrip(")")
         _assert_results_formula_is_short_and_quote_safe(
-            formula, sql_range=sql_arg, join="run_sql(" in formula
+            formula, sql_range=sql_arg, join="query_folder_df(" in formula or "run_sql(" in formula
         )
     gaps = _empty_rows_below_xlsx_results(ws)
     assert len(gaps) == 3

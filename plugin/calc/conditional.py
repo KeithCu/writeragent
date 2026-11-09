@@ -28,8 +28,7 @@ from plugin.framework.uno_context import create_property_value
 from plugin.calc.address_utils import format_range
 from plugin.calc.base import ToolCalcConditionalBase
 from plugin.calc.bridge import CalcBridge
-from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.calc.cells import _range_args
+from plugin.calc.calc_utils import query_interface as _query_interface, range_args
 
 from com.sun.star.lang import IllegalArgumentException
 from com.sun.star.table import CellAddress
@@ -37,7 +36,7 @@ from com.sun.star.table import CellAddress
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _OPS: list[str] = [
     "NONE",
@@ -98,13 +97,13 @@ def _ensure_table_conditional_format(ctx: Any, cell_range: Any) -> Any:
 class ListConditionalFormats(ToolCalcConditionalBase):
     """List conditional formatting rules on a cell range."""
 
-    name: str | None = "list_conditional_formats"
+    name: str | None = "conditional_formatting_list"
     description: str = "List conditional formatting rules on a Calc cell range. Returns operator, formulas, and applied cell style for each rule. Extended LibreOffice operators (e.g. DUPLICATE) use operator_code when present."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range (e.g. ["A1:D10"]). If omitted, scans used area.'}}, "required": []}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        ranges = _range_args(kwargs.get("range"))
+        ranges = range_args(kwargs.get("range"))
         if len(ranges) > 1:
             return self._tool_error("Pass exactly one range.")
 
@@ -134,7 +133,7 @@ class ListConditionalFormats(ToolCalcConditionalBase):
 class AddConditionalFormat(ToolCalcConditionalBase):
     """Add a conditional formatting rule to a cell range."""
 
-    name: str | None = "add_conditional_format"
+    name: str | None = "conditional_formatting_add"
     description: str = (
         "Add a conditional formatting rule to a Calc cell range. "
         "Applies a cell style when the condition is met. "
@@ -159,7 +158,7 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        ranges = _range_args(kwargs.get("range"))
+        ranges = range_args(kwargs.get("range"))
         if len(ranges) != 1:
             return self._tool_error("Pass exactly one range.")
         range_str = ranges[0]
@@ -217,8 +216,8 @@ class AddConditionalFormat(ToolCalcConditionalBase):
 class RemoveConditionalFormats(ToolCalcConditionalBase):
     """Remove or clear conditional formatting rules from a cell range."""
 
-    name: str | None = "remove_conditional_formats"
-    description: str = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use list_conditional_formats to see current rules and their indices."
+    name: str | None = "conditional_formatting_remove"
+    description: str = "Remove a conditional formatting rule from a Calc cell range by index, or clear all rules if no index is provided. Use conditional_formatting_list to see current rules and their indices."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {"range": {"type": "array", "items": {"type": "string"}, "description": 'Cell range (e.g. ["A1:D10"]).'}, "rule_index": {"type": "integer", "description": "0-based index of the rule to remove. If omitted, all rules are cleared."}},
@@ -228,7 +227,7 @@ class RemoveConditionalFormats(ToolCalcConditionalBase):
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
         bridge = CalcBridge(ctx.doc)
-        ranges = _range_args(kwargs.get("range"))
+        ranges = range_args(kwargs.get("range"))
         if len(ranges) != 1:
             return self._tool_error("Pass exactly one range.")
         range_str = ranges[0]

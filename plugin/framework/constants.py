@@ -68,7 +68,6 @@ WORKFLOW_TASK_PREFIXES: tuple[str, ...] = ("TODO-AI", "FIX", "QUESTION", "VALIDA
 
 # Local sentence-transformers default until multi-model bench picks a winner (docs/embeddings.md).
 DEFAULT_EMBEDDING_MODEL = "paraphrase-multilingual-MiniLM-L12-v2"
-EMBEDDINGS_WORKER_SESSION_PREFIX = "embeddings"
 # Host corpus_meta.json schema version (docs/embeddings.md).
 EMBEDDINGS_SCHEMA_VERSION = "6"
 # Background folder index tick when embeddings cache is enabled (docs/embeddings.md).
@@ -109,12 +108,16 @@ class ModelCapability(IntFlag):
 # document_research cross-file index (Settings: embeddings.folder_search_mode none | hybrid).
 
 
-def folder_search_enabled() -> bool:
-    """True when cross-file corpus index (FTS + embeddings) is enabled."""
+def configured_folder_search_mode() -> str:
+    """Settings value, lowercased. Includes "none"."""
     from plugin.framework.config import get_config
 
-    val = str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
-    return val in ("hybrid", "llama_index", "zvec", "lancedb")
+    return str(get_config("embeddings.folder_search_mode") or "none").strip().lower()
+
+
+def folder_search_enabled() -> bool:
+    """True when cross-file corpus index (FTS + embeddings) is enabled."""
+    return configured_folder_search_mode() in ("hybrid", "llama_index", "zvec", "lancedb")
 
 
 # LlamaIndex cross-encoder rerank (Settings: embeddings.folder_rerank_enabled / folder_rerank_model).
@@ -128,9 +131,9 @@ DEFAULT_FOLDER_RERANK_MODEL = FOLDER_RERANK_MODEL_ENGLISH_SMALL
 
 def folder_rerank_enabled() -> bool:
     """True when LlamaIndex cross-encoder rerank is enabled in Settings."""
-    from plugin.framework.config import get_config_bool
+    from plugin.framework.config import get_config
 
-    return get_config_bool("embeddings.folder_rerank_enabled")
+    return bool(get_config("embeddings.folder_rerank_enabled"))
 
 
 def resolve_folder_rerank_model() -> str:
@@ -164,8 +167,14 @@ AUTO_IMPORTS: dict[str, str] = {
     "itertools": "import itertools",
     "json": "import json",
     "csv": "import csv",
-    "plugin.scripting.calc_functions": "import plugin.scripting.calc_functions as calc",
 }
+
+
+def auto_imports() -> dict[str, str]:
+    """Sandbox prepends plus Calc ``calc_functions`` (WriterAgent-only)."""
+    merged = dict(AUTO_IMPORTS)
+    merged["plugin.scripting.calc_functions"] = "import plugin.scripting.calc_functions as calc"
+    return merged
 
 
 # -------------------------------------------------

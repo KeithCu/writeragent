@@ -14,6 +14,7 @@ from plugin.chatbot.agent_manual import (
     _WRITER_TOPICS,
     full_manual,
     get_section,
+    list_topic_entries,
     list_topics,
     manual_index,
     normalize_topic,
@@ -41,7 +42,11 @@ class FakeCtx:
         self.doc = doc
 
 
-# ---- sections / topics -----------------------------------------------------
+def test_list_topic_entries_matches_list_topics():
+    for doc_type in ("writer", "calc", "draw", None):
+        ids_from_entries = [topic_id for topic_id, _summary in list_topic_entries(doc_type)]
+        assert ids_from_entries == list_topics(doc_type)
+
 
 def test_topics_and_sections_align():
     topics = list_topics("writer")
@@ -74,18 +79,38 @@ def test_manual_index_lists_every_topic():
 
 # ---- per document type -----------------------------------------------------
 
-def test_calc_topics_are_generic_and_leak_no_writer_advice():
+def test_calc_topics_use_calc_manual_not_writer():
+    from plugin.framework import prompts as c
+
     topics = list_topics("calc")
-    assert "editing" in topics and "concurrency" in topics
-    assert "review-modes" not in topics and "navigation" not in topics
-    # The Writer-specific tool names must not leak into a Calc session's guidance.
-    assert "apply_document_content" not in get_section("editing", "calc")
-    assert get_section("review-modes", "calc") is None
+    assert topics == ["workflow", "formula-syntax", "directives", "concurrency"]
+    assert "review-modes" not in topics and "navigation" not in topics and "editing-html" not in topics
+    for topic in topics:
+        section = get_section(topic, "calc") or ""
+        assert "apply_document_content" not in section
+    assert get_section("workflow", "calc") is c.CALC_WORKFLOW
+    formula = get_section("formula-syntax", "calc")
+    assert formula == c.CALC_FORMULA_SYNTAX_TEMPLATE.replace("{venv_policy}", "")
+    assert "{venv_policy}" not in formula
+    assert get_section("directives", "calc") is c.CALC_CORE_DIRECTIVES
     assert normalize_topic("crop", "calc") is None
 
 
+def test_draw_manual_topics_and_impress_fold():
+    from plugin.framework import prompts as c
+
+    assert get_section("directives", "draw") is c.DRAW_CORE_DIRECTIVES
+    assert get_section("get-image", "draw") is c.DRAW_GET_IMAGE_TOOL_LINE
+    assert full_manual("impress") == full_manual("draw")
+    assert full_manual("impress") != full_manual("generic")
+
+    res = GetGuidance().execute(FakeCtx(DRAW_DOC))
+    assert res["doc_type"] == "draw"
+    assert "get-image" in res["topics"]
+
+
 def test_no_document_serves_neutral_generic_index():
-    assert list_topics(None) == list_topics("calc")  # generic set
+    assert list_topics(None) == list_topics("generic")
     idx = manual_index(None)
     assert "No document is open" in idx
     assert "editing" in idx and "concurrency" in idx
@@ -113,9 +138,7 @@ def test_shared_pieces_are_identical_in_both_channels():
         assert piece.strip() in writer_texts["editing"]
     assert "editing-html" in get_section("editing", "writer")      # on-demand: pointer present
     assert "read the editing-html topic" not in full_manual("writer")  # concatenated: no dangler
-    # The generic (Calc/Draw/no-doc) editing topic is the same object the Calc and Draw sidebar
-    # prompts embed.
-    assert get_section("editing", "calc") is c.GENERIC_EDIT_CONFIRMATION_RULES
+    # The generic editing topic remains in Calc and Draw chat templates (not the app manuals).
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_CALC_CHAT_SYSTEM_PROMPT_TEMPLATE
     assert c.GENERIC_EDIT_CONFIRMATION_RULES in c.DEFAULT_DRAW_CHAT_SYSTEM_PROMPT_TEMPLATE
 

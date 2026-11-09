@@ -10,7 +10,7 @@ import pytest
 
 from plugin.framework.errors import ToolExecutionError
 from plugin.writer.table_nesting import (
-    _cell_hosted_table_names,
+    cell_hosted_table_names,
     cell_plain_siblings,
     raise_if_range_hosts_nested_table,
     set_host_paragraphs,
@@ -167,7 +167,7 @@ def test_nested_table_discovery_follows_frame_portions() -> None:
         _Table("Direct"),
         _Paragraph("", portions=[_Portion(TextContent=None, TextFrame=frame)]),
     ])
-    assert _cell_hosted_table_names(cell) == ["Direct", "Child"]
+    assert cell_hosted_table_names(cell) == ["Direct", "Child"]
 
 
 def test_guard_message_does_not_name_a_tool_that_may_not_call_it() -> None:

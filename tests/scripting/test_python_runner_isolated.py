@@ -1,5 +1,5 @@
 def test_isolated_rps_pins_document():
-    from plugin.scripting.python_runner import execute_and_insert_result
+    from tests.scripting.python_runner_test_support import execute_and_insert_result
     from unittest.mock import patch, MagicMock
 
     with (
@@ -53,7 +53,7 @@ def test_reset_python_session_action_in_background():
 def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
     import logging
     from unittest.mock import MagicMock, patch
-    from plugin.scripting.python_runner import execute_and_insert_result
+    from tests.scripting.python_runner_test_support import execute_and_insert_result
 
     ctx = MagicMock()
     doc = MagicMock()
@@ -74,7 +74,7 @@ def test_prepare_rps_session_failure_logs_prepare_not_execute(caplog):
 
 def test_execute_and_insert_result_releases_pin_when_venv_raises():
     from unittest.mock import MagicMock, patch
-    from plugin.scripting.python_runner import execute_and_insert_result
+    from tests.scripting.python_runner_test_support import execute_and_insert_result
 
     ctx = MagicMock()
     doc = MagicMock()

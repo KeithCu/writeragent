@@ -17,21 +17,116 @@
 
 from __future__ import annotations
 
+import contextlib
+import logging
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
+
+log = logging.getLogger(__name__)
 
 from plugin.framework.model_lru import update_lru_history
-from plugin.doc.doc_type import DocumentType, get_document_type
+from plugin.framework.doc_type import DocumentType, get_document_type
 from plugin.framework.async_drain_guard import add_drain_idle_callback, get_drain_owner, remove_drain_idle_callback
-from plugin.framework.queue_executor import post_to_main_thread
+from plugin.framework.queue_executor import main
 from plugin.framework.async_stream import run_stream_completion_async
 from plugin.framework.errors import format_error_message
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.config import get_api_config, set_config, validate_api_config
+
+from plugin.framework.send_cancellation import SendCancellation
+from plugin.framework.uno_listeners import BaseDocumentEventListener
+from plugin.chatbot.send_state import HasSendCancellation, SendEvent, SendEventKind, spawn_scope
+from plugin.chatbot.tool_loop_actions import assign_send_outcome
+from plugin.framework.config import get_api_config, save, validate_api_config
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx, get_document_from_frame
 from .dialogs import msgbox
 from .dialog_views import input_box
+
+
+class _SelectionHost(HasSendCancellation, Protocol):
+    _send_cancellation: SendCancellation | None
+    _stop_requested_fallback: bool
+    _panel_teardown: bool
+    sidebar_state: Any
+
+    def dispatch(self, event: SendEvent) -> None: ...
+    def close_selection_run(self) -> None: ...
+
+
+@dataclass
+class _SelectionArm:
+    scope: SendCancellation
+    host: _SelectionHost | None
+    armed: bool
+    listener: _SelectionDocListener | None = None
+    model: Any | None = None
+    ended: bool = False
+
+    def detach(self) -> None:
+        if self.listener is not None and self.model is not None and hasattr(self.model, "removeDocumentEventListener"):
+            with contextlib.suppress(Exception):
+                self.model.removeDocumentEventListener(self.listener)
+
+
+class _SelectionDocListener(BaseDocumentEventListener):
+    _scope: SendCancellation
+
+    def __init__(self, scope: SendCancellation) -> None:
+        super().__init__()
+        self._scope = scope
+
+    def on_disposing(self, Source: Any) -> None:
+        self._scope.cancel()
+
+
+def bind_selection_cancel(host: _SelectionHost | None, model: Any) -> _SelectionArm:
+    scope = spawn_scope(host) if host is not None else None
+    armed = False
+    if scope is None:
+        # Calls from menubar/accelerator without a host, or during voice recording,
+        # get a private scope so recording is not interrupted.
+        scope = SendCancellation()
+        if (
+            host is not None
+            and not host.sidebar_state.send.is_busy
+            and not host.sidebar_state.send.is_recording
+        ):
+            host._send_cancellation = scope
+            host._stop_requested_fallback = False
+            # Prevent stale outcome from a previous turn showing at completion
+            assign_send_outcome(host, "ready")
+            # Reuse EXTRACTED_SEND: peer inject sets busy without StartSendEffect
+            # (a new event would fight the stop-iff-busy @deal.ensure rule).
+            host.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
+            armed = True
+    # An already-busy host shares its cancellation scope with the selection action
+    # and is not disarmed on exit.
+
+    listener: _SelectionDocListener | None = None
+    if model is not None and hasattr(model, "addDocumentEventListener"):
+        listener = _SelectionDocListener(scope)
+        try:
+            model.addDocumentEventListener(listener)
+        except Exception:
+            log.warning("Could not attach document event listener to model for selection cancel")
+            listener = None
+
+    return _SelectionArm(scope=scope, host=host, armed=armed, listener=listener, model=model)
+
+
+def end_selection_cancel(arm: _SelectionArm) -> None:
+    """Tear down a selection cancel arm; idempotent."""
+    if arm.ended:
+        return
+    arm.ended = True
+    arm.detach()
+
+    if not arm.armed:
+        return
+    host = arm.host
+    if host is None or host._panel_teardown:
+        return
+    host.close_selection_run()
 
 
 @dataclass
@@ -68,15 +163,40 @@ def prompt_for_edit_instructions(ctx: Any, title: str) -> tuple[str, str] | None
     if not user_input:
         return None
     if extra_instructions:
-        set_config("additional_instructions", extra_instructions)
+        save({"additional_instructions": extra_instructions})
         update_lru_history(extra_instructions, "prompt_lru", "")
     return user_input, extra_instructions
 
 
-def stream_completion(ctx: Any, client: LlmClient, prompt: str, system_prompt: str, max_tokens: int, apply_chunk_fn: ApplyChunkFn, on_done_fn: Callable[[], None], on_error_fn: ErrorFn) -> None:
+def stream_completion(
+    ctx: Any,
+    client: LlmClient,
+    prompt: str,
+    system_prompt: str,
+    max_tokens: int,
+    apply_chunk_fn: ApplyChunkFn,
+    on_done_fn: Callable[..., None],
+    on_error_fn: ErrorFn,
+    *,
+    cancel: SendCancellation | None = None,
+    on_stopped_fn: Callable[[], None] | None = None,
+    completion_out: dict[str, Any] | None = None,
+) -> None:
     """Start a simple completion stream and route startup failures like stream errors."""
     try:
-        run_stream_completion_async(ctx, client, prompt, system_prompt, max_tokens, apply_chunk_fn, on_done_fn, on_error_fn)
+        run_stream_completion_async(
+            ctx,
+            client,
+            prompt,
+            system_prompt,
+            max_tokens,
+            apply_chunk_fn,
+            on_done_fn,
+            on_error_fn,
+            cancel=cancel,
+            on_stopped_fn=on_stopped_fn,
+            completion_out=completion_out,
+        )
     except Exception as e:
         on_error_fn(e)
 
@@ -87,10 +207,13 @@ def stream_completion_tasks(
     tasks: list[StreamCompletionTask],
     prepare_task_fn: PrepareTaskFn,
     on_finished: Callable[[], None] | None = None,
+    *,
+    cancel: SendCancellation | None = None,
+    completion_out: dict[str, Any] | None = None,
 ) -> None:
     """Run simple completion streams sequentially, advancing from each done callback.
 
-    ``on_finished`` runs once when every task is done or the first task fails.
+    ``on_finished`` runs once when every task is done, the run is stopped, or the first task fails.
     This returns before that when the next cell is waiting on drain idle.
     """
     task_index = 0
@@ -120,12 +243,15 @@ def stream_completion_tasks(
                 # It is possible this is running from _notify_drain_idle traversing the list,
                 # meaning it's still in the list when it runs. We remove it so it's gone for good.
                 remove_drain_idle_callback(_once)
-                post_to_main_thread(run_next_task)
+                main.post(run_next_task)
 
         add_drain_idle_callback(_once)
 
     def run_next_task() -> None:
         nonlocal task_index
+        if cancel is not None and cancel.is_cancelled():
+            finish_once()
+            return
         if task_index > 0 and get_drain_owner() is not None:
             schedule_next_when_idle()
             return
@@ -147,8 +273,17 @@ def stream_completion_tasks(
                 finish_once()
 
         stream_completion(
-            ctx, client, task.prompt, task.system_prompt, task.max_tokens,
-            apply_chunk_fn, schedule_next_when_idle, on_error,
+            ctx,
+            client,
+            task.prompt,
+            task.system_prompt,
+            task.max_tokens,
+            apply_chunk_fn,
+            schedule_next_when_idle,
+            on_error,
+            cancel=cancel,
+            on_stopped_fn=finish_once,
+            completion_out=completion_out,
         )
 
     try:
@@ -158,26 +293,68 @@ def stream_completion_tasks(
         raise
 
 
-def do_selection_action_for_document(ctx: Any, model: Any, is_edit: bool) -> None:
+def do_selection_action_for_document(
+    ctx: Any,
+    model: Any,
+    is_edit: bool,
+    *,
+    preset_instruction: str | None = None,
+    allow_whole_document: bool = False,
+    sidebar_notify: Callable[[str], None] | None = None,
+    host: Any | None = None,
+) -> None:
     """Dispatch Extend/Edit Selection to the document-specific implementation."""
     doc_type = get_document_type(model)
     if doc_type == DocumentType.WRITER:
         from plugin.writer.editselection import do_edit_selection, do_extend_selection
 
         if is_edit:
-            do_edit_selection(ctx, model)
+            do_edit_selection(
+                ctx,
+                model,
+                preset_instruction=preset_instruction,
+                allow_whole_document=allow_whole_document,
+                sidebar_notify=sidebar_notify,
+                host=host,
+            )
         else:
-            do_extend_selection(ctx, model)
+            do_extend_selection(ctx, model, host=host)
         return
 
     if doc_type == DocumentType.CALC:
         from plugin.calc.editselection import do_calc_extend_edit
 
-        do_calc_extend_edit(ctx, model, is_edit)
+        do_calc_extend_edit(
+            ctx,
+            model,
+            is_edit,
+            preset_instruction=preset_instruction,
+            sidebar_notify=sidebar_notify,
+            allow_whole_document=allow_whole_document,
+            host=host,
+        )
+        return
+
+    if doc_type in (DocumentType.DRAW, DocumentType.IMPRESS):
+        from plugin.draw.editselection import do_draw_extend_edit
+
+        do_draw_extend_edit(
+            ctx,
+            model,
+            is_edit,
+            preset_instruction=preset_instruction,
+            sidebar_notify=sidebar_notify,
+            allow_whole_document=allow_whole_document,
+            host=host,
+        )
         return
 
     action = _("Edit") if is_edit else _("Extend")
-    msgbox(ctx, "WriterAgent", _("{0} selection not supported for this document type").format(action))
+    message = _("{0} selection not supported for this document type").format(action)
+    if sidebar_notify is not None:
+        sidebar_notify(message)
+        return
+    msgbox(ctx, "WriterAgent", message)
 
 
 def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
@@ -189,7 +366,13 @@ def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
     uses the focused document.
     """
     ctx = get_ctx()
+    host = None
     if frame is not None:
+        from plugin.framework.frame_session import session_for_frame
+
+        session = session_for_frame(frame)
+        if session is not None and getattr(session, "panel", None) is not None:
+            host = getattr(session.panel, "send_listener", None)
         doc = get_document_from_frame(frame)
     else:
         doc = services.document.get_active_document()
@@ -197,7 +380,7 @@ def _action_selection(services: Any, is_edit: bool, frame: Any = None) -> None:
         msgbox(ctx, "WriterAgent", _("No document open"))
         return
 
-    do_selection_action_for_document(ctx, doc, is_edit)
+    do_selection_action_for_document(ctx, doc, is_edit, host=host)
 
 
 def action_extend_selection(services: Any, frame: Any = None) -> None:

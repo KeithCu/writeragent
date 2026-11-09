@@ -16,6 +16,7 @@ import pytest
 
 from plugin.framework.errors import ToolExecutionError
 
+
 from plugin.writer.specialized.forms import (
     FormCreate,
     FormCreateControl,
@@ -231,7 +232,7 @@ def test_form_generate_blocks_llm_wait_off_ui_thread(monkeypatch):
     tool = FormGenerate()
     assert tool.is_async() is True
 
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: True)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: True)
 
     ctx = MagicMock()
 
@@ -434,6 +435,26 @@ def test_form_create_second_field_failure_triggers_undo(monkeypatch):
     mgr.undo.assert_called_once()
 
 
+def test_commit_form_batch_rollback_failed_flag_is_false(monkeypatch):
+    from plugin.writer.specialized import forms
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Form Create",)]
+    doc.getUndoManager.return_value = mgr
+    mgr.undo.side_effect = RuntimeError("undo failed")
+
+    def mutate():
+        raise ValueError("field failed")
+
+    tool = MagicMock()
+    res = forms._commit_form_batch(tool, doc, "Form Create", mutate, "undo msg")
+    assert res is not None
+    assert res.get("code") == "ROLLBACK_FAILED"
+    assert res.get("rolled_back") is False
+
+
 def test_form_create_locked_undo_manager_rejects(monkeypatch):
     tool = FormCreate()
     called = []
@@ -456,17 +477,17 @@ def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch)
     from plugin.framework.errors import WriterAgentException
 
     tool = FormGenerate()
-    monkeypatch.setattr("plugin.framework.thread_guard.on_main_thread", lambda: False)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.is_current", lambda: False)
 
     mock_client = MagicMock()
-    stop_checker = MagicMock()
+    scope = MagicMock()
     status_callback = MagicMock()
 
     stopped_exc = WriterAgentException("User cancelled", code="USER_STOPPED")
     mock_client.chat_completion_sync.side_effect = stopped_exc
 
     ctx = MagicMock()
-    ctx.stop_checker = stop_checker
+    ctx.send_cancellation = scope
     ctx.status_callback = status_callback
 
     with patch("plugin.framework.config.get_api_config"), \
@@ -478,7 +499,7 @@ def test_form_generate_passes_stop_checker_and_handles_user_stopped(monkeypatch)
         assert res["message"] == "User cancelled"
         mock_client.chat_completion_sync.assert_called_once()
         _, kwargs = mock_client.chat_completion_sync.call_args
-        assert kwargs.get("stop_checker") is stop_checker
+        assert kwargs.get("cancel") is scope
         assert kwargs.get("status_callback") is status_callback
 
 
@@ -956,7 +977,7 @@ def test_parse_field_tag_quotes_and_empty_items():
 
 
 def test_form_tools_registered_for_all_doc_types():
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     registry = get_tools()
     form_tools = [

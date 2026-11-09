@@ -65,7 +65,7 @@ def test_reset_notebook_python_session_calls_worker():
         patch("plugin.scripting.session_manager._msgbox"),
     ):
         reset_notebook_python_session(ctx)
-    mock_reset.assert_called_once_with(ctx, "notebook:file:///tmp/nb.odt")
+    mock_reset.assert_called_once_with("notebook:file:///tmp/nb.odt")
 
 
 def test_reset_notebook_python_session_resets_execution_counter():

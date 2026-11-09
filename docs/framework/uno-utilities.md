@@ -177,6 +177,7 @@ Empty defaults + `_catch_and_log` so Python exceptions do not leak into the C++ 
 | `BaseItemListener` | `XItemListener` |
 | `BaseTextListener` | `XTextListener` |
 | `BaseKeyListener` | `XKeyListener` |
+| `BaseKeyHandler` | `XKeyHandler` |
 | `BaseWindowListener` | `XWindowListener` |
 | `BaseTopWindowListener` | `XTopWindowListener` |
 | `BaseContainerListener` | `XContainerListener` |
@@ -222,17 +223,11 @@ Module: [`plugin/framework/errors.py`](../../plugin/framework/errors.py) — UNO
 |--------|---------|
 | `UnoObjectError` | Stale docs / missing properties (`UNO_OBJECT_ERROR`). |
 | `DocumentDisposedError` | Disposed object (`DOCUMENT_DISPOSED`). |
-| `is_disposed_exception` | `DisposedException` / `RuntimeException` type-name heuristic (UI lifecycle). |
-| `is_real_disposal` | True only for `DisposedException` / `DocumentDisposedError`. |
-| `is_tool_document_disposed` | `execute_safe` mapping: live-doc bare `RuntimeException` is not `DOCUMENT_DISPOSED`. |
+| `is_disposal` | True only for `DisposedException` / `DocumentDisposedError`. |
 | `suppress_disposed` | UI lifecycle: swallow disposal (and optionally other `Exception`s). `KeyboardInterrupt`, `SystemExit`, and `GeneratorExit` propagate. |
-| `check_not_none` (`check_disposed`) | Null guard only — does **not** probe live disposal. |
-| `is_document_disposed` | Best-effort `getImplementationName` probe. |
-| `safe_uno_call` | Decorator: probes return `default`; re-raise only real disposal. |
-| `safe_call` | Call a UNO method; wrap failures in `UnoObjectError` / `DocumentDisposedError`. |
 | `resolve_exception_message` | Prefer UNO `.Message` over empty `str(exc)`. |
-| `uno_probe` | Return `fn()`, or *default* when it raises a non-disposal `Exception`. |
 | `uno_read` | Return `fn()`, or *default* when it raises an ordinary `Exception`; re-raise only real disposal. |
+| `uno_call` | Call a zero-argument UNO method; wrap failures in `UnoObjectError` / `DocumentDisposedError`. |
 | `best_effort` | Return `fn()`, or *default* after a DEBUG log; swallows every `Exception`, disposal included. |
 | `reraise_if_disposed` | Re-raise `DisposedException` or `DocumentDisposedError` (existing `DocumentDisposedError` unchanged). |
 
@@ -315,7 +310,7 @@ Untitled documents have `getURL() == ""`. Identity then **must** use RuntimeUID.
 
 `plugin/framework/tool.py` documents `document_url` as “URL or RuntimeUID from `list_open_documents`”.
 
-Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, and formula locator cache; Calc workbook lifecycle (`workbook_lifecycle._lifecycle_key` and the `py:` key in `ensure_python_session_cleared_on_unload`) and the spill registry (`function._spill_registry_doc_key`) call `_read_runtime_uid` rather than `getPropertyValue("RuntimeUID")` alone and rather than `get_runtime_uid`. New code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`. Notebook `_doc_key` is the exception: File Open `XFilter.filter` runs on Dummy-2 (detect reload on Dummy-3), so it calls `_read_runtime_uid` (same ladder, no `@main_thread_only`). Calling the guarded getter there makes `filter()` return false and `loadComponentFromURL` return None.
+Other RuntimeUID users (domain, not shared utilities): notebook controls, review toolbar, grammar persistence, formula locator cache, Calc workbook lifecycle (`WorkbookState.for_doc` and the `py:` key in `ensure_python_session_cleared_on_unload`), and the Calc workbook lifecycle (`WorkbookState.for_doc`) call `get_runtime_uid` rather than `getPropertyValue("RuntimeUID")` alone. Code should call `get_runtime_uid`, not `getattr(doc, "RuntimeUID", None)`.
 
 ### 2.4 PathSettings / work-directory vs config user-profile paths
 
@@ -421,7 +416,7 @@ Classification: **intentional split** (keep) / **accidental copy** (unify later)
 | `visual_helpers` vs `image_tools` | Lookup/properties vs insert/gallery/GraphicProvider. Wrappers already delegate. |
 | `get_document_from_frame` vs `get_active_document` | Sidebar must bind the **frame’s** document, not Desktop current (wrong-doc bug). |
 | sandbox / session_manager URL→path vs UNO converters | Off-main, no PyUNO. |
-| `safe_uno_call` vs `safe_call` | Probes return default and re-raise only real disposal; `safe_call` wraps other failures as `UnoObjectError`. |
+| `uno_read` vs `uno_call` | `uno_read` returns default on non-disposal Exception; `uno_call` wraps non-disposal failures as `UnoObjectError`. |
 | LibrePy vs WriterAgent dispatch parsers | Two OXT protocol ids. |
 | PathSettings `Work` vs `UserConfig` vs `Storage_writable` | Different directories. |
 
@@ -500,7 +495,7 @@ Do **not** re-merge a monolithic `uno_helpers.py`. Prefer the smallest existing 
 6. `private:factory/*` loaders (different factory + Hidden/`_blank` contracts).
 7. LibrePy vs WriterAgent dispatch protocol parsers.
 8. PathSettings property meanings (`Work` / `UserConfig` / `Storage_writable`).
-9. `safe_uno_call` vs `safe_call` (probe vs real operation).
+9. `uno_read` vs `uno_call` (read with default vs wrap as error).
 
 ### P1 — candidate unify (small, real duplication)
 

@@ -36,7 +36,7 @@ import logging
 import re
 from typing import Any, Iterator
 
-from plugin.framework.errors import is_disposed_exception, is_real_disposal, uno_read
+from plugin.framework.errors import is_disposal, uno_read
 from plugin.framework.tool import ToolBase, ToolContext
 
 log = logging.getLogger(__name__)
@@ -112,7 +112,7 @@ def control_snapshot(model: Any) -> dict[str, Any]:
             raw = getattr(model, attr)
             info[key] = int(raw) if key == "state" else list(raw) if key in ("items", "selected") else raw
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("control snapshot %s read failed", attr, exc_info=True)
     return info
@@ -137,7 +137,7 @@ def readable_control_type(model: Any) -> str:
             if model is not None and model.supportsService(service):
                 return type_str
         except Exception as exc:
-            if is_real_disposal(exc):
+            if is_disposal(exc):
                 raise
             log.debug("supportsService(%s) failed", service, exc_info=True)
     return "unknown"
@@ -148,11 +148,9 @@ def _safe_attr(obj: Any, name: str, default: str = "") -> str:
         val = getattr(obj, name, default)
         return default if val is None else str(val)
     except Exception as exc:
-        # Bugfix: a closed document raises DisposedException from a shape attribute,
-        # and this except turned that into a missing page / not-found result.
-        # Re-raise real disposal so execute_safe reports DOCUMENT_DISPOSED.
-        # Any other failure stays on the existing missing-page path.
-        if is_real_disposal(exc):
+        # Closed documents raise DisposedException from shape attributes. Re-raise disposal
+        # for DOCUMENT_DISPOSED; other failures keep the missing-page default.
+        if is_disposal(exc):
             raise
         return default
 
@@ -160,9 +158,8 @@ def _safe_attr(obj: Any, name: str, default: str = "") -> str:
 def _shape_text(shape: Any) -> str:
     if not hasattr(shape, "getString"):
         return ""
-    # Bugfix: a closed document raises from getString; the old bare except
-    # turned that into "" and the page looked empty. uno_read re-raises real
-    # disposal (DOCUMENT_DISPOSED) and keeps a missing text property as "".
+    # getString on a closed document raises disposal. uno_read re-raises that and treats
+    # a missing text property as empty string.
     return uno_read(lambda: shape.getString() or "", "")
 
 
@@ -229,35 +226,38 @@ def _iter_children(xshapes: Any) -> Iterator[tuple[int, Any]]:
     """Direct ``(slot, shape)`` pairs. ``slot`` is the XShapes index, not a compacted count.
 
     Non-disposal ``getCount`` ends the walk. Non-disposal ``getByIndex`` skips that slot.
-    Re-raise the original exception when ``is_disposed_exception`` matches, bare
-    RuntimeException included. ``uno_read`` swallows RuntimeException and wraps
-    disposal as DocumentDisposedError, so it is the wrong helper here.
+    Only disposal escapes; a live-document RuntimeException ends the walk or skips the slot.
     """
     try:
         count = xshapes.getCount()
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         return
     for i in range(count):
         try:
             shape = xshapes.getByIndex(i)
         except Exception as exc:
-            if is_disposed_exception(exc):
+            if is_disposal(exc):
                 raise
             continue
         yield i, shape
 
 
-def _is_group(shape: Any) -> bool:
-    """GroupShape test for the address walk. Re-raise disposal; any other getShapeType failure is not a group."""
+def is_group(shape: Any) -> bool:
+    """True when *shape* is a GroupShape (disposal from getShapeType propagates)."""
     try:
         shape_type = shape.getShapeType()
     except Exception as exc:
-        if is_disposed_exception(exc):
+        if is_disposal(exc):
             raise
         return False
     return "GroupShape" in str(shape_type)
+
+
+def _is_group(shape: Any) -> bool:
+    """Alias for internal tree walks; prefer :func:`is_group`."""
+    return is_group(shape)
 
 
 def iter_shape_addresses(xshapes: Any, base: str | None = None) -> Iterator[tuple[str, Any, Any]]:
@@ -304,7 +304,7 @@ def find_shape_on_page(
                     return None, None, None, "Invalid shape index: %s" % index
                 child = curr.getByIndex(seg_idx)
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 return None, None, None, "Failed to find shape at index %s: %s" % (index, exc)
 
@@ -339,6 +339,31 @@ def find_shape_on_page(
     if not hits:
         return None, None, None, "No shape named %r on this page." % wanted
     return None, None, None, "Several shapes named %r; pass index as well." % wanted
+
+
+def resolve_shape_ref(
+    page: Any,
+    ref: Any,
+) -> tuple[int | str | None, Any | None, Any | None, str | None]:
+    """Resolve *ref* as a page index, dotted index path, or shape Name.
+
+    ``int`` (not ``bool``) and digit / dotted-digit strings use index lookup.
+    Any other non-empty string uses name lookup. Empty, ``bool``, and other
+    types return the same invalid-index string as ``find_shape_on_page``.
+    """
+    if isinstance(ref, bool):
+        return None, None, None, "Invalid shape index: %s" % ref
+    if isinstance(ref, int):
+        return find_shape_on_page(page, index=ref)
+    if isinstance(ref, str):
+        stripped = ref.strip()
+        if not stripped:
+            return None, None, None, "Invalid shape index: %s" % ref
+        parts = stripped.split(".")
+        if all(part.isdigit() for part in parts):
+            return find_shape_on_page(page, index=stripped)
+        return find_shape_on_page(page, name=stripped)
+    return None, None, None, "Invalid shape index: %s" % ref
 
 
 def build_shape_tree(xshapes: Any, base_index: str | None = None) -> list[dict[str, Any]]:
@@ -432,10 +457,8 @@ class GetDrawTree(ToolBase):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import resolve_shape_page
+        from plugin.draw.bridge import DrawBridge
 
-        page, actual_idx, err = resolve_shape_page(ctx, kwargs)
-        if err or page is None:
-            return self._tool_error(err or "No draw page available.")
+        page, actual_idx = DrawBridge(ctx.doc).resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
         return {"status": "ok", "page": actual_idx, "tree": build_shape_tree(page)}

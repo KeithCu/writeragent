@@ -172,7 +172,7 @@ def _weighted_judge_score(
 
 
 def _parse_judge_json(content: str, task_category: str) -> JudgeResult:
-    from plugin.framework.errors import safe_json_loads
+    from plugin.framework.json_utils import safe_json_loads
 
     text = (content or "").strip()
     if not text:
@@ -646,7 +646,9 @@ def run_eval_on_examples_llm(
       description-density knobs (see ``eval_catalog``). Defaults keep the
       full production catalog.
     """
-    from eval_prompts import get_eval_system_prompt
+    from eval_prompts import ensure_eval_prompt_hooks, get_eval_system_prompt
+
+    ensure_eval_prompt_hooks()
 
     from llm_chat_eval import run_llm_chat_eval
 

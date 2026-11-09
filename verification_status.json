@@ -184,16 +184,6 @@
       ],
       "ci_integration": true
     },
-    "config_service.py": {
-      "status": "verified",
-      "priority": "high",
-      "tool": "deal+hypothesis",
-      "functions_contracted": [
-        "ConfigService._check_read_access",
-        "ConfigService._check_write_access"
-      ],
-      "ci_integration": true
-    },
     "client/stream_normalizer.py": {
       "status": "verified",
       "priority": "high",
@@ -302,7 +292,7 @@
           "ensure_rectangular_2d",
           "is_calc_range_payload",
           "pack_calc_range_envelope",
-          "_dedupe_column_names"
+          "dedupe_column_names"
         ],
         "ci_integration": true
       },
@@ -312,8 +302,8 @@
         "tool": "deal+hypothesis",
         "functions_contracted": [
           "header_prefix",
-          "parse_helper_script_header",
-          "parse_run_import_call_spec"
+          "ScriptFacts.header",
+          "ScriptFacts.first_run_spec"
         ],
         "ci_integration": true
       },
@@ -382,7 +372,7 @@
           "wrap_command_for_sandbox",
           "is_safe_workspace_path"
         ],
-        "crosshair_target": "plugin.scripting.sandbox.scrub_subprocess_env",
+        "crosshair_target": "plugin.framework.subprocess_env.scrub_subprocess_env",
         "crosshair_last_run": "2026-08-09",
         "crosshair_result": "no_counterexamples",
         "ci_integration": true
@@ -626,19 +616,6 @@
         "crosshair_last_run": "2026-08-05",
         "crosshair_result": "no_counterexamples",
         "notes": "Hypothesis oracles in test_fsm_verification (deep via make vhs)",
-        "ci_integration": true
-      },
-      "state_machine.py": {
-        "status": "partial",
-        "tool": "crosshair+deal+pytest+hypothesis",
-        "functions_contracted": [
-          "stop_effects_exclude_spawns",
-          "ui_lines_for_handler_error",
-          "spawn_effects_for_start",
-          "next_state"
-        ],
-        "crosshair_result": "helpers_analyzed_next_state_off",
-        "notes": "next_state has # crosshair: off (Exception events / handle_error / format_error_for_display); pure helpers are CrossHair targets; Hypothesis stop/spawn oracles in test_fsm_verification (deep via make vhs)",
         "ci_integration": true
       },
       "tool_loop_state.py": {

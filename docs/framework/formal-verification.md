@@ -354,7 +354,7 @@ The refactor **separates concerns** in the same “hexagonal” spirit as the re
 
 **Why this matters for formal verification:** We treat the UNO bridge as axiomatic (opening of this document); we want proofs about **our** Python. `deal` contracts and CrossHair apply to **pure** functions. Code that mixes UI updates, I/O, and state updates in one procedure is a poor verification target—see *Verification Anti-Patterns* (do not verify tangled orchestration; verify the extracted machine instead).
 
-**Why this matters even before full FV:** Deterministic, fast **unit tests** over transition functions (`tests/chatbot/test_tool_loop_state.py`, `tests/chatbot/test_state_machine.py`, `tests/chatbot/test_send_state.py`, `tests/chatbot/test_audio_recorder_state.py`, etc.) document **allowed transitions**, catch regressions without a running office, and make refactors in chat, MCP, and audio paths safer.
+**Why this matters even before full FV:** Deterministic, fast **unit tests** over transition functions (`tests/chatbot/test_tool_loop_state.py`, `tests/chatbot/test_send_state.py`, `tests/chatbot/test_audio_recorder_state.py`, etc.) document **allowed transitions**, catch regressions without a running office, and make refactors in chat, MCP, and audio paths safer.
 
 This was a **pragmatic** foundation: Phase 5 records design tradeoffs and what we avoided over-engineering. Attaching `deal` and running CrossHair on every transition is **Phase 6**, not something we claim is already complete.
 
@@ -381,10 +381,7 @@ The following summarizes the implemented modules and the simplified patterns we 
    - Full test coverage in `tests/chatbot/test_tool_loop_state.py`
    - **Host dual-mirrors removed:** round/pending/stop/async/max live only in `ToolLoopState` (`sidebar_state.tool_loop` via `_sm_state`). Remaining `_active_*` fields on the panel are session I/O handles (queues, client, tools, model) for the effect interpreter in `tool_loop_actions.py` — not a second control state.
 
-2. **Send Handler State Machine** (`plugin/chatbot/state_machine.py`)
-   - Handles audio, image, agent, and web workflows
-   - Uses union types for events and effects (cleaner than inheritance hierarchies)
-   - Comprehensive test coverage in `tests/chatbot/test_state_machine.py`
+2. **Send Handler State Machine** (formerly plugin/chatbot/state_machine.py): removed 2026-11. It emitted terminal status as UI text, which caused round-2 regression 5; the drain callbacks in send_handlers.py now guard on one ended() latch and the orderings are tested directly in tests/chatbot/test_send_handlers.py.
 
 3. **Send Button State Machine** (`plugin/chatbot/send_state.py`)
    - Manages UI button state transitions
@@ -400,6 +397,10 @@ The following summarizes the implemented modules and the simplified patterns we 
    - Lifecycle and exponential backoff retry management for public tunnels (`cloudflared`, `ngrok`, `bore`, `tailscale`)
    - Explicit typed effects (`StartProcessEffect`, `TerminateProcessEffect`, `ScheduleRetryTimerEffect`, `CancelRetryTimerEffect`, `NotifyUrlAcquiredEffect`)
    - Formal invariants and contracts (`@deal.ensure`) with Hypothesis test coverage in `tests/mcp/test_tunnel_state.py`
+
+### When a transition function earns an interpreter
+
+A pure transition function earns an interpreter when at least two of these hold: the state has more than one independent field that transitions read together; an invariant spans transitions (a bound, monotonicity, 'once stopped, never spawn'), so it needs sequence tests; the effect list's order or contents is the contract with a thread, timer, or subprocess; or the same event arrives from more than one source and ordering is the bug class. If the state is one enum and every transition is 'if ended, ignore, else end this way', it is a latch. Write it as a guard in the handler and test the orderings directly. The send-handler machine (state_machine.py, removed 2026-11) was a latch.
 
 ### What We Avoided (Over-Engineering Traps)
 
@@ -479,7 +480,7 @@ Maintain a `verification_status.json` file tracking which components have been v
 4. **`plugin/framework/config_schema.py`** — `as_bool` / `parse_int_robust` / `parse_float_robust` ([`tests/framework/test_config_coerce_verification.py`](../../tests/framework/test_config_coerce_verification.py)); not whole-file CrossHair
 5. **`plugin/framework/tool_schema.py`** — `_normalize_schema_for_strict_providers`, `to_openai_schema`, `to_mcp_schema` (re-exported from [`tool.py`](../../plugin/framework/tool.py); CrossHair FQN stays `plugin.framework.tool._normalize_schema_for_strict_providers`) ([`tests/framework/test_tool_schema_verification.py`](../../tests/framework/test_tool_schema_verification.py))
 6. **`plugin/framework/stream_delta.py`** — `accumulate_delta` (CrossHair FQN `plugin.framework.stream_delta.accumulate_delta`). **`plugin/framework/async_stream.py`** — `_format_agent_tool_stream_line` ([`tests/framework/test_accumulate_delta_verification.py`](../../tests/framework/test_accumulate_delta_verification.py))
-7. **FSM catch-up** — CrossHair on `state_machine.py` + `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py))
+7. **FSM catch-up** — CrossHair on `tool_loop_state.py` helpers (`next_state` is `# crosshair: off`) ([`tests/chatbot/test_fsm_verification.py`](../../tests/chatbot/test_fsm_verification.py))
 8. **`plugin/framework/json_utils.py`** — `safe_json_loads` FQN ([`tests/framework/test_json_utils_verification.py`](../../tests/framework/test_json_utils_verification.py))
 9. **`plugin/framework/errors.py`** — `format_error_payload` and `format_error_message` ([`tests/framework/test_error_payload_verification.py`](../../tests/framework/test_error_payload_verification.py))
 10. **`plugin/scripting/sandbox.py`** — `scrub_subprocess_env`, `wrap_command_for_sandbox`, `is_safe_workspace_path` ([`tests/scripting/test_sandbox_path_verification.py`](../../tests/scripting/test_sandbox_path_verification.py))
@@ -497,8 +498,8 @@ Maintain a `verification_status.json` file tracking which components have been v
 23. **`plugin/chatbot/web_research_cache.py`** — `snowball_lang_from_locale_tag`, `parse_research_cache_key`, `format_research_cache_key`, `research_cache_similarity` ([`tests/chatbot/test_chatbot_pure_verification.py`](../../tests/chatbot/test_chatbot_pure_verification.py))
 24. **`plugin/scripting/import_policy.py`** — `policy_blocked_imports`, `venv_blocked_modules`, `format_venv_import_policy_for_prompt` ([`tests/scripting/test_scripting_pure_verification.py`](../../tests/scripting/test_scripting_pure_verification.py))
 25. **`plugin/scripting/config_limits.py`** — `resolve_python_exec_timeout` ([`tests/scripting/test_scripting_pure_verification.py`](../../tests/scripting/test_scripting_pure_verification.py))
-26. **`plugin/scripting/calc_range.py`** — `ensure_rectangular_2d`, `is_calc_range_payload` (re-export of codec detector), `pack_calc_range_envelope`, `_dedupe_column_names` ([`tests/scripting/test_scripting_pure_verification.py`](../../tests/scripting/test_scripting_pure_verification.py))
-27. **`plugin/scripting/helper_domain.py`** — `header_prefix`, `parse_helper_script_header`, `parse_run_import_call_spec` ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
+26. **`plugin/scripting/calc_range.py`** — `ensure_rectangular_2d`, `is_calc_range_payload` (re-export of codec detector), `pack_calc_range_envelope` ([`tests/scripting/test_scripting_pure_verification.py`](../../tests/scripting/test_scripting_pure_verification.py)); **`plugin/scripting/venv/coerce.py`** — `dedupe_column_names`
+27. **`plugin/scripting/helper_domain.py`** — `header_prefix`, `ScriptFacts` ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
 28. **`plugin/scripting/trusted_action_registry.py`** — `get_trusted_action_wiring` ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
 29. **`plugin/scripting/duckdb_sql.py`** — `get_sql_script_templates`, `parse_sql_script_header` ([`tests/scripting/test_scripting_phase2_verification.py`](../../tests/scripting/test_scripting_phase2_verification.py))
 30. **`plugin/scripting/sandbox_cache.py`** — `validate_sandbox_ast` ([`tests/scripting/test_scripting_ast_verification.py`](../../tests/scripting/test_scripting_ast_verification.py))
@@ -553,7 +554,7 @@ Snapshot **2026-08-27**: **48 verified / 8 partial** in [`verification_status.js
 
 #### 2. FSM partials (Phase 6 catch-up — do not fight engine)
 
-[`send_state`](../../plugin/chatbot/send_state.py), [`audio_recorder_state`](../../plugin/chatbot/audio_recorder_state.py), [`tool_loop_state`](../../plugin/chatbot/tool_loop_state.py) / [`state_machine`](../../plugin/chatbot/state_machine.py) helpers: deal + Hypothesis already on `vhs`. **`next_state` stays `# crosshair: off`** (Exception/JSON/host paths). Do not promote these rows to `verified`.
+[`send_state`](../../plugin/chatbot/send_state.py), [`audio_recorder_state`](../../plugin/chatbot/audio_recorder_state.py), [`tool_loop_state`](../../plugin/chatbot/tool_loop_state.py) helpers: deal + Hypothesis already on `vhs`. **`next_state` stays `# crosshair: off`** (Exception/JSON/host paths). Do not promote these rows to `verified`.
 
 **Done:** **stopped-latched pending tools never spawn** (`stopped_effects_exclude_tool_spawns`; `is_stopped` sticky; pending length never shrinks while stopped). Biased strategies in [`fsm_hyp_support.py`](../../tests/chatbot/fsm_hyp_support.py).
 

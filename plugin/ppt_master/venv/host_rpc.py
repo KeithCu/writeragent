@@ -9,7 +9,10 @@ from __future__ import annotations
 import logging
 from typing import Any, Callable
 
-from plugin.scripting.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.errors import ToolExecutionError, format_error_payload, resolve_exception_message
+from plugin.framework.ipc import DEFAULT_MAX_PAYLOAD_BYTES, IpcFrameError, pack_pickle_frame
+from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import SendCancellation, is_cancelled
 
 log = logging.getLogger(__name__)
 
@@ -17,59 +20,46 @@ log = logging.getLogger(__name__)
 def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
     """Run LlmClient.request_with_tools for a venv ppt-master turn (keys stay on host)."""
     from plugin.framework.client.llm_client import LlmClient
-    from plugin.framework.config import get_api_config, get_config_int
+    from plugin.framework.config import get_api_config, get_config
     from plugin.framework.uno_context import get_ctx
 
     messages = payload.get("messages")
     if not isinstance(messages, list):
-        return {"status": "error", "message": "llm_request requires messages list."}
+        return format_error_payload(ToolExecutionError("llm_request requires messages list."))
 
     tools = payload.get("tools")
     model = payload.get("model")
     max_tokens = payload.get("max_tokens")
-    stop_checker = payload.get("_stop_checker")
-    if not callable(stop_checker):
-        stop_checker = None
-
-    from plugin.framework.errors import ToolExecutionError
-    from plugin.framework.queue_executor import execute_on_main_thread
+    cancel = payload.get("_cancel")
 
     # Build the client on the send cancellation scope so sidebar Stop closes
     # this call too. The scope registers the live client and must not be
-    # pickled to the child; dispatch attaches it on the way in, the same
-    # way as _stop_checker.
-    cancellation_scope = payload.get("_cancellation_scope")
+    # pickled to the child; dispatch attaches it on the way in.
     try:
         # get_ctx() is @main_thread_only, so a background worker marshals it
-        # with execute_on_main_thread. Keep that call inside the try: a raise
+        # with main.call. Keep that call inside the try: a raise
         # must go back to the child as an RPC error, or the child waits until
         # timeout with no reply.
-        ctx = execute_on_main_thread(get_ctx)
+        ctx = main.call(get_ctx)
         if max_tokens is None:
-            max_tokens = get_config_int("chat_max_tokens")
+            max_tokens = get_config("chat_max_tokens")
 
-        client = LlmClient(get_api_config(), ctx, cancellation_scope=cancellation_scope)
+        client = LlmClient(get_api_config(), ctx, cancel=cancel)
         result = client.request_with_tools(
             messages,
             max_tokens=int(max_tokens),
             tools=tools if tools else None,
             model=model,
             prepend_dev_build_system_prefix=False,
-            stop_checker=stop_checker,
+            cancel=cancel,
         )
         if not isinstance(result, dict):
             raise TypeError("LLM response is not a dictionary")
 
-        is_stopped = client._stopped
-        if not is_stopped and stop_checker is not None:
-            try:
-                is_stopped = stop_checker()
-            except Exception:
-                log.exception("stop_checker raised in ppt_master handle_llm_request")
-                return {"status": "error", "message": "stop_checker raised exception"}
+        is_stopped = is_cancelled(cancel) or client.stopped() is True
 
         if is_stopped:
-            return {"status": "error", "code": "USER_STOPPED", "message": "Stopped by user."}
+            return format_error_payload(ToolExecutionError("Stopped by user.", code="USER_STOPPED"))
 
         return {
             "status": "ok",
@@ -82,16 +72,19 @@ def handle_llm_request(payload: dict[str, Any]) -> dict[str, Any]:
             },
         }
 
+    # resolve_exception_message, not str(exc): this runs on the pipe holder (see errors._exception_text).
     except ToolExecutionError as exc:
         # Preserve USER_STOPPED. A generic error string lets the child keep
         # the turn going after Stop.
         if getattr(exc, "code", None) == "USER_STOPPED":
-            return {"status": "error", "code": "USER_STOPPED", "message": exc.message}
+            return format_error_payload(exc)
         log.exception("ppt-master llm_request failed")
-        return {"status": "error", "message": str(exc)}
+        text = resolve_exception_message(exc)
+        return format_error_payload(ToolExecutionError(text))
     except Exception as exc:
         log.exception("ppt-master llm_request failed")
-        return {"status": "error", "message": str(exc)}
+        text = resolve_exception_message(exc)
+        return format_error_payload(ToolExecutionError(text))
 
 
 def dispatch_worker_response(
@@ -99,8 +92,7 @@ def dispatch_worker_response(
     *,
     stdin_write: Callable[[bytes], None],
     on_worker_event: Callable[[dict[str, Any]], None] | None = None,
-    stop_checker: Callable[[], bool] | None = None,
-    cancellation_scope: Any | None = None,
+    cancel: SendCancellation | None = None,
 ) -> bool:
     """Handle intermediate worker frames. Returns True if caller should keep reading."""
     frame_type = response.get("type")
@@ -125,12 +117,9 @@ def dispatch_worker_response(
         payload = dict(response)
         payload.pop("type", None)
         payload.pop("id", None)
-        payload.pop("_stop_checker", None)
-        payload.pop("_cancellation_scope", None)
-        if stop_checker is not None:
-            payload["_stop_checker"] = stop_checker
-        if cancellation_scope is not None:
-            payload["_cancellation_scope"] = cancellation_scope
+        payload.pop("_cancel", None)
+        if cancel is not None:
+            payload["_cancel"] = cancel
         llm_out = handle_llm_request(payload)
         llm_response = {"status": llm_out.get("status", "error"), "id": call_id}
         if llm_out.get("status") == "ok":
@@ -145,9 +134,7 @@ def dispatch_worker_response(
         try:
             frame = pack_pickle_frame(llm_response, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES)
         except IpcFrameError as exc:
-            # An oversized LLM reply used to be written with no cap. The child
-            # read stops at DEFAULT_MAX_PAYLOAD_BYTES and leaves the rest on
-            # the pipe, so the next frame is garbage. Send a small error frame.
+            # Oversized LLM replies must pack under DEFAULT_MAX_PAYLOAD_BYTES or the next frame read is corrupt.
             frame = pack_pickle_frame(
                 {"status": "error", "id": call_id, "message": str(exc), "error": str(exc)},
                 max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,

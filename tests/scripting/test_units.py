@@ -12,11 +12,11 @@ from unittest.mock import patch
 import pytest
 
 from plugin.scripting.calc_range import CalcRange
+from plugin.scripting.domain_registry import get_domain_wiring
 from plugin.scripting.units import (
     extract_units_insert_kwargs,
     format_units_for_calc,
     insert_units_result_into_writer,
-    is_units_result,
     units_display_text,
 )
 from plugin.scripting.units import run_units
@@ -246,7 +246,7 @@ def test_run_units_check_dimensionality_compatible(value, value_2, expected):
     assert result["compatible"] is expected
 
 def test_run_units_missing_package():
-    with patch("plugin.scripting.venv.units._get_ureg", return_value=None):
+    with patch("plugin.scripting.venv.units.get_ureg", return_value=None):
         result = run_units({"helper": "convert_quantity", "params": {"value": "1", "from_unit": "m", "to_unit": "ft"}}, None, {})
     assert result["status"] == "error"
     assert result["code"] == "MISSING_PACKAGE"
@@ -367,7 +367,7 @@ def test_run_units_missing_helper_is_missing_helper():
 
 
 def test_run_units_spec_fallback_ignores_non_param_keys(monkeypatch: pytest.MonkeyPatch):
-    from plugin.scripting.venv import units as units_venv
+    from plugin.scripting import helper_registry
 
     captured: dict[str, Any] = {}
 
@@ -375,7 +375,7 @@ def test_run_units_spec_fallback_ignores_non_param_keys(monkeypatch: pytest.Monk
         captured.update(params)
         return {"status": "ok", "helper": "parse_quantity"}
 
-    monkeypatch.setitem(units_venv._DISPATCH, "parse_quantity", capture)
+    monkeypatch.setitem(helper_registry._BOUND, ("units", "parse_quantity"), capture)
     res = run_units(
         {"helper": "parse_quantity", "quantity": "5 km/h", "params": None, "headers": True, "header_row": 1},
         None,
@@ -450,10 +450,10 @@ def test_run_units_strips_output_style_and_copies_task_hint():
 
 
 def test_dispatch_matches_helper_names():
-    from plugin.scripting.calc_functions_common import UNITS_HELPER_NAMES
-    from plugin.scripting.venv.units import _DISPATCH
+    from plugin.scripting.helper_registry import bound, names
+    import plugin.scripting.venv.units  # noqa: F401
 
-    assert set(_DISPATCH) == set(UNITS_HELPER_NAMES)
+    assert all(callable(bound("units", name)) for name in names("units"))
 
 
 def test_run_units_pairwise_units_broadcast_suffixes():
@@ -498,7 +498,7 @@ def test_format_units_for_calc_joins_formatted_list_without_values():
 
 
 def test_writer_insert_joins_vector_formatted():
-    with patch("plugin.writer.format.insert_content_at_position") as mock_insert:
+    with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
         insert_units_result_into_writer(
             object(),
             object(),
@@ -686,10 +686,11 @@ def test_units_display_text_drops_blank_cells():
 
 
 def test_is_units_result_uses_helper_names():
-    assert is_units_result({"status": "ok", "helper": "convert_quantity", "formatted": "36 km/h"}) is True
-    assert is_units_result({"status": "error", "helper": "parse_quantity", "code": "PARSE_ERROR"}) is True
-    assert is_units_result({"status": "error", "code": "UNITS_ERROR"}) is True
-    assert is_units_result({"status": "ok", "formatted": "36 km/h", "magnitude": 36.0}) is False
-    assert is_units_result({"status": "ok", "values": [[36.0]], "magnitudes": [36.0]}) is False
-    assert is_units_result({"status": "error", "code": "PARSE_ERROR"}) is False
-    assert is_units_result("36 km/h") is False
+    is_res = get_domain_wiring("units").is_result
+    assert is_res({"status": "ok", "helper": "convert_quantity", "formatted": "36 km/h"}) is True
+    assert is_res({"status": "error", "helper": "parse_quantity", "code": "PARSE_ERROR"}) is True
+    assert is_res({"status": "error", "code": "UNITS_ERROR"}) is True
+    assert is_res({"status": "ok", "formatted": "36 km/h", "magnitude": 36.0}) is False
+    assert is_res({"status": "ok", "values": [[36.0]], "magnitudes": [36.0]}) is False
+    assert is_res({"status": "error", "code": "PARSE_ERROR"}) is False
+    assert is_res("36 km/h") is False

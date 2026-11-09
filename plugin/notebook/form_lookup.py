@@ -12,6 +12,7 @@ import threading
 from typing import Any, Generator
 
 from plugin.framework.errors import best_effort
+from plugin.framework.uno_context import enum_has_more
 
 _CONTROL_SHAPE_TYPE = "com.sun.star.drawing.ControlShape"
 
@@ -48,12 +49,6 @@ def control_lookup_scope(doc: Any) -> Generator[None, None, None]:
         yield
     finally:
         _local.index = prev
-
-
-def _enum_has_more(enum: Any) -> bool:
-    """``hasMoreElements`` is True or 1 on UNO; a MagicMock return is neither."""
-    more = enum.hasMoreElements()
-    return more is True or more == 1
 
 
 def build_control_index(doc: Any) -> ControlIndex:
@@ -117,7 +112,7 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
     """Fallback for tests and LO builds that expose controls only via text portions."""
     text = doc.getText()
     enum = text.createEnumeration()
-    while _enum_has_more(enum):
+    while enum_has_more(enum):
         block = enum.nextElement()
         # TextTable blocks have no portion enumeration. Skip the block.
         portion_enum = best_effort(
@@ -126,7 +121,7 @@ def _collect_models_from_text(doc: Any, by_name: dict[str, Any]) -> None:
         )
         if portion_enum is None:
             continue
-        while _enum_has_more(portion_enum):
+        while enum_has_more(portion_enum):
             portion = portion_enum.nextElement()
             model = _model_from_text_portion(portion)
             if model is None:
@@ -153,8 +148,7 @@ def read_code_from_field(doc: Any, field_name: str) -> str | None:
     """Read multiline source from an in-flow form ``TextField`` by control name.
 
     ``None`` means the control is gone. ``""`` means the field is there and
-    empty. Callers used to treat both as ``""``, so Run All skipped a deleted
-    field with the same silence as a blank cell.
+    empty. Return distinct sentinels: ``None`` deleted vs ``""`` blank—Run All must not treat them the same.
     """
     model = find_form_control_model_by_name(doc, field_name)
     if model is None or not hasattr(model, "Text"):

@@ -9,9 +9,8 @@ from typing import TYPE_CHECKING, Any
 from plugin.calc.address_utils import index_to_column
 from plugin.calc.excel_py_convert.script_bank import CODE_SHEET_PREFIX, resolve_bank_cell_reference
 from plugin.calc.excel_py_convert.to_excel import convert_dag_cells_to_excel
-from plugin.calc.python.cell_discovery import canonicalize_py_formula_for_parse, is_py_formula_text
-from plugin.calc.python.formula_edit import CALC_PYTHON_FN, escape_code_for_formula, parse_python_formula
-from plugin.framework.errors import uno_probe
+from plugin.calc.python.formula_edit import CALC_PYTHON_FN, PyFormula, escape_code_for_formula
+from plugin.framework.errors import uno_read
 
 if TYPE_CHECKING:
     from plugin.calc.excel_py_convert.models import ConversionReport
@@ -65,13 +64,12 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
         bank_sheet = next((sh for name, sh in named_sheets if name.lower() == want), None)
         if bank_sheet is None:
             return None
-        val = uno_probe(lambda: str(bank_sheet.getCellRangeByName(a1).getString() or ""), "")
+        val = uno_read(lambda: str(bank_sheet.getCellRangeByName(a1).getString() or ""), "")
         return val if val and val.strip() else None
 
     # Higher ceiling than sidebar discovery — export must see every PY cell.
     total_scanned = 0
     scan_limit_reached = False
-    unparseable_issues: list[str] = []
 
     for sheet_name, sheet in named_sheets:
         if sheet_name.startswith(CODE_SHEET_PREFIX):
@@ -85,29 +83,26 @@ def convert_uno_doc_to_excel(doc: Any) -> ConversionReport:
                 scan_limit_reached = True
                 break
             total_scanned += 1
-            if not formula or not is_py_formula_text(str(formula)):
+            if not formula:
+                continue
+            parsed = PyFormula.parse(str(formula))
+            if parsed is None:
                 continue
             a1 = f"{index_to_column(col)}{row + 1}"
-            canonical = canonicalize_py_formula_for_parse(str(formula))
-            parts = parse_python_formula(canonical)
-            if parts is None:
-                unparseable_issues.append(f"{sheet_name}!{a1}: =PY formula could not be parsed")
-                continue
-            resolved = resolve_bank_cell_reference(parts.code, _uno_lookup)
+            resolved = resolve_bank_cell_reference(parsed.code, _uno_lookup)
             if resolved is not None and resolved.strip():
-                formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_formula(resolved)}"{parts.data_suffix}'
+                formula_out = f'={CALC_PYTHON_FN}("{escape_code_for_formula(resolved)}"{parsed.data_suffix}'
             else:
-                formula_out = canonical
+                formula_out = str(formula)
             stored = meta_map.get(cell_meta_key(sheet_name, a1))
             triples.append((sheet_name, a1, formula_out, dict(stored) if isinstance(stored, dict) else {}))
         if scan_limit_reached:
             break
 
     report = convert_dag_cells_to_excel(triples)
-    report.issues.extend(unparseable_issues)
     if scan_limit_reached:
         report.issues.append(f"scan limit reached ({FORMULA_SCAN_CAP} formula cells); export aborted")
-    doc_url = uno_probe(lambda: str(doc.getURL() or ""), "")
+    doc_url = uno_read(lambda: str(doc.getURL() or ""), "")
     if doc_url:
         report.source_path = doc_url
     return report

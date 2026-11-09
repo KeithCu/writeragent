@@ -140,11 +140,17 @@ def lancedb_ingest_rows(db_path: str, meta_path: str, model_name: str, rows: lis
     count = len(tbl)
 
     # Write/refresh the shared corpus_meta.json
-    from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta
+    from plugin.embeddings.embeddings_cache import SCHEMA_VERSION, CorpusMeta
 
     meta_p = Path(str(meta_path))
-    ensure_corpus_meta(meta_p, embedding_model=model_name, dim=dim or None, chunk_count=count)
-    write_corpus_meta(meta_p, storage_backend="lancedb", updated_at=str(time.time()))
+    CorpusMeta.load(meta_p).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=model_name,
+        dim=dim or 0,
+        chunk_count=count,
+        storage_backend="lancedb",
+        updated_at=str(time.time()),
+    ).save(meta_p)
 
     return {"indexed": len(rows), "upserted": len(rows), "dim": dim, "storage_backend": "lancedb"}
 
@@ -230,7 +236,7 @@ def lancedb_hybrid_search(db_path: str, query_text: str, k: int, *, model_name: 
 def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: str = "auto", heartbeat_fn: Callable[[dict[str, Any]], None] | None = None, hb: HeartbeatThrottle | None = None) -> dict[str, Any]:
     """LanceDB specific folder maintain."""
 
-    from plugin.embeddings.embeddings_cache import ensure_corpus_meta, write_corpus_meta, lancedb_collection_path
+    from plugin.embeddings.embeddings_cache import SCHEMA_VERSION, CorpusMeta, lancedb_collection_path
     from plugin.embeddings.embeddings_fs import guess_indexable_paths, indexable_chunks_from_path
 
     root = str(listing_root or "").strip()
@@ -239,7 +245,7 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
 
     meta_path = Path(root) / "writeragent_embeddings" / "corpus_meta.json"
 
-    # Do not return early when chunk_count_from_meta > 0. That skipped the
+    # Do not return early when meta chunk_count > 0. That skipped the
     # incremental mtime loop, which skips unchanged files and picks up new
     # or modified ones. row_count > 0 is not "nothing to do".
 
@@ -255,7 +261,7 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     indexed = 0
     upserted_total = 0
 
-    _hb.force({"phase": "start", "mode": mode, "listing_root": root, "files": total})
+    _hb.emit({"phase": "start", "mode": mode, "listing_root": root, "files": total}, immediate=True)
 
     # Probe dim
     dim = 0
@@ -274,34 +280,43 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     if dim <= 0:
         dim = 384
 
-    ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim)
-    write_corpus_meta(meta_path, storage_backend="lancedb")
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        dim=dim,
+        storage_backend="lancedb",
+    ).save(meta_path)
 
     # Purge deleted files
     current_urls = {entry.url for entry in files}
     db_path = str(Path(root) / "writeragent_embeddings" / "corpus.db")
-    from plugin.embeddings.venv.embeddings_sqlite import get_all_indexed_urls, remove_file_from_index
+    from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, ensure_schema, get_all_indexed_urls_in_db, remove_file_from_index_in_db
 
-    indexed_urls = get_all_indexed_urls(Path(db_path))
-
-    tbl = None
+    conn = connect_corpus_db(db_path)
     try:
-        tbl = _open_for_search(coll_path)
-    except Exception:
-        pass
+        ensure_schema(conn, with_fts=False, with_vec=False)
+        indexed_urls = get_all_indexed_urls_in_db(conn)
 
-    for url in indexed_urls:
-        if url in current_urls:
-            continue
-        if tbl is not None:
-            try:
-                tbl.delete(f"doc_url = '{url}'")
-            except Exception:
-                pass
-        remove_file_from_index(Path(db_path), url)
+        tbl = None
+        try:
+            tbl = _open_for_search(coll_path)
+        except Exception:
+            pass
+
+        for url in indexed_urls:
+            if url in current_urls:
+                continue
+            if tbl is not None:
+                try:
+                    tbl.delete(f"doc_url = '{url}'")
+                except Exception:
+                    pass
+            remove_file_from_index_in_db(conn, url)
+    finally:
+        conn.close()
 
     for idx, entry in enumerate(files):
-        _hb.force({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode})
+        _hb.emit({"phase": "extract", "file": entry.name, "index": idx, "total": total, "mode": mode}, immediate=True)
 
         try:
             tbl = _open_for_search(coll_path)
@@ -326,7 +341,7 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
 
         rows = [{"doc_url": c.doc_url, "para_index": c.para_index, "char_start": c.char_start, "char_end": c.char_end, "content_hash": c.content_hash, "text": c.text, "file_mtime": c.file_mtime} for c in chunks]
 
-        _hb.force({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "lancedb"})
+        _hb.emit({"phase": "extract", "file": entry.name, "paragraphs": paragraph_count, "chunks": len(rows), "mode": "lancedb"}, immediate=True)
 
         # For clean per-file refresh, delete previous docs for this doc_url.
         try:
@@ -343,7 +358,7 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
         upserted_total += up
         indexed += len(rows)
 
-        _hb.force({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "lancedb"})
+        _hb.emit({"phase": "index", "file": entry.name, "paragraphs": paragraph_count, "chunks": up, "upserted": up, "mode": "lancedb"}, immediate=True)
 
     try:
         tbl = _open_for_search(coll_path)
@@ -351,9 +366,15 @@ def maintain_folder_lancedb(listing_root: str, embedding_model: str, *, mode: st
     except Exception:
         final_count = indexed
 
-    ensure_corpus_meta(meta_path, embedding_model=embedding_model, dim=dim, chunk_count=final_count)
-    write_corpus_meta(meta_path, storage_backend="lancedb", updated_at=str(time.time()))
+    CorpusMeta.load(meta_path).update(
+        schema_version=SCHEMA_VERSION,
+        embedding_model=embedding_model,
+        dim=dim,
+        chunk_count=final_count,
+        storage_backend="lancedb",
+        updated_at=str(time.time()),
+    ).save(meta_path)
 
-    _hb.force({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total})
+    _hb.emit({"phase": "done", "mode": mode, "indexed_paragraphs": indexed, "upserted": upserted_total}, immediate=True)
 
     return {"mode": "lancedb", "indexed_paragraphs": indexed, "files": total, "upserted": upserted_total, "row_count": final_count, "storage_backend": "lancedb"}

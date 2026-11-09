@@ -1,6 +1,8 @@
 import pytest
 import sys
 from plugin.framework.constants import get_plugin_dir
+from plugin.framework.send_cancellation import SendCancellation
+
 import os
 import json
 import base64
@@ -39,14 +41,14 @@ class TestEndpointImageProvider:
         assert (len(paths)) == (1)
         assert (err) == ("")
         assert (paths[0].endswith(".png"))
-        from plugin.framework.config import get_config_int
+        from plugin.framework.config import get_config
         mock_sync.assert_called_once_with(
             "http://example.com/image.png",
             parse_json=False,
             include_meta=True,
-            timeout=get_config_int("request_timeout"),
+            timeout=get_config("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
-            stop_checker=None,
+            cancel=None,
             status_callback=None,
         )
         os.unlink(paths[0])
@@ -102,14 +104,14 @@ class TestEndpointImageProvider:
         assert (len(paths)) == (1)
         assert (err) == ("")
         assert paths[0].endswith(".png")
-        from plugin.framework.config import get_config_int
+        from plugin.framework.config import get_config
         mock_sync.assert_called_with(
             "http://fallback.com/image.png",
             parse_json=False,
             include_meta=True,
-            timeout=get_config_int("request_timeout"),
+            timeout=get_config("request_timeout"),
             max_bytes=IMAGE_DOWNLOAD_MAX_BYTES,
-            stop_checker=None,
+            cancel=None,
             status_callback=None,
         )
         os.unlink(paths[0])
@@ -270,7 +272,7 @@ class TestEndpointImageProvider:
 
         with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
             with pytest.raises(ToolExecutionError) as exc_info:
-                provider.generate("test prompt", stop_checker=lambda: True)
+                provider.generate("test prompt", cancel=_cancelled_scope())
             assert exc_info.value.code == "USER_STOPPED"
 
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
@@ -292,7 +294,7 @@ class TestEndpointImageProvider:
 
         with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
             with pytest.raises(ToolExecutionError) as exc_info:
-                provider_or.generate("test prompt", stop_checker=lambda: True)
+                provider_or.generate("test prompt", cancel=_cancelled_scope())
             assert exc_info.value.code == "USER_STOPPED"
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
 
@@ -311,7 +313,7 @@ class TestEndpointImageProvider:
         with patch("plugin.writer.images.image_utils.sync_request", side_effect=NetworkError("aborted", code="STOPPED")):
             with caplog.at_level(logging.DEBUG, logger="plugin.writer.images.image_utils"):
                 with pytest.raises(ToolExecutionError) as exc_info:
-                    provider_fb.generate("test prompt", stop_checker=lambda: True)
+                    provider_fb.generate("test prompt", cancel=_cancelled_scope())
                 assert exc_info.value.code == "USER_STOPPED"
         assert not any(r.levelno >= logging.ERROR and r.name == "plugin.writer.images.image_utils" for r in caplog.records)
 
@@ -356,8 +358,7 @@ class TestEndpointImageProvider:
         assert after_files == before_files
 
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_make_image_request_body_includes_image_url_when_source_image(self, mock_init):
+    def test_make_image_request_body_includes_image_url_when_source_image(self):
         """Non-OpenRouter image requests keep OpenAI-style image_url for source_image."""
         config = {"endpoint": "https://api.example.com", "model": "test-model"}
         client = LlmClient(config, MockContext())
@@ -366,8 +367,7 @@ class TestEndpointImageProvider:
         assert ("image_url") in (data)
         assert (data["image_url"]) == ("data:image/png;base64,b64data")
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_openrouter_image_request_uses_input_references_for_edit(self, mock_init):
+    def test_openrouter_image_request_uses_input_references_for_edit(self):
         """OpenRouter /images img2img must send input_references, not top-level image_url.
 
         OpenRouter ignores image_url on POST /api/v1/images (HTTP 200, no input image
@@ -381,8 +381,7 @@ class TestEndpointImageProvider:
         assert ("image_url") not in (data)
         assert (data["input_references"]) == ([{"type": "image_url", "image_url": {"url": "data:image/png;base64,b64data"}}])
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_openai_image_request_uses_images_edits_for_edit(self, mock_init):
+    def test_openai_image_request_uses_images_edits_for_edit(self):
         """Official OpenAI img2img is POST /images/edits JSON images[].image_url, not generations image_url."""
         config = {"endpoint": "https://api.openai.com", "model": "gpt-image-2", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
@@ -406,8 +405,7 @@ class TestEndpointImageProvider:
         assert "response_format" not in data
         assert (data["model"]) == ("gpt-image-2")
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_openai_dalle3_rejects_edit(self, mock_init):
+    def test_openai_dalle3_rejects_edit(self):
         """dall-e-3 is generations-only; refuse rather than replace the selected graphic."""
         config = {"endpoint": "https://api.openai.com", "model": "dall-e-3", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
@@ -418,8 +416,7 @@ class TestEndpointImageProvider:
         assert ("cannot edit") in (str(raised.value).lower())
         assert ("or dall-e-2") not in (str(raised.value).lower())
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_openai_dalle2_rejects_edit(self, mock_init):
+    def test_openai_dalle2_rejects_edit(self):
         """dall-e-2 edits were multipart. This client sends JSON, so refuse."""
         config = {"endpoint": "https://api.openai.com", "model": "dall-e-2", "api_key": "sk-test"}
         client = LlmClient(config, MockContext())
@@ -430,8 +427,7 @@ class TestEndpointImageProvider:
         assert ("cannot edit") in (str(raised.value).lower())
         assert ("or dall-e-2") not in (str(raised.value).lower())
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_together_image_request_uses_reference_images_for_edit(self, mock_init):
+    def test_together_image_request_uses_reference_images_for_edit(self):
         """Together default image models (Flash Image / FLUX.2) want reference_images, not image_url."""
         config = {"endpoint": "https://api.together.xyz", "model": "google/flash-image-2.5"}
         client = LlmClient(config, MockContext())
@@ -459,8 +455,7 @@ class TestEndpointImageProvider:
         assert ("image_url") not in (data)
         assert (data["reference_images"]) == (["data:image/png;base64,b64data"])
 
-    @patch('plugin.framework.client.llm_client.init_logging')
-    def test_together_kontext_image_request_uses_image_url_for_edit(self, mock_init):
+    def test_together_kontext_image_request_uses_image_url_for_edit(self):
         """FLUX.1 Kontext on Together documents a single image_url string."""
         config = {"endpoint": "https://api.together.xyz", "model": "black-forest-labs/FLUX.1-kontext-pro"}
         client = LlmClient(config, MockContext())
@@ -541,7 +536,7 @@ class TestImageService:
         import plugin.writer.images.image_utils as image_utils_mod
 
         sizes = {"image_base_size": 1024, "image_steps": 20}
-        monkeypatch.setattr(image_utils_mod, "get_config_int", lambda key: sizes.get(key, 0))
+        monkeypatch.setattr(image_utils_mod, "get_config", lambda key: sizes.get(key, 0))
         fake_provider = MagicMock()
         fake_provider.generate.return_value = (["/tmp/x.png"], "")
         service = ImageService(MagicMock())
@@ -727,6 +722,14 @@ class TestCanonicalAspectRatio:
         assert (canonical_resolution(0, 512)) is None
 
 
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
+
+
 def test_resolve_generation_size_enums():
     from plugin.writer.images.images import resolve_generation_size
 
@@ -785,7 +788,7 @@ def test_resolve_edit_generation_size_uses_base_size_and_closest_aspect():
 
     # 16:9 long edge stays 1024 (create would grow the long side to ~1792 / 2K).
     assert resolve_edit_generation_size(1024, 1920, 1080) == (1024, 576, "16:9")
-    # The 135mm frame is ~510px. That used to become resolution "512".
+    # The 135mm frame is ~510px; resolution must stay on the 16:9 long-edge bucket, not "512".
     assert resolve_edit_generation_size(1024, 510, 287) == (1024, 576, "16:9")
     # 1:2 is outside the 7% window of 9:16. Edit still snaps instead of sending raw WxH.
     assert resolve_edit_generation_size(1024, 1000, 2000) == (576, 1024, "9:16")
@@ -853,9 +856,8 @@ def test_save_b64_rejects_oversized(monkeypatch, tmp_path):
 
     provider = EndpointImageProvider({"model": "test"}, None)
     monkeypatch.setattr("plugin.writer.images.image_utils.IMAGE_DOWNLOAD_MAX_BYTES", 100)
-    # Isolate temp dir to tmp_path: previously, checking the shared system temp dir
-    # caused flakiness in parallel test runs (pytest -n) because concurrent tests
-    # on other xdist workers could create wa-img-* files in /tmp during execution.
+    # Isolate temp dir to tmp_path: globbing the shared system /tmp is flaky under pytest -n
+    # because other xdist workers can create wa-img-* files there during this test.
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
     # 101 bytes raw base64 encoded

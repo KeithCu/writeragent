@@ -14,7 +14,6 @@ See docs/embeddings.md and docs/enabling_numpy_in_libreoffice.md.
 from __future__ import annotations
 
 import importlib
-import json
 import logging
 from pathlib import Path
 from collections.abc import Callable
@@ -24,7 +23,7 @@ log = logging.getLogger(__name__)
 
 from plugin.embeddings.venv.langdetect_rpc import LANGDETECT_VERSION
 
-EMBEDDINGS_VENV_PIP_INSTALL = f"pip install sentence-transformers numpy sqlite-vec pysqlite3 langgraph langchain-core langchain-text-splitters envwrap odfpy pandas openpyxl xlrd python-docx llama-index-core zvec icu4py defusedxml langdetect=={LANGDETECT_VERSION}"
+EMBEDDINGS_VENV_PIP_INSTALL = f"pip install sentence-transformers numpy sqlite-vec pysqlite3 langgraph langchain-core langchain-text-splitters envwrap psutil odfpy pandas openpyxl xlrd python-docx llama-index-core zvec icu4py defusedxml langdetect=={LANGDETECT_VERSION}"
 
 _MODEL_CACHE: dict[str, Any] = {}
 
@@ -130,18 +129,18 @@ def embed_texts(model_name: str, texts: list[str], *, normalize: bool = True, en
 
 def index_paragraphs(db_path: str, meta_path: str, model_name: str, rows: list[dict[str, Any]], *, build_fts: bool = False, build_vectors: bool = True, search_mode: str = "hybrid", heartbeat_fn: Any | None = None) -> dict[str, Any]:
     """Batch-embed *rows* and persist into corpus.db via the LangGraph or LlamaIndex ingest pipeline."""
-    if str(search_mode).strip().lower() == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
 
         return llama_index_ingest(db_path, meta_path, model_name, rows, delete_keys=[], build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
 
-    if str(search_mode).strip().lower() == "zvec":
+    if search_mode == "zvec":
         from plugin.embeddings.venv.embeddings_zvec import zvec_ingest_rows
 
         # For zvec the 'db_path' param from caller is actually the collection path when mode=zvec
         return zvec_ingest_rows(db_path, meta_path, model_name, rows, build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
 
-    if str(search_mode).strip().lower() == "lancedb":
+    if search_mode == "lancedb":
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_ingest_rows
 
         return lancedb_ingest_rows(db_path, meta_path, model_name, rows, build_fts=build_fts, build_vectors=build_vectors, heartbeat_fn=heartbeat_fn)
@@ -153,21 +152,21 @@ def index_paragraphs(db_path: str, meta_path: str, model_name: str, rows: list[d
 
 def delete_paragraphs(db_path: str, meta_path: str, keys: list[dict[str, Any]], *, model_name: str = "", build_fts: bool = False, build_vectors: bool = True, search_mode: str = "hybrid") -> dict[str, Any]:
     """Remove paragraph rows from corpus.db."""
-    if str(search_mode).strip().lower() == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_ingest
 
         # In llama_index_ingest, we pass keys to delete_keys
         llama_index_ingest(db_path, meta_path, model_name, [], delete_keys=keys, build_fts=build_fts, build_vectors=build_vectors)
         return {"deleted": len(keys)}
 
-    if str(search_mode).strip().lower() == "zvec":
+    if search_mode == "zvec":
         from plugin.embeddings.venv.embeddings_zvec import zvec_delete_keys
 
         # db_path here is the zvec collection path in zvec mode
         n = zvec_delete_keys(db_path, keys)
         return {"deleted": n}
 
-    if str(search_mode).strip().lower() == "lancedb":
+    if search_mode == "lancedb":
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_delete_keys
 
         n = lancedb_delete_keys(db_path, keys)
@@ -188,20 +187,9 @@ def delete_paragraphs(db_path: str, meta_path: str, keys: list[dict[str, Any]], 
         conn.close()
 
     meta_file = Path(str(meta_path))
-    loaded: Any
-    if meta_file.is_file():
-        try:
-            loaded = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            loaded = {}
-    else:
-        loaded = {}
-    # A JSON list or string has no fields to merge. Assigning chunk_count on
-    # it raises TypeError and leaves the non-object file in place.
-    data: dict[str, Any] = loaded if isinstance(loaded, dict) else {}
-    data["chunk_count"] = str(count)
-    meta_file.parent.mkdir(parents=True, exist_ok=True)
-    meta_file.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
+    from plugin.embeddings.embeddings_cache import CorpusMeta
+
+    CorpusMeta.load(meta_file).update(chunk_count=count).save(meta_file)
     return {"deleted": deleted}
 
 
@@ -219,16 +207,16 @@ def _is_garbage_hit(hit: dict[str, Any]) -> bool:
 
 def knn_search(db_path: str, query_text: str, k: int, *, model_name: str, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None, search_mode: str = "embeddings") -> dict[str, Any]:
     """Semantic search via the LangGraph or LlamaIndex search pipeline."""
-    if str(search_mode).strip().lower() == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_knn_search
 
         res = llama_index_knn_search(db_path, query_text, k, model_name=model_name, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-    elif str(search_mode).strip().lower() == "zvec":
+    elif search_mode == "zvec":
         from plugin.embeddings.venv.embeddings_zvec import zvec_knn_search
 
         # db_path is the zvec collection path when called in zvec mode
         res = zvec_knn_search(db_path, query_text, k, model_name=model_name, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-    elif str(search_mode).strip().lower() == "lancedb":
+    elif search_mode == "lancedb":
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_knn_search
 
         res = lancedb_knn_search(db_path, query_text, k, model_name=model_name, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
@@ -244,15 +232,15 @@ def knn_search(db_path: str, query_text: str, k: int, *, model_name: str, doc_ur
 
 def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, near_slop: int = 10, doc_url_filter: str | None = None, use_mmr: bool = True, rerank_model: str | None = None, search_mode: str = "hybrid") -> dict[str, Any]:
     """Hybrid FTS + vector search with reciprocal rank fusion."""
-    if str(search_mode).strip().lower() == "llama_index":
+    if search_mode == "llama_index":
         from plugin.embeddings.venv.embeddings_llama_index import llama_index_hybrid_search
 
         res = llama_index_hybrid_search(db_path, query_text, k, model_name=model_name, near_slop=near_slop, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-    elif str(search_mode).strip().lower() == "zvec":
+    elif search_mode == "zvec":
         from plugin.embeddings.venv.embeddings_zvec import zvec_hybrid_search
 
         res = zvec_hybrid_search(db_path, query_text, k, model_name=model_name, near_slop=near_slop, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
-    elif str(search_mode).strip().lower() == "lancedb":
+    elif search_mode == "lancedb":
         from plugin.embeddings.venv.embeddings_lancedb import lancedb_hybrid_search
 
         res = lancedb_hybrid_search(db_path, query_text, k, model_name=model_name, near_slop=near_slop, doc_url_filter=doc_url_filter, use_mmr=use_mmr, rerank_model=rerank_model)
@@ -268,19 +256,13 @@ def hybrid_search(db_path: str, query_text: str, k: int, *, model_name: str, nea
 
 def collection_stats(db_path: str, meta_path: str, *, model_name: str = "") -> dict[str, Any]:
     """Return chunk count and corpus metadata for host empty/stale checks."""
+    from plugin.embeddings.embeddings_cache import CorpusMeta
     from plugin.embeddings.venv.embeddings_sqlite import connect_corpus_db, corpus_chunk_count
 
     meta_file = Path(str(meta_path))
-    meta: dict[str, str] = {}
-    if meta_file.is_file():
-        try:
-            raw = json.loads(meta_file.read_text(encoding="utf-8"))
-            if isinstance(raw, dict):
-                meta = {str(k): str(v) for k, v in raw.items()}
-        except (OSError, json.JSONDecodeError):
-            log.debug("collection_stats could not read %s", meta_path, exc_info=True)
-
-    count = int(meta.get("chunk_count", "0") or 0)
+    meta_obj = CorpusMeta.load(meta_file)
+    meta = meta_obj.to_dict() if meta_obj.is_valid else {}
+    count = meta_obj.chunk_count
     db = Path(str(db_path))
     # zvec mode may pass a directory (the collection path) instead of corpus.db file.
     # In that case, trust the meta count written by the zvec maintain path.

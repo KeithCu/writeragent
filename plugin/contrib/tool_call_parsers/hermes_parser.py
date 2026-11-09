@@ -10,7 +10,7 @@ import re
 import uuid
 from typing import List
 
-from plugin.framework.errors import safe_json_loads
+from plugin.framework.json_utils import safe_json_loads
 from plugin.contrib.tool_call_parsers.openai_compat import ChatCompletionMessageToolCall, Function
 from plugin.contrib.tool_call_parsers import ParseResult, ToolCallParser
 

@@ -21,6 +21,173 @@ from tests.harness.strip_bundle import asserts_stripped, requires_asserts  # noq
 
 
 
+_GC_POLICY_INSTALL_MODULES = frozenset(
+    {
+        "tests.framework.test_gc_policy",
+    }
+)
+
+
+@pytest.fixture
+def gc_policy_restored():
+    """Restore gc_policy module state and gc.callbacks after gc_policy unit tests."""
+    import gc as gc_mod
+
+    from plugin.framework import gc_policy
+
+    was_enabled = gc_mod.isenabled()
+    callbacks = list(gc_mod.callbacks)
+    thresholds = gc_mod.get_threshold()
+    main_ident = gc_policy._main_ident
+    posted_at = gc_policy._posted_at
+    last_full = gc_policy._last_full
+    off_main_count = gc_policy._off_main_count
+    off_main_samples = list(gc_policy._off_main_samples)
+    refused = gc_policy._refused
+    reenabled = gc_policy._reenabled
+    pl_key = "pythonloader"
+    had_pythonloader = pl_key in sys.modules
+    saved_pythonloader = sys.modules.get(pl_key)
+    if not had_pythonloader:
+        sys.modules[pl_key] = types.ModuleType(pl_key)
+    gc_mod.enable()
+    try:
+        yield
+    finally:
+        gc_policy._main_ident = main_ident
+        gc_policy._posted_at = posted_at
+        gc_policy._last_full = last_full
+        gc_policy._off_main_count = off_main_count
+        gc_policy._off_main_samples[:] = off_main_samples
+        gc_policy._refused = refused
+        gc_policy._reenabled = reenabled
+        if had_pythonloader:
+            if saved_pythonloader is not None:
+                sys.modules[pl_key] = saved_pythonloader
+        else:
+            sys.modules.pop(pl_key, None)
+        gc_mod.callbacks[:] = callbacks
+        gc_mod.set_threshold(*thresholds)
+        if was_enabled:
+            gc_mod.enable()
+        else:
+            gc_mod.disable()
+
+
+@pytest.fixture(autouse=True)
+def _stub_gc_policy_install_for_headless_tests(request, monkeypatch):
+    """Bootstrap unit tests must not leave GC disabled for the rest of the xdist worker."""
+    from plugin.framework import gc_policy
+
+    if not hasattr(gc_policy, "_real_install"):
+        gc_policy._real_install = gc_policy.install
+
+    mod_name = getattr(request.module, "__name__", "")
+    if mod_name in _GC_POLICY_INSTALL_MODULES:
+        yield
+        return
+
+    def _noop_install(_executor: Any) -> bool:
+        return False
+
+    monkeypatch.setattr(gc_policy, "install", _noop_install)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _reset_main_thread_policy_for_tests():
+    """Ensure MainThread policy and designated thread do not leak across tests."""
+    from plugin.framework.queue_executor import Policy, main
+
+    try:
+        yield
+    finally:
+        main.install(Policy.production, designated=None, poke=None)
+
+
+@pytest.fixture(autouse=True)
+def _writeragent_bootstrap_isolation(request):
+    """Save/restore bootstrap flag and app registries; bind WriterAgent for headless pytest."""
+    mod_file = getattr(request.module, "__file__", "") or ""
+    if mod_file.endswith("_uno.py"):
+        yield
+        return
+
+    import plugin.app as app_module
+    import plugin.bootstrap as bootstrap_mod
+
+    prev_initialized = bootstrap_mod.bootstrap_initialized()
+    prev_err = bootstrap_mod.bootstrap_error()
+    prev_services = app_module._services
+    prev_tools = app_module._tools
+    prev_modules = list(app_module._modules)
+    prev_listener = app_module._terminate_listener
+    prev_finish = app_module._finish
+    prev_prompt_hooks = app_module._prompt_hooks
+
+    from plugin.main import bind
+
+    bind()
+
+    try:
+        yield
+    finally:
+        if prev_initialized:
+            bootstrap_mod.mark_initialized()
+        else:
+            bootstrap_mod.mark_uninitialized()
+        if prev_err is not None:
+            bootstrap_mod.set_bootstrap_error(prev_err)
+        else:
+            bootstrap_mod.clear_bootstrap_error()
+        app_module._services = prev_services
+        app_module._tools = prev_tools
+        app_module._modules[:] = prev_modules
+        app_module._terminate_listener = prev_listener
+        app_module._finish = prev_finish
+        app_module._prompt_hooks = prev_prompt_hooks
+
+
+@pytest.fixture(autouse=True)
+def _register_prompt_hooks_for_tests():
+    """Register prompt normalizers so config validation matches runtime."""
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _install_sandbox_alias_authorizer_for_tests():
+    from plugin.scripting.sandbox import install_alias_authorizer
+
+    install_alias_authorizer()
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _discard_lpe_thread_pool_timeout_between_tests():
+    """Windows xdist: orphaned @timeout thread pools blocked workers until pytest-timeout."""
+    try:
+        import plugin.contrib.smolagents.local_python_executor as lpe
+    except ImportError:
+        yield
+        return
+
+    lpe.discard_thread_pool_timeout()
+    yield
+    lpe.discard_thread_pool_timeout()
+
+
+def pytest_runtest_teardown(item, nextitem) -> None:
+    """Discard orphaned LPE timeout pools even if a fixture setup failed mid-test."""
+    try:
+        import plugin.contrib.smolagents.local_python_executor as lpe
+    except ImportError:
+        return
+    lpe.discard_thread_pool_timeout()
+
+
 @pytest.fixture(autouse=True)
 def _drain_scheduler_override_for_tests():
     from plugin.framework.async_stream import set_drain_scheduler_override
@@ -51,12 +218,9 @@ for _worker_var in _WORKER_ENV_VARS:
 def _isolate_worker_env_vars():
     """Start every test as the LibreOffice host, not a compute worker.
 
-    What was wrong: compute_service/formula_worker.py and vision.py set these
-    env vars at import time. Test modules import them during collection, so the
-    whole pytest (xdist) process looked like a worker and fail-closed guards
-    such as named_scripts._rpc_named raised in unrelated tests.
-    Why this fix: clear before each test (tests that need the markers set them
-    explicitly) and clean up afterwards so worker modes never leak to other tests.
+    Worker env markers set at import time make the whole xdist process look like
+    a compute worker and trip fail-closed guards in unrelated tests. Clear them
+    before each test and after teardown; tests that need worker mode set vars explicitly.
     """
     for k in _WORKER_ENV_VARS:
         os.environ.pop(k, None)
@@ -176,6 +340,18 @@ def _reset_python_addin_cache():
 
 
 @pytest.fixture(autouse=True)
+def _cleanup_history_keepers():
+    """Ensure SQLite history WAL keeper connections do not leak across tests."""
+    from plugin.chatbot.history_db import reset_history_keepers_for_tests
+
+    reset_history_keepers_for_tests()
+    try:
+        yield
+    finally:
+        reset_history_keepers_for_tests()
+
+
+@pytest.fixture(autouse=True)
 def _ensure_writeragent_logger_propagates():
     """Ensure writeragent log records propagate to root logger for caplog fixtures."""
     import logging
@@ -245,6 +421,19 @@ setattr(awt, "FontWeight", MockBase)
 setattr(awt, "FontSlant", MockBase)
 setattr(awt, "XMouseListener", MockBase)
 
+
+class MockAttributeData:
+    """com.sun.star.xml.AttributeData: one entry of a shape's UserDefinedAttributes."""
+
+    def __init__(self):
+        self.Namespace = ""
+        self.Type = ""
+        self.Value = ""
+
+
+xml_mod = _create_mock_module("com.sun.star.xml")
+setattr(xml_mod, "AttributeData", MockAttributeData)
+
 text = _create_mock_module("com.sun.star.text")
 sys.modules["com.sun.star.text"].__path__ = []
 sys.modules["com.sun.star.text.TextContentAnchorType"] = _create_mock_module("com.sun.star.text.TextContentAnchorType")
@@ -307,7 +496,7 @@ setattr(table, "CellContentType", MockCellContentType)
 lang = _create_mock_module("com.sun.star.lang")
 
 util = _create_mock_module("com.sun.star.util")
-setattr(util, "XModifyListener", MockBase)  # review_toolbar._ReviewModifyListener subclasses it
+setattr(util, "XModifyListener", MockBase)  # ReviewModifyListener in review_view_attachment subclasses it
 
 
 class MockXEventListener:
@@ -400,8 +589,8 @@ setattr(frame, "XDispatch", MockXDispatch)
 setattr(frame, "XDispatchProvider", MockXDispatchProvider)
 setattr(frame, "XTerminateListener", MockBase)
 
-# Shells and attributes that setup_uno_mocks() used to install per test module.
-# They live here so a module-level setup_uno_mocks() call is a no-op under pytest.
+# Shared UNO mock modules loaded once for the session. Module-level
+# setup_uno_mocks() is a no-op when these shells are already present.
 _create_mock_module("com.sun.star.document")
 _create_mock_module("com.sun.star.style")
 _create_mock_module("com.sun.star.style.BreakType")
@@ -567,7 +756,7 @@ def _setup_grammar_persistence_test_env():
                     h.close()
                 except Exception:
                     pass
-        setattr(sys, "_writeragent_debug_file_handler", None)
+        logging_mod._debug_slot()["handler"] = None
 
         # Clean up
         grammar_persistence.grammar_registry.doc_persistence_instances.clear()
@@ -819,7 +1008,7 @@ def make_mock_send_button_listener(
     if ctx is None:
         ctx = MagicMock()
 
-    with patch("plugin.framework.config.get_config_str", return_value=""), \
+    with patch("plugin.framework.config.get_config", return_value=""), \
          patch("plugin.scripting.audio_recorder_service.is_audio_recording_configured", return_value=False), \
          patch("plugin.chatbot.panel.is_audio_recording_supported", return_value=True), \
          patch.object(PanelEventsController, "_subscribe_mcp_events", lambda self: None):

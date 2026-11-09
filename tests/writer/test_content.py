@@ -14,7 +14,7 @@ def _edit_ctx():
     ctx = MagicMock()
     ctx.doc.getUndoManager.return_value.isLocked.return_value = False
     # dry_run sweeps shapes/comments; bare MagicMock enumerations never terminate.
-    # Outline-hyperlink preview also walks portions; that stop is `_enum_has_more`
+    # Outline-hyperlink preview also walks portions; that stop is `enum_has_more`
     # (UNO True only), not this stub.
     ctx.doc.getDrawPage.return_value = []
     ctx.doc.getTextFields.return_value.createEnumeration.return_value.hasMoreElements.return_value = False
@@ -33,10 +33,10 @@ def test_dry_run_reports_matches_without_mutating():
     with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(ctx, content=["x"], target="search", old_content="clause 3.2", dry_run=True)
     assert res["status"] == "ok" and res["dry_run"] is True and res["count"] == 2
-    assert res["matches"][0]["location"] == "body"
+    assert res["replaceable"][0]["location"] == "body"
     # No session/undo context opened for a dry run.
     ctx.doc.getUndoManager.assert_not_called()
 
@@ -68,11 +68,11 @@ def test_dry_run_marshals_to_main_thread(monkeypatch):
         # Mock executing the lambda and returning a tuple with result
         return fn()
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", fake_execute), \
+    with patch("plugin.framework.queue_executor.main.call", fake_execute), \
          patch("plugin.writer.search.find_all_ranges", return_value=[r1]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(ctx, content=["x"], target="search", old_content="clause 3.2", dry_run=True)
 
     assert res["status"] == "ok" and res["dry_run"] is True and res["count"] == 1
@@ -91,7 +91,7 @@ def test_dry_run_honors_regex_via_the_same_matcher_as_the_edit():
     with patch("plugin.writer.search.find_ranges_regex_case", return_value=[r]) as frc, \
          patch("plugin.writer.search.find_all_ranges") as far, \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
-         patch("plugin.writer.format.content_has_markup", return_value=False):
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(
             ctx, content=["x"], target="search", old_content=r"brav. charl.e", dry_run=True, regex=True)
     assert res["status"] == "ok" and res["count"] == 1
@@ -105,7 +105,7 @@ def test_dry_run_invalid_regex():
 
     ctx = _edit_ctx()
     ctx.services.get.return_value = MagicMock()
-    with patch("plugin.writer.format.content_has_markup", return_value=False):
+    with patch("plugin.writer.html_import.content_has_markup", return_value=False):
         res = ApplyDocumentContent().execute(
             ctx, content=["x"], target="search", old_content="([a-", dry_run=True, regex=True)
     assert res["status"] == "error" and res["code"] == "INVALID_REGEX"
@@ -135,7 +135,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
     styles, result carries inserted=true/position and NO replaced_count."""
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
@@ -164,7 +164,7 @@ def test_position_after_inserts_at_match_edge_without_replacing():
 def test_position_before_inserts_at_match_start():
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found = MagicMock()
@@ -201,7 +201,7 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
     """#59: a block imported at the match end split "... EM DOBRO" mid-paragraph and glued the
     first block onto it. It must go into a fresh paragraph after the matched one, and the empty
     paragraph the import leaves behind must be removed."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -226,7 +226,7 @@ def test_position_after_block_opens_a_paragraph_after_the_matched_one():
 
 
 def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=True, leftover="texto do usuario")
@@ -242,7 +242,7 @@ def test_position_after_block_keeps_a_non_empty_paragraph_after_import():
 
 def test_position_after_table_preserves_table():
     """Tip: stepping left from a paragraph following a table spans into the table; don't delete it."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -266,7 +266,7 @@ def test_position_after_table_preserves_table():
 
 def test_table_insert_reports_failure_when_no_table_produced():
     """Tip: table insert must honestly report failure if table count did not increase."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -288,7 +288,7 @@ def test_table_insert_reports_failure_when_no_table_produced():
 
 
 def test_position_before_block_goes_to_paragraph_start_without_a_break():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -306,7 +306,7 @@ def test_position_before_block_goes_to_paragraph_start_without_a_break():
 
 def test_position_before_inline_stays_at_the_exact_match_edge():
     """#59: plain text went through <p> wrapping and split the paragraph around the word."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -327,7 +327,7 @@ def test_position_before_inline_stays_at_the_exact_match_edge():
 def test_position_after_plain_text_with_line_breaks_is_block(content):
     """Plain text with line breaks on the inline path went in as manual line breaks glued onto
     the matched paragraph ("inteiro.Novo A\\n\\nNovo B")."""
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, _cursor = _next_to_match_found(at_paragraph_edge=True)
@@ -346,7 +346,7 @@ def test_position_after_plain_text_with_line_breaks_is_block(content):
 def test_position_after_rejects_math_and_table_cells():
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = MagicMock()
@@ -411,7 +411,7 @@ def test_apply_document_content_validate_accepts_string_or_array():
 def test_truncated_flag_on_get_document_content():
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_export as format_support
     from plugin.writer.get_document_content import GetDocumentContent
 
     ctx = MagicMock()
@@ -420,16 +420,20 @@ def test_truncated_flag_on_get_document_content():
                       return_value="<p>short</p>\n\n[... truncated ...]"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
     assert res.get("truncated") is True
+    assert "scope='range'" in res.get("hint", "")
+    assert "document_length" in res.get("hint", "")
+    assert "next_range" not in res
     with patch.object(format_support, "document_to_content", return_value="<p>all</p>"):
         res = GetDocumentContent().execute(ctx, max_chars=10)
     assert "truncated" not in res
+    assert "hint" not in res
 
 
 def test_get_document_content_surfaces_portion_walk_warning():
     """Range/selection paint that hits _COPY_PORTION_LIMIT must not look complete."""
     from unittest.mock import patch
 
-    from plugin.writer import format as format_support
+    from plugin.writer import html_export as format_support
     from plugin.writer.get_document_content import GetDocumentContent
 
     ctx = MagicMock()
@@ -465,6 +469,8 @@ def test_get_document_content_surfaces_tracked_changes():
     rl2 = MagicMock()
     rl2.getPropertyValue.side_effect = lambda prop: "Delete" if prop == "RedlineType" else None
     enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [rl1, rl2]
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
@@ -474,7 +480,7 @@ def test_get_document_content_surfaces_tracked_changes():
     ctx.ctx = MagicMock()
     ctx.services.get.return_value = MagicMock()
     with patch("plugin.writer.tracking._redline_text", side_effect=["novo", "velho"]), \
-         patch("plugin.writer.format.document_to_content", return_value="body"):
+         patch("plugin.writer.html_export.document_to_content", return_value="body"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
     assert res["tracked_changes"] == [
@@ -585,7 +591,7 @@ def test_grow_over_edge_space_is_a_no_op_without_edges():
 
 
 def test_all_matches_hoists_plain_text_conversion():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -597,7 +603,7 @@ def test_all_matches_hoists_plain_text_conversion():
          patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
          patch.object(format_support, "plain_text_if_markup", return_value="hi") as mock_html_plain, \
-         patch.object(format_support, "replace_single_range_with_content"):
+         patch.object(format_support, "replace_single_range_with_content", return_value=None):
         cap_links.return_value.links = []
         cap_links.return_value.preserve_url = None
         res = ApplyDocumentContent().execute(
@@ -608,6 +614,73 @@ def test_all_matches_hoists_plain_text_conversion():
     # plain_text_if_markup is called once for old_content and hoisted once for content (not per-match)
     assert mock_html_plain.call_count == 2
     assert mock_html_plain.call_args_list[1][0][0] == "<b>hi</b>"
+
+
+def test_search_replace_attaches_style_note_warning():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_import import _LO_STYLE_PARTIAL_MATCH_NOTE
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    found.getString.return_value = "old"
+
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "replace_single_range_with_content", return_value=_LO_STYLE_PARTIAL_MATCH_NOTE):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old"
+        )
+    assert res["status"] == "ok"
+    assert "warning" in res
+    assert "apply_style(target='search', old_content=...)" in res["warning"]
+    assert "apply_style(target='search', old_content=...)" in res["message"]
+
+    # When replace_single_range_with_content returns None, warning is absent
+    with patch("plugin.writer.search.find_first_range", return_value=found), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "replace_single_range_with_content", return_value=None):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res_no_warn = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old"
+        )
+    assert res_no_warn["status"] == "ok"
+    assert "warning" not in res_no_warn
+
+
+def test_all_matches_reports_skip_count_in_warning():
+    from plugin.writer import html_import as format_support
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.html_import import _LO_STYLE_PARTIAL_MATCH_NOTE
+
+    ctx = _edit_ctx()
+    r1, r2 = MagicMock(), MagicMock()
+    r1.getString.return_value = "old"
+    r2.getString.return_value = "old"
+
+    # First match styled (None), second match partial (_LO_STYLE_PARTIAL_MATCH_NOTE)
+    side_effects = [None, _LO_STYLE_PARTIAL_MATCH_NOTE]
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[r1, r2]), \
+         patch("plugin.writer.apply_document_content.collapsed_anchor", return_value=None), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks") as cap_links, \
+         patch.object(format_support, "plain_text_if_markup", return_value="new"), \
+         patch.object(format_support, "replace_single_range_with_content", side_effect=side_effects):
+        cap_links.return_value.links = []
+        cap_links.return_value.preserve_url = None
+        res = ApplyDocumentContent().execute(
+            ctx, content='<p data-lo-style="Heading2">new</p>', target="search", old_content="old", all_matches=True
+        )
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 2
+    assert "warning" in res
+    assert "data-lo-style was not applied to 1 of 2 matches because they do not cover whole paragraphs" in res["warning"]
+    assert "data-lo-style was not applied to 1 of 2 matches because they do not cover whole paragraphs" in res["message"]
 
 
 def test_edge_spaces_with_use_preserve():
@@ -637,7 +710,7 @@ def test_edge_spaces_with_use_preserve():
 
 
 def test_position_after_string_with_backslash_is_not_block():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -656,7 +729,7 @@ def test_position_after_string_with_backslash_is_not_block():
 
 
 def test_target_end_entity_decoded_proposed_preview():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
     from plugin.writer.edit_review import EditReviewSession
 
@@ -673,6 +746,7 @@ def test_target_end_entity_decoded_proposed_preview():
 
 
 def test_shape_edit_leave_undo_context_failure_logged():
+    from unittest.mock import ANY
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
@@ -686,20 +760,20 @@ def test_shape_edit_leave_undo_context_failure_logged():
          patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
          patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
          patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=True), \
-         patch("plugin.writer.apply_document_content.log.exception") as mock_log_exc:
+         patch("plugin.doc.compound_undo.log.exception") as mock_log_exc:
         res = ApplyDocumentContent().execute(
             ctx, target="search", old_content="foo", content="bar"
         )
     assert res["status"] == "ok"
     assert res["replaced_count"] == 1
-    mock_log_exc.assert_called_once_with("apply_document_content: shape edit leaveUndoContext failed")
+    mock_log_exc.assert_called_once_with("leaveUndoContext failed (title=%r)", ANY)
 
 
 def test_content_list_item_must_be_string():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
-    with patch("plugin.writer.format.insert_content_at_position") as mock_insert:
+    with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
         res = ApplyDocumentContent().execute(ctx, content=[None], target="end")
     assert res["status"] == "error"
     assert "content list items must be strings." in res["message"]
@@ -721,7 +795,7 @@ def test_empty_insert_at_end_beginning_selection(target, content):
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
-    with patch("plugin.writer.format.insert_content_at_position") as mock_insert:
+    with patch("plugin.writer.html_import.insert_content_at_position") as mock_insert:
         res = ApplyDocumentContent().execute(ctx, content=content, target=target)
     assert res["status"] == "error"
     assert "content is empty; nothing was inserted." in res["message"]
@@ -732,7 +806,8 @@ def test_empty_full_document_is_not_the_insert_error():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
-    with patch("plugin.writer.format.replace_full_document") as mock_replace:
+    with patch("plugin.writer.html_import.replace_full_document") as mock_replace:
+        mock_replace.return_value = []
         res = ApplyDocumentContent().execute(ctx, content="", target="full_document")
     assert res["status"] == "ok"
     assert "content is empty; nothing was inserted." not in (res.get("message") or "")
@@ -743,13 +818,7 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     ctx = _edit_ctx()
-    fake_worker = MagicMock()
     session_mock = MagicMock()
-
-    def fake_execute_edit(_ctx, session_sink=None, **kwargs):
-        if session_sink is not None:
-            session_sink.append(session_mock)
-        return {"status": "ok", "message": "Inserted content at end."}, None
 
     call_count = [0]
 
@@ -759,40 +828,212 @@ def test_worker_cleanup_timeout_does_not_mask_the_edit():
             return fn()
         raise TimeoutError("cleanup timed out")
 
-    with patch("plugin.writer.apply_document_content.threading.current_thread", return_value=fake_worker), \
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
          patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
-         patch.object(ApplyDocumentContent, "_execute_edit", side_effect=fake_execute_edit), \
-         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=fake_execute_on_main):
+         patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session_mock), \
+         patch.object(
+             ApplyDocumentContent,
+             "_dispatch_edit",
+             return_value={"status": "ok", "message": "Inserted content at end."},
+         ), \
+         patch("plugin.framework.queue_executor.main.call", side_effect=fake_execute_on_main):
         res = ApplyDocumentContent().execute(ctx, content="test", target="end")
 
     assert res["status"] == "ok"
     assert res["message"].startswith("Inserted content at end.")
+    assert call_count[0] == 2
+
+
+def test_apply_document_content_releases_session_on_mid_edit_failure():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    session_mock = MagicMock()
+
+    tool = ApplyDocumentContent()
+    with patch("plugin.writer.apply_document_content.EditReviewSession", return_value=session_mock), \
+         patch.object(
+             ApplyDocumentContent,
+             "_dispatch_edit",
+             side_effect=RuntimeError("boom mid-edit"),
+         ), \
+         patch.object(tool, "_release_review_session") as mock_release:
+        with pytest.raises(RuntimeError, match="boom mid-edit"):
+            tool.execute(ctx, content="test", target="end")
+        mock_release.assert_called_once_with(session_mock)
+
+
+def test_param_errors_do_not_construct_review_session():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    with patch("plugin.writer.apply_document_content.EditReviewSession") as session_cls:
+        tool = ApplyDocumentContent()
+        res = tool.execute(ctx, content=[None], target="end")
+        assert res["status"] == "error"
+        session_cls.assert_not_called()
+
+        res = tool.execute(
+            ctx,
+            content="x",
+            target="search",
+            old_content="([a-",
+            regex=True,
+        )
+        assert res.get("code") == "INVALID_REGEX"
+        session_cls.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "expected_method,execute_kwargs",
+    [
+        ("_edit_full_document", {"target": "full_document", "content": "body"}),
+        ("_edit_insert_at", {"target": "end", "content": "tail"}),
+        ("_edit_insert_at", {"target": "beginning", "content": "head"}),
+        ("_edit_selection", {"target": "selection", "content": "sel"}),
+        ("_edit_search", {"target": "search", "content": "new", "old_content": "old"}),
+        # Unknown target strings still dispatch through the search body (legacy callers).
+        ("_edit_search", {"target": "legacy", "content": "new", "old_content": "old"}),
+    ],
+    ids=["full_document", "end", "beginning", "selection", "search", "unknown_target"],
+)
+def test_apply_document_content_routes_targets_to_edit_helpers(expected_method, execute_kwargs):
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    routed: list[str] = []
+
+    def _route_stub(*args, **kwargs):
+        routed.append(expected_method)
+        return {"status": "ok", "message": "stub"}
+
+    def _forbidden(name):
+        def _fail(*args, **kwargs):
+            raise AssertionError(f"{name} should not run")
+        return _fail
+
+    tool = ApplyDocumentContent()
+    patches = {
+        "_edit_full_document": patch.object(tool, "_edit_full_document"),
+        "_edit_insert_at": patch.object(tool, "_edit_insert_at"),
+        "_edit_selection": patch.object(tool, "_edit_selection"),
+        "_edit_search": patch.object(tool, "_edit_search"),
+    }
+    with patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.apply_document_content.EditReviewSession", return_value=MagicMock()):
+        for name, patcher in patches.items():
+            if name == expected_method:
+                patcher.start().side_effect = _route_stub
+            else:
+                patcher.start().side_effect = _forbidden(name)
+        try:
+            res = tool.execute(ctx, **execute_kwargs)
+        finally:
+            for patcher in patches.values():
+                patcher.stop()
+    assert res["status"] == "ok"
+    assert routed == [expected_method]
+
+
+def test_outline_undo_reraises_disposal_on_mutate_error():
+    """commit_or_rollback re-raises disposal today; this pins _outline_undo if mutate_error is set."""
+    from plugin.doc.compound_undo import UndoOutcome
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc = MagicMock()
+    session = MagicMock()
+    session.changes = []
+    disposed = type("DisposedException", (Exception,), {})("gone")
+    outcome = UndoOutcome(rolled_back=True, mutate_error=disposed)
+
+    with patch("plugin.writer.apply_document_content.commit_or_rollback", return_value=outcome):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent()._outline_undo(doc, session, lambda: [])
+
+
+def test_apply_document_content_main_thread_uses_is_current():
+    from plugin.writer.apply_document_content import ApplyDocumentContent, _run_on_main_thread
+
+    tool = ApplyDocumentContent()
+    # When is_current returns True, is_async returns False (when wait mode is disabled globally)
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
+         patch.object(tool, "_wait_enabled_globally", return_value=False):
+        assert tool.is_async() is False
+
+    # When is_current returns False, is_async returns True
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
+         patch.object(tool, "_wait_enabled_globally", return_value=False):
+        assert tool.is_async() is True
+
+    # _run_on_main_thread calls fn directly when is_current() is True
+    called = []
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=True), \
+         patch("plugin.framework.queue_executor.main.call") as mock_exec:
+        result = _run_on_main_thread(lambda: called.append(True) or 42)
+        assert result == 42
+        assert called == [True]
+        mock_exec.assert_not_called()
+
+    # When is_current() is False, _run_on_main_thread marshals to main.call
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), \
+         patch("plugin.framework.queue_executor.main.call", return_value=99) as mock_exec:
+        result = _run_on_main_thread(lambda: 100)
+        assert result == 99
+        mock_exec.assert_called_once()
 
 
 def test_outline_undo_says_when_rollback_fails():
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     doc = MagicMock()
-    doc.getUndoManager.return_value.isLocked.return_value = False
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    doc.getUndoManager.return_value = mgr
     session = MagicMock()
-    session.changes = []
+    session.changes = ["change1"]
 
     def failing_run():
+        session.changes.append("change2")
         raise RuntimeError("boom")
 
-    with patch("plugin.writer.apply_document_content.close_surgical_context", return_value=False):
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
+    mgr.undo.side_effect = RuntimeError("undo failed")
+    with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
         _, err = ApplyDocumentContent()._outline_undo(doc, session, failing_run)
     assert err is not None
     assert err["code"] == "HYPERLINK_UPDATE_FAILED"
     assert "could not be rolled back" in err["message"]
     assert "boom" in err["message"]
 
-    with patch("plugin.writer.apply_document_content.close_surgical_context", return_value=True):
+    mgr.undo.side_effect = None
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
+    with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
         _, err2 = ApplyDocumentContent()._outline_undo(doc, session, failing_run)
     assert err2 is not None
     assert err2["code"] == "HYPERLINK_UPDATE_FAILED"
     assert "was rolled back" in err2["message"]
     assert "could not be rolled back" not in err2["message"]
+
+
+def test_outline_undo_propagates_disposed_document():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc = MagicMock()
+    mgr = MagicMock()
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("Agent Edit",)]
+    doc.getUndoManager.return_value = mgr
+    session = MagicMock()
+    session.changes = []
+
+    def disposed_run():
+        raise type("DisposedException", (Exception,), {})("gone")
+
+    with patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="Agent Edit"):
+        with pytest.raises(DocumentDisposedError):
+            ApplyDocumentContent()._outline_undo(doc, session, disposed_run)
+    mgr.undo.assert_called_once()
 
 
 def test_get_document_content_warns_when_redlines_are_not_listed():
@@ -801,12 +1042,13 @@ def test_get_document_content_warns_when_redlines_are_not_listed():
     doc = MagicMock()
     redlines = MagicMock()
     redlines.getCount.return_value = 2
+    redlines.createEnumeration.return_value.hasMoreElements.return_value = True
     redlines.createEnumeration.return_value.nextElement.side_effect = RuntimeError("boom")
     doc.getRedlines.return_value = redlines
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
     assert "tracked_changes" not in res
@@ -823,6 +1065,7 @@ def test_format_only_redlines_are_reported_without_a_listing_failure():
     rl = MagicMock()
     rl.getPropertyValue.side_effect = lambda prop: "Format" if prop == "RedlineType" else None
     enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, False]
     enum.nextElement.return_value = rl
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
@@ -830,7 +1073,7 @@ def test_format_only_redlines_are_reported_without_a_listing_failure():
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res["status"] == "ok"
     assert res.get("tracked_changes_total") == 1
@@ -851,6 +1094,8 @@ def test_redline_cap_reports_truncation(monkeypatch):
     rl2 = MagicMock()
     rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
     enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [rl1, rl2]
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
@@ -864,12 +1109,13 @@ def test_redline_cap_reports_truncation(monkeypatch):
     assert reliable is True
     assert truncated is True
 
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [rl1, rl2]
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
     with patch("plugin.writer.tracking._redline_text", side_effect=["one", "two"]), \
-         patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+         patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert res.get("tracked_changes_truncated") is True
 
@@ -885,6 +1131,8 @@ def test_inserted_image_redline_without_text_is_not_truncated():
     rl2 = MagicMock()
     rl2.getPropertyValue.side_effect = lambda prop: "Insert" if prop == "RedlineType" else None
     enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.hasMoreElements.side_effect = [True, True, False]
     enum.nextElement.side_effect = [rl1, rl2]
     redlines.createEnumeration.return_value = enum
     doc.getRedlines.return_value = redlines
@@ -893,7 +1141,7 @@ def test_inserted_image_redline_without_text_is_not_truncated():
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
     with patch("plugin.writer.tracking._redline_text", side_effect=["", ""]), \
-         patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+         patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         res = GetDocumentContent().execute(ctx)
     assert "tracked_changes_truncated" not in res
     assert "insertion/deletion change(s) are listed" not in res.get("tracked_changes_note", "")
@@ -904,7 +1152,7 @@ def test_range_rejects_invalid_bounds_and_max_chars():
 
     ctx = MagicMock()
     tool = GetDocumentContent()
-    with patch("plugin.writer.format.document_to_content") as mock_dtc:
+    with patch("plugin.writer.html_export.document_to_content") as mock_dtc:
         for kwargs in [
             {"scope": "range", "start": 5, "end": 5},
             {"scope": "range", "start": -1, "end": 5},
@@ -921,7 +1169,7 @@ def test_range_result_uses_validated_ints():
 
     ctx = MagicMock()
     ctx.services.document.get_document_length.return_value = 100
-    with patch("plugin.writer.format.document_to_content", return_value="<p>slice</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>slice</p>"):
         res = GetDocumentContent().execute(ctx, scope="range", start="2", end="4")
     assert res["status"] == "ok"
     assert res["start"] == 2 and res["end"] == 4
@@ -932,7 +1180,7 @@ def test_selection_with_no_content_warns():
 
     ctx = MagicMock()
     ctx.services.document.get_document_length.return_value = 100
-    with patch("plugin.writer.format.document_to_content", return_value=""):
+    with patch("plugin.writer.html_export.document_to_content", return_value=""):
         res = GetDocumentContent().execute(ctx, scope="selection")
     assert res["status"] == "ok"
     assert "does not mean the document is empty" in res.get("warning", "")
@@ -953,11 +1201,11 @@ def test_document_length_zero_warns():
 
     ctx = MagicMock()
     ctx.services.document.get_document_length.return_value = 0
-    with patch("plugin.writer.format.document_to_content", return_value="<p>x</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>x</p>"):
         res = GetDocumentContent().execute(ctx)
     assert "document_length came back 0" in res.get("warning", "")
 
-    with patch("plugin.writer.format.document_to_content", return_value=""):
+    with patch("plugin.writer.html_export.document_to_content", return_value=""):
         res = GetDocumentContent().execute(ctx)
     assert "document_length came back 0" not in res.get("warning", "")
 
@@ -971,7 +1219,7 @@ def test_get_document_content_redline_read_reraises_disposed():
     ctx = MagicMock()
     ctx.doc = doc
     ctx.services.document.get_document_length.return_value = 10
-    with patch("plugin.writer.format.document_to_content", return_value="<p>body</p>"):
+    with patch("plugin.writer.html_export.document_to_content", return_value="<p>body</p>"):
         with pytest.raises(DocumentDisposedError):
             GetDocumentContent().execute(ctx)
 
@@ -1021,6 +1269,28 @@ def test_shape_edit_enter_disposed_reraises():
             ApplyDocumentContent().execute(
                 ctx, target="search", old_content="foo", content="bar")
     replace.assert_not_called()
+
+
+def test_shape_edit_rolls_back_when_replace_returns_false():
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    ctx = _edit_ctx()
+    mgr = ctx.doc.getUndoManager.return_value
+    mgr.isLocked.return_value = False
+    mgr.getAllUndoActionTitles.side_effect = [(), ("WriterAgent edit#1",)]
+    shape = MagicMock()
+    shape.Name = "Box"
+    with patch("plugin.writer.search.find_first_range", return_value=None), \
+         patch("plugin.writer.search.drawing_shape_object_containing", return_value=shape), \
+         patch("plugin.writer.apply_document_content.review_recording_enabled", return_value=False), \
+         patch("plugin.writer.apply_document_content.get_agent_edit_review_mode", return_value="off"), \
+         patch("plugin.writer.apply_document_content.replace_text_in_shape", return_value=False), \
+         patch("plugin.writer.apply_document_content.next_agent_edit_undo_title", return_value="WriterAgent edit#1"):
+        res = ApplyDocumentContent().execute(
+            ctx, target="search", old_content="foo", content="bar")
+    assert res["status"] == "error"
+    assert res["replaced_count"] == 0
+    mgr.undo.assert_called_once()
 
 
 def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
@@ -1099,7 +1369,7 @@ def test_all_matches_failure_keeps_a_code_and_reraises_disposed():
 
 
 def test_position_after_cell_probe_reraises_disposed():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
     from plugin.writer.apply_document_content import ApplyDocumentContent
 
     found, cursor = _next_to_match_found(at_paragraph_edge=False)
@@ -1138,7 +1408,7 @@ def test_dry_run_outline_capture_failure_is_not_a_missing_link():
     with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", side_effect=RuntimeError("boom")):
         res = ApplyDocumentContent().execute(
             ctx, content="bar", target="search", old_content="clause", dry_run=True)
@@ -1158,7 +1428,7 @@ def test_dry_run_outline_capture_failure_is_not_a_missing_link():
     with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
          patch("plugin.writer.search.describe_match_location", return_value="body"), \
          patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
-         patch("plugin.writer.format.content_has_markup", return_value=False), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", side_effect=disposed_exc):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(
@@ -1167,6 +1437,43 @@ def test_dry_run_outline_capture_failure_is_not_a_missing_link():
             ApplyDocumentContent().execute(
                 ctx, content="bar", target="search", old_content="clause",
                 hyperlink_url="#1.Title|outline", dry_run=True)
+
+
+@pytest.mark.timeout(5)
+@pytest.mark.parametrize("empty_content", ["", [], [""], ["", "   "]])
+def test_dry_run_empty_replacement_omits_outline_rewrite_fields(empty_content):
+    from plugin.writer.hyperlink_fixup import OutlineLink, OutlineSnapshot
+
+    ctx = _edit_ctx()
+    found = MagicMock()
+    snapshot = OutlineSnapshot(
+        links=[OutlineLink(url="#1.clause|outline", name="1.clause", target="")],
+        prefix="",
+        suffix="",
+        matched="clause",
+        single_paragraph=True,
+    )
+    with patch("plugin.writer.search.find_all_ranges", return_value=[found]), \
+         patch("plugin.writer.search.describe_match_location", return_value="body"), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False), \
+         patch("plugin.writer.apply_document_content.capture_outline_hyperlinks", return_value=snapshot) as mock_capture:
+        res = ApplyDocumentContent().execute(
+            ctx,
+            content=empty_content,
+            target="search",
+            old_content="clause",
+            occurrence=0,
+            dry_run=True,
+        )
+    assert res["status"] == "ok"
+    assert res["dry_run"] is True
+    assert res["count"] == 1
+    mock_capture.assert_not_called()
+    assert len(res["replaceable"]) == 1
+    for key in ("hyperlink_url", "hyperlink_url_after", "hyperlink_updated", "hyperlinks"):
+        assert key not in res["replaceable"][0]
+        assert key not in res["selected_match"]
 
 
 def test_edit_outline_capture_failure_does_not_change_text():
@@ -1282,7 +1589,7 @@ def test_selection_table_insert_fails_when_the_doc_already_has_a_table():
     ctx = _edit_ctx()
     ctx.doc.getTextTables.return_value.getCount.side_effect = [1, 1]
     with patch("plugin.writer.apply_document_content.selection_anchor", return_value=None), \
-         patch("plugin.writer.format.insert_content_at_position"):
+         patch("plugin.writer.html_import.insert_content_at_position"):
         res = ApplyDocumentContent().execute(
             ctx, content="<table><tr><td>X</td></tr></table>", target="selection")
     assert res["status"] == "error"
@@ -1305,7 +1612,7 @@ def test_search_replace_table_insert_fails_when_the_doc_already_has_a_table():
 
 
 def test_position_before_table_insert_reports_failure():
-    from plugin.writer import format as format_support
+    from plugin.writer import html_import as format_support
 
     found, _cursor = _next_to_match_found(at_paragraph_edge=False)
     ctx = _edit_ctx()
@@ -1325,7 +1632,7 @@ def test_position_before_table_insert_reports_failure():
 def test_table_count_read_reraises_disposed():
     ctx = _edit_ctx()
     ctx.doc.getTextTables.side_effect = type("DisposedException", (Exception,), {})("gone")
-    with patch("plugin.writer.format.insert_content_at_position"):
+    with patch("plugin.writer.html_import.insert_content_at_position"):
         with pytest.raises(DocumentDisposedError):
             ApplyDocumentContent().execute(ctx, content="<table><tr><td>X</td></tr></table>", target="end")
 
@@ -1333,7 +1640,7 @@ def test_table_count_read_reraises_disposed():
 @pytest.mark.parametrize("extra", [{}, {"all_matches": True}, {"occurrence": 0}])
 def test_invalid_regex_is_invalid_regex_in_the_edit_path(extra):
     ctx = _edit_ctx()
-    with patch("plugin.writer.format.content_has_markup", return_value=False), \
+    with patch("plugin.writer.html_import.content_has_markup", return_value=False), \
          patch("plugin.writer.search.find_first_range") as find_first, \
          patch("plugin.writer.search.find_all_ranges") as find_all:
         res = ApplyDocumentContent().execute(

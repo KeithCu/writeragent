@@ -25,7 +25,8 @@ import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable
+from types import SimpleNamespace
+from typing import Any, Callable, TYPE_CHECKING
 from weakref import WeakKeyDictionary
 
 from plugin.chatbot.panel import (
@@ -34,13 +35,16 @@ from plugin.chatbot.panel import (
     notify_record_mouse_released,
     notify_stop_mouse_pressed,
 )
-from plugin.chatbot.rich_text_control import _debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active
 from plugin.chatbot.send_state import SendEvent, SendEventKind
 from plugin.framework.constants import EXTENSION_ID_WRITERAGENT
-from plugin.framework.errors import best_effort, uno_probe
+from plugin.framework.errors import best_effort, uno_read
 from plugin.framework.worker_pool import run_in_background
 
-log = logging.getLogger("writeragent.sidebar_test_hooks")
+if TYPE_CHECKING:
+    from plugin.framework.send_cancellation import SendCancellation
+
+log = logging.getLogger(__name__)
 
 _HOOKS_UNAVAILABLE = "sidebar test hooks are not in release builds"
 _DEBUG_SIDEBAR_PREFIX = "chatbot.debug_sidebar"
@@ -87,7 +91,7 @@ def iter_live_chat_panels() -> list[Any]:
 
 
 def _require_debug() -> None:
-    if not _debug_env_active():
+    if not debug_env_active():
         raise RuntimeError(_HOOKS_UNAVAILABLE)
 
 
@@ -185,9 +189,9 @@ def _voice_checkboxes() -> list[Any]:
 
 def _tts_snapshot_fields() -> dict[str, Any]:
     """Sidebar Voice checkbox vs config (Settings → Speech audio.tts_enabled)."""
-    from plugin.framework.config import get_config_bool_safe
+    from plugin.framework.config import get_config
 
-    enabled = bool(get_config_bool_safe("audio.tts_enabled"))
+    enabled = bool(get_config("audio.tts_enabled"))
     chk_state: int | None = None
     panels = _all_live_panels()
     for chk in _voice_checkboxes():
@@ -316,11 +320,8 @@ def _write_stub_injected_wav(recorder: Any, inject: str | None) -> None:
 
 
 def try_stub_initialize(recorder: Any) -> bool:
-    # Bugfix: the control file lives at a predictable path under /tmp.
-    # Another local user can create it before this one does.
-    # {"skip": true, "wav": "..."} turned the microphone off and
-    # copied that file into the take that is sent to the model. Only
-    # a test soffice sets WRITERAGENT_TESTING.
+    # Stub recorder control under /tmp is honored only when WRITERAGENT_TESTING is set,
+    # so untrusted skip/wav injection cannot affect production.
     ctrl = read_stub_recorder_control()
     if not ctrl.get("skip"):
         # This take spawns a real child, so try_stub_stop must reap it.
@@ -360,7 +361,7 @@ def try_stub_initialize(recorder: Any) -> bool:
         return True
 
     # Packet G: pretend the capture child said {"status":"ready"} without a mic.
-    recorder._take_new_temp_wav()
+    recorder._take_new_temp_wav(recorder._epoch)
     recorder._proc = None
     from plugin.chatbot.audio_recorder_state import DeviceReadyEvent
 
@@ -499,10 +500,10 @@ def set_late_transcript_delay(delay: float) -> None:
 
 
 def _restore_saved_config(saved: dict[str, Any]) -> None:
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
-    for key, value in saved.items():
-        set_config(key, value)
+    if saved:
+        save(saved)
 
 
 def _clear_fake_stt_in_process() -> None:
@@ -626,7 +627,7 @@ def _apply_fake_stt(mode: str) -> None:
             }
 
         # Keep existing config for STT provider to allow testing both local and endpoint.
-        # set_config("audio.stt_provider", "local")
+        # save("audio.stt_provider", "local")
 
         _FAKE_STT_MODE = mode
         _FAKE_STT_STATE = _fresh_or_update_fake_state(_FAKE_STT_STATE, mode, _FAKE_STT_SAVED)
@@ -874,7 +875,7 @@ def _apply_fake_tts(mode: str) -> None:
         _clear_fake_tts_in_process()
         return
 
-    from plugin.framework.config import get_config, set_config
+    from plugin.framework.config import get_config, save
     import plugin.audio.tts_service as tts_service
 
     global _FAKE_TTS_MODE, _FAKE_TTS_SAVED, _FAKE_TTS_ORIG, _FAKE_TTS_STATE
@@ -887,9 +888,11 @@ def _apply_fake_tts(mode: str) -> None:
                 "audio.tts_sentence_mode": get_config("audio.tts_sentence_mode"),
             }
 
-        set_config("audio.tts_enabled", True)
-        set_config("audio.tts_provider", "system")
-        set_config("audio.tts_sentence_mode", False)
+        save({
+            "audio.tts_enabled": True,
+            "audio.tts_provider": "system",
+            "audio.tts_sentence_mode": False,
+        })
 
         _FAKE_TTS_MODE = mode
         _FAKE_TTS_STATE = _fresh_or_update_fake_state(
@@ -961,27 +964,22 @@ def _apply_fake_tts(mode: str) -> None:
 
             setattr(fake_popen, "_writeragent_fake_tts", True)
 
-            def fake_end_utterance(generation: int) -> bool:
-                # Paired with fake_stop_speech: the check must not run until the rewind is published.
+            def fake_end_utterance(utt: Any) -> bool:
+                # Paired with fake_stop_speech: the check must not run until the scope restore is published.
                 with _FAKE_TTS_LOCK:
-                    return orig_end_utterance(generation)
+                    return orig_end_utterance(utt)
 
             setattr(fake_end_utterance, "_writeragent_fake_tts", True)
 
             def fake_stop_speech(*args: Any, **kwargs: Any) -> None:
-                # What was wrong: on_complete was skipped after a fake hold/stop even though the child was reaped.
-                # How it happened: stop_speech bumps _speech_generation and SIGKILLs before it returns.
-                # The tts-speak thread wakes from communicate/wait, _end_utterance sees the bump, returns
-                # False, and never calls on_complete. The rewind below that call ran too late. A slow
-                # tts-cleanup thread start (CI xdist) makes the window likely. The 2s wait cannot help.
-                # Why this fixes it: the rewind is published before this lock is released, and
-                # fake_end_utterance takes the same lock, so the worker observes the restored generation.
+                # Restore Utterance.scope under _FAKE_TTS_LOCK before stop returns so fake_end_utterance
+                # still calls on_complete after SIGKILL/cancel.
                 with _FAKE_TTS_LOCK:
                     try:
-                        cur_gen = getattr(tts_service, "_speech_generation", None)
+                        cur_utt = getattr(tts_service, "_current", None)
                         orig_stop_speech(*args, **kwargs)
-                        if cur_gen is not None:
-                            tts_service._speech_generation = cur_gen
+                        if cur_utt is not None:
+                            tts_service._current = cur_utt
                     finally:
                         for p in _FAKE_TTS_PROCS.values():
                             if p.poll() is None:
@@ -1074,9 +1072,9 @@ def _write_debug_snapshot(sl: Any) -> dict[str, Any]:
 
 
 def _terminate_listener_installed() -> bool:
-    import plugin.main as plugin_main
+    import plugin.app as app
 
-    return getattr(plugin_main, "_terminate_listener", None) is not None
+    return app._terminate_listener is not None
 
 
 def _read_debug_snapshot() -> dict[str, Any]:
@@ -1120,9 +1118,8 @@ def handle_debug_sidebar_command(command: str) -> None:
     """Run inside soffice (protocol handler). Packet G URP FSM ops + OPEN_CALC.
 
     ``DispatchHandler`` runs on the URP thread. ``WRITERAGENT_TESTING=1`` makes
-    ``QueueExecutor.post`` inline, so Stop Rec used to start ``_do_send`` off
-    the VCL thread and freeze on ``Getting document...``. Marshal FSM work onto
-    the listener's executor (VCL) before StartSendEffect posts the drain.
+    With WRITERAGENT_TESTING, MainThread.post is inline; marshal FSM work onto the VCL
+    executor before StartSendEffect so Stop Rec does not run _do_send off-thread.
     ``OPEN_CALC`` uses the same post-to-VCL rule: factory ``scalc`` over URP
     after a Writer deck never returns.
     """
@@ -1185,18 +1182,18 @@ def handle_debug_sidebar_command(command: str) -> None:
         _post_to_soffice_vcl(kick_pending_peer_starts, sl=sl)
         _write_debug_snapshot(sl)
         return
-    # Packet I5: a short request_timeout read by the soffice sidebar (URP set_config is
+    # Packet I5: a short request_timeout read by the soffice sidebar (URP save is
     # not seen there); RESTORE puts back the value SHORT replaced.
     if op in ("REQUEST_TIMEOUT_SHORT", "REQUEST_TIMEOUT_RESTORE"):
         global _SAVED_REQUEST_TIMEOUT
-        from plugin.framework.config import get_config, set_config
+        from plugin.framework.config import get_config, save
 
         if op == "REQUEST_TIMEOUT_SHORT":
             if _SAVED_REQUEST_TIMEOUT is None:
                 _SAVED_REQUEST_TIMEOUT = get_config("request_timeout")
-            set_config("request_timeout", 5)
+            save({"request_timeout": 5})
         elif _SAVED_REQUEST_TIMEOUT is not None:
-            set_config("request_timeout", _SAVED_REQUEST_TIMEOUT)
+            save({"request_timeout": _SAVED_REQUEST_TIMEOUT})
             _SAVED_REQUEST_TIMEOUT = None
         _write_debug_snapshot(sl)
         return
@@ -1209,15 +1206,15 @@ def handle_debug_sidebar_command(command: str) -> None:
         "SET_TTS_OFF": ("audio.tts_enabled", False),
     }
     if op in config_ops:
-        from plugin.framework.config import set_config
+        from plugin.framework.config import save
 
         key, val = config_ops[op]
-        set_config(key, val)
+        save({key: val})
         _write_debug_snapshot(sl)
         return
     if op == "TOGGLE_SIDEBAR_TTS":
         # Drive the sidebar Voice checkbox (reverse of Settings→sidebar).
-        from plugin.framework.config import set_config
+        from plugin.framework.config import save
 
         for chk in _voice_checkboxes():
             if not hasattr(chk, "getState") or not hasattr(chk, "setState"):
@@ -1227,7 +1224,7 @@ def handle_debug_sidebar_command(command: str) -> None:
                 want = 0 if cur else 1
                 chk.setState(want)
                 # Ensure config matches even if ItemEvent.Selected was missing.
-                set_config("audio.tts_enabled", bool(want))
+                save({"audio.tts_enabled": bool(want)})
             except Exception:
                 log.exception("TOGGLE_SIDEBAR_TTS setState failed")
             break
@@ -1259,18 +1256,18 @@ def handle_debug_sidebar_command(command: str) -> None:
         with venv_worker._registry_lock:
             managers = list(venv_worker._instances.values())
         for mgr in managers:
-            proc = mgr._proc
-            if proc is not None and proc.poll() is None:
-                proc.kill()
+            warm = mgr._warm
+            if warm is not None and warm.is_alive():
+                warm.kill()
                 _VENV_WORKER_KILLS += 1
         _write_debug_snapshot(sl)
         return
     # Packet M8: run the real XTerminateListener.notifyTermination that File > Exit
     # triggers, without quitting soffice (that would end the whole test run).
     if op == "SIMULATE_TERMINATION":
-        import plugin.main as plugin_main
+        import plugin.app as app
 
-        listener = plugin_main._terminate_listener
+        listener = app._terminate_listener
         if listener is None:
             log.warning("debug_sidebar SIMULATE_TERMINATION: no terminate listener installed")
         else:
@@ -1360,7 +1357,7 @@ def _debug_sidebar_query(op: str, uid: str = "") -> str:
 def _doc_frame(doc: Any) -> Any:
     if doc is None:
         return None
-    return uno_probe(lambda: doc.getCurrentController().getFrame() if doc.getCurrentController() is not None else None, None)
+    return uno_read(lambda: doc.getCurrentController().getFrame() if doc.getCurrentController() is not None else None, None)
 
 
 def execute_debug_sidebar_op(op: str, *, ctx: Any = None, doc: Any = None) -> dict[str, Any]:
@@ -1524,13 +1521,13 @@ def _frames_match(left: Any, right: Any) -> bool:
         return False
     if left is right:
         return True
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return False
     from plugin.framework.uno_context import uno_same
 
-    return uno_probe(lambda: bool(uno_same(left, right)), False)
+    return uno_read(lambda: bool(uno_same(left, right)), False)
 
 
 def _listener_torn_down(listener: Any) -> bool:
@@ -1565,7 +1562,7 @@ def _current_frame() -> Any:
     """
     from plugin.framework.uno_context import get_ctx
 
-    return uno_probe(lambda: _doc_frame(current_component(_HOOK_CTX or get_ctx())), None)
+    return uno_read(lambda: _doc_frame(current_component(_HOOK_CTX or get_ctx())), None)
 
 
 def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
@@ -1578,8 +1575,7 @@ def sidebar_panel(frame: Any = None, *, uid: str = "") -> Any:
     only the no-frame, one-deck debug fallback. A frame miss (including
     ``uno_same`` raising off the URP thread) that falls through to
     ``panels[0]`` is the leftover-Calc pad from Packet K: both the match
-    branch and the single-panel branch used to return the first panel
-    even when the caller had already named a frame.
+    A named frame miss must return None, not panels[0], when multiple decks exist.
     """
     _require_debug()
     panels = iter_live_chat_panels()
@@ -1623,7 +1619,7 @@ def component_is_calc(doc: Any) -> bool:
     _require_debug()
     if doc is None:
         return False
-    return uno_probe(lambda: bool(doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")), False)
+    return uno_read(lambda: bool(doc.supportsService("com.sun.star.sheet.SpreadsheetDocument")), False)
 
 
 def iter_desktop_components(ctx: Any) -> list[Any]:
@@ -1633,11 +1629,13 @@ def iter_desktop_components(ctx: Any) -> list[Any]:
     comps = getattr(desktop, "getComponents", lambda: None)()
     if comps is None or not hasattr(comps, "createEnumeration"):
         return []
+    from plugin.framework.uno_context import enum_has_more
+
     enum = comps.createEnumeration()
     out: list[Any] = []
     while True:
         try:
-            if not enum.hasMoreElements():
+            if not enum_has_more(enum):
                 break
             out.append(enum.nextElement())
         except Exception:
@@ -1716,16 +1714,16 @@ def _load_visible_calc_factory() -> None:
 def _post_to_soffice_vcl(fn: Callable[[], None], *, sl: Any = None) -> None:
     """Enqueue *fn* on soffice VCL. Do not run it inline on the URP Dummy thread.
 
-    ``WRITERAGENT_TESTING=1`` makes ``QueueExecutor.post`` inline. Force-marshal
+    ``WRITERAGENT_TESTING=1`` makes ``MainThread.post`` inline. Force-marshal
     so AsyncCallback runs the work on VCL. ``execute()`` from URP dispatch
     deadlocks (office idle, tests wait forever) — same as Packet G FSM ops.
     """
     qe = getattr(sl, "queue_executor", None) if sl is not None else None
     if qe is None:
-        from plugin.framework.queue_executor import default_executor
+        from plugin.framework.queue_executor import main
 
-        qe = default_executor
-    # force_marshal skips _get_async_callback inside post(); without a prior
+        qe = main
+    # force marshal skips _get_async_callback inside post(); without a prior
     # init, _poke_main_thread is a no-op and the factory load never runs
     # (E12 2026-09-08: "poke skipped (no AsyncCallback)" after OPEN_CALC).
     init_cb = getattr(qe, "_get_async_callback", None)
@@ -1734,13 +1732,7 @@ def _post_to_soffice_vcl(fn: Callable[[], None], *, sl: Any = None) -> None:
             init_cb()
         except Exception:
             log.exception("debug_sidebar: AsyncCallback init failed")
-    from plugin.framework.queue_executor import set_force_marshal_mode
-
-    set_force_marshal_mode(True)
-    try:
-        qe.post(fn)
-    finally:
-        set_force_marshal_mode(False)
+    qe.post(fn, force_queue=True)
 
 
 def open_calc_document(ctx: Any, *, timeout: float = 30.0) -> Any:
@@ -1828,7 +1820,7 @@ def sidebar_deck_names(doc: Any) -> list[str]:
                 return [str(n) for n in decks.getElementNames()]
         return []
 
-    return uno_probe(_read, [])
+    return uno_read(_read, [])
 
 
 def _panel_root_window(panel: Any) -> Any:
@@ -1837,7 +1829,7 @@ def _panel_root_window(panel: Any) -> Any:
     for attr in ("getDialog", "getWindow"):
         getter = getattr(panel, attr, None)
         if callable(getter):
-            win = uno_probe(getter, None)
+            win = uno_read(getter, None)
             if win is not None:
                 return win
     return getattr(panel, "Window", None) or getattr(panel, "PanelWindow", None)
@@ -1920,7 +1912,7 @@ def send_listener(frame: Any = None, *, uid: str = "") -> Any:
         return sl
     # A named frame or uid already picked a deck. Do not substitute another
     # window's listener when that deck missed (uno_same off the URP thread
-    # used to fall through to panels[0] / the last adopted listener).
+    # must not fall through to panels[0] or another deck's listener).
     if frame is not None or panel is not None or uid or len(panels) > 1:
         return None
     with_popup = [
@@ -1937,7 +1929,7 @@ def _listener_for_current_doc() -> Any:
     """SendButtonListener for the current component (Packet K inflate)."""
     from plugin.framework.uno_context import get_ctx
 
-    sl = uno_probe(lambda: send_listener_for_doc(current_component(_HOOK_CTX or get_ctx())), None)
+    sl = uno_read(lambda: send_listener_for_doc(current_component(_HOOK_CTX or get_ctx())), None)
     return sl if sl is not None else send_listener()
 
 
@@ -2004,7 +1996,7 @@ def _writeragent_deck(provider: Any) -> Any:
                 return decks.getByName(deck_name)
         return None
 
-    return uno_probe(_find, None)
+    return uno_read(_find, None)
 
 
 def show_writeragent_chat_deck(ctx: Any, doc: Any) -> None:
@@ -2085,7 +2077,7 @@ def control_enabled(control: Any) -> bool | None:
     _require_debug()
     if control is None:
         return None
-    return uno_probe(lambda: bool(getattr(control.getModel(), "Enabled", None)), None)
+    return uno_read(lambda: bool(getattr(control.getModel(), "Enabled", None)), None)
 
 
 def send_listener_for_doc(doc: Any) -> Any:
@@ -2104,7 +2096,7 @@ def send_listener_for_uid(uid: str) -> Any:
 
     Packet K inflate must not use soffice ``getCurrentComponent()`` when the
     URP client already named the Writer RuntimeUID. Leftover Calc after
-    Packet P / E12 stays current in soffice and used to eat INFLATE_HISTORY.
+    Resolve by uid so leftover Calc as getCurrentComponent does not bind inflate to the wrong deck.
     """
     _require_debug()
     token = str(uid or "").strip()
@@ -2121,9 +2113,9 @@ def send_listener_for_uid(uid: str) -> Any:
     sl = _panel_send_listener(sidebar_panel(uid=token))
     if sl is not None:
         return sl
-    from plugin.framework.thread_guard import on_main_thread
+    from plugin.framework.queue_executor import main
 
-    if not on_main_thread():
+    if not main.is_current():
         return None
     from plugin.framework.uno_context import get_runtime_uid
 
@@ -2135,7 +2127,7 @@ def send_listener_for_uid(uid: str) -> Any:
         def _model(f: Any = frame) -> Any:
             return f.getController().getModel()
 
-        model = uno_probe(_model, None)
+        model = uno_read(_model, None)
         if model is not None and str(get_runtime_uid(model) or "") == token:
             return sl
     return None
@@ -2321,7 +2313,7 @@ def _slash_control_near_query(query: Any) -> Any:
         getter = getattr(query, getter_name, None)
         if not callable(getter):
             continue
-        cur = uno_probe(getter, None)
+        cur = uno_read(getter, None)
         hops = 0
         while cur is not None and hops < 6:
             hops += 1
@@ -2331,7 +2323,7 @@ def _slash_control_near_query(query: Any) -> Any:
                 def _slash_ctrl(gc: Any = get_control) -> Any:
                     return gc("slash_popup")
 
-                ctrl = uno_probe(_slash_ctrl, None)
+                ctrl = uno_read(_slash_ctrl, None)
                 if ctrl is not None:
                     return ctrl
             parent = getattr(cur, "getParent", None)
@@ -2398,18 +2390,37 @@ class _UrpSlashHost:
     clear_listener: Any
     _stop: Any
     ctx: Any
+    cached_doc_type: str
+    cached_uno_services: Any
 
     def __init__(self, query: Any, response: Any, clear: Any, stop: Any, ctx: Any = None) -> None:
         self.ctx = ctx  # overlay position probe (SlashPopupController)
         self.query_control = query
         self.response_control = response
         self.slash_popup: Any = None
+        self._send_cancellation: SendCancellation | None = None
+        self.cached_doc_type = "writer"
+        self.cached_uno_services = None
+        self.sidebar_state: Any = SimpleNamespace(
+            tool_loop=None,
+            send=SimpleNamespace(is_busy=False),
+        )
+        self.session: Any = None
         self.clear_listener = type(
             "ClearProxy",
             (),
             {"on_action_performed": staticmethod(lambda _ev: uno_click(clear) if clear is not None else None)},
         )()
         self._stop = stop
+
+    def sync_has_text_from_query(self) -> None:
+        return
+
+    def dispatch(self, event: Any) -> None:
+        return
+
+    def _set_status(self, text: str) -> None:
+        return
 
     def hide_popup(self) -> None:
         popup = getattr(self, "slash_popup", None)
@@ -2420,9 +2431,7 @@ class _UrpSlashHost:
     def clear_ask(self) -> None:
         from plugin.chatbot.dialogs import set_control_text
         set_control_text(self.query_control, "")
-        dispatch = getattr(self, "dispatch", None)
-        if callable(dispatch):
-            dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
+        self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
         from plugin.chatbot.dialogs import get_control_text, set_control_text
@@ -2439,6 +2448,24 @@ class _UrpSlashHost:
     def stop_in_flight(self) -> None:
         if self._stop is not None:
             uno_click(self._stop)
+
+    def slash_document_model(self) -> Any:
+        return None
+
+    def slash_run_rewrite(self, instruction: str) -> None:
+        self.append_output("\n" + instruction + "\n")
+
+    def slash_agent_edit_in_flight(self) -> bool:
+        return False
+
+    def run_slash_formula(self, description: str) -> None:
+        from plugin.chatbot.slash_undo_formula import run_slash_formula_worker
+
+        model = self.slash_document_model()
+        if model is None:
+            self.append_output("\n" + "No document\n")
+            return
+        run_slash_formula_worker(self, ctx=self.ctx, model=model, description=description)
 
 
 def _urp_slash_controller() -> Any:
@@ -2898,7 +2925,7 @@ def pump_until(pred: Callable[[], bool], timeout: float = 30.0, *, ctx: Any = No
         sl = send_listener()
         uno_ctx = getattr(sl, "ctx", None) if sl is not None else None
         if uno_ctx is None:
-            uno_ctx = uno_probe(get_ctx, None)
+            uno_ctx = uno_read(get_ctx, None)
     while time.monotonic() <= deadline:
         if pred():
             return True
@@ -2969,8 +2996,10 @@ def list_redlines(doc: Any) -> list[dict[str, Any]]:
     if not hasattr(doc, "getRedlines"):
         return redlines
     rls = doc.getRedlines()
+    from plugin.framework.uno_context import enum_has_more
+
     enum = rls.createEnumeration()
-    while enum.hasMoreElements():
+    while enum_has_more(enum):
         rl = enum.nextElement()
         entry: dict[str, Any] = {}
         for prop in ("RedlineAuthor", "RedlineComment", "RedlineType", "RedlineIdentifier"):
@@ -2986,13 +3015,13 @@ def list_redlines(doc: Any) -> list[dict[str, Any]]:
                 cur.gotoRange(end, True)
                 return cur.getString() or ""
 
-            txt = uno_probe(_get_range_text, "")
+            txt = uno_read(_get_range_text, "")
         if not txt:
             def _get_rt_text() -> str:
                 rt = rl.getPropertyValue("RedlineText")
                 return (rt.getString() if hasattr(rt, "getString") else str(rt)) if rt is not None else ""
 
-            txt = uno_probe(_get_rt_text, "")
+            txt = uno_read(_get_rt_text, "")
         entry["text"] = txt
         redlines.append(entry)
     return redlines
@@ -3108,7 +3137,9 @@ def _apply_fake_vision(mode: str) -> None:
             _patch(image_tools, "export_graphic_object_to_bytes", _no_export)
 
         def _fake_run_vision(ctx: Any, spec: Any, image: Any = None, *, context: dict[str, Any] | None = None,
-                             stop_checker: Any = None) -> dict[str, Any]:
+                             cancel: Any = None) -> dict[str, Any]:
+            from plugin.framework.send_cancellation import is_cancelled
+
             name = str((context or {}).get("image_name") or "")
             with _FAKE_VISION_LOCK:
                 index = len(_FAKE_VISION_STATE["calls"])
@@ -3122,7 +3153,7 @@ def _apply_fake_vision(mode: str) -> None:
             if mode == "slow":
                 deadline = time.monotonic() + 6.0
                 while time.monotonic() < deadline:
-                    if stop_checker is not None and stop_checker():
+                    if is_cancelled(cancel):
                         result = {"status": "error", "code": "USER_STOPPED", "message": "Cancelled by user."}
                         break
                     time.sleep(0.05)

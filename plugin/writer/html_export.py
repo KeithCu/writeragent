@@ -5,8 +5,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """XHTML/FODT export and image stripping for Writer documents.
 
-Public entries: ``document_to_content`` and ``xtext_to_content``
-(also re-exported from ``plugin.writer.format``).
+Public entries: ``document_to_content`` and ``xtext_to_content``.
 
 CJK ruby: the XHTML filter concatenates ``text:ruby`` children and range copy
 drops ``RubyText``. ``inject_ruby_into_html`` restores ``<ruby><rt>`` after
@@ -27,6 +26,9 @@ from typing import Any, Generator, Iterator
 from plugin.framework.errors import best_effort
 from plugin.doc.text_helpers import (
     get_string_without_tracked_deletions,
+    iter_elements,
+    starts_at_or_after,
+    walk_cap_warning,
     _visible_portions as _shared_visible_portions,
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
@@ -44,6 +46,45 @@ from . import range_copy
 from . import xhtml_style_postprocess as xhtml_post
 
 log = logging.getLogger("writeragent.writer")
+
+HTML_FILTER = "HTML (StarWriter)"
+XHTML_FILTER = "XHTML Writer File"
+XHTML_EXTENSION = ".xhtml"
+FLAT_ODF_FILTER = "OpenDocument Text Flat XML"
+FODT_EXTENSION = ".fodt"
+
+PAGE_NUMBER_NUMBERING_TYPE_NAMES: dict[int, str] = {
+    0: "CHARS_UPPER_LETTER",
+    1: "CHARS_LOWER_LETTER",
+    2: "ROMAN_UPPER",
+    3: "ROMAN_LOWER",
+    4: "ARABIC",
+    5: "NUMBER_NONE",
+    6: "CHAR_SPECIAL",
+    7: "PAGE_DESCRIPTOR",
+    8: "BITMAP",
+    9: "CHARS_UPPER_LETTER_N",
+    10: "CHARS_LOWER_LETTER_N",
+    11: "TRANSLITERATION",
+    12: "NATIVE_NUMBERING",
+    13: "FULLWIDTH_ARABIC",
+    14: "CIRCLE_NUMBER",
+    64: "ARABIC_ZERO",
+}
+
+PAGE_NUMBER_NUMBERING_TYPE_VALS: dict[str, int] = {
+    name: val for val, name in PAGE_NUMBER_NUMBERING_TYPE_NAMES.items()
+}
+
+
+def strip_html_boilerplate(html_string: str) -> str:
+    """Extract content between ``<body>`` tags if present."""
+    if not html_string or not isinstance(html_string, str):
+        return html_string
+    match = re.search(r"<body[^>]*>(.*?)</body>", html_string, re.DOTALL | re.IGNORECASE)
+    if match:
+        return match.group(1).strip()
+    return html_string
 
 _DATA_URI_IMAGE_RE = re.compile(
     r"data:image/[^\"'\s);>]+;base64,[A-Za-z0-9+/=\s]+",
@@ -105,23 +146,23 @@ def _truncate_html(content: str, max_chars: int) -> str:
 
 
 def _read_filter_text(doc: Any, filter_name: str, ext: str = ".html") -> str:
-    from . import format as format_mod
-    with format_mod._with_temp_buffer(ext=ext) as (path, file_url):
-        props = (format_mod.create_property_value("FilterName", filter_name),)
+    from plugin.doc.temp_files import with_temp_buffer
+    from plugin.framework.uno_context import create_property_value
+
+    with with_temp_buffer(ext=ext) as (path, file_url):
+        props = (create_property_value("FilterName", filter_name),)
         doc.storeToURL(file_url, props)
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             return f.read()
 
 
 def _export_starwriter_html(doc: Any) -> str:
-    from . import format as format_mod
-    return format_mod._strip_html_boilerplate(_read_filter_text(doc, format_mod.HTML_FILTER))
+    return strip_html_boilerplate(_read_filter_text(doc, HTML_FILTER))
 
 
 def _export_xhtml(doc: Any) -> str:
     """Export *doc* via the XHTML Writer File filter; return the raw XHTML string."""
-    from . import format as format_mod
-    return _read_filter_text(doc, format_mod.XHTML_FILTER, ext=format_mod.XHTML_EXTENSION)
+    return _read_filter_text(doc, XHTML_FILTER, ext=XHTML_EXTENSION)
 
 
 
@@ -141,8 +182,7 @@ def _autostyle_maps(doc: Any) -> tuple[dict[str, str], dict[str, str], bool | No
     Both scopes report overrides: the range path copies the source paragraphs' direct formatting
     onto the temp document first (see _paint_direct_formatting)."""
     def read_maps() -> tuple[dict[str, str], dict[str, str], bool | None]:
-        from . import format as format_mod
-        fodt = _read_filter_text(doc, format_mod.FLAT_ODF_FILTER, ext=format_mod.FODT_EXTENSION)
+        fodt = _read_filter_text(doc, FLAT_ODF_FILTER, ext=FODT_EXTENSION)
         parents, overrides = xhtml_post._parse_fodt_autostyles(fodt)
         return (parents, overrides, "<text:ruby" in fodt)
 
@@ -166,17 +206,16 @@ def _visible_portions(
     drifted offset. ``get_string_without_tracked_deletions`` continues past a
     bad portion instead — that is the only intentional divergence.
 
-    Hitting *limit* used to stop silently, so a range read could omit later
-    runs' Char* with no signal. When the shared walk stops because of the cap,
-    log and append ``walk_cap_warning`` to *truncated_out*.
+    When the portion walk hits *limit*, log and append ``walk_cap_warning`` to
+    *truncated_out* so truncated range reads are visible instead of omitting later
+    Char* runs without a signal.
     """
     hit: list[int] = []
     yield from _shared_visible_portions(
         para, abort_on_portion_error=True, limit=limit, truncated_out=hit, deletion_state=deletion_state
     )
     if hit:
-        from . import format as format_mod
-        msg = format_mod.walk_cap_warning("text portions", hit[0], limit)
+        msg = walk_cap_warning("text portions", hit[0], limit)
         log.warning("%s", msg)
         if truncated_out is not None:
             truncated_out.append(msg)
@@ -232,14 +271,6 @@ def _starts_before(text: Any, left: Any, right: Any) -> bool:
     return uno_read(lambda: int(text.compareRegionStarts(left, right)) == 1, False)
 
 
-def _starts_at_or_after(text: Any, left: Any, right: Any) -> bool:
-    """True when *left* is at or after *right*. A failed compare does not stop the walk."""
-    try:
-        return int(text.compareRegionStarts(left, right)) != 1
-    except Exception:
-        return False
-
-
 def _ends_after(text: Any, left: Any, right: Any) -> bool:
     """True when *left* ends strictly after *right* (``compareRegionEnds`` == -1)."""
     return uno_read(lambda: int(text.compareRegionEnds(left, right)) == -1, False)
@@ -259,9 +290,8 @@ def _element_overlaps(text: Any, element: Any, source: Any) -> bool:
 def _selection_cursor(model: Any) -> Any | None:
     """The current selection as a cursor in its own text, or None.
 
-    Scope ``selection`` used to turn this into character offsets and walk the
-    body from the start. Those offsets and the paragraph walk disagree across
-    an index section, so a TOC selection could export a later body paragraph.
+    Selection scope builds a cursor in the selection's own XText instead of body
+    character offsets, so index/TOC selections do not export a later body paragraph.
     """
     from plugin.doc.text_helpers import _get_writer_selection_positions
 
@@ -321,9 +351,8 @@ def _range_to_content_via_temp_doc(
         # and this function reads the whole body back (see new_blank_writer).
         temp_doc = new_blank_writer(ctx, target="_default")
         if not temp_doc:
-            # Bugfix: returning "" made scope=range/selection report ok with
-            # empty content when the scratch Writer could not be created
-            # (relato #63).
+            # Missing scratch Writer raises ToolExecutionError instead of returning
+            # empty content with status ok.
             raise ToolExecutionError(
                 "Could not read that part of the document (no scratch document)."
             )
@@ -350,11 +379,10 @@ def _range_to_content_via_temp_doc(
         walker_in_deletion = False
 
         math_records: list[tuple[str, str, bool]] = []
-        while enum.hasMoreElements() is True:
-            el = enum.nextElement()
+        for el in iter_elements(enum):
             if not hasattr(el, "getString"):
                 continue
-            if source_range is not None and _starts_at_or_after(text, el.getStart(), source_range.getEnd()):
+            if source_range is not None and starts_at_or_after(text, el.getStart(), source_range.getEnd()):
                 break
             if range_copy._supports_service(el, "com.sun.star.text.TextTable"):
                 # Tables are in this enumeration and have no ParaStyleName.
@@ -670,8 +698,7 @@ def _page_number_subtype_to_name(subtype: Any) -> str:
 
 def _page_number_numbering_type_to_name(num_type: Any) -> str:
     """Return a readable NumberingType enum name (e.g. 'ROMAN_UPPER', 'ARABIC')."""
-    from . import format as format_mod
-    return _enum_token(num_type, format_mod.PAGE_NUMBER_NUMBERING_TYPE_NAMES, format_mod.PAGE_NUMBER_NUMBERING_TYPE_VALS, "ARABIC", "PageNumber NumberingType")
+    return _enum_token(num_type, PAGE_NUMBER_NUMBERING_TYPE_NAMES, PAGE_NUMBER_NUMBERING_TYPE_VALS, "ARABIC", "PageNumber NumberingType")
 
 
 def extract_page_number_fields(text_obj: Any) -> list[dict[str, Any]]:
@@ -759,9 +786,8 @@ def xtext_to_content(
 
     temp_doc = new_blank_writer(ctx)
     if not temp_doc:
-        # Bugfix: returning "" made page_get_header_footer_text report
-        # status ok with empty content (relato #63), including when
-        # document_to_content had already raised ToolExecutionError.
+        # Missing scratch Writer raises ToolExecutionError instead of reporting
+        # ok with empty header/footer text.
         raise ToolExecutionError(
             "Could not read the document: no scratch document."
         )

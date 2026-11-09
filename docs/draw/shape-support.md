@@ -64,5 +64,9 @@ The tool's JSON schema summarizes CustomShape types **by category** (with a few 
 
 Writer shapes must not use an as-character anchor (`XShapeGrouper` rejects those). `shape_upsert` sets `AnchorType=AT_PAGE` before `page.add`, which grouping accepts.
 
+## Edit Selection (Draw and Impress)
+
+Extend Selection and Edit Selection (menu, hamburger, and rewrite slash presets) stream LLM output into the selected text shape(s). A partial in-shape text highlight still rewrites the **whole** shape string (`setString` replaces all text). Character formatting inside the shape is dropped on write. Groups are descended in index order (children only); table shapes are skipped (cells are not read). Several selected shapes queue one stream task each, capped at 250 shapes, under one compound undo step for `/undo`. With no qualifying text target, the user is asked to select a text shape (with an extra note when only a table was selected). An empty slide selection does not fall back to rewriting the whole slide.
+
 ## Shared Visual Helpers
 Cross-document visual-object mechanics live in `plugin/doc/visual_helpers.py`. Writer, Calc, Draw, and Impress tools should reuse that module for safe UNO property access, document-kind detection, active draw-page lookup (including Writer `getDrawPage` for forms/shapes), graphic-object selection/listing, common `1/100 mm` unit conversions, color parsing (`parse_color_to_uno_int`), and Char* property batching (`apply_character_properties`). App-specific behavior still belongs in the app modules, especially Writer text-cursor image insertion and Writer page-anchored shape quirks.

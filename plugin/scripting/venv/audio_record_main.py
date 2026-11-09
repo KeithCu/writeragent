@@ -21,12 +21,14 @@ if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
 from plugin.framework.uno_bootstrap import register_alias_importer
+from plugin.scripting.sandbox import install_alias_authorizer
 
 register_alias_importer()
+install_alias_authorizer()
 
 from plugin.scripting.audio_silence_detector import DEFAULT_SILENCE_STOP_MS, SilenceDetectorConfig
 from plugin.scripting.venv.audio_recorder import record_to_wav
-from plugin.scripting.ipc import claim_ipc_channel, get_child_ipc_stream, write_json_line
+from plugin.framework.ipc import claim_ipc_channel, get_child_ipc_stream, write_json_line
 
 _emit_lock = threading.Lock()
 
@@ -52,14 +54,7 @@ def _is_stop_command(line: str) -> bool:
 def _stdin_stop_reader(stop_event: threading.Event) -> None:
     """Read stdin commands until stop, EOF, or read error.
 
-    Bugfix:
-    What was wrong: a read exception (e.g. UnicodeDecodeError or OSError) killed
-    the thread without setting stop_event.
-    How it happened: only the explicit command return or the fall-through after
-    a finished iterator set the event.
-    Why this change: record_to_wav waits up to MAX_RECORDING_DURATION_SEC, so every
-    exit from this function must set the event, and the exception still propagates
-    so stderr shows the read failure.
+    The finally block always sets stop_event so record_to_wav cannot sit until MAX_RECORDING_DURATION_SEC when stdin read fails; the exception still propagates for stderr diagnostics.
     """
     try:
         for line in sys.stdin:

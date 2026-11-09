@@ -15,6 +15,8 @@ from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
 from plugin.framework.url_utils import get_url_path_and_query
 
+from .shim_helpers import dict_parts
+
 # Keys WriterAgent builds; openrouter_chat_extra must not replace these.
 # Lives here so chat payload assembly does not import llm_client (that
 # module imports this package's registry at load time).
@@ -176,6 +178,36 @@ def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | No
             base[key] = val
 
 
+def cache_route(provider: str, session_id: str | None) -> tuple[dict[str, Any], dict[str, str]]:
+    """(body fields, extra headers) for sticky routing. ({}, {}) when unset or undocumented.
+
+    Docs:
+    - OpenRouter: https://openrouter.ai/docs/guides/best-practices/prompt-caching
+    - xAI: https://docs.x.ai/developers/advanced-api-usage/prompt-caching/maximizing-cache-hits
+    - OpenAI: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create/
+    - Cerebras: https://inference-docs.cerebras.ai/api-reference/chat-completions
+
+    Unknown or unlisted providers return ({}, {}) because undocumented routing fields
+    can cause HTTP 400 rejection or are not supported for sticky cache routing.
+    """
+    if not isinstance(session_id, str):
+        return {}, {}
+    token = session_id.strip()
+    if not token:
+        return {}, {}
+    if provider == "openrouter":
+        return {"session_id": token[:256]}, {}
+    if provider == "openai":
+        return {"prompt_cache_key": token}, {}
+    if provider == "cerebras":
+        return {"prompt_cache_key": token[:1024]}, {}
+    if provider == "xai":
+        if all(32 <= ord(c) <= 126 for c in token):
+            return {}, {"x-grok-conv-id": token}
+        return {}, {}
+    return {}, {}
+
+
 # Named UI / tool values → OpenRouter / Gemini aspect_ratio strings.
 _NAMED_ASPECT_RATIOS: dict[str, str] = {
     "square": "1:1",
@@ -219,8 +251,7 @@ def _aspect_ratio_value(label: str) -> float | None:
 def closest_named_aspect(current: str, accepted: list[str]) -> str | None:
     """Accepted ratio closest to ``current``. Unknown tokens are skipped.
 
-    First-in-list used to win, so a rejected ``16:9`` became ``1:1`` whenever
-    the provider listed square first. Ties keep the earlier accepted token.
+    Ties keep the earlier accepted token.
     """
     current_ratio = _aspect_ratio_value(current)
     if current_ratio is None:
@@ -318,9 +349,7 @@ def coerce_raw_b64(image_url: str | None = None, source_image: str | None = None
     if not ref:
         return None
     # Ollama's REST ``images[]`` and Gemini ``inlineData.data`` are raw base64.
-    # An http(s) URL used to be returned unchanged and sent as if it were
-    # base64. Ollama does not fetch URLs on this route, and a Gemini URL
-    # belongs in ``fileData.fileUri``, which this client does not send.
+    # Refuse http(s) URLs as these routes require base64 or data URLs.
     # https://docs.ollama.com/api/generate
     # https://ai.google.dev/gemini-api/docs/generate-content/image-understanding
     if ref.startswith(("http://", "https://")):
@@ -340,18 +369,6 @@ def inline_image_mime(image_url: str | None = None, source_image: str | None = N
         if mime:
             return mime
     return "image/png"
-
-
-def _dict_parts(content: Any) -> list[dict[str, Any]]:
-    """Content blocks that are dicts. Null, a string, or a non-dict part is skipped.
-
-    Calling ``.get`` on sync ``content: null`` or a non-dict part raises
-    TypeError / AttributeError. The Google image path already treats null
-    content as no blocks.
-    """
-    if not isinstance(content, list):
-        return []
-    return [part for part in content if isinstance(part, dict)]
 
 
 class BaseProviderShim:
@@ -392,11 +409,9 @@ class BaseProviderShim:
         return "POST", path, json.dumps(data).encode("utf-8"), headers if headers is not None else self.client._headers()
 
     def _chat_payload(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
     ) -> dict[str, Any]:
-        # top_p used to be hardcoded to 0.9 on every OpenAI-compatible chat.
-        # Models that reject temperature and top_p together returned HTTP 400,
-        # and there is no top_p setting. Omit it, same as a missing temperature.
+        # Omit top_p so models that reject temperature and top_p together use server default.
         data: dict[str, Any] = {"messages": messages, "max_tokens": max_tokens, "stream": stream}
         if temperature is not None:
             data["temperature"] = temperature
@@ -404,7 +419,7 @@ class BaseProviderShim:
             data["model"] = model_name
         if tools:
             data["tools"] = tools
-            data["tool_choice"] = "auto"
+            data["tool_choice"] = tool_choice if tool_choice is not None else "auto"
             # Always false until the tool loop can apply parallel calls. The
             # config key is stored but not read here; do not send True.
             # Omitting the field is not safe: OpenAI defaults it to true.
@@ -418,11 +433,7 @@ class BaseProviderShim:
             if isinstance(extra, dict) and extra:
                 merge_openrouter_chat_extra(data, extra)
 
-        # Bugfix: grammar's chat_extra was an OpenRouter reasoning object merged raw
-        # (or rewritten to reasoning_effort: "minimal" on non-OpenRouter), sending
-        # undocumented keys or values. The sidebar value was also copied verbatim,
-        # sending max to xAI/Gemini and xhigh to models whose ceiling is high.
-        # Now effort_payload maps per provider; a model that rejects it gets a 400 retry.
+        # effort_payload maps effort level per provider format.
         level = self._requested_effort_level(chat_extra)
         if level:
             fragment = effort_payload(self._reasoning_provider(), level)
@@ -438,20 +449,42 @@ class BaseProviderShim:
             merge_openrouter_chat_extra(data, payload_extra)
         return data
 
+    def _apply_cache_route(self, data: dict[str, Any], cache_session_id: str | None) -> dict[str, str] | None:
+        """Apply sticky routing body fields to *data* and return merged headers, or None."""
+        body_fields, extra_headers = cache_route(self.client._get_provider(), cache_session_id)
+        if body_fields:
+            data.update(body_fields)
+        if extra_headers:
+            headers = dict(self.client._headers())
+            headers.update(extra_headers)
+            return headers
+        return None
+
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None,
+        tools: list[dict[str, Any]] | None,
+        stream: bool,
+        model_name: str | None,
+        response_format: dict[str, Any] | None,
+        chat_extra: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
-        data = self._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra)
-        return self._post(self._url("/chat/completions"), data)
+        data = self._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice)
+        # The chat session id is the routing key for this request; message text is not rewritten.
+        headers = self._apply_cache_route(data, cache_session_id)
+        return self._post(self._url("/chat/completions"), data, headers=headers)
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
         from .response_normalizers import normalize_message_content
         from .stream_normalizer import extract_thinking_from_delta
 
         choices = chunk.get("choices", [])
-        # Unexpected schema (string "choices", non-dict first element) used to
-        # AttributeError on .get and abort the whole stream. Treat as no choice
-        # so later valid chunks can still apply.
+        # Ignore malformed choices schema so subsequent valid chunks apply.
         choice = choices[0] if isinstance(choices, list) and choices and isinstance(choices[0], dict) else {}
         delta_raw = choice.get("delta", {})
         delta = delta_raw if isinstance(delta_raw, dict) else {}
@@ -504,16 +537,13 @@ class BaseProviderShim:
 
         raw_content = message.get("content")
         content = normalize_message_content(raw_content) or ""
-        # A string ``images`` used to be returned as-is. ``image_utils`` iterates
-        # that value, so each character was treated as an image URL.
+        # Ensure images is a list of strings.
         images = raw_img if isinstance(raw_img := message.get("images"), list) else []
         # A string tool_calls is truthy. request_with_tools then rewrites
         # finish_reason to tool_calls, and coalesce_split_tool_calls drops
         # the value because it is not a list.
         tool_calls = raw_tc if isinstance(raw_tc := message.get("tool_calls"), list) else None
-        # JSON "usage": null makes .get("usage", {}) return None, because the
-        # key is present. A list or string used to pass through, and callers
-        # call usage.get.
+        # Ensure usage is a dict.
         usage = raw_us if isinstance(raw_us := response_data.get("usage"), dict) else {}
 
         return content, finish_reason, tool_calls, usage, images, message
@@ -543,13 +573,10 @@ class BaseProviderShim:
 
     def parse_image_responses(self, response_data: dict[str, Any]) -> list[str]:
         """Extract list of base64 image data from response (standard OpenAI format)."""
-        # ``image_completion`` already rejects a non-dict HTTP body. A direct
-        # caller passing a list used to raise AttributeError on ``.get``.
         if not isinstance(response_data, dict):
             return []
-        # A null or non-object entry used to raise AttributeError on .get.
         out = []
-        for it in _dict_parts(response_data.get("data")):
+        for it in dict_parts(response_data.get("data")):
             if b64 := it.get("b64_json"):
                 out.append(b64)
         return out

@@ -30,9 +30,8 @@ from plugin.framework.constants import CHAT_DOCUMENT_CONTEXT_MAX_CHARS, truncate
 from plugin.framework.errors import (
     DocumentDisposedError,
     ToolExecutionError,
-    check_disposed,
-    is_disposed_exception,
-    is_real_disposal,
+    UnoObjectError,
+    is_disposal,
     uno_read,
 )
 from plugin.framework.thread_guard import main_thread_only
@@ -44,7 +43,7 @@ from plugin.calc.bridge import (
     used_range_address,
 )
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 _MAX_CONTEXT_HEADERS = 100
 
@@ -174,7 +173,7 @@ class SheetAnalyzer:
             # ToolExecutionError hides it from get_calc_context_for_chat and
             # from get_sheet_summary (execute_safe then reports
             # TOOL_EXECUTION_ERROR).
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             raise ToolExecutionError(str(e)) from e
 
@@ -200,7 +199,8 @@ def get_calc_context_for_chat(
     if ctx is None:
         raise ValueError("ctx is required for get_calc_context_for_chat")
     try:
-        check_disposed(model, "Document Model")
+        if model is None:
+            raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
         vs = _resolve_visible_sheet(model)
 
         ctx_str = f"Spreadsheet Document: {model.getURL() or 'Untitled'}\n"
@@ -241,7 +241,7 @@ def get_calc_context_for_chat(
             except DocumentDisposedError:
                 raise
             except Exception as exc:
-                if is_real_disposal(exc):
+                if is_disposal(exc):
                     raise DocumentDisposedError("Calc document disposed during selection read", object_type="calc") from exc
                 log.debug("Failed to read Calc selection context: %s", exc)
         else:
@@ -251,7 +251,7 @@ def get_calc_context_for_chat(
     except DocumentDisposedError:
         raise
     except Exception as exc:
-        if is_real_disposal(exc):
+        if is_disposal(exc):
             raise DocumentDisposedError("Calc document disposed", object_type="calc") from exc
         log.exception("get_calc_context_for_chat error: %s", exc)
         return "[Unable to read Calc spreadsheet context. The document may be locked or initializing.]"
@@ -265,7 +265,8 @@ def get_full_calc_text(model: Any, max_chars: int = CHAT_DOCUMENT_CONTEXT_MAX_CH
     this module instead of constructing ``SheetAnalyzer`` itself. ``max_chars`` is
     this prefix cap.
     """
-    check_disposed(model, "Document Model")
+    if model is None:
+        raise UnoObjectError("Document Model is null", code="UNO_NULL_OBJECT")
     vs = _resolve_visible_sheet(model)
     summary = vs.summary
     if summary is None:

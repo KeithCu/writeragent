@@ -52,8 +52,14 @@ GITHUB_GET_MAX_SLEEP_SEC = 30.0
 # Each row is the newest job whose name contains every needle. CrossHair
 # jobs are ``CrossHair (check-all, ubuntu-latest)`` / ``cover-all`` (see
 # crosshair-deep.yml). PR CI jobs are ``Test & Typecheck (os)`` or
-# ``Mock LLM Sidebar (os)`` (see pr-ci.yml). ``both`` CrossHair jobs do
-# not contain those needles and are ignored.
+# ``Mock LLM Sidebar (os)`` (see pr-ci.yml). Release Verify jobs are
+# ``Release Verify (os)`` (see release-verify.yml) and map to the same
+# Test & Typecheck dashboard rows. ``both`` CrossHair jobs do not contain
+# those needles and are ignored.
+WORKFLOW_SOURCE_LABELS: dict[str, str] = {
+    "pr-ci.yml": "PR CI",
+    "release-verify.yml": "Release Verify",
+}
 SUITE_SPECS: tuple[tuple[str, str, str, tuple[str, ...]], ...] = (
     ("CrossHair check-all", "", "crosshair-deep.yml", ("check-all",)),
     ("CrossHair cover-all", "", "crosshair-deep.yml", ("cover-all",)),
@@ -105,6 +111,15 @@ class StatusRow:
     run_url: str
     run_id: int = 0
     run_attempt: int = 1
+    source: str = ""
+
+
+# Test & Typecheck row indexes in ``suite_specs()`` that also scan release-verify.yml.
+_RELEASE_VERIFY_MATCH: dict[int, tuple[str, ...]] = {
+    2: ("Release Verify", "ubuntu-26.04"),
+    3: ("Release Verify", "macos-latest"),
+    4: ("Release Verify", "windows-latest"),
+}
 
 
 def suite_specs() -> tuple[SuiteSpec, ...]:
@@ -160,6 +175,35 @@ def short_sha(sha: str) -> str:
     if len(sha) < 7:
         return sha
     return sha[:7]
+
+
+def pick_newer_status_row(current: StatusRow | None, candidate: StatusRow) -> StatusRow:
+    """Prefer the row with the latest job completion time (``when``)."""
+    if current is None or current.conclusion == "no run":
+        return candidate
+    if candidate.conclusion == "no run":
+        return current
+    current_dt = parse_iso_timestamp(current.when)
+    candidate_dt = parse_iso_timestamp(candidate.when)
+    if current_dt is None:
+        return candidate
+    if candidate_dt is None:
+        return current
+    if candidate_dt > current_dt:
+        return candidate
+    return current
+
+
+def cache_checkpoint_applies(
+    cached_row: StatusRow,
+    workflow: str,
+) -> bool:
+    """True when a cached hint may stop scanning this workflow for a row."""
+    if not cached_row.source:
+        # Old status.json without source: checkpoint only PR CI, not Release Verify.
+        return workflow == "pr-ci.yml"
+    label = WORKFLOW_SOURCE_LABELS.get(workflow, "")
+    return cached_row.source == label
 
 
 def job_when(job: JsonDict) -> str:
@@ -363,6 +407,7 @@ def parse_cached_rows(
             run_url=str(item.get("run_url", "")),
             run_id=run_id,
             run_attempt=run_attempt,
+            source=str(item.get("source", "")),
         )
 
     result: dict[int, StatusRow] = {}
@@ -429,6 +474,8 @@ def collect_status(
     pending_by_workflow: dict[str, list[int]] = {}
     for index, spec in enumerate(specs):
         pending_by_workflow.setdefault(spec.workflow, []).append(index)
+    for index in _RELEASE_VERIFY_MATCH:
+        pending_by_workflow.setdefault("release-verify.yml", []).append(index)
 
     for workflow, indexes in pending_by_workflow.items():
         pending = set(indexes)
@@ -450,6 +497,8 @@ def collect_status(
             for index in list(pending):
                 if index in cached_rows:
                     cached_row = cached_rows[index]
+                    if not cache_checkpoint_applies(cached_row, workflow):
+                        continue
                     if cached_row.run_id and run_id <= cached_row.run_id:
                         if run_id == cached_row.run_id and run_attempt > cached_row.run_attempt:
                             pass
@@ -491,9 +540,22 @@ def collect_status(
                 still_pending = list(pending)
                 for index in still_pending:
                     spec = specs[index]
-                    if not job_matches(name, spec):
+                    if workflow == "release-verify.yml":
+                        alt = _RELEASE_VERIFY_MATCH.get(index)
+                        if alt is None:
+                            continue
+                        match_spec = SuiteSpec(
+                            spec.suite,
+                            spec.os,
+                            workflow,
+                            alt,
+                        )
+                    else:
+                        match_spec = spec
+                    if not job_matches(name, match_spec):
                         continue
-                    found[index] = StatusRow(
+                    source_label = WORKFLOW_SOURCE_LABELS.get(workflow, "")
+                    candidate = StatusRow(
                         suite=spec.suite,
                         os=spec.os or extract_os(name),
                         conclusion=conclusion,
@@ -502,7 +564,10 @@ def collect_status(
                         run_url=run_url or "",
                         run_id=run_id,
                         run_attempt=run_attempt,
+                        source=source_label,
                     )
+                    merged = pick_newer_status_row(found.get(index), candidate)
+                    found[index] = merged
                     pending.discard(index)
 
     return [found.get(index, _empty_row(spec)) for index, spec in enumerate(specs)]
@@ -690,7 +755,8 @@ def render_html(
         f"<p>Latest Actions jobs for {_cell(repo)}. Generated { _cell(generated_at) }.</p>\n"
         "<table>\n"
         "<thead><tr>"
-        "<th>Suite</th><th>OS</th><th>Conclusion</th><th>SHA</th><th>When</th><th>Run</th>"
+        "<th>Suite</th><th>OS</th><th>Conclusion</th>"
+        "<th>SHA</th><th>When</th><th>Run</th>"
         "</tr></thead>\n"
         f"<tbody>\n{table_body}\n</tbody>\n"
         "</table>\n"

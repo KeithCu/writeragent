@@ -93,8 +93,8 @@ def test_sort_two_pass_stable_device_before_widget() -> None:
     calc = CalcWorld(
         "Product\tRevenue\nWidget\t1200\nGadget\t850\nTool\t2100\nDevice\t1200\nAardvark\tn/a"
     )
-    calc.sort_range(sort_column=0, ascending=True, has_header=True)
-    calc.sort_range(sort_column=1, ascending=False, has_header=True)
+    calc.range_sort(sort_column=0, ascending=True, has_header=True)
+    calc.range_sort(sort_column=1, ascending=False, has_header=True)
     names = [row[0] for row in calc._grid[1:]]
     assert names == ["Tool", "Device", "Widget", "Gadget", "Aardvark"]
 
@@ -150,3 +150,26 @@ def test_sheet_summary_includes_all_rows() -> None:
     assert summary["row_count"] == 7
     assert len(summary["grid"]) == 7
     assert any("Note" in [str(c) for c in row] for row in summary["grid"])
+
+
+def test_read_cell_range_matches_grid_to_rows() -> None:
+    from plugin.calc.inspector import grid_to_rows
+
+    calc = CalcWorld("X\tY\n1\t2")
+    calc.formulas["B2"] = "=A2+1"
+    res = calc.read_cell_range(range=["A1:B2"])
+    expected = grid_to_rows(calc._inspector_grid("A1:B2"), range_name="A1:B2")
+    assert res["status"] == "ok"
+    assert res["range"] == "A1:B2"
+    assert res["result"][0] == expected
+    assert res["result"][0]["formulas"] == {"B2": "=A2+1"}
+
+
+def test_read_cell_range_multi_range_envelope() -> None:
+    calc = CalcWorld("a\tb")
+    res = calc.read_cell_range(range=["A1", "B1"])
+    assert res["status"] == "ok"
+    assert "range" not in res
+    assert len(res["result"]) == 2
+    assert res["result"][0]["range"] == "A1"
+    assert res["result"][1]["range"] == "B1"

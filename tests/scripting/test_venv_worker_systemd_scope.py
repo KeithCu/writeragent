@@ -1,7 +1,9 @@
 """Venv worker launch in its own systemd user scope (mocked which/subprocess)."""
 from __future__ import annotations
 
+import contextlib
 import subprocess
+import sys
 from unittest import mock
 
 import pytest
@@ -98,25 +100,32 @@ def test_probe_oserror_falls_back(tmp_path):
     assert out == CMD
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="systemd scope spawn retry is Linux-only")
 def test_spawn_retries_plain_when_scoped_start_raises(monkeypatch):
-    mgr = object.__new__(vw.PythonWorkerManager)
-    wrappers = []
-    started = []
-
-    def new_managed(wrapper):
-        wrappers.append(wrapper)
-        return mock.Mock(name="managed%d" % len(wrappers))
-
-    def start_child(managed):
-        started.append(managed)
-        if len(started) == 1:
-            raise OSError("systemd-run vanished")
-
+    mgr = vw.PythonWorkerManager(sys.executable, {"XDG_RUNTIME_DIR": "/run/user/1000", "PATH": "/usr/bin"})
     vw._systemd_run_for_worker[("/usr/bin/systemd-run", "/run/user/1000")] = "/usr/bin/systemd-run"
-    monkeypatch.setattr(mgr, "_new_managed_worker", new_managed, raising=False)
-    monkeypatch.setattr(mgr, "_start_child", start_child, raising=False)
-    assert vw.PythonWorkerManager._start_worker_child(mgr) is not None
-    assert wrappers == [vw.wrap_worker_command, vw.wrap_command_for_sandbox]
+    attempts = {"n": 0}
+
+    @contextlib.contextmanager
+    def lease_stub(self, spawn_deadline, wait=0.0, **kwargs):
+        del spawn_deadline, wait, kwargs
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise OSError("systemd-run vanished")
+        proc = mock.Mock()
+        proc.stdin = mock.Mock()
+        proc.stdout = mock.Mock()
+        proc.poll.return_value = None
+        from plugin.framework.warm_child import Lease
+
+        yield Lease(stdin=proc.stdin, stdout=proc.stdout, pid=1, generation=0, warm=self)
+
+    monkeypatch.setattr(vw.WarmChild, "lease", lease_stub)
+    monkeypatch.setattr(mgr, "_ensure_warmed_unlocked", lambda leased: None)
+    monkeypatch.setattr(mgr, "_execute_ipc_unlocked", lambda req, *, leased: {"status": "ok", "result": 1})
+    result = mgr.execute("result = 1", timeout_sec=1)
+    assert result["status"] == "ok"
+    assert attempts["n"] == 2
     assert vw._systemd_scope_disabled
     assert vw.wrap_worker_command(list(CMD), env={"XDG_RUNTIME_DIR": "/run/user/1000"}) == CMD
 
@@ -126,9 +135,13 @@ def test_env_without_runtime_dir_ignores_earlier_scoped_probe(tmp_path):
     without XDG_RUNTIME_DIR and the worker died with 'not defined'."""
     run, first = _wrap(tmp_path)
     assert first[0] == "/usr/bin/systemd-run"
-    run2, second = _wrap(tmp_path)
-    run2.assert_not_called()
-    assert second[0] == "/usr/bin/systemd-run"
-    with mock.patch.object(vw.shutil, "which", return_value="/usr/bin/systemd-run"):
-        assert vw.wrap_worker_command(list(CMD), env={"PATH": "/usr/bin"}) == CMD
-        assert vw.wrap_worker_command(list(CMD), env={}) == CMD
+    run2, ps = _patches()
+    for p in ps:
+        p.start()
+    try:
+        second = vw.wrap_worker_command(list(CMD), env={"PATH": "/usr/bin"})
+    finally:
+        for p in ps:
+            p.stop()
+    assert second == CMD
+    assert run2.call_count == 0

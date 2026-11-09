@@ -109,7 +109,7 @@ def test_compute_schedules_dedicated_worker_and_applies_on_main_thread(monkeypat
     assert name == "text-analytics-dialog"
     assert dedicated is True
 
-    # Now run worker with immediate post_to_main_thread and mock RPC return
+    # Now run worker with immediate main.post and mock RPC return
     readability_result = {
         "status": "ok",
         "result": {
@@ -117,7 +117,7 @@ def test_compute_schedules_dedicated_worker_and_applies_on_main_thread(monkeypat
         },
     }
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", lambda *a, **kw: readability_result)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", lambda fn: fn())
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
 
     worker_fn()
 
@@ -160,7 +160,7 @@ def test_topics_error_does_not_become_last_result(monkeypatch):
         },
     }
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", lambda *a, **kw: topics_err_envelope)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", lambda fn: fn())
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
 
     worker_fn()
 
@@ -228,7 +228,7 @@ def test_generic_worker_exception_omits_package_hint(monkeypatch):
         raise RuntimeError("boom")
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_rpc)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", lambda fn: fn())
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
 
     worker_fn()
 
@@ -261,7 +261,7 @@ def test_timeout_worker_exception_omits_package_hint(monkeypatch):
         raise RuntimeError("Python worker failed: timed out after 30 seconds")
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_rpc)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", lambda fn: fn())
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
 
     worker_fn()
 
@@ -292,7 +292,7 @@ def test_import_worker_exception_keeps_package_hint(monkeypatch):
         raise RuntimeError("No module named 'spacy'")
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_rpc)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", lambda fn: fn())
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
 
     worker_fn()
 
@@ -320,7 +320,7 @@ def test_diagnostics_exception_has_no_install_command(monkeypatch):
         raise RuntimeError("no python")
 
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.run_text_analytics", failing_rpc)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", lambda fn: fn())
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", lambda fn: fn())
 
     worker_fn()
 
@@ -449,7 +449,7 @@ def test_closed_dialog_drops_posted_result(monkeypatch):
         dlg_obj._closed = True
         fn()
 
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", close_and_post)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", close_and_post)
 
     worker_fn()
 
@@ -465,7 +465,7 @@ def test_insert_delegates_to_host_helper(monkeypatch):
     def forbidden_insert(*args, **kwargs):
         raise AssertionError("insert_content_at_position should not be called by dialog")
 
-    monkeypatch.setattr("plugin.writer.format.insert_content_at_position", forbidden_insert)
+    monkeypatch.setattr("plugin.writer.html_import.insert_content_at_position", forbidden_insert)
 
     recorded_insert: list[tuple[Any, Any, Any]] = []
 
@@ -660,7 +660,7 @@ def test_set_busy_continues_after_one_control_failure():
     assert fake_dlg.controls["BtnClose"].enabled is True
 
 
-def test_post_failure_uses_execute_on_main_thread(monkeypatch):
+def test_post_failure_uses_call_on_main(monkeypatch):
     dlg_obj, fake_dlg = _make_dialog()
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.get_active_document", lambda ctx: object())
     monkeypatch.setattr("plugin.scripting.text_analytics_ui.is_writer", lambda doc: True)
@@ -692,8 +692,8 @@ def test_post_failure_uses_execute_on_main_thread(monkeypatch):
     def mock_execute(fn, *a, **kw):
         fn()
 
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", raising_post)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.execute_on_main_thread", mock_execute)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", raising_post)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.call", mock_execute)
 
     worker_fn()
 
@@ -732,8 +732,8 @@ def test_marshal_failure_clears_busy_without_touching_controls(monkeypatch):
     def raising_execute(fn, *a, **kw):
         raise TimeoutError("timeout on main thread")
 
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.post_to_main_thread", raising_post)
-    monkeypatch.setattr("plugin.scripting.text_analytics_ui.execute_on_main_thread", raising_execute)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.post", raising_post)
+    monkeypatch.setattr("plugin.framework.queue_executor.main.call", raising_execute)
 
     worker_fn()
 

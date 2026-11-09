@@ -13,7 +13,7 @@ from typing import Any, Mapping
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.errors import WriterAgentException, format_error_for_display
 from plugin.framework.client.llm_client import LlmClient
-from plugin.framework.config import get_api_config, get_config_int, get_config_str
+from plugin.framework.config import get_api_config, get_config
 from plugin.framework.thread_guard import background_if_dummy_thread, sync_host_dispatch
 
 log = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def _optional_text(value: Any) -> str:
 
 def _optional_max_tokens(value: Any) -> int:
     """Only a finite positive int >= 100 wins; everything else uses the configured default."""
-    default = get_config_int("calc_prompt_max_tokens")
+    default = int(get_config("calc_prompt_max_tokens"))
     try:
         n = int(value)
     except (TypeError, ValueError, OverflowError):
@@ -96,7 +96,7 @@ def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any,
                 if isinstance(system_prompt, str) and not system_prompt.strip():
                     resolved_system = ""
                 else:
-                    resolved_system = _optional_text(system_prompt) or get_config_str("extend_selection_system_prompt").strip() or CALC_PROMPT_CELL_SYSTEM_PROMPT
+                    resolved_system = _optional_text(system_prompt) or str(get_config("extend_selection_system_prompt") or "").strip() or CALC_PROMPT_CELL_SYSTEM_PROMPT
 
                 config = get_api_config()
                 model_name = _optional_text(model)
@@ -116,9 +116,7 @@ def execute_prompt_addin(ctx: Any, message: str, system_prompt: Any, model: Any,
                     client = LlmClient(config, ctx, register_with_send=False)
                 else:
                     client.config = config
-                    # Bugfix: A reused client may have been stopped by sidebar Stop (if previously registered
-                    # with send scope) or external cancellation; clear the stop latch so subsequent
-                    # cell calculations do not falsely report 'model returned no text'.
+                    # Clear stop latch on a reused client so =PROMPT() recalc is not treated as user-cancelled.
                     client.clear_stop()
 
                 # =PY() does not use run_blocking_in_thread: processEventsToIdle on the

@@ -48,7 +48,7 @@ def test_annotation_text_falls_back_to_annotation_shape():
 
 
 def _list_one_comment(date_value):
-    """Run list_cell_comments against one mocked annotation."""
+    """Run cell_comment_list against one mocked annotation."""
     ctx = MagicMock()
     doc = MagicMock()
     ctx.doc = doc
@@ -56,7 +56,7 @@ def _list_one_comment(date_value):
     sheet = MagicMock()
     sheet.getName.return_value = "Sheet1"
 
-    # list_cell_comments resolves sheet via resolve_sheet
+    # cell_comment_list resolves sheet via resolve_sheet
     def get_sheet_by_name(name):
         return sheet
 
@@ -96,7 +96,7 @@ def _list_one_comment(date_value):
     return res
 
 
-def test_list_cell_comments_keeps_formatted_date_string():
+def test_cell_comment_list_keeps_formatted_date_string():
     # XSheetAnnotation.getDate() is a formatted string, not a DateTime struct.
     # Treating it as a struct dropped every date (attribute access failed).
     res = _list_one_comment("10/24/2023 12:30 PM")
@@ -106,7 +106,7 @@ def test_list_cell_comments_keeps_formatted_date_string():
     assert res["comments"][0]["text"] == "Test comment"
 
 
-def test_list_cell_comments_formats_datetime_struct_fallback():
+def test_cell_comment_list_formats_datetime_struct_fallback():
     class DummyDateTime:
         Year = 2023
         Month = 10
@@ -132,7 +132,7 @@ def test_annotation_date_string_struct_and_empty():
     assert _annotation_date(None) == ""
 
 
-def test_add_cell_comment_updates_lazy_xlsx_note():
+def test_cell_comment_add_updates_lazy_xlsx_note():
     from plugin.calc.comments import AddCellComment
 
     ctx = MagicMock()
@@ -160,7 +160,7 @@ def test_add_cell_comment_updates_lazy_xlsx_note():
     sheet.getAnnotations.return_value.insertNew.assert_not_called()
 
 
-def test_add_cell_comment_inserts_new_when_no_note():
+def test_cell_comment_add_inserts_new_when_no_note():
     from plugin.calc.comments import AddCellComment
 
     ctx = MagicMock()
@@ -187,7 +187,7 @@ def test_add_cell_comment_inserts_new_when_no_note():
     sheet.getAnnotations.return_value.insertNew.assert_called_once_with(cell_addr, "fresh text")
 
 
-def test_delete_cell_comment_found_and_not_found():
+def test_cell_comment_delete_found_and_not_found():
     from plugin.calc.comments import DeleteCellComment
 
     ctx = MagicMock()
@@ -223,7 +223,7 @@ def test_delete_cell_comment_found_and_not_found():
     annotations.removeByIndex.assert_not_called()
 
 
-def test_add_cell_comment_validation_and_resolution():
+def test_cell_comment_add_validation_and_resolution():
     from plugin.calc.comments import AddCellComment
 
     ctx = MagicMock()
@@ -279,7 +279,7 @@ def test_add_cell_comment_validation_and_resolution():
     assert "Sheet1, Data Sheet" in res_missing["message"]
 
 
-def test_list_cell_comments_sorted_by_row_col():
+def test_cell_comment_list_sorted_by_row_col():
     ctx = MagicMock()
     doc = MagicMock()
     ctx.doc = doc

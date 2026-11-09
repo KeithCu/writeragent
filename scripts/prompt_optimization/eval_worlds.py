@@ -14,7 +14,8 @@ import re
 from html.parser import HTMLParser
 from typing import Any
 
-from plugin.framework.errors import safe_json_loads
+from plugin.framework.json_utils import safe_json_loads
+from plugin.calc.inspector import grid_to_rows
 
 _COMMENT_RE = re.compile(r"\[([^\]]+)\]")
 _HEADING_TAGS = frozenset({"h1", "h2", "h3", "h4", "h5", "h6"})
@@ -400,7 +401,15 @@ class WriterWorld:
         if target == "full_document":
             self._html = content
             self._sync_blocks()
-            return {"status": "ok", "message": "Replaced entire document."}
+            from plugin.writer.html_import_styles import summarize_written_blocks
+
+            summary = summarize_written_blocks(content)
+            return {
+                "status": "ok",
+                "message": "Replaced entire document.",
+                "paragraph_count": summary["paragraph_count"],
+                "headings": summary["headings"],
+            }
         if target == "end":
             self._html = self._html + content
             self._sync_blocks()
@@ -845,6 +854,40 @@ class CalcWorld:
             "grid": self._grid,
         }
 
+    def _inspector_grid(self, rng: str) -> list[list[dict[str, Any]]]:
+        """Build the same per-cell dict grid ``CellInspector.read_range`` would return (sans UNO)."""
+        c0, r0, c1, r1 = parse_a1_range(rng)
+        out: list[list[dict[str, Any]]] = []
+        for row_i in range(r0, r1 + 1):
+            row_data: list[dict[str, Any]] = []
+            for col_i in range(c0, c1 + 1):
+                val: Any = ""
+                if row_i < len(self._grid) and col_i < len(self._grid[row_i]):
+                    val = self._grid[row_i][col_i]
+                addr = col_row_to_a1(col_i, row_i)
+                formula = self.formulas.get(addr)
+                if isinstance(formula, str) and formula.startswith("="):
+                    cell_type = "formula"
+                    formula_text: str | None = formula
+                else:
+                    formula_text = None
+                    if val == "" or val is None:
+                        cell_type = "empty"
+                        val = None
+                    elif isinstance(val, str):
+                        cell_type = "text"
+                    else:
+                        cell_type = "value"
+                cell_info: dict[str, Any] = {
+                    "address": addr,
+                    "value": val,
+                    "formula": formula_text,
+                    "type": cell_type,
+                }
+                row_data.append(cell_info)
+            out.append(row_data)
+        return out
+
     def read_cell_range(self, **kwargs: Any) -> dict[str, Any]:
         ranges = kwargs.get("range") or []
         if isinstance(ranges, str):
@@ -853,30 +896,15 @@ class CalcWorld:
             return {"status": "error", "message": "range is required"}
         range_strs = [str(r) for r in ranges]
         self.reads.append(range_strs)
-        cells: list[dict[str, Any]] = []
-        for rng in range_strs:
-            c0, r0, c1, r1 = parse_a1_range(rng)
-            for row_i in range(r0, r1 + 1):
-                for col_i in range(c0, c1 + 1):
-                    val: Any = ""
-                    if row_i < len(self._grid) and col_i < len(self._grid[row_i]):
-                        val = self._grid[row_i][col_i]
-                    addr = col_row_to_a1(col_i, row_i)
-                    cells.append(
-                        {
-                            "address": addr,
-                            "value": val,
-                            "formula": self.formulas.get(addr, ""),
-                        }
-                    )
-        return {
-            "status": "ok",
-            "range": range_strs,
-            "cells": cells,
-            "cell_count": len(cells),
-        }
+        payloads = [
+            grid_to_rows(self._inspector_grid(rng), range_name=rng)
+            for rng in range_strs
+        ]
+        if len(payloads) == 1:
+            return {"status": "ok", "range": range_strs[0], "result": payloads}
+        return {"status": "ok", "result": payloads}
 
-    def sort_range(self, **kwargs: Any) -> dict[str, Any]:
+    def range_sort(self, **kwargs: Any) -> dict[str, Any]:
         """One-column sort (production sort_column is a 0-based int). Stable."""
         if not self._grid or len(self._grid) < 2:
             return {"status": "ok", "message": "Nothing to sort"}

@@ -5,10 +5,19 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from plugin.framework.client.auth import AuthError
+from plugin.framework.send_cancellation import SendCancellation
+
 from plugin.framework.client.llm_client import LlmClient, strip_leaked_chat_template_control_tokens
 from plugin.framework.client.request_controls import reset_host_pacing_for_tests, reset_local_unverified_hosts_for_tests
 from plugin.framework.errors import NetworkError, format_error_message
 from plugin.tests.testing_utils import MockContext, create_mock_http_response
+from tests.harness.strip_bundle import is_release_build
+
+
+def _cancelled_scope() -> SendCancellation:
+    scope = SendCancellation()
+    scope.cancel()
+    return scope
 
 
 @pytest.fixture
@@ -38,11 +47,11 @@ def _fast_retry_waits():
     reset_host_pacing_for_tests()
     reset_local_unverified_hosts_for_tests()
     with (
-        patch("plugin.framework.client.llm_client.wait_abortable", return_value=True) as llm_wait,
+        patch("plugin.framework.client.request_controls.wait_abortable", return_value=True) as controls_wait,
         patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as transport_wait,
         patch("plugin.framework.client.http_transport.wait_host_gap", return_value=True),
     ):
-        yield {"llm": llm_wait, "transport": transport_wait}
+        yield {"controls": controls_wait, "transport": transport_wait}
 
 
 def test_headers_and_config_injection(client):
@@ -285,9 +294,8 @@ def test_non_openai_providers_keep_max_tokens_for_reasoning_names():
 
 
 def test_persistent_connections(client):
-    # What was wrong: this still expected the Settings read timeout (60).
-    # Connect uses LLM_CONNECT_TIMEOUT_SEC so a dead host does not wait the
-    # full stream stall budget. The read timeout is applied after connect.
+    # Connect uses LLM_CONNECT_TIMEOUT_SEC so a dead host does not wait the full
+    # read timeout; the test must expect that connect budget, not Settings (60).
     from plugin.framework.constants import LLM_CONNECT_TIMEOUT_SEC
 
     with (
@@ -838,14 +846,13 @@ def test_make_chat_request_includes_dev_build_prefix_when_enabled():
 
     ctx = MockContext()
     client = LlmClient({"endpoint": "http://test", "model": "test-model"}, ctx)
-    messages = [{"role": "user", "content": "Hi"}]
+    messages = [{"role": "system", "content": "You are helpful."}, {"role": "user", "content": "Hi"}]
     with patch("plugin.framework.client.response_normalizers.should_prepend_dev_llm_system_prefix", return_value=True):
         _m, _p, body, _h = client.make_chat_request(messages, max_tokens=50)
     data = json.loads(body.decode("utf-8"))
     system = data["messages"][0]["content"]
     assert LLM_DEV_BUILD_SYSTEM_PREFIX in system
-
-    assert "Today's date" in system
+    assert "Today's date is" in system
 
 
 def test_make_chat_request_skips_dev_build_prefix_when_disabled():
@@ -1029,7 +1036,7 @@ def test_stream_request_with_tools_stop_checker_suppresses_connection_retry(clie
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
 
     assert result["finish_reason"] == "stop"
@@ -1044,11 +1051,11 @@ def test_stop_before_connect_does_not_send(client):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=lambda: True,
+            cancel=_cancelled_scope(),
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 0
-    assert client._stopped is True
+    assert client.stopped() is True
 
 
 def test_reused_client_sends_after_stop_when_checker_clear(client):
@@ -1067,17 +1074,17 @@ def test_reused_client_sends_after_stop_when_checker_clear(client):
         mock_conn.getresponse.return_value = mock_resp
 
         client.stop()
-        assert client._stopped is True
+        assert client.stopped() is True
         client.clear_stop()
 
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=lambda: False,
+            cancel=None,
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 1
-    assert client._stopped is False
+    assert client.stopped() is False
 
 
 def test_make_chat_request_coalesces_system_messages(client):
@@ -1257,17 +1264,14 @@ def test_image_completion_http_200_error_raises(client):
 
 
 def test_image_completion_stop_during_backoff(client):
-    """A caller's stop checker ends a 429 wait and the sidebar sees the retry line."""
+    """A caller's stop scope ends a 429 wait and the sidebar sees the retry line."""
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     statuses: list[str] = []
-    armed = {"stop": False}
+    scope = SendCancellation()
 
-    def _checker() -> bool:
-        return armed["stop"]
-
-    def _wait(delay, checker):
-        armed["stop"] = True
-        return not bool(checker and checker())
+    def _wait(delay, cancel=None, **kwargs):
+        scope.cancel()
+        return False
 
     with (
         patch("plugin.framework.client.http_transport.wait_abortable", side_effect=_wait),
@@ -1275,7 +1279,7 @@ def test_image_completion_stop_during_backoff(client):
     ):
         _https_steps(mock_https, busy)
         with pytest.raises(NetworkError) as err:
-            client.image_completion("Draw a cat", stop_checker=_checker, status_callback=statuses.append)
+            client.image_completion("Draw a cat", cancel=scope, status_callback=statuses.append)
     assert err.value.code == "STOPPED"
     assert mock_https.call_count == 1
     assert len(statuses) == 1
@@ -1285,14 +1289,11 @@ def test_image_completion_stop_during_backoff(client):
 def test_sync_request_with_tools_stop_during_backoff_returns_stop_dict(client):
     """Sync Stop stays a finish_reason dict. Image/STT raise STOPPED instead."""
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
-    armed = {"stop": False}
+    scope = SendCancellation()
 
-    def _checker() -> bool:
-        return armed["stop"]
-
-    def _wait(delay, checker):
-        armed["stop"] = True
-        return not bool(checker and checker())
+    def _wait(delay, cancel=None, **kwargs):
+        scope.cancel()
+        return False
 
     with (
         patch("plugin.framework.client.http_transport.wait_abortable", side_effect=_wait),
@@ -1303,7 +1304,7 @@ def test_sync_request_with_tools_stop_during_backoff_returns_stop_dict(client):
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=10,
             stream=False,
-            stop_checker=_checker,
+            cancel=scope,
         )
     assert result["finish_reason"] == "stop"
     assert result["content"] == ""
@@ -1448,7 +1449,7 @@ def test_anthropic_shim(client):
         data = json.loads(body)
         assert data["model"] == "claude-sonnet-4-5"
         assert data["system"].endswith("You are a helpful assistant.")
-        assert data["messages"] == [{"role": "user", "content": "Hello!"}]
+        assert data["messages"] == [{"role": "user", "content": [{"type": "text", "text": "Hello!"}]}]
         assert data["max_tokens"] == 100
 
 
@@ -1487,7 +1488,7 @@ def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):
     tools = [{
         "type": "function",
         "function": {
-            "name": "list_sheets",
+            "name": "sheet_list",
             "description": "List sheets",
             "parameters": {"type": "object", "properties": {}},
         },
@@ -1500,7 +1501,7 @@ def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):
             "tool_calls": [{
                 "id": "c1",
                 "type": "function",
-                "function": {"name": "list_sheets", "arguments": '{"hallucinated": "yes"}'},
+                "function": {"name": "sheet_list", "arguments": '{"hallucinated": "yes"}'},
             }],
         },
     ]
@@ -1516,7 +1517,7 @@ def test_tool_call_schema_checked_before_openai_and_anthropic_shims(client):
             tool_uses = [part for part in assistant["content"] if isinstance(part, dict) and part.get("type") == "tool_use"]
             assert tool_uses
             assert tool_uses[0]["input"] == {}
-            assert tool_uses[0]["name"] == "list_sheets"
+            assert tool_uses[0]["name"] == "sheet_list"
 
 
 def test_anthropic_accepts_openai_shaped_tools(client):
@@ -1592,7 +1593,7 @@ def test_anthropic_does_not_merge_tool_result_into_user_text(client):
         mock_auth.return_value = {"provider": "anthropic"}
         _method, _path, body, _headers = client.make_chat_request(messages, max_tokens=20)
     data = json.loads(body)
-    assert data["messages"][0] == {"role": "user", "content": "Hello"}
+    assert data["messages"][0] == {"role": "user", "content": [{"type": "text", "text": "Hello"}]}
     assert data["messages"][1]["role"] == "user"
     assert data["messages"][1]["content"][0]["type"] == "tool_result"
 
@@ -1630,7 +1631,7 @@ def test_anthropic_stream_tool_use_accumulates(client):
 
 
 def test_anthropic_message_stop_does_not_clobber_max_tokens(client):
-    """message_stop used to overwrite message_delta stop_reason with 'stop'."""
+    """message_stop must not overwrite message_delta stop_reason with 'stop'."""
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "anthropic"}
         shim = client._get_shim()
@@ -1697,10 +1698,12 @@ def test_anthropic_stream_loop_keeps_tool_events(client):
     assert result["finish_reason"] == "tool_calls"
 
 
-def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client):
+def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client, caplog):
     """message_start output_tokens=1 plus message_delta output_tokens=15 stays 15, not 16."""
+    import logging
+
     payloads = [
-        '{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":25,"output_tokens":1}}}',
+        '{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":25,"output_tokens":1,"cache_read_input_tokens":9}}}',
         '{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hi"}}',
         '{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":15}}',
         '{"type":"message_stop"}',
@@ -1711,6 +1714,7 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client):
         yield from payloads
 
     with (
+        caplog.at_level(logging.INFO),
         patch("plugin.framework.client.llm_client.LlmClient._resolve_auth", return_value={"provider": "anthropic"}),
         patch("http.client.HTTPSConnection") as mock_https,
         patch("plugin.framework.client.llm_client.iterate_sse", side_effect=iterate),
@@ -1730,6 +1734,24 @@ def test_anthropic_stream_usage_replaces_cumulative_output_tokens(client):
     assert usage["prompt_tokens"] == 25
     assert usage["output_tokens"] == 15
     assert usage["completion_tokens"] == 15
+    assert usage["cache_read_input_tokens"] == 9
+
+    # Release strip removes log.info call sites; usage asserts above still run.
+    if not is_release_build():
+        finished_records = [r for r in caplog.records if "LLM response stream finished" in r.getMessage()]
+        assert len(finished_records) == 1
+        assert "cache_read=9" in finished_records[0].getMessage()
+
+
+def test_cache_read_count_helper():
+    from plugin.framework.client.shim_helpers import cache_read_count
+
+    assert cache_read_count({"prompt_tokens_details": {"cached_tokens": 4}}) == 4
+    assert cache_read_count({"prompt_tokens_details": {}}) is None
+    assert cache_read_count({"cache_read_input_tokens": 9}) == 9
+    assert cache_read_count({}) is None
+    assert cache_read_count(None) is None
+    assert cache_read_count({"prompt_tokens_details": None}) is None
 
 
 def test_make_chat_request_coalesces_mixed_system_messages(client):
@@ -1794,7 +1816,7 @@ def test_make_chat_request_flattens_system_message(client):
 
 
 def test_chat_request_omits_top_p(client):
-    """top_p used to be forced to 0.9 and rejected by models that also take temperature."""
+    """chat requests must omit top_p so models that reject it with temperature still work."""
     messages = [{"role": "user", "content": "Hi"}]
     with patch("plugin.framework.client.llm_client.LlmClient._resolve_auth") as mock_auth:
         mock_auth.return_value = {"provider": "openai"}
@@ -2034,6 +2056,15 @@ def _sse_content_lines(*parts: str) -> list[bytes]:
     return lines
 
 
+def test_stream_completion_returns_finish_reason(client):
+    payload = json.dumps({"choices": [{"finish_reason": "length", "delta": {}}]})
+    resp = create_mock_http_response(sse_lines=[f"data: {payload}".encode(), b"data: [DONE]"])
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        finish = client.stream_completion("prompt", "system", 10, append_callback=lambda _t: None)
+    assert finish == "length"
+
+
 def _https_steps(mock_https, *steps):
     """Wire HTTPSConnection: each step is a response mock or an exception from request()."""
     conns = []
@@ -2098,7 +2129,7 @@ def test_stream_http_500_does_not_retry(client, _fast_retry_waits):
     assert err.value.code == "HTTP_ERROR"
     assert err.value.details["status"] == 500
     assert mock_https.call_count == 1
-    _fast_retry_waits["llm"].assert_not_called()
+    _fast_retry_waits["transport"].assert_not_called()
 
 
 def _http_500_diag_body(*, stream, tools, prompt, model="gpt-4o"):
@@ -2115,13 +2146,15 @@ def _http_500_diag_body(*, stream, tools, prompt, model="gpt-4o"):
 def _raise_http_error(client, status, reason, body, err_json, path="/v1/chat/completions"):
     resp = create_mock_http_response(status, json_data=err_json, reason=reason)
     with pytest.raises(NetworkError) as err:
-        client._retry_or_raise_http_error(
+        client._transport.handle_http_status(
             resp,
-            body,
-            path,
+            request_body=body,
+            path=path,
             retries_left=2,
             emitted_any=False,
-            stop_checker=None,
+            cancel=None,
+            observe_http_error=client._observe_provider_http_error,
+            secrets=client._wire_secrets(),
         )
     return err
 
@@ -2146,7 +2179,7 @@ def _assert_http_500_diag_safe(joined, *, prompt, api_key, model, stream, n_mess
 def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     import logging
 
-    from plugin.framework.client.errors import _format_http_error_response
+    from plugin.framework.client.errors import format_http_error_response
 
     prompt = "UNIQUE_PROMPT_BLOB_FOR_500_DIAG_TOOLS"
     api_key = "sk-UNIQUE-SECRET-KEY-500-DIAG"
@@ -2170,7 +2203,7 @@ def test_http_500_logs_safe_request_diag_with_tools(client, caplog):
     from plugin.framework.client.http_security import redact_secrets
 
     expected_user = redact_secrets(
-        _format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
+        format_http_error_response(500, "Internal Server Error", json.dumps(err_json)),
         [api_key],
     )
     assert str(err.value) == expected_user
@@ -2301,15 +2334,17 @@ def test_http_429_does_not_log_500_request_diag(client, caplog, _fast_retry_wait
         429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests"
     )
     caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
-    action = client._retry_or_raise_http_error(
-        resp,
-        body,
-        "/v1/chat/completions",
-        retries_left=2,
-        emitted_any=False,
-        stop_checker=None,
-    )
-    assert action == "retry"
+    with patch("plugin.framework.client.http_transport.wait_abortable", return_value=True) as mock_wait:
+        client._transport.handle_http_status(
+            resp,
+            request_body=body,
+            path="/v1/chat/completions",
+            retries_left=2,
+            emitted_any=False,
+            cancel=None,
+            observe_http_error=client._observe_provider_http_error,
+        )
+    mock_wait.assert_called_once()
     joined = "\n".join(r.getMessage() for r in caplog.records)
     assert "HTTP 500 request diagnostic:" not in joined
     assert "UNIQUE_PROMPT_BLOB_FOR_429_NO_500_DIAG" not in joined
@@ -2355,16 +2390,9 @@ def test_stream_timeout_retries_wait_then_succeeds(client, _fast_retry_waits):
 
 
 def _abort_wait_on_stop(client):
-    from plugin.framework.client.request_controls import wait_abortable as real_wait
-
-    clock = {"t": 0.0}
-
-    def sleep_then_stop(delay: float) -> None:
-        clock["t"] += delay
+    def abortable(delay, cancel=None, **kwargs):
         client.stop()
-
-    def abortable(delay, stop_checker=None, **kwargs):
-        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
+        return False
 
     return abortable
 
@@ -2372,9 +2400,9 @@ def _abort_wait_on_stop(client):
 def test_buffered_sse_honors_stop_latch_without_stop_checker(client):
     """stop() during the first chunk must not deliver later buffered SSE lines.
 
-    The per-chunk check used to call only stop_checker. With no checker,
-    http.client lines already in the buffer still reached on_content after
-    stop() set the client latch.
+    Each buffered chunk must honor the client stop latch even when no
+    ``stop_checker`` is supplied. Otherwise lines already in the http.client
+    buffer still reach ``on_content`` after ``stop()``.
     """
     seen: list[str] = []
 
@@ -2388,7 +2416,7 @@ def test_buffered_sse_honors_stop_latch_without_stop_checker(client):
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=None,
+            cancel=None,
             append_callback=on_content,
         )
     assert seen == ["one"]
@@ -2405,7 +2433,7 @@ def test_stream_retry_wait_aborts_when_client_stopped(client, _fast_retry_waits)
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=None,
+            cancel=None,
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 1
@@ -2418,7 +2446,7 @@ def test_stream_connection_retry_aborts_when_client_stopped(client, _fast_retry_
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
-            stop_checker=None,
+            cancel=None,
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 1
@@ -2433,7 +2461,7 @@ def test_sync_request_with_tools_retry_wait_aborts_when_client_stopped(client, _
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=100,
             stream=False,
-            stop_checker=None,
+            cancel=None,
         )
     assert result["finish_reason"] == "stop"
     assert mock_https.call_count == 1
@@ -2441,18 +2469,7 @@ def test_sync_request_with_tools_retry_wait_aborts_when_client_stopped(client, _
 
 def test_request_json_retry_wait_aborts_when_stopped(client, _fast_retry_waits):
     """Image/STT JSON retries must not sleep out a 429 after Stop latches."""
-    from plugin.framework.client.request_controls import wait_abortable as real_wait
-
-    clock = {"t": 0.0}
-
-    def sleep_then_stop(delay: float) -> None:
-        clock["t"] += delay
-        client.stop()
-
-    def abortable(delay, stop_checker=None, **kwargs):
-        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
-
-    _fast_retry_waits["transport"].side_effect = abortable
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)
@@ -2463,18 +2480,7 @@ def test_request_json_retry_wait_aborts_when_stopped(client, _fast_retry_waits):
 
 
 def test_request_json_connection_retry_aborts_when_stopped(client, _fast_retry_waits):
-    from plugin.framework.client.request_controls import wait_abortable as real_wait
-
-    clock = {"t": 0.0}
-
-    def sleep_then_stop(delay: float) -> None:
-        clock["t"] += delay
-        client.stop()
-
-    def abortable(delay, stop_checker=None, **kwargs):
-        return real_wait(delay, stop_checker, sleep=sleep_then_stop, monotonic=lambda: clock["t"])
-
-    _fast_retry_waits["transport"].side_effect = abortable
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, ConnectionResetError("reset"))
         with pytest.raises(NetworkError) as err:
@@ -2515,7 +2521,7 @@ def test_request_with_tools_closes_on_connection_close(client):
 
 
 def test_stream_retry_backoff_stop_skips_second_send(client, _fast_retry_waits):
-    _fast_retry_waits["transport"].return_value = False
+    _fast_retry_waits["transport"].side_effect = _abort_wait_on_stop(client)
     busy = create_mock_http_response(429, json_data={"error": {"message": "overloaded"}}, reason="Too Many Requests")
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, busy)
@@ -2529,8 +2535,13 @@ def test_stream_retry_backoff_stop_skips_second_send(client, _fast_retry_waits):
 
 def test_stream_stop_during_host_gap_is_clean_stop_not_error(client):
     """wait_host_gap abort raises STOPPED internally; streaming loop returns stop, not HTTP_ERROR."""
+
+    def abort_host_gap(*_args, **_kwargs):
+        client.stop()
+        return False
+
     with (
-        patch("plugin.framework.client.http_transport.wait_host_gap", return_value=False),
+        patch("plugin.framework.client.http_transport.wait_host_gap", side_effect=abort_host_gap),
         patch("http.client.HTTPSConnection") as mock_https,
     ):
         result = client.stream_request_with_tools(
@@ -2539,7 +2550,6 @@ def test_stream_stop_during_host_gap_is_clean_stop_not_error(client):
         )
     assert result["finish_reason"] == "stop"
     assert result["content"] == ""
-    assert client._stopped is True
     mock_https.assert_not_called()
 
 
@@ -2816,11 +2826,11 @@ def test_stream_usage_only_chunk_reaches_result(client):
 
 def test_stream_stop_after_content_returns_stop(client):
     """Stop closes the socket. A reset after tokens is cancel, not CONNECTION_LOST."""
-    state = {"stop": False}
-
+    scope = SendCancellation()
     def _iter():
         yield f'data: {json.dumps({"choices": [{"delta": {"content": "Hello"}}]})}\n'.encode()
-        state["stop"] = True
+        scope.cancel()
+        client.stop()
         raise ConnectionResetError("reset after stop")
 
     resp = create_mock_http_response(sse_lines=[])
@@ -2832,42 +2842,42 @@ def test_stream_stop_after_content_returns_stop(client):
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=10,
             append_callback=chunks.append,
-            stop_checker=lambda: state["stop"],
+            cancel=scope,
         )
     assert result["finish_reason"] == "stop"
-    assert client._stopped is True
+    assert client.stopped() is True
     assert chunks == ["Hello"]
     assert mock_https.call_count == 1
 
 
 def test_stream_stop_does_not_flush_partial_think_prefix(client):
     """A buffered '<thi' prefix must not reach the sidebar after Stop."""
-    calls = {"n": 0}
-
-    def stop_checker() -> bool:
-        calls["n"] += 1
-        return calls["n"] >= 2
-
-    lines = [
-        f'data: {json.dumps({"choices": [{"delta": {"content": "<thi"}}]})}'.encode(),
-        f'data: {json.dumps({"choices": [{"delta": {"content": "nk>"}}]})}'.encode(),
-        b"data: [DONE]",
-    ]
-    resp = create_mock_http_response(sse_lines=lines)
+    scope = SendCancellation()
     chunks: list[str] = []
-    thinking: list[str] = []
+    line_one = f'data: {json.dumps({"choices": [{"delta": {"content": "<thi"}}]})}\n'.encode()
+    line_two = f'data: {json.dumps({"choices": [{"delta": {"content": "nk>"}}]})}\n'.encode()
+
+    def _iter():
+        yield line_one
+        scope.cancel()
+        client.stop()
+        yield line_two
+        yield b"data: [DONE]\n"
+
+    resp = create_mock_http_response(sse_lines=[])
+    resp.__iter__.return_value = _iter()
     with patch("http.client.HTTPSConnection") as mock_https:
         _https_steps(mock_https, resp)
         result = client.stream_request_with_tools(
             messages=[{"role": "user", "content": "Hi"}],
             max_tokens=10,
             append_callback=chunks.append,
-            append_thinking_callback=thinking.append,
-            stop_checker=stop_checker,
+            cancel=scope,
         )
     assert result["finish_reason"] == "stop"
-    assert chunks == []
-    assert thinking == []
+    assert client.stopped() is True
+    assert all("nk>" not in piece for piece in chunks)
+    assert "nk>" not in (result.get("content") or "")
 
 
 def test_stream_http_error_redacts_echoed_api_key(client):
@@ -2971,11 +2981,11 @@ def test_stream_reset_after_tool_call_delta_is_connection_lost(client):
 
 def test_stream_abort_during_tool_call_stays_stop(client):
     """Stop after a tool-call delta must not remap finish_reason to a runnable tool_calls."""
-    state = {"abort": False}
-
+    scope = SendCancellation()
     def _iter():
         yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}\n'
-        state["abort"] = True
+        scope.cancel()
+        client.stop()
         yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}\n'
 
     resp = create_mock_http_response(sse_lines=[])
@@ -2986,10 +2996,107 @@ def test_stream_abort_during_tool_call_stays_stop(client):
             messages=[{"role": "user", "content": "Weather?"}],
             max_tokens=100,
             tools=[{"type": "function", "function": {"name": "get_weather"}}],
-            stop_checker=lambda: state["abort"],
+            cancel=scope,
         )
     assert result["finish_reason"] == "stop"
-    assert client._stopped is True
+    assert result["tool_calls"] is None
+    assert client.stopped() is True
+
+
+def test_stream_abort_during_tool_call_honours_caller_cancel_without_client_stop():
+    """Caller cancel= scope (client not registered) must drop partial tool_calls."""
+    config = {
+        "endpoint": "https://api.openai.com",
+        "api_key": "sk-test-key",
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "request_timeout": 60,
+    }
+    client = LlmClient(config, MockContext(), register_with_send=False)
+    scope = SendCancellation()
+
+    def _iter():
+        yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\\"q\\":"}}]}}]}\n'
+        scope.cancel()
+        yield b'data: {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]}\n'
+        yield b'data: {"choices": [{"finish_reason": "stop", "delta": {}}]}\n'
+
+    resp = create_mock_http_response(sse_lines=[])
+    resp.__iter__.return_value = _iter()
+    with patch("http.client.HTTPSConnection") as mock_https:
+        _https_steps(mock_https, resp)
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Weather?"}],
+            max_tokens=100,
+            tools=[{"type": "function", "function": {"name": "get_weather"}}],
+            cancel=scope,
+        )
+    assert result["finish_reason"] == "stop"
+    assert result["tool_calls"] is None
+    assert client.stopped() is False
+    assert scope.is_cancelled() is True
+
+
+def test_stop_on_unregistered_client_cancels_caller_scope_and_prevents_reconnect():
+    """LlmClient.stop() must cancel caller's scope via late hook and abort without connecting."""
+    config = {
+        "endpoint": "https://api.openai.com",
+        "api_key": "sk-test-key",
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "request_timeout": 60,
+    }
+    client = LlmClient(config, MockContext(), register_with_send=False)
+    scope = SendCancellation()
+    client.stop()
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        result = client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            cancel=scope,
+        )
+
+    assert scope.is_cancelled() is True
+    assert result["finish_reason"] == "stop"
+    assert mock_https.call_count == 0
+
+
+def test_stop_after_request_return_does_not_cancel_caller_scope():
+    """LlmClient.stop() after request returns must not cancel caller's send scope."""
+    config = {
+        "endpoint": "https://api.openai.com",
+        "api_key": "sk-test-key",
+        "model": "gpt-4o",
+        "temperature": 0.7,
+        "request_timeout": 60,
+    }
+    client = LlmClient(config, MockContext(), register_with_send=False)
+    scope = SendCancellation()
+
+    with patch("http.client.HTTPSConnection") as mock_https:
+        conn = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.status = 200
+        mock_resp.reason = "OK"
+        mock_resp.getheaders.return_value = [("Content-Type", "application/json")]
+        mock_resp.getheader.return_value = "application/json"
+        mock_resp.__iter__.return_value = iter([b'data: {"choices":[{"delta":{"content":"Hi"}}]}\n\n', b"data: [DONE]\n\n"])
+        mock_resp.read.return_value = b""
+        conn.getresponse.return_value = mock_resp
+        mock_https.return_value = conn
+
+        client.stream_request_with_tools(
+            messages=[{"role": "user", "content": "Hi"}],
+            max_tokens=100,
+            cancel=scope,
+        )
+
+    assert scope.is_cancelled() is False
+    client.stop()
+    # The late-cancel hook must unregister when the request ends. If it outlives
+    # the call, worker cleanup stop() would cancel the caller's SendCancellation.
+    assert scope.is_cancelled() is False
 
 
 def test_stream_malformed_and_truncated_chunks_are_skipped(client):
@@ -3132,7 +3239,7 @@ def test_http_500_does_not_call_ollama_show(mock_ctx, caplog):
     """A 500 formats from the body already in hand. It must not POST /api/show."""
     import logging
 
-    from plugin.framework.client.model_fetcher import _ollama_show_cache
+    from plugin.framework.client.model_fetcher import _catalog_memos
 
     prompt = "UNIQUE_PROMPT_BLOB_FOR_500_NO_SHOW"
     ollama = LlmClient(
@@ -3141,7 +3248,7 @@ def test_http_500_does_not_call_ollama_show(mock_ctx, caplog):
     )
     body = _http_500_diag_body(stream=True, tools=None, prompt=prompt, model="qwen2.5:7b")
     caplog.set_level(logging.ERROR, logger="plugin.framework.client.llm_client")
-    _ollama_show_cache.clear()
+    _catalog_memos.clear()
     with (
         patch("plugin.framework.client.model_fetcher.query_ollama_show") as show,
         patch("plugin.framework.client.model_fetcher.query_ollama_runtime_num_ctx") as num_ctx,
@@ -3231,7 +3338,7 @@ def test_stream_structured_429_code_retries_before_tokens(client, _fast_retry_wa
         result = client.stream_request_with_tools(messages=[{"role": "user", "content": "Hi"}], max_tokens=10)
     assert result["content"] == "Recovered"
     assert mock_https.call_count == 2
-    _fast_retry_waits["llm"].assert_called_once()
+    _fast_retry_waits["transport"].assert_called_once()
 
 
 def test_stream_error_closes_without_draining(client):
@@ -3499,7 +3606,7 @@ def test_image_rejected_params_logs_truncated_body(client, caplog):
 
     first = True
 
-    def mock_request_json(method, path, body, headers, stop_checker=None, status_callback=None):
+    def mock_request_json(method, path, body, headers, cancel=None, status_callback=None):
         nonlocal first
         if first:
             first = False
@@ -3524,7 +3631,7 @@ def test_image_rejected_params_logs_truncated_body(client, caplog):
 
 def test_sync_request_with_tools_wraps_parse_sync_response_error(client):
     """parse_sync_response exceptions (bad JSON / unexpected shape) must be wrapped in NetworkError with code BAD_RESPONSE."""
-    with patch.object(client, "_exchange_json", return_value=("ok", {"unexpected": "structure"})):
+    with patch.object(client, "_exchange_json", return_value={"unexpected": "structure"}):
         with patch.object(client._get_shim(), "parse_sync_response", side_effect=KeyError("choices")):
             with pytest.raises(NetworkError) as exc_info:
                 client.request_with_tools([{"role": "user", "content": "Hello"}], stream=False)
@@ -3554,4 +3661,39 @@ def test_observe_provider_http_error_redacts_api_key_query_param(client, caplog)
     assert "AIzaSySecretApiKey123" not in msg
     assert "key=" not in msg
     assert "path=/v1/chat/completions" in msg
+
+
+def test_llm_client_passes_cache_session_id(mock_ctx):
+    cfg = {
+        "endpoint": "https://openrouter.ai/api",
+        "api_key": "sk-or-test",
+        "model": "openai/gpt-4o",
+    }
+    llm = LlmClient(cfg, mock_ctx)
+    sent_bodies = []
+
+    def fake_send(method, path, body, headers, **kwargs):
+        sent_bodies.append(json.loads(body))
+        return create_mock_http_response(sse_lines=[b"data: [DONE]"])
+
+    llm._transport.send = fake_send
+
+    # 1. stream_request_with_tools passes cache_session_id through to body session_id
+    llm.stream_request_with_tools(
+        [{"role": "user", "content": "hi"}],
+        max_tokens=100,
+        cache_session_id="k",
+    )
+    assert len(sent_bodies) == 1
+    assert sent_bodies[0]["session_id"] == "k"
+
+    # 2. stream_chat_response passes cache_session_id through to body session_id
+    llm.stream_chat_response(
+        [{"role": "user", "content": "hi"}],
+        max_tokens=100,
+        append_callback=lambda text: None,
+        cache_session_id="k2",
+    )
+    assert len(sent_bodies) == 2
+    assert sent_bodies[1]["session_id"] == "k2"
 

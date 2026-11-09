@@ -45,11 +45,26 @@ def raw_vcl_pump(toolkit):
 
 
 def execute_python_addin(ctx, code):
-    from plugin.framework.queue_executor import execute_on_main_thread
+    from plugin.framework.queue_executor import main
 
     # ruleid: blocking-marshal-in-sync-dispatch
-    execute_on_main_thread(lambda: 123)
+    main.call(lambda: 123)
     # ruleid: uno-off-main-thread
     get_desktop()
 
 
+
+def broad_except_swallows(doc):
+    # ruleid: broad-except-swallows-disposal
+    try:
+        doc.getText()
+    except Exception:
+        return None
+
+
+def bare_except_swallows(doc):
+    # ruleid: broad-except-swallows-disposal
+    try:
+        doc.getText()
+    except:  # noqa: E722
+        pass

@@ -17,7 +17,7 @@ from __future__ import annotations
 import time
 import unittest
 
-from plugin.testing_runner import native_test, on_github_actions, show_window
+from plugin.testing_runner import current_office, native_test, on_github_actions
 from plugin.tests.testing_utils import with_native_doc
 
 # Isolated testing_runner profiles do not inherit user-level unopkg, so sheet
@@ -36,10 +36,7 @@ def _store(cell, formula: str) -> str:
 @native_test
 @with_native_doc("calc")
 def test_geometric_formula_io_roundtrip(ctx, doc):
-    from plugin.calc.python.formula_edit import (
-        parse_python_formula,
-        py_formula_has_unquoted_code_ref,
-    )
+    from plugin.calc.python.formula_edit import PyFormula
     from plugin.calc.python.geometric_recalc_core import formula_data_args, rebuild_formula_with_data_args
 
     sheet = doc.getSheets().getByIndex(0)
@@ -62,7 +59,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
 
     # 1) =PY("y"; $C$5) attach predecessor — $C$5 stays absolute.
     stored = samples["quoted_abs"]
-    parts = parse_python_formula(stored)
+    parts = PyFormula.parse(stored)
     assert parts is not None, stored
     assert parts.prefix, stored
     old_args = formula_data_args(stored)
@@ -73,7 +70,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     assert rebuilt.startswith(parts.prefix), (parts.prefix, rebuilt)
     a2.setFormula(rebuilt)
     after = str(a2.getFormula() or "")
-    reparsed = parse_python_formula(after)
+    reparsed = PyFormula.parse(after)
     assert reparsed is not None, after
     after_args = formula_data_args(after)
     assert after_args is not None and len(after_args) >= 2, after
@@ -91,7 +88,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
 
     # 2) Quoted code + range: splice appends a pred; getFormula still parses.
     stored_range = samples["quoted_range"]
-    range_parts = parse_python_formula(stored_range)
+    range_parts = PyFormula.parse(stored_range)
     assert range_parts is not None, stored_range
     range_args = formula_data_args(stored_range)
     assert range_args is not None, stored_range
@@ -101,7 +98,7 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     assert "np.mean(data)" in rebuilt_range
     b1.setFormula(rebuilt_range)
     after_range = str(b1.getFormula() or "")
-    again = parse_python_formula(after_range)
+    again = PyFormula.parse(after_range)
     assert again is not None, after_range
     assert again.code == "np.mean(data)"
     after_range_args = formula_data_args(after_range)
@@ -109,9 +106,8 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
 
     # 3) Unquoted code-in-cell keeps the unquoted token (or Calc's stored form).
     stored_ref = samples["code_in_cell"]
-    assert py_formula_has_unquoted_code_ref(stored_ref), stored_ref
-    ref_parts = parse_python_formula(stored_ref)
-    assert ref_parts is not None, stored_ref
+    ref_parts = PyFormula.parse(stored_ref)
+    assert ref_parts is not None and ref_parts.code_is_ref, stored_ref
     ref_args = formula_data_args(stored_ref)
     assert ref_args is not None, stored_ref
     rebuilt_ref = rebuild_formula_with_data_args(stored_ref, ref_args + ["C5"])
@@ -120,16 +116,15 @@ def test_geometric_formula_io_roundtrip(ctx, doc):
     assert '"A1"' not in rebuilt_ref
     sheet.getCellByPosition(3, 0).setFormula(rebuilt_ref)
     after_ref = str(sheet.getCellByPosition(3, 0).getFormula() or "")
-    assert py_formula_has_unquoted_code_ref(after_ref), after_ref
-    after_ref_parts = parse_python_formula(after_ref)
-    assert after_ref_parts is not None, after_ref
+    after_ref_parts = PyFormula.parse(after_ref)
+    assert after_ref_parts is not None and after_ref_parts.code_is_ref, after_ref
     assert after_ref_parts.code.replace("$", "").upper().endswith("A1"), after_ref
     if "$" in ref_parts.code:
         assert "$" in after_ref_parts.code, after_ref
 
 
 def _pred(formula: str) -> str | None:
-    from plugin.calc.python.geometric_recalc import local_a1
+    from plugin.calc.address_utils import local_a1
     from plugin.calc.python.geometric_recalc_core import formula_data_args
 
     args = formula_data_args(formula)
@@ -158,7 +153,7 @@ def _session_config_paths(ctx) -> list[str]:
     ctx-resolved / client ``get_config_file_path`` only when it sits under that
     profile (or when there is no throwaway — ``--user-profile`` mode).
     Never rewrite the default user profile while a throwaway is active;
-    leftover diag previously dumped production API keys from there.
+    stray writes there can leak production API keys into session diagnostics.
     """
     from plugin.framework.config import _resolve_config_path_from_ctx, get_config_file_path
     from plugin.testing_runner import throwaway_writeragent_json
@@ -202,15 +197,16 @@ def _patch_config_files(ctx, mutator) -> None:
 
     from plugin.framework.config import (
         _invalidate_config_cache,
-        _load_config_dict,
         _write_config_file,
+        parse_config_json_text,
     )
     from plugin.testing_runner import _progress_verbose as _progress
 
     for path in _session_config_paths(ctx):
         data: dict = {}
         if os.path.exists(path):
-            loaded = _load_config_dict(path, persist_repair=False)
+            with open(path, encoding="utf-8") as fh:
+                loaded = parse_config_json_text(fh.read())
             if isinstance(loaded, dict):
                 data = loaded
         mutator(data)
@@ -227,11 +223,11 @@ def _enable_geometric_flag(ctx):
     soffice flag-off → no in-process record/strip → Isolated Shared names.
     """
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     previous = geo.geometric_flag_enabled
     geo.geometric_flag_enabled = lambda: True
-    set_config(_GEO_FLAG_KEY, True)
+    save({_GEO_FLAG_KEY: True})
 
     def _on(data: dict) -> None:
         data[_GEO_FLAG_KEY] = True
@@ -243,10 +239,10 @@ def _enable_geometric_flag(ctx):
 def _restore_geometric_flag(ctx, previous) -> None:
     """Drop persisted flag (default off) and restore the client monkeypatch."""
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     geo.geometric_flag_enabled = previous
-    set_config(_GEO_FLAG_KEY, False)
+    save({_GEO_FLAG_KEY: False})
 
     def _off(data: dict) -> None:
         data.pop(_GEO_FLAG_KEY, None)
@@ -258,10 +254,10 @@ def _restore_geometric_flag(ctx, previous) -> None:
 def _disable_geometric_flag_client_and_file(ctx) -> None:
     """Flag-off mid-test: client patch + file so soffice modify stays off."""
     import plugin.calc.python.geometric_recalc as geo
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
     geo.geometric_flag_enabled = lambda: False
-    set_config(_GEO_FLAG_KEY, False)
+    save({_GEO_FLAG_KEY: False})
 
     def _off(data: dict) -> None:
         data.pop(_GEO_FLAG_KEY, None)
@@ -282,7 +278,7 @@ def _close_extra_calc_docs(ctx, keep) -> int:
 
     Full ``make test-uno`` often still has another factory scalc open.
     """
-    from plugin.doc.doc_type import is_calc
+    from plugin.framework.doc_type import is_calc
     from plugin.framework.uno_context import get_desktop
 
     keep_uid = _runtime_uid(keep)
@@ -325,27 +321,27 @@ def _flush(ctx, doc, sheet) -> None:
 def _cold_kernel() -> None:
     """Drop this process's worker. Soffice's worker is a different process."""
     from plugin.calc.python.function import clear_python_addin_cache
-    from plugin.scripting.venv_worker import PythonWorkerManager
+    from plugin.scripting.venv_worker import shutdown_venv_workers_for_tests
 
-    PythonWorkerManager.shutdown_all()
+    shutdown_venv_workers_for_tests()
     clear_python_addin_cache()
 
 
 def _settle_soffice_config() -> None:
-    """``get_config`` in soffice is mtime-cached for 2s. Client ``set_config`` is not enough."""
+    """``get_config`` in soffice is mtime-cached for 2s. Client ``save`` is not enough."""
     time.sleep(2.1)
 
 
 def _set_session_mode(ctx, mode: str) -> None:
     """Write session mode where soffice ``get_config`` will see it.
 
-    Client ``set_config`` can use a cached path that is not the throwaway
+    Client ``save`` can use a cached path that is not the throwaway
     ``UserInstallation`` profile. Write only throwaway / in-profile paths
     (see ``_session_config_paths``).
     """
-    from plugin.framework.config import set_config
+    from plugin.framework.config import save
 
-    set_config("scripting.python_session_mode", mode)
+    save({"scripting.python_session_mode": mode})
 
     def _mode(data: dict) -> None:
         if mode == "isolated":
@@ -359,13 +355,13 @@ def _set_session_mode(ctx, mode: str) -> None:
 
 def _leftover_shared_diag(ctx, a1, a3) -> str:
     """Config + cell snapshot when leftover Shared does not become 41."""
-    from plugin.framework.config import get_config_str
+    from plugin.framework.config import get_config
     from plugin.scripting.session_manager import python_session_mode
     from plugin.testing_runner import _progress_verbose as _progress
 
     try:
         mode = python_session_mode()
-        venv = get_config_str("scripting.python_venv_path")
+        venv = get_config("scripting.python_venv_path")
     except Exception as exc:
         mode = "<unreadable %s>" % exc
         venv = ""
@@ -556,7 +552,7 @@ def test_geometric_cap_hit_sheet_stays_unchained(ctx, doc):
         _restore_geometric_flag(ctx, previous)
 
 
-@unittest.skipIf(not show_window, "Headless soffice evaluates =PY() off the main thread, so there is no Shared session and A3 cannot see A1's name")
+@unittest.skipIf(not current_office().options.show_window, "Headless soffice evaluates =PY() off the main thread, so there is no Shared session and A3 cannot see A1's name")
 @native_test
 @with_native_doc("calc")
 def test_geometric_shared_kernel_a3_reads_a1_f9_stable(ctx, doc):
@@ -642,11 +638,12 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
     same ``perform_deferred_spill`` path as ``test_calc_spill_undo_lock``.
     """
     from plugin.calc.python.formula_locator_cache import is_matching_py_formula
-    from plugin.calc.python.function import _spill_registry_doc_key, perform_deferred_spill
+    from plugin.calc.python.spill import perform_deferred_spill
     from plugin.calc.python.geometric_recalc import reset_geometric_runtime_for_tests
-    from plugin.framework.config import get_config_bool
+    from plugin.calc.python.workbook_state import WorkbookState
+    from plugin.framework.config import get_config
 
-    assert get_config_bool("scripting.python_auto_spill") is True
+    assert get_config("scripting.python_auto_spill") is True
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag(ctx)
     try:
@@ -670,15 +667,17 @@ def test_geometric_chained_origin_still_auto_spills(ctx, doc):
 
         # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
         # be a saved file, and its URL would not match, so the spill would be skipped.
-        doc_url = _spill_registry_doc_key(doc)
+        st = WorkbookState.for_doc(doc)
+        assert st is not None
+        doc_url = st.key
         perform_deferred_spill(
-            doc_url,
             sheet.Name,
             2,
             0,
             [[10, 20], [30, 40]],
             doc=doc,
             code=spill_code,
+            key=doc_url,
         )
         assert a3.getString() != "#SPILL!", a3.getString()
         assert sheet.getCellByPosition(1, 2).getValue() == 20.0
@@ -703,7 +702,7 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
     """§10 Undo: rewrite hides under a user edit; flag-on reconcile is one lock().
 
     Same shape as ``test_calc_spill_undo_lock``: when ``isUndoPossible()``,
-    ``_undo_lock`` uses ``enterHiddenUndoContext`` so the geometric
+    ``undo_lock`` uses ``enterHiddenUndoContext`` so the geometric
     ``setFormula`` is not a second undo step. Flag-on / open reconcile with
     an empty stack is one locked unit (spec §5: may appear as one undo
     action), not a hidden-under-nothing no-op and not a fragment per cell.
@@ -718,14 +717,14 @@ def test_geometric_hidden_undo_and_locked_unit(ctx, doc):
     reset_geometric_runtime_for_tests()
     previous = _enable_geometric_flag(ctx)
     try:
-        from plugin.framework.thread_guard import _unwrap_uno
+        from plugin.framework.thread_guard import unwrap_uno
 
         sheet = doc.getSheets().getByIndex(0)
         a1 = sheet.getCellByPosition(0, 0)
         a3 = sheet.getCellByPosition(0, 2)
-        # Same unwrap as ``function._undo_lock`` — a wrapped manager's
+        # Same unwrap as ``undo.undo_lock`` — a wrapped manager's
         # ``lock()`` is a no-op and ``setFormula`` still records ``Input``.
-        um = _unwrap_uno(doc).getUndoManager()
+        um = unwrap_uno(doc).getUndoManager()
         assert um is not None
 
         # --- Flag-on reconcile with no prior edit is one locked unit ---
@@ -894,7 +893,7 @@ def test_geometric_isolated_flag_on_noop_and_strip(ctx, doc):
     """§9.3 / §10: Isolated + flag on — no Shared globals; strip with the caller doc.
 
     UI load/repair keys the map with ``geometric_workbook_key`` (``calc:`` +
-    ``_workbook_session_key``, never empty); eval strips with the same key
+    ``mint_document_key``, never empty); eval strips with the same key
     read from the caller document.
     """
     from plugin.calc.python.geometric_recalc import (

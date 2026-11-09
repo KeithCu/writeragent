@@ -135,7 +135,7 @@ def test_draw_table_structure_row_column_and_delete(ctx: Any, doc: Any) -> None:
         _exec_tool(
             doc,
             ctx,
-            "manage_table_structure",
+            "table_manage_structure",
             {"action": "insert", "axis": "row", "index": 0},
         )
     )
@@ -147,7 +147,7 @@ def test_draw_table_structure_row_column_and_delete(ctx: Any, doc: Any) -> None:
         _exec_tool(
             doc,
             ctx,
-            "manage_table_structure",
+            "table_manage_structure",
             {"action": "insert", "axis": "column", "index": 0},
         )
     )
@@ -159,7 +159,7 @@ def test_draw_table_structure_row_column_and_delete(ctx: Any, doc: Any) -> None:
         _exec_tool(
             doc,
             ctx,
-            "manage_table_structure",
+            "table_manage_structure",
             {"action": "delete", "axis": "column", "index": 0},
         )
     )
@@ -171,7 +171,7 @@ def test_draw_table_structure_row_column_and_delete(ctx: Any, doc: Any) -> None:
         _exec_tool(
             doc,
             ctx,
-            "manage_table_structure",
+            "table_manage_structure",
             {"action": "delete", "axis": "row", "index": 0},
         )
     )

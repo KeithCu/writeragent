@@ -60,6 +60,12 @@ one cell while another cell still has text stays a text edit.
 Blocking wait applies only to **`apply_document_content`** from a **background thread** (sidebar
 chat worker or MCP HTTP thread). The main thread never block-waits so the user can click accept/reject.
 
+The edit runs on the main thread in `_do_edit`. Checks finish before `EditReviewSession` is
+constructed. That object is appended to a one-element list before the target method runs, because
+`MainThread.call` re-raises and drops the return value; the list is how anchor bookmarks are released
+when the edit raises. Wait mode keeps the returned session and `wait_for_review` cleans it up. Every
+other path releases it, including a successful non-wait edit.
+
 ## How a change is tracked
 
 `plugin/writer/review_scan.py` owns fail-closed `getRedlines()` enumeration and `wa-review:` token helpers. `plugin/writer/edit_review.py` owns the session via `EditReviewSession`:
@@ -191,14 +197,14 @@ Delete and Insert as two independent rows. WriterAgent adds:
    wired by [`change_context_menu.py`](../../plugin/writer/change_context_menu.py) /
    [`review_click_popup.py`](../../plugin/writer/review_click_popup.py): left-click popup, right-click
    menu, accept/reject-all. The context menu interceptor is registered once per view (UNO identity, not Python `==`) and removed on `OnUnload`, so closed documents do not leak.
-2. **Review toolbar** — [`plugin/writer/review_toolbar.py`](../../plugin/writer/review_toolbar.py):
-   **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
+2. **Review toolbar** — [`plugin/writer/review_view_attachment.py`](../../plugin/writer/review_view_attachment.py)
+   (`refresh_review_toolbar`, dock-once): **WriterAgent Review** toolbar (◀ Prev, Next ▶, Accept all, Reject all) appears while pending
    agent changes exist; hidden when the count drops to zero. Toolbar visibility uses
    `agent_change_presence(model, stop_at_first=True)`: if the scan is unreliable, visibility is left
    unchanged. Menu actions `review_prev` / `review_next` call `goto_adjacent_agent_change`. Counting
    follows the count-without-previews rule: `agent_change_presence` returns this distinct-comment
    count without reading text previews with `XTextCursor.getString()`. The toolbar's per-document
-   modify listener (`review_toolbar._schedule_refresh` → `refresh_review_toolbar`) queues recount per burst with `post_to_main_thread`, which runs on a later main-loop
+   modify listener (`review_view_attachment.schedule_toolbar_refresh` → `refresh_review_toolbar`) queues recount per burst with `main.post`, which runs on a later main-loop
    turn so it does not walk redlines inside the modify notification.
 
 It is strictly token-scoped — only `wa-review` changes are listed or resolved.
@@ -210,7 +216,7 @@ On LibreOffice **≥ 25.04**, selecting a change's **exact** Delete+Insert bound
 agent changes in the same paragraph can be accepted/rejected individually. Pre-dispatch overlap
 checks refuse when a **user** redline or another **agent** change overlaps the exact span;
 post-dispatch safety requires that no foreign `redline_identity_key` count dropped (the same rule
-as `manage_tracked_changes`).
+as `tracking_manage`).
 
 Single-change resolve returns an honest `ResolveStatus`:
 * `RESOLVED`: Success message ("Change accepted." / "Change rejected.").
@@ -257,7 +263,7 @@ resolve-all returns user-facing messages when verification fails.
   pending counter may still include them. Stops with unreadable bounds are omitted from Next/Previous;
   a change with bounds in another text object is visited in redline-table order.
 * **Second window, same document:** toolbar visibility is per-window; a rare stale toolbar can appear
-  in a secondary window (documented in `review_toolbar.py`).
+  in a secondary window (documented in `review_view_attachment.refresh_review_toolbar`).
 
 ## Ways to improve
 

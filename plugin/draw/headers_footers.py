@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, Dict, Iterator
 
-from plugin.framework.errors import WriterAgentException, is_disposed_exception, uno_probe
+from plugin.framework.errors import WriterAgentException, is_disposal, uno_read, uno_write
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -54,19 +54,12 @@ def _get_page(ctx: ToolContext, page_index: int, is_master_page: bool) -> Any:
     ``getMasterPages().getByIndex(n)`` is wrong here because master collection
     order does not match slide order in Impress.
     """
-    bridge = DrawBridge(ctx.doc)
-    pages = bridge.get_pages()
-    count = pages.getCount()
-    if page_index < 0 or page_index >= count:
-        if count == 0:
-            raise WriterAgentException("This presentation has no slides.", code="INVALID_INDEX")
-        raise WriterAgentException(f"Slide index {page_index} is out of bounds. Must be between 0 and {count - 1}", code="INVALID_INDEX")
-    slide = pages.getByIndex(page_index)
+    slide, _idx = DrawBridge(ctx.doc).resolve_page(page_index)
     if is_master_page:
         try:
             master = slide.MasterPage
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             raise WriterAgentException(f"Could not resolve master page for slide {page_index}: {e}", code="NO_MASTER") from e
         if master is None:
@@ -100,16 +93,16 @@ _MISSING: Any = object()
 
 
 def _impress_master_hf_use_shapes(doc: Any, is_master_page: bool) -> bool:
-    return uno_probe(lambda: bool(doc.supportsService("com.sun.star.presentation.PresentationDocument")), False) and is_master_page
+    return uno_read(lambda: bool(doc.supportsService("com.sun.star.presentation.PresentationDocument")), False) and is_master_page
 
 
 def _iter_shapes_on_page(page: Any) -> Iterator[Any]:
-    n = uno_probe(lambda: int(page.getCount()), None)
+    n = uno_read(lambda: int(page.getCount()), None)
     if n is None:
         return
     for i in range(n):
-        # uno_probe calls the lambda immediately, so i is the current index.
-        shape = uno_probe(lambda: page.getByIndex(i), _MISSING)
+        # uno_read calls the lambda immediately, so i is the current index.
+        shape = uno_read(lambda: page.getByIndex(i), _MISSING)
         if shape is not _MISSING:
             yield shape
 
@@ -142,7 +135,7 @@ def _collect_hf_shapes(page: Any) -> dict[str, Any]:
             for svc in services:
                 if found[svc] is not None:
                     continue
-                hit = uno_probe(lambda: _hf_shape_hit(shape, svc, bases[svc], strict=strict), False)
+                hit = uno_read(lambda: _hf_shape_hit(shape, svc, bases[svc], strict=strict), False)
                 if hit:
                     found[svc] = shape
     return found
@@ -152,58 +145,46 @@ def _get_text(shape: Any) -> str:
     # Call getString inside the probe. hasattr() on PyUNO raises UnknownPropertyException.
     if shape is None:
         return ""
-    return uno_probe(lambda: str(shape.getString() or ""), "")
-
-
-def _write(fn: Any, what: str) -> bool:
-    try:
-        fn()
-        return True
-    except Exception as e:
-        if is_disposed_exception(e):
-            raise
-        log.debug("%s failed", what, exc_info=True)
-        return False
+    return uno_read(lambda: str(shape.getString() or ""), "")
 
 
 def _set_text(shape: Any, text: str) -> bool:
-    # Resolve setString inside the probe. A missing member stays silent; the write logs.
+    # Resolve setString inside the probe. A missing member stays silent; failed writes return False (no log).
     if shape is None:
         return False
-    setter = uno_probe(lambda: shape.setString, _MISSING)
+    setter = uno_read(lambda: shape.setString, _MISSING)
     if setter is _MISSING:
         return False
-    return _write(lambda: setter(text), "setString on header/footer shape")
+    return uno_write(lambda: setter(text))
 
 
 def _set_visible(shape: Any, vis: bool) -> bool:
-    # Same split as _set_text: lookup is silent, setPropertyValue logs through _write.
+    # Same split as _set_text: lookup is silent; failed writes return False via uno_write (no log).
     if shape is None:
         return False
-    setter = uno_probe(lambda: shape.setPropertyValue, _MISSING)
+    setter = uno_read(lambda: shape.setPropertyValue, _MISSING)
     if setter is _MISSING:
         return False
-    return _write(lambda: setter("Visible", vis), "set Visible on header/footer shape")
+    return uno_write(lambda: setter("Visible", vis))
 
 
 def _get_bool(shape: Any, name: str, *, fallback_attr: bool = False) -> bool:
-    # What was wrong: hasattr(shape, "getPropertyValue") outside try raised UnknownPropertyException on PyUNO objects.
-    # How it happened: hasattr was lifted before the try block during cleanup.
-    # Why this change: put hasattr inside try; re-raise disposal and fall back/return False on other exceptions.
+    # PyUNO hasattr outside try can raise UnknownPropertyException. The probe stays inside try;
+    # disposal re-raises and other failures fall back or return False.
     if shape is None:
         return False
     try:
         if hasattr(shape, "getPropertyValue"):
             return bool(shape.getPropertyValue(name))
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         if not fallback_attr:
             return False
     try:
         return bool(getattr(shape, name, False))
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         return False
 
@@ -218,7 +199,7 @@ def _read_impress_master_hf_shapes(page: Any, out: Dict[str, Any]) -> None:
         elif kind == "fixed":
             dt_shape = shapes.get(_SVC_DATETIME)
             out[uno_prop] = _get_bool(dt_shape, "IsFixed", fallback_attr=True)
-    out["DateTimeFormat"] = uno_probe(lambda: page.getPropertyValue("DateTimeFormat"), 0)
+    out["DateTimeFormat"] = uno_read(lambda: page.getPropertyValue("DateTimeFormat"), 0)
 
 
 def _write_impress_master_hf_shapes(page: Any, kwargs: Dict[str, Any]) -> tuple[int, list[str]]:
@@ -246,7 +227,7 @@ def _resolve_hf_page(ctx: ToolContext, kwargs: dict[str, Any]) -> tuple[int, boo
 class GetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for reading header and footer properties of a presentation slide or master page."""
 
-    name: str | None = "get_headers_footers"
+    name: str | None = "headers_footers_get"
     description: str = "Retrieves header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -271,7 +252,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
                 try:
                     props[prop_name] = page.getPropertyValue(prop_name)
                 except Exception as e:
-                    if is_disposed_exception(e):
+                    if is_disposal(e):
                         raise
                     log.debug("Could not read property %s: %s", prop_name, e)
 
@@ -281,7 +262,7 @@ class GetHeadersFooters(ToolDrawHeaderFooterBase):
 class SetHeadersFooters(ToolDrawHeaderFooterBase):
     """Tool for updating header and footer properties of a presentation slide or master page."""
 
-    name: str | None = "set_headers_footers"
+    name: str | None = "headers_footers_set"
     description: str = "Updates header, footer, date/time, and slide number configuration for a specific slide or master page in a presentation."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -334,7 +315,7 @@ class SetHeadersFooters(ToolDrawHeaderFooterBase):
                     page.setPropertyValue(prop_name, val)
                     updated_count += 1
                 except Exception as e:
-                    if is_disposed_exception(e):
+                    if is_disposal(e):
                         raise
                     log.debug("Could not set property %s: %s", prop_name, e)
                     failed.append(schema_key)

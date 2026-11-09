@@ -39,7 +39,7 @@ from com.sun.star.container import NoSuchElementException
 # Ensure the extension's install directory is on sys.path so that normal
 # "import plugin.xxx" statements work when LibreOffice loads this module.
 # See plugin/framework/uno_bootstrap.py for the centralized implementation
-# and rationale (this used to be duplicated fragile path logic).
+# and rationale (centralized here; do not duplicate path bootstrap).
 
 # Minimal stdlib-only bootstrap (must run before the "from plugin..." import below)
 # because unopkg writeRegistryInfo loads this file before the OXT root is on sys.path.
@@ -55,12 +55,12 @@ ensure_plugin_on_path(__file__, levels_up=3, also_add_contrib=True)
 
 from plugin.framework.logging import start_watchdog_thread, init_logging
 from plugin.chatbot.dialogs import get_optional as get_optional_control, set_control_text, set_control_enabled, set_control_visible
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import get_extension_path, get_extension_url, property_arg
 from plugin.chatbot.panel_wiring import _wireControls as wire_chatpanel_controls
-from plugin.chatbot.rich_text_control import _debug_env_active
+from plugin.chatbot.rich_text_control import debug_env_active
 
-# debug-only: omitted in release (thread_guard stub has no _designated_main_thread).
+# debug-only: omitted in release (thread_guard stub has no _violation_ui_lock).
 _LIVE_CHAT_PANELS: WeakSet[Any] = WeakSet()
 
 
@@ -134,7 +134,7 @@ def release_live_sidebar(panel: Any, query_control: Any = None) -> None:
 
 def iter_debug_live_chat_panels() -> list[Any]:
     """debug-only: omitted in release."""
-    if not _debug_env_active():
+    if not debug_env_active():
         return []
     return list(_LIVE_CHAT_PANELS)
 
@@ -207,10 +207,10 @@ def _initialize_extension_paths(ctx: Any) -> None:
             best_effort(lambda: init_logging(ctx), "init_logging failed during extension path setup")
             log.exception("_initialize_extension_paths failed")
 
-    # Hop the body, not this function: WRITERAGENT_TESTING=1 inlines
-    # execute_on_main_thread on Dummy-N, and a self-call would recurse.
+    # Hop the body, not this function: test_inline inlines
+    # main.call on Dummy-N, and a self-call would recurse.
     # get_extension_path → get_extension_url (PIP) is @main_thread_only.
-    run_on_main(_impl)
+    main.run(_impl)
 
 
 # ---------------------------------------------------------------------------
@@ -344,11 +344,10 @@ def plan_session_id(
 def header_third_button_kind(model: Any) -> str:
     """Shared btn_latex slot: ``python_cell``, ``latex``, or ``""`` (hide).
 
-    Draw and Impress used to get LatexButtonListener because the slot only
-    special-cased Calc. The hamburger already shows Insert LaTeX for Writer
-    only, so other documents hide the button instead of opening that dialog.
+    Only Writer and Calc get a third header button; Draw/Impress hide the LaTeX slot.
+    Calc uses python_cell; Writer uses latex.
     """
-    from plugin.doc.doc_type import is_calc, is_writer
+    from plugin.framework.doc_type import is_calc, is_writer
 
     if is_calc(model):
         return "python_cell"
@@ -458,13 +457,10 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _on_config_changed(self, **kwargs: Any) -> None:
         """Event bus listener for config changes."""
-        from plugin.framework.thread_guard import on_main_thread
-        from plugin.framework.queue_executor import post_to_main_thread
-
         if self._released:
             return
-        if not on_main_thread():
-            post_to_main_thread(self._refresh_controls_from_config)
+        if not main.is_current():
+            main.post(self._refresh_controls_from_config)
             return
         self._refresh_controls_from_config()
 
@@ -503,7 +499,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                         self.toolpanel = None
                         raise
 
-                run_on_main(_create_panel)
+                main.run(_create_panel)
             except Exception as e:
                 log.exception("getRealInterface failed [resource_url=%s]", self.ResourceURL)
                 raise UnoObjectError("Failed to create ChatPanel UI element", details={"resource": self.ResourceURL}) from e
@@ -632,7 +628,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         removeItems, addItems) synchronously fires UNO listeners (ModelSyncListener,
         ModelTextSyncListener, ImageModelSyncListener). Without ``_in_refresh_controls``,
         those listeners treat programmatic UI updates as user edits, calling
-        sync_sidebar_text_model -> update_lru_history -> set_config -> event_bus
+        sync_sidebar_text_model -> update_lru_history -> save -> event_bus
         emit('config_changed') -> _refresh_controls_from_config in an infinite synchronous
         recursion loop on the main UI thread that freezes LibreOffice.
         """
@@ -651,10 +647,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             model_selector = get_optional_control(root, "model_selector")
             image_model_selector = get_optional_control(root, "image_model_selector")
 
-            # Bugfix: Reading text and image models, and populating those
-            # comboboxes, had no except handler. An exception here skipped
-            # sidebar mode restore, chk_voice sync, and the backend indicator,
-            # leaving the config:changed handler prematurely.
+            # Model combobox refresh failures must log and not skip the rest of _refresh_controls_from_config.
             try:
                 self._populate_model_combos(model_selector, image_model_selector)
             except Exception:
@@ -695,9 +688,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
             chk_voice = get_optional_control(root, "chk_voice")
             if chk_voice is not None and hasattr(chk_voice, "setState"):
                 with suppress_disposed("refresh chk_voice from audio.tts_enabled", logger=log):
-                    from plugin.framework.config import get_config_bool_safe
+                    from plugin.framework.config import get_config
 
-                    want = 1 if get_config_bool_safe("audio.tts_enabled") else 0
+                    want = 1 if get_config("audio.tts_enabled") else 0
                     cur = int(chk_voice.getState()) if hasattr(chk_voice, "getState") else None
                     if cur != want:
                         chk_voice.setState(want)
@@ -912,17 +905,13 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
     def _apply_sidebar_mode(self, mode: str, model: Any, response_ctrl: Any, send_listener: Any, clear_listener: Any) -> None:
         from plugin.chatbot.chat_sidebar_mode import (
-            CHAT_MODE_BRAINSTORMING,
             CHAT_MODE_CHAT,
             CHAT_MODE_DEEP_RESEARCH,
             CHAT_MODE_LIBRARIAN,
-            CHAT_MODE_PPT_MASTER,
             CHAT_MODE_WEB_RESEARCH,
-            clear_brainstorming_session,
-            clear_librarian_session,
-            clear_ppt_master_session,
-            is_image_mode,
             greeting_for_sidebar_mode,
+            is_image_mode,
+            release_sticky_session,
         )
 
         from plugin.chatbot.tool_loop_actions import abort_turn
@@ -930,13 +919,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
         # The in-flight turn keeps the session it started with. Later
         # chunks must not paint onto the transcript this switch shows.
         abort_turn(send_listener)
-        if mode != CHAT_MODE_BRAINSTORMING:
-            clear_brainstorming_session(send_listener)
-        if mode != CHAT_MODE_PPT_MASTER:
-            clear_ppt_master_session(send_listener)
-        if mode != CHAT_MODE_LIBRARIAN:
-            # Flag only — librarian ChatSession history is global and must survive mode switches.
-            clear_librarian_session(send_listener)
+        release_sticky_session(send_listener, mode)
         self._current_mode = mode
         if mode == CHAT_MODE_LIBRARIAN:
             self.session = self.librarian_session
@@ -983,10 +966,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
                 # applies Chat and paint_session clears the transcript.
                 if panel._in_refresh_controls:
                     return
-                # A click during processEventsToIdle used to swap host.session
-                # and write [DOCUMENT CONTENT] onto the other chat. Librarian
-                # handoff calls apply_mode directly while the send is busy;
-                # only this combo listener is ignored.
+                # Ignore mode combo changes while send is busy so idle pumping cannot rebind host.session.
                 if send_listener.sidebar_state.send.is_busy:
                     # Revert the selector to the applied mode under a
                     # re-entrancy guard. The combobox has already updated, so
@@ -1227,9 +1207,9 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
         if controls.get("chk_voice"):
             chk_ctrl = controls["chk_voice"]
-            from plugin.framework.config import get_config_bool_safe, set_config
+            from plugin.framework.config import get_config, save
 
-            is_voice = get_config_bool_safe("audio.tts_enabled")
+            is_voice = get_config("audio.tts_enabled")
             if hasattr(chk_ctrl, "setState"):
                 chk_ctrl.setState(1 if is_voice else 0)
             if hasattr(chk_ctrl, "getModel") and hasattr(chk_ctrl.getModel(), "HelpText"):
@@ -1237,7 +1217,7 @@ class ChatPanelElement(unohelper.Base, XUIElement):
 
             def _sync_voice() -> None:
                 val = chk_ctrl.getState() == 1
-                set_config("audio.tts_enabled", val)
+                save({"audio.tts_enabled": val})
                 log.info("Voice checkbox toggled: tts_enabled=%s", val)
 
             if hasattr(chk_ctrl, "addItemListener"):

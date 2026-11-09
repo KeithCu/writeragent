@@ -132,7 +132,6 @@ def test_writing_plan_session_tool_returns_ok(mock_instr, mock_examples, mock_bu
         ctx=MagicMock(),
         doc_type="writer",
         services={"tools": registry},
-        stop_checker=lambda: False,
     )
     tool = WritingPlanSessionTool()
     result = tool.execute(ctx, query="hello", history_text="", topic="topic")

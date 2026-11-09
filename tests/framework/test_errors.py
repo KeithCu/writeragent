@@ -3,10 +3,11 @@ import queue
 import pytest
 import sys
 from typing import Any
-from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload, safe_json_loads
+from plugin.framework.errors import WriterAgentException, format_error_for_display, format_error_payload
+from plugin.framework.json_utils import safe_json_loads
 from plugin.framework.tool import ToolBase
 from plugin.framework.stream_batch import StreamQueueKind
-from plugin.framework.async_stream import run_stream_drain_loop
+from plugin.framework.async_stream import DrainOutcome, run_stream_drain_loop
 from unittest.mock import MagicMock
 from plugin.draw.shapes import DrawShapes, DrawError
 from plugin.framework.errors import safe_python_literal_eval
@@ -109,7 +110,8 @@ class TestErrorHandling:
 
         err = http.client.RemoteDisconnected("Remote end closed connection")
         msg = format_error_message(err)
-        # No HTTP status. "HTTP Error" alone used to pass for "HTTP Error 0: ".
+        # No HTTP status: the message must not look like "HTTP Error 0: " when
+        # only "HTTP Error" is present.
         assert "Remote end closed connection" in msg
         assert "HTTP Error 0" not in msg
 
@@ -204,7 +206,7 @@ class TestErrorHandling:
     def test_http_status_message_matches_urllib_and_client_response(self):
         import urllib.error
         from email.message import Message
-        from plugin.framework.client.errors import _format_http_error_response
+        from plugin.framework.client.errors import format_http_error_response
         from plugin.framework.errors import format_error_message, http_status_message
 
         for status in (401, 403, 404, 429):
@@ -212,7 +214,7 @@ class TestErrorHandling:
             assert msg is not None
             http_err = urllib.error.HTTPError("http://example.com", status, "Error", Message(), None)
             assert format_error_message(http_err) == msg
-            assert _format_http_error_response(status, "Error", "") == msg
+            assert format_http_error_response(status, "Error", "") == msg
 
         assert http_status_message(500) is None
         assert http_status_message(200) is None
@@ -311,8 +313,8 @@ class TestSafeJsonLoads:
     def test_long_runtime_message_does_not_raise_precontract(self):
         """Provider and UNO text longer than the msgid bound must still construct.
 
-        What was wrong: WriterAgentException passed that text through i18n._(),
-        whose deal pre rejects strings longer than DEAL_MAX_MSGID.
+        Passing provider text through ``i18n._()`` rejects strings longer than
+        ``DEAL_MAX_MSGID``; long runtime messages must still construct.
         """
         from plugin.framework.deal_shim import DEAL_MAX_MSGID
         from plugin.framework.errors import NetworkError, make_tool_error
@@ -330,7 +332,7 @@ class TestAsyncStreamErrorHandling:
 
     def test_run_stream_drain_loop_error_handler(self):
         q = queue.Queue()
-        job_done = [False]
+        outcome = DrainOutcome()
         test_error = ValueError('Simulation error')
         formatted_error = format_error_payload(test_error)
         q.put((StreamQueueKind.ERROR, formatted_error))
@@ -343,8 +345,8 @@ class TestAsyncStreamErrorHandling:
 
             def processEventsToIdle(self):
                 pass
-        run_stream_drain_loop(q, DummyToolkit(), job_done, (lambda c, t: None), on_error=on_error, on_stream_done=(lambda x: True), on_stopped=(lambda : None))
-        assert (job_done[0])
+        run_stream_drain_loop(q, DummyToolkit(), outcome, (lambda c, t: None), on_error=on_error, on_stream_done=(lambda x: True), on_stopped=(lambda : None))
+        assert outcome.done
         assert (len(error_received)) == (1)
         assert (error_received[0]['status']) == ('error')
         assert (error_received[0]['message']) == ('Simulation error')
@@ -533,17 +535,10 @@ class TestSecurityFix:
 
 class TestSuppressDisposed:
 
-    def test_check_disposed_none_raises_dummy_ok(self):
-        from plugin.framework.errors import UnoObjectError, check_disposed
-
-        with pytest.raises(UnoObjectError):
-            check_disposed(None, "Document Model")
-        check_disposed(object(), "Document Model")
-
-    def test_is_disposed_exception(self):
+    def test_is_disposal_bare_runtime_not_disposal(self):
         from plugin.framework.errors import (
             DocumentDisposedError,
-            is_disposed_exception,
+            is_disposal,
         )
 
         class CustomDisposedException(Exception):
@@ -552,52 +547,17 @@ class TestSuppressDisposed:
         class CustomRuntimeException(Exception):
             pass
 
-        class UnrelatedError(Exception):
-            pass
-
-        assert (is_disposed_exception(DocumentDisposedError("Object disposed")))
-        assert (is_disposed_exception(CustomDisposedException("Disposed")))
-        assert (is_disposed_exception(CustomRuntimeException("Runtime UNO error")))
-        assert not (is_disposed_exception(UnrelatedError("Regular failure")))
-        assert not (is_disposed_exception(ValueError("Bad value")))
-
-    def test_is_tool_document_disposed_live_doc_bare_runtime(self):
-        from plugin.framework.errors import (
-            DocumentDisposedError,
-            is_tool_document_disposed,
-        )
-
-        class CustomDisposedException(Exception):
-            pass
-
-        class CustomRuntimeException(Exception):
-            pass
-
-        class LiveDoc:
-            def getImplementationName(self):
-                return "SwXTextDocument"
-
-        class DeadDoc:
-            def getImplementationName(self):
-                raise CustomDisposedException("gone")
-
-        live = LiveDoc()
-        # Bare RuntimeException from a live doc is a real UNO error, not dispose.
-        assert not (is_tool_document_disposed(CustomRuntimeException(""), live))
-        assert (is_tool_document_disposed(CustomDisposedException("Disposed"), live))
-        assert (is_tool_document_disposed(DocumentDisposedError("gone"), live))
-        # No live probe: keep the lifecycle heuristic.
-        assert (is_tool_document_disposed(CustomRuntimeException(""), None))
-        assert (is_tool_document_disposed(CustomRuntimeException(""), DeadDoc()))
-        assert not (is_tool_document_disposed(ValueError("Bad value"), live))
+        # Bare RuntimeException is a real UNO error, not dispose.
+        assert not is_disposal(CustomRuntimeException(""))
+        assert is_disposal(CustomDisposedException("Disposed"))
+        assert is_disposal(DocumentDisposedError("gone"))
+        assert not is_disposal(ValueError("Bad value"))
 
     def test_disposal_predicates_truth_table(self):
         from plugin.framework.errors import (
             DocumentDisposedError,
-            is_disposed_exception,
-            is_document_disposed,
-            is_real_disposal,
-            is_tool_document_disposed,
+            document_is_disposed,
+            is_disposal,
         )
 
         class CustomDisposedException(Exception):
@@ -629,45 +589,28 @@ class TestSuppressDisposed:
             ("runtime_probe", RuntimeProbeDoc(), False),
         ]
 
-        # Verify is_document_disposed directly on each document
+        # Verify document_is_disposed directly on each document
         for _doc_name, doc_obj, expected_doc_disposed in docs:
-            assert is_document_disposed(doc_obj) is expected_doc_disposed
+            assert document_is_disposed(doc_obj) is expected_doc_disposed
 
-        # Exception kinds: (exc, expected_real, expected_disposed_exc)
-        exceptions: list[tuple[str, BaseException, bool, bool]] = [
-            ("DocumentDisposedError", DocumentDisposedError("gone"), True, True),
-            ("DisposedException", CustomDisposedException("disposed"), True, True),
-            ("RuntimeException", CustomRuntimeException("runtime"), False, True),
-            ("ValueError", ValueError("bad value"), False, False),
+        # Exception kinds: (exc, expected_disposal)
+        exceptions: list[tuple[str, BaseException, bool]] = [
+            ("DocumentDisposedError", DocumentDisposedError("gone"), True),
+            ("DisposedException", CustomDisposedException("disposed"), True),
+            ("RuntimeException", CustomRuntimeException("runtime"), False),
+            ("ValueError", ValueError("bad value"), False),
         ]
 
         try:
             import uno  # noqa: F401
             from com.sun.star.lang import IllegalArgumentException
 
-            exceptions.append(("IllegalArgumentException", IllegalArgumentException("arg"), False, False))
+            exceptions.append(("IllegalArgumentException", IllegalArgumentException("arg"), False))
         except (ImportError, AttributeError):
             pass
 
-        for exc_name, exc, exp_real, exp_disposed_exc in exceptions:
-            assert is_real_disposal(exc) is exp_real, f"{exc_name} is_real_disposal mismatch"
-            assert is_disposed_exception(exc) is exp_disposed_exc, f"{exc_name} is_disposed_exception mismatch"
-
-            for doc_name, doc_obj, exp_doc_disposed in docs:
-                # Expected tool document disposed logic:
-                if not exp_disposed_exc:
-                    expected_tool_disposed = False
-                elif exp_real:
-                    expected_tool_disposed = True
-                elif not exp_doc_disposed and doc_obj is not None:
-                    expected_tool_disposed = False
-                else:
-                    expected_tool_disposed = True
-
-                actual = is_tool_document_disposed(exc, doc_obj)
-                assert (
-                    actual is expected_tool_disposed
-                ), f"is_tool_document_disposed failed for {exc_name} x {doc_name}: expected {expected_tool_disposed}, got {actual}"
+        for exc_name, exc, exp_disposal in exceptions:
+            assert is_disposal(exc) is exp_disposal, f"{exc_name} is_disposal mismatch"
 
     def test_suppress_disposed_with_disposed_error(self):
         from plugin.framework.errors import (
@@ -733,32 +676,32 @@ class TestSuppressDisposed:
         else:
             mock_logger.debug.assert_not_called()
 
-    def test_safe_uno_call_returns_default_on_runtime_error(self):
-        from plugin.framework.errors import safe_uno_call
+    def test_suppress_disposed_swallows_runtime_exception_not_illegal_argument(self):
+        from plugin.framework.errors import suppress_disposed
 
-        @safe_uno_call(default="default_value")
-        def _failing_fn():
-            raise RuntimeError("bridge error")
+        class RuntimeException(Exception):
+            pass
 
-        assert (_failing_fn()) == ("default_value")
+        class IllegalArgumentException(Exception):
+            pass
 
-    def test_safe_uno_call_re_raises_disposed_exception(self):
-        from plugin.framework.errors import DocumentDisposedError, safe_uno_call
+        executed = False
+        with suppress_disposed("test_runtime", suppress_all=False):
+            executed = True
+            raise RuntimeException("bridge teardown")
+        assert executed
 
-        @safe_uno_call(default="default_value")
-        def _disposed_fn():
-            raise DocumentDisposedError("Object was disposed")
-
-        with pytest.raises(DocumentDisposedError):
-            _disposed_fn()
+        with pytest.raises(IllegalArgumentException):
+            with suppress_disposed("test_illegal_arg", suppress_all=False):
+                raise IllegalArgumentException("bad argument")
 
 
 def test_illegal_argument_is_not_document_disposal():
     """Real pyuno: IllegalArgumentException subclasses RuntimeException.
 
-    isinstance(exc, RuntimeException) used to report it as disposal. safe_call
-    now wraps a bare RuntimeException as UnoObjectError. is_disposed_exception
-    still matches that name for suppress_disposed.
+    ``IllegalArgumentException`` subclasses ``RuntimeException``. Treating every
+    ``RuntimeException`` as disposal mislabels real argument errors; ``uno_call``
+    must wrap a bare ``RuntimeException`` as ``UnoObjectError``.
     """
     uno = pytest.importorskip("uno")
     del uno
@@ -770,39 +713,39 @@ def test_illegal_argument_is_not_document_disposal():
 
     from plugin.framework.errors import (
         UnoObjectError,
-        is_disposed_exception,
-        safe_call,
+        is_disposal,
+        uno_call,
     )
 
     bad_arg = IllegalArgumentException("bad arg", None, 0)
-    assert not is_disposed_exception(bad_arg)
+    assert not is_disposal(bad_arg)
 
     def _raise_arg():
         raise bad_arg
 
     with pytest.raises(UnoObjectError):
-        safe_call(_raise_arg, "probe")
+        uno_call(_raise_arg, "probe")
 
-    assert not is_disposed_exception(IndexOutOfBoundsException("oob", None))
-    assert is_disposed_exception(DisposedException("gone", None))
+    assert not is_disposal(IndexOutOfBoundsException("oob", None))
+    assert is_disposal(DisposedException("gone", None))
     runtime = RuntimeException("bridge", None)
-    assert is_disposed_exception(runtime)
+    assert not is_disposal(runtime)
 
     def _raise_runtime():
         raise runtime
 
     with pytest.raises(UnoObjectError):
-        safe_call(_raise_runtime, "probe")
+        uno_call(_raise_runtime, "probe")
 
 
-def test_safe_call_reraises_writer_agent_exception():
-    from plugin.framework.errors import ConfigError, safe_call
+def test_uno_call_reraises_writer_agent_exception():
+    from plugin.framework.errors import ConfigError, uno_call
 
     def _fail():
         raise ConfigError("Permission denied")
 
     with pytest.raises(ConfigError) as exc_info:
-        safe_call(_fail, "probe")
+        uno_call(_fail, "probe")
     assert exc_info.value.code == "CONFIG_ERROR"
 
 
@@ -843,7 +786,7 @@ def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
 
     assert uno_read(lambda: "v", "") == "v"
     assert uno_read(boom(ValueError("bad")), "") == ""
-    # A bare RuntimeException is a live-document failure, not disposal (same as safe_uno_call).
+    # A bare RuntimeException is a live-document failure, not disposal (same as uno_read).
     assert uno_read(boom(RuntimeException("bridge")), None) is None
     # Real disposal leaves wrapped or unchanged, as reraise_if_disposed does.
     disposed_exc = DisposedException("dead")
@@ -862,30 +805,31 @@ def test_uno_read_wraps_real_disposal_and_defaults_otherwise():
         uno_read(boom(KeyboardInterrupt()), None)
 
 
-def test_uno_probe_reraises_disposal_unchanged_and_defaults_otherwise():
-    from plugin.framework.errors import DocumentDisposedError, uno_probe
+def test_uno_write_false_on_runtime_and_reraises_original_disposal(caplog):
+    import logging
+
+    from plugin.framework.errors import DocumentDisposedError, uno_write
 
     class DisposedException(Exception):
         pass
 
-    class RuntimeException(Exception):
-        pass
+    assert uno_write(lambda: None) is True
+    with caplog.at_level(logging.DEBUG, logger="writeragent.errors"):
+        assert uno_write(lambda: (_ for _ in ()).throw(RuntimeError("bridge"))) is False
+    assert not caplog.records
 
-    def boom(exc):
-        def fn():
-            raise exc
+    disposed_exc = DisposedException("dead")
+    with pytest.raises(DisposedException) as exc_info:
+        uno_write(lambda: (_ for _ in ()).throw(disposed_exc))
+    assert exc_info.value is disposed_exc
 
-        return fn
+    doc_disposed = DocumentDisposedError("closed")
+    with pytest.raises(DocumentDisposedError) as exc_info:
+        uno_write(lambda: (_ for _ in ()).throw(doc_disposed))
+    assert exc_info.value is doc_disposed
 
-    assert uno_probe(lambda: 7, 0) == 7
-    assert uno_probe(boom(ValueError("bad")), []) == []
-    # Same broad predicate as is_disposed_exception: the original exception propagates, unwrapped.
-    for exc in (DisposedException("dead"), RuntimeException("bridge gone"), DocumentDisposedError("closed")):
-        with pytest.raises(type(exc)) as exc_info:
-            uno_probe(boom(exc), None)
-        assert exc_info.value is exc
     with pytest.raises(KeyboardInterrupt):
-        uno_probe(boom(KeyboardInterrupt()), None)
+        uno_write(lambda: (_ for _ in ()).throw(KeyboardInterrupt()))
 
 
 def test_format_error_message_urlerror_ssl_is_tls():
@@ -922,8 +866,8 @@ def test_format_error_message_uses_uno_message_attribute():
     assert "sheet is protected" in msg
 
 
-def test_safe_call_uses_uno_message():
-    from plugin.framework.errors import UnoObjectError, safe_call
+def test_uno_call_uses_uno_message():
+    from plugin.framework.errors import UnoObjectError, uno_call
 
     class CustomUnoException(Exception):
         def __init__(self, message: str):
@@ -943,7 +887,7 @@ def test_safe_call_uses_uno_message():
         raise exc
 
     with pytest.raises(UnoObjectError) as exc_info:
-        safe_call(_raise_exc, "insert")
+        uno_call(_raise_exc, "insert")
     assert "sheet is protected" in str(exc_info.value)
 
     runtime_exc = RuntimeException()
@@ -952,26 +896,7 @@ def test_safe_call_uses_uno_message():
         raise runtime_exc
 
     with pytest.raises(UnoObjectError):
-        safe_call(_raise_runtime, "insert")
-
-
-def test_safe_uno_call_disposal_details_omit_arguments():
-    from plugin.framework.errors import DocumentDisposedError, safe_uno_call
-
-    class DisposedException(Exception):
-        pass
-
-    @safe_uno_call()
-    def probe_func(huge_text: str):
-        raise DisposedException("gone")
-
-    big_arg = "x" * 1000
-    with pytest.raises(DocumentDisposedError) as exc_info:
-        probe_func(big_arg)
-    assert exc_info.value.details is not None
-    assert "args" not in exc_info.value.details
-    assert "kwargs" not in exc_info.value.details
-    assert "gone" in exc_info.value.details["original_error"]
+        uno_call(_raise_runtime, "insert")
 
 
 def test_resolve_exception_message_total():
@@ -1003,6 +928,16 @@ def test_resolve_exception_message_total():
     assert resolve_exception_message(BlankStrWithMessage("uno message")) == "uno message"
     assert format_error_message(BlankStrWithMessage("uno message")) == "uno message"
 
+    class UnoEmptyMessage(Exception):
+        __pyunostruct__ = "com.sun.star.uno.RuntimeException"
+        Message = ""
+
+        def __str__(self) -> str:
+            raise AssertionError("str() called on hostile UNO exception with empty message")
+
+    assert resolve_exception_message(UnoEmptyMessage()) == "UnoEmptyMessage"
+    assert format_error_message(UnoEmptyMessage()) == "UnoEmptyMessage"
+
     kb = KeyboardInterrupt()
     assert resolve_exception_message(kb) == "KeyboardInterrupt"
     assert format_error_message(kb) == "KeyboardInterrupt"
@@ -1025,7 +960,8 @@ def test_make_tool_error_accepts_non_str_and_non_ascii_code():
 
 
 def test_is_document_disposed_handles_exploding_attributes():
-    from plugin.framework.errors import DocumentDisposedError, is_document_disposed
+    from plugin.framework.errors import DocumentDisposedError
+    from plugin.framework.errors import document_is_disposed
 
     class Dead(Exception):
         pass
@@ -1051,11 +987,11 @@ def test_is_document_disposed_handles_exploding_attributes():
         def __getattribute__(self, name: str) -> Any:
             raise DocumentDisposedError("doc disposed")
 
-    assert is_document_disposed(None) is True
-    assert is_document_disposed(DeadProxy()) is False
-    assert is_document_disposed(ExplodingProxy()) is False
-    assert is_document_disposed(DisposedProxy()) is True
-    assert is_document_disposed(DocumentDisposedProxy()) is True
+    assert document_is_disposed(None) is True
+    assert document_is_disposed(DeadProxy()) is False
+    assert document_is_disposed(ExplodingProxy()) is False
+    assert document_is_disposed(DisposedProxy()) is True
+    assert document_is_disposed(DocumentDisposedProxy()) is True
 
 
 def test_writer_agent_exception_unified_message():

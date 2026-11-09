@@ -13,6 +13,34 @@ sqlite_vec = pytest.importorskip("sqlite_vec")
 from plugin.embeddings.venv import embeddings_sqlite  # noqa: E402
 
 
+def test_build_match_query_single_word():
+    assert embeddings_sqlite.build_match_query("numpy") == '"numpy"'
+
+
+def test_build_match_query_multi_word_near():
+    q = embeddings_sqlite.build_match_query("web search", near_slop=10)
+    assert q.startswith("NEAR(")
+    assert '"web"' in q
+    assert '"search"' in q
+    assert ", 10)" in q
+
+
+def test_build_match_query_near_slash_syntax():
+    q = embeddings_sqlite.build_match_query("ocean NEAR/3 warming", near_slop=10)
+    assert "NEAR(" in q
+    assert ", 3)" in q
+
+
+def test_build_match_query_empty_raises():
+    with pytest.raises(ValueError, match="query"):
+        embeddings_sqlite.build_match_query("   ")
+
+
+def test_strip_fts_snippet_markers():
+    assert embeddings_sqlite.strip_fts_snippet_markers("[web] [search] tool-call") == "web search tool-call"
+    assert embeddings_sqlite.strip_fts_snippet_markers("…[WEB]_[SEARCH]…") == "…WEB_SEARCH…"
+
+
 def test_corpus_schema_fts_and_vec_round_trip(tmp_path):
     db_path = tmp_path / "corpus.db"
     conn = embeddings_sqlite.connect_corpus_db(db_path)
@@ -233,3 +261,165 @@ def test_load_vec_extension_names_pysqlite3_when_loader_missing():
 
     with pytest.raises(ImportError, match="pysqlite3"):
         embeddings_sqlite._load_vec_extension(_Conn())
+
+
+def test_stored_model_dim_reads_metadata(tmp_path):
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, dim=8, with_vec=True, model="m1")
+        conn.execute(
+            "INSERT OR REPLACE INTO model_metadata (embedding_model, dim, updated_at) VALUES (?, ?, ?)",
+            ("m1", 8, 1.0),
+        )
+        conn.commit()
+        assert embeddings_sqlite.stored_model_dim(conn, "m1") == 8
+        assert embeddings_sqlite.stored_model_dim(conn, "missing") is None
+    finally:
+        conn.close()
+
+
+def test_missing_vector_chunks_with_and_without_vec_table(tmp_path):
+    db_path = tmp_path / "corpus.db"
+    conn = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        embeddings_sqlite.ensure_schema(conn, with_fts=False, with_vec=False)
+        conn.execute(
+            """
+            INSERT INTO chunks (
+                doc_url, para_index, char_start, char_end, content_hash, file_mtime, body
+            ) VALUES ('file:///a.odt', 0, 0, 5, 'h1', 1.0, 'hello')
+            """
+        )
+        conn.commit()
+        assert embeddings_sqlite._vec_table_if_exists(conn, "m1") is None
+        all_missing = embeddings_sqlite.missing_vector_chunks(conn, "m1")
+        assert len(all_missing) == 1
+        assert all_missing[0]["text"] == "hello"
+
+        embeddings_sqlite.ensure_schema(conn, dim=4, with_vec=True, model="m1")
+        assert embeddings_sqlite._vec_table_if_exists(conn, "m1") == f"vec_chunks_{embeddings_sqlite.model_slug('m1')}"
+        chunk = {
+            "doc_url": "file:///b.odt",
+            "para_index": 0,
+            "char_start": 0,
+            "char_end": 5,
+            "content_hash": "h2",
+            "text": "world",
+            "file_mtime": 2.0,
+        }
+        embeddings_sqlite.upsert_chunk_with_vector(
+            conn,
+            chunk,
+            [1.0, 0.0, 0.0, 0.0],
+            model="m1",
+            with_fts=False,
+            with_vec=True,
+        )
+        conn.commit()
+        gaps = embeddings_sqlite.missing_vector_chunks(conn, "m1")
+        assert len(gaps) == 1
+        assert gaps[0]["doc_url"] == "file:///a.odt"
+        assert embeddings_sqlite.has_missing_vector_chunks(conn, "m1") is True
+        embeddings_sqlite.ensure_schema(conn, dim=4, with_vec=True, model="m1")
+        embeddings_sqlite.upsert_chunk_with_vector(
+            conn,
+            {
+                "doc_url": "file:///a.odt",
+                "para_index": 0,
+                "char_start": 0,
+                "char_end": 5,
+                "content_hash": "h1",
+                "text": "hello",
+                "file_mtime": 1.0,
+            },
+            [1.0, 0.0, 0.0, 0.0],
+            model="m1",
+            with_fts=False,
+            with_vec=True,
+        )
+        conn.commit()
+        assert embeddings_sqlite.has_missing_vector_chunks(conn, "m1") is False
+    finally:
+        conn.close()
+
+
+def test_connect_corpus_journal_wal_on_local_delete_on_remote(tmp_path, monkeypatch):
+    db_path = tmp_path / "corpus.db"
+    monkeypatch.setattr(embeddings_sqlite, "path_is_local_disk", lambda _p: True)
+    conn1 = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        mode = conn1.execute("PRAGMA journal_mode").fetchone()[0]
+        assert str(mode).casefold() == "wal"
+    finally:
+        conn1.close()
+
+    monkeypatch.setattr(embeddings_sqlite, "path_is_local_disk", lambda _p: False)
+    conn2 = embeddings_sqlite.connect_corpus_db(db_path)
+    try:
+        mode = conn2.execute("PRAGMA journal_mode").fetchone()[0]
+        assert str(mode).casefold() == "delete"
+    finally:
+        conn2.close()
+
+
+def _fake_partition(device: str, mountpoint: str, fstype: str, opts: str):
+    return type("Part", (), {"device": device, "mountpoint": mountpoint, "fstype": fstype, "opts": opts})()
+
+
+def _mock_disk_partitions(monkeypatch, parts):
+    import sys
+    from types import ModuleType
+
+    mod = ModuleType("psutil")
+    mod.disk_partitions = lambda all=True: list(parts)  # noqa: ARG005
+    monkeypatch.setitem(sys.modules, "psutil", mod)
+
+
+def test_fstype_is_network():
+    from plugin.contrib.fstype_network import fstype_is_network
+
+    for remote in ("nfs", "cifs", "fuse.sshfs", "9p"):
+        assert fstype_is_network(remote) is True
+    for local in (None, "", "ext4", "tmpfs", "fuse", "fuse.ntfs-3g"):
+        assert fstype_is_network(local) is False
+
+
+def test_longest_mount_partition_remote_prefix(monkeypatch):
+    parts = [
+        _fake_partition("", "/", "ext4", "rw"),
+        _fake_partition("", "/tmp", "tmpfs", "rw"),
+        _fake_partition("", "/mnt/share", "nfs", "rw"),
+    ]
+    _mock_disk_partitions(monkeypatch, parts)
+    assert embeddings_sqlite.path_is_local_disk("/mnt/share/sub/file.txt") is False
+    assert embeddings_sqlite.path_is_local_disk("/tmp/scratch") is True
+    assert embeddings_sqlite.path_is_local_disk("/home/user") is True
+
+    _mock_disk_partitions(monkeypatch, [_fake_partition("", "/mnt/share", "nfs", "rw")])
+    assert embeddings_sqlite.path_is_local_disk("/var/log") is True
+
+
+def test_windows_unc_and_remote_opts(monkeypatch):
+    assert embeddings_sqlite.path_is_local_disk(r"\\server\share\file") is False
+    assert embeddings_sqlite.path_is_local_disk("//server/share/file") is False
+    monkeypatch.setattr(embeddings_sqlite.sys, "platform", "win32")
+    _mock_disk_partitions(
+        monkeypatch,
+        [_fake_partition("", "Z:\\", "NTFS", "rw,remote")],
+    )
+    assert embeddings_sqlite.path_is_local_disk("Z:\\data") is False
+    _mock_disk_partitions(
+        monkeypatch,
+        [_fake_partition("", "C:\\", "NTFS", "rw,fixed")],
+    )
+    assert embeddings_sqlite.path_is_local_disk("C:\\data") is True
+
+
+def test_path_is_local_disk_real_path_on_linux(tmp_path):
+    """Local scratch directory on Linux resolves to local disk via mountinfo inspection."""
+    import sys
+
+    if sys.platform != "linux":
+        pytest.skip("mountinfo inspection is Linux-specific")
+    assert embeddings_sqlite.path_is_local_disk(tmp_path) is True

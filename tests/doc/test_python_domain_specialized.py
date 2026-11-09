@@ -27,7 +27,7 @@ from plugin.writer.specialized_base import (
     ToolWriterFootnoteBase,
     ToolWriterShapeBase,
 )
-from tests.chatbot.test_tool_loop import _mock_get_config_int_for_sub_agent
+from tests.chatbot.test_tool_loop import _mock_get_config_for_sub_agent
 
 
 class _ShapeUpsertProbe(ToolWriterShapeBase):
@@ -101,7 +101,7 @@ class _FailingFootnoteProbe(ToolWriterFootnoteBase):
 def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
     doc = MagicMock()
     doc.supportsService = lambda svc, service=service: svc == service
-    stop_checker = extra.pop("stop_checker", lambda: False)
+    send_cancellation = extra.pop("send_cancellation", None)
     services_list = (service,) if service else ()
     uno_services_supported = extra.pop("uno_services_supported", services_list)
     return ToolContext(
@@ -110,7 +110,7 @@ def _ctx(registry: ToolRegistry, doc_type: str, service: str, **extra):
         doc_type,
         {"tools": registry},
         caller="chat",
-        stop_checker=stop_checker,
+        send_cancellation=send_cancellation,
         uno_services_supported=uno_services_supported,
         **extra,
     )
@@ -187,11 +187,17 @@ def test_domain_loop_hints_include_footnotes_and_charts_lines():
 def test_shapes_mutators_are_script_only_other_domains_keep_tools():
     """Shapes LLM list drops proxy mutators; footnotes and sheets do not."""
     hidden = script_only_llm_tool_names("shapes")
-    assert "shape_upsert" in hidden
-    assert "shape_delete" in hidden
-    assert "shape_connect" in hidden
-    assert "shape_group" in hidden
-    assert "align_shapes" in hidden
+    expected_mutators = frozenset({
+        "shape_upsert",
+        "shape_delete",
+        "shape_connect",
+        "shape_group",
+        "shape_align",
+        "shape_distribute",
+        "shape_diagram",
+        "shape_fill_fields",
+    })
+    assert expected_mutators <= hidden
     assert "shape_summary" not in hidden
     assert script_only_llm_tool_names("footnotes") == frozenset()
     assert script_only_llm_tool_names("sheets") == frozenset()
@@ -223,6 +229,7 @@ def test_validate_domains_by_app():
     assert "ranges" in calc
     assert "footnotes" not in calc
     assert "speaker_notes" in draw
+    assert "page_comments" in draw
     assert "ppt-master" not in draw
 
     message, code = validate_requested_domains(["footnotes", "shapes"], "Writer")
@@ -362,7 +369,7 @@ def test_run_inner_domain_tool_agent_unions_full_schemas(mock_executor_cls, mock
 
     inner_ctx = mock_build.call_args[0][0]
     assert inner_ctx.doc is parent.doc
-    assert inner_ctx.stop_checker is parent.stop_checker
+    assert inner_ctx.send_cancellation is parent.send_cancellation
     assert inner_ctx.status_callback is parent.status_callback
     assert inner_ctx.approval_callback is approval_cb
     assert inner_ctx.chat_append_callback is chat_append_cb
@@ -425,8 +432,8 @@ def test_shapes_domain_includes_canvas_context_from_main_thread(mock_canvas, moc
     def _call(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), patch(
+        "plugin.framework.queue_executor.main.call", side_effect=_call
     ) as mock_main:
         result = run_inner_domain_tool_agent(parent, ["shapes"], "Place a ring of circles")
 
@@ -477,12 +484,12 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
     assert result["status"] == "ok"
     tools_arg = mock_build.call_args[0][1]
     names = {tool.name for tool in tools_arg}
-    assert "list_sheets" in names
-    assert "sort_range" in names
+    assert "sheet_list" in names
+    assert "range_sort" in names
     assert "footnotes_insert" not in names
     by_name = {tool.name: tool for tool in tools_arg}
-    assert "labels" in by_name["sort_range"].inputs["has_header"]["description"]
-    assert by_name["sort_range"].inputs["range"]["type"] == "array"
+    assert "labels" in by_name["range_sort"].inputs["has_header"]["description"]
+    assert by_name["range_sort"].inputs["range"]["type"] == "array"
     assert "shape_upsert" not in names
     inner_ctx = mock_build.call_args[0][0]
     assert inner_ctx.python_tool_domain == "sheets,ranges,core"
@@ -490,13 +497,13 @@ def test_run_inner_domain_tool_agent_calc_union(mock_executor_cls, mock_build):
 
     allowed = resolve_allowed_tools(inner_ctx.python_tool_domain)
     assert allowed is not None
-    assert "list_sheets" in allowed
-    assert "sort_range" in allowed
+    assert "sheet_list" in allowed
+    assert "range_sort" in allowed
     assert "shape_upsert" not in allowed
     assert "undo" in allowed
     assert "run_venv_python_script" not in allowed
     calc_instructions = mock_build.call_args.kwargs["instructions"]
-    assert "wa.sheet.list_sheets" in calc_instructions
+    assert "wa.sheet.list" in calc_instructions
     assert "wa.core.undo" in calc_instructions
     assert "wa.shape.upsert" not in calc_instructions
 
@@ -576,8 +583,8 @@ def test_gather_domain_tools_marshals_off_main_thread():
     def _call(fn, *args, timeout=30.0, bound_scope=None, **kwargs):
         return fn(*args, **kwargs)
 
-    with patch("plugin.framework.thread_guard.on_main_thread", return_value=False), patch(
-        "plugin.framework.queue_executor.execute_on_main_thread", side_effect=_call
+    with patch("plugin.framework.queue_executor.main.is_current", return_value=False), patch(
+        "plugin.framework.queue_executor.main.call", side_effect=_call
     ) as mock_main:
         tools = gather_domain_tools(parent, ["footnotes"])
     assert mock_main.called
@@ -601,8 +608,8 @@ def test_delegate_tool_domains_execute_returns_inner_result(mock_inner):
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
-    side_effect=_mock_get_config_int_for_sub_agent,
+    "plugin.chatbot.smol_agent.get_config",
+    side_effect=_mock_get_config_for_sub_agent,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True)
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
@@ -615,7 +622,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     mock_smol_model,
     mock_agent_class,
     mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config,
 ):
     registry = ToolRegistry(services={})
     registry.register(DelegateToolDomains())
@@ -632,7 +639,7 @@ def test_python_outer_delegation_gets_delegate_tool_domains_and_hint(
     ctx.doc.supportsService = lambda svc: svc == "com.sun.star.text.TextDocument"
     ctx.ctx = MagicMock()
     ctx.services = {"tools": registry}
-    ctx.stop_checker = lambda: False
+    ctx.send_cancellation = None
     ctx.doc_type = "writer"
 
     gateway = registry.get("delegate_to_specialized_writer_toolset")

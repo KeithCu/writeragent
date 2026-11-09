@@ -14,10 +14,11 @@ from plugin.chatbot.dialogs import (
     get_control_text,
     is_checkbox_control,
     set_checkbox_state,
+    set_combo_items,
     set_control_text,
 )
-from plugin.framework.config import get_config, set_configs
-from plugin.framework.config_schema import as_bool, coerce_config_value
+from plugin.framework.config import get_config, save
+from plugin.framework.config_schema import as_bool, validate
 from plugin.framework.errors import ConfigError, ConfigValidationError
 from plugin.framework.i18n import _
 
@@ -49,11 +50,11 @@ def call_options_provider(provider_path: str) -> Any:
 
     services = None
     try:
-        from plugin.main import get_services
+        from plugin.app import get_services
 
         services = get_services()
     except ImportError:
-        # LibrePy does not ship plugin.main; providers that need services skip.
+        # LibrePy does not ship plugin.app; providers that need services skip.
         pass
     return func(services)
 
@@ -174,9 +175,8 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
     if "options" in field:
         try:
             labels = _settings_option_labels(field)
-            model = ctrl.getModel() if hasattr(ctrl, "getModel") else None
-            if labels and model is not None and hasattr(model, "StringItemList"):
-                model.StringItemList = labels
+            if labels:
+                set_combo_items(ctrl, labels)
         except Exception:
             log.debug("set options failed for %s", field.get("name"), exc_info=True)
     if field_type in ("int", "float") and hasattr(ctrl, "setValue"):
@@ -195,16 +195,8 @@ def populate_settings_control(ctrl: Any, field: dict[str, Any]) -> None:
 def _commit_spin_peer_value(ctrl: Any) -> float | None:
     """Copy a pending numeric edit into the model. ``None`` means "not committed".
 
-    Bugfix: Settings could store the previous spin value.
-    What was wrong: OK saved the number already in the model after the user
-    typed a new one and activated OK without leaving the field.
-    How it happened: UnoControlNumericField.getValue reads the model Value.
-    The peer parses the VCL entry (NumericFormatter::GetValue). The model
-    catches up on textChanged, or on focus loss (Formatter::EntryLostFocus
-    → Commit). This control has no UNO commit(). getText is the inherited
-    edit caption and must not be written over a spun value.
-    Why this change: setValue(peer.getValue()) when they differ, then the
-    caller reads getValue. No peer leaves the caller on today's path.
+    Numeric OK without focus loss leaves the model stale. When peer.getValue differs from
+    getValue, setValue(peer.getValue()) before the caller reads the committed spin.
     """
     try:
         peer = ctrl.getPeer()
@@ -292,7 +284,7 @@ def changed_config_values(pending: dict[str, Any], read: Any) -> dict[str, Any]:
     key is omitted, is not a change. The default itself must not become a
     write. ``read`` is ``get_config`` from the caller so a test patch of
     that name is the disk this compare sees. This does not touch the config
-    lock or the per-key writer; the caller makes one ``set_configs`` of
+    lock or the per-key writer; the caller makes one ``save`` of
     what remains.
     """
     changed: dict[str, Any] = {}
@@ -315,7 +307,7 @@ def _config_assignment_matches(
 ) -> bool:
     """True when *proposed* would not change *current* after the same coerce OK uses.
 
-    An invalid value does not match, so ``set_configs`` still raises it.
+    An invalid value does not match, so ``save`` still raises it.
     Endpoint text may be a preset label; both sides go through the selector
     normalizer before compare. Dict values (the API-key map) compare equal
     as maps, not as rewritten blobs.
@@ -331,7 +323,7 @@ def _config_assignment_matches(
     if isinstance(proposed, dict) or isinstance(current, dict):
         return proposed == current
     try:
-        coerced = coerce_config_value(key, proposed, fallback_value=current, strict=True)
+        coerced = validate({key: proposed})[key]
     except (ConfigError, ConfigValidationError):
         return False
     return coerced == current
@@ -344,8 +336,8 @@ def spec_save_key(spec: dict[str, Any], name: str) -> str:
 def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str, Any]]) -> None:
     """Persist dialog values using each spec's ``config_key`` (or name with ``__`` → ``.``).
 
-    ``set_configs`` writes once and emits only when something changed, so
-    this function must not emit. Per-key ``set_config`` rewrites the file
+    ``save`` writes once and emits only when something changed, so
+    this function must not emit. Per-key ``save`` rewrites the file
     and emits ``config:changed`` again, including when every value already
     matched.
     """
@@ -360,4 +352,4 @@ def apply_field_specs_result(result: dict[str, Any], field_specs: list[dict[str,
     # One write, and only keys that differ from disk or from an omitted default.
     pending = changed_config_values(pending, get_config)
     if pending:
-        set_configs(pending)
+        save(pending)

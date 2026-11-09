@@ -19,7 +19,7 @@ Adapted from OnlyOfficeAI patterns. Original source: onlyofficeai/scripts/helper
 
 These tools address live LibreOffice ControlShapes (com.sun.star.form.component.*).
 They do not fill PDF/AcroForm widgets. Draw "paper forms" (empty TextShapes next
-to labels) use get_draw_tree + fill_draw_fields / shape_upsert instead.
+to labels) use get_draw_tree + shape_fill_fields / shape_upsert instead.
 """
 
 import logging
@@ -29,13 +29,12 @@ from com.sun.star.awt import Point, Size
 from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
 
 from ..specialized_base import ToolWriterFormBase, enum_param, index_error
-from plugin.doc.doc_type import is_calc, is_draw
+from plugin.framework.doc_type import is_calc, is_draw
 from plugin.doc.text_helpers import clone_text_range
 from plugin.doc.visual_helpers import get_active_draw_page
 from plugin.draw.tree import CONTROL_TYPE_MAP, coerce_control_state, control_snapshot, readable_control_type
-from plugin.framework import thread_guard
-from plugin.framework.errors import format_error_payload, ToolExecutionError, is_real_disposal, reraise_if_disposed
-from plugin.framework.queue_executor import run_on_main
+from plugin.framework.errors import format_error_payload, ToolExecutionError, is_disposal, reraise_if_disposed
+from plugin.framework.queue_executor import main
 from plugin.framework.uno_context import uno_same
 
 log = logging.getLogger("writeragent.writer.forms")
@@ -72,7 +71,7 @@ def _resolve_form_page(doc: Any, page: Any = None) -> Any:
                 raise ToolExecutionError(f"Page index {page_idx} is out of range (document has {n} pages).")
             return pages.getByIndex(page_idx)
         except Exception as exc:
-            if is_real_disposal(exc) or isinstance(exc, ToolExecutionError):
+            if is_disposal(exc) or isinstance(exc, ToolExecutionError):
                 raise
             return None
     return get_active_draw_page(doc)
@@ -229,12 +228,14 @@ def _commit_form_batch(
     mutate: Any,
     undo_message: str,
 ) -> dict[str, Any] | None:
-    from plugin.doc.undo import UndoUnavailable, commit_or_rollback
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     try:
-        error = commit_or_rollback(doc, title, mutate)
+        outcome = commit_or_rollback(doc, title, mutate)
+        outcome.raise_mutate_error()
+        error = outcome.error
         if error is not None:
-            error["rolled_back"] = True
+            error["rolled_back"] = outcome.rolled_back
             return error
     except UndoUnavailable:
         return tool._tool_error(undo_message, code="UNDO_UNAVAILABLE")
@@ -349,7 +350,7 @@ class FormCreateControl(ToolWriterFormBase):
         "Create one live LibreOffice form widget (checkbox, text field, radio, date, combobox, list box, or button) "
         "because the user asked for an interactive ControlShape. Writer: anchored As Character at the cursor. "
         "Calc: stacked on the active sheet draw page. Draw/Impress: stacked on the active page (or page=). "
-        "Do not use this to fill paper-form blanks (empty TextShapes) — those are fill_draw_fields / shape_upsert targets."
+        "Do not use this to fill paper-form blanks (empty TextShapes) — those are shape_fill_fields / shape_upsert targets."
     )
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -360,7 +361,7 @@ class FormCreateControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(_create_control, ctx, **kwargs)
+        return main.run(_create_control, ctx, **kwargs)
 
 
 def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dict[str, Any]:
@@ -493,7 +494,7 @@ def _create_control(ctx: Any, *, page_cursors: Any = None, **kwargs: Any) -> dic
         }
 
     except Exception as e:
-        if is_real_disposal(e):
+        if is_disposal(e):
             raise
         log.exception("Error creating form control")
         return format_error_payload(ToolExecutionError(f"Error creating form control: {str(e)}"))
@@ -611,22 +612,22 @@ Output ONLY the HTML content. No explanations. No Markdown like # Header.
         messages = [{"role": "system", "content": instructions}, {"role": "user", "content": f"Generate a {description}"}]
 
         try:
-            if thread_guard.on_main_thread():
+            if main.is_current():
                 return format_error_payload(ToolExecutionError("FormGenerate LLM call must not run on the UI thread"))
 
             # Get the full document from LLM
             content = client.chat_completion_sync(
                 messages,
                 max_tokens=2048,
-                stop_checker=ctx.stop_checker,
+                cancel=ctx.send_cancellation,
                 status_callback=ctx.status_callback,
             )
 
             # Process the content
-            return run_on_main(self._process_form_content, ctx, content)
+            return main.run(self._process_form_content, ctx, content)
 
         except Exception as e:
-            if is_real_disposal(e):
+            if is_disposal(e):
                 raise
             if getattr(e, "code", None) == "USER_STOPPED":
                 return format_error_payload(e)
@@ -740,7 +741,7 @@ class FormListControls(ToolWriterFormBase):
     parameters: dict[str, Any] | None = _PAGE_ONLY_PARAMETERS
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         doc = ctx.doc
@@ -817,7 +818,7 @@ class FormEditControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         _unused_dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)
@@ -930,7 +931,7 @@ class FormDeleteControl(ToolWriterFormBase):
     }
 
     def execute(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
-        return run_on_main(self._execute_main, ctx, **kwargs)
+        return main.run(self._execute_main, ctx, **kwargs)
 
     def _execute_main(self, ctx: Any, **kwargs: Any) -> dict[str, Any]:
         dp, idx, shape, err = _resolve_form_page_and_control(ctx.doc, kwargs)

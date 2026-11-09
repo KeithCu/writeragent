@@ -29,6 +29,7 @@ from plugin.draw.base import ToolDrawFormBase, ToolDrawImageBase, ToolDrawTableB
 from plugin.doc.visual_helpers import SHAPE_TOOL_UNO_SERVICES
 from plugin.framework.prompts import DELEGATION_PUBLIC_WEB_HINT, DELEGATION_USER_FILE_DATA_HINT
 from plugin.doc.specialized_base import DelegateToSpecializedBase
+from plugin.writer.search import CASE_SENSITIVE_DESCRIPTION
 
 INSERT_TARGETS: list[str] = ["beginning", "end", "selection", "full_document", "search"]
 
@@ -43,6 +44,7 @@ def target_params(what: str, **extra: Any) -> dict[str, Any]:
     return {
         "target": enum_param(INSERT_TARGETS, f"Where to insert {what}.", **extra),
         "old_content": {"type": "string", "description": "Text to find and replace if target = 'search'."},
+        "case_sensitive": {"type": "boolean", "description": f"For target='search': {CASE_SENSITIVE_DESCRIPTION}"},
     }
 
 
@@ -118,14 +120,15 @@ class ToolWriterPageBase(ToolWriterSpecialBase):
 class ToolWriterTextFramesBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "textframes"
     specialized_domain_description: ClassVar[str | None] = (
-        "List, inspect, resize, re-anchor, and set the orientation of existing text frames."
+        "List, inspect, insert, delete, resize, re-anchor, and set the orientation of text frames."
     )
 
 
 class ToolWriterEmbeddedBase(ToolWriterSpecialBase):
-    # Parked (B3-A3): both embedded tools are ToolBaseDummy stubs, so no domain in the catalog.
-    specialized_domain: ClassVar[str | None] = None
-    specialized_domain_description: ClassVar[str | None] = "OLE in active doc only (not sibling files on disk)."
+    specialized_domain: ClassVar[str | None] = "embedded"
+    specialized_domain_description: ClassVar[str | None] = (
+        "Insert a Calc spreadsheet OLE in the active Writer document only."
+    )
 
 
 class ToolWriterImageBase(ToolWriterSpecialBase, ToolDrawImageBase):
@@ -149,7 +152,9 @@ class ToolWriterVisionBase(ToolWriterSpecialBase):
 
 class ToolWriterShapeBase(ToolWriterSpecialBase):
     specialized_domain: ClassVar[str | None] = "shapes"
-    specialized_domain_description: ClassVar[str | None] = "Create and edit drawing shapes, lines, and connectors."
+    specialized_domain_description: ClassVar[str | None] = (
+        "Create and edit drawing shapes, connectors, groups, align/distribute layouts, and diagrams."
+    )
 
 
 class ToolWriterPythonBase(ToolWriterSpecialBase):

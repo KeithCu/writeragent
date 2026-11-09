@@ -18,7 +18,6 @@ import ast
 import hashlib
 import keyword
 import logging
-import os
 import re
 import sys
 from contextvars import ContextVar
@@ -28,6 +27,7 @@ from typing import Any, Callable
 log = logging.getLogger(__name__)
 
 from plugin.scripting.domain_registry import SCRIPT_ORIGIN_DOCUMENT, SCRIPT_ORIGIN_USER
+from plugin.scripting.host_tool_call import call_host_tool
 
 _NAMED_SCRIPT_MAX_BYTES = 200_000
 _IDENT_NON_ALNUM = re.compile(r"[^0-9A-Za-z]+")
@@ -65,8 +65,7 @@ def _import_time_has(node: ast.AST, kinds: tuple[type[ast.AST], ...]) -> bool:
     """True when *node* contains *kinds* outside nested function/class bodies and lambda bodies.
 
     Lambda defaults run while the library loads and are scanned; lambda bodies stay deferred.
-    ``ast.walk`` used to enter ``lambda x: transform(x)`` and reject a binding
-    that does not call ``transform`` until the lambda runs.
+    Lambda bodies are not walked so import-time scanning does not treat deferred lambda code as load-time side effects.
     """
     pending: list[ast.AST] = [node]
     while pending:
@@ -160,12 +159,7 @@ def _class_import_time_call_lines(node: ast.ClassDef) -> list[int]:
             if isinstance(stmt.target, (ast.Name, ast.Attribute, ast.Subscript)):
                 _flag_line(lines, stmt.value, effect=True)
                 _flag_line(lines, stmt.annotation, effect=True)
-                # What was wrong: a call in a class-body assignment target was kept
-                # (make().x = 1, make()[0]: int = 1) and ran while the library loaded.
-                # How it happened: only the value and the annotation were scanned.
-                # evaluate_class_def evaluates an Attribute target's value, and a
-                # Subscript target's value and slice, even when the AnnAssign has no value.
-                # Why this change: scan the target with the same load-time check.
+                # Class-body assignment targets are scanned for load-time calls, matching what evaluate_class_def runs at import.
                 _flag_line(lines, stmt.target, effect=True)
             else:
                 _flag_line(lines, stmt)
@@ -214,18 +208,7 @@ def extract_library_source(code: str) -> str:
     dropped: list[int] = []
     omitted: list[int] = []
 
-    # What was wrong: Module-level unpacks and class-body statements were either
-    # rejected or improperly filtered, while decorators, async functions, and
-    # load-time side effects (like walrus expressions or annotation calls) could
-    # slip through or cause inconsistent errors.
-    # How it happened: The AST filter only recognized simple Name assignments,
-    # didn't scan annotations or unpack patterns, and permitted class-body
-    # statements/decorators that LocalPythonExecutor either rejects or runs at
-    # import time.
-    # Why this change: extract_library_source validates all statements against the
-    # executor's import-time model: unpacks must be name-only, decorators and async
-    # defs are rejected, load-time calls/walruses in defaults or annotations are
-    # flagged, and top-level expressions are omitted when other definitions remain.
+    # Filtering matches LocalPythonExecutor import-time rules: name-only unpacks, no decorators/async at module scope, and load-time calls flagged in defaults and annotations.
     for node in tree.body:
         if isinstance(node, ast.ClassDef):
             call_lines = _class_import_time_call_lines(node)
@@ -279,30 +262,6 @@ def extract_library_source(code: str) -> str:
         raise ValueError("Named script is too deeply nested to load as a library") from exc
 
 
-def _rpc_named(tool_name: str, **kwargs: Any) -> Any:
-    kwargs = {k: v for k, v in kwargs.items() if v is not None}
-    # Same fail-closed path as writeragent_api._rpc_call. The ImportError
-    # branch below would otherwise call exchange_tool_call with no host.
-    if os.environ.get("WRITERAGENT_COMPUTE_WORKER") == "1":
-        raise RuntimeError("WriterAgent document tools are not available in the Python compute service.")
-    if os.environ.get("WRITERAGENT_IS_WORKER") == "1":
-        # Catch ImportError only around the import. Wrapping _rpc_call too
-        # turned an ImportError raised during the call into a second
-        # exchange_tool_call, so the RPC was sent twice.
-        try:
-            from plugin.scripting.writeragent_api import _rpc_call
-        except ImportError:
-            # LibrePy omits writeragent_api. Same locked, id-checked pipe as _rpc_call.
-            from plugin.scripting.ipc import exchange_tool_call
-
-            return exchange_tool_call(tool_name, kwargs)
-        return _rpc_call(tool_name, **kwargs)
-
-    from plugin.scripting.host_rpc import execute_tool
-
-    return execute_tool(tool_name, kwargs, caller="script")
-
-
 def _executor_slot(executor: Any, attr: str, factory: Callable[[], Any]) -> Any:
     value = getattr(executor, attr, None)
     if value is None:
@@ -317,9 +276,7 @@ def _eval_library(executor: Any, source: str, ident: str) -> SimpleNamespace:
     extracted = extract_library_source(source)
     state: dict[str, Any] = {"__name__": ident}
     if extracted.strip():
-        # evaluate_function_def previously wrote each def into custom_tools.
-        # Defs now stay in state, but the defensive copy of custom_tools is kept
-        # so library code cannot mutate the executor's tool dict.
+        # custom_tools is copied so library evaluation cannot mutate the executor tool dict.
         evaluate_python_code(
             extracted,
             static_tools=executor.static_tools or {},
@@ -356,7 +313,7 @@ def load_named_script(origin: str, name: str, executor: Any | None = None) -> An
     if key in cache and key in checked:
         return cache[key][1]
     known_hash = cache[key][0] if key in cache else None
-    payload = _rpc_named(
+    payload = call_host_tool(
         GET_NAMED_PYTHON_SCRIPT,
         name=name,
         origin=origin,
@@ -405,7 +362,7 @@ class ScriptLibrary:
         executor = self._resolve_executor()
         listing_cache = getattr(executor, "_named_script_listing", None) if executor is not None else None
         if listing_cache is None:
-            listing_cache = _rpc_named(LIST_NAMED_PYTHON_SCRIPTS)
+            listing_cache = call_host_tool(LIST_NAMED_PYTHON_SCRIPTS)
             if executor is not None:
                 executor._named_script_listing = listing_cache
         return list(listing_cache.get(self._origin) or [])

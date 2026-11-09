@@ -4,6 +4,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """Eval system prompt is the production chat builder plus the eval note."""
 
+import pytest
+
 from plugin.framework.prompts import (
     TOOL_USAGE_PATTERNS,
     WRITER_REVIEW_MODES_RULES,
@@ -22,6 +24,13 @@ from scripts.prompt_optimization.eval_prompts import (
     get_writer_eval_chat_system_prompt,
     replace_prompt_slice,
 )
+
+
+@pytest.fixture(autouse=True)
+def _register_prompt_hooks_for_eval_prompt_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
 
 
 def test_writer_eval_prompt_equals_production_plus_note() -> None:
@@ -71,7 +80,7 @@ def test_calc_draw_eval_prompts_use_production_builder() -> None:
 # Teachings stay; shape is split so flash models cannot merge three adjacent
 # identical Do-because lines. Because-clause text is PR 616's (no write tools).
 _CALC_SORT_ROUTING = (
-    'Do delegate_to_specialized_calc_toolset(domain="ranges") then sort_range '
+    'Do delegate_to_specialized_calc_toolset(domain="ranges") then range_sort '
     "to reorder rows (multi-key sorts are two stable one-column passes) "
     "because rewriting values by hand loses the header row."
 )
@@ -103,7 +112,7 @@ def test_calc_eval_prompt_pins_sort_and_relative_formula_rules() -> None:
     assert _CALC_RELATIVE_FORMULA in calc
     # Naming write_formula_range / =PY in the because-clause primed weak
     # models to call the tool we want them to avoid (glm-5.3-flash).
-    sort_line = next(line for line in calc.splitlines() if "then sort_range" in line)
+    sort_line = next(line for line in calc.splitlines() if "then range_sort" in line)
     assert "write_formula_range" not in sort_line
     assert "=PY" not in sort_line
     # Headers + different shapes: not three adjacent identical Do-because lines.
@@ -125,7 +134,7 @@ def test_calc_tool_descriptions_pin_sort_has_header_not_tax() -> None:
     from plugin.calc.cells import SortRange, WriteCellRange
 
     write_desc = WriteCellRange.description
-    assert "sort_range" not in write_desc
+    assert "range_sort" not in write_desc
     assert "Banana" not in write_desc
     assert "stamped B2" not in write_desc
     sort_desc = SortRange.description
@@ -133,7 +142,7 @@ def test_calc_tool_descriptions_pin_sort_has_header_not_tax() -> None:
     assert "Multi-key sorts are multiple calls" in sort_desc
     assert "two stable one-column passes" in sort_desc
     assert _SORT_RANGE_HAS_HEADER in sort_desc
-    assert "Do call sort_range to reorder rows" in sort_desc
+    assert "Do call range_sort to reorder rows" in sort_desc
     assert "not rewrite the block with write_formula_range" in sort_desc
     assert "Pick sort_column for the metric" in sort_desc
     assert "ascending=false when largest values should come first" in sort_desc
@@ -166,6 +175,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     """GUARD on + LoLane-like thread must not raise on get_eval_system_prompt."""
     import threading
 
+    from plugin.framework.queue_executor import main
     import plugin.framework.thread_guard as tg
 
     monkeypatch.setattr(tg, "GUARD_ON", True)
@@ -176,7 +186,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     result: list[object] = []
 
     def uno_home() -> None:
-        tg.set_designated_main_thread(threading.current_thread())
+        main.designated = threading.current_thread()
         holder.append(threading.current_thread())
         ready.set()
         done.wait(timeout=30)
@@ -197,7 +207,7 @@ def test_flag_prompt_safe_off_designated_thread_with_guard_on(monkeypatch) -> No
     worker.join(timeout=30)
     done.set()
     home.join(timeout=30)
-    tg.set_designated_main_thread(None)
+    main.designated = None
     assert worker.is_alive() is False
     assert result and isinstance(result[0], str)
     assert FLAG_HARNESS_NOTE in result[0]

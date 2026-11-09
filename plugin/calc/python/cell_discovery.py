@@ -15,12 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.calc.address_utils import format_address, qualify_a1
-from plugin.calc.python.collabora_formula import rewrite_collabora_addin_prefix
-from plugin.calc.python.formula_edit import (
-    extract_python_code_loose,
-    normalize_formula_string,
-    stored_addin_call_open_end,
-)
+from plugin.calc.python.formula_edit import PyFormula
 from plugin.calc.python.formula_locator_cache import CELL_FLAG_FORMULA, iter_range_formula_texts
 
 _MAX_PYTHON_CELLS_FOUND = 100
@@ -53,26 +48,11 @@ class PythonSheetDiscovery:
     truncated: bool
 
 
-def canonicalize_py_formula_for_parse(formula: str) -> str:
-    """Map LO add-in formula text to ``=PYTHON(…)`` for ``parse_python_formula``."""
-    raw = rewrite_collabora_addin_prefix(normalize_formula_string(formula))
-    end = stored_addin_call_open_end(raw)
-    if end is None:
-        return raw
-    return "=PYTHON(" + raw[end:]
-
-
-def python_code_from_formula(formula: str) -> str | None:
-    """Extract Python code from a PY/PYTHON formula, or None if not a PY formula."""
-    # Every PY/PYTHON add-in spelling contains "PY"; reject the rest before parsing.
-    if "PY" not in (formula or "").upper():
-        return None
-    return extract_python_code_loose(canonicalize_py_formula_for_parse(formula))
-
-
 def is_py_formula_text(formula: str) -> bool:
     """True when *formula* is PY/PYTHON, including fully qualified add-in form."""
-    return python_code_from_formula(formula) is not None
+    if "PY" not in (formula or "").upper():
+        return False
+    return PyFormula.parse(formula) is not None
 
 
 def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
@@ -97,8 +77,10 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
         if scanned >= _MAX_CELLS_TO_SCAN:
             truncated = True
             break
-        code = python_code_from_formula(formula)
-        if code is None:
+        if "PY" not in (formula or "").upper():
+            continue
+        parsed = PyFormula.parse(formula)
+        if parsed is None:
             continue
         if len(found) >= _MAX_PYTHON_CELLS_FOUND:
             # 101st PY cell: the returned list of 100 is incomplete.
@@ -106,7 +88,7 @@ def discover_python_cells_on_sheet(sheet: Any) -> PythonSheetDiscovery:
             break
         # Unquoted sheet names (e.g. Data.2024 or names with spaces) broke downstream
         # address parsing and navigation; qualify_a1 quotes the sheet prefix when needed.
-        found.append(PythonCellInfo(sheet=name, row=row, column=col, address=qualify_a1(name, format_address(col, row)), code=code, formula=formula))
+        found.append(PythonCellInfo(sheet=name, row=row, column=col, address=qualify_a1(name, format_address(col, row)), code=parsed.code, formula=formula))
 
     found.sort(key=lambda c: (c.row, c.column))
     return PythonSheetDiscovery(found, truncated)

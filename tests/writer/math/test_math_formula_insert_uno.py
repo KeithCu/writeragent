@@ -10,7 +10,7 @@ from typing import Any
 
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import skip_windows_leftover_hidden_load, with_native_doc
-from plugin.writer import format as format_support
+from plugin.writer import html_import as format_support
 from plugin.writer.math.math_mml_convert import MATH_CLSID, convert_mathml_to_starmath, insert_writer_math_formula
 
 
@@ -103,7 +103,7 @@ def test_display_math_inserts_embed(ctx: Any, doc: Any) -> None:
 def test_apply_document_content_end_with_mathml(ctx: Any, doc: Any) -> None:
     """End-to-end: ``apply_document_content`` tool on a hidden doc with MathML HTML."""
     _skip_windows_leftover_hidden_mathml()
-    from plugin.main import get_services, get_tools
+    from plugin.app import get_services, get_tools
     from plugin.framework.tool import ToolContext
 
     text = doc.getText()

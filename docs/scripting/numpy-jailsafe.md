@@ -3,6 +3,7 @@
 ER: [CollaboraOnline/online#16010](https://github.com/CollaboraOnline/online/issues/16010).
 
 Related architecture comparison (AI chat / kit protocol, not Python compute): [../chat/collabora-online-ai.md](../chat/collabora-online-ai.md).
+Companion documents: the rules every planner, coder, and reviewer must follow are in [collabora-engine-house-rules.md](collabora-engine-house-rules.md). This file keeps the architecture, the decisions behind it, and the history. Feature designs are in `docs/calc/` ([plot plan](../calc/collabora-engine-plot-plan.md), [spill plan](../calc/collabora-engine-spill-plan.md)).
 
 ## Product picture
 
@@ -83,33 +84,7 @@ Excel scripts that share globals across multiple PY cells need a **shared** comp
 
 The rewriter handles formula-static references: fixed ranges, scalar cells, sheet-qualified table `[#All]` references, and `ANCHORARRAY`/spill anchors (the latter two become fixed A1 snapshots from workbook metadata). Microsoft does **not** productize true dynamic `xl(variable)` / `xl(f"A{n}")` (they fail in Excel). WriterAgent **fails closed** on those shapes if they appear (defense + not DAG-safe), and on missing table/anchor snapshots, rather than emitting shifted `data[i]` formulas. Sample fidelity: [`scripts/roundtrip_excel_py_samples.py`](../../scripts/roundtrip_excel_py_samples.py) over [`PythonExcelSamples/`](../PythonExcelSamples/).
 
-#### Why we do not fold pure-subset ranges (research note)
-
-A natural optimization idea: if one PY cell’s deps include both `A3` and `A1:A10`, the single cell is already inside the larger range, so import could keep only `A1:A10` on `=PY` and rewrite the small site as a view into `data`. That is the hard case. **Pure duplicates are already handled** and should not be confused with subset folding.
-
-**Verdict: not worth doing in this stack.** Subset fold is correct as a pure-Python “don’t send the same cells twice” cleanup; expensive and fidelity-hostile once Calc precedents, `CalcRange` shapes, and Excel export are in the picture. Status quo: keep subset deps as separate formula args; keep collapsing identical A1s. Details below so we do not re-litigate it casually.
-
-**What Excel actually stores.** Authors type `xl("A3")` in the UI; at edit/save Excel rewrites literals to formula-static bridges: `pythonScripts.xml` has `xl(%P2%)` / `xl(%P3%)` (`%P2%` = first trailing dep), and the cell formula is `_xlws.PY(scriptIndex, returnType, A3, A1:A10, …)`. Well-formed MS packages should not still contain UI-style `xl("A3")` string literals in the bank. True `xl(f"…")` / `xl(name)` is unsupported by Microsoft and fail-closed by WriterAgent if present. So both “duplicate fold” and “subset fold” mean collapsing **resolved trailing deps**, not scanning string literals in source.
-
-**Pure duplicates (already done).** Authors often repeat the same `xl(...)` instead of `x = xl(...); … use x …`. On disk that becomes multiple `%Pn%` sites and repeated trailing deps, e.g. `_xlws.PY(…, A3, A3, A3)`. [`_normalize_bindings`](../../plugin/calc/excel_py_convert/to_dag.py) keys on the **exact** resolved A1 string after [`resolve_dep`](../../plugin/calc/excel_py_convert/resolve_refs.py): identical tokens collapse to one `data_args` entry, and a second rewrite remaps every original `%Pn%` site onto the same `data` / `ranges[i]` expression (with header-mode merge preferring explicit `headers=True`). That is identity-preserving — same Python value, one Calc precedent — and is covered by `test_dedup_duplicate_range_bindings`. From our side this is easier than asking authors to use a local: we only need one formula arg and N call sites pointing at it. Export prefers `excel_deps` when length-aligned with the collapsed `data_args` ([`deps_for_xlws_export`](../../plugin/calc/excel_py_convert/to_excel.py); policy in [`models.py`](../../plugin/calc/excel_py_convert/models.py)), so arity can shrink (`A3,A3` → one `A3` on re-export); that is acceptable for identical tokens.
-
-**What is *not* done.** `A3` and `A1:A10` stay two `data_args` and two precedents. That is the subset idea below — different geometry, different value shapes, not another exact-key hit.
-
-**Why a pure-Python fold feels easy.** In a world where `xl()` is just “fetch these cells into a dict of arrays,” you would union/parent the geometry, hand the script one buffer, and index the subset in user code. No formula engine, no reverse OOXML rewrite, no type contract with Microsoft’s bridge. That is not our world.
-
-**Why Calc makes it a different story.**
-
-1. **Value shape, not just bytes.** Microsoft’s docs/UI treat `xl("A3")` as a **scalar** and a multi-cell `xl("A1:A10")` as a frame/range. WriterAgent injects **`CalcRange`** for every binding ([`calc_range.py`](../../plugin/scripting/calc_range.py)): `__getitem__` is **row** access, so `data[2]` on a column range is a row list, not “the scalar that used to be `A3`.” Folding is not an `index_map` remap the way exact duplicates are; it needs a geometry rewrite that preserves the object shape each call site expects (scalar / 1×1 / row slice / 2D block), including `headers=True` → `.to_pandas()` vs bare `CalcRange`.
-
-2. **`data[i]` already means binding index on the reverse path.** [`rewrite_dag_code_to_excel`](../../plugin/calc/excel_py_convert/to_excel.py) maps `data` / `data[i]` / `ranges[i]` back to `xl(%Pn%)` where `i` is the **nth formula dep**, not a sheet row offset. If import rewrote the `A3` site to `data[2]` meaning “row 2 of the parent,” export would invent a third `%Pn%` (or mis-bind), not restore `A3`. Subset fold needs a distinct IR (named view helper) or “export restores original script + original deps from meta and never reverse-rewrites slices.” Either is real design work, not a one-liner in `_normalize_bindings`.
-
-3. **Round-trip fidelity fights collapsed arity.** `excel_deps` is parallel to collapsed `data_args`. Dropping `A3` from Calc args also drops what export can put on `_xlws.PY` unless meta grows a separate full original-dep list (Calc uses parent-only; Excel export uses the pre-collapse list). Exact `B1`,`B1` dedup already shrinks arity in a boring way; subset fold would shrink it in a visible, geometry-dependent way. “Perfect” Excel package restore and “smarter Calc wire” pull opposite directions unless that split meta exists.
-
-4. **Unsafe cases beyond pure inclusion.** Different header modes on parent vs child; Table/`ANCHORARRAY` parent with a plain A1 child that only sits inside the snapshot; cross-sheet addresses; overlaps that are not subsets (`A1:A5` ∪ `A3:A10`). Only same-sheet, axis-aligned, inclusive subsets with compatible headers are even candidates — and those still hit (1)–(3).
-
-5. **Payoff is usually small.** `A3` inside `A1:A10` saves almost nothing on the wire. The interesting win is large pure subsets (`A1:A5000` inside `A1:A10000`). Samples and common one-range cells do not justify the rewrite/export tax. Online’s jail-safe path already extracts each declared precedent once into the JSON request; duplicate small cells are cheap compared to an incorrect reverse rewrite.
-
-**If someone revives this later**, the least-wrong sketch is: detect pure geometric subsets only; refuse header / Table-token conflicts; keep **full original deps** for `_xlws.PY` export; emit a DAG view helper that reverse will never confuse with binding indices (or skip reverse and restore original bridge text from meta); test scalar cell, column slice, 2D cell-in-block, conflict refuse, and Excel→DAG→Excel arity/token fidelity. Until measured large-subset pain appears, **leave subsets as separate precedents**.
+Why `A3` inside `A1:A10` stays a separate precedent instead of being folded into the larger range is a research note of its own: [excel-xl-subset-fold.md](excel-xl-subset-fold.md). Short version: exact duplicate bindings are already collapsed; geometric subsets are not worth the value-shape and round-trip cost.
 
 ```mermaid
 flowchart LR
@@ -163,15 +138,15 @@ Same contract as [`compute_service/README.md`](../../compute_service/README.md#h
 ### Python compute service
 
 - Live tree: [`compute_service/`](../../compute_service/) (`server.py`, `wsgi_server.py`, `config.py`, `formula_worker.py`, [`json_forward.py`](../../compute_service/json_forward.py), [`json_egress.py`](../../compute_service/json_egress.py)); tests under `tests/compute_service/`.
-- Listen with **stdlib** `http.server` / `ThreadingHTTPServer` (no FastAPI).
-- `GET /health` → `{"status":"healthy","service":"python-compute","version":"1.0.0"}` (unauthenticated for orchestrator liveness/readiness probes).
+- Listen with **`WSGIDualStackServer`** ([`compute_service/wsgi_server.py`](../../compute_service/wsgi_server.py)) on **`DualStackThreadPoolHTTPServer`** ([`plugin/framework/http_server.py`](../../plugin/framework/http_server.py)).
+- `GET /health` → `{"status":"healthy","service":"python-compute","version":"<EXTENSION_VERSION>"}` where `version` is [`EXTENSION_VERSION`](../../plugin/version.py) (same as the WriterAgent OXT; unauthenticated for orchestrator liveness/readiness probes).
 - `POST /v1/execute[?session_id=...]` accepts **both** ingresses (`Content-Type` dispatch). Peel of `{ "id?", "code", "data", "timeout_ms?", "mode?", "init_script?" }` is today’s kit contract and will be retired after kit moves to `multipart/form-data` (`meta` + raw `code` + optional `init_script` + optional raw `data`). Response `{ "id?", "status", "result"|"error", "stdout?", "images?" }` — worker-dumped, host-forwarded. Details: [`compute_service/README.md`](../../compute_service/README.md#http-ingress-peel-vs-multipart).
 - `POST /v1/session/reset?session_id=...` — same Bearer auth as execute. `session_id` is **URL query only** (L7 sticky; reject if only in the JSON body). Optional body `{ "id?" }` is a correlation echo. Response `200` `{ "id?", "status": "ok" }` is **idempotent** (unknown / already-gone still `ok`). Reuses pool `reset_session` / LibrePy `reset_sandbox_session`. The supervisor drops its session map only when that worker reset returns `status: ok`; a failed reset is logged and the map stays, because the process may still hold the namespace. Intended caller: coolwsd on DocumentBroker destroy / last view leave. This lands ahead of Online shared; Online still hard-codes `isolated` and does not call reset yet. Idle TTL remains the safety net if reset is missed.
 - **Dumb JSON egress only** toward kit/coolwsd: the worker dumps kit-safe JSON once (`allow_nan=False`, NaN/Inf → `null`); the HTTP host forwards those bytes. Plots go in top-level `images[]` (`format` + `data_b64`), not desktop Pickle envelopes.
 - `mode`: `isolated` (default); `shared` requires a `session_id` URL query parameter (`?session_id=...`) to support router affinity and serializes executes per session with a lock.
 - **Ops sidecar conventions**: Traps `SIGTERM`/`SIGINT` for clean socket draining; structured logging with request durations (`PYTHON_COMPUTE_LOG_LEVEL`); request `id` correlation echo.
 - Reuse desktop sandbox: [`venv_sandbox`](../../plugin/scripting/venv/venv_sandbox.py), import blocklist (`policy_blocked_imports`/`DANGEROUS_MODULES`), curated Docker image (pinned numpy/pandas/**Pillow**/…).
-- Prefer an **in-process executor in the service** first (fewer hops). Add Pickle5 warm workers later only if the service host needs ABI isolation.
+- **`POST /v1/execute`** runs user code in a **bounded pool of formula worker subprocesses** ([`formula_pool.py`](../../compute_service/formula_pool.py); optional dedicated OCR workers when `ocr_workers > 0`). The HTTP listener stays in-process; crashes and timeouts are isolated in child processes.
 
 ### C++ hooks (deliberately dumb)
 
@@ -300,56 +275,21 @@ AddIn `timeout_ms` emission is **deferred** (wsd defaults 60s; service clamps; p
 
 ### Ordered slices
 
-| # | Slice | Primary tree | Why |
-|---|-------|--------------|-----|
-| F1 | UnitWSD wire CI — **done** | `collabofficefull/test/` | Proves kit↔wsd↔HTTP without waiting on Core rebuilds in CI |
-| F2 | Scalar NumPy smoke | writeragent + local coolwsd | Human/demo proof NumPy never enters the kit |
-| F3 | `images[]` sheet insert | Core AddIn + Drawing Layer ([Plan](../calc/collabora-engine-plot-plan.md)) | Single & multiple plot egress; replaces stub string with native sheet shapes |
-| F4 | Compute container hardening | `compute_service/Dockerfile` + run scripts | Makes the OS boundary real for Collabora admins |
-| F5 | Shared workbook kernel | AddIn + kit + service (already half-ready) | LibrePy `mode=shared` parity; tenant-safe session ids |
-| F6 | Visible short Python errors | Core `jsonResultToAny` / bridge | Authors can see exception message in-cell (not opaque `#VALUE!`) |
-| F7 | Single-cell auto-spill | Core AddIn (+ maybe Calc) | List/2D from single-cell `=PY` fills neighbors; today top-left only |
+| # | Slice | Status | Where |
+|---|-------|--------|-------|
+| F1 | UnitWSD wire CI | **done** | `test/UnitPythonCompute.cpp` |
+| F2 | Scalar NumPy smoke | manual procedure below | writeragent + local coolwsd |
+| F3 | `images[]` sheet insert | **implemented on `feature/python-compute-plot-images`**, not yet on Gerrit | Core AddIn + `sc` draw layer; design in the [plot plan](../calc/collabora-engine-plot-plan.md) |
+| F4 | Compute container hardening | done except ops (cgroup, private network) | `compute_service/Dockerfile` + run scripts |
+| F5 | Shared workbook kernel | service side done; coolwsd caller not shipped | AddIn + kit + service |
+| F6 | Visible short Python errors | design agreed, not coded | Core `jsonResultToAny` / bridge |
+| F7 | Single-cell auto-spill | **implemented on `feature/python-compute-engine-spill`**, not yet on Gerrit | Core `sc`; design in the [spill plan](../calc/collabora-engine-spill-plan.md) |
 
 ---
 
-### F1 — UnitWSD wire test (`pythonexecute` → POST → `pythoncomputeresult:`)
+### F1 — UnitWSD wire test — **done**
 
-**Status: implemented and passing in the current uncommitted tree (2026-07-23).** `test/UnitPythonCompute.cpp` is registered in
-`test/Makefile.am`, builds as `unit-python-compute.la`, and passes locally.
-
-**Goal:** CI-enforce the security claim that coolwsd is the only network hop, independent of LibreOffice AddIn mapping.
-
-**Implemented (Online tree):**
-
-- New: `test/UnitPythonCompute.cpp`, based on `WopiTestServer`, with enabled and disabled `UnitWSD` cases.
-- Edited: `test/Makefile.am` — plugin source, library, and `all_la_unit_tests` registration.
-- Reuse: `kit/ChildSession::requestPythonCompute` (`pythonexecute <json>`), `wsd/ClientSession::handlePythonComputeFromKit`, config knobs in `common/ConfigUtil.cpp` / `coolwsd.xml.in`.
-
-The unit reuses the UnitWSD/WOPI listener as the local `/v1/execute` stub (no writeragent
-or external service in CI). Once WSD has assigned its final port, `invokeWSDTest()` points
-`security.python_compute.url` at that loopback endpoint. The handler asserts the POST method,
-`id`, and `code`, records the POST, and replies:
-
-```json
-{"id":"wire-1","status":"ok","result":42}
-```
-
-The enabled case loads `empty.ods`, sends
-`pythonexecute {"id":"wire-1","code":"result=1"}`, receives
-`pythoncomputeresult:`, and asserts the id/status/result plus exactly one POST. The disabled
-case drives the same kit path, asserts structured error `"Python compute is disabled"`, and
-asserts zero POSTs. The debug-only browser command deliberately forwards even when disabled
-so the broker's normal structured disabled response is covered end-to-end.
-
-**Fallback path note:** `ChildSession::handlePythonComputeResult` echoes to the browser when `pythoncompute_complete_json` is not mapped (`dlsym` miss). That is **desirable** for F1: the unit proves broker HTTP without requiring `libpythoncomputelo.so` in the unit harness. Add a follow-up assert later once the test kit image links the AddIn (then `completeFromJson` returns 1 and the echo may stop).
-
-**Out of scope for F1:** real NumPy, formula evaluation, `KIT_HOST_ALLOWLIST` matrix (cover with a third case only if allowlist is always-on in your install).
-
-**Verified locally:**
-
-- `test/run_unit.sh --test-name unit-python-compute.la` — pass (enabled + disabled).
-- `make -C engine CppunitTest_scaddins_pythoncompute` — pass.
-- `make coolwsd coolforkit-ns coolforkit-caps` — pass.
+`test/UnitPythonCompute.cpp` (registered in `test/Makefile.am` as `unit-python-compute.la`) reuses the UnitWSD/WOPI listener as the local `/v1/execute` stub, so CI proves kit → wsd → HTTP → `pythoncomputeresult:` without writeragent or a real service. It covers enabled and disabled routing, the zero-POST disabled invariant, request and response caps, FIFO behind 8 in flight, close mid-flight, a result after its view closed, a silent service, 500, non-JSON, a refused connection, and the `PlotImages` cell-text scenario. It asserts cell text only; it cannot see draw objects. Run it with `scripts/run-wsdunit unit-python-compute`.
 
 ---
 
@@ -389,38 +329,13 @@ then watch `pythoncomputeresult:` (echo or volatile-complete).
 
 ### F3 — Online `images[]` / plot insert
 
-- **Design note:** [`docs/calc/collabora-engine-plot-plan.md`](../calc/collabora-engine-plot-plan.md).
+**Status: implemented on `feature/python-compute-plot-images` (base 8123 PS29, `7b5ad8d25d28`); not yet on Gerrit.** The earlier sketch here (decode in the kit, `.uno:InsertGraphic`, PNG only, an 8 MiB cap) was wrong and is gone: the kit path inserts at a view cursor, `=PY()` is async and multi-view, and the brief forbids new caps.
 
-**Today:**
+What landed, in one paragraph. The AddIn passes `images[]` bytes through untouched on a new `XPythonComputePlotResult` interface of the volatile; the cell value is still the scalar or matrix result, or the string `Image inserted` / `Images inserted` when `result` is null. The interpreter records the plots it sees and the formula cell queues a sync when its interpret finishes; syncs flush with the pending matrix resizes after the outermost interpret, never inside the formula engine. A plot is an `SdrGrafObj` anchored to the formula cell with the new `ScDrawObjData::Type::PythonPlot`; its owner is the start of its non-rotated anchor, the reserved name `PythonComputePlot[_N]` carries only the slot. A recalc replaces pictures in place and keeps the user's geometry; a cell that stops being a `=PY()` (or whose interpret no longer reaches `PY()`) loses them; a transient error keeps the last plot, a deterministic one removes it; an undecodable image keeps its slot as an empty-graphic placeholder. Row and column delete, sheet operations, cut, paste, merge and formula-to-value take the plot along and undo in one step. A plot the user groups, renames, re-anchors or copies becomes an ordinary picture. The type is runtime-only; ODS import re-derives it from the name and the start cell, XLSX does not.
 
-- Service [`json_egress.py`](../../compute_service/json_egress.py) promotes viz payloads to top-level `images: [{format, data_b64}]` and may null out `result`.
-- Core [`pythoncompute_anyjson.cxx`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx) detects `"images"` + null result and finishes the volatile with the placeholder string `"Image generated (plot insert not supported yet)"`.
-- Classic LibrePy inserts via [`plugin/scripting/viz.py`](../../plugin/scripting/viz.py) / [`insert_image_result_on_sheet`](../../plugin/calc/python/image_egress.py) on the UNO main thread — **not** available as-is inside coolkit jail policies.
+Design and decisions: [collabora-engine-plot-plan.md](../calc/collabora-engine-plot-plan.md). The accepted limitations and the lifecycle matrix travel with the branch and go into the commit message at landing. Tests: `sc_ucalc`, `sc_anchor_test`, `sc_tiledrendering`, `scaddins_pythoncompute`, `unit-python-compute` (`PlotImages`).
 
-**Design for Online (stay dumb in C++):**
-
-Prefer **kit-side binary insert via existing LOK document APIs**, not reimplementing LibrePy's PyUNO insert stack.
-
-1. **Wire extension (minimal JSON unchanged):** keep `images[]` as-is from the service. Do not base64-decode in coolwsd.
-2. **After `pythoncompute_complete_json`:** when the body has non-empty `images[]`:
-   - Decode PNG (v1: only `format=="png"`; reject others with cell error string).
-   - Cap size (e.g. 8 MiB decoded) before alloc.
-   - Insert graphic near the formula cell:
-     - Prefer existing Online/kit paths used for pasted images / `.uno:InsertGraphic` equivalents already exercised by CopyPaste tests.
-     - Anchor: formula cell address if available from LOKit; else active cell.
-3. **Volatile result text:** if `result` is non-null, finish volatile with the numeric/string result **and** insert plots as side effect. If `result` is null/images-only, finish volatile with `""` or a short success marker — **not** leave `#BUSY!`.
-4. **Where the decode lives:**
-   - **Preferred:** kit (`ChildSession::handlePythonComputeResult`) after attempting `completeFromJson`, because LOKit document mutation APIs live there. Pass a side channel: either extend the AddIn ABI with `pythoncompute_take_pending_images` (ugly) **or** parse `images[]` in kit independently of the AddIn (duplicate JSON field walk — accept it; C++ tip stays free of NumPy).
-   - **Avoid:** decoding megabyte base64 in coolwsd then shoving binary through kit protocol without size limits.
-5. **Multi-image:** insert stacked / offset like Classic's multi-figure merge; v1 can take `images[0]` only and log a warning for the rest.
-6. **Tests:**
-   - Service already has compute_service image tests.
-   - Add AddIn/CppUnit for "images + null result → empty/`""` not placeholder" once insert is wired (insert itself may stay UnitWSD / manual: graphic presence is painful in LOKit unit stubs).
-   - UnitWSD: stub returns tiny 1×1 PNG base64; assert no hang + cell not `#BUSY!`; optional tile hash change if the unit infrastructure already supports it.
-
-**Security:** treat `data_b64` as untrusted input from the **admin** compute service (same trust as LLM image returns). Still enforce size/format; do not execute anything in the image stream.
-
-**Done when:** `=PY("import matplotlib.pyplot as plt; …; result = None")` with service returning `images[]` drops a PNG on the sheet in Online.
+Lesson recorded in the [house rules](collabora-engine-house-rules.md): this feature took eleven single review rounds and four parallel rounds because identity was first keyed on a shape name plus the main anchor, both of which Calc rewrites on ordinary paths, and because the lifecycle matrix was discovered one cell per round instead of written in the plan.
 
 ---
 
@@ -433,7 +348,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 **Implemented:**
 
 1. **Configurable / Safe Binding**: `server.py` defaults to binding to `127.0.0.1` (loopback only) instead of wildcard, preventing external exposure by default. It supports configuring the host via the `PYTHON_COMPUTE_HOST` environment variable.
-2. **Dual-Stack & IPv6**: Server binds using a dual-stack configuration (`DualStackThreadingHTTPServer`), allowing concurrent IPv4 and IPv6 connections on supported systems with graceful fallback.
+2. **Dual-Stack & IPv6**: `WSGIDualStackServer` binds using a dual-stack configuration (`DualStackThreadPoolHTTPServer`), allowing concurrent IPv4 and IPv6 connections on supported systems with graceful fallback.
 3. **Multi-stage Dockerfile**: The [`compute_service/Dockerfile`](../../compute_service/Dockerfile) installs the pinned stack with `pip --only-binary=:all:` into `/app/pkgs`. Neither stage installs a compiler. A source build would link against libraries the runner never copies. The runner image has no compiler, which keeps that attack surface out of the runtime container.
 4. **Startup Dependency Check**: The server runs a pre-check to ensure required libraries like `sympy` are importable, failing fast at startup if dependencies are missing.
 5. **Runtime flags (recommended for ops):**
@@ -461,8 +376,8 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 **Today:**
 
 - Service [`execute_code`](../../compute_service/formula_worker.py) already honors `mode=="shared"` + non-empty `session_id`, with a per-id `threading.Lock`.
-- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`idle_worker_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated.
-- Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`. That emit is the **peel / single-JSON** ingress (today’s contract). Compute already accepts `multipart/form-data` too (`meta` + raw `code` + optional `init_script` + optional `data`); when kit switches to multipart, peel retires. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
+- Service `POST /v1/session/reset?session_id=...` reuses [`FormulaProcessPool.reset_session`](../../compute_service/formula_pool.py) → worker `action: reset_session` → LibrePy [`reset_sandbox_session`](../../plugin/scripting/venv/venv_sandbox.py). Query-only `session_id`; idempotent `ok`; the session map is dropped only when the worker reports `status: ok` (a failed reset keeps the map). Idle TTL (`idle_worker_ttl_sec`) stays the safety net. This is **service-side only** — the coolwsd caller is not shipped. Online still hard-codes isolated. A second shared execute or reset waits at most its own clock on the pool session gate (execute: remaining deadline; reset: `timeout_sec`) and returns `WORKER_POOL_BUSY` on a miss; the in-flight cell keeps the gate entry.
+- Online AddIn [`buildExecuteRequestJson`](file:///home/keithcu/Desktop/collabofficefull/engine/scaddins/source/pythoncompute/anyjson.cxx) **hard-codes** `"mode": "isolated"` (via `tools::JsonWriter`) and never sends `session_id` / `init_script`. That emit is the **peel / single-JSON** ingress (today’s contract). Compute already accepts `multipart/form-data` too (`meta` + raw `code` + optional `init_script` + optional `data`); when kit switches to multipart, peel retires. See [HTTP ingress: peel vs multipart](#http-ingress-peel-vs-multipart).
 - LibrePy derives workbook ids via [`session_manager.calc_workbook_base_session_id`](../../plugin/scripting/session_manager.py) and seeds init scripts from document properties.
 
 **Online design constraints:**
@@ -506,7 +421,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 4. **Parse / missing result / empty error** → keep `#VALUE!` (`NoValue`).
 5. Log full detail at `SAL_WARN` (`complete_json: detail=[…]`).
 
-**Files:** `engine/scaddins/source/pythoncompute/pythoncompute_anyjson.cxx` (`jsonResultToAny`), `pythoncompute_bridge.cxx` (log level), README + CppUnit in `engine/scaddins/qa/pythoncompute.cxx`.
+**Files:** `engine/scaddins/source/pythoncompute/anyjson.cxx` (`jsonResultToAny`), `bridge.cxx` (log level), README + CppUnit in `engine/scaddins/qa/pythoncompute.cxx`.
 
 **Out of scope for F6:** new `FormulaError` enum values, custom Online `errorDescription` protocol, full stack traces in cells.
 
@@ -516,18 +431,7 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 
 ### F7 — Single-cell auto-spill
 
-**Goal:** Single-cell `=PY(...)` returning a list / 2D array fills the neighboring cells of the matrix the AddIn already built, with `#SPILL!` when that rectangle is blocked.
-
-**Today:** list→`ScMatrix` works, but non-matrix formulas keep **top-left only** (`formulacell.cxx` ~2577–2582). Matrix formula (Ctrl+Shift+Enter) over a range still works for full grids. A flat JSON list is a **1×N row**, so `[1, 2, 3]` is three columns. Classic `_result_as_spill_grid` spills that same list down a column; F7 does not change the row.
-
-**Architecture:**
-- **Rejected:** Extension-style deferred UNO write-back into neighbors + custom spill registry (`scripting.python_auto_spill` in Classic).
-- **Accepted:** One check in `intendsArrayResultInRange` so UI-entered `PY` / `PYTHON` promotes to a 1×1 dynamic-array master before interpret. Calc’s existing spill path then runs. A later scalar or error collapses a previous spill; the interim `"#BUSY!"` string does not. `TrackFormulas` does not interpret this AddIn — pass 2 is the next `Interpret` of the dirty cell (on screen, paint).
-- **Design note:** [`docs/calc/collabora-engine-spill-plan.md`](../calc/collabora-engine-spill-plan.md).
-
-**Until then:** leave **code comments** near `elemsToAny` / README so this is not forgotten. Do not block Gerrit on F7.
-
-**Done when:** single-cell `=PY("result = [[1, 2], [3, 4]]")` spills 2×2, `[1, 2, 3]` spills A1:C1, a blocked neighbor shows `#SPILL!`, and a later scalar removes the old reference cells.
+**Status: implemented on `feature/python-compute-engine-spill` (base 8123 PS29); not yet on Gerrit.** One check in `intendsArrayResultInRange` promotes a UI-entered `PY` / `PYTHON` to a 1×1 dynamic-array master before interpret, so Calc's existing spill path runs; a later scalar or error collapses the spill, the interim `#BUSY!` string does not. The extension-style deferred UNO write-back used by Classic (`scripting.python_auto_spill`) was rejected for Core. Design: [collabora-engine-spill-plan.md](../calc/collabora-engine-spill-plan.md).
 
 ---
 
@@ -540,16 +444,14 @@ Prefer **kit-side binary insert via existing LOK document APIs**, not reimplemen
 | C++ `split_grid` / Pickle5 | Violates the dumb-JSON tip on purpose |
 | Kit-side NumPy / warm venv | Jail-incompatible by design |
 | Visible short Python errors in cell | **Deferred — design agreed, not coded.** See [cell markers](#cell-markers--diagnosis-busy-disabled-value) + [F6](#f6--visible-short-python-errors). Today: detail log-only; cell `#VALUE!` / `#N/A` / `#DISABLED` |
-| Single-cell auto-spill | **Deferred — documented only.** See [matrix / spill](#matrix-list-results--auto-spill-not-yet) + [F7](#f7--single-cell-auto-spill). Today: top-left only |
+| Single-cell auto-spill | On the spill branch, not on Gerrit. See [F7](#f7--single-cell-auto-spill). On 8123 itself: top-left only |
 | Per-document cache keying | Process-wide weak-ref identity map (soft cap 256, never evicts live entries); cleared on kit teardown — no per-`ScDocument` map (AddIn has no doc pointer; Core shares one volatile across docs) |
 
 ---
 
 ## Still open before Gerrit
 
-Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (out-of-kit compute, thin C++ tip, default-off flag, host allowlist) is the right shape. Correctness / multi-view / MOBILEAPP / typed JSON / `pythonexecute` issues from that review are **done in tree** and no longer expanded here.
-
-**Still expect review friction** until the items below are addressed or explicitly scoped as experimental follow-ups in the PR cover letter.
+Architecture (out-of-kit compute, thin C++ tip, default-off flag, host allowlist) is the right shape and the 2026-07 correctness / multi-view / MOBILEAPP / typed JSON items are done in tree. What is left is below; scope anything not addressed as an experimental follow-up in the cover letter.
 
 ### Open checklist
 
@@ -561,8 +463,10 @@ Pre-submit review (2026-07) against commits that land Steps B/C. Architecture (o
 | G6c | LRU breaks AddIn.idl identity; sticky errors | Done — weak-ref identity map never evicts live entries; sticky retry = change params (documented) |
 | G8 | UnitWSD / formula-level CI | UnitWSD done; full formula-level Online CI remains optional follow-up |
 | G9 | Series / hygiene | Hygiene done; series preparation remains intentionally pending |
-| G10 | Opaque `#VALUE!` hides Python message | Open / deferred — design in [F6](#f6--visible-short-python-errors); not coded |
-| G11 | No single-cell auto-spill | Open / deferred — documented in [F7](#f7--single-cell-auto-spill); top-left only today |
+| G10 | Opaque `#VALUE!` hides Python message | Open / deferred — design agreed in [F6](#f6--visible-short-python-errors); not coded |
+| G11 | No single-cell auto-spill | Implemented on the spill branch ([F7](#f7--single-cell-auto-spill)); 8123 itself is top-left only |
+
+Remaining nits from the same reviews: the display name `PY` vs Excel semantics needs an IDL / release-note sentence; AddIn help strings are en-US only (no `.hrc`); `SAL_DLLPUBLIC_EXPORT` on `anyjson` test helpers should become C-ABI-only exports eventually.
 
 ### Any↔JSON (dumb JSON note)
 
@@ -592,21 +496,13 @@ One admin setting, `security.python_compute.max_payload_bytes` (default 16 MiB),
 
 **Policy:** no extra knobs. The 128-entry `max_queued_requests` cap was rejected: the byte budget already bounds the queue, and a count cap would only add a `busy` failure mode. Known edge (accepted, low): `asyncShutdown` flushes rather than cancels, so a POST still connecting at close may reach the service; the document is gone by then.
 
-### G5 — Compute-service isolation claims are not operational
+### G5 — Service isolation
 
-**Status: Mostly resolved for auth/bind.** Loopback-only (`127.0.0.1`) host binding by default, multi-stage Dockerfile hardening, coolwsd optional `security.python_compute.api_key` Bearer on POST, and **service-side** Bearer verification when a key is set (`compute_service/config.py` + `authenticate_request`). Empty key ⇒ no auth (dev/test). Config is standalone (`PYTHON_COMPUTE_*` / `python-compute.json`) — not `writeragent.json`.
+Auth and bind are done: loopback-only default (`127.0.0.1`), multi-stage Dockerfile, optional `security.python_compute.api_key` Bearer verified service-side when set (empty key = open, dev only). Config is standalone (`PYTHON_COMPUTE_*` / `python-compute.json`). Still ops work, not code: cgroup `--memory` / `--cpus`, private bridge network, no `docker.sock` ([F4](#f4--compute-service-container-hardening)). Do not claim the AST sandbox is the OS boundary.
 
-**Still open (ops):** cgroup `--memory`/`--cpus`, private bridge networking, no docker.sock — complete remainder of [F4](#f4--compute-service-container-hardening); do not claim AST sandbox is the OS boundary.
+### G6 — Lifecycle — **done / superseded**
 
-### G6 — Remaining lifecycle gaps
-
-#### G6a — Pending timeout is passive — **superseded**
-
-The old AddIn `vcl::Timer` and 90 s pending deadline are gone. coolwsd answers every request it accepts exactly once (result, error or its own `timeout_secs` timeout), and the kit and document go away together, so the AddIn needs no clock of its own.
-
-#### G6c — LRU breaks AddIn.idl identity; sticky errors — **done**
-
-`g_aParamCache` is now a process-wide param→volatile map of `unotools::WeakReference`s (same shape as `AccessibleSpreadsheet::m_mapCells`). A still-live entry is **never** evicted, so `getPy` returns the same `XVolatileResult` for the same params even past the soft cap — no duplicate HTTP emit. `kParamCacheSoftCap` (256) only prunes lapsed weaks; the live set may grow past it (like `ScAddInAsync`, bounded by listeners). A weak lapses once no cell holds the volatile **and** the request finished (in-flight `#BUSY!` is pinned by `g_aPending`). Kit teardown calls `pythoncompute_clear_caches` from `clearEmitter` (last session) for memory — not identity. A missing emitter is a one-shot `#N/A` and is **not** cached (`test_noEmitterThenEmitterRetries`). A pending timeout finishes `#N/A` and **erases** that param-cache key, so the next same-args recalc emits again (`test_pendingTimeoutThenRetryEmits`, plus `test_pendingTimeoutWithoutRecalc` for the no-recalc case). Finished success and service errors stay sticky; retry = change `code`/`data`. CppUnit: `test_paramCacheIdentityUnderPressure`, `test_paramCacheDropsLapsedWeak`.
+The AddIn has no timer: coolwsd answers every accepted request exactly once (result, error, or its own `timeout_secs`), and the kit and document go away together (G6a). The param cache is a process-wide map of `unotools::WeakReference`s that never evicts a live entry, so identical params return the same `XVolatileResult` without a second POST; `kParamCacheSoftCap` (256) only prunes lapsed weaks; a pending timeout erases its key so the next recalc re-emits; a missing emitter is a one-shot `#N/A` and is not cached; finished success and service errors stay sticky (G6c). CppUnit: `test_paramCacheIdentityUnderPressure`, `test_paramCacheDropsLapsedWeak`, `test_noEmitterThenEmitterRetries`, `test_pendingTimeoutThenRetryEmits`, `test_pendingTimeoutWithoutRecalc`.
 
 ### G8 — Test coverage gaps
 
@@ -623,101 +519,13 @@ the zero-POST disabled invariant. Remaining coverage gaps:
 
 [F1](#f1--unitwsd-wire-test-pythonexecute--post--pythoncomputeresult) is implemented and registered with the Online unit suite.
 
-### G9 — Commit series, naming, and hygiene
+### G9 — Series, naming, and hygiene
 
-#### Do not regress (Meeks 2026-08)
+The review notes from Meeks (2026-08) and Tomaž (2026-09, 2026-10), the Cursor `Co-authored-by` commit recipe, and the series shape now live in [collabora-engine-house-rules.md](collabora-engine-house-rules.md) (sections 3 and 9). Hygiene is done in tree; the series split (generic Calc fixes, Core AddIn, Online kit/wsd, feature branches) is prepared when Keith asks for it.
 
-From [forum #15](https://forum.collaboraonline.com/t/py-numpy-inside-collabora/4844/15) / [Gerrit 8122](https://gerrit.collaboraoffice.com/c/online/+/8122). **1+ε** means “basically one thread + a little extra concurrency through SolarMutex,” not “one lock plus epsilon other locks.”
+### Reviewer-facing cleanup
 
-| Rule | Do not | Do |
-|------|--------|----|
-| **SolarMutex 1+ε** | Re-add `std::mutex` on pending / param cache / volatile | Shared AddIn state is Solar-only. Kit Unipoll may arrive with Solar released; `complete_json` / `finish()` re-acquire. Keep snapshot-then-finish. |
-| **Filenames** | `pythoncompute_` prefix on sources | `addin` / `anyjson` / `bridge` / `volatile` under `pythoncompute/`. C ABI symbols (`pythoncompute_set_emitter`, …) keep the prefix. |
-| **Configure vs runtime** | Drop `--disable-python-compute`, or default the runtime flag on | AddIn on by default; omit with `--disable-python-compute`. `security.python_compute.enable` stays default **false**. Run CppUnit + `unit-python-compute` with the AddIn enabled. |
-| **UNO ↔ JSON** | Merge `anyjson` into jsuno, or pull Poco into the AddIn | Typed jsuno (`appendUnoAsJson` / `parseJsonToAny`, optional QuickJS) is a different contract from untyped compute-wire JSON. `tools::JsonWriter` is the shared encoder. Later share, if any: string escape/parse (maybe a tiny scalar/array helper) in `tools`/`comphelper`; Calc matrix / envelope / errors stay in the AddIn. Pieces found so far; Core is large, we may have missed others. |
-| **Scope** | Excel Table / live ANCHORARRAY / co-volatility / torture-sheet engines in the AddIn | Piece-wise C++ tip only. Torture samples stay WriterAgent (`PythonExcelSamples/` + roundtrip script) until Collabora asks for gold. |
-
-#### Before the next patch
-
-From Tomaž’s reviews on [Gerrit 8122](https://gerrit.collaboraoffice.com/c/online/+/8122) and [8123](https://gerrit.collaboraoffice.com/c/online/+/8123) (2026-09 license/namespace and PS8; 2026-10 feature guard and lock order). Apply these on the next change so the same notes do not come back.
-
-**Match the tree you are landing on**
-
-- New files use `engine/TEMPLATE.SOURCECODE.HEADER` (MPL-only, `fill-column: 100`). Do not copy the Apache dual-license block. Do not rewrite headers on files that already existed.
-- C++ namespace stays short (`co::pythoncompute`). UNO identity stays `org.collaboraoffice.sheet.addin.*`. UNO types are `cpo::uno`, not `com::sun::star`.
-- Use the house helper that already exists: `o3tl::trim`, `tools::JsonWriter::finishAndGetAsStdString()`, `gb_Helper_optional`. Do not add a local trim or the less-used JsonWriter getter.
-
-**An optional feature has to vanish completely**
-
-- `--disable-python-compute` must omit the library, the CppUnit, **and** the IDL. `InternalUnoApi_scaddins.mk` `add_idlfiles` for `org/collaboraoffice/sheet/addin` is wrapped in `gb_Helper_optional,PYTHON_COMPUTE`, same as the library. A wizard name with no implementation is what the IDL comment caught.
-- A makefile `ENABLE_*` flag is not a C macro. Tests that name the feature (`ucalc` `testFunctionLists` expecting `PY` / `PYTHON`) need `HAVE_FEATURE_PYTHON_COMPUTE`: `AC_DEFINE` when enabled, default `0` in `engine/config_host/config_features.h.in`, and `#if` around the expectation. The `#else` branch is the old `{ "Add-in", nullptr }`. Compile that branch (stub header or a disabled configure) before upload; CI builds with the feature off.
-
-**Caches and branches that cannot fire**
-
-- Do not cache a failure that the next recalc should retry. See [G6c](#g6c--lru-breaks-addinidl-identity-sticky-errors--done): no emitter is one-shot `#N/A` with no `paramCachePut` (kit installs the emitter later via `dlsym`); a pending timeout erases that param-cache key. In-flight identity stays. Finished success and service errors stay sticky.
-- Do not look up an id you just minted with a monotonic counter. If `g_aPending.find` cannot hit, delete the branch.
-
-**ABI and lock order**
-
-- `extern "C"` entry points that reach `finish()` (`pythoncompute_complete`) must not throw into kit. UNO exceptions do not inherit `std::exception`, so `catch (...)` at that edge. Do not wrap trivial setters.
-- Lock order is trivial now: there is no kit mutex. The AddIn's wakeup only does `addCallback`; `take_requests` runs without Solar (`assert`); `complete` takes Solar itself.
-
-**Build files: take upstream’s new shape**
-
-- Forkit objects for fuzzers come from `gbuild/StaticLibrary_forkit.mk` (`libforkit.a`). A new kit `.cpp` such as `PythonComputeEmitter` goes in `add_generated_exception_objects` there. Do not put `coolforkit_sources` back into `fuzzer/Makefile.am`; main removed that list.
-- Online unit tests link `libtesthelpers.la $(CPPUNIT_LIBS)` (`test/Makefile.am`). On a rebase conflict, keep that and add the new test line. Do not restore the pre-`libtesthelpers` `LIBADD`.
-- After a rebase, the series should merge clean against current `main`. Confirm the Gerrit change is mergeable before calling the rebase done.
-
-**What not to upload**
-
-`git commit-tree` has no `--author` flag; set `GIT_AUTHOR_*` and `GIT_COMMITTER_*` as in the recipe below. Do not commit untracked local files (`coolkitconfig.xcu`, helper scripts). Diff the patch-set file list against the previous one before `git push cogerrit HEAD:refs/for/main`.
-
-#### Cursor `Co-authored-by` on Gerrit commits
-
-Cursor’s git wrapper appends `Co-authored-by: Cursor <cursoragent@cursor.com>` to **`git commit` and `git commit --amend`**, even with a HEREDOC that only has `Signed-off-by` + `Change-Id`. The Collabora `.git-hooks/commit-msg` / `prepare-commit-msg` hooks are **not** the source. Several AIs worked on this series; do not upload that trailer.
-
-**Do not use `git commit` from Cursor.** Create the commit with `git write-tree` + `git commit-tree` (Cursor does not inject a trailer there), verify, then push. Same recipe for a new patchset of an existing Change-Id: put the intended message (including the old `Change-Id`) in `$MSG_FILE` and use `-p HEAD` for a new commit or `-p HEAD^` to replace HEAD.
-
-```bash
-# index already has what you want (git add / git add -u)
-MSG_FILE=$(mktemp)
-# paste the intended commit message into $MSG_FILE — Signed-off-by + Change-Id, no Co-authored-by
-export GIT_AUTHOR_NAME='Keith Curtis' GIT_AUTHOR_EMAIL='keithcu@gmail.com'
-export GIT_AUTHOR_DATE="$(date -R)"          # or keep: git log -1 --format=%aD  when replacing HEAD
-export GIT_COMMITTER_NAME='Keith Curtis' GIT_COMMITTER_EMAIL='keithcu@gmail.com'
-TREE=$(git write-tree)
-PARENT=$(git rev-parse HEAD)                 # new commit on top of HEAD
-# PARENT=$(git rev-parse HEAD^)              # instead: replace HEAD (Gerrit amend / new patchset)
-NEW=$(git commit-tree "$TREE" -p "$PARENT" -F "$MSG_FILE")
-git reset --soft "$NEW"
-rm -f "$MSG_FILE"
-git log -1 --format='%B' | grep -iE 'Co-authored-by|Cursor' || echo clean
-git push cogerrit HEAD:refs/for/main
-```
-
-`git cherry-pick` of an already-clean commit kept the original message (no trailer). If you already ran `git commit` / `--amend` and the trailer is on HEAD, the `-p HEAD^` variant above rewrites that commit without going through `git commit` again. Re-check `git log` before every Gerrit push.
-
-- Prepare **Core AddIn** vs **Online kit/wsd** review boundaries when requested; no split or commits have been made during the current cleanup.
-- Explicit PR/IDL note on display name `PY` vs Excel semantics.
-- en-US-only strings / `SAL_DLLPUBLIC_EXPORT` test helpers remain nits. The IDL volatile-runtime comment is corrected.
-- Cover letter: #16010, experimental + default off, non-goals (plots, shared kernel, Monaco), residual risk = G4/G5 plus the remaining formula/allowlist/lifecycle gaps under G8.
-
-Suggested series:
-
-```text
-1) Core: Calc =PY() scaddins pythoncompute AddIn + CppunitTest
-2) Online: kit emitter + coolwsd broker + config (+ UnitWSD when ready)
-```
-
-### Reviewer-facing cleanup (not blockers alone)
-
-| Item | Recommendation |
-|------|----------------|
-| `EmitFn` ABI type | Done — Core C ABI and kit use fixed-width `int32_t` / `std::int32_t` |
-| Duplicated anyjson writers | Done — emit TypeClass ladders factored through `writeAnyValue` (same wire) |
-| IWYU filter | Update `IwyuFilter_scaddins.yaml` if CI enables it |
-| en-US-only help | Accept for v0.1 with PR note; follow with `.hrc` |
-| Engine subtree README | Updated for the hand parser, matrix behavior, and actual dependencies |
+Done: fixed-width `int32_t` C ABI, `writeAnyValue` factoring of the JSON writers, corrected IDL volatile comment, engine subtree README. Open: `IwyuFilter_scaddins.yaml` if CI enables IWYU; en-US help accepted for v0.1 with a PR note.
 
 ### What already looks good (keep)
 
@@ -739,6 +547,8 @@ LibrePy **does not** register Collabora's UNO service (that would add a second F
 
 ## Bug classes fixed (and how we prevent them)
 
+History of what went wrong in the patch-set series and how each class was closed. The rule column is restated without history in [house rules section 2](collabora-engine-house-rules.md#2-invariants).
+
 From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-compute`), Tomaž's reviews, Chief's audits (2026-10-24, 2026-10-26) and the DeepSeek review of the rebased series. Grouped by class.
 
 | Class | What went wrong | Fix | What keeps it out |
@@ -757,26 +567,6 @@ From the patch-set history (`jsplan-backup-r9`…`r13` → `gerrit/python-comput
 | **Build guards** | IDL and `testFunctionLists` expectations were not guarded, so `--disable-python-compute` left a wizard name with no implementation (R1-5). | `gb_Helper_optional,PYTHON_COMPUTE` around library, CppUnit and IDL; `HAVE_FEATURE_PYTHON_COMPUTE` in ucalc. | Build with the feature off before upload. |
 | **Rebase drift** | Rebasing onto `5ce8dbc6d60b` met upstream changes: `SAL_CALL` removed tree-wide, scfilt merged into sc, `kit_sources` removed from `test/Makefile.am`, loplugin:ostr. | `SAL_CALL` dropped in addin/volatile; scfilt neighbours kept; kit sources only from `coolforkit_sources`; ostr/`RepeatedUChar` in qa. | `git range-diff` against the previous patch set after every rebase; confirm logic is byte-identical apart from context. |
 
-## Open before PR
-
-Code / product gaps still relevant for a Collabora-facing PR (overlaps the open checklist above).
-
-| Item | Where | Notes |
-|------|--------|--------|
-| **Request size / in-flight caps** | `wsd/DocumentBroker.cpp`, `bridge.cxx` | G4 — **done** |
-| **Pending timeout is passive** | `bridge.cxx` | G6a — superseded (no AddIn timer; wsd answers once) |
-| **LRU / sticky errors** | param cache in bridge | G6c — **done** (weak-ref identity map) |
-| **Display name `PY`** | IDL / release notes | G9 |
-| **UnitWSD wire CI** | `test/UnitPythonCompute.cpp` | **Done** — enabled/disabled, POST/result, and zero-POST invariant |
-| **Service auth + private bind** | coolwsd ↔ compute | G5 — Bearer verify when key set; empty = open (dev); cgroup/network isolation still ops ([F4](#f4--compute-service-container-hardening)) |
-| **Visible short Python errors** | `jsonResultToAny` | G10 / [F6](#f6--visible-short-python-errors) — design agreed, not coded |
-| **Single-cell auto-spill** | AddIn / Calc | G11 / [F7](#f7--single-cell-auto-spill) — top-left only today |
-| **en-US help only** | AddIn display strings | No `.hrc` yet |
-| **IDL vs runtime** | `XPythonComputeFunctions.idl` | **Done** — comment now describes interim volatile and `ResultEvent` |
-| **`SAL_DLLPUBLIC_EXPORT` on anyjson** | helpers | Prefer C ABI-only exports long-term |
-| **Kit/Core length ABI** | emitter vs Core | **Done** — fixed-width 32-bit C ABI |
-| **anyjson structure** | duplicated writers | Maintainability nit |
-
 ---
 
 ## Next steps (roadmap)
@@ -790,7 +580,7 @@ Code / product gaps still relevant for a Collabora-facing PR (overlaps the open 
 | 2 | **Authoring UX** | Browser Monaco / Run Script / diagnostics. Not pywebview in the jail. |
 | 3 | **Excel files** | Use the LibrePy OOXML rewriter; Online calls convert on open/save (or a thin filter hook). |
 | 4 | **OCR** | Expose LibrePy-style local OCR, plus a config settings UI. |
-| 5 | **Science** | Helper analysis tools; admin-baked domain stacks in the image. |
+| 5 | **Science** | Helper analysis tools; admin-baked domain stacks in the image. Viz, symbolic, units, and quant run in the compute image; the calc facade stays out. |
 
 ### Baby steps
 
@@ -800,8 +590,8 @@ Code / product gaps still relevant for a Collabora-facing PR (overlaps the open 
 | **0b** | Multipart POST: a JSON `meta` part plus binary parts for arrays and images, instead of one JSON blob ([HTTP ingress](#http-ingress-peel-vs-multipart)). | Keith's planned follow-up patch. Early, because spill and plots want binary parts. |
 | **0c** | Gather real latency and payload-size numbers from early users. | Before touching any limit (see [G4](#g4--resource-caps--done): no new knobs without data). |
 | **1a** | Short Python error in the cell; full traceback in a tooltip or comment. | Smallest step, most visible. |
-| **1b** | Auto-spill array results into neighbouring cells; `#SPILL!`-style error when the spill would overwrite cells. | Replaces top-left only. |
-| **1c** | Plot insert: an image result becomes an anchored image, not only the "Image generated" marker. | Uses 0b's binary parts. |
+| **1b** | Auto-spill array results into neighbouring cells; `#SPILL!`-style error when the spill would overwrite cells. | On the spill branch ([F7](#f7--single-cell-auto-spill)). |
+| **1c** | Plot insert: an image result becomes an anchored image, not only the "Image generated" marker. | On the plot-images branch ([F3](#f3--online-images--plot-insert)); images stay on the JSON response, multipart only changes the request. |
 | **1d** | Shared kernel per document, wsd-owned `session_id`. | Last: it brings back state and lifetime risk (see [Bug classes fixed](#bug-classes-fixed-and-how-we-prevent-them)). |
 
 Phases 2–5 each get a one-page plan when they come up.

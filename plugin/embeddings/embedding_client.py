@@ -13,9 +13,10 @@ import dataclasses
 from typing import Any
 
 from plugin.framework.config import get_config
-from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, EMBEDDINGS_WORKER_SESSION_PREFIX, WORKER_POOL_EMBEDDINGS
+from plugin.framework.constants import DEFAULT_EMBEDDING_MODEL, WORKER_POOL_EMBEDDINGS
 from plugin.framework.errors import ConfigError, ToolExecutionError
 from plugin.scripting.config_limits import embeddings_worker_timeout_sec
+from plugin.scripting.session_key import SessionKey, SessionKind
 from plugin.scripting.trusted_rpc import run_trusted_worker_action
 
 # --- Client ---
@@ -33,13 +34,13 @@ class EmbeddingBatch:
 
 def get_embedding_model() -> str:
     """Return configured local embedding model id (HuggingFace sentence-transformers name)."""
-    val = str(get_config("embedding_model") or "").strip()
+    val = str(get_config("embeddings.embedding_model") or "").strip()
     return val or DEFAULT_EMBEDDING_MODEL
 
 
-def _embedding_session_id(model: str) -> str:
+def embedding_session_id(model: str) -> str:
     slug = model.replace("/", "_").replace(":", "_")
-    return f"{EMBEDDINGS_WORKER_SESSION_PREFIX}:{slug}"
+    return SessionKey.of(SessionKind.EMBEDDINGS, slug).wire()
 
 
 def _parse_worker_result(payload: dict[str, Any], *, model: str) -> EmbeddingBatch:
@@ -71,6 +72,6 @@ def embed_texts(ctx: Any, texts: list[str], *, model: str | None = None, timeout
 
     resolved_timeout_sec = embeddings_worker_timeout_sec() if timeout_sec is None else int(timeout_sec)
     result = run_trusted_worker_action(
-        ctx, domain="embedding", helper="embed_texts", params={}, additional_data={"model": model_name, "texts": list(texts)}, session_id=_embedding_session_id(model_name), timeout_sec=resolved_timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, error_code="EMBEDDING_ERROR", error_label="Embedding"
+        ctx, domain="embedding", helper="embed_texts", params={}, additional_data={"model": model_name, "texts": list(texts)}, session_id=embedding_session_id(model_name), timeout_sec=resolved_timeout_sec, worker_pool=WORKER_POOL_EMBEDDINGS, error_code="EMBEDDING_ERROR", error_label="Embedding"
     )
     return _parse_worker_result(result, model=model_name)

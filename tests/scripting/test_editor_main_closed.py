@@ -13,12 +13,7 @@ from plugin.scripting.venv import editor_main as em
 
 
 def _reset_closed_state() -> None:
-    em._closed_for = None
-    em._shutting_down = False
-    em._gui_loop_entered = False
-    em._current_session_id = ""
-    em._current_mode = ""
-    em._current_target = {}
+    em.session.reset()
     while True:
         try:
             em._ui_queue.get_nowait()
@@ -35,8 +30,8 @@ def test_send_closed_once_writes_single_message(monkeypatch):
     em._send_closed_once()
 
     assert messages[0]["type"] == "closed"
-    assert em._closed_for == em._current_session_id
-    assert em._shutting_down is False  # Process stays alive in background!
+    assert em.session.closed_for == em.session.session_id
+    assert em.session.shutting_down is False  # Process stays alive in background!
 
 
 def test_notify_cancel_sends_closed_once_and_hides(monkeypatch):
@@ -46,7 +41,7 @@ def test_notify_cancel_sends_closed_once_and_hides(monkeypatch):
 
     api = em.MonacoEditorApi()
     mock_window = MagicMock()
-    em._window = mock_window
+    em.session.window = mock_window
     api.notify_cancel()
     api.notify_cancel()
 
@@ -60,7 +55,7 @@ def test_handle_window_closing_intercepts_and_hides(monkeypatch):
     monkeypatch.setattr(em, "_emit", messages.append)
 
     mock_window = MagicMock()
-    monkeypatch.setattr(em, "_window", mock_window)
+    monkeypatch.setattr(em.session, "window", mock_window)
 
     res = em._handle_window_closing()
     assert res is False  # Aborts standard window close
@@ -70,7 +65,7 @@ def test_handle_window_closing_intercepts_and_hides(monkeypatch):
 
 def test_handle_window_closing_returns_true_when_shutting_down():
     _reset_closed_state()
-    em._shutting_down = True
+    em.session.shutting_down = True
     assert em._handle_window_closing() is True
 
 
@@ -78,10 +73,10 @@ def test_poll_messages_load_shows_window_and_updates_title():
     _reset_closed_state()
     api = em.MonacoEditorApi()
     mock_window = MagicMock()
-    em._window = mock_window
+    em.session.window = mock_window
 
-    em._closed_for = "stale"
-    em._current_session_id = "stale"
+    em.session.closed_for = "stale"
+    em.session.session_id = "stale"
 
     em._ui_queue.put({"type": "load", "title": "My Custom Title", "code": "x = 1", "session_id": "s1"})
     msgs = api.poll_messages()
@@ -90,8 +85,8 @@ def test_poll_messages_load_shows_window_and_updates_title():
     assert msgs[0]["title"] == "My Custom Title"
     assert mock_window.title == "My Custom Title"
     mock_window.show.assert_called_once()
-    assert em._closed_for is None
-    assert em._current_session_id == "s1"
+    assert em.session.closed_for is None
+    assert em.session.session_id == "s1"
 
 
 def test_notify_save_stamps_session_envelope(monkeypatch):
@@ -108,7 +103,7 @@ def test_notify_save_stamps_session_envelope(monkeypatch):
 
 def test_closed_stamp_ignores_a_load_that_arrives_during_the_write(monkeypatch):
     _reset_closed_state()
-    em._remember_session({"session_id": "old", "mode": "calc_cell", "target": {"cell_address": "A1"}})
+    em.session.remember_session({"session_id": "old", "mode": "calc_cell", "target": {"cell_address": "A1"}})
 
     ev1 = threading.Event()
     ev2 = threading.Event()
@@ -151,9 +146,9 @@ def test_write_parent_stamps_a_whole_session_pair(monkeypatch):
         toggle = False
         while not stop_event.is_set():
             if toggle:
-                em._remember_session({"session_id": "a", "mode": "calc_cell", "target": {"cell_address": "A1"}})
+                em.session.remember_session({"session_id": "a", "mode": "calc_cell", "target": {"cell_address": "A1"}})
             else:
-                em._remember_session({"session_id": "b", "mode": "run_script", "target": {"script_name": "n"}})
+                em.session.remember_session({"session_id": "b", "mode": "run_script", "target": {"script_name": "n"}})
             toggle = not toggle
 
     def write_loop():

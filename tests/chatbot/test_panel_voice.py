@@ -29,11 +29,15 @@ class DummyPanel:
         self._sticky_restart_pending = False
         self._empty_take_count = 0
         self._panel_teardown = False
+        self._wait_for_take = False
+        self.stop_requested = False
         self.ctx: Any = MagicMock()
         self.queue_executor = MagicMock()
         self.dispatch = MagicMock()
         self._set_status = MagicMock()
         self._start_local_error_turn = MagicMock()
+        self._interpret_effect = MagicMock()
+        self._close_turn_ui = MagicMock()
 
     def exit_hands_free_record(self) -> None:
         self._record_gesture = RecordGesture(sticky=False)
@@ -91,3 +95,59 @@ def test_exit_hands_free_record():
     controller.exit_hands_free_record()
     assert not panel._record_gesture.sticky
     assert not controller._sticky_restart_pending
+
+
+def test_on_capture_stopped_when_panel_gone():
+    panel = DummyPanel()
+    panel._panel_teardown = True
+    controller = PanelVoiceController(panel)
+    controller.on_capture_stopped("/tmp/test.wav")
+    assert panel.audio_wav_path is None
+    panel._interpret_effect.assert_not_called()
+
+
+def test_on_capture_stopped_normal_flow():
+    from plugin.chatbot.send_state import StartSendEffect
+
+    panel = DummyPanel()
+    panel._wait_for_take = True
+    controller = PanelVoiceController(panel)
+    controller.on_capture_stopped("/tmp/test.wav")
+    assert panel._wait_for_take is False
+    assert panel.audio_wav_path == "/tmp/test.wav"
+    assert panel._interpret_effect.call_count == 1
+    assert isinstance(panel._interpret_effect.call_args[0][0], StartSendEffect)
+
+
+def test_on_capture_stopped_when_stop_requested():
+    panel = DummyPanel()
+    panel._wait_for_take = True
+    panel.stop_requested = True
+    controller = PanelVoiceController(panel)
+    with patch("plugin.audio.stt_service.uses_local_stt", return_value=False), patch(
+        "plugin.framework.client.model_fetcher.get_stt_model", return_value=None
+    ):
+        controller.on_capture_stopped("/tmp/test.wav")
+        assert panel._wait_for_take is False
+        panel._interpret_effect.assert_not_called()
+        panel._close_turn_ui.assert_called_once_with(speak=False)
+
+
+def test_on_capture_stopped_when_path_is_none():
+    panel = DummyPanel()
+    panel._wait_for_take = True
+    controller = PanelVoiceController(panel)
+    controller.on_capture_stopped(None)
+    assert panel._wait_for_take is False
+    panel._interpret_effect.assert_not_called()
+    panel._close_turn_ui.assert_called_once_with(speak=False)
+
+
+def test_on_capture_stopped_when_panel_gone_deletes_wav(tmp_path):
+    wav = tmp_path / "abandoned.wav"
+    wav.write_bytes(b"data")
+    panel = DummyPanel()
+    panel.ctx = None  # panel gone
+    controller = PanelVoiceController(panel)
+    controller.on_capture_stopped(str(wav))
+    assert not wav.exists()

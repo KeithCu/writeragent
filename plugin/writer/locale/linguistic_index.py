@@ -33,7 +33,7 @@ from plugin.framework.errors import ToolExecutionError
 from plugin.framework.service import ServiceBase
 from plugin.doc.document_helpers import is_cacheable_doc_key
 from plugin.writer.locale.stop_words import stop_words_for_snowball
-from plugin.doc.text_helpers import get_string_without_tracked_deletions
+from plugin.doc.text_helpers import get_string_without_tracked_deletions, iter_elements
 
 log = logging.getLogger("writeragent.writer.index")
 
@@ -57,20 +57,20 @@ def _deaccent(text: str) -> str:
     return "".join(c for c in nfkd if unicodedata.category(c) != "Mn")
 
 
-def _raw_tokens(text: str) -> list[str]:
+def raw_tokens(text: str) -> list[str]:
     cleaned = _PUNCT_RE.sub(" ", _deaccent(text.lower()))
     return [t for t in cleaned.split() if len(t) >= 2]
 
 
 @lru_cache(maxsize=None)
 def _normalized_stop_words(snowball_lang: str) -> frozenset[str]:
-    """Stop words run through ``_raw_tokens`` so accented and punctuated
+    """Stop words run through ``raw_tokens`` so accented and punctuated
     entries match document tokens. Multi-word entries contribute only
     fragments that are standalone entries, so ``c'mon`` does not drop ``mon``."""
     raw = stop_words_for_snowball(snowball_lang)
     out: set[str] = set()
     for entry in raw:
-        tokens = _raw_tokens(entry)
+        tokens = raw_tokens(entry)
         if len(tokens) == 1:
             out.add(tokens[0])
         elif tokens:
@@ -146,7 +146,7 @@ def _index_counts(idx: _DocIndex, cached: bool) -> dict[str, Any]:
 
 def _stem_query_tokens(text: str, stemmer: Any, stop_words: frozenset[str], dropped_stops: list[str]) -> list[str]:
     stems: list[str] = []
-    for t in _raw_tokens(text):
+    for t in raw_tokens(text):
         if t in stop_words:
             dropped_stops.append(t)
         else:
@@ -202,8 +202,7 @@ class IndexService(ServiceBase):
             except Exception:  # noqa: S110 - not every document model exposes all three
                 pass
         enum = doc.getText().createEnumeration()
-        while enum.hasMoreElements():
-            el = enum.nextElement()
+        for el in iter_elements(enum):
             if not el.supportsService("com.sun.star.text.Paragraph"):
                 continue
             if not get_string_without_tracked_deletions(el).strip():
@@ -248,13 +247,12 @@ class IndexService(ServiceBase):
         text_obj = doc.getText()
         enum = text_obj.createEnumeration()
 
-        while enum.hasMoreElements():
-            el = enum.nextElement()
+        for el in iter_elements(enum):
             para_i = len(idx.para_texts)
             if el.supportsService("com.sun.star.text.Paragraph"):
                 text = get_string_without_tracked_deletions(el)
                 idx.para_texts.append(text)
-                for t in _raw_tokens(text):
+                for t in raw_tokens(text):
                     if t not in stop_words:
                         stem = stemmer.stemWord(t)
                         s = idx.terms.get(stem)

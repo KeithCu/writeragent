@@ -29,10 +29,13 @@ import threading
 import uno
 from plugin.chatbot.send_handlers import SendHandlersMixin
 from plugin.chatbot.tool_loop import ToolCallingMixin
+from plugin.chatbot.tool_loop_actions import assign_send_outcome
 
 from plugin.framework.errors import suppress_disposed
 from plugin.framework.logging import update_activity_state
-from plugin.framework.queue_executor import QueueExecutor, default_executor
+from plugin.framework.queue_executor import MainThread, main
+from plugin.framework.send_cancellation import is_cancelled
+from plugin.chatbot.send_state import spawn_scope
 from plugin.chatbot.record_gesture import (
     RecordGesture,
     gesture_action,
@@ -48,6 +51,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from plugin.chatbot.chat_session import ChatSession
     from plugin.framework.client.llm_client import LlmClient
+    from plugin.framework.send_cancellation import SendCancellation
 
 _AudioRecorderCls: type[Any] | None
 try:
@@ -66,6 +70,7 @@ from plugin.chatbot.grammar_status import (
 from plugin.chatbot.chat_sidebar_mode import SidebarModeController
 from plugin.chatbot.panel_events import PanelEventsController, _relabel_button
 from plugin.chatbot.panel_voice import PanelVoiceController, _stop_tts
+from plugin.chatbot.slash_commands import KEY_MODIFIER_SHIFT, KEY_RETURN
 
 
 # ---------------------------------------------------------------------------
@@ -117,9 +122,7 @@ class QueryTextListener(BaseTextListener):
         # ``is True`` so a MagicMock host (tests) is not treated as dead.
         if getattr(self.send_listener, "_panel_teardown", False) is True:
             return
-        # Bugfix: a text event with no source, or whose getModel() returned None,
-        # raised AttributeError on model.Text inside the per-keystroke callback;
-        # returning skips TEXT_UPDATED only for that event.
+        # Missing source or model skips TEXT_UPDATED for that keystroke instead of raising.
         source = getattr(rEvent, "Source", None)
         model: Any = getattr(source, "Model", None) if source is not None else None
         if not model and source is not None:
@@ -130,58 +133,19 @@ class QueryTextListener(BaseTextListener):
         raw = model.Text or ""
         text = raw.strip()
 
-        # ENABLE_SLASH is parked. Keep this listener so Send enablement still
-        # sees TEXT_UPDATED, but do not call the overlay or emit per-keystroke
-        # [SLASH-OV] lines. Breadcrumbs go through _ovlog (silent unless
-        # SLASH_OV_VERBOSE_DEBUG).
-        from plugin.chatbot.slash_popup import ENABLE_SLASH, _ovlog
-
-        if ENABLE_SLASH:
-            from plugin.chatbot.slash_commands import slash_typed_prefix
-
-            # Overlay first. TEXT_UPDATED UpdateUI has hung before on_query_text ran.
-            # Do not getPosSize Ask here: after the TOP overlay exists it deadlocks VCL.
-            snippet = raw[:40] if isinstance(raw, str) else raw
-            _ovlog("query_text entered")
-            _ovlog("query_text raw=%r", snippet)
-            popup = getattr(self.send_listener, "slash_popup", None)
-            on_text = getattr(popup, "on_query_text", None) if popup is not None else None
-            _ovlog(
-                "query_text popup=%s call_show=%s raw=%r",
-                popup is not None,
-                callable(on_text),
-                snippet,
-            )
-            if callable(on_text):
-                owner = getattr(on_text, "__self__", None)
-                _ovlog(
-                    "query_text invoking on_query_text ENABLE_SLASH=%s id=%s",
-                    bool(ENABLE_SLASH),
-                    id(owner) if owner is not None else None,
-                )
-                try:
-                    on_text(raw)
-                except Exception:
-                    log.exception("[SLASH-OV] query_text on_query_text raised")
-                _ovlog("query_text on_query_text returned")
-            # UpdateUI after creating/mapping a TOP overlay deadlocks VCL.
-            if slash_typed_prefix(raw) is not None:
-                _ovlog("query_text skip TEXT_UPDATED slash prefix")
-                return
-            _ovlog("query_text before dispatch")
+        popup = getattr(self.send_listener, "slash_popup", None)
+        if popup is not None:
+            try:
+                if popup.on_query_text(raw) is True:
+                    return
+            except Exception:
+                log.exception("[SLASH-OV] query_text on_query_text raised")
         self.send_listener.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=bool(text)))
-        if ENABLE_SLASH:
-            _ovlog("query_text after dispatch")
-
-
-# UNO Key.RETURN / KeyModifier.SHIFT (test-friendly integer codes)
-_QUERY_KEY_RETURN = 1280
-_QUERY_KEY_MODIFIER_SHIFT = 1
 
 
 def query_enter_triggers_primary_send(key_code: int, modifiers: int) -> bool:
     """True when this key event should run the same primary action as Send (Enter without Shift)."""
-    return bool(key_code == _QUERY_KEY_RETURN and (modifiers & _QUERY_KEY_MODIFIER_SHIFT) == 0)
+    return bool(key_code == KEY_RETURN and (modifiers & KEY_MODIFIER_SHIFT) == 0)
 
 
 _CHAT_ENTER_SENDS = "chatbot.chat_enter_key_sends_message"
@@ -198,34 +162,29 @@ class QueryKeyListener(BaseKeyListener):
     def on_key_pressed(self, e: Any) -> None:
         # Popup Enter must not also Send. Consume only when handle_key is True
         # (MagicMock hosts in unit tests return a mock, which is not True).
-        # While ENABLE_SLASH is false, skip the overlay so keystrokes do not
-        # run slash work or emit [SLASH-OV] query_key lines. Enter-to-send stays.
-        from plugin.chatbot.slash_popup import ENABLE_SLASH, _ovlog
-
-        if ENABLE_SLASH:
-            popup = getattr(self.send_listener, "slash_popup", None)
-            handle = getattr(popup, "handle_key", None) if popup is not None else None
-            _ovlog(
-                "query_key code=%s mods=%s has_handle=%s",
-                int(getattr(e, "KeyCode", -1) or -1),
-                int(getattr(e, "Modifiers", 0) or 0),
-                callable(handle),
-            )
-            if callable(handle) and handle(e.KeyCode, e.Modifiers) is True:
-                with suppress_disposed("QueryKeyListener slash Consume", logger=log):
-                    if hasattr(e, "Consume"):
-                        setattr(e, "Consume", True)
-                return
+        popup = getattr(self.send_listener, "slash_popup", None)
+        handle = getattr(popup, "handle_key", None) if popup is not None else None
+        if callable(handle) and handle(getattr(e, "KeyCode", -1), getattr(e, "Modifiers", 0)) is True:
+            with suppress_disposed("QueryKeyListener slash Consume", logger=log):
+                if hasattr(e, "Consume"):
+                    setattr(e, "Consume", True)
+            return
         if not query_enter_triggers_primary_send(e.KeyCode, e.Modifiers):
             return
-        from plugin.framework.config import get_config_bool
+        from plugin.framework.config import get_config
 
-        if not get_config_bool(_CHAT_ENTER_SENDS):
+        if not get_config(_CHAT_ENTER_SENDS):
             return
         sc = self.send_listener.send_control
         if not sc or not sc.getModel():
             return
         if not sc.getModel().Enabled:
+            from plugin.chatbot.slash_commands import try_dispatch_slash_on_send_click
+
+            if try_dispatch_slash_on_send_click(self.send_listener):
+                with suppress_disposed("QueryKeyListener Consume busy slash", logger=log):
+                    if hasattr(e, "Consume"):
+                        setattr(e, "Consume", True)
             return
         # Enter in the query box sends only when the button label is
         # "Send". Enabled alone is not enough: an empty box reads "Record"
@@ -303,7 +262,7 @@ class SendButtonListener(BaseActionListener):
     cached_doc_type: str | None
     cached_uno_services: frozenset[str] | None
     _stop_requested_fallback: bool
-    _terminal_status: str
+    _orphan_send_outcome: Any
     _stt_inflight: bool
     _stt_kill: Any
     _active_mode: str
@@ -318,14 +277,16 @@ class SendButtonListener(BaseActionListener):
     _acp_backend_id: str | None
     _approval_event: Any
     slash_popup: Any
+    _skip_agent_undo_after: bool
     clear_listener: Any
     rich_text_widget: Any
     _rich_plain_fallback_warned: bool
-    queue_executor: QueueExecutor
+    queue_executor: MainThread
     audio_recorder: Any
     sidebar_state: SidebarCompositeState
     _record_gesture: RecordGesture
     _panel_teardown: bool
+    _wait_for_take: bool
     _mcp_event_bus: Any
     _turn: Any
     _last_mcp_turn: dict[str, Any]
@@ -379,8 +340,8 @@ class SendButtonListener(BaseActionListener):
         self.cached_doc_type = None
         self.cached_uno_services = None
         self._stop_requested_fallback = False
-        self._send_cancellation: Any = None
-        self._terminal_status = "Ready"
+        self._orphan_send_outcome = None
+        self._send_cancellation: SendCancellation | None = None
         self._stt_inflight = False
         self._stt_kill = None
         self._active_mode = ""
@@ -409,10 +370,11 @@ class SendButtonListener(BaseActionListener):
         self._stop_mouse_listener = None
         self._record_mouse_listener = None
         self.slash_popup = None
+        self._skip_agent_undo_after = False
         self.clear_listener = None
         self.rich_text_widget = None
         self._rich_plain_fallback_warned = False
-        self.queue_executor = default_executor
+        self.queue_executor = main
         self._voice = PanelVoiceController(self)
         if HAS_RECORDING:
             assert _AudioRecorderCls is not None
@@ -421,6 +383,8 @@ class SendButtonListener(BaseActionListener):
                 on_auto_stop=lambda: self.queue_executor.post(self._voice._on_audio_auto_stop),
                 on_silence_progress=lambda ms: self.queue_executor.post(self._voice._on_audio_silence_progress, ms),
                 on_error=lambda msg: self.queue_executor.post(self._voice._on_audio_recorder_error, msg),
+                on_device_ready=lambda: self.queue_executor.post(self.audio_recorder.apply_device_ready),
+                on_capture_stopped=lambda path: self.queue_executor.post(self._voice.on_capture_stopped, path),
             )
         else:
             self.audio_recorder = None
@@ -430,6 +394,7 @@ class SendButtonListener(BaseActionListener):
         self.sidebar_state = SidebarCompositeState(send=send_initial, tool_loop=None)
         # Hands-free Record is a panel flag. The send FSM stays timer-free.
         self._record_gesture = RecordGesture()
+        self._wait_for_take = False
         # Set at the start of disposing so a drain still on the stack skips
         # status, TTS, and a sticky re-record after ctx is cleared.
         self._panel_teardown = False
@@ -448,7 +413,7 @@ class SendButtonListener(BaseActionListener):
             # run, and get_tools() raised BOOTSTRAP_OFF_THREAD here. Defer the
             # MCP subscription to the main thread in that case.
             if self._events._mcp_subscribe_must_defer():
-                self._events._post_to_main_thread(self._events._subscribe_mcp_events)
+                self._events._post_to_main(self._events._subscribe_mcp_events)
             else:
                 self._events._subscribe_mcp_events()
             self._subscribe(get_event_bus(), "grammar:status", self._on_grammar_status)
@@ -494,51 +459,20 @@ class SendButtonListener(BaseActionListener):
         # Stop writes cancel on _send_cancellation and sets _stop_requested_fallback;
         # assigning stop_requested is not the cancel API.
         scope = self._send_cancellation
-        if scope is not None and scope.is_cancelled():
+        if is_cancelled(scope):
             return True
         return self._stop_requested_fallback
-
-    def resolve_stop_checker(self) -> Callable[[], bool]:
-        """Stop predicate bound to the scope on this panel right now.
-
-        Call this on the send thread when spawning a worker (``capture_send_stop``)
-        and close over the result. Calling it again inside the worker binds
-        whatever ``_send_cancellation`` is then. The drain clears that field
-        when it exits, and the next send stores a new scope there.
-
-        The returned callable keeps the scope object from this call, so it
-        stays true after the field is cleared. Do not pass
-        ``lambda: self.stop_requested`` alone: that property reads the live field.
-        See ``docs/framework/streaming-and-threading.md`` § Stop / cancellation.
-        """
-        from plugin.framework.send_cancellation import bind_send_stop_checker
-
-        return bind_send_stop_checker(self._send_cancellation, lambda: self._stop_requested_fallback)
 
     def set_session(self, session: Any) -> None:
         """Swap the visible session after the in-flight turn has been aborted.
 
-        A mode change used to replace ``host.session`` while the turn was
-        still alive, and the next bind wrote the reply onto the transcript
-        just shown. Abort first. The turn keeps the session it started with.
+        Mode changes call abort_turn before swapping session so in-flight replies land on the old transcript.
         """
         from plugin.chatbot.tool_loop_actions import abort_turn
 
         abort_turn(self)
         self.session = session
         self.client = None  # Force client recreation if needed, though they usually share same config
-
-    def on_brainstorming_session_finished(self, spec_saved: bool = False) -> None:
-        self._sidebar_mode.on_brainstorming_session_finished(spec_saved)
-
-    def on_librarian_session_finished(self) -> None:
-        self._sidebar_mode.on_librarian_session_finished()
-
-    def on_writing_plan_session_finished(self) -> None:
-        self._sidebar_mode.on_writing_plan_session_finished()
-
-    def on_ppt_master_session_finished(self) -> None:
-        self._sidebar_mode.on_ppt_master_session_finished()
 
     def hide_popup(self) -> None:
         popup = self.slash_popup
@@ -553,22 +487,49 @@ class SendButtonListener(BaseActionListener):
         self.dispatch(SendEvent(SendEventKind.TEXT_UPDATED, has_text=False))
 
     def append_output(self, text: str) -> None:
-        """Show a UI-only line (slash /help); it is not a chat message.
+        """Show slash /help and similar lines in the transcript (not an LLM turn).
 
-        ``_append_response`` drops text when no turn is live, which is always
-        the case for a slash command, so /help printed nothing.
+        Persists a closed assistant row on ``session.messages`` so repaints and the
+        next chat turn keep the text (QA B8/N2). Local rows use ``_slash_local`` and are
+        omitted from ``messages_for_llm``.
         """
-        widget = self.rich_text_widget
-        if widget is not None:
-            self._run_rich_ui(widget.append_chunk, text)
-            return
-        response = self.response_control
-        if response is None:
-            return
-        from plugin.chatbot.dialogs import get_control_text, set_control_text
+        session = self.session
+        if session is None:
+            log.warning("append_output with no session; falling back to response control")
+            response = self.response_control
+            if response is None:
+                return
+            from plugin.chatbot.dialogs import get_control_text, set_control_text
 
-        current = get_control_text(response) or ""
-        set_control_text(response, current + text)
+            current = get_control_text(response) or ""
+            set_control_text(response, current + text)
+            self._scroll_response_to_bottom()
+            return
+        from plugin.chatbot.rich_text_paste import append_slash_local_message
+        from plugin.chatbot.tool_loop_actions import running_turn
+
+        if not append_slash_local_message(session, text):
+            return
+
+        def _paint() -> None:
+            widget = self.rich_text_widget
+            if widget is not None:
+                turn = running_turn(self)
+                if turn is not None and turn.session is session:
+                    widget.stream_session(session)
+                else:
+                    widget.paint_session(session)
+                return
+            response = self.response_control
+            if response is None:
+                return
+            from plugin.chatbot.dialogs import set_control_text
+            from plugin.chatbot.rich_text_paste import plain_transcript_text
+
+            set_control_text(response, plain_transcript_text(session))
+            self._scroll_response_to_bottom()
+
+        self._run_rich_ui(_paint)
 
     def clear_chat(self) -> None:
         if self.clear_listener is not None:
@@ -578,6 +539,47 @@ class SendButtonListener(BaseActionListener):
 
     def stop_in_flight(self) -> None:
         StopButtonListener(self).on_action_performed(None)
+
+    def slash_document_model(self) -> Any:
+        return self._get_document_model(log_failure=False)
+
+    def slash_run_rewrite(self, instruction: str) -> None:
+        """Edit Selection with a preset instruction (sidebar frame document)."""
+        from plugin.chatbot.selection import do_selection_action_for_document
+        from plugin.framework.i18n import _
+
+        model = self._get_document_model(log_failure=True)
+        if not model:
+            self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
+            return
+        do_selection_action_for_document(
+            self.ctx,
+            model,
+            True,
+            preset_instruction=instruction,
+            allow_whole_document=True,
+            sidebar_notify=lambda msg: self.append_output("\n" + msg + "\n"),
+            host=self,
+        )
+
+    def slash_agent_edit_in_flight(self) -> bool:
+        from plugin.framework.async_drain_guard import get_drain_owner
+
+        return self.sidebar_state.send.is_busy or get_drain_owner() is not None
+
+    def run_slash_formula(self, description: str) -> None:
+        from plugin.chatbot.slash_undo_formula import run_slash_formula_worker
+        from plugin.framework.doc_type import DocumentType, get_document_type
+        from plugin.framework.i18n import _
+
+        model = self._get_document_model(log_failure=True)
+        if not model:
+            self.append_output("\n" + _("[No compatible LibreOffice document found.]") + "\n")
+            return
+        if get_document_type(model) != DocumentType.CALC:
+            self.append_output("\n" + _("Only in Calc") + "\n")
+            return
+        run_slash_formula_worker(self, ctx=self.ctx, model=model, description=description)
 
     def _set_status(self, text: str) -> None:
         """Update the status field in the sidebar (read-only TextField).
@@ -593,8 +595,9 @@ class SendButtonListener(BaseActionListener):
         """Show native grammar proofreader progress in the sidebar status field."""
         if self._panel_teardown or self.ctx is None:
             return
-        # grammar:status is process-global. A Writer proofreader pass used to
-        # paint "Grammar: …" on every open sidebar, including Calc and Draw.
+        # grammar:status is process-global. Without this doc-type gate a Writer
+        # proofreader pass would paint "Grammar: …" on every open sidebar,
+        # including Calc and Draw.
         if self.cached_doc_type != "writer":
             return
         text = format_grammar_status(data)
@@ -607,11 +610,9 @@ class SendButtonListener(BaseActionListener):
             self._set_status(text)
 
         try:
-            from plugin.framework.queue_executor import on_main_thread_or_post
-
-            on_main_thread_or_post(_write)
+            self.queue_executor.post_or_run(_write)
         except Exception as e:
-            log.debug("_on_grammar_status: on_main_thread_or_post failed: %s", e)
+            log.debug("_on_grammar_status failed: %s", e)
             return
 
     def _scroll_response_to_bottom(self) -> None:
@@ -627,9 +628,7 @@ class SendButtonListener(BaseActionListener):
 
     def _run_rich_ui(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
         """Run rich-control UI work inline on the main thread; post from workers."""
-        from plugin.framework.queue_executor import on_main_thread_or_post
-
-        return on_main_thread_or_post(fn, *args, executor=self.queue_executor, **kwargs)
+        return self.queue_executor.post_or_run(fn, *args, **kwargs)
 
     def render_session_messages(self, session: Any) -> None:
         """Draw the sidebar from ``session.messages``."""
@@ -680,7 +679,7 @@ class SendButtonListener(BaseActionListener):
             return
         begin_send_turn(self)
         self._append_response(text)
-        self._terminal_status = "Error"
+        assign_send_outcome(self, "error")
         drop_turn(self)
 
     def _append_response(self, text: str, is_thinking: bool = False, role: str = "assistant") -> None:
@@ -744,9 +743,9 @@ class SendButtonListener(BaseActionListener):
                 return
 
             if not self._rich_plain_fallback_warned:
-                from plugin.framework.config import get_config_bool_safe
+                from plugin.framework.config import get_config
 
-                if get_config_bool_safe("rich_text_control_sidebar"):
+                if get_config("chatbot.rich_text_control_sidebar"):
                     log.warning(
                         "[RICH-CONTROL] _append_response plain fallback while rich_text_control_sidebar enabled",
                     )
@@ -780,9 +779,7 @@ class SendButtonListener(BaseActionListener):
         if model and cached_doc_type in _COMPATIBLE_DOC_TYPES:
             return model
 
-        # Bugfix: previously logged ERROR on every miss, including harmless probes
-        # (e.g. Clear greeting or calc cell-link probes). Only _do_send and
-        # _do_send_extracted_peer pass log_failure=True, matching the sidebar error display.
+        # Document miss logging is gated by log_failure so harmless probes stay quiet.
         if log_failure:
             if model is None:
                 probe = "None"
@@ -829,8 +826,7 @@ class SendButtonListener(BaseActionListener):
 
         # Nested dispatch during an effect (e.g. Record start failure) must run
         # after remaining effects. RECORD_CLICKED emits UpdateUIEffect after
-        # StartCaptureEffect; a nested ERROR_OCCURRED used to restore Stop Rec
-        # on a listener that was no longer recording.
+        # Re-entrant dispatch queues nested events until the current effect batch finishes.
         is_reenter = self._dispatch_reenter is not None
         if not is_reenter:
             self._dispatch_reenter = []
@@ -887,11 +883,8 @@ class SendButtonListener(BaseActionListener):
                 try:
                     self.audio_recorder.start_recording()
                 except Exception as exc:
-                    # Bugfix: dispatch writes is_recording=True before this effect runs;
-                    # a non-RuntimeError used to escape _interpret_effect and skip the
-                    # ERROR_OCCURRED re-entry, leaving the FSM recording after
-                    # start_recording had failed. audio_recorder.start_recording
-                    # reports start failures as RuntimeError; anything else is still that same recovery.
+                    # Start failures now arrive via on_error (background job); synchronous
+                    # exceptions (e.g. stub initialize) still raise here and recover via ERROR_OCCURRED.
                     if not isinstance(exc, RuntimeError):
                         log.exception("start_recording failed")
                     self._start_local_error_turn("\n[Audio error: %s]\n" % str(exc))
@@ -902,7 +895,11 @@ class SendButtonListener(BaseActionListener):
                 if not self.audio_recorder:
                     return
                 try:
-                    self.audio_wav_path = self.audio_recorder.stop_recording()
+                    path = self.audio_recorder.stop_recording()
+                    if path:
+                        self.audio_wav_path = path
+                    elif getattr(self.audio_recorder, "stop_deferred", False) is True:
+                        self._wait_for_take = True
                 except Exception as e:
                     from plugin.framework.errors import WriterAgentException
 
@@ -914,6 +911,7 @@ class SendButtonListener(BaseActionListener):
             case CancelRecordingEffect():
                 # cleanup() stops capture and deletes the temp WAV; a stopped
                 # take's path (if any) goes too, so no later send attaches it.
+                self._wait_for_take = False
                 if self.audio_recorder:
                     try:
                         self.audio_recorder.cleanup()
@@ -936,7 +934,7 @@ class SendButtonListener(BaseActionListener):
                 _stop_tts()
 
                 self._stop_requested_fallback = False
-                self._terminal_status = "Ready"
+                assign_send_outcome(self, "ready")
                 # Create the scope before posting so a Stop click between Send
                 # returning and the AsyncCallback drain still latches cancel.
                 # Do not bind_executor yet: cancel() would cancel_pending_work
@@ -944,11 +942,9 @@ class SendButtonListener(BaseActionListener):
                 # the button stays Stop. Bind inside _run_send_drain instead.
                 scope: Any = SendCancellation()
                 self._send_cancellation = scope
-                # Bug: drain used to run inside Send actionPerformed. On GTK,
-                # processEventsToIdle from that stack does not deliver a second
-                # dialog ActionEvent, so Stop looked enabled but never fired
-                # (Packet B ramble completed all 200 words). Post to the next
-                # VCL tick so the listener returns first.
+                if self._wait_for_take:
+                    return
+                # Post _run_send_drain to the next VCL tick so GTK can deliver Stop while streaming.
                 self.queue_executor.post(self._run_send_drain)
 
             case StopSendEffect():
@@ -1005,9 +1001,13 @@ class SendButtonListener(BaseActionListener):
         elif self._button_action == ButtonAction.STOP_REC:
             self.dispatch(SendEvent(SendEventKind.STOP_REC_CLICKED))
         elif self._button_action == ButtonAction.SEND:
+            from plugin.chatbot.slash_commands import try_dispatch_slash_on_send_click
+
+            if try_dispatch_slash_on_send_click(self):
+                return
             self.dispatch(SendEvent(SendEventKind.SEND_CLICKED))
 
-    def _sync_has_text_from_query(self) -> None:
+    def sync_has_text_from_query(self) -> None:
         """Ask is the source of truth after SEND_COMPLETED forces has_text False.
 
         Ask is the source of truth after completion. Completion always
@@ -1053,7 +1053,7 @@ class SendButtonListener(BaseActionListener):
                 # Terminal status is "Stopped" so completion and TTS skip
                 # this turn. Leaving it at "Ready" replays the previous
                 # answer when Stop is pressed before the drain begins.
-                self._terminal_status = "Stopped"
+                assign_send_outcome(self, "stopped")
                 # Drop the take. STT never starts on this path, so it
                 # cannot be kept as text. Stop Rec stores it on
                 # audio_wav_path; if Stop lands before this drain runs,
@@ -1100,7 +1100,7 @@ class SendButtonListener(BaseActionListener):
                     # The tool-loop epilogue already aborted the turn, so
                     # _append_response would treat this as a late chunk.
                     self._project_closing_line("\n\n[Error: %s]\n" % str(err), failed_turn)
-                    self._terminal_status = "Error"
+                    assign_send_outcome(self, "error")
                 on_close()
 
             defer_until_drain_done(_close_turn_drain)
@@ -1117,6 +1117,9 @@ class SendButtonListener(BaseActionListener):
     def _close_turn_ui(self, *, speak: bool) -> None:
         """SEND_COMPLETED or ERROR_OCCURRED, optional TTS, and drop_turn after stream drain."""
         from plugin.framework.i18n import _
+        from plugin.chatbot.tool_loop_actions import drop_turn, send_outcome_terminal_display
+        from plugin.chatbot.panel_voice import strip_audio_from_last_user_message
+        from plugin.doc.peer_message import kick_pending_peer_starts
 
         update_activity_state("")
         try:
@@ -1124,123 +1127,53 @@ class SendButtonListener(BaseActionListener):
             # completion dispatch writes the status line, and the rest starts
             # TTS or arms the mic on a dead panel.
             if not self._panel_teardown:
-                if self._terminal_status == "Error":
+                terminal = send_outcome_terminal_display(self)
+                if terminal == "Error":
                     if speak:
                         clear_pending_audio_wav(self)
                     self.dispatch(SendEvent(SendEventKind.ERROR_OCCURRED))
                 else:
                     self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-                    self._sync_has_text_from_query()
+                    self.sync_has_text_from_query()
                     if speak:
-                        if self._terminal_status:
-                            self._set_status(_(self._terminal_status))
-                        try:
-                            from plugin.framework.config import get_config_bool_safe
-                            # Speak from session_for_turn(self) (valid until
-                            # drop_turn) when TTS is enabled and terminal status
-                            # is not Stopped. An alive-turn check fails here: the
-                            # tool-loop finally already ran abort_turn(self).
-                            if get_config_bool_safe("audio.tts_enabled") and self._terminal_status != "Stopped":
-                                from plugin.chatbot.tool_loop_actions import (
-                                    current_turn,
-                                    session_for_turn,
-                                )
-
-                                spoken = session_for_turn(self)
-                                turn = current_turn(self)
-                                if (
-                                    turn is not None
-                                    and spoken is turn.session
-                                    and spoken is not None
-                                    and spoken.messages
-                                ):
-                                    start_count = turn.send_start_msg_count
-                                    last_msg = spoken.messages[-1]
-                                    # Speak only when an assistant message
-                                    # exists and this send appended a new message.
-                                    # A whitespace-only query or a cancelled send
-                                    # otherwise replays the previous turn: the
-                                    # session's last message is still that reply.
-                                    has_new_assistant_msg = (
-                                        last_msg.get("role") == "assistant"
-                                        and bool(last_msg.get("content"))
-                                        and len(spoken.messages) > start_count
-                                    )
-                                    if has_new_assistant_msg:
-                                        from plugin.chatbot.tool_loop_actions import _STOP_LINE
-                                        content_to_speak = last_msg["content"].replace(_STOP_LINE, "")
-                                        if content_to_speak.strip():
-                                            from plugin.audio.tts_service import speak_text_async, is_speaking
-
-                                            # Restore the send-complete status after download/fallback lines.
-                                            prior_status = self._terminal_status or "Ready"
-
-                                            def _disable_stop() -> None:
-                                                if not self._send_busy:
-                                                    # A take may still be recording (sticky restart or a manual take).
-                                                    # Ready would hide that status or "Hands-free off", so only restore it after.
-                                                    if self.sidebar_state.send.is_recording:
-                                                        if self._record_gesture.sticky:
-                                                            self._set_status(hands_free_status_text())
-                                                    else:
-                                                        _set_control_enabled(self.stop_control, False, "disable stop after speech")
-                                                        self._set_status(_(prior_status))
-
-                                            def _on_tts_status(message: str) -> None:
-                                                # Speech runs on a worker; the status control is a UNO widget.
-                                                try:
-                                                    self.queue_executor.post(self._set_status, message)
-                                                except Exception:
-                                                    log.debug("TTS status post failed", exc_info=True)
-
-                                            speak_text_async(
-                                                content_to_speak,
-                                                on_complete=lambda: self.queue_executor.post(_disable_stop),
-                                                on_status=_on_tts_status,
-                                                # Sentence breaks use BreakIterator on this UI
-                                                # thread. The audio worker only receives the list.
-                                                ctx=self.ctx,
-                                            )
-                                            if is_speaking():
-                                                _set_control_enabled(self.stop_control, True, "enable stop for speech")
-                        except Exception as e:
-                            log.debug("TTS playback trigger: %s", e)
-                    else:
-                        self._set_status(_(self._terminal_status))
+                        self._voice.speak_reply(speak=True)
+                    elif terminal:
+                        self._set_status(_(terminal))
                     self._voice._flush_sticky_restart()
         finally:
             # drop_turn and kick_pending_peer_starts run under finally.
             # An early return when content_to_speak is empty (or a TTS
             # exception) skips them and leaks the turn, including Stop
             # with TTS enabled.
-            from plugin.chatbot.tool_loop_actions import drop_turn
-            from plugin.doc.peer_message import kick_pending_peer_starts
+            strip_audio_from_last_user_message(self, speak=speak)
+            from plugin.chatbot.tool_loop_actions import current_turn
+            from plugin.doc.agent_undo import record_agent_turn_after
 
-            if speak:
-                from plugin.chatbot.tool_loop_actions import session_for_turn
-
-                # This runs once per turn, from the deferred drain-done close
-                # (_close_send_drain), on success, Stop and error alike. A slice
-                # returning mid-stream does not reach here, so the audio the model
-                # is still answering is not stripped early.
-                sess = session_for_turn(self) or self.session
-                if sess and getattr(sess, "messages", None):
-                    # Ensure in-memory audio is not resent on the next turn.
-                    # Iterate backwards to find the last user message.
-                    for msg in reversed(sess.messages):
-                        if msg.get("role") == "user":
-                            content = msg.get("content")
-                            if isinstance(content, list) and any(c.get("type") == "input_audio" for c in content):
-                                kept_parts = [c for c in content if c.get("type") != "input_audio"]
-                                if kept_parts:
-                                    msg["content"] = kept_parts
-                                else:
-                                    msg["content"] = _("[Voice message]")
-                            break
-
+            turn = current_turn(self)
+            if turn is not None and turn.model is not None and not self._skip_agent_undo_after:
+                record_agent_turn_after(turn.model)
+            self._skip_agent_undo_after = False
             # Spoken text was copied above. Later callbacks must not find this turn.
             drop_turn(self)
             kick_pending_peer_starts()
+
+    def close_selection_run(self) -> None:
+        """Close an armed selection run: clear cancellation, SEND_COMPLETED, and kick peer turns.
+
+        Selection is not a chat turn, so this does not run ``_close_turn_ui`` (drop turn, TTS,
+        agent undo); the edit path records undo itself. SEND_COMPLETED forces has_text False;
+        sync_has_text_from_query restores typed Ask text. The peer kick is required because
+        Calc and Draw finish after the idle hook has already skipped.
+        """
+        self._send_cancellation = None
+        self._stop_requested_fallback = False
+        if not self._panel_teardown and self.sidebar_state.send.is_busy:
+            self.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
+            self.sync_has_text_from_query()
+            self._voice._flush_sticky_restart()
+        from plugin.doc.peer_message import kick_pending_peer_starts
+
+        kick_pending_peer_starts()
 
     def _set_query(self, text: str) -> None:
         if self.query_control and self.query_control.getModel():
@@ -1268,7 +1201,7 @@ class SendButtonListener(BaseActionListener):
 
         if message:
             self._append_response("\n" + message + "\n")
-        self._terminal_status = "Error"
+        assign_send_outcome(self, "error")
         if set_status_text:
             self._set_status(_("Error"))
         if restore_query is not None:
@@ -1314,7 +1247,7 @@ class SendButtonListener(BaseActionListener):
 
         # Audio implies we have input even if text is empty.
         # Stop Rec sets has_audio and always starts a send. A missing WAV used
-        # to clear _terminal_status and return, so the click looked like it did
+        # to leave outcome unset and return, so the click looked like it did
         # nothing (no Whisper, no chat) after the stop handshake lost the file.
         if not query_text and not self.audio_wav_path:
             if self.sidebar_state.send.has_audio:
@@ -1324,13 +1257,12 @@ class SendButtonListener(BaseActionListener):
                     set_status_text=True,
                 )
                 return None
-            # Mark the terminal status "Ready" so the UI updates, and
-            # rely on message-count tracking to suppress TTS when no new
-            # message was added. An empty-query return that leaves
-            # _terminal_status as "" skips _set_status in
-            # _close_turn_ui (status stays "Getting document…") and
-            # speaks the prior turn's reply.
-            self._terminal_status = "Ready"
+            # Mark outcome ready so the UI updates, and rely on message-count
+            # tracking to suppress TTS when no new message was added. An
+            # empty-query return that leaves outcome None displays as "" and
+            # skips _set_status in _close_turn_ui (status stays "Getting
+            # document…") and speaks the prior turn's reply.
+            assign_send_outcome(self, "ready")
             return None
 
         self._set_query("")
@@ -1361,6 +1293,9 @@ class SendButtonListener(BaseActionListener):
         if doc_info is not None:
             if (started := current_turn(self)) is not None:
                 started.model = doc_info[0]
+                from plugin.doc.agent_undo import record_agent_turn_before
+
+                record_agent_turn_before(doc_info[0])
         return doc_info
 
     def _do_send(self) -> None:
@@ -1376,6 +1311,37 @@ class SendButtonListener(BaseActionListener):
             return
 
         log.info("=== _do_send START ===")
+
+        from plugin.chatbot.slash_commands import (
+            SlashRun,
+            build_slash_answer_query,
+            parse_slash_text,
+            plan_slash,
+            run_slash_command,
+            run_slash_compact,
+            slash_answer_is_local_only,
+            slash_run_needs_send,
+            SlashResult,
+        )
+
+        peek_text = ""
+        if self.query_control and self.query_control.getModel():
+            from plugin.chatbot.dialogs import get_control_text
+
+            peek_text = (get_control_text(self.query_control) or "").strip()
+
+        parsed = parse_slash_text(peek_text)
+        slash_cmd = None
+        slash_arg = ""
+        planned = None
+        if parsed is not None:
+            slash_cmd, slash_arg = parsed
+            planned = plan_slash(slash_cmd, self)
+            if not slash_run_needs_send(planned):
+                if run_slash_command(slash_cmd, self, slash_arg, from_popup=False) is SlashResult.HANDLED:
+                    assign_send_outcome(self, "ready")
+                    return
+
         doc_info = self._begin_send()
         if not doc_info:
             return
@@ -1384,6 +1350,28 @@ class SendButtonListener(BaseActionListener):
         query_text = self._read_and_clear_query()
         if query_text is None:
             return
+
+        slash_transcript_line: str | None = None
+        if slash_cmd is not None and planned is not None:
+            if planned is SlashRun.COMPACT:
+                run_slash_compact(self, slash_arg, cancel=spawn_scope(self))
+                return
+            if planned is SlashRun.FORMULA:
+                from plugin.doc.agent_undo import cancel_pending_agent_turn
+
+                cancel_pending_agent_turn(model)
+                self._skip_agent_undo_after = True
+                self.run_slash_formula(slash_arg)
+                return
+            if planned is SlashRun.ANSWER:
+                slash_transcript_line = peek_text.strip()
+                query_text = build_slash_answer_query(slash_cmd, slash_arg, model)
+                if slash_answer_is_local_only(slash_cmd, model):
+                    from plugin.chatbot.tool_loop_actions import running_turn
+
+                    turn = running_turn(self)
+                    if turn is not None:
+                        turn.slash_sidebar_only = True
 
         try:
             from plugin.chatbot.config_ui_helpers import sync_sidebar_text_model
@@ -1423,14 +1411,15 @@ class SendButtonListener(BaseActionListener):
                 return
 
             # Regular Chat with Tools or Streams
-            self._tool_calling._do_send_chat_with_tools(query_text, model, doc_type_label)
+            self._tool_calling._do_send_chat_with_tools(
+                query_text,
+                model,
+                doc_type_label,
+                user_transcript_text=slash_transcript_line,
+            )
 
         except Exception:
-            # Bugfix: this except used to put the Ask text back after
-            # add_user_message had already stored it, so the next Send appended
-            # the same user row again. The user row is inside
-            # _do_send_chat_with_tools / the mode handlers, which is why the check
-            # is the turn's tail, not a flag set in this function.
+            # Restore Ask text only when the turn did not already store the user row.
             from plugin.chatbot.tool_loop_actions import current_turn
 
             turn = current_turn(self)
@@ -1463,7 +1452,7 @@ class SendButtonListener(BaseActionListener):
             return False
 
         self._stop_requested_fallback = False
-        self._terminal_status = "Ready"
+        assign_send_outcome(self, "ready")
         self._send_cancellation = SendCancellation()
 
         self._run_turn_drain(
@@ -1487,7 +1476,7 @@ class SendButtonListener(BaseActionListener):
             self._append_response(
                 "\n" + _("[Peer send requires Chat mode on this sidebar.]") + "\n"
             )
-            self._terminal_status = "Error"
+            assign_send_outcome(self, "error")
             return
         if not already_appended:
             self.session.add_user_message(query_text)
@@ -1521,7 +1510,7 @@ class SendButtonListener(BaseActionListener):
         # Dispose can run on a later VCL turn while an event-driven drain
         # session is still open. Set the flag first so _close_turn_ui
         # does not write status or start TTS after ctx is cleared. Cancel the
-        # send scope (same object already captured by resolve_stop_checker) so
+        # send scope (same object read on the send thread before the worker starts) so
         # the drain stop checker fires instead of streaming into a dead panel.
         # Match StopSendEffect: cancel the scope and latch the fallback.
         self._panel_teardown = True
@@ -1537,6 +1526,8 @@ class SendButtonListener(BaseActionListener):
                     on_auto_stop=None,
                     on_silence_progress=None,
                     on_error=None,
+                    on_device_ready=None,
+                    on_capture_stopped=None,
                 )
             except Exception:
                 log.debug("SendButtonListener.disposing: clear audio callbacks failed", exc_info=True)
@@ -1597,11 +1588,8 @@ def notify_stop_mouse_entered(send_listener: Any = None) -> None:
 def notify_stop_mouse_pressed(send_listener: Any) -> None:
     """Stop mousePressed: drop query restore and cancel if a send is in flight.
 
-    Bug: stream SelectAll called ``query.setFocus()`` every chunk. That aborts
-    the Stop ``ActionEvent`` on GTK (Packet B1: no ``STOP_CLICKED`` in the log,
-    ramble ran to word199). mousePressed is earlier; latching cancel here is
-    belt-and-suspenders if ActionEvent still never fires. Change/Reject during
-    web-search approval stays on ActionEvent — do not treat those as Stop.
+    Stream append must not refocus the Ask box (GTK drops Stop ActionEvent). Latch cancel on
+    mousePressed. Web-search approval Change/Reject stays on ActionEvent only.
     """
     session = getattr(send_listener, "frame_session", None)
     if session is not None:
@@ -1765,32 +1753,25 @@ class ClearButtonListener(BaseActionListener):
             try:
                 greeting = get_greeting_for_document(model)
             except DocumentDisposedError:
-                # What was wrong: any exception became a hard-coded English
-                # sentence that matches none of the prompts.py greetings and
-                # skips _(), so JA/ES Clear showed English.
-                # How it happened: Clear runs while the sidebar is still up
-                # after the document closes. supportsService on that model
-                # raises DocumentDisposedError (doc_type.get_document_type →
-                # errors.safe_call; safe_uno_call re-raises it).
-                # Why this fixes it: None skips supportsService and returns
-                # the same translated Writer greeting as an unknown doc.
+                # Disposed document on Clear: get_greeting_for_document(None) keeps localized Writer greeting.
                 greeting = get_greeting_for_document(None)
 
         if self.send_listener and self.send_listener.rich_text_widget:
             try:
-                self.send_listener.rich_text_widget.clear_and_greeting(greeting)
+                self.send_listener.rich_text_widget.paint_session(self.session, greeting)
             except Exception:
                 log.exception("Error clearing RichTextControl sidebar")
                 ctrl = getattr(self.send_listener.rich_text_widget, "control", None)
                 if ctrl is not None:
                     from plugin.chatbot.dialogs import set_control_text
+                    from plugin.chatbot.rich_text_paste import plain_transcript_text
 
-                    set_control_text(ctrl, greeting + "\n")
+                    set_control_text(ctrl, plain_transcript_text(self.session, greeting))
         elif self.response_control and self.response_control.getModel():
             from plugin.chatbot.dialogs import set_control_text
+            from plugin.chatbot.rich_text_paste import plain_transcript_text
 
-            text = greeting + "\n" if greeting else ""
-            set_control_text(self.response_control, text)
+            set_control_text(self.response_control, plain_transcript_text(self.session, greeting))
 
         if self.status_control:
             self.status_control.setText("")

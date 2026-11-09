@@ -5,7 +5,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 """HTML/StarWriter import, replace, and markup routing for Writer documents.
 
-Public entries are re-exported from ``plugin.writer.format``.
 Header/footer apply uses ``replace_xtext_with_html`` (same StarWriter
 insert as the body path, pointed at a region ``XText``).
 
@@ -17,7 +16,6 @@ base run. Not a text field — do not use ``TextField.Ruby``.
 from __future__ import annotations
 
 import contextlib
-import html as html_mod
 import logging
 import re
 import uuid
@@ -25,9 +23,9 @@ from typing import Any
 
 
 from plugin.framework.errors import best_effort
-from plugin.doc.text_helpers import go_right, normalize_linebreaks as _normalize
+from plugin.doc.text_helpers import go_right, iter_elements, normalize_linebreaks as _normalize
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed, uno_read
-from . import field_restore, html_import_styles, html_ruby, image_placeholders
+from . import field_restore, html_import_styles, html_ruby, image_placeholders, record_changes
 from .math.html_math_segment import html_fragment_contains_mixed_math, segment_html_with_mixed_math
 from .math.math_mml_convert import convert_latex_to_starmath, convert_mathml_to_starmath, insert_writer_math_formula
 
@@ -79,18 +77,15 @@ def _ensure_html_linebreaks(content: str) -> str:
     content = escape_prose_angle_brackets(_normalize(content))
     # Vision/Docling export full documents; nesting another wrapper breaks StarWriter import.
     if re.search(r"<!DOCTYPE\s+html|<html[\s>]", content, re.IGNORECASE):
-        from . import format as format_mod
-        content = format_mod._strip_html_boilerplate(content)
+        from .html_export import strip_html_boilerplate
+        content = strip_html_boilerplate(content)
     # A block tag or <br> means the content has its own paragraphs; wrapping it in <p> is invalid.
     if _LINEBREAK_MARKUP_RE.search(content):
         return _wrap_html_fragment(content)
 
-    content = re.sub(r"\n{3,}", "\n\n", content)
-    paras = content.split("\n\n")
+    paras = html_import_styles._plain_paragraphs(content)
     out = []
     for p in paras:
-        if not p.strip():
-            continue
         p_html = p.replace("\n", "<br>\n")
         out.append("<p>%s</p>" % p_html)
     return _wrap_html_fragment("\n".join(out))
@@ -154,14 +149,17 @@ def insert_html_fragment_at_cursor(
     html_fragment = escape_prose_angle_brackets(html_fragment)
     prepared = _wrap_html_fragment(html_fragment, extra_css=extra_css) if wrap else html_fragment
     tail = _parked_cursor(cursor) if model is not None else None
-    from . import format as format_mod
-    with format_mod._with_temp_buffer(prepared) as (_path, file_url):
-        filter_name = format_mod.HTML_FILTER
-        filter_props = (format_mod.create_property_value("FilterName", filter_name),)
+    from plugin.doc.temp_files import with_temp_buffer
+    from plugin.framework.uno_context import create_property_value
+    from .html_export import HTML_FILTER
+    with with_temp_buffer(prepared) as (_path, file_url):
+        filter_name = HTML_FILTER
+        filter_props = (create_property_value("FilterName", filter_name),)
         try:
             cursor.insertDocumentFromURL(file_url, filter_props)
         except Exception as e:
-            # Mid-script apply_document_content / insert_content paths used to bubble with no log.
+            # Log insertDocumentFromURL failures with filter and URL so mid-script
+            # apply paths surface the underlying UNO error.
             log.error(
                 "insertDocumentFromURL failed: type=%s str=%r repr=%r filter=%r url=%r",
                 type(e).__name__,
@@ -281,20 +279,20 @@ def _insert_mixed_or_plain_html(
     unescaped_content: str,
     *,
     apply_styles: bool = True,
-) -> None:
+) -> list[str]:
     """HTML import (optional MathML + TeX layer).
 
-    data-lo-style paragraph styling is applied via UNO after the import when *apply_styles* is True
-    (``full_document``, and ``beginning``/``end`` after absorb prep in ``insert_content_at_position``).
-    For ``selection``/``search`` it stays False: those paths split or merge into neighbor text, so
-    applying the named style would restyle pre-existing content. We still strip data-lo-style for a
-    clean StarWriter import either way.
+    data-lo-style and data-lo-para paragraph styling is applied via UNO after import when *apply_styles*
+    is True (``full_document``, ``beginning``/``end`` after absorb prep, and whole-paragraph ``selection``/``search``
+    replacements when Track Changes is off). Partial matches or replaces during tracked change recording
+    pass False so pre-existing content is not restyled. We still strip attributes for a clean
+    StarWriter import either way. Returns CSS property names that failed to apply.
     """
     nonce = uuid.uuid4().hex[:8]
     unescaped_content = field_restore.rewrite_exported_field_spans(unescaped_content, nonce=nonce)
-    # Strip data-lo-style so the StarWriter import sees clean markup (it drops unknown attributes
-    # anyway); we re-apply the named styles via UNO afterwards only when apply_styles is True.
-    clean, block_styles = html_import_styles._extract_block_lo_styles(unescaped_content)
+    # Strip data-lo-style and data-lo-para so the StarWriter import sees clean markup (it drops unknown
+    # attributes anyway); we re-apply formatting via UNO afterwards only when apply_styles is True.
+    clean, block_styles, block_paras, skipped_paras = html_import_styles._extract_block_lo_styles(unescaped_content)
     # Expand literal \n and \t before measuring ruby offsets and StarWriter import
     clean = _expand_escapes(clean)
     has_math = html_fragment_contains_mixed_math(clean)
@@ -303,7 +301,7 @@ def _insert_mixed_or_plain_html(
         clean, ruby_spans = html_ruby.extract_and_strip_ruby(clean)
     else:
         ruby_spans = []
-    styled = apply_styles and any(block_styles)
+    styled = bool(apply_styles and (any(block_styles) or any(block_paras)))
     text_obj = cursor.getText()
     ruby_skip = html_ruby._ruby_skip(text_obj, cursor, ruby_spans)
     # Parked at the insert point, this ends up after the imported content (see _parked_cursor).
@@ -328,11 +326,21 @@ def _insert_mixed_or_plain_html(
             start = _paragraph_after(text_obj, before_para)
         else:
             start = _insert_start_from_anchor(text_obj, start_anchor, cursor)
-        html_import_styles._apply_block_lo_styles(model, text_obj, start, block_styles, end=imported_end)
-        end_c = model.getText().createTextCursor()
-        end_c.gotoEnd(False)
-        cursor.gotoRange(end_c.getStart(), False)
+        failures = html_import_styles._apply_block_lo_styles(
+            model, text_obj, start, block_styles, end=imported_end, paras=block_paras,
+        )
+        # Parked cursor lives in this range's XText (which may be a cell, frame,
+        # header, or footer, not just the body text) and lands right after the
+        # imported content.
+        if imported_end is not None:
+            cursor.gotoRange(imported_end.getStart(), False)
+    else:
+        # This target does not apply paragraph formatting, so every declaration is unapplied.
+        failures = html_import_styles.declared_para_names(block_paras)
+    # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
+    failures.extend(html_import_styles.declared_para_names(skipped_paras))
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
+    return failures
 
 
 
@@ -389,8 +397,7 @@ def _paragraph_has_non_text_portion(para: Any) -> bool:
     """
     try:
         portions = para.createEnumeration()
-        while portions.hasMoreElements() is True:
-            portion = portions.nextElement()
+        for portion in iter_elements(portions):
             if portion.getPropertyValue("TextPortionType") != "Text":
                 return True
     except Exception as exc:
@@ -430,7 +437,8 @@ def _ensure_empty_absorb_for_styled_insert(text: Any, cursor: Any, position: str
       A trailing empty paragraph after import is the same StarWriter quirk as ``full_document``.
     - **Empty absorb paragraph** (blank doc / already-empty trailing): merge is harmless — no prep.
 
-    ``selection`` / ``search`` are not handled here (still ``apply_styles=False``).
+    ``selection`` / ``search`` are not handled here: selection paragraphs are cleared by
+    setString before import, and search replaces handle their own boundaries.
     """
     if position != "end":
         return cursor
@@ -487,26 +495,50 @@ def insert_inline_at_cursor(model: Any, ctx: Any, cursor: Any, content: str) -> 
         _apply_ruby_and_restore_fields(model, text, ruby_spans, nonce, skip_chars=ruby_skip)
 
 
-# Named (``&amp;``), decimal (``&#36;``) and hex (``&#x24;``) character references with trailing semicolon.
-_COMPLETE_ENTITY_RE = re.compile(r"&(?:#[0-9]+|#[xX][0-9a-fA-F]+|[A-Za-z][A-Za-z0-9]{1,31});")
+def _range_covers_whole_paragraphs(text_range: Any) -> bool:
+    """Return True if *text_range* starts at paragraph start and ends at paragraph end."""
+    text = text_range.getText()
+    start = text.createTextCursorByRange(text_range.getStart())
+    end = text.createTextCursorByRange(text_range.getEnd())
+    return bool(start.isStartOfParagraph() and end.isEndOfParagraph())
 
 
-def _decode_complete_character_references(text: str) -> str:
-    """Decode only HTML character references ending with a semicolon, ignoring incomplete references like '&sect 2o'."""
-    if "&" not in text or not _COMPLETE_ENTITY_RE.search(text):
-        return text
-    return _COMPLETE_ENTITY_RE.sub(lambda m: html_mod.unescape(m.group(0)), text)
+_LO_STYLE_PARTIAL_MATCH_NOTE = (
+    "data-lo-style was not applied because the match does not cover whole paragraphs; "
+    "applying it would restyle neighboring text. Restyle with apply_style(target='search', old_content=...)."
+)
+_LO_STYLE_RECORDING_NOTE = (
+    "data-lo-style was not applied while tracked changes are recording, because a paragraph "
+    "style on this replace would turn the deletion into a format change. Restyle with "
+    "apply_style(target='search', old_content=...) after the change is accepted."
+)
 
 
-def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> None:
+def _lo_style_for_replaced_range(model: Any, content: str, text_range: Any) -> tuple[bool, str | None]:
+    """Determine whether to apply block data-lo-style on a replaced range, or warn if skipped."""
+    if not content or "data-lo-style" not in content:
+        return False, None
+    _clean, styles, _paras, _skipped = html_import_styles._extract_block_lo_styles(content)
+    if not any(styles):
+        return False, None
+    if not _range_covers_whole_paragraphs(text_range):
+        return False, _LO_STYLE_PARTIAL_MATCH_NOTE
+    if record_changes.is_recording_changes(model):
+        return False, _LO_STYLE_RECORDING_NOTE
+    return True, None
+
+
+def insert_content_at_position(model: Any, ctx: Any, content: str, position: str) -> list[str] | str | None:
     """Insert formatted content at *position* (``'beginning'``,
     ``'end'``, or ``'selection'``) using ``insertDocumentFromURL``.
     """
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        content = _decode_complete_character_references(swapped)
+        content = html_import_styles._decode_complete_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
+        styled = position in ("beginning", "end")
+        note = None
 
         if position == "beginning":
             cursor.gotoStart(False)
@@ -551,6 +583,7 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
                         from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
                         raise_if_range_hosts_nested_table(rng)
+                        styled, note = _lo_style_for_replaced_range(model, content, rng)
                         rng.setString("")
                 except AttributeError as e:
                     # No text cursor (a shape that was not classified earlier).
@@ -560,16 +593,21 @@ def insert_content_at_position(model: Any, ctx: Any, content: str, position: str
                         "insert_content_at_position: text selection unusable (%s); using document end",
                         e,
                     )
+                    styled = False
+                    note = None
                     cursor = _doc_end_cursor()
         else:
             raise ToolExecutionError("Unknown position: %s" % position)
 
         # beginning/end: honor data-lo-style after absorb prep (see _ensure_empty_absorb_for_styled_insert).
-        # selection/search: still apply_styles=False — replace splits/merges into neighbor text (phase 3).
-        styled = position in ("beginning", "end")
-        if styled:
+        # Whole-paragraph selection matches also honor data-lo-style; absorb prep is omitted because
+        # the replaced paragraphs were already emptied by setString("").
+        if position in ("beginning", "end"):
             cursor = _ensure_empty_absorb_for_styled_insert(text, cursor, position)
-        _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
+        failures = _insert_mixed_or_plain_html(model, ctx, cursor, content, apply_styles=styled)
+        if position == "selection":
+            return note
+        return failures
 
 
 
@@ -583,10 +621,10 @@ def _deletion_author() -> Any:
         return contextlib.nullcontext()
 
 
-def replace_full_document(model: Any, ctx: Any, content: str) -> None:
+def replace_full_document(model: Any, ctx: Any, content: str) -> list[str]:
     """Clear the document and insert *content*."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        content = _decode_complete_character_references(swapped)
+        content = html_import_styles._decode_complete_character_references(swapped)
 
         text = model.getText()
         cursor = text.createTextCursor()
@@ -595,9 +633,8 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
         cursor.gotoStart(False)
-        if not image_placeholders._is_recording_changes(model):
-            _insert_mixed_or_plain_html(model, ctx, cursor, content)
-            return
+        if not record_changes.is_recording_changes(model):
+            return _insert_mixed_or_plain_html(model, ctx, cursor, content)
         # In review mode the deleted text stays in place, and an import at
         # its start takes the character formatting of the first old
         # paragraph as direct formatting -- a document opening with an 18pt
@@ -610,30 +647,25 @@ def replace_full_document(model: Any, ctx: Any, content: str) -> None:
         text.insertControlCharacter(cursor, 0, False)  # 0 == ControlCharacter.PARAGRAPH_BREAK
         cursor.goLeft(1, False)
         leftover = text.createTextCursorByRange(cursor.getStart())
-        _insert_mixed_or_plain_html(model, ctx, cursor, content)
+        failures = _insert_mixed_or_plain_html(model, ctx, cursor, content)
         leftover.gotoEndOfParagraph(True)
         if leftover.getString() == "":
             leftover.collapseToStart()
             leftover.goLeft(1, True)
             # Tip: a tracked delete of this break joins paragraphs ('initiativeproject'); delete it untracked.
-            was_rec = bool(model.getPropertyValue("RecordChanges"))
-            if was_rec:
-                model.setPropertyValue("RecordChanges", False)
-            try:
+            with record_changes.record_changes(model, False):
                 leftover.setString("")
-            finally:
-                if was_rec:
-                    model.setPropertyValue("RecordChanges", True)
+        return failures
 
 
 
 
 def replace_single_range_with_content(
     model: Any, text_range: Any, content: str, ctx: Any
-) -> None:
+) -> str | None:
     """Replace the given text range with rendered *content* (HTML path)."""
     with image_placeholders._keep_placeholder_images(model, content) as swapped:
-        prepared = _decode_complete_character_references(swapped)
+        prepared = html_import_styles._decode_complete_character_references(swapped)
         text_obj = text_range.getText()
 
         # Detect a table-cell target up front (the cursor's TextTable property is set inside a cell).
@@ -651,12 +683,17 @@ def replace_single_range_with_content(
         if inline_preserve:
             saved_style = uno_read(lambda: text_obj.createTextCursorByRange(text_range.getStart()).getPropertyValue("ParaStyleName"), None)
 
+        apply_styles = False
+        note = None
+        if not inline_preserve:
+            apply_styles, note = _lo_style_for_replaced_range(model, prepared, text_range)
+
         cursor = text_obj.createTextCursorByRange(text_range)
         from plugin.writer.table_nesting import raise_if_range_hosts_nested_table
 
         # setString on a host cell wipes nested TextTables — same refuse as table_set_cell.
         raise_if_range_hosts_nested_table(text_range)
-        from . import format as format_mod
+        from .styles import apply_paragraph_style_preserving_direct_char
         with _deletion_author():  # author the deletion distinctly (split by-author coloring)
             cursor.setString("")
 
@@ -676,18 +713,22 @@ def replace_single_range_with_content(
             # spans that struck text, converting its DELETE redline into a FORMAT redline -- so
             # accepting the change would keep BOTH the old and new text. The inline import does not
             # demote the style here, so skipping the restore keeps a clean Delete + Insert pair.
-            if not image_placeholders._is_recording_changes(model):
+            if not record_changes.is_recording_changes(model):
                 def restore_style() -> None:
                     restore = text_obj.createTextCursorByRange(anchor.getStart())
                     restore.gotoRange(cursor.getEnd(), True)
-                    format_mod.apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
+                    apply_paragraph_style_preserving_direct_char(model, restore, saved_style)
 
                 best_effort(restore_style, "replace_single_range_with_content: could not restore ParaStyleName")
+            return None
         else:
-            # apply_styles=False: a search/replace splits the matched paragraph, so applying a
-            # data-lo-style here would restyle the surrounding text. Styled writes use full_document.
+            # A whole-paragraph range has no leftover text in host paragraphs, so data-lo-style
+            # can safely be applied post-import. A partial range leaves neighbor text that would
+            # be restyled by the block style, and recording tracked changes leaves the old text
+            # as a deletion that a paragraph style would turn into a format change; both skip
+            # styling and warn.
             try:
-                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=False)
+                _insert_mixed_or_plain_html(model, ctx, cursor, prepared, apply_styles=apply_styles)
             except Exception as e:
                 reraise_if_disposed(e)
                 # Block/rich HTML into a table cell can raise an empty RuntimeException from the StarWriter
@@ -700,19 +741,9 @@ def replace_single_range_with_content(
                         "table cells, or place block/rich content outside the table."
                     ) from e
                 raise
+            return note
 
 
-
-
-def _rollback_undo_action(mgr: Any, title: str | None, log_message: str) -> bool:
-    try:
-        titles = mgr.getAllUndoActionTitles()
-        if titles and titles[0] == title:
-            mgr.undo()
-            return True
-    except Exception:
-        log.exception(log_message)
-    return False
 
 
 def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
@@ -738,22 +769,11 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
     cursor.gotoEnd(True)
 
     from .edit_review import next_agent_edit_undo_title
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     title = next_agent_edit_undo_title()
-    mgr = None
-    try:
-        candidate = model.getUndoManager()
-        # `is True`: MagicMock isLocked() is truthy and must not look locked.
-        if candidate is not None and candidate.isLocked() is not True:
-            candidate.enterUndoContext(title)
-            mgr = candidate
-    except Exception as exc:
-        reraise_if_disposed(exc)
-        mgr = None
-    if mgr is None:
-        raise ToolExecutionError("Could not enter undo context for header/footer import.")
 
-    try:
+    def mutate() -> None:
         cursor.setString("")
         cursor.gotoStart(False)
         insert_html_fragment_at_cursor(
@@ -768,11 +788,7 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
             prev: Any = None
             last: Any = None
             count = 0
-            sentinel: Any = object()
-            while enum.hasMoreElements() is True:
-                elem = uno_read(enum.nextElement, sentinel)
-                if elem is sentinel:
-                    break
+            for elem in iter_elements(enum):
                 prev = last
                 last = elem
                 count += 1
@@ -784,10 +800,10 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
                         try:
                             # To actually remove the trailing break, select from the end of the previous paragraph
                             # to the end of the document, and set String to empty.
-                            cursor = text_obj.createTextCursorByRange(prev)
-                            cursor.gotoEndOfParagraph(False)
-                            cursor.gotoRange(last.getEnd(), True)
-                            cursor.setString("")
+                            c = text_obj.createTextCursorByRange(prev)
+                            c.gotoEndOfParagraph(False)
+                            c.gotoRange(last.getEnd(), True)
+                            c.setString("")
                         except Exception as e:
                             reraise_if_disposed(e)
                             log.debug("Failed to remove trailing paragraph break via cursor: %s", e)
@@ -800,23 +816,17 @@ def replace_xtext_with_html(text_obj: Any, html: str, *, model: Any) -> None:
         except Exception as e:
             reraise_if_disposed(e)
             log.debug("Failed to inspect trailing paragraph: %s", e)
-    except Exception as exc:
-        leave_ok = False
-        try:
-            mgr.leaveUndoContext()
-            leave_ok = True
-        except Exception:
-            log.exception("replace_xtext_with_html: leaveUndoContext failed")
-        if not (leave_ok and _rollback_undo_action(mgr, title, "replace_xtext_with_html: undo failed")):
-            raise ToolExecutionError(
-                f"the header/footer was written and could not be rolled back: {exc}"
-            ) from exc
-        raise
 
     try:
-        mgr.leaveUndoContext()
-    except Exception:
-        log.exception("replace_xtext_with_html: leaveUndoContext failed")
+        outcome = commit_or_rollback(model, title, mutate)
+    except UndoUnavailable:
+        raise ToolExecutionError("Could not enter undo context for header/footer import.")
+
+    if outcome.error is not None and outcome.error.get("code") == "ROLLBACK_FAILED":
+        raise ToolExecutionError(
+            f"the header/footer was written and could not be rolled back: {outcome.error.get('message')}"
+        )
+    outcome.raise_mutate_error()
 
 
 def content_has_markup(content: str | None) -> bool:
@@ -865,12 +875,11 @@ def _collect_range_portions(target_range: Any) -> tuple[bool, list[tuple[str, in
         if enum is None:
             return False, None
         portions: list[tuple[str, int]] = []
-        while enum.hasMoreElements() is True:
-            elem = enum.nextElement()
+        for elem in iter_elements(enum):
             if hasattr(elem, "createEnumeration"):
                 penum = elem.createEnumeration()
-                while penum.hasMoreElements() is True:
-                    p = _portion_kind_len(penum.nextElement())
+                for p_elem in iter_elements(penum):
+                    p = _portion_kind_len(p_elem)
                     if p is None:
                         return True, None
                     portions.append(p)
@@ -951,7 +960,7 @@ def replace_preserving_format(
     # character, which renders as a scrambled, un-reviewable mess (old and new text interleaved).
     # When recording, replace the whole range in one shot so the edit is a single tracked
     # Delete + Insert the user can accept (-> new text) or reject (-> old text) cleanly.
-    if image_placeholders._is_recording_changes(model):
+    if record_changes.is_recording_changes(model):
         cursor = text.createTextCursorByRange(target_range)
         if not (split_author and in_undo_context):
             # Single atomic path. Taken when split-author coloring is OFF, OR when the caller has NOT
@@ -1072,6 +1081,25 @@ def replace_preserving_format(
         del_cursor = text.createTextCursorByRange(main_cursor)
         _advance(del_cursor, old_len - new_len, True)
         del_cursor.setString("")
+
+
+def run_writer_mutation_with_optional_review(doc: Any, ctx: Any, apply_fn: Any) -> Any:
+    """Run a Writer document mutation, optionally wrapped in EditReviewSession.
+
+    LibrePy omits ``plugin.writer.edit_review``; when that module is absent we apply
+    directly. Full WriterAgent (or co-install) imports it and honors review mode.
+    """
+    try:
+        from plugin.writer.edit_review import EditReviewSession, review_recording_enabled
+    except ImportError:
+        return apply_fn()
+    review = EditReviewSession(doc, ctx, enabled=review_recording_enabled())
+    try:
+        with review:
+            return review.record_mutation(apply_fn)
+    finally:
+        review.cleanup()
+
 
 
 

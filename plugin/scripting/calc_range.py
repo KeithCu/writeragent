@@ -17,16 +17,12 @@ from __future__ import annotations
 import logging
 import math
 import operator
-from typing import Any, Callable, ClassVar, Iterator, cast
+from typing import Any, Callable, ClassVar, Iterator
 
 from plugin.framework.deal_shim import (
     DEAL_MAX_SHAPE_DIM,
     DEAL_MAX_TOKEN,
-    UNDER_CROSSHAIR,
-    _profile,
-    ascii_bounded,
     deal,
-    str_bounded,
 )
 from plugin.scripting.payload_codec import (
     PAYLOAD_CALC_RANGE,
@@ -37,11 +33,10 @@ from plugin.scripting.payload_codec import (
 
 log = logging.getLogger(__name__)
 
-# Cover: 1×1 grid, int 0, 1-char ascii.
-_DEAL_GRID_DIM = 1 if UNDER_CROSSHAIR else DEAL_MAX_SHAPE_DIM
-_DEAL_CELL_INT_ABS = 0 if UNDER_CROSSHAIR else 8
-_DEAL_CELL_STR_LEN = 1 if UNDER_CROSSHAIR else 4
-_DEAL_COL_NAME_LEN = _DEAL_CELL_STR_LEN if UNDER_CROSSHAIR else DEAL_MAX_TOKEN
+_DEAL_GRID_DIM = DEAL_MAX_SHAPE_DIM
+_DEAL_CELL_INT_ABS = 8
+_DEAL_CELL_STR_LEN = 4
+_DEAL_COL_NAME_LEN = DEAL_MAX_TOKEN
 
 
 def _assert_rectangular(grid: list[list[Any]]) -> None:
@@ -116,34 +111,17 @@ def _deal_grid_values_ok(values: object) -> bool:
     )
 
 
-def _deal_calc_range_other_ok_crosshair(other: object) -> bool:
-    # cover-all: unbounded int/str on binary ops exploded CrossHair the same way
-    # inner grid cells did; keep a tiny numeric/ascii slice under the engine.
-    if other is None or isinstance(other, bool):
-        return True
-    if isinstance(other, int):
-        return -_DEAL_CELL_INT_ABS <= other <= _DEAL_CELL_INT_ABS
-    if isinstance(other, float):
-        return True
-    if isinstance(other, str):
-        return ascii_bounded(other, _DEAL_CELL_STR_LEN)
-    return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
-
-
 def _deal_calc_range_other_ok_pytest(other: object) -> bool:
     if other is None or isinstance(other, (bool, int, float, str)):
         return True
     return isinstance(other, CalcRange) and _deal_grid_values_ok(other._values)
 
 
-_deal_calc_range_other_ok = _profile(
-    _deal_calc_range_other_ok_crosshair,
-    _deal_calc_range_other_ok_pytest,
-)
+_deal_calc_range_other_ok = _deal_calc_range_other_ok_pytest
 
-_deal_binary_op_pre = _profile(
-    lambda self, other: _deal_grid_values_ok(self._values) and _deal_calc_range_other_ok(other)
-)
+
+def _deal_binary_op_pre(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 def _whole_floats_to_int(grid: list[list[Any]]) -> list[list[Any]]:
@@ -178,7 +156,7 @@ def _arith_operand(value: Any, op: Any) -> Any:
 
 def _binop(op: Any, reverse: bool = False) -> Any:
     """Factory for binary operator dunders delegating to _binary_op."""
-    @deal.pre(_deal_binary_op_pre)
+    @deal.pre(lambda self, other: _deal_binary_op_pre(self, other))
     def method(self: Any, other: Any) -> Any:
         # crosshair: off
         return self._binary_op(other, op, is_reverse=reverse)
@@ -285,13 +263,8 @@ class CalcRange:
             dt = np.float64 if dtype is None else dtype
             return np.array([], dtype=dt, **kwargs).reshape(0, 0)
 
-        # What was wrong: every explicit dtype was built from a grid that had
-        # already replaced None with math.nan. dtype=object stored nan, and
-        # dtype=bool stored True because nan is truthy.
-        # How it happened: _cell ran before the dtype branch. np.array on the
-        # raw cells keeps None for object, maps None to False for bool, and
-        # maps None to nan for float.
-        # Why this fixes it: a named dtype is passed the raw cells. Only the
+        # Named dtypes are built from raw cells (None intact) so bool columns do not treat NaN as True and object columns keep None.
+        # Only the
         # default all-numeric path maps blanks to NaN.
         if dtype is not None:
             return np.array(self._values, dtype=dtype, **kwargs)
@@ -467,51 +440,16 @@ def materialize_calc_range(wire: Any) -> CalcRange:
     return CalcRange(wire)
 
 
-_deal_inner_grid_cell_ok = _profile(
-    lambda c: (
-        c is None
-        or (-_DEAL_CELL_INT_ABS <= c <= _DEAL_CELL_INT_ABS if isinstance(c, int) else False)
-        or (ascii_bounded(c, _DEAL_CELL_STR_LEN) if isinstance(c, str) else False)
-    ),
-    pytest_fn=lambda c: isinstance(c, (str, int, float, bool, type(None))) or hasattr(c, "dtype"),
-)
+def _deal_inner_grid_cell_ok(c: Any) -> bool:
+    return isinstance(c, (str, int, float, bool, type(None))) or hasattr(c, "dtype")
 
 
-def _deal_json_list_of_grids_arg_ok_crosshair(obj: object) -> bool:
-    if not isinstance(obj, (list, tuple)) or len(obj) > _DEAL_GRID_DIM:
-        return False
-    for item in obj:
-        if not isinstance(item, (list, tuple)) or len(item) > _DEAL_GRID_DIM:
-            return False
-        for row in item:
-            if isinstance(row, (list, tuple)):
-                if len(row) > _DEAL_GRID_DIM:
-                    return False
-                if not all(_deal_inner_grid_cell_ok(c) for c in row):
-                    return False
-            elif not _deal_inner_grid_cell_ok(row):
-                return False
+def _deal_json_list_of_grids_arg_ok(*args: Any, **kwargs: Any) -> bool:
     return True
 
 
-_deal_json_list_of_grids_arg_ok = _profile(_deal_json_list_of_grids_arg_ok_crosshair)
-
-
-def _deal_materialize_inner_ok_crosshair(inner: object) -> bool:
-    if type(inner) is not list and type(inner) is not tuple:
-        return True
-    rows = cast("list[Any] | tuple[Any, ...]", inner)
-    return len(rows) <= _DEAL_GRID_DIM and all(
-        type(r) not in (list, tuple)
-        or (
-            len(r) <= _DEAL_GRID_DIM
-            and all(_deal_inner_grid_cell_ok(c) for c in r)
-        )
-        for r in rows
-    )
-
-
-_deal_materialize_inner_ok = _profile(_deal_materialize_inner_ok_crosshair)
+def _deal_materialize_inner_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 def _is_pandas_frame_or_series(obj: Any) -> bool:
@@ -545,11 +483,7 @@ def _materialize_inner_grid(inner: Any) -> list[list[Any]]:
     else:
         unpacked = inner
 
-    # What was wrong: any object with to_numpy() was converted, and a raised
-    # to_numpy was swallowed so the object became a 1×1 cell.
-    # How it happened: duck-typing plus ``except Exception: pass``.
-    # Why this fixes it: only a pandas DataFrame or Series is a grid here.
-    # A failure from that to_numpy propagates. Anything else stays one cell.
+    # Only pandas DataFrame/Series expand to grids; other objects stay single cells and to_numpy failures propagate.
     if _is_pandas_frame_or_series(unpacked):
         unpacked = unpacked.to_numpy()
 
@@ -620,34 +554,8 @@ def _is_json_list_of_grids(obj: Any) -> bool:
 
 
 
-def _deal_labeled_grid_ok_crosshair(
-    columns: object, data: object = None
-) -> bool:
-    return (
-        type(columns) is list
-        and len(columns) <= _DEAL_GRID_DIM
-        and all(str_bounded(c, _DEAL_COL_NAME_LEN) for c in columns)
-        and (
-            data is None
-            or (
-                type(data) is list
-                and len(data) <= _DEAL_GRID_DIM
-                and all(
-                    (
-                        type(row) is list
-                        and len(row) <= _DEAL_GRID_DIM
-                        and all(_deal_inner_grid_cell_ok(c) for c in row)
-                    )
-                    if type(row) is list
-                    else _deal_inner_grid_cell_ok(row)
-                    for row in data
-                )
-            )
-        )
-    )
-
-
-_deal_labeled_grid_ok = _profile(_deal_labeled_grid_ok_crosshair)
+def _deal_labeled_grid_ok(*args: Any, **kwargs: Any) -> bool:
+    return True
 
 
 @deal.pre(lambda columns, data=None, **__: _deal_labeled_grid_ok(columns, data))

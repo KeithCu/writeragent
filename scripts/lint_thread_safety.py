@@ -7,12 +7,12 @@
 
 Scans Python files to verify:
 1. Functions that call UNO source getters (get_desktop, get_ctx, get_calc_document_from_ctx, etc.)
-   are either decorated with @main_thread_only or have an on_main_thread() guard.
-2. Synchronous add-in evaluation and notification functions do not call blocking execute_on_main_thread.
+   are either decorated with @main_thread_only or have an main.is_current() guard.
+2. Synchronous add-in evaluation and notification functions do not call blocking main.call.
 3. Add-in calculation paths do not use bare blocking synchronization primitives.
 4. Cross-file call-graph analysis: call paths originating from @background entrypoints or
    run_in_background callbacks do not reach RED_UNO_SINKS across module boundaries without
-   main-thread marshaling (execute_on_main_thread / post_to_main_thread) or on_main_thread() guards.
+   main-thread marshaling (main.call / main.post) or main.is_current() guards.
 
 Usage:
     python scripts/lint_thread_safety.py [files or directories]
@@ -41,6 +41,11 @@ except ImportError:
             "dispatch", "forward", "handle", "step", "exception", "info", "debug",
             "warning", "error",
         }
+
+try:
+    from scripts.thread_safety_roots import SYNC_HOST_ENTRYPOINTS
+except ImportError:
+    from thread_safety_roots import SYNC_HOST_ENTRYPOINTS  # type: ignore
 
 RED_UNO_FACTORY_GETTERS = {
     "get_desktop",
@@ -96,26 +101,53 @@ RED_UNO_SINKS = {
     "createUnoService",
 }
 
-SYNC_ADDIN_FUNCTIONS = {
-    "execute_python_addin",
-    "_execute_python_addin_impl",
-    "execute_prompt_addin",
-    "_execute_prompt_addin_impl",
-    "_notify_thread_violation",
-    "session_key",
-    "py",
-    "python",
-    "prompt",
-}
 
-BLOCKING_MARSHAL_FUNCS = {
-    "execute_on_main_thread",
-}
+def _dotted_name(node: ast.AST) -> str:
+    parts: list[str] = []
+    curr: ast.AST = node
+    while isinstance(curr, ast.Attribute):
+        parts.append(curr.attr)
+        curr = curr.value
+    if isinstance(curr, ast.Name):
+        parts.append(curr.id)
+    return ".".join(reversed(parts))
 
+
+MARSHAL_METHOD_NAMES = {"call", "post", "run", "post_or_run"}
+MARSHAL_RECEIVERS = {"main", "queue_executor", "qe"}
 MARSHAL_SANITIZERS = {
-    "execute_on_main_thread",
-    "post_to_main_thread",
+    f"{r}.{m}" for r in MARSHAL_RECEIVERS for m in MARSHAL_METHOD_NAMES
 }
+
+
+def is_marshal_call(node: ast.Call) -> bool:
+    dotted = _dotted_name(node.func)
+    if not dotted:
+        return False
+    parts = dotted.split(".")
+    if len(parts) >= 2 and parts[-1] in MARSHAL_METHOD_NAMES:
+        return parts[-2] in MARSHAL_RECEIVERS
+    return False
+
+
+def is_blocking_marshal(node: ast.Call) -> bool:
+    dotted = _dotted_name(node.func)
+    if not dotted:
+        return False
+    parts = dotted.split(".")
+    if len(parts) >= 2 and parts[-1] in {"call", "run"}:
+        return parts[-2] in MARSHAL_RECEIVERS
+    return False
+
+
+def _has_on_main_guard(cond_str: str) -> bool:
+    if "on_python_main_thread()" in cond_str:
+        return True
+    for prefix in ("main.", "self.queue_executor.", "queue_executor.", "qe.", "ex."):
+        if f"{prefix}is_current()" in cond_str:
+            return True
+    return False
+
 
 REGISTRATION_FUNCS = {
     "register_action_handler",
@@ -168,7 +200,7 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
 
     def visit_IfExp(self, node: ast.IfExp) -> None:
         cond_str = ast.unparse(node.test)
-        has_on_main = "on_main_thread()" in cond_str
+        has_on_main = _has_on_main_guard(cond_str)
         if has_on_main and not cond_str.startswith("not ") and " not " not in cond_str:
             self.guarded_scopes.append(True)
             self.visit(node.body)
@@ -185,8 +217,8 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
         for stmt in statements:
             if isinstance(stmt, ast.If):
                 cond_str = ast.unparse(stmt.test)
-                has_on_main = "on_main_thread()" in cond_str
-                # Case 1: if not on_main_thread(): ... return / raise
+                has_on_main = _has_on_main_guard(cond_str)
+                # Case 1: if not is_current(): ... return / raise
                 if has_on_main and (cond_str.startswith("not ") or " not " in cond_str):
                     exits_early = bool(stmt.body) and isinstance(
                         stmt.body[-1], (ast.Return, ast.Raise)
@@ -207,7 +239,7 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
                         self.guarded_scopes.pop()
                         continue
 
-                # Case 2: if on_main_thread(): body is guarded, orelse is unguarded
+                # Case 2: if is_current(): body is guarded, orelse is unguarded
                 if has_on_main and not cond_str.startswith("not ") and " not " not in cond_str:
                     self.guarded_scopes.append(True)
                     self._visit_statements(stmt.body)
@@ -282,27 +314,27 @@ class ThreadSafetyASTVisitor(ast.NodeVisitor):
 
         # Rule 1: Unguarded UNO access in addin/scripting files
         if func_name in RED_UNO_FACTORY_GETTERS and not is_guarded:
-            if current_fn in SYNC_ADDIN_FUNCTIONS or "calc/python" in str(self.file_path):
+            if current_fn in SYNC_HOST_ENTRYPOINTS or "calc/python" in str(self.file_path):
                 self.findings.append(
                     Finding(
                         file=self.file_path,
                         line=node.lineno,
                         col=node.col_offset,
                         rule_id="unguarded-uno-access",
-                        message=f"Call to UNO source '{func_name}' is not guarded by on_main_thread() check or @main_thread_only.",
+                        message=f"Call to UNO source '{func_name}' is not guarded by main.is_current() check or @main_thread_only.",
                     )
                 )
 
         # Rule 2: Blocking marshal in synchronous dispatch
-        if func_name in BLOCKING_MARSHAL_FUNCS:
-            if current_fn in SYNC_ADDIN_FUNCTIONS:
+        if is_blocking_marshal(node):
+            if current_fn in SYNC_HOST_ENTRYPOINTS:
                 self.findings.append(
                     Finding(
                         file=self.file_path,
                         line=node.lineno,
                         col=node.col_offset,
                         rule_id="blocking-marshal-in-sync-dispatch",
-                        message=f"Blocking '{func_name}' inside synchronous dispatch function '{current_fn}' is a deadlock hazard (#402). Use post_to_main_thread or compute without UI marshaling.",
+                        message=f"Blocking '{func_name}' inside synchronous dispatch function '{current_fn}' is a deadlock hazard (#402). Use main.post or compute without UI marshaling.",
                     )
                 )
 
@@ -341,7 +373,7 @@ class CrossFileCallGraphBuilder(ast.NodeVisitor):
 
     def visit_IfExp(self, node: ast.IfExp) -> None:
         cond_str = ast.unparse(node.test)
-        has_on_main = "on_main_thread()" in cond_str
+        has_on_main = _has_on_main_guard(cond_str)
         if has_on_main and not cond_str.startswith("not ") and " not " not in cond_str:
             self.guarded_scopes.append(True)
             self.visit(node.body)
@@ -358,8 +390,8 @@ class CrossFileCallGraphBuilder(ast.NodeVisitor):
         for stmt in statements:
             if isinstance(stmt, ast.If):
                 cond_str = ast.unparse(stmt.test)
-                has_on_main = "on_main_thread()" in cond_str
-                # Case 1: if not on_main_thread(): ... return / raise
+                has_on_main = _has_on_main_guard(cond_str)
+                # Case 1: if not is_current(): ... return / raise
                 if has_on_main and (cond_str.startswith("not ") or " not " in cond_str):
                     exits_early = bool(stmt.body) and isinstance(
                         stmt.body[-1], (ast.Return, ast.Raise)
@@ -380,7 +412,7 @@ class CrossFileCallGraphBuilder(ast.NodeVisitor):
                         self.guarded_scopes.pop()
                         continue
 
-                # Case 2: if on_main_thread(): body is guarded, orelse is unguarded
+                # Case 2: if is_current(): body is guarded, orelse is unguarded
                 if has_on_main and not cond_str.startswith("not ") and " not " not in cond_str:
                     self.guarded_scopes.append(True)
                     self._visit_statements(stmt.body)
@@ -504,9 +536,12 @@ class CrossFileCallGraphBuilder(ast.NodeVisitor):
 
         is_guarded = any(self.guarded_scopes)
 
-        # Detect marshal sanitizers: execute_on_main_thread / post_to_main_thread
-        if bare_name in MARSHAL_SANITIZERS:
-            self.call_edges.append((self.current_function, func_name, node.lineno, is_guarded))
+        # Detect marshal sanitizers: main.call / main.post / main.run / main.post_or_run
+        if is_marshal_call(node):
+            dotted = _dotted_name(node.func)
+            parts = dotted.split(".")
+            sanitizer_name = f"{parts[-2]}.{parts[-1]}"
+            self.call_edges.append((self.current_function, sanitizer_name, node.lineno, is_guarded))
             return
 
         # Registration functions: do not treat callback arguments as immediate synchronous calls
@@ -605,10 +640,10 @@ def scan_cross_file_callgraph(root_dir: Path) -> list[Finding]:
 
             for callee, file_path, lineno, is_guarded in graph.get(curr, []):
                 bare_callee = callee.split(".")[-1]
-                if callee in MARSHAL_SANITIZERS or bare_callee in MARSHAL_SANITIZERS:
+                if callee in MARSHAL_SANITIZERS:
                     continue  # Marshaled to main thread -> safe
                 if is_guarded:
-                    continue  # Guarded by on_main_thread() -> safe
+                    continue  # Guarded by main.is_current() -> safe
 
                 if callee in RED_UNO_SINKS or bare_callee in RED_UNO_SINKS:
                     chain = " -> ".join(path + [callee])

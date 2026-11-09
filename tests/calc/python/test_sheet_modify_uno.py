@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from plugin.calc.python.function import SHEET_MODIFY_LISTENERS, _spill_registry_doc_key, perform_deferred_spill
+from plugin.calc.python.spill import perform_deferred_spill
+from plugin.calc.python.workbook_state import WorkbookState
 from plugin.calc.python.sheet_modify import (
     dispatch_sheet_modified,
     ensure_sheet_modify_listener,
@@ -16,6 +17,7 @@ from plugin.calc.python.sheet_modify import (
 )
 from plugin.testing_runner import native_test
 from plugin.tests.testing_utils import with_native_doc
+from tests.calc.python.calc_workbook_test_access import SHEET_MODIFY_LISTENERS
 
 
 @native_test
@@ -35,7 +37,18 @@ def test_sheet_rename_migrates_modify_listener_and_spill(ctx, doc):
     sheet.getCellByPosition(0, 0).setFormula(f'=PY("{code}")')
     # Pass the spill registry key (RuntimeUID), like the real caller. A pooled doc can
     # be a saved file, and its URL would not match, so the spill would be skipped.
-    perform_deferred_spill(_spill_registry_doc_key(doc), original_name, 0, 0, [[1, 2], [3, 4]], doc=doc, sheet=sheet, code=code)
+    st = WorkbookState.for_doc(doc)
+    assert st is not None
+    perform_deferred_spill(
+        original_name,
+        0,
+        0,
+        [[1, 2], [3, 4]],
+        doc=doc,
+        sheet=sheet,
+        code=code,
+        key=st.key,
+    )
 
     assert sheet.getCellByPosition(1, 0).getValue() == 2.0
     assert sheet.getCellByPosition(0, 1).getValue() == 3.0

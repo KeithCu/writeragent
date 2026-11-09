@@ -64,7 +64,7 @@ def test_extract_library_source_keeps_computed_assigns_and_rejects_loops():
 
 
 def test_extract_library_source_rejects_calls_hidden_in_assignments():
-    """A call in an assignment used to run while the library loaded."""
+    """Calls in assignments must not run while the library source is extracted."""
     with pytest.raises(ValueError, match="lines 2"):
         extract_library_source("K = 1\nx = print('nope')\n")
     with pytest.raises(ValueError, match="lines 1"):
@@ -154,7 +154,7 @@ def test_extract_library_source_rejects_class_body_target_calls():
 
 
 def test_extract_library_source_rejects_module_walrus():
-    """A walrus Expr used to disappear with no error, so the name never bound."""
+    """Module-level walrus expressions must be rejected so names never bind silently."""
     with pytest.raises(ValueError, match="lines 1"):
         extract_library_source("(count := 1)\n")
     src = extract_library_source("def f():\n    return 1\nprint('skip')\n")
@@ -221,7 +221,7 @@ def test_sandbox_library_second_attr_does_not_refetch():
             }
         raise AssertionError(tool)
 
-    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+    with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
         res = run_sandboxed_code(
             "import writeragent as wa\n"
             "result = wa.scripts.Helpers.add(1, 2) + wa.scripts.Helpers.mul(3, 4)\n"
@@ -251,7 +251,7 @@ def test_getitem_uses_stored_title():
             }
         raise AssertionError(tool)
 
-    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+    with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
         res = run_sandboxed_code(
             "import writeragent as wa\n"
             "result = wa.scripts['odd name'].ping()\n"
@@ -290,7 +290,7 @@ def test_shared_session_picks_up_script_edit():
     bodies = {"Helpers": "def n():\n    return 1\n"}
     sid = "test-named-scripts-edit"
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=_helpers_rpc(bodies)):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies)):
             r1 = run_sandboxed_code(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
@@ -315,7 +315,7 @@ def test_shared_session_unchanged_sends_hash_not_body():
     calls: list[tuple[str, dict]] = []
     sid = "test-named-scripts-hash"
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=_helpers_rpc(bodies, calls)):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies, calls)):
             run_sandboxed_code(
                 "import writeragent as wa\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
@@ -351,7 +351,7 @@ def test_doc_hello_function_call():
             }
         raise AssertionError(tool)
 
-    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+    with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
         res = run_sandboxed_code(
             "import writeragent as wa\n"
             "result = wa.doc.hello_writeragent.hello()\n"
@@ -385,7 +385,7 @@ def test_script_library_uses_bound_executor_not_contextvar():
 
     token = _current_executor.set(None)
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
             assert lib.hello_writeragent.hello() == "Hello, Keith"
     finally:
         _current_executor.reset(token)
@@ -437,7 +437,7 @@ def test_bind_keeps_each_executor_library():
                 }
             raise AssertionError(tool)
 
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
             assert lib_a.hello_writeragent.hello() == "from-a"
         assert ("document", "hello_writeragent") in exe_a._named_script_cache
         assert getattr(exe_b, "_named_script_cache", None) in (None, {})
@@ -470,7 +470,7 @@ def test_library_lookup_prefers_contextvar_executor():
         raise AssertionError(tool)
 
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
             assert lib.Helpers.n() == "from-context"
         assert ("user", "Helpers") in exe_b._named_script_cache
         assert getattr(exe_a, "_named_script_cache", None) in (None, {})
@@ -563,7 +563,7 @@ def test_host_rpc_named_script_blocked_when_tools_disabled():
 
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_must_not_read),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_must_not_read),
+        patch("plugin.framework.queue_executor.main.call", side_effect=_must_not_read),
     ):
         with pytest.raises(RuntimeError, match=r"=PY\(\)"):
             execute_tool(
@@ -585,7 +585,7 @@ def test_host_rpc_named_script_still_allowed_for_domain_allowlist():
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={}),
         patch("plugin.framework.uno_context.get_ctx", return_value=MagicMock()),
         patch("plugin.framework.uno_context.get_active_document", return_value=MagicMock()),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
@@ -601,59 +601,49 @@ def test_off_main_py_named_script_skips_main_thread_marshal():
     code = "def add(a, b):\n    return a + b\n"
 
     def _must_not_marshal(fn):
-        raise AssertionError("execute_on_main_thread")
+        raise AssertionError("main.call")
 
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
         patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=_must_not_marshal),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
+        patch("plugin.framework.queue_executor.main.call", side_effect=_must_not_marshal),
     ):
         out = execute_tool(GET_NAMED_PYTHON_SCRIPT, {"name": "Helpers", "origin": "user"})
     assert out["code"] == code
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
         patch("plugin.framework.thread_guard.in_sync_host_dispatch", return_value=True),
-        patch("plugin.framework.thread_guard.on_main_thread", return_value=False),
+        patch("plugin.framework.queue_executor.main.is_current", return_value=False),
     ):
         with pytest.raises(RuntimeError, match="Document scripts"):
             execute_tool(GET_NAMED_PYTHON_SCRIPT, {"name": "Helpers", "origin": "document"})
 
 
 def test_rpc_named_librepy_fallback_uses_exchange_tool_call():
-    import builtins
-
-    from plugin.scripting.named_scripts import _rpc_named
-
-    real_import = builtins.__import__
-
-    def _block_api(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "plugin.scripting.writeragent_api":
-            raise ImportError("LibrePy omits writeragent_api")
-        return real_import(name, globals, locals, fromlist, level)
+    from plugin.scripting.host_tool_call import call_host_tool
 
     with (
         # COMPUTE_WORKER is set by importing compute_service.formula_worker;
         # force it off so this test does not depend on what ran earlier.
         patch.dict("os.environ", {"WRITERAGENT_IS_WORKER": "1", "WRITERAGENT_COMPUTE_WORKER": "0"}),
-        patch("builtins.__import__", side_effect=_block_api),
-        patch("plugin.scripting.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
+        patch("plugin.framework.ipc.exchange_tool_call", return_value={"body": "x"}) as mock_exchange,
     ):
-        result = _rpc_named("get_named_python_script", name="Hello", missing=None)
+        result = call_host_tool("get_named_python_script", name="Hello", missing=None)
 
     assert result == {"body": "x"}
     mock_exchange.assert_called_once_with("get_named_python_script", {"name": "Hello"})
 
 
 def test_rpc_named_fails_closed_in_compute_worker():
-    from plugin.scripting.named_scripts import _rpc_named
+    from plugin.scripting.host_tool_call import call_host_tool
 
     with (
         patch.dict("os.environ", {"WRITERAGENT_COMPUTE_WORKER": "1"}),
-        patch("plugin.scripting.ipc.exchange_tool_call") as mock_exchange,
+        patch("plugin.framework.ipc.exchange_tool_call") as mock_exchange,
     ):
         with pytest.raises(RuntimeError, match="compute service"):
-            _rpc_named("get_named_python_script", name="Hello")
+            call_host_tool("get_named_python_script", name="Hello")
     mock_exchange.assert_not_called()
 
 
@@ -674,9 +664,8 @@ def test_extract_library_source_rejects_decorators():
 
 
 def test_extract_library_source_rejects_default_arg_calls():
-    # What was wrong: Default arguments and kw_defaults evaluate when the function is defined
-    # at module import time, executing side-effects during library load.
-    # Why this change: Check function args.defaults and args.kw_defaults for Call nodes.
+    # Default and keyword-default values run at function definition time, so any Call
+    # there would execute during library load. Reject defaults and kw_defaults that contain calls.
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("def f(x=wa.writer.read()):\n    pass\n")
     with pytest.raises(ValueError, match="not library definitions"):
@@ -684,8 +673,8 @@ def test_extract_library_source_rejects_default_arg_calls():
 
 
 def test_extract_library_source_rejects_annotation_calls():
-    # What was wrong: Type annotations (e.g. `x: wa.read()`) evaluate at function/class definition time.
-    # Why this change: Check parameter annotations, return annotations, and class annotations for Call nodes.
+    # Type annotations evaluate at definition time, so a call in an annotation runs
+    # during library load. Reject parameter, return, and class annotations that contain calls.
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("def f(x: wa.read()) -> None:\n    pass\n")
     with pytest.raises(ValueError, match="not library definitions"):
@@ -693,8 +682,8 @@ def test_extract_library_source_rejects_annotation_calls():
 
 
 def test_extract_library_source_rejects_class_body_non_def_assign():
-    # What was wrong: Arbitrary statements in class bodies (like `for`, `try`, expressions) run at class creation.
-    # Why this change: Only def methods, assignments, pass, or an initial docstring are permitted in class bodies.
+    # Class bodies run at class creation, so loose statements would execute during library load.
+    # Only def methods, assignments, pass, or an initial docstring are allowed in class bodies.
     with pytest.raises(ValueError, match="not library definitions"):
         extract_library_source("class C:\n    print('side effect')\n")
     with pytest.raises(ValueError, match="not library definitions"):
@@ -709,7 +698,7 @@ def test_script_library_dir_and_contains():
             return {"user": ["my_func", "other-script"], "document": []}
         return {}
 
-    with patch("plugin.scripting.named_scripts._rpc_named", side_effect=fake_rpc):
+    with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=fake_rpc):
         lib = ScriptLibrary("user")
         d = dir(lib)
         assert "my_func" in d
@@ -720,9 +709,8 @@ def test_script_library_dir_and_contains():
 
 
 def test_bind_and_reset_named_scripts_executor():
-    # What was wrong: The ContextVar token from bind_named_scripts_executor was never reset in finally blocks,
-    # causing executors to leak across subsequent tasks.
-    # Why this change: bind_named_scripts_executor returns token, reset_named_scripts_executor resets it.
+    # bind_named_scripts_executor returns a token that reset_named_scripts_executor must apply.
+    # Without reset, the ContextVar leaks the executor into later tasks.
     from plugin.scripting.named_scripts import (
         _current_executor,
         bind_named_scripts_executor,
@@ -742,9 +730,9 @@ def test_bind_and_reset_named_scripts_executor():
 def test_bind_does_not_leak_context_when_attach_fails(monkeypatch: pytest.MonkeyPatch):
     """A failed attach must not leave _current_executor set.
 
-    What was wrong: bind set the ContextVar and then attached. The token
-    is returned only on success, so _run_on_executor's finally never reset
-    it when attach raised.
+    bind sets the ContextVar before attach. The token is returned only on
+    success, so a failed attach must not leave _current_executor set for
+    _run_on_executor's finally to miss.
     """
     from types import SimpleNamespace
 
@@ -899,7 +887,7 @@ def test_shared_session_namespace_mutation_persists():
     bodies = {"Helpers": "def n():\n    return 1\n"}
     sid = "test-named-scripts-mutation"
     try:
-        with patch("plugin.scripting.named_scripts._rpc_named", side_effect=_helpers_rpc(bodies)):
+        with patch("plugin.scripting.named_scripts.call_host_tool", side_effect=_helpers_rpc(bodies)):
             r1 = run_sandboxed_code(
                 "import writeragent as wa\nwa.scripts.Helpers.n = lambda: 9\nresult = wa.scripts.Helpers.n()\n",
                 session_id=sid,
@@ -932,7 +920,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", return_value={"Helpers": code}),
         patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out1 = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
@@ -952,7 +940,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
     with (
         patch("plugin.scripting.document_scripts.get_user_scripts", side_effect=_fail_user),
         patch("plugin.framework.uno_context.get_ctx", side_effect=_fail_ctx),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         with pytest.raises(RuntimeError, match="Unknown named-script origin 'nope'"):
             execute_tool(
@@ -969,7 +957,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
         patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out_doc = execute_tool(
             GET_NAMED_PYTHON_SCRIPT,
@@ -985,7 +973,7 @@ def test_named_script_tool_reads_document_scripts_only_when_needed():
         patch("plugin.framework.uno_context.get_ctx", return_value=mock_ctx),
         patch("plugin.scripting.session_manager.document_for_script_session", return_value=sentinel_doc),
         patch("plugin.scripting.document_scripts.get_document_scripts", return_value={"Cover": code}) as mock_get_doc,
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()),
+        patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()),
     ):
         out_list = execute_tool(
             LIST_NAMED_PYTHON_SCRIPTS,

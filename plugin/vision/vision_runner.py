@@ -8,16 +8,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from plugin.doc.doc_type import is_calc, is_writer
+from dataclasses import dataclass, field
+
+from plugin.framework.doc_type import is_calc, is_draw, is_writer
 from plugin.doc.visual_helpers import get_graphic_object_by_name as _get_graphic_object, selected_graphic_object
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.framework.i18n import _
-from plugin.framework.queue_executor import execute_on_main_thread
-from plugin.framework.send_cancellation import SendCancelled
+from plugin.framework.queue_executor import main
+from plugin.framework.send_cancellation import SendCancellation, SendCancelled, is_cancelled
 from plugin.scripting.client import run_vision
 from plugin.vision.vision_common import (
     HELPER_NAMES,
-    IMPLEMENTED_HELPERS,
     VISION_IMAGE_MAX_BYTES,
     merge_vision_params,
 )
@@ -28,14 +29,14 @@ def supports_vision_manual(doc: Any) -> bool:
     """True when Run Python Script should expose Vision Helpers for *doc*."""
     if doc is None:
         return False
-    return is_writer(doc) or is_calc(doc)
+    return is_writer(doc) or is_calc(doc) or is_draw(doc)
 
 
 def extract_vision_insert_kwargs(ctx: Any, code: str) -> dict[str, Any]:
     """Extract vision insertion kwargs (merged params) from script code."""
-    from plugin.scripting.helper_domain import parse_run_import_call_spec
+    from plugin.scripting.helper_domain import ScriptFacts
 
-    call_spec = parse_run_import_call_spec(code, run_name="run_vision") or {}
+    call_spec = ScriptFacts.from_source(code).first_run_spec("run_vision") or {}
     raw_params = call_spec.get("params") if isinstance(call_spec.get("params"), dict) else None
     return {"params": merge_vision_params(ctx, raw_params)}
 
@@ -84,11 +85,6 @@ def _validate_helper(helper: str) -> str:
         raise ToolExecutionError("helper is required", code="VISION_ERROR")
     if name not in HELPER_NAMES:
         raise ToolExecutionError(f"Unknown helper {name!r}", code="VISION_ERROR")
-    if name not in IMPLEMENTED_HELPERS:
-        # HELPER_NAMES still lists Phase 4/5 helpers so copied script headers parse.
-        # Exporting a graphic and RPC'ing them only to get UNKNOWN_HELPER from the worker
-        # wasted the selection. Reject here.
-        raise ToolExecutionError(f"Helper {name!r} is not implemented yet.", code="UNKNOWN_HELPER")
     return name
 
 
@@ -112,10 +108,10 @@ def _resolve_locale_language(ctx: Any, graphic_obj: Any) -> str:
     return "en"
 
 
-def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, stop_checker: Any = None) -> dict[str, Any]:
+def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, cancel: SendCancellation | None = None) -> dict[str, Any]:
     """Export graphic bytes and run a trusted vision helper in the user venv.
 
-    *stop_checker* cancels the venv OCR mid-run. Callers pass it explicitly: *ctx* is
+    *cancel* aborts the venv OCR mid-run. Callers pass it explicitly: *ctx* is
     the UNO component context, which never carries the tool's stop flag.
     """
     name = _validate_helper(helper)
@@ -135,7 +131,7 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         context: dict[str, Any] = {"source": "graphic_name", "image_name": name_str} if name_str else {"source": "selection"}
         return png_bytes, local_params, context
 
-    png_bytes, params_out, context = execute_on_main_thread(_export_on_main_thread)
+    png_bytes, params_out, context = main.call(_export_on_main_thread)
     if len(png_bytes) > VISION_IMAGE_MAX_BYTES:
         raise ToolExecutionError(
             _("Image is too large to send to the vision worker ({size} bytes; limit {limit}).").format(
@@ -146,10 +142,96 @@ def run_trusted_vision(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any
         )
     spec: dict[str, Any] = {"helper": name, "params": {k: v for k, v in params_out.items() if k != "image_name"}}
     # venv OCR (up to the long worker budget, ~120s) stays on this thread.
-    return run_vision(ctx, spec, png_bytes, context=context, stop_checker=stop_checker)
+    return run_vision(ctx, spec, png_bytes, context=context, cancel=cancel)
 
 
-def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, stop_checker: Any = None) -> dict[str, Any]:
+@dataclass
+class VisionBatch:
+    """Accumulates and formats batch multi-image OCR results."""
+
+    helper: str
+    target_names: list[str] = field(default_factory=list)
+    insert_into_document: bool = True
+    results: list[dict[str, Any]] = field(default_factory=list)
+    failures: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+    stopped_early: bool = False
+    cancelled: bool = False
+
+    def payload(self) -> dict[str, Any]:
+        if self.cancelled:
+            err_out: dict[str, Any] = {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+            if self.results:
+                err_out["images_processed"] = len(self.results)
+                err_out["image_names"] = list(self.target_names[: len(self.results)])
+                err_out["inserted"] = bool(self.insert_into_document and self.results)
+                err_out["partial"] = True
+                err_out["individual_results"] = list(self.results)
+            return err_out
+
+        if self.failures:
+            first_name, first = self.failures[0]
+            failed = dict(first)
+            failed_names = [n for n, _unused in self.failures]
+            failed["images_processed"] = len(self.results)
+            failed["image_names"] = [str(r.get("image_name")) for r in self.results]
+            failed["failed_image"] = first_name
+            failed["failed_images"] = failed_names
+            failed["inserted"] = bool(self.insert_into_document and self.results)
+            failed["partial"] = bool(self.results)
+            failed["individual_results"] = list(self.results)
+            if len(self.target_names) > 1:
+                failed["message"] = _("OCR failed for {failed} ({error}); {count} of {total} images completed.").format(
+                    failed=", ".join(failed_names),
+                    error=str(first.get("message") or "error"),
+                    count=len(self.results),
+                    total=len(self.target_names),
+                )
+            return failed
+
+        full_parts = [str(r.get("full_text") or "") for r in self.results]
+        warnings: list[Any] = []
+        for r in self.results:
+            w = r.get("warnings")
+            if isinstance(w, list):
+                warnings.extend(w)
+        metrics: dict[str, Any] = {"images_processed": len(self.results)}
+        if len(self.results) == 1:
+            single_metrics = self.results[0].get("metrics")
+            if isinstance(single_metrics, dict):
+                metrics.update(single_metrics)
+
+        inserted = bool(self.insert_into_document)
+        if self.stopped_early:
+            image_names = list(self.target_names[: len(self.results)])
+            message = _("Stopped after {count} of {total} images.").format(count=len(self.results), total=len(self.target_names))
+        elif inserted:
+            image_names = list(self.target_names)
+            message = _("OCR complete ({count} images).").format(count=len(self.results)) if len(self.results) > 1 else _("OCR complete.")
+        else:
+            image_names = list(self.target_names)
+            message = _("OCR complete (text returned only; not inserted).")
+
+        res_out: dict[str, Any] = {
+            "status": "ok",
+            "helper": self.helper,
+            "full_text": "\n\n".join(part for part in full_parts if part),
+            "html": self.results[-1].get("html") if len(self.results) == 1 else "",
+            "metrics": metrics,
+            "warnings": warnings,
+            "inserted": inserted,
+            "images_processed": len(self.results),
+            "image_names": image_names,
+            "image_name": image_names[0] if image_names else None,
+            "message": message,
+            "individual_results": list(self.results),
+        }
+        if self.stopped_early:
+            res_out["stopped"] = True
+            res_out["partial"] = True
+        return res_out
+
+
+def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, params: dict[str, Any] | None = None, insert_into_document: bool = True, cancel: SendCancellation | None = None) -> dict[str, Any]:
     """OCR each graphic in the selection (or one named image) and optionally insert.
 
     Discovers named graphics while the selection is intact, then OCRs and inserts
@@ -171,133 +253,50 @@ def run_and_insert_vision_for_selection(ctx: Any, doc: Any, *, helper: str, para
         from plugin.doc.visual_helpers import graphic_objects_in_selection
 
         pairs = graphic_objects_in_selection(doc)
-        found = [n for n, _unused in pairs if n]
-        if not found:
+        if not pairs:
             raise ToolExecutionError(_("Select an embedded image (or a range containing images), then Run again."), code="NO_IMAGE_SELECTED")
-        return found
+        return [name for name, _unused in pairs]
 
-    results: list[dict[str, Any]] = []
-    failures: list[tuple[str, dict[str, Any]]] = []
-    target_names: list[str] = []
-    stopped_early = False
+    batch = VisionBatch(helper=name, insert_into_document=insert_into_document)
     try:
-        target_names = execute_on_main_thread(_discover_names)
+        batch.target_names = main.call(_discover_names)
 
-        for image_name in target_names:
-            if stop_checker is not None and stop_checker():
-                if results:
-                    # Prior images were already inserted into the document. Break loop
-                    # and return completed results so the tool result matches what landed.
-                    stopped_early = True
+        for image_name in batch.target_names:
+            if is_cancelled(cancel):
+                if batch.results:
+                    batch.stopped_early = True
                     break
-                return {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
+                batch.cancelled = True
+                return batch.payload()
 
             per_params = dict(params_dict)
             per_params["image_name"] = image_name
-            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, stop_checker=stop_checker)
+            result = run_trusted_vision(ctx, doc, helper=name, params=per_params, cancel=cancel)
 
             if result.get("status") == "error":
                 if result.get("code") == "USER_STOPPED":
-                    if not results:
+                    if not batch.results:
                         return result
-                    stopped_early = True
+                    batch.stopped_early = True
                     break
-                # One failed image must not block the rest of the selection: record it
-                # and continue, so later images are still OCR'd and inserted in order.
-                failures.append((image_name, result))
+                batch.failures.append((image_name, result))
                 continue
-            # A finished OCR is a document mutation and is inserted. Stop is checked
-            # at the top of the loop, so the next image is not started.
+
             if insert_into_document:
-                # prepare_vision_writer_insert collapses any range selection before HTML import.
                 def _insert(res: dict[str, Any] = result, per_insert: dict[str, Any] = per_params) -> None:
                     from plugin.vision.vision_egress import insert_vision_result
 
                     insert_vision_result(ctx, doc, res, params=per_insert)
 
-                # Once the bytes are in hand, insert with bound_scope=None.
-                # The default scope is the send cancellation, so Stop would
-                # abort a document mutation that already has its data.
-                execute_on_main_thread(_insert, bound_scope=None)
+                main.call(_insert, bound_scope=None)
             result["image_name"] = image_name
             if "context" not in result or not isinstance(result["context"], dict):
                 result["context"] = {"image_name": image_name}
             else:
                 result["context"]["image_name"] = image_name
-            results.append(result)
+            batch.results.append(result)
 
-        if failures:
-            # Error dict for the first failure, carrying every image that finished
-            # (individual_results) and every image that failed (failed_images).
-            first_name, first = failures[0]
-            failed = dict(first)
-            failed_names = [n for n, _unused in failures]
-            failed["images_processed"] = len(results)
-            failed["image_names"] = [str(r.get("image_name")) for r in results]
-            failed["failed_image"] = first_name
-            failed["failed_images"] = failed_names
-            failed["inserted"] = bool(insert_into_document and results)
-            failed["partial"] = bool(results)
-            failed["individual_results"] = list(results)
-            if len(target_names) > 1:
-                failed["message"] = _("OCR failed for {failed} ({error}); {count} of {total} images completed.").format(
-                    failed=", ".join(failed_names), error=str(first.get("message") or "error"),
-                    count=len(results), total=len(target_names))
-            return failed
+        return batch.payload()
     except SendCancelled:
-        err_out: dict[str, Any] = {"status": "error", "code": "USER_STOPPED", "message": _("Cancelled by user.")}
-        if results:
-            err_out["images_processed"] = len(results)
-            err_out["image_names"] = list(target_names[: len(results)])
-            err_out["inserted"] = bool(insert_into_document and results)
-            err_out["partial"] = True
-            err_out["individual_results"] = list(results)
-        return err_out
-
-    full_parts = [str(r.get("full_text") or "") for r in results]
-    warnings: list[Any] = []
-    for r in results:
-        w = r.get("warnings")
-        if isinstance(w, list):
-            warnings.extend(w)
-    metrics: dict[str, Any] = {"images_processed": len(results)}
-    if len(results) == 1:
-        single_metrics = results[0].get("metrics")
-        if isinstance(single_metrics, dict):
-            metrics.update(single_metrics)
-
-    inserted = bool(insert_into_document)
-    # A Stop break returns only the names that finished, with stopped=True,
-    # partial=True, and "Stopped after N of M images". Reporting every
-    # target_name as "OCR complete" hides the partial run.
-    if stopped_early:
-        image_names = list(target_names[: len(results)])
-        message = _("Stopped after {count} of {total} images.").format(count=len(results), total=len(target_names))
-    elif inserted:
-        image_names = list(target_names)
-        message = _("OCR complete ({count} images).").format(count=len(results)) if len(results) > 1 else _("OCR complete.")
-    else:
-        image_names = list(target_names)
-        message = _("OCR complete (text returned only; not inserted).")
-
-    res_out: dict[str, Any] = {
-        "status": "ok",
-        "helper": name,
-        "full_text": "\n\n".join(part for part in full_parts if part),
-        "html": results[-1].get("html") if len(results) == 1 else "",
-        "metrics": metrics,
-        "warnings": warnings,
-        "inserted": inserted,
-        "images_processed": len(results),
-        "image_names": image_names,
-        "image_name": image_names[0] if image_names else None,
-        "message": message,
-        # This list is the per-image payloads for every success count, including
-        # one image; Run Python Script inserts it; the aggregate fields are
-        # the chat-tool summary; do not also emit results.
-        "individual_results": list(results),
-    }
-    if stopped_early:
-        res_out["stopped"] = True
-        res_out["partial"] = True
-    return res_out
+        batch.cancelled = True
+        return batch.payload()

@@ -36,7 +36,7 @@ class TestHamburgerMenu:
 
         with patch("plugin.chatbot.hamburger_menu.get_action_handler", return_value=mock_handler) as mock_get_handler:
             with patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True), patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False), patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False):
-                with patch("plugin.main._dispatch_command") as dispatch:
+                with patch("plugin.app.dispatch_command") as dispatch:
                     show_hamburger_menu(ctx, frame, button_ctrl)
                 mock_get_handler.assert_called_with("chatbot.extend_selection")
                 mock_handler.assert_called_once_with(frame)
@@ -74,7 +74,7 @@ class TestHamburgerMenu:
                 patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
                 patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
                 patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
-                patch("plugin.main._dispatch_command") as dispatch,
+                patch("plugin.app.dispatch_command") as dispatch,
                 patch("plugin.librepy.sidebar_menus.invoke_action_handler") as invoke,
             ):
                 show_hamburger_menu(ctx, frame, button_ctrl)
@@ -203,7 +203,7 @@ class TestHamburgerMenu:
         button_ctrl.getPeer.return_value = MagicMock()
 
         with (
-            patch("plugin.framework.main_shared.tests_bundled", return_value=False),
+            patch("plugin.app.tests_bundled", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
@@ -227,7 +227,7 @@ class TestHamburgerMenu:
         button_ctrl.getPeer.return_value = MagicMock()
 
         with (
-            patch("plugin.framework.main_shared.tests_bundled", return_value=True),
+            patch("plugin.app.tests_bundled", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
             patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
             patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
@@ -237,6 +237,52 @@ class TestHamburgerMenu:
         labels = [c.args[1] for c in popup.insertItem.call_args_list]
         assert "Debug" in labels
         assert "Run format tests" in labels
+
+    def test_draw_hamburger_includes_extend_and_edit_selection(self):
+        ctx = MagicMock()
+        smgr = MagicMock()
+        popup = MagicMock()
+        ctx.getServiceManager.return_value = smgr
+        smgr.createInstanceWithContext.return_value = popup
+        popup.execute.return_value = 0
+        button_ctrl = MagicMock()
+        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+        button_ctrl.getPeer.return_value = MagicMock()
+        commands: set[str] = set()
+        popup.setCommand.side_effect = lambda _nid, cmd: commands.add(cmd)
+
+        with (
+            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=False),
+            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=True),
+        ):
+            show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+        assert "org.extension.writeragent:chatbot.extend_selection" in commands
+        assert "org.extension.writeragent:chatbot.edit_selection" in commands
+
+    def test_writer_hamburger_includes_extend_and_edit_selection(self):
+        ctx = MagicMock()
+        smgr = MagicMock()
+        popup = MagicMock()
+        ctx.getServiceManager.return_value = smgr
+        smgr.createInstanceWithContext.return_value = popup
+        popup.execute.return_value = 0
+        button_ctrl = MagicMock()
+        button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
+        button_ctrl.getPeer.return_value = MagicMock()
+        commands: set[str] = set()
+        popup.setCommand.side_effect = lambda _nid, cmd: commands.add(cmd)
+
+        with (
+            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
+            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
+            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
+        ):
+            show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+
+        assert "org.extension.writeragent:chatbot.extend_selection" in commands
+        assert "org.extension.writeragent:chatbot.edit_selection" in commands
 
     def test_hamburger_menu_commands_parity_with_addons_xcu(self):
         import xml.etree.ElementTree as ET
@@ -277,16 +323,30 @@ class TestHamburgerMenu:
         button_ctrl.getPosSize.return_value = MagicMock(X=76, Y=2, Width=16, Height=12)
         button_ctrl.getPeer.return_value = MagicMock()
 
-        with (
-            patch("plugin.framework.main_shared.tests_bundled", return_value=True),
-            patch("plugin.main.get_menu_text", return_value="Toggle MCP Server"),
-            patch("plugin.main._get_menu_icon", return_value="stopped"),
-            patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_calc", return_value=True),
-            patch("plugin.chatbot.hamburger_menu.is_draw", return_value=True),
-            patch("plugin.librepy.sidebar_menus.document_has_notebook_registry", return_value=True),
-        ):
-            show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+        flag_sets = (
+            (True, False, False),
+            (False, True, False),
+            (False, False, True),
+        )
+        union_commands: set[str] = set()
+        for is_writer_doc, is_calc_doc, is_draw_doc in flag_sets:
+            commands.clear()
+            with (
+                patch("plugin.app.tests_bundled", return_value=True),
+                patch("plugin.app.get_menu_text", return_value="Toggle MCP Server"),
+                patch("plugin.app.get_menu_icon", return_value="stopped"),
+                patch("plugin.chatbot.hamburger_menu.is_writer", return_value=is_writer_doc),
+                patch("plugin.chatbot.hamburger_menu.is_calc", return_value=is_calc_doc),
+                patch("plugin.chatbot.hamburger_menu.is_draw", return_value=is_draw_doc),
+                patch("plugin.librepy.sidebar_menus.document_has_notebook_registry", return_value=is_writer_doc),
+            ):
+                show_hamburger_menu(ctx, MagicMock(), button_ctrl)
+            if is_draw_doc and not is_writer_doc and not is_calc_doc:
+                assert "org.extension.writeragent:chatbot.extend_selection" in commands
+                assert "org.extension.writeragent:chatbot.edit_selection" in commands
+            union_commands |= commands
+
+        commands = union_commands
 
         # Every menubar URL in extension/Addons.xcu except main.NoOp is in that set.
         assert menubar_urls.issubset(commands)
@@ -321,8 +381,8 @@ def test_mcp_status_failure_still_builds_and_executes_hamburger():
     button_ctrl.getPeer.return_value = MagicMock()
 
     with (
-        patch("plugin.main.get_menu_text", side_effect=RuntimeError("mcp text failure")),
-        patch("plugin.main._get_menu_icon", side_effect=RuntimeError("mcp icon failure")),
+        patch("plugin.app.get_menu_text", side_effect=RuntimeError("mcp text failure")),
+        patch("plugin.app.get_menu_icon", side_effect=RuntimeError("mcp icon failure")),
         patch("plugin.chatbot.hamburger_menu.is_writer", return_value=True),
         patch("plugin.chatbot.hamburger_menu.is_calc", return_value=False),
         patch("plugin.chatbot.hamburger_menu.is_draw", return_value=False),
@@ -338,8 +398,14 @@ def test_mcp_status_failure_still_builds_and_executes_hamburger():
 def test_static_menu_titles_match_hamburger_and_addons_xcu():
     import xml.etree.ElementTree as ET
     from pathlib import Path
-    from plugin.main import _STATIC_MENU_TITLES
+    from plugin._manifest import MENU_TITLES, MODULES
     from plugin.librepy.sidebar_menus import _librepy_hamburger_specs
+
+    manifest_titles: dict[str, str] = dict(MENU_TITLES)
+    for mod in MODULES:
+        mod_name = mod.get("name", "")
+        for act, title in mod.get("action_titles", {}).items():
+            manifest_titles[f"{mod_name}.{act}"] = title
 
     root_dir = Path(__file__).resolve().parents[2]
     addons_path = root_dir / "extension" / "Addons.xcu"
@@ -393,12 +459,12 @@ def test_static_menu_titles_match_hamburger_and_addons_xcu():
     }
 
     for action, msgid in hamburger_static_items.items():
-        assert msgid == _STATIC_MENU_TITLES[action]
+        assert msgid == manifest_titles[action]
         if action not in ("notebook.run_all", "notebook.run_from_here", "notebook.stop"):
             assert msgid == addons_titles[action]
 
     for label, action, _icon, _when in _librepy_hamburger_specs():
-        assert label == _STATIC_MENU_TITLES[action]
+        assert label == manifest_titles[action]
         if action not in ("notebook.run_all", "notebook.run_from_here", "notebook.stop"):
             assert label == addons_titles[action]
 

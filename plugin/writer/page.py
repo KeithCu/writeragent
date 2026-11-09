@@ -22,21 +22,24 @@ Page styles, margins, headers/footers, columns, and page breaks.
 from __future__ import annotations
 
 import logging
-from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from plugin.doc.text_helpers import iter_elements_limited, record_walk_cap
 from plugin.framework.errors import (
     best_effort,
-    is_disposed_exception,
-    is_real_disposal,
+    is_disposal,
     make_tool_error,
     resolve_exception_message,
 )
 from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
-from .format import PAGE_NUMBER_NUMBERING_TYPE_NAMES, record_walk_cap
+from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES
 from .range_copy import _ANCHORED_GRAPHIC_PROPS
-from .search import parse_non_negative_int
+from .search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    parse_non_negative_int,
+    resolve_case_sensitive,
+)
 from .specialized_base import ToolWriterPageBase, enum_param
 
 log = logging.getLogger("writeragent.writer")
@@ -97,7 +100,7 @@ def _in_text_table(cursor: Any) -> bool:
     try:
         return cursor.getPropertyValue("TextTable") is not None
     except Exception as e:
-        if is_disposed_exception(e):
+        if is_disposal(e):
             raise
         return False
 
@@ -252,7 +255,7 @@ def _disable_blocked_by_content(doc: Any, style: Any, kwargs: dict[str, Any]) ->
                 if _region_holds_content(doc, text_obj):
                     held.append(region)
             except Exception as e:
-                if is_real_disposal(e):
+                if is_disposal(e):
                     raise
                 log.warning("page: cannot read %s to check it is empty", region, exc_info=True)
                 return (
@@ -334,13 +337,7 @@ def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> di
     notes: list[str] = []
     # `is True` and the hard caps match the enumeration walk in format.py: a UNO enumeration that
     # misbehaves otherwise spins here forever.
-    while para_enum.hasMoreElements() is True and out["paragraph_count"] < _SCAN_PARA_LIMIT:
-        try:
-            para = para_enum.nextElement()
-        except Exception:
-            if strict:
-                raise
-            break
+    for para in iter_elements_limited(para_enum, _SCAN_PARA_LIMIT):
         out["paragraph_count"] += 1
         try:
             is_table = para.supportsService("com.sun.star.text.TextTable") is True
@@ -360,10 +357,9 @@ def _scan_region_content(doc: Any, text_obj: Any, *, strict: bool = False) -> di
                 raise
             continue
         seen_portions = 0
-        while portions.hasMoreElements() is True and seen_portions < _SCAN_PORTION_LIMIT:
+        for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
             seen_portions += 1
             try:
-                portion = portions.nextElement()
                 if portion.getPropertyValue("TextPortionType") != "TextField":
                     continue
                 field = portion.getPropertyValue("TextField")
@@ -514,14 +510,9 @@ def _copy_page_regions(
         if dest_text is None:
             raise RuntimeError("Page style clone: no %s text on the new style." % region)
         if _region_holds_content(doc, src_text, strict=False, include_images=False):
-            # Bugfix: this used to export the region through xtext_to_content
-            # (controller.select + clipboard + hidden Writer + in-process
-            # libxslt / flat ODF) and import it with replace_xtext_with_html.
-            # That export is what corrupted soffice (malloc unsorted-list /
-            # SIGSEGV 139 / SalAbort), observed on the next getByName as
-            # "Binary URP bridge disposed" (GHA 38526445257, 38584920511,
-            # 38584636315). Same-document portion copy does not select, does
-            # not use the clipboard, and does not run libxslt.
+            # Region text is copied in-document via _copy_flow_into_xtext instead of
+            # select/clipboard/XHTML export, which can corrupt soffice when headers
+            # hold titled draw frames processed through libxslt.
             from .range_copy import _copy_flow_into_xtext
 
             fields_copied = _copy_flow_into_xtext(doc, src_text, dest_text)
@@ -547,16 +538,6 @@ def _copy_page_regions(
 # when Python drops its last reference to the created SwXPageStyle, the
 # release goes out as a oneway URP call and runs on a separate threadpool
 # thread. Its refcount reaches 0 and the destructor queues for the
-# SolarMutex. A getByName for the same name that already holds the mutex
-# finds that dying object through the style pool's listeners
-# (SwXStyleFamily FindStyle), takes a new reference to it and returns it.
-# The destructor then frees it, and the caller's first call on the result
-# (the bridge's queryInterface) jumps through a freed vtable.
-# If we keep the proxy alive, the final release never meets a lookup. The
-# bound only caps memory. An evicted entry is many clones old.
-_PAGE_STYLE_KEEPALIVE: deque[Any] = deque(maxlen=256)
-
-
 def copy_page_style(
     doc: Any,
     source_name: str,
@@ -571,7 +552,7 @@ def copy_page_style(
     The direct-property helper lives in styles.py. This function imports it at
     call time because styles.py already imports this module at load.
     """
-    from .styles import _copy_direct_style_properties
+    from .styles import _copy_direct_style_properties, keep_style_alive
 
     source = resolve_page_style(doc, source_name)
     styles = doc.getStyleFamilies().getByName("PageStyles")
@@ -590,7 +571,7 @@ def copy_page_style(
     # is in the family. Direct props are copied after insert so FollowStyle has
     # already defaulted to the new name and the skip list can leave it there.
     styles.insertByName(new_name, clone)
-    _PAGE_STYLE_KEEPALIVE.append(clone)
+    keep_style_alive(clone)
     try:
         copied, skipped = _copy_direct_style_properties(source, clone)
         shapes_copied, skipped_shapes = _copy_page_regions(doc, source, clone)
@@ -813,7 +794,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
                     style.setPropertyValue("Height", h_snap)
                 updated.append("is_landscape")
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 return fail("is_landscape", e)
 
@@ -823,7 +804,7 @@ class PageSetStyleProperties(ToolWriterPageBase):
                 style.setPropertyValue(uno_prop, val)
                 updated.append(label)
             except Exception as e:
-                if is_disposed_exception(e):
+                if is_disposal(e):
                     raise
                 return fail(label, e)
 
@@ -1032,11 +1013,10 @@ class PageSetHeaderFooterText(ToolWriterPageBase):
             flag_style_unreviewed(result)
             return result
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
-            # What was wrong: a failed HTML import left a previously disabled region half-enabled.
-            # How it happened: is_on was set True before replace_xtext_with_html was called.
-            # Why this change fixes it: roll back is_on to False if it wasn't on before, or restore auto_height.
+            # Failed HTML import rolls is_on and auto_height back to their pre-call values
+            # so the page style is not left half-enabled after an error.
             if not was_on:
                 best_effort(
                     lambda: style.setPropertyValue(is_on_prop, False),
@@ -1080,12 +1060,8 @@ def _paragraph_cursor_text(para: Any) -> str | None:
         return None
     parts: list[str] = []
     seen = 0
-    while portions.hasMoreElements() is True and seen < _SCAN_PORTION_LIMIT:
+    for portion in iter_elements_limited(portions, _SCAN_PORTION_LIMIT):
         seen += 1
-        try:
-            portion = portions.nextElement()
-        except Exception:
-            break
         parts.append(_portion_cursor_text(portion))
     record_walk_cap(portions, seen, _SCAN_PORTION_LIMIT, "text portions", None)
     return "".join(parts)
@@ -1132,12 +1108,8 @@ def _find_region_matches(text_obj: Any, needle: str, case_sensitive: bool) -> tu
     except Exception:
         return hits, notes
     seen = 0
-    while enum.hasMoreElements() is True and seen < _SCAN_PARA_LIMIT:
+    for para in iter_elements_limited(enum, _SCAN_PARA_LIMIT):
         seen += 1
-        try:
-            para = enum.nextElement()
-        except Exception:
-            break
         hay = _paragraph_cursor_text(para)
         if hay is None:
             continue
@@ -1208,63 +1180,50 @@ def _character_anchor_in_matches(doc: Any, text_obj: Any, cursors: list[Any]) ->
 
 
 def _apply_match_cursors(doc: Any, text_obj: Any, cursors: list[Any], new_text: str) -> tuple[str | None, int, int]:
-    """setString from the last match backward. Returns (error, fields, shapes).
-
-    WriterCompoundUndo only groups; it does not undo a failed write. Several
-    matches have to leave the context and undo that title, same as a TOC
-    one-entry edit, or a later failure would leave the earlier replacements.
-    """
+    """setString from the last match backward. Returns (error, fields, shapes)."""
     from .edit_review import next_agent_edit_undo_title
+    from plugin.doc.compound_undo import UndoUnavailable, commit_or_rollback
 
     before = _scan_region_content(doc, text_obj)
-    after = before
+    after_box: list[dict[str, Any]] = [before]
     title = next_agent_edit_undo_title()
-    mgr = None
-    try:
-        candidate = doc.getUndoManager()
-        # `is True`: MagicMock isLocked() is truthy and must not look locked.
-        if candidate is not None and candidate.isLocked() is not True:
-            candidate.enterUndoContext(title)
-            mgr = candidate
-    except Exception:
-        log.warning("header/footer replace: undo grouping skipped", exc_info=True)
-        mgr = None
-    if mgr is None and len(cursors) > 1:
-        return "Cannot replace every match in one undo step. Nothing was changed.", 0, 0
 
-    error: str | None = None
-    try:
+    def mutate() -> None:
         for cursor in reversed(cursors):
             cursor.setString(new_text)
         after = _scan_region_content(doc, text_obj)
+        after_box[0] = after
         if len(after["fields"]) < len(before["fields"]) or len(after["images"]) < len(before["images"]):
             raise RuntimeError("the replace removed a field or graphic")
-    except Exception as exc:
-        error = str(exc)
-    left = False
-    undone = False
-    if mgr is not None:
+
+    try:
+        outcome = commit_or_rollback(doc, title, mutate)
+    except UndoUnavailable:
+        if len(cursors) > 1:
+            return "Cannot replace every match in one undo step. Nothing was changed.", 0, 0
         try:
-            mgr.leaveUndoContext()
-            left = True
-        except Exception:
-            log.exception("header/footer replace: leaveUndoContext failed")
-            error = error or "Could not close the header/footer undo context."
-        if error and left:
-            try:
-                titles = mgr.getAllUndoActionTitles()
-                if titles and titles[0] == title:
-                    mgr.undo()
-                    undone = True
-            except Exception:
-                log.exception("header/footer replace rollback failed")
-    if error:
-        # What was wrong: if a post-check failed or replacement error occurred but undo() did not run,
-        # the error message did not warn that edits were already written.
-        # Why this change fixes it: prefix with note that replacement could not be rolled back.
-        if not undone:
-            error = "the replacement was written and could not be rolled back: " + error
-        return error, 0, 0
+            mutate()
+            after = after_box[0]
+            return None, len(after["fields"]), len(after["images"])
+        except Exception as exc:
+            return "the replacement was written and could not be rolled back: " + str(exc), 0, 0
+    if outcome.mutate_error is not None:
+        mut_exc = outcome.mutate_error
+        err_msg = str(mut_exc)
+        if not outcome.rolled_back:
+            err_msg = "the replacement was written and could not be rolled back: " + err_msg
+        return err_msg, 0, 0
+
+    err = outcome.error
+    if err is not None:
+        if err.get("code") == "UNDO_CONTEXT_LEAK":
+            return "Could not close the header/footer undo context.", 0, 0
+        err_msg = str(err.get("message", "undo error"))
+        if not outcome.rolled_back:
+            err_msg = "the replacement was written and could not be rolled back: " + err_msg
+        return err_msg, 0, 0
+
+    after = after_box[0]
     return None, len(after["fields"]), len(after["images"])
 
 
@@ -1305,7 +1264,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             },
             "case_sensitive": {
                 "type": "boolean",
-                "description": "Case-sensitive match (default true).",
+                "description": CASE_SENSITIVE_DESCRIPTION,
             },
             "occurrence": {
                 "type": "integer",
@@ -1334,7 +1293,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             return self._tool_error("old_content must be a non-empty string.")
         if _FIELD_CURSOR_STEP in old_content:
             return self._tool_error("old_content cannot include a field.")
-        case_sensitive = kwargs.get("case_sensitive", True)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         all_matches = kwargs.get("all_matches", False)
         raw_occurrence = kwargs.get("occurrence", None)
         if all_matches and raw_occurrence is not None:
@@ -1370,6 +1329,26 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             )
 
         hits, notes = _find_region_matches(text_obj, old_content, case_sensitive)
+        res = self._replace_in_region_text(
+            ctx.doc, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, case_sensitive, hits, notes
+        )
+        res["matched_case_sensitive"] = case_sensitive
+        return res
+
+    def _replace_in_region_text(
+        self,
+        doc: Any,
+        style_name: str,
+        region: str,
+        text_obj: Any,
+        old_content: str,
+        new_text: str,
+        occurrence: int,
+        all_matches: bool,
+        case_sensitive: bool,
+        hits: list[tuple[Any, int]],
+        notes: list[str],
+    ) -> dict[str, Any]:
         if not hits:
             message = "'%s' was not found in the %s of page style '%s'." % (old_content, region, style_name)
             if notes:
@@ -1405,7 +1384,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 )
             cursors.append(cursor)
 
-        blocked = _character_anchor_in_matches(ctx.doc, text_obj, cursors)
+        blocked = _character_anchor_in_matches(doc, text_obj, cursors)
         if blocked:
             return self._tool_error(
                 "An image (%s) is anchored to a character inside '%s', so replacing it would drop "
@@ -1413,7 +1392,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             )
 
         error, fields_preserved, shapes_preserved = _apply_match_cursors(
-            ctx.doc, text_obj, cursors, new_text,
+            doc, text_obj, cursors, new_text,
         )
         if error:
             return self._tool_error(
@@ -1509,8 +1488,8 @@ class PageSetColumns(ToolWriterPageBase):
 
         # Divide spacing between adjacent columns
         # Column 1 right margin gets half spacing, Column 2 left margin gets half, etc.
-        # What was wrong: when spacing was 0, the inner margins were skipped leaving old spacing intact.
-        # Why this change fixes it: always update inner margins for column_count > 1, setting them to 0 if spacing is 0.
+        # Multi-column layouts always rewrite inner margins to half spacing or zero so
+        # spacing=0 clears stale gaps instead of leaving the previous column separation.
         if column_count > 1:
             half_spacing = spacing_hmm // 2
             for i in range(column_count - 1):
@@ -1609,7 +1588,7 @@ class PageInsertBreak(ToolWriterPageBase):
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
         "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
-        "case_sensitive": {"type": "boolean", "description": "Case-sensitive anchor match (default true)."},
+        "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
         "page_style": {
             "type": "string",
             "description": (
@@ -1641,57 +1620,85 @@ class PageInsertBreak(ToolWriterPageBase):
         except ValueError as e:
             return self._tool_error(str(e))
 
-        if before_text or after_text:
-            anchor = str(before_text or after_text)
-            # What was wrong: numeric strings, floats, and empty string were rejected.
-            # How it happened: parse_non_negative_int without coerce=True rejected non-ints.
-            # Why this change: restore int() coercion via coerce=True.
-            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
-            if occ_err:
-                return self._tool_error(occ_err)
-            occurrence = 0 if occ_val is None else occ_val
-            sd = doc.createSearchDescriptor()
-            sd.SearchString = anchor
-            sd.SearchRegularExpression = False
-            sd.SearchCaseSensitive = bool(kwargs.get("case_sensitive", True))
-            found = doc.findFirst(sd)
-            for _unused in range(occurrence):
-                if found is None:
-                    break
-                found = doc.findNext(found.getEnd(), sd)
+        has_anchor = bool(before_text or after_text)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
+
+        if has_anchor:
+            res = self._insert_anchored_break(
+                doc, before_text, after_text, page_style, restart, case_sensitive, kwargs.get("occurrence", 0)
+            )
+            res["matched_case_sensitive"] = case_sensitive
+            return res
+
+        return self._insert_view_cursor_break(doc, page_style, restart)
+
+    def _insert_anchored_break(
+        self,
+        doc: Any,
+        before_text: Any,
+        after_text: Any,
+        page_style: str | None,
+        restart: int | None,
+        case_sensitive: bool,
+        raw_occurrence: Any,
+    ) -> dict[str, Any]:
+        anchor = str(before_text or after_text)
+        occ_val, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
+        if occ_err:
+            return self._tool_error(occ_err)
+        occurrence = 0 if occ_val is None else occ_val
+        sd = doc.createSearchDescriptor()
+        sd.SearchString = anchor
+        sd.SearchRegularExpression = False
+        sd.SearchCaseSensitive = case_sensitive
+        found = doc.findFirst(sd)
+        for _unused in range(occurrence):
             if found is None:
-                return self._tool_error("Anchor text '%s' not found%s." % (anchor, (" at occurrence %d" % occurrence) if occurrence else ""))
-            text = found.getText()
-            # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
-            # after_text -> the paragraph that FOLLOWS the match.
-            cursor = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
-            if after_text and not cursor.gotoNextParagraph(False):
-                # At the LAST paragraph there is nothing after the anchor; silently breaking
-                # on the anchor's own paragraph would push the anchor itself to a new page
-                # (the opposite of what was asked) while reporting ok.
-                return self._tool_error(
-                    "The anchor is in the document's last paragraph; there is nothing after it "
-                    "to start a new page with. Use before_text, or append content first.")
-            success_text = "Page break inserted %s the anchor." % ("before" if before_text else "after")
-        else:
-            view_cursor = doc.getCurrentController().getViewCursor()
-            if not view_cursor:
-                return self._tool_error("Could not obtain view cursor.")
-
-            # BreakType is a paragraph property. A collapsed model cursor at the
-            # view start applies it to the paragraph that contains the selection.
-            # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
-            # and this path must not move that selection. insertControlCharacter
-            # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
-            # text; do not put that back.
-            text = view_cursor.getText()
-            cursor = text.createTextCursorByRange(view_cursor.getStart())
-            success_text = "Page break inserted."
-
-        # What was wrong: setting BreakType inside a table cell corrupted table layout or had no effect.
-        # Why this change fixes it: refuse to set BreakType if the cursor is inside a text table.
+                break
+            found = doc.findNext(found.getEnd(), sd)
+        if found is None:
+            return self._tool_error(
+                "Anchor text '%s' not found%s."
+                % (anchor, (" at occurrence %d" % occurrence) if occurrence else "")
+            )
+        text = found.getText()
+        # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
+        # after_text -> the paragraph that FOLLOWS the match.
+        cursor = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
+        if after_text and not cursor.gotoNextParagraph(False):
+            # At the LAST paragraph there is nothing after the anchor; silently breaking
+            # on the anchor's own paragraph would push the anchor itself to a new page
+            # (the opposite of what was asked) while reporting ok.
+            return self._tool_error(
+                "The anchor is in the document's last paragraph; there is nothing after it "
+                "to start a new page with. Use before_text, or append content first."
+            )
         if _in_text_table(cursor):
             return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
         _apply_page_break(cursor, page_style, restart)
+        success_text = "Page break inserted %s the anchor." % ("before" if before_text else "after")
         return _page_break_ok(success_text, page_style, restart)
+
+    def _insert_view_cursor_break(
+        self,
+        doc: Any,
+        page_style: str | None,
+        restart: int | None,
+    ) -> dict[str, Any]:
+        view_cursor = doc.getCurrentController().getViewCursor()
+        if not view_cursor:
+            return self._tool_error("Could not obtain view cursor.")
+
+        # BreakType is a paragraph property. A collapsed model cursor at the
+        # view start applies it to the paragraph that contains the selection.
+        # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
+        # and this path must not move that selection. insertControlCharacter
+        # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
+        # text; do not put that back.
+        text = view_cursor.getText()
+        cursor = text.createTextCursorByRange(view_cursor.getStart())
+        if _in_text_table(cursor):
+            return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
+        _apply_page_break(cursor, page_style, restart)
+        return _page_break_ok("Page break inserted.", page_style, restart)
 

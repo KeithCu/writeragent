@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 
 # When a real `uno` bridge/types-unopy is loaded, setup_uno_mocks may skip attaching
@@ -46,9 +46,6 @@ class TestSendButtonListenerDocumentModel:
         self.session = MagicMock()
         self.session.messages = [{"role": "system", "content": "test"}]
 
-        self._modules_patcher = patch.dict(sys.modules, {"plugin.main": MagicMock()}, clear=False)
-        self._modules_patcher.start()
-
         self.listener = SendButtonListener(
             self.ctx,
             self.frame,
@@ -61,9 +58,6 @@ class TestSendButtonListenerDocumentModel:
             self.status_control,
             self.session,
         )
-
-    def teardown_method(self) -> None:
-        self._modules_patcher.stop()
 
     def test_returns_compatible_document_from_frame(self) -> None:
         writer = _writer_model()

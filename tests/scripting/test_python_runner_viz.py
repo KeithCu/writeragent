@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from plugin.scripting.python_runner import execute_and_insert_result
+from tests.scripting.python_runner_test_support import execute_and_insert_result
 from plugin.scripting.viz import get_viz_script_templates
 
 
@@ -16,7 +16,7 @@ _SAMPLE_IMAGE = {"__wa_payload__": "image", "format": "png", "data": b"abc"}
 
 
 @patch("plugin.scripting.viz.insert_viz_result_into_doc")
-@patch("plugin.scripting.viz.run_trusted_viz")
+@patch("plugin.scripting.helper_domain.run_domain")
 @patch("plugin.scripting.python_runner.run_code_in_user_venv")
 def test_execute_and_insert_viz_skips_fast_path(mock_venv, mock_run, mock_insert):
     ctx = MagicMock()

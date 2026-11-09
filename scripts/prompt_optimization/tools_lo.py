@@ -8,14 +8,14 @@ Headless LibreOffice backend for prompt_optimization eval.
 One soffice process; all UNO runs on ``_lo_thread`` via ``LOBackend.call``
 (``-j`` is ThreadPoolExecutor in this process — do not ProcessPool one soffice).
 Eval tools use ``bypass_thread_guard=True`` because ``_lo_thread`` is not
-``threading.main_thread()``. Do not route through ``execute_on_main_thread``
+``threading.main_thread()``. Do not route through ``main.call``
 (no VCL pump here → deadlock, same family as issue #402). Do not set
-``WRITERAGENT_TESTING=1`` (QueueExecutor would go inline on the wrong thread).
+``WRITERAGENT_TESTING=1`` (MainThread would go inline on the wrong thread).
 
 ``get_ctx()`` is pinned to the remote office context for the life of the
 backend (``set_fallback_ctx``). Each queued ``call`` activates that caller's
 document on ``_lo_desktop`` so ``host_rpc`` / ``get_active_document`` see it.
-The warm-venv ``_io_lock`` still serializes a whole script.
+The warm-child pipe lock (``WarmChild._io_lock``) still serializes a whole script.
 """
 from __future__ import annotations
 
@@ -32,6 +32,8 @@ import tempfile
 import threading
 import time
 from typing import Any
+
+from plugin.writer.search import SEARCH_CASE_SENSITIVE_DEFAULT
 
 _lo_queue: queue.Queue[Any] = queue.Queue()
 _lo_thread = None
@@ -71,7 +73,7 @@ def _caller_tid() -> int:
 def _install_eval_fallback_ctx(ctx: Any) -> None:
     """Point ``get_ctx()`` at the remote office context.
 
-    What was wrong: ``plugin.main.bootstrap`` stores the pipe context on the
+    What was wrong: ``plugin.app.bootstrap`` stores the pipe context on the
     service registry and on ``QueueExecutor``, but it does not call
     ``set_fallback_ctx``. ``get_ctx()`` then returns
     ``uno.getComponentContext()``, the local pyuno context. ``host_rpc``
@@ -231,8 +233,10 @@ class LOBackend:
         _install_eval_fallback_ctx(_lo_ctx)
 
         try:
-            from plugin.main import bootstrap
+            from plugin.main import bind
+            from plugin.app import bootstrap
 
+            bind()
             bootstrap(_lo_ctx)
         except Exception:
             # Bootstrap can fail (missing _manifest) after soffice is already up.
@@ -245,11 +249,11 @@ class LOBackend:
         _lo_thread = threading.Thread(target=cls._worker_loop, daemon=True)
         _lo_thread.start()
         # Eval UNO lives on _lo_thread, not threading.main_thread(). Designate it
-        # so the thread guard and QueueExecutor treat it as the UNO home thread
-        # (inline on this thread — not execute_on_main_thread / VCL, not TESTING=1).
-        from plugin.framework.thread_guard import set_designated_main_thread
+        # so the thread guard and MainThread treat it as the UNO home thread
+        # (inline on this thread — not main.call / VCL, not TESTING=1).
+        from plugin.framework.queue_executor import Policy, main
 
-        set_designated_main_thread(_lo_thread)
+        main.install(Policy.eval_harness, designated=_lo_thread)
 
     @classmethod
     def stop(cls):
@@ -260,9 +264,9 @@ class LOBackend:
         _lo_queue.put(None)
         _lo_thread.join()
         _lo_thread = None
-        from plugin.framework.thread_guard import set_designated_main_thread
+        from plugin.framework.queue_executor import Policy, main
 
-        set_designated_main_thread(None)
+        main.install(Policy.production, designated=None)
         # Remote context is gone with the pipe. Put get_ctx() back.
         _restore_eval_fallback_ctx()
         if _lo_user_dir:
@@ -392,7 +396,7 @@ class LOBackend:
 
 def _tool_ctx(doc, doc_type: str = "writer"):
     from plugin.framework.tool import ToolContext
-    from plugin.main import get_services
+    from plugin.app import get_services
 
     return ToolContext(doc, _lo_ctx, doc_type, get_services(), "eval")
 
@@ -506,7 +510,7 @@ def get_content_as_html() -> str:
     def _do():
         try:
             doc = LOBackend.acquire_document()
-            from plugin.main import get_tools
+            from plugin.app import get_tools
 
             ctx = _tool_ctx(doc, "writer")
             res = get_tools().execute_unguarded(
@@ -526,7 +530,7 @@ def get_content_as_html() -> str:
 def get_document_content(scope="full", max_chars=None, start=None, end=None, **kwargs) -> str:
     def _do():
         doc = LOBackend.acquire_document()
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         params = {"scope": scope}
         if max_chars is not None:
@@ -549,7 +553,7 @@ def get_document_content(scope="full", max_chars=None, start=None, end=None, **k
 def apply_document_content(content: str, old_content: str = "", all_matches: bool = False, **kwargs) -> str:
     def _do():
         doc = LOBackend.acquire_document()
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         params = {"content": content, "old_content": old_content}
         if all_matches:
@@ -564,7 +568,12 @@ def apply_document_content(content: str, old_content: str = "", all_matches: boo
     return LOBackend.call(_do)
 
 
-def find_text(search: str, start=0, limit=None, case_sensitive=True) -> str:
+def find_text(
+    search: str,
+    start: int = 0,
+    limit: int | None = None,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> str:
     def _do():
         doc = LOBackend.acquire_document()
         from plugin.writer.search import find_text_ranges
@@ -647,7 +656,7 @@ def normalize_lo_tool(
         elif isinstance(values, (int, float)) and not isinstance(values, bool):
             params["values"] = str(values)
 
-    if prod == "sort_range":
+    if prod == "range_sort":
         col = params.get("sort_column")
         if isinstance(col, str) and headers:
             try:
@@ -674,13 +683,13 @@ def _execute_lo_tool_impl(
     (``shapes,core``). ``run_venv_python_script`` forwards it so ``wa.shape``
     is permitted. Leave it unset for ordinary tool calls.
     """
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     kind = LOBackend.current_kind()
     doc = LOBackend.acquire_document()
     headers = None
     used = None
-    if kind == "calc" and name in ("sort_range", "write_cell_range", "write_formula_range", "get_sheet_summary"):
+    if kind == "calc" and name in ("range_sort", "write_cell_range", "write_formula_range", "get_sheet_summary"):
         try:
             headers, used = _sheet_headers_and_used(doc)
         except Exception:
@@ -712,7 +721,7 @@ def execute_lo_tool(
 
 def get_draw_export() -> str:
     def _do():
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "draw")
@@ -726,7 +735,7 @@ def get_calc_export() -> str:
     """Sheet summary + grid snapshot so Tax / 0.8 / snapshot can appear."""
 
     def _do():
-        from plugin.main import get_tools
+        from plugin.app import get_tools
 
         doc = LOBackend.acquire_document()
         ctx = _tool_ctx(doc, "calc")
@@ -790,7 +799,12 @@ def dspy_apply_document_content(content: str, old_content: str = "", all_matches
     return apply_document_content(content, old_content, all_matches)
 
 
-def dspy_find_text(search: str, start: int = 0, limit: int = None, case_sensitive: bool = True) -> str:
+def dspy_find_text(
+    search: str,
+    start: int = 0,
+    limit: int | None = None,
+    case_sensitive: bool = SEARCH_CASE_SENSITIVE_DEFAULT,
+) -> str:
     """Search the LibreOffice document for text. Returns JSON with ranges."""
     return find_text(search, start, limit, case_sensitive)
 

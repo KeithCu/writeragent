@@ -130,13 +130,16 @@ def test_batching_stream_queue_timer_emission(monkeypatch):
 
 
 class TestBatchingStreamQueueTimerRace:
-    """Regression test for Bug 2: _schedule_timer() called outside the lock allowed
-    two concurrent producers to both see is_first=True and reset the burst deadline."""
+    """Concurrent first chunks must arm the batch timer only once.
+
+    If ``_schedule_timer()`` runs outside the lock, two producers can both see
+    ``is_first=True`` and reset the burst deadline.
+    """
 
     def test_timer_armed_exactly_once_for_concurrent_chunks(self):
         # Two threads simultaneously put the first CHUNK into an empty batcher.
-        # _schedule_timer must be called exactly once (the second call was previously
-        # cancelling and replacing the timer, losing the original deadline).
+        # A second _schedule_timer must not cancel and replace the timer, which
+        # would drop the original deadline.
         raw_q = queue.Queue()
         batcher = BatchingStreamQueue(raw_q, batch_interval=10.0)  # long interval so it doesn't fire
 
@@ -145,9 +148,9 @@ class TestBatchingStreamQueueTimerRace:
 
         original_arm = batcher._timer.arm
 
-        def counting_arm():
+        def counting_arm(delay):
             timer_calls.append(1)
-            original_arm()
+            original_arm(delay)
 
         batcher._timer.arm = counting_arm
 
@@ -179,9 +182,9 @@ class TestBatchingStreamQueueTimerRace:
         barrier = threading.Barrier(2)
         original_arm = batcher._timer.arm
 
-        def counting_arm():
+        def counting_arm(delay):
             timer_calls.append(1)
-            original_arm()
+            original_arm(delay)
 
         batcher._timer.arm = counting_arm
 

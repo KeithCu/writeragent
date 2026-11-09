@@ -82,8 +82,8 @@ def test_report_script_dialog_error_runtime_exception_live_doc_vs_none_doc():
     # doc=None is "no longer open"
     with patch.object(ui, "set_control_text") as mock_set_text:
         ui._report_script_dialog_error(ctx, dlg, MockRuntimeException("missing doc"), "Save", doc=None)
-    mock_set_text.assert_called_once()
-    assert "no longer open" in mock_set_text.call_args.args[1]
+    # A bare RuntimeException is not disposal even with no document.
+    mock_set_text.assert_called_once_with(lbl, "missing doc")
 
 
 def test_native_dialog_window_closing_does_not_dispose():
@@ -150,24 +150,19 @@ def test_start_native_script_run_returns_before_venv_wait():
 def _deliver_posted_native_run():
     """Run the main-thread turn that delivers ``on_complete``.
 
-    What was wrong: these tests inline the native-run worker and then read
-    the listener immediately. ``seen`` stayed ``[]`` on CI.
-    How it happened: LibreOffice has already created AsyncCallback, so
-    ``post()`` enqueues (``marshal route=post_enqueue``) even on the logical
-    main thread. ``execute()`` still inlines, which is why prepare / venv /
-    finish ran and only the completion post was missing.
-    Why this works: mark AsyncCallback ready (the CI route, not the
-    no-service inline) and drain that queue from the poke. The product still
-    posts the outcome; the harness plays the UI turn that would run it.
+    These tests inline the native-run worker and then read the listener
+    immediately, but completion posts queue when AsyncCallback is ready.
+    Mark the callback service ready and drain the main-thread queue from poke
+    so the harness delivers the same UI turn LibreOffice would run in CI.
     """
-    executor = qe.default_executor
+    executor = qe.main
     saved_init = executor._initialized
     saved_svc = executor._async_callback_service
     saved_cb = executor._callback_instance
-    saved_poke = qe._test_poke_handler
+    saved_poke = qe.MainThread.poke
     draining = False
 
-    def _poke(ex: qe.QueueExecutor) -> None:
+    def _poke(ex: qe.MainThread) -> None:
         nonlocal draining
         # process_queue pokes again while items remain. The flag keeps that
         # re-poke from nesting; the loop drains the rest.
@@ -181,16 +176,16 @@ def _deliver_posted_native_run():
             draining = False
 
     # CI's real service takes this branch. A MagicMock is enough: the poke
-    # handler replaces addCallback, and execute() still inlines on this thread.
+    # handler replaces addCallback, and call() still inlines on this thread.
     executor._initialized = True
     executor._async_callback_service = MagicMock()
     executor._callback_instance = MagicMock()
-    qe.set_test_poke_handler(_poke)
+    qe.MainThread.poke = _poke
     try:
         yield
     finally:
         _poke(executor)
-        qe.set_test_poke_handler(saved_poke)
+        qe.MainThread.poke = saved_poke
         executor._initialized = saved_init
         executor._async_callback_service = saved_svc
         executor._callback_instance = saved_cb
@@ -343,7 +338,7 @@ def test_start_native_script_run_releases_pin_when_finish_is_not_run():
         patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:leak"),
         patch(
-            "plugin.framework.queue_executor.execute_on_main_thread",
+            "plugin.framework.queue_executor.main.call",
             side_effect=[
                 prepared,
                 TimeoutError("Main-thread execution of _finish_rps_execution timed out after 30.0s"),
@@ -372,7 +367,7 @@ def test_start_native_script_run_prepare_timeout_releases_pin():
         _deliver_posted_native_run(),
         patch.object(pr, "run_in_background", side_effect=_inline),
         patch("plugin.scripting.session_manager.pin_script_document", return_value="doc:tok"),
-        patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=TimeoutError("prepare")),
+        patch("plugin.framework.queue_executor.main.call", side_effect=TimeoutError("prepare")),
         patch("plugin.scripting.session_manager.release_script_document") as mock_release,
     ):
         pr.start_native_script_run(ctx, doc, "result = 1", on_complete=seen.append)
@@ -432,7 +427,7 @@ def test_native_dialog_open_warms_venv_on_shared_pool():
         assert inst._open() is None
 
     assert calls["func"] is ui.warm_venv_worker
-    assert calls["args"] == (inst._ctx,)
+    assert calls["args"] == ()
     assert calls["kwargs"].get("name") == "warm-venv-worker"
     assert calls["kwargs"].get("dedicated") is False
 
@@ -985,9 +980,7 @@ def test_native_dialog_open_survives_warm_schedule_failure():
 
 
 def test_start_native_script_run_uses_dedicated_worker():
-    # What was wrong: Script execution ran on the shared background worker pool (dedicated=False).
-    # Long-running scripts blocked the pool from handling other tasks.
-    # Why this change: AGENTS.md requires long jobs to run with dedicated=True.
+    # Native script runs must use dedicated=True so long jobs do not occupy the shared pool.
     captured = {}
 
     def _capture_run(func, *args, **kwargs):

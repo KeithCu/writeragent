@@ -135,9 +135,9 @@ class TestInsertImageIntoHeaderFooter:
 
 class TestShouldLinkImagePath:
     def test_user_path_is_linked(self):
-        # What was wrong: in make release, tests run from a tempdir under /tmp ($RELEASE_TMP),
-        # so os.getcwd() was inside tempfile.gettempdir(), causing _should_link_image_path to return False.
-        # This change mocks gettempdir to a distinct path to ensure hermetic testing.
+        # make release runs tests from a tempdir under /tmp ($RELEASE_TMP), so getcwd() can sit
+        # inside gettempdir() and _should_link_image_path would return False. Mock gettempdir to
+        # a distinct path so user paths are still treated as linkable.
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
             f.write(b"png")
             path = f.name
@@ -1038,3 +1038,19 @@ class TestAddImageToGallery:
         theme.update.assert_called_once()
 
 
+def test_insert_image_into_header_footer_reports_resolved_style_name():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.images import image_tools
+
+    style = MagicMock()
+    style.getName.return_value = "Standard"
+    region_text = MagicMock()
+    style.getPropertyValue.side_effect = lambda name: {"HeaderIsOn": True, "HeaderText": region_text}.get(name, MagicMock())
+    with (
+        patch("plugin.writer.page.resolve_page_style", return_value=style),
+        patch("plugin.writer.page.set_header_footer_auto_height"),
+        patch.object(image_tools, "_insert_embedded_at_writer_cursor", return_value=MagicMock()),
+    ):
+        result = image_tools.insert_image_into_header_footer(MagicMock(), "/tmp/logo.png", "header", style_name="Default Page Style")
+    assert result["style_name"] == "Standard"

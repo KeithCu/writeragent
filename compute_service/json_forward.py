@@ -24,6 +24,8 @@ import json
 import math
 from dataclasses import dataclass
 from typing import Any
+from compute_service import error_codes as ec
+from plugin.scripting.session_key import is_reserved_caller_id, reserved_caller_id_error_message
 
 # HTTP max_body_bytes is 32 MiB; pickle of the envelope needs a little slack.
 COMPUTE_MAX_PAYLOAD_BYTES = 33 * 1024 * 1024
@@ -38,9 +40,6 @@ _FORBIDDEN_META_KEYS = ("code", "data", "data_json", "init_script")
 _VISION_PART_NAMES = frozenset({"meta", "image"})
 _VISION_FORBIDDEN_META_KEYS = ("image", "image_b64")
 _ALLOWED_CTE = frozenset({"7bit", "8bit", "binary"})
-
-VALID_EXECUTE_MODES = frozenset({"isolated", "shared"})
-
 
 class ExecuteRequestError(ValueError):
     """Raised when an execute request or response does not match the one schema."""
@@ -79,31 +78,28 @@ def _reject_nonfinite_number(value: Any) -> None:
             _reject_nonfinite_number(v)
 
 
-def canonical_execute_mode(mode: Any) -> str:
-    """Missing mode is isolated. Every other value must be a real mode.
+def derive_execute_mode(session_id: str | None) -> str:
+    """Sticky shared when a non-empty *session_id* is present; else one-shot isolated.
 
-    Only ``None`` and ``""`` are omitted. ``false`` and ``0`` are not
-    missing, or the HTTP handler would run an isolated cell. Peel,
-    multipart, and the pool call this before the worker runs.
+    HTTP supplies *session_id* only via ``?session_id=``. Leftover ``mode`` in JSON
+    or multipart ``meta`` is ignored for routing; clients may still send it.
     """
-    if mode is None or mode == "":
-        return "isolated"
-    if isinstance(mode, str) and mode in VALID_EXECUTE_MODES:
-        return mode
-    raise ExecuteRequestError("mode must be 'isolated' or 'shared'.")
+    if isinstance(session_id, str) and session_id.strip():
+        return "shared"
+    return "isolated"
 
 
 def validate_session_id(session_id: Any) -> str:
-    """Validate that *session_id* is a valid identifier and not in a reserved namespace.
+    """Validate that *session_id* is a valid identifier and not reserved.
 
-    Names ending in ':init' or starting with 'isolated:' are reserved for
-    internal init-script snapshotting and cannot be claimed by callers.
+    See :func:`plugin.scripting.session_key.is_reserved_caller_id` and
+    :data:`plugin.scripting.session_key.RESERVED_CALLER_ID_HELP`.
     """
     if not isinstance(session_id, str) or not session_id.strip():
-        raise ExecuteRequestError("session_id must be a non-empty string.", code="INVALID_SESSION_ID")
+        raise ExecuteRequestError("session_id must be a non-empty string.", code=ec.INVALID_SESSION_ID)
     sid = session_id.strip()
-    if sid.endswith(":init") or sid.startswith("isolated:"):
-        raise ExecuteRequestError(f"Invalid session_id {sid!r}: names ending in ':init' or starting with 'isolated:' are reserved.", code="INVALID_SESSION_ID")
+    if is_reserved_caller_id(sid):
+        raise ExecuteRequestError(reserved_caller_id_error_message(sid), code=ec.INVALID_SESSION_ID)
     return sid
 
 
@@ -321,11 +317,7 @@ def _scan_multipart_parts(body: bytes, boundary: bytes, allowed: frozenset[str])
         nxt_at, nxt_kind = nxt
         payload_end = _payload_end_before_delimiter(body, nxt_at)
         if payload_end < header_end:
-            # RFC 2046 attaches the CRLF before --boundary to the delimiter.
-            # An empty part is headers\r\n\r\n--boundary: that CRLF is also
-            # the blank line that ended the headers, so dropping it landed
-            # before the body and the part was rejected as malformed.
-            # The body is empty. A longer gap is still a broken framing.
+            # An empty part shares its header-ending CRLF with the delimiter (RFC 2046); anything else is broken framing.
             if nxt_at == header_end and body[payload_end:header_end] in (b"\r\n", b"\n"):
                 payload_end = header_end
             else:
@@ -500,7 +492,7 @@ def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | froz
         raise ExecuteRequestError("meta part must be a JSON object")
     for key in forbidden_keys:
         if key in obj:
-            raise ExecuteRequestError(f"meta part must not include a {key!r} field", code="INVALID_REQUEST")
+            raise ExecuteRequestError(f"meta part must not include a {key!r} field", code=ec.INVALID_REQUEST)
     req_id = obj.get("id")
     timeout_ms = obj.get("timeout_ms")
     # 1e9999 survives parse_constant (that hook only sees NaN / Infinity
@@ -509,9 +501,9 @@ def _parse_meta_object(meta_bytes: bytes, forbidden_keys: tuple[str, ...] | froz
     _reject_nonfinite_number(req_id)
     _reject_nonfinite_number(timeout_ms)
     if req_id is not None and (not isinstance(req_id, (str, int)) or isinstance(req_id, bool)):
-        raise ExecuteRequestError("id must be a scalar", code="INVALID_REQUEST")
+        raise ExecuteRequestError("id must be a scalar", code=ec.INVALID_REQUEST)
     if timeout_ms is not None and (not isinstance(timeout_ms, (int, float)) or isinstance(timeout_ms, bool)):
-        raise ExecuteRequestError("timeout_ms must be a scalar", code="INVALID_REQUEST")
+        raise ExecuteRequestError("timeout_ms must be a scalar", code=ec.INVALID_REQUEST)
     return obj
 
 

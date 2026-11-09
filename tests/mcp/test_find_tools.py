@@ -7,8 +7,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 from plugin.doc.find_tools_tool import FindTools, get_domain_guidance
-from plugin.framework.prompts import get_specialized_domain_catalog
+from plugin.doc.specialized_catalog import get_specialized_domain_catalog
 from plugin.framework.tool import ToolBase, ToolRegistry
+from plugin.framework.send_cancellation import SendCancellation
 from plugin.mcp.mcp_protocol import MCPProtocolHandler, _PreparedMcpCall
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
@@ -138,18 +139,17 @@ def test_execute_no_registry_errors():
 def _handler(mode, schemas):
     services = MagicMock()
     services.tools.get_schemas.return_value = list(schemas)
-    services.config.get.side_effect = (
-        lambda key, default=None: mode if key == "mcp.tool_exposure_mode" else default
-    )
     services.get.side_effect = lambda name: getattr(services, name, None)
 
     def _inline(fn, *a, **k):
         k.pop("timeout", None)
         return fn(*a, **k)
 
-    services.main_thread.execute.side_effect = _inline
+    services.main_thread.call.side_effect = _inline
     services.document.get_active_document.return_value = MagicMock()
-    return MCPProtocolHandler(services)
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: mode
+    return handler
 
 
 def _list_names(mode):
@@ -173,7 +173,7 @@ def test_gating_keeps_other_tools():
     assert "insert_footnote" in _list_names("direct_discovery")
 
 
-def test_tools_list_filters_on_main_thread():
+def test_tools_list_filters_is_current():
     # Regression: the doc-type filtering (get_schemas -> supports_doc -> doc.supportsService)
     # touches UNO, so it must run INSIDE the main-thread executor, not on the MCP request
     # thread -- otherwise the UNO thread guard fails tools/list with a 500. Affects every
@@ -193,20 +193,19 @@ def test_tools_list_filters_on_main_thread():
         return [{"name": "insert_footnote", "description": "f", "inputSchema": {}}]
 
     services = MagicMock()
-    services.config.get.side_effect = (
-        lambda key, default=None: "delegate" if key == "mcp.tool_exposure_mode" else default
-    )
     services.get.side_effect = lambda name: getattr(services, name, None)
-    services.main_thread.execute.side_effect = _exec
+    services.main_thread.call.side_effect = _exec
     services.tools.get_schemas.side_effect = _get_schemas
     services.document.get_active_document.return_value = MagicMock()  # a document is open
 
-    result = MCPProtocolHandler(services)._mcp_tools_list({})
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: "delegate"
+    result = handler._mcp_tools_list({})
     assert any(t["name"] == "insert_footnote" for t in result["tools"])
     services.tools.get_schemas.assert_called()  # the thread assertion only fires if get_schemas ran
 
 
-def test_tools_list_direct_flat_filters_sidebar_on_main_thread():
+def test_tools_list_direct_flat_filters_sidebar_is_current():
     # direct_flat runs a second sidebar-only filter; with cached uno_services_supported
     # it no longer probes doc.supportsService, but still must run on the main thread
     # because it shares the _mcp_tools_list UNO resolution block.
@@ -231,16 +230,15 @@ def test_tools_list_direct_flat_filters_sidebar_on_main_thread():
         return frozenset()
 
     services = MagicMock()
-    services.config.get.side_effect = (
-        lambda key, default=None: "direct_flat" if key == "mcp.tool_exposure_mode" else default
-    )
     services.get.side_effect = lambda name: getattr(services, name, None)
-    services.main_thread.execute.side_effect = _exec
+    services.main_thread.call.side_effect = _exec
     services.tools.get_schemas.side_effect = _get_schemas
     services.document.get_active_document.return_value = MagicMock()  # a document is open
 
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: "direct_flat"
     with patch("plugin.doc.find_tools_tool.sidebar_only_tool_names", _sidebar):
-        result = MCPProtocolHandler(services)._mcp_tools_list({})
+        result = handler._mcp_tools_list({})
     assert any(t["name"] == "create_chart" for t in result["tools"])
     services.tools.get_schemas.assert_called()
 
@@ -364,18 +362,17 @@ def _ctx_real(registry):
 def _handler_real(mode, registry):
     services = MagicMock()
     services.tools = registry
-    services.config.get.side_effect = (
-        lambda key, default=None: mode if key == "mcp.tool_exposure_mode" else default
-    )
     services.get.side_effect = lambda name: getattr(services, name, None)
 
     def _inline(fn, *a, **k):
         k.pop("timeout", None)
         return fn(*a, **k)
 
-    services.main_thread.execute.side_effect = _inline
+    services.main_thread.call.side_effect = _inline
     services.document.get_active_document.return_value = None
-    return MCPProtocolHandler(services)
+    handler = MCPProtocolHandler(services)
+    handler._tool_exposure_mode = lambda: mode
+    return handler
 
 
 def test_execute_domain_real_registry():
@@ -437,7 +434,7 @@ def test_execute_normalizes_domain_case_and_whitespace():
 
 def test_find_tools_call_blocked_outside_direct_discovery():
     handler = _handler_real("delegate", _real_registry())
-    res = handler._mcp_tools_call({"name": "find_tools", "arguments": {}})
+    res = handler._mcp_tools_call({"name": "find_tools", "arguments": {}}, cancel=SendCancellation())
     assert res["isError"] is True
     assert "direct_discovery" in res["content"][0]["text"]
 
@@ -446,13 +443,13 @@ def test_specialized_tool_allowed_in_direct_discovery():
     """Specialized tools advertised via find_tools must be callable in direct_discovery mode."""
     # In delegate mode, calling specialized tool directly is blocked
     delegate_handler = _handler_real("delegate", _real_registry())
-    res_del = delegate_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}})
+    res_del = delegate_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}}, cancel=SendCancellation())
     assert res_del["isError"] is True
     assert "not available in the current exposure mode" in res_del["content"][0]["text"]
 
     # In direct_discovery mode, specialized tool is allowed through
     disc_handler = _handler_real("direct_discovery", _real_registry())
-    res_disc = disc_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}})
+    res_disc = disc_handler._mcp_tools_call({"name": "footnotes_insert", "arguments": {}}, cancel=SendCancellation())
     # Should not be rejected by exposure mode check
     if res_disc.get("isError"):
         assert "not available in the current exposure mode" not in res_disc["content"][0]["text"]
@@ -461,7 +458,7 @@ def test_specialized_tool_allowed_in_direct_discovery():
 
 def _prepare_and_invoke(handler, tool_name, arguments=None):
     arguments = {} if arguments is None else arguments
-    prepared = handler._prepare_mcp_execution(tool_name, arguments, None, send_cancellation=None)
+    prepared = handler._prepare_mcp_execution(tool_name, arguments, None, cancel=SendCancellation())
     if not isinstance(prepared, _PreparedMcpCall):
         return prepared
     return handler._invoke_prepared_mcp_tool(prepared, tool_name, arguments)
@@ -537,7 +534,7 @@ def test_find_tools_suppresses_ppt_master_when_draw_or_impress_doc_is_open():
     The registry still returns those schemas for the open document. Hiding is
     the sidebar-only name filter, which needs doc_type and uno_services.
     """
-    from plugin.doc.doc_type import uno_services_for_doc_type_label
+    from plugin.framework.doc_type import uno_services_for_doc_type_label
     from plugin.framework.tool import ToolContext
     from plugin.ppt_master.tools import (
         ApplyPptMasterNativeEnhance,

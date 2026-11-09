@@ -7,7 +7,6 @@
 import pytest
 
 from plugin.framework import queue_executor as qe
-from plugin.framework import thread_guard as tg
 from tests.framework.thread_safety import UnoThreadSafetySession
 
 
@@ -15,16 +14,14 @@ from tests.framework.thread_safety import UnoThreadSafetySession
 def _reset_thread_safety_hooks():
     """Prevent Layer B hooks from leaking between framework tests."""
     yield
-    qe.set_force_marshal_mode(False)
-    qe.set_test_poke_handler(None)
-    tg.set_designated_main_thread(None)
+    qe.main.install(qe.Policy.production, designated=None, poke=None)
 
 
 @pytest.fixture
 def uno_thread_safety(monkeypatch):
     """Opt-in Layer B: real cross-thread marshal + thread-affine UNO mocks.
 
-    - Clears WRITERAGENT_TESTING so execute_on_main_thread enqueues work.
+    - Clears WRITERAGENT_TESTING so main.call enqueues work.
     - Starts a synthetic main pump thread (designated UNO main).
     - Use session.make_mock(...) for objects that must only be touched from that thread.
     """

@@ -24,13 +24,22 @@ _PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__f
 if _PROJECT_ROOT not in sys.path:
     sys.path.insert(0, _PROJECT_ROOT)
 
+from compute_service import error_codes as ec
 from compute_service.config import DEFAULT_SETTINGS
 from compute_service.json_egress import normalize_execute_response
 from compute_service.json_forward import json_forward_envelope
 from compute_service.worker_base import configure_compute_worker_env, run_compute_worker
+from plugin.framework.child_runtime import error_dict
+from plugin.scripting.session_key import SessionKey, SessionKind
 
 # Default math/OpenMP thread pools to 1 thread early before any heavy math imports.
 configure_compute_worker_env()
+
+from plugin.framework.uno_bootstrap import register_alias_importer
+
+# Sandboxed writeragent.scripting.* imports need AliasImporter on sys.meta_path;
+# install_alias_authorizer alone only wires the sandbox gate.
+register_alias_importer()
 
 # ast sandboxing is loaded lazily on the first execution so the ready
 # handshake is not spent on that graph with an empty stderr.
@@ -58,7 +67,12 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
             except Exception:
                 missing.append(str(pkg))
         if missing:
-            return {"id": req_id, "status": "error", "code": "MISSING_DEPENDENCIES", "missing": missing, "error": f"Missing required dependencies in worker environment: {', '.join(missing)}"}
+            return error_dict(
+                "MISSING_DEPENDENCIES",
+                f"Missing required dependencies in worker environment: {', '.join(missing)}",
+                req_id=req_id,
+                missing=missing,
+            )
         return {"id": req_id, "status": "ok"}
 
     if action == "reset_session":
@@ -74,12 +88,21 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
 
     code = req.get("code")
     if not code or not isinstance(code, str):
-        err = {"id": req_id, "status": "error", "code": "MISSING_CODE", "error": "Missing or invalid 'code' parameter", "stdout": ""}
-        return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
+        return json_forward_envelope(
+            error_dict(
+                "MISSING_CODE",
+                "Missing or invalid 'code' parameter",
+                req_id=req_id,
+                stdout="",
+            ),
+            req_id=req_id,
+            session_reset=False,
+            namespace_created=False,
+        )
 
     session_id = req.get("session_id")
-    # Pool execute() already rejected a bad mode. The stdio dict
-    # carries that canonical mode; checking again duplicated the gate.
+    # Pool execute() derives this internal mode from the validated session_id,
+    # never from a client mode field.
     mode = req.get("mode", "isolated")
     timeout_sec = req.get("timeout_sec")
     init_script = req.get("init_script")
@@ -106,18 +129,11 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
         if init_code is not None:
             init_hash = hashlib.sha256(init_code.encode("utf-8")).hexdigest()
             if use_session is not None:
-                init_sid = f"{use_session}:init"
+                init_sid = SessionKey.parse(use_session).with_init_suffix().wire()
             else:
-                init_sid = f"isolated:{init_hash}:init"
+                init_sid = SessionKey.of(SessionKind.ISOLATED, init_hash).with_init_suffix().wire()
 
-        # What was wrong: Large arrays / grids were packed into binary float64 split_grid
-        # envelopes by default, which cast ints to float64 and turned ints > 2^53 into text,
-        # only for json_egress to immediately decode them back into lists.
-        # How it happened: run_sandboxed_code defaulted to force="auto", packing grids
-        # >= BINARY_MIN_CELLS into split_grid buffers.
-        # Why this change: The compute service output is JSON and never needed the binary
-        # buffer across a process boundary; force="never" keeps results as native lists
-        # so integers stay exact.
+        # Output is JSON: force="never" keeps grids as native lists so large ints stay exact.
         raw = run_sandboxed_code(
             code=code,
             data=data,
@@ -137,8 +153,12 @@ def _handle_request(req: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         # Traceback included server paths on the kit wire. Eval errors from
         # json_egress are only status/error/stdout; this path must match.
-        err = {"id": req_id, "status": "error", "code": "WORKER_EXECUTION_ERROR", "error": str(exc), "stdout": ""}
-        return json_forward_envelope(err, req_id=req_id, session_reset=False, namespace_created=False)
+        return json_forward_envelope(
+            error_dict(ec.WORKER_EXECUTION_ERROR, str(exc), req_id=req_id, stdout=""),
+            req_id=req_id,
+            session_reset=False,
+            namespace_created=False,
+        )
 
 
 def main() -> int:

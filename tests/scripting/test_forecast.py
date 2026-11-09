@@ -161,8 +161,7 @@ def test_daily_series_infers_weekly_season_not_monthly():
     # 30 daily rows used to become period 12 because n >= 24.
     dates = pd.date_range("2024-01-01", periods=30, freq="D")
     frame = pd.DataFrame({"Date": dates, "Value": [100.0 + (i % 7) for i in range(30)]})
-    assert venv_forecast._infer_seasonal_periods(_indexed(frame), None) == 7
-    assert venv_forecast._infer_seasonal_periods(_indexed(frame), 12) == 12
+    assert venv_forecast.Calendar.compute(_indexed(frame)).season == 7
     result = forecast_time_series(frame, periods=2, model="auto")
     assert result["status"] == "ok"
     assert result["metrics"].get("seasonal_periods", 7) == 7
@@ -172,7 +171,7 @@ def test_weekly_series_stays_trend_only():
     # 30 weeks is not two years, so a seasonal model must not run.
     dates = pd.date_range("2024-01-07", periods=30, freq="W")
     frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(30)]})
-    assert venv_forecast._infer_seasonal_periods(_indexed(frame), None) is None
+    assert venv_forecast.Calendar.compute(_indexed(frame)).season is None
     result = forecast_time_series(frame, periods=3, model="auto")
     assert result["status"] == "ok"
     assert result["metrics"]["model"] != "holt_winters"
@@ -182,13 +181,13 @@ def test_weekly_series_stays_trend_only():
 
 def test_monthly_series_infers_annual_season():
     frame = _seasonal_series(36)
-    assert venv_forecast._infer_seasonal_periods(_indexed(frame), None) == 12
+    assert venv_forecast.Calendar.compute(_indexed(frame)).season == 12
 
 
 def test_weekday_forecast_skips_weekends():
     dates = pd.bdate_range("2024-01-02", periods=60)
     frame = pd.DataFrame({"Date": dates, "Value": [float(i) for i in range(60)]})
-    assert venv_forecast._infer_seasonal_periods(_indexed(frame), None) == 5
+    assert venv_forecast.Calendar.compute(_indexed(frame)).season == 5
     result = forecast_time_series(frame, periods=5, model="moving_average")
     assert result["status"] == "ok"
     assert result["metrics"]["freq"] == "B"
@@ -752,15 +751,17 @@ def test_arima_ignores_seasonal_periods():
 
 def test_default_params_match_venv_signatures():
     import inspect
-    from plugin.scripting.forecast import _DEFAULT_PARAMS
+    from plugin.scripting.helper_registry import specs
 
-    for helper_name, defaults in _DEFAULT_PARAMS.items():
-        fn = getattr(venv_forecast, helper_name)
+    for spec in specs("forecast"):
+        if spec.default_params is None:
+            continue
+        fn = getattr(venv_forecast, spec.name)
         sig = inspect.signature(fn)
-        for param_name, expected_default in defaults.items():
-            assert param_name in sig.parameters, f"{param_name} not in {helper_name} signature"
+        for param_name, expected_default in spec.default_params.items():
+            assert param_name in sig.parameters, f"{param_name} not in {spec.name} signature"
             assert sig.parameters[param_name].default == expected_default, (
-                f"{helper_name}.{param_name} default {sig.parameters[param_name].default!r} != {expected_default!r}"
+                f"{spec.name}.{param_name} default {sig.parameters[param_name].default!r} != {expected_default!r}"
             )
 
 

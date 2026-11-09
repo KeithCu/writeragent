@@ -17,8 +17,6 @@ from plugin.framework.config_schema import (
     DEFAULT_IMAGE_BASE_SIZE,
     WriterAgentConfig,
     as_bool,
-    clamp_schema_value,
-    coerce_config_value,
     get_config_schema,
     is_default_value,
     is_known_config_key,
@@ -26,6 +24,7 @@ from plugin.framework.config_schema import (
     parse_int_robust,
     set_endpoint_normalizer,
     set_manifest_modules,
+    validate,
 )
 
 _SCHEMA_PATH = Path(__file__).resolve().parents[2] / "plugin" / "framework" / "config_schema.py"
@@ -63,10 +62,9 @@ def restore_manifest():
         schema.MODULES,
         schema.CONFIG_DEFAULTS,
         schema.CONFIG_SCHEMAS,
-        schema.DOTTED_FALLBACKS,
     )
     yield schema
-    schema.MODULES, schema.CONFIG_DEFAULTS, schema.CONFIG_SCHEMAS, schema.DOTTED_FALLBACKS = orig
+    schema.MODULES, schema.CONFIG_DEFAULTS, schema.CONFIG_SCHEMAS = orig
 
 
 def test_config_schema_imports_only_modules_from_manifest() -> None:
@@ -96,23 +94,18 @@ def test_module_yaml_defaults_bind_from_manifest_modules() -> None:
 
 
 def test_max_tool_rounds_schema_allows_200() -> None:
-    """Eval-2 headed trials may set 200; schema max used to clamp that to 150."""
+    """Eval headed trials may set chatbot.max_tool_rounds to 200; schema max must allow it."""
     from plugin.framework import config_schema as schema
 
     assert schema.MODULES, "empty MODULES; run make manifest"
-    for key in ("chatbot.max_tool_rounds", "max_tool_rounds"):
-        field = get_config_schema(key)
-        assert field is not None, key
-        assert field["min"] == 1
-        assert field["max"] == 200
-        assert field["default"] == 15
-        assert clamp_schema_value(key, 200) == 200
-        assert clamp_schema_value(key, 201) == 200
-        assert clamp_schema_value(key, 15) == 15
+    field = get_config_schema("chatbot.max_tool_rounds")
+    assert field is not None
+    assert field["min"] == 1
+    assert field["max"] == 200
+    assert field["default"] == 15
 
-    cfg = WriterAgentConfig.from_dict({"endpoint": "http://x", "chatbot.max_tool_rounds": 200})
-    cfg.validate(coerce_out_of_range=True)
-    assert cfg._extra_config["chatbot.max_tool_rounds"] == 200
+    validated = validate({"endpoint": "http://x", "chatbot.max_tool_rounds": 200})
+    assert validated["chatbot.max_tool_rounds"] == 200
 
 
 def test_config_schema_has_no_forbidden_imports() -> None:
@@ -133,12 +126,11 @@ def test_config_does_not_reexport_schema_names() -> None:
 
     for name in (
         "as_bool",
-        "clamp_schema_value",
-        "coerce_config_value",
         "WriterAgentConfig",
         "is_default_value",
         "set_manifest_modules",
         "MODULES",
+        "validate",
     ):
         assert name not in vars(config), name
         with pytest.raises(ImportError):
@@ -156,9 +148,9 @@ def test_parse_float_robust_huge_int_is_value_error() -> None:
         parse_float_robust(huge)
     with pytest.raises(ValueError):
         parse_float_robust(-huge)
-    assert clamp_schema_value("chat_max_tokens", huge) == huge
     assert is_default_value("temperature", huge) is False
-    assert coerce_config_value("temperature", huge) == -1.0
+    with pytest.raises(ConfigValidationError):
+        validate({"temperature": huge})
 
 
 def test_as_bool_and_numeric_parsers() -> None:
@@ -188,15 +180,13 @@ def test_coerce_and_clamp_use_manifest_schema(restore_manifest) -> None:
             }
         ]
     )
-    assert coerce_config_value("demo.count", "3") == 3
-    assert clamp_schema_value("demo.count", 1) == 2
-    assert clamp_schema_value("demo.count", 99) == 10
-    assert coerce_config_value("demo.count", "not-a-number") == 5
+    assert validate({"demo.count": "3"})["demo.count"] == 3
     with pytest.raises(ConfigValidationError):
-        coerce_config_value("demo.count", "not-a-number", strict=True)
+        validate({"demo.count": "not-a-number"})
     with pytest.raises(ConfigValidationError):
-        coerce_config_value("demo.count", 1, strict=True)
-    assert coerce_config_value("demo.count", 1) == 2
+        validate({"demo.count": 1})
+    with pytest.raises(ConfigValidationError):
+        validate({"demo.count": 99})
     schema = get_config_schema("demo.count")
     assert schema is not None
     assert schema["default"] == 5
@@ -205,37 +195,31 @@ def test_coerce_and_clamp_use_manifest_schema(restore_manifest) -> None:
     assert not is_default_value("demo.count", 8)
 
 
-def test_writeragent_config_from_dict_and_defaults() -> None:
-    cfg = WriterAgentConfig.from_dict(
+def test_validate_and_defaults() -> None:
+    res = validate(
         {
             "temperature": "0,7",
             "chat_max_tokens": 16384.0,
             "unknown_extra": "keep-until-prune",
         }
     )
-    cfg.validate()
-    assert cfg.temperature == pytest.approx(0.7)
-    assert cfg.chat_max_tokens == 16384
-    dumped = cfg.to_dict()
-    assert "chat_max_tokens" not in dumped
-    assert dumped["temperature"] == pytest.approx(0.7)
-    assert "unknown_extra" not in dumped
+    assert res["temperature"] == pytest.approx(0.7)
+    assert res["chat_max_tokens"] == 16384
+    assert res["unknown_extra"] == "keep-until-prune"
 
 
-def test_writeragent_config_validate_constraints() -> None:
+def test_validate_constraints() -> None:
     with pytest.raises(ConfigValidationError) as err:
-        WriterAgentConfig(temperature=1.5).validate()
+        validate({"temperature": 1.5})
     assert err.value.code == "INVALID_TEMPERATURE"
 
 
 def test_strict_coerce_uses_dataclass_bounds_without_rewriting_defaults() -> None:
     """Settings compare trusts strict coerce. Defaults must still compare equal.
 
-    What was wrong: temperature 5.0 and chat_max_tokens -1 came back unchanged
-    under strict=True, so a dialog that resubmitted a stored out-of-range
-    number looked like a no-op. The dataclass bounds have to reject those
-    values. The in-range defaults, including the temperature sentinel -1.0,
-    must stay themselves or an untouched Settings OK becomes a write.
+    Strict coerce must reject out-of-range values such as temperature 5.0 or
+    negative token limits. In-range defaults, including the temperature sentinel
+    -1.0, must round-trip unchanged or an untouched Settings OK looks like a write.
     """
     temperature = get_config_schema("temperature")
     tokens = get_config_schema("chat_max_tokens")
@@ -245,48 +229,21 @@ def test_strict_coerce_uses_dataclass_bounds_without_rewriting_defaults() -> Non
     assert timeout is not None and timeout["min_exclusive"] == 0
 
     with pytest.raises(ConfigValidationError):
-        coerce_config_value("temperature", 5.0, strict=True)
+        validate({"temperature": 5.0})
     with pytest.raises(ConfigValidationError):
-        coerce_config_value("chat_max_tokens", -1, strict=True)
+        validate({"chat_max_tokens": -1})
     with pytest.raises(ConfigValidationError):
-        coerce_config_value("request_timeout", 0, strict=True)
+        validate({"request_timeout": 0})
 
-    assert coerce_config_value("temperature", -1.0, strict=True) == -1.0
-    assert coerce_config_value("temperature", "-1.0", strict=True) == -1.0
-    assert coerce_config_value("chat_max_tokens", 16384, strict=True) == 16384
-    assert coerce_config_value("chat_max_tokens", "16384", strict=True) == 16384
-    assert coerce_config_value("request_timeout", 120, strict=True) == 120
-    assert coerce_config_value("request_timeout", "120", strict=True) == 120
-    assert coerce_config_value("temperature", 1.0, strict=True) == 1.0
-    assert coerce_config_value("chat_max_tokens", 0, strict=True) == 0
-    assert coerce_config_value("request_timeout", 1, strict=True) == 1
-
-    with pytest.raises(ConfigValidationError) as err:
-        WriterAgentConfig(temperature=5.0).validate()
-    assert err.value.code == "INVALID_TEMPERATURE"
-    with pytest.raises(ConfigValidationError) as err:
-        WriterAgentConfig(chat_max_tokens=-1).validate()
-    assert err.value.code == "INVALID_CHAT_MAX_TOKENS"
-    with pytest.raises(ConfigValidationError) as err:
-        WriterAgentConfig(request_timeout=0).validate()
-    assert err.value.code == "INVALID_REQUEST_TIMEOUT"
-
-    # Load repair uses the field fallback, not the inclusive clamp (0).
-    repaired = WriterAgentConfig(temperature=5.0, chat_max_tokens=-1, request_timeout=0)
-    repaired.validate(coerce_out_of_range=True)
-    assert repaired.temperature == 1.0
-    assert repaired.chat_max_tokens == 16384
-    assert repaired.request_timeout == 120
-
-
-def test_validate_coerce_out_of_range_clamps_instead_of_raising():
-    from plugin.framework.config_schema import WriterAgentConfig
-
-    cfg = WriterAgentConfig(temperature=1.5, chat_max_tokens=-1, request_timeout=0)
-    cfg.validate(coerce_out_of_range=True)
-    assert cfg.temperature == 1.0
-    assert cfg.chat_max_tokens == 16384
-    assert cfg.request_timeout == 120
+    assert validate({"temperature": -1.0})["temperature"] == -1.0
+    assert validate({"temperature": "-1.0"})["temperature"] == -1.0
+    assert validate({"chat_max_tokens": 16384})["chat_max_tokens"] == 16384
+    assert validate({"chat_max_tokens": "16384"})["chat_max_tokens"] == 16384
+    assert validate({"request_timeout": 120})["request_timeout"] == 120
+    assert validate({"request_timeout": "120"})["request_timeout"] == 120
+    assert validate({"temperature": 1.0})["temperature"] == 1.0
+    assert validate({"chat_max_tokens": 0})["chat_max_tokens"] == 0
+    assert validate({"request_timeout": 1})["request_timeout"] == 1
 
 
 def test_set_and_get_manifest_modules(restore_manifest) -> None:
@@ -294,7 +251,7 @@ def test_set_and_get_manifest_modules(restore_manifest) -> None:
     set_manifest_modules(modules)
     assert restore_manifest.MODULES is modules
     assert restore_manifest.CONFIG_DEFAULTS["only.flag"] is False
-    assert coerce_config_value("only.flag", "yes") is True
+    assert validate({"only.flag": "yes"})["only.flag"] is True
 
 
 def test_dataclass_field_helpers_parameterize_field() -> None:
@@ -344,4 +301,16 @@ def test_text_analytics_sentiment_engine_is_not_a_config_field() -> None:
     field_names = {f.name for f in dataclasses.fields(WriterAgentConfig)}
     assert "text_analytics_sentiment_engine" not in field_names
     assert "text_analytics_sentiment_model" in field_names
+
+
+def test_removed_chatbot_context_and_depth_schema_keys() -> None:
+    from plugin.framework.config_schema import get_config_schema
+
+    assert get_config_schema("chatbot.context_strategy") is None
+    assert get_config_schema("chatbot.deep_research_depth") is None
+    rounds = get_config_schema("chatbot.deep_research_max_rounds")
+    assert rounds is not None
+    assert rounds.get("min") == 1
+    assert rounds.get("max") == 6
+    assert rounds.get("default") == 3
 

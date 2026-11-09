@@ -18,7 +18,7 @@ def test_thread_guard_release_stub_public_surface() -> None:
 
     assert stub_ns["__all__"] == live_tg.__all__
 
-    for fn_name in ("_wrap_uno", "_unwrap_uno", "on_main_thread", "sync_host_dispatch"):
+    for fn_name in ("_wrap_uno", "unwrap_uno", "sync_host_dispatch"):
         stub_fn = stub_ns[fn_name]
         live_fn = getattr(live_tg, fn_name)
         stub_params = [(p.name, p.kind) for p in inspect.signature(stub_fn).parameters.values()]  # type: ignore[arg-type]

@@ -71,7 +71,6 @@ assert "plugin.scripting.venv.coerce" not in sys.modules
 names = dir(host)
 assert "run_analysis" in names
 assert "CoerceResult" in names
-assert "coerce_to_dataframe" in names
 assert "grid_to_dataframe" in names
 assert "get_analysis_script_templates" in names
 assert "plugin.scripting.venv.analysis" not in sys.modules

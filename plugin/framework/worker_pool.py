@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import codecs
 import contextvars
+import io
 import logging
 import os
 import queue
 import subprocess
-import sys
 import threading
 import uuid
 from collections import deque
@@ -137,14 +137,7 @@ class BackgroundHandle:
         return fut is not None and not fut.done()
 
     def is_current_thread(self) -> bool:
-        """True when this handle is the dedicated thread now running.
-
-        One supported check. Callers that read ``_thread`` to skip a
-        self-join miss a pooled handle: it has no thread, so that check is
-        false and ``join`` runs. From a pool worker that raises,
-        which is the deadlock guard and must stay. Pool workers that join
-        a different pooled future still hit it.
-        """
+        """True when this handle is the dedicated thread now running."""
         thread = self._thread
         return thread is not None and thread is threading.current_thread()
 
@@ -268,13 +261,6 @@ def run_in_background(func: Callable[..., Any], *args: Any, name: str | None = N
     return BackgroundHandle(future=fut)
 
 
-def get_subprocess_creationflags() -> dict[str, Any]:
-    """Return popen/run kwargs to hide command prompt windows on Windows."""
-    if sys.platform == "win32":
-        return {"creationflags": subprocess.CREATE_NO_WINDOW}
-    return {}
-
-
 class StderrTail:
     """Bounded stderr text captured by a continuous drain thread.
 
@@ -346,10 +332,6 @@ def _read_stderr_chunk(stream: IO[Any]) -> bytes | str | None:
     buffer = getattr(stream, "buffer", None)
     readable: IO[Any] = buffer if buffer is not None and hasattr(buffer, "read1") else stream
     read1 = getattr(readable, "read1", None)
-    # What was wrong: read1 had an odd `isinstance(chunk, (bytes, str)) or chunk is None` check
-    # that redundantly returned None either way when not bytes/str, while read lacked narrowing.
-    # How it happened: defensive check against unconfigured mock objects in tests.
-    # Why this change fixes it: reads read1 or read and returns chunk only when bytes/str, else None.
     try:
         if callable(read1):
             chunk = read1(4096)
@@ -388,68 +370,24 @@ def _iter_decoded_chunks(stream: IO[Any]) -> Iterator[str]:
         yield tail
 
 
-def _split_on_newlines(pending: str) -> tuple[list[str], str]:
-    """Split on ``\\n``, ``\\r\\n``, and a lone ``\\r``. Hold a trailing ``\\r``.
+def _feed_line_buffer(parts: list[str], length: int, text: str) -> tuple[list[str], list[str], int]:
+    """Split *text* on ``\\n`` and join the first line onto the held pieces.
 
-    ``str.splitlines`` also breaks on vertical tab, form feed, and the
-    Unicode line separators. The callback then sees a new line with that
-    separator still in the text, because ``rstrip`` only removes ``\\n``
-    and ``\\r``. A trailing ``\\r`` stays in the remainder so the next
-    chunk can finish a CRLF instead of emitting a line early.
+    *text* comes from ``io.IncrementalNewlineDecoder(translate=True)``, so
+    ``\\r\\n`` and a lone ``\\r`` are already ``\\n``. A ``\\r`` at the end of
+    a read stays inside that decoder until the next ``decode`` (or
+    ``final=True``), so it is not one of *parts* and does not add to
+    *length*. Splitting only on ``\\n`` keeps vertical tab, form feed, and
+    U+2028 in the line. ``str.splitlines`` would break on those.
     """
-    lines: list[str] = []
-    start = 0
-    index = 0
-    limit = len(pending)
-    while index < limit:
-        char = pending[index]
-        if char == "\n":
-            lines.append(pending[start : index + 1])
-            index += 1
-            start = index
-            continue
-        if char == "\r":
-            if index + 1 == limit:
-                break
-            end = index + 2 if pending[index + 1] == "\n" else index + 1
-            lines.append(pending[start:end])
-            index = end
-            start = index
-            continue
-        index += 1
-    return lines, pending[start:]
-
-
-def _feed_line_buffer(parts: list[str], length: int, chunk: str) -> tuple[list[str], list[str], int]:
-    """Feed one new chunk into line-buffered pieces without rescanning the remainder.
-
-    Bugfix: The remainder has already been scanned and has no complete line,
-    so scanning it again on every 4 KB read was O(n²), and a newline-free child
-    kept every byte. Pieces stay unjoined until a line is emitted or the cap is hit.
-    """
-    if not chunk:
-        return [], parts, length
-
-    if parts and parts[-1].endswith("\r"):
-        last = parts[-1]
-        if last == "\r":
-            parts.pop()
-        else:
-            parts[-1] = last[:-1]
-        length -= 1
-        chunk = "\r" + chunk
-
-    lines, rest = _split_on_newlines(chunk)
+    *lines, rest = text.split("\n")
     if lines:
         lines[0] = "".join(parts) + lines[0]
-        if rest:
-            return lines, [rest], len(rest)
-        return lines, [], 0
-
+        parts, length = [], 0
     if rest:
         parts.append(rest)
         length += len(rest)
-    return [], parts, length
+    return lines, parts, length
 
 
 def _split_overflow(parts: list[str], length: int, limit: int) -> tuple[list[str], list[str], int]:
@@ -528,42 +466,38 @@ class AsyncProcess:
     ``terminate`` closes pipes on the ``Popen`` it captured before
     ``Popen.terminate`` (that syscall releases the GIL). ``_wait_for_exit``
     and ``_reap`` already receive that same captured child.
+
+    Spawning delegates to ``ManagedSubprocess.start``. Pipes stay binary; the
+    constructor does not take ``text``, ``encoding``, or ``creationflags``.
     """
 
-    args: str | list[str]
+    args: list[str]
     stdout_cb: Optional[Callable[[str], None]]
     stderr_cb: Optional[Callable[[str], None]]
     on_exit_cb: Optional[Callable[[int], None]]
+    _env: Optional[dict[str, str]]
+    _die_with_parent: bool
 
-    def __init__(self, args: str | list[str], stdout_cb: Optional[Callable[[str], None]] = None, stderr_cb: Optional[Callable[[str], None]] = None, on_exit_cb: Optional[Callable[[int], None]] = None, **popen_kwargs: Any) -> None:
+    def __init__(
+        self,
+        args: list[str],
+        stdout_cb: Optional[Callable[[str], None]] = None,
+        stderr_cb: Optional[Callable[[str], None]] = None,
+        on_exit_cb: Optional[Callable[[int], None]] = None,
+        *,
+        env: dict[str, str] | None = None,
+        die_with_parent: bool = False,
+    ) -> None:
         self.args = args
         self.stdout_cb = stdout_cb
         self.stderr_cb = stderr_cb
         self.on_exit_cb = on_exit_cb
         self._child_generation: int = 0
-        # Pipes stay binary. text=True is ignored; see the popen kwargs below.
+        # Binary pipes: _read_stream decodes UTF-8 itself, and a TextIOWrapper
+        # over the same pipe would desync the two buffers.
         self.process: Optional[subprocess.Popen[Any]] = None
-
-        # Copy: setdefault must not mutate the caller's dict.
-        self._popen_kwargs: dict[str, Any] = dict(popen_kwargs)
-        for key, value in get_subprocess_creationflags().items():
-            self._popen_kwargs.setdefault(key, value)
-        self._popen_kwargs.setdefault("stdout", subprocess.PIPE)
-        self._popen_kwargs.setdefault("stderr", subprocess.PIPE)
-        if sys.platform != "win32":
-            self._popen_kwargs.setdefault("start_new_session", True)
-        # Force binary pipes. _read_stream reads the binary buffer and
-        # decodes UTF-8; a TextIOWrapper plus that read desyncs the two
-        # buffers. No AsyncProcess caller passes text=True (the tunnel uses
-        # the binary default). encoding, errors, or universal_newlines
-        # would still open text mode after text=False.
-        if self._popen_kwargs.get("text") or self._popen_kwargs.get("universal_newlines") or self._popen_kwargs.get("encoding") or self._popen_kwargs.get("errors"):
-            log.debug("AsyncProcess forces binary pipes; text mode and encoding arguments are ignored")
-        self._popen_kwargs["text"] = False
-        self._popen_kwargs.pop("encoding", None)
-        self._popen_kwargs.pop("errors", None)
-        self._popen_kwargs.pop("universal_newlines", None)
-        self._popen_kwargs.setdefault("bufsize", 0)
+        self._env = env
+        self._die_with_parent = die_with_parent
 
         self._managed: Any = None
         self._stdout_thread: BackgroundHandle | None = None
@@ -591,16 +525,34 @@ class AsyncProcess:
                 log.warning("Previous process still alive after terminate")
                 if old_managed is not None:
                     old_managed.kill_tree()
-        try:
-            proc: subprocess.Popen[Any] = subprocess.Popen(self.args, **self._popen_kwargs)
-        except Exception as e:
-            raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
-
-        self.process = proc
         from plugin.framework.managed_subprocess import ManagedSubprocess
 
-        managed = ManagedSubprocess.wrap_existing(proc, label=f"asyncproc-{getattr(proc, 'pid', 'unknown')}", register=True)
+        # Drain stays false because these reader threads are the only stdout/stderr
+        # readers; log_start_failure stays false so the tunnel still sees
+        # FileNotFoundError as __cause__; no command_wrapper because the version
+        # probe uses the same PATH and a flatpak-spawn child would sit outside
+        # kill_tree; DEVNULL because the worker path cannot inherit and it keeps
+        # proc.stdin is None; base_env so the caller's dict is not merged again;
+        # scrub stays off so the three token names (TUNNEL_TOKEN, BORE_SECRET,
+        # NGROK_AUTHTOKEN) survive.
+        managed = ManagedSubprocess(
+            self.args,
+            drain_stderr=False,
+            log_start_failure=False,
+            stdin=subprocess.DEVNULL,
+            label="asyncproc",
+            inherit_env=self._env is None,
+            base_env=self._env,
+            die_with_parent=self._die_with_parent,
+        )
+        try:
+            managed.start()
+        except Exception as e:
+            raise ToolExecutionError(f"Failed to start process: {self.args}", details={"error": str(e)}) from e
+        proc = managed.popen
+        assert proc is not None
         self._managed = managed
+        self.process = proc
         stdout_thread: BackgroundHandle | None = None
         stderr_thread: BackgroundHandle | None = None
         wait_thread: BackgroundHandle | None = None
@@ -658,9 +610,13 @@ class AsyncProcess:
         parts: list[str] = []
         length = 0
         warned = False
+        # One newline decoder per stream normalizes CRLF and lone CR to LF.
+        # Any trailing CR at the end of a read stays inside the decoder
+        # until the next read confirms whether an LF follows.
+        newlines = io.IncrementalNewlineDecoder(None, translate=True)
         try:
             for chunk in _iter_decoded_chunks(stream):
-                lines, parts, length = _feed_line_buffer(parts, length, chunk)
+                lines, parts, length = _feed_line_buffer(parts, length, newlines.decode(chunk))
                 for line in lines:
                     emit(line)
                 while length > _MAX_STREAM_LINE_CHARS:
@@ -674,6 +630,11 @@ class AsyncProcess:
                     for slice_line in overflow_lines:
                         emit(slice_line)
         finally:
+            # Calling decode with final=True flushes any pending CR held at
+            # EOF as a newline before the remaining unjoined pieces are emitted.
+            lines, parts, length = _feed_line_buffer(parts, length, newlines.decode("", final=True))
+            for line in lines:
+                emit(line)
             if parts:
                 emit("".join(parts))
             _quiet_close(stream)
@@ -730,14 +691,7 @@ class AsyncProcess:
         # EOF, on_exit_cb never runs, and this thread leaks. _reap uses the
         # same 1s bound.
         self._join_handles((stdout_thread, stderr_thread), timeout=1.0)
-        args = self.args
-        if isinstance(args, str):
-            preview = args
-        elif args:
-            preview = args[0]
-        else:
-            preview = ""
-        log.debug("Process %s exited with rc=%s", preview, rc)
+        log.debug("Process %s exited with rc=%s", self.args[0] if self.args else "", rc)
         if generation != self._child_generation:
             log.debug("Suppressing on_exit_cb for superseded child rc=%s", rc)
             return

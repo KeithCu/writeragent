@@ -13,56 +13,27 @@ import logging
 from collections import Counter
 from typing import Any
 
-from plugin.doc.doc_type import is_writer
+from plugin.framework.doc_type import is_writer
 from plugin.doc.text_helpers import (
     build_heading_tree,
     get_string_without_tracked_deletions,
+    iter_elements,
     iter_heading_nodes,
     selected_text_range,
 )
 from plugin.framework.errors import ToolExecutionError, reraise_if_disposed
 from plugin.scripting._lazy_venv import install_lazy_exports
-from plugin.scripting.helper_domain import DomainFacadeConfig
+from plugin.scripting.domain_registry import get_domain_wiring
 
 _TEXT_VENV_EXPORTS = frozenset({"analyze_text", "check_diagnostics", "run_text_analytics"})
 
 install_lazy_exports(globals(), "text_analytics", _TEXT_VENV_EXPORTS)
 
-
-from plugin.scripting.calc_functions_common import TEXT_ANALYTICS_HELPER_NAMES as HELPER_NAMES
-
 log = logging.getLogger(__name__)
 
-_DEFAULT_PARAMS: dict[str, dict[str, Any]] = {
-    "topics": {"n_topics": 4},
-}
 
-_HELPER_DESCRIPTIONS: dict[str, str] = {
-    "full": "Full spaCy + textdescriptives analysis (readability, entities, key phrases)",
-    "readability": "Readability scores and descriptive stats via textdescriptives",
-    "entities": "Named entity recognition (multilingual NER)",
-    "key_phrases": "Key phrases via noun chunks (lemmatized)",
-    "topics": "Topic modeling (NMF + TF-IDF). Best results when whole document yields section list.",
-    "sentiment": "transformers + multilingual model (XLM-RoBERTa default) sentiment (score + label). Best with whole document for per-section results. Override model via JSON config.",
-}
-
-_SHIPPED_TEMPLATES = HELPER_NAMES - {"diagnostics", "check"}
-
-_API = DomainFacadeConfig(
-    tag="text",
-    helper_names=HELPER_NAMES,
-    default_params=_DEFAULT_PARAMS,
-    descriptions=_HELPER_DESCRIPTIONS,
-    import_module="writeragent.scripting.text_analytics",
-    run_name="run_text_analytics",
-    shipped_templates=_SHIPPED_TEMPLATES,
-    data_expr="text",
-    context_expr="document_context",
-    invoke="runner",
-    extra_comment_lines=("# Works on Writer documents (document text is injected on Run).",),
-)
-
-get_text_analytics_script_templates = _API.get_templates
+def get_text_analytics_script_templates() -> dict[str, str]:
+    return get_domain_wiring("text").templates()
 
 def resolve_text_analytics_document_inputs(
     doc: Any,
@@ -94,10 +65,7 @@ def resolve_text_analytics_document_inputs(
 def _get_writer_selection_text(doc: Any) -> str:
     """Extract text from the first selection range only (no tracked deletions).
 
-    What was wrong: selection scope could fall back to whole document text.
-    How it happened: previous implementation fell back to doc.getText() if selection was missing/empty.
-    Why this change: selection scope must strictly read the first selection range only and return ""
-    if nothing is selected or extraction fails, never falling back to doc.getText().
+    Selection scope reads only the first range and returns "" on failure; it does not fall back to full document text.
     """
     try:
         if not is_writer(doc):
@@ -124,11 +92,7 @@ def _get_writer_text(doc: Any) -> str:
         text = doc.getText()
         return get_string_without_tracked_deletions(text) or ""
     except Exception as exc:
-        # What was wrong: DisposedException was swallowed, and the secondary getString() fallback
-        # reintroduced tracked deletions and duplicated log warnings.
-        # How it happened: nested try/except caught Exception and tried doc.getText().getString().
-        # Why this change: reraise_if_disposed propagates DocumentDisposedError, and omitting getString()
-        # prevents deleted text leakage and duplicate logs.
+        # reraise_if_disposed stops on closed documents; getString() is omitted so tracked deletions do not leak into analysis text.
         reraise_if_disposed(exc)
         log.debug("text analytics: writer text extraction failed", exc_info=True)
         return ""
@@ -161,14 +125,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
         current_parts: list[str] = []
         heading_levels = {n.get("para_index"): n.get("text", "") for n in iter_heading_nodes(tree) if n.get("text")}
 
-        # What was wrong: the heading paragraph was both current_title and the first body
-        # line, so topics and sentiment counted the heading twice; the fallback also called
-        # _get_writer_text twice.
-        # How it happened: heading paragraphs were appended to current_parts, and the fallback
-        # condition used _get_writer_text(doc) twice in a list comprehension.
-        # Why this change: flush previous section, set current_title without appending the
-        # heading paragraph to body parts, emit title-only when non-empty and not preamble,
-        # and evaluate _get_writer_text once on fallback.
+        # Heading paragraphs become section titles only, not body lines, so topic/sentiment models do not double-count headings.
         def _flush() -> None:
             body = "\n".join(current_parts).strip()
             if body:
@@ -177,8 +134,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
                 sections.append(current_title)
 
         para_index = 0
-        while enum.hasMoreElements():
-            el = enum.nextElement()
+        for el in iter_elements(enum):
             try:
                 if el.supportsService("com.sun.star.text.Paragraph"):
                     ptext = get_string_without_tracked_deletions(el) or ""
@@ -190,9 +146,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
                     elif ptext.strip():
                         current_parts.append(ptext)
             except Exception as exc:
-                # What was wrong: disposed document during paragraph iteration was ignored.
-                # How it happened: inner except Exception only logged debug without checking disposal.
-                # Why this change: reraise_if_disposed propagates DocumentDisposedError immediately.
+                # Propagate disposal during the paragraph walk instead of skipping silently.
                 reraise_if_disposed(exc)
                 log.debug("text analytics: skipped paragraph %s", para_index, exc_info=True)
             para_index += 1
@@ -205,9 +159,7 @@ def _get_writer_sections(doc: Any) -> list[str]:
             return sections
         return _fallback()
     except Exception as exc:
-        # What was wrong: outer section extraction caught DisposedException and fell back to _get_writer_text.
-        # How it happened: generic except Exception caught DisposedException.
-        # Why this change: reraise_if_disposed propagates DocumentDisposedError before fallback.
+        # reraise_if_disposed runs before flat-text fallback so a closed document does not masquerade as empty sections.
         reraise_if_disposed(exc)
         log.debug("text analytics: section extraction failed", exc_info=True)
         # Safe fallback to flat text
@@ -254,9 +206,11 @@ def is_text_analytics_result(value: Any) -> bool:
     # raw dict as generic Writer text and reported success.
     status = value.get("status")
     helper = value.get("helper")
+    from plugin.scripting.helper_registry import names
+
     if status == "error":
         return str(value.get("code") or "") in ("TEXT_ANALYTICS_ERROR", "UNKNOWN_HELPER") or (
-            isinstance(helper, str) and helper in HELPER_NAMES
+            isinstance(helper, str) and helper in names("text")
         )
     if isinstance(helper, str) and helper in ("diagnostics", "check"):
         return status == "ok"
@@ -362,7 +316,7 @@ def text_analytics_payload_error(data: Any) -> str | None:
 
 def insert_text_analytics_result_into_doc(ctx: Any, doc: Any, result: dict[str, Any]) -> int:
     """Insert a compact HTML report for the text analytics result (Writer)."""
-    from plugin.writer.format import insert_content_at_position
+    from plugin.writer.html_import import insert_content_at_position
 
     if not is_writer(doc):
         raise ToolExecutionError("Text analytics insert requires a Writer document.", code="TEXT_ANALYTICS_ERROR")

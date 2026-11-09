@@ -1,3 +1,4 @@
+from plugin.framework.queue_executor import main
 
 import builtins
 import sys
@@ -127,7 +128,7 @@ def test_resolve_package_extension_id_off_main_skips_package_info(monkeypatch):
     )
 
     reset_package_extension_id_for_tests()
-    monkeypatch.setattr("plugin.framework.uno_context.on_main_thread", lambda: False)
+    monkeypatch.setattr(main, "is_current", lambda: False)
     with patch("plugin.framework.uno_context.get_package_info") as pip:
         assert resolve_package_extension_id() == EXTENSION_ID_WRITERAGENT
         pip.assert_not_called()
@@ -466,7 +467,7 @@ def test_uno_same_off_thread_raises_on_thread_issame_still_works(monkeypatch):
 
 def test_uno_boundaries_import_guard_uno_at_the_return():
     """Patching thread_guard.guard_uno must see boundary returns (not import-time _wrap_uno)."""
-    from plugin.doc.doc_type import DocumentType
+    from plugin.framework.doc_type import DocumentType
     from plugin.framework import uno_context as uc
 
     seen: list[object] = []
@@ -507,7 +508,7 @@ def test_uno_boundaries_import_guard_uno_at_the_return():
             patch("plugin.framework.thread_guard.guard_uno", side_effect=_guard),
             patch.object(sys, "argv", ["soffice"]),
             patch("plugin.framework.uno_context._linux_process_tokens", return_value=("soffice.bin", "soffice.bin", [])),
-            patch("plugin.doc.doc_type.get_document_type", return_value=DocumentType.WRITER),
+            patch("plugin.framework.doc_type.get_document_type", return_value=DocumentType.WRITER),
         ):
             assert uc.get_ctx() is ctx
             assert uc.get_desktop(ctx) is desktop
@@ -555,11 +556,9 @@ def test_resolve_document_by_url_reraises_disposed_on_nextelement():
     # Actually, _reraise_document_disposed in errors.py looks for "disposed" or DisposedException type.
     enum.nextElement.side_effect = exc
 
-    # What was wrong: saved_ctx = set_fallback_ctx(ctx) assigned None because
-    # set_fallback_ctx previously returned None, which caused the finally block
-    # to clobber the global fallback ctx with None for subsequent tests.
-    # Why this change: save uc._fallback_ctx before setting the test context
-    # and restore the saved value in finally.
+    # Save ``uc._fallback_ctx`` before overriding it for this test and restore
+    # it in ``finally``. Otherwise a teardown that calls ``set_fallback_ctx``
+    # can leave the global fallback as ``None`` for later tests.
     import plugin.framework.uno_context as uc
 
     saved_ctx = uc._fallback_ctx
@@ -761,6 +760,17 @@ def test_iter_open_models_stops_on_magicmock():
     enum.nextElement.assert_not_called()
 
 
+def test_enum_has_more():
+    from plugin.framework.uno_context import enum_has_more
+
+    assert enum_has_more(MagicMock()) is False
+    mock = MagicMock()
+    mock.hasMoreElements.return_value = True
+    assert enum_has_more(mock) is True
+    mock.hasMoreElements.return_value = False
+    assert enum_has_more(mock) is False
+
+
 def test_iter_open_models_stops_at_enum_cap(caplog):
     import logging
     from plugin.framework.uno_context import iter_open_models
@@ -782,6 +792,29 @@ def test_iter_open_models_stops_at_enum_cap(caplog):
     assert "hit cap=2" in caplog.text
 
 
+def test_iter_open_models_strict_false_probes_and_skips_broken():
+    from plugin.framework.uno_context import iter_open_models
+
+    desktop = MagicMock()
+    comps = MagicMock()
+    desktop.getComponents.return_value = comps
+
+    good_model = MagicMock()
+    good_model.getURL.return_value = "file:///tmp/good.odt"
+
+    broken_model = MagicMock()
+    broken_model.getURL.return_value = "file:///tmp/broken.odt"
+    broken_model.getCurrentController.side_effect = RuntimeError("Broken controller")
+
+    enum = MagicMock()
+    enum.hasMoreElements.side_effect = [True, True, False]
+    enum.nextElement.side_effect = [broken_model, good_model]
+    comps.createEnumeration.return_value = enum
+
+    models = list(iter_open_models(desktop, strict=False))
+    assert models == [good_model]
+
+
 def test_document_id_for_frame():
     from plugin.framework.uno_context import document_id_for_frame
 
@@ -791,12 +824,12 @@ def test_document_id_for_frame():
     frame = MagicMock(name="frame")
 
     # Off main thread returns empty string
-    with patch("plugin.framework.uno_context.on_main_thread", return_value=False):
+    with patch.object(main, "is_current", return_value=False):
         assert document_id_for_frame(frame) == ""
 
     # Model is None returns empty string
     with (
-        patch("plugin.framework.uno_context.on_main_thread", return_value=True),
+        patch.object(main, "is_current", return_value=True),
         patch("plugin.framework.uno_context.get_document_from_frame", return_value=None),
     ):
         assert document_id_for_frame(frame) == ""
@@ -804,7 +837,7 @@ def test_document_id_for_frame():
     # Model resolved returns its runtime uid
     model = MagicMock(name="model")
     with (
-        patch("plugin.framework.uno_context.on_main_thread", return_value=True),
+        patch.object(main, "is_current", return_value=True),
         patch("plugin.framework.uno_context.get_document_from_frame", return_value=model),
         patch("plugin.framework.uno_context.get_runtime_uid", return_value="uid-1234"),
     ):

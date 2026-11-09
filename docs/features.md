@@ -20,8 +20,8 @@ Product overview lives in the root [README](../README.md). This page maps each a
 | Styles / LLM HTML | [writer/llm-styles.md](writer/llm-styles.md) · [LLM_STYLES.md](../LLM_STYLES.md) |
 | Reviewable edits | [writer/reviewable-agent-edits.md](writer/reviewable-agent-edits.md) |
 | Rich-text sidebar | [chat/rich-text-control-sidebar.md](chat/rich-text-control-sidebar.md) |
-| Chat sidebar | [chat/sidebar-implementation.md](chat/sidebar-implementation.md) · slash `/` popup (commands mostly stubs): [chat/slash-commands.md](chat/slash-commands.md) |
-| Peer messaging | [chat/peer-messaging.md](chat/peer-messaging.md) — Writer ↔ Calc ↔ Draw async `send_peer_work / send_peer_result` (A1 on master; specialized-inner experiment: document_research only) |
+| Chat sidebar | [chat/sidebar-implementation.md](chat/sidebar-implementation.md) · slash `/` popup (**14** shipped commands: help, clear, stop, summarize, proofread, shorten, expand, tone, translate, explain, remember, compact, undo, formula): [chat/slash-commands.md](chat/slash-commands.md) |
+| Peer messaging | [chat/peer-messaging.md](chat/peer-messaging.md) — Writer ↔ Calc ↔ Draw ↔ Impress async `send_peer_work / send_peer_result` (A1 on master; specialized-inner experiment: document_research only) |
 
 ## Calc
 
@@ -84,7 +84,7 @@ Contracts and RPC: [calc/analysis-tools.md](calc/analysis-tools.md).
 
 | Topic | Docs |
 |-------|------|
-| Specialized toolsets | [draw/impress-specialized-toolsets.md](draw/impress-specialized-toolsets.md) — ControlShapes (`form_*`) vs paper-form blanks (`get_draw_tree` / `fill_draw_fields`); no PDF/AcroForm fill · peer send: [chat/peer-messaging.md](chat/peer-messaging.md) |
+| Specialized toolsets | [draw/impress-specialized-toolsets.md](draw/impress-specialized-toolsets.md) — ControlShapes (`form_*`) vs paper-form blanks (`get_draw_tree` / `shape_fill_fields`); no PDF/AcroForm fill · peer send: [chat/peer-messaging.md](chat/peer-messaging.md) |
 | Shapes | [draw/shape-support.md](draw/shape-support.md) |
 | PPT-Master | [ppt-master-integration-plan.md](ppt-master-integration-plan.md) |
 

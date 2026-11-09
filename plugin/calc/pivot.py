@@ -66,9 +66,9 @@ from plugin.calc.address_utils import format_range_address, split_sheet_prefix
 from plugin.calc.base import ToolCalcPivotBase
 from plugin.calc.bridge import CalcBridge
 from plugin.calc.calc_utils import query_interface as _query_interface
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception
+from plugin.framework.errors import ToolExecutionError, is_disposal, name_miss_details
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from plugin.framework.tool import ToolContext
@@ -193,6 +193,22 @@ def _find_pivot(doc: Any, name: str, sheet_name: str | None = None) -> tuple[Any
     return f"Pivot table '{name}' not found."
 
 
+def _pivot_table_names(doc: Any) -> list[str]:
+    names: list[str] = []
+    sheets = doc.getSheets()
+    for sheet_name in sheets.getElementNames():
+        sheet = sheets.getByName(sheet_name)
+        dp_tables = _get_dp_tables(sheet)
+        names.extend(str(n) for n in dp_tables.getElementNames())
+    return names
+
+
+def _pivot_not_found_error(tool: Any, doc: Any, name: str, message: str) -> dict[str, Any]:
+    if message.startswith("No sheet named"):
+        return tool._tool_error(message)
+    return tool._tool_error(message, **name_miss_details(name, _pivot_table_names(doc), "pivot_table_list"))
+
+
 def _resolve_qualified_ref(
     bridge: CalcBridge, ref: str, sheet_arg: Any, ref_label: str, sheet_label: str,
 ) -> tuple[Any, str | None]:
@@ -211,8 +227,8 @@ def _resolve_qualified_ref(
 class CreatePivotTable(ToolCalcPivotBase):
     """Create a DataPilot (pivot) table from a rectangular source range."""
 
-    name: str | None = "create_pivot_table"
-    description: str = "Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via create_sheet first)."
+    name: str | None = "pivot_table_create"
+    description: str = "Create a pivot table (DataPilot) from a source data range. Field names must match the header row column titles in the source range. Place the result on an existing sheet at destination_cell (e.g. new sheet via sheet_create first)."
     parameters: dict[str, Any] | None = {
         "type": "object",
         "properties": {
@@ -342,7 +358,7 @@ class CreatePivotTable(ToolCalcPivotBase):
             try:
                 dpt.refresh()
             except Exception as exc:
-                if is_disposed_exception(exc):
+                if is_disposal(exc):
                     raise
                 try:
                     dp_tables.removeByName(pivot_name)
@@ -362,7 +378,7 @@ class CreatePivotTable(ToolCalcPivotBase):
 class RefreshPivotTable(ToolCalcPivotBase):
     """Refresh a DataPilot table from its current source range."""
 
-    name: str | None = "refresh_pivot_table"
+    name: str | None = "pivot_table_refresh"
     description: str = "Reload pivot table data from the source range. If sheet is omitted, searches all sheets for name."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"name": {"type": "string", "description": "Name of the pivot table."}, "sheet": {"type": "string", "description": "Sheet containing the pivot. Omit to search the workbook."}}, "required": ["name"]}
     is_mutation: bool | None = True
@@ -376,7 +392,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
 
         found = _find_pivot(doc, name, sheet_name=sheet_name)
         if isinstance(found, str):
-            return self._tool_error(found)
+            return _pivot_not_found_error(self, doc, name, found)
         tbl_any, _sheet = found
 
         dpt = _query_interface(tbl_any, "com.sun.star.sheet.XDataPilotTable")
@@ -390,7 +406,7 @@ class RefreshPivotTable(ToolCalcPivotBase):
 class DeletePivotTable(ToolCalcPivotBase):
     """Delete a DataPilot (pivot) table."""
 
-    name: str | None = "delete_pivot_table"
+    name: str | None = "pivot_table_delete"
     description: str = "Delete a pivot table by name. If sheet is omitted, searches all sheets for name."
     parameters: dict[str, Any] | None = {
         "type": "object",
@@ -411,7 +427,7 @@ class DeletePivotTable(ToolCalcPivotBase):
 
         found = _find_pivot(doc, name, sheet_name=sheet_name)
         if isinstance(found, str):
-            return self._tool_error(found)
+            return _pivot_not_found_error(self, doc, name, found)
         _tbl, sheet = found
         dp_tables = _get_dp_tables(sheet)
         dp_tables.removeByName(name)
@@ -421,7 +437,7 @@ class DeletePivotTable(ToolCalcPivotBase):
 class ListPivotTables(ToolCalcPivotBase):
     """List DataPilot tables and their output locations."""
 
-    name: str | None = "list_pivot_tables"
+    name: str | None = "pivot_table_list"
     description: str = "List pivot tables in the spreadsheet, optionally limited to one sheet."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"sheet": {"type": "string", "description": "If set, only list pivot tables on this sheet."}}, "required": []}
     is_mutation: bool | None = False

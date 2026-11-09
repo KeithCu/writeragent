@@ -13,26 +13,33 @@ from dataclasses import dataclass
 from typing import Any
 
 from plugin.chatbot.dialogs import msgbox
-from plugin.doc.doc_type import is_writer
+from plugin.framework.doc_type import is_writer
 from plugin.doc.text_helpers import clone_text_range
-from plugin.framework.errors import best_effort, is_document_disposed, is_real_disposal
+from plugin.framework.errors import best_effort, is_disposal
+from plugin.framework.errors import document_is_disposed
 from plugin.framework.blocking_wait import run_blocking_in_thread
 from plugin.framework.i18n import _
-from plugin.framework.uno_context import get_active_document, process_events_to_idle
+from plugin.framework.send_cancellation import get_current_send_cancellation, is_cancelled
+from plugin.framework.uno_context import enum_has_more, get_active_document, process_events_to_idle
 from plugin.notebook import form_lookup
-from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, _IN_PROMPT_RE, _format_in_prompt, _prepare_display_text, find_cell_by_hex, load_registry, save_registry
-from plugin.notebook.notebook_controls import _doc_key
+from plugin.notebook.cell_registry import NotebookCodeCell, NotebookDocState, find_cell_by_hex, load_registry, save_registry
+from plugin.notebook.layout import (
+    IN_PROMPT_RE,
+    PARAGRAPH_BREAK,
+    STYLE_MD_H1,
+    STYLE_MD_H2,
+    STYLE_NOTEBOOK_IN,
+    STYLE_NOTEBOOK_OUT,
+    doc_key,
+    format_in_prompt,
+    prepare_display_text,
+)
 from plugin.notebook.writer_importer import (
-    _PARAGRAPH_BREAK,
-    _STYLE_MD_H1,
-    _STYLE_MD_H2,
-    _STYLE_NOTEBOOK_IN,
-    _STYLE_NOTEBOOK_OUT,
-    _collapse_cr,
-    _resolve_para_style,
-    _strip_ansi,
+    collapse_cr,
     insert_run_image,
     output_para_style,
+    resolve_para_style,
+    strip_ansi,
 )
 from plugin.scripting.payload_codec import find_image_payloads, host_unpack_data, is_image_payload
 from plugin.scripting.session_manager import notebook_session_id, pin_script_document, release_script_document
@@ -41,8 +48,7 @@ from plugin.scripting.venv_worker import run_code_in_user_venv
 log = logging.getLogger("writeragent.notebook")
 
 # Per-document re-entrancy guard. Shared ``notebook:…`` kernel must not run two
-# cells at once; a second ▶ used to interleave registry/output mutation when
-# execute_code pumped VCL. Same key as ``notebook_controls._doc_key``
+# cells at once—a second ▶ while execute_code pumps VCL interleaves registry/output. Same key as ``notebook_controls.doc_key``
 # (RuntimeUID, then URL, then id) so two PyUNO wrappers of one document cannot
 # both pass. Run All holds this key for the whole sequence so a ▶ mid-batch
 # is skipped.
@@ -106,10 +112,7 @@ def _is_stop_requested(busy_key: str) -> bool:
         ev = _stop_flags.get(busy_key)
     if ev is not None and ev.is_set():
         return True
-    from plugin.framework.send_cancellation import get_current_send_cancellation
-
-    scope = get_current_send_cancellation()
-    return scope is not None and scope.is_cancelled()
+    return is_cancelled(get_current_send_cancellation())
 
 
 def request_stop() -> None:
@@ -145,16 +148,21 @@ def execute_code(ctx: Any, doc: Any, code: str) -> dict[str, Any]:
 
     script_session_id = pin_script_document(doc)
 
-    busy_key = _doc_key(doc)
+    busy_key = doc_key(doc)
 
     def _run() -> dict[str, Any]:
+        from plugin.framework.send_cancellation import get_current_send_cancellation
+
         try:
+            # Both Stop buttons run on the UI thread; this wait is pump_idle=False,
+            # so the per-doc Event cannot flip during the pipe wait — read it once here.
+            if _is_stop_requested(busy_key):
+                return {"status": "stopped", "message": "Stopped."}
             return run_code_in_user_venv(
-                ctx,
                 code,
                 session_id=session_id,
                 script_session_id=script_session_id,
-                stop_checker=lambda: _is_stop_requested(busy_key),
+                cancel=get_current_send_cancellation(),
             )
         except Exception:
             if _is_stop_requested(busy_key):
@@ -217,7 +225,7 @@ def _style_is_preformatted(para_style: str) -> bool:
     # The fallback style is stdout, not a cell boundary. Missing that check
     # made clear_cell_output stop and the next run stack another copy.
     compact = _style_compact(para_style)
-    return compact in ("preformattedtext", "preformatted") or compact == _style_compact(_STYLE_NOTEBOOK_OUT)
+    return compact in ("preformattedtext", "preformatted") or compact == _style_compact(STYLE_NOTEBOOK_OUT)
 
 
 def _same_paragraph(a: Any, b: Any) -> bool:
@@ -243,12 +251,12 @@ def _paragraph_has_frame(cursor: Any) -> bool:
     """
     para_rng = _enclosing_paragraph(cursor.getText(), cursor)
     paras = para_rng.createEnumeration()
-    if not form_lookup._enum_has_more(paras):
+    if not enum_has_more(paras):
         return False
     para = paras.nextElement()
     portions = para.createEnumeration()
     steps = 0
-    while steps < 64 and form_lookup._enum_has_more(portions):
+    while steps < 64 and enum_has_more(portions):
         steps += 1
         portion = portions.nextElement()
         if str(portion.getPropertyValue("TextPortionType") or "") == "Frame":
@@ -320,9 +328,7 @@ def _is_foreign_control_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any)
 def _is_output_bookmark_home(cursor: Any, doc: Any, cell: NotebookCodeCell) -> bool:
     """True when *cursor* is in *this* cell's code-field row (or leftover Output).
 
-    Any ``In [n]:`` used to count as home. Consecutive code cells (medium In[2]
-    then In[3]) drift the bookmark onto the *next* gutter; clear then skipped
-    that label and ``setString`` ate In[3]'s ▶ and TextField.
+    Only the cell's own ``In [n]:`` gutter is home—counting any label drifts the bookmark onto the next cell.
     """
     content = _paragraph_string(cursor).strip()
     if content == "Output":
@@ -331,7 +337,7 @@ def _is_output_bookmark_home(cursor: Any, doc: Any, cell: NotebookCodeCell) -> b
     if end is not None and _same_paragraph(cursor, end):
         return True
     # No code field (UNO tests that only insert a bookmark): In [n]: is home.
-    if end is None and _IN_PROMPT_RE.match(content):
+    if end is None and IN_PROMPT_RE.match(content):
         return True
     return False
 
@@ -343,7 +349,7 @@ def _is_next_cell_boundary(para_style: str, content: str, notebook_in_resolved: 
     # empty row as a cell boundary made output-anchor lookup return None.
     if notebook_in_resolved and para_style == notebook_in_resolved and stripped:
         return True
-    if _IN_PROMPT_RE.match(stripped):
+    if IN_PROMPT_RE.match(stripped):
         return True
     if _OUT_PROMPT_RE.match(stripped) or _style_is_preformatted(para_style):
         return False
@@ -399,7 +405,7 @@ def _reanchor_output_bookmark(doc: Any, cell: NotebookCodeCell) -> Any | None:
     # before removeTextContent — a cursor taken from the removed bookmark is stale.
     insert_at = _code_field_paragraph_end(doc, cell)
     if insert_at is None and current is not None:
-        notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
+        notebook_in = resolve_para_style(doc, STYLE_NOTEBOOK_IN)
         if _is_next_cell_boundary(_para_style_name(current), _paragraph_string(current), notebook_in):
             prev = doc.getText().createTextCursorByRange(current)
             if prev.gotoPreviousParagraph(False):
@@ -453,10 +459,7 @@ def _delete_paragraph_at(cursor: Any) -> bool:
 def _collapse_leading_empty_paragraphs(doc: Any, cell: NotebookCodeCell, notebook_in: str | None) -> None:
     """Remove blank paragraphs between the Output heading and the first stdout line.
 
-    ``_insert_stdout_paragraph`` used to always insert a PARAGRAPH_BREAK (and a
-    trailing split). When the bookmark paragraph was already empty, that left
-    2–3 blank lines under Output; re-runs accumulated more because
-    ``clear_cell_output`` bailed out on whitespace-only ``getString()``.
+    Skip extra PARAGRAPH_BREAK when the output paragraph is already empty—otherwise blanks accumulate on re-run.
     """
     for _unused in range(16):
         start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
@@ -512,15 +515,15 @@ def _split_if_stdout_mashed_onto_chrome(doc: Any, text: Any, cursor: Any, displa
         return
     if n:
         cursor.goRight(n, False)
-    text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
     _enter_paragraph_after_break(cursor)
 
     # Leftover inherits Preformatted from fill, so _is_next_cell_boundary
     # would skip (stdout style). Restore markdown/gutter from the text.
-    if _IN_PROMPT_RE.match(leftover_text) or leftover_text.startswith("[In ["):
+    if IN_PROMPT_RE.match(leftover_text) or leftover_text.startswith("[In ["):
         _apply_para_style(cursor, notebook_in)
     else:
-        heading = _resolve_para_style(doc, _STYLE_MD_H2) or _resolve_para_style(doc, _STYLE_MD_H1)
+        heading = resolve_para_style(doc, STYLE_MD_H2) or resolve_para_style(doc, STYLE_MD_H1)
         _apply_para_style(cursor, heading)
     if output_style:
         prev = text.createTextCursorByRange(cursor)
@@ -544,7 +547,7 @@ def _ensure_one_spacer_before_next_cell(text: Any, cursor: Any, notebook_in: str
         return
     if not _is_next_cell_boundary(_para_style_name(nxt), nxt_text, notebook_in):
         return
-    text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+    text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
 
 
 def _enter_paragraph_after_break(cursor: Any) -> None:
@@ -571,12 +574,12 @@ def format_run_output_text(result: dict[str, Any], execution_count: int | None =
     ``Out [n]:`` is only for execute_result / last-line values, not print streams.
     """
     parts: list[str] = []
-    stdout = _collapse_cr(_strip_ansi(result.get("stdout") or "")).strip()
+    stdout = collapse_cr(strip_ansi(result.get("stdout") or "")).strip()
     if stdout:
         parts.append(stdout)
     if result.get("status") == "error":
         tb = result.get("traceback") or result.get("message") or "Error"
-        parts.append(_collapse_cr(_strip_ansi(str(tb))).strip())
+        parts.append(collapse_cr(strip_ansi(str(tb))).strip())
     elif result.get("status") == "ok":
         wire = result.get("result")
 
@@ -616,9 +619,9 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
     """
     _reanchor_output_bookmark(doc, cell)
     text = doc.getText()
-    notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
+    notebook_in = resolve_para_style(doc, STYLE_NOTEBOOK_IN)
     # Always start from *this* cell's field paragraph. A drifted bookmark on the
-    # next In [n]: used to skip that gutter and setString the next ▶+field.
+    # Start from this cell's field paragraph so a drifted bookmark does not rewrite the next ▶+field.
     start = _code_field_paragraph_end(doc, cell)
     if start is None:
         start = _cursor_after_bookmark(doc, cell.output_start_bookmark)
@@ -638,9 +641,7 @@ def clear_cell_output(doc: Any, cell: NotebookCodeCell) -> None:
         return
     range_start = text.createTextCursorByRange(end)
     # skip_home + expanding through every empty para up to the next In/heading
-    # used to delete the spacer blank *before* that boundary; the next insert
-    # then mashed stdout onto the heading. Keep the last empty para that sits
-    # immediately before the next cell.
+    # Keep the empty paragraph before the next cell boundary—deleting it mashes stdout onto the heading.
     last_empty_before_boundary = None
     if _is_leftover_empty_paragraph(end) and not _paragraph_has_frame(end):
         last_empty_before_boundary = text.createTextCursorByRange(end)
@@ -719,7 +720,7 @@ def _insert_stdout_paragraph(doc: Any, cell: NotebookCodeCell, cursor: Any, disp
                 target = nxt
 
     if target is None:
-        text.insertControlCharacter(cursor, _PARAGRAPH_BREAK, False)
+        text.insertControlCharacter(cursor, PARAGRAPH_BREAK, False)
         _enter_paragraph_after_break(cursor)
         target = cursor
 
@@ -745,8 +746,8 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
     _reanchor_output_bookmark(doc, cell)
     cursor = _cell_end_range(doc, cell)
     output_style = output_para_style(doc)
-    notebook_in = _resolve_para_style(doc, _STYLE_NOTEBOOK_IN)
-    display = _prepare_display_text(out_text)
+    notebook_in = resolve_para_style(doc, STYLE_NOTEBOOK_IN)
+    display = prepare_display_text(out_text)
     if display.strip():
         if cursor is not None:
             _insert_stdout_paragraph(doc, cell, cursor, display, output_style, notebook_in)
@@ -765,7 +766,7 @@ def apply_run_result(doc: Any, cell: NotebookCodeCell, result: dict[str, Any], *
             return
         for img in images:
             if _paragraph_has_frame(img_cursor) or _paragraph_string(img_cursor).strip():
-                text.insertControlCharacter(img_cursor, _PARAGRAPH_BREAK, False)
+                text.insertControlCharacter(img_cursor, PARAGRAPH_BREAK, False)
                 _enter_paragraph_after_break(img_cursor)
             insert_run_image(doc, img, ctx=ctx, images_before=0, text_cursor=img_cursor)
 
@@ -779,24 +780,20 @@ def _leading_text_cursor(text: Any, para: Any) -> Any | None:
     """Cursor over leading Text portions of paragraph cursor *para*, stopping before in-flow shapes.
 
     *para* is a text cursor whose enumeration yields the paragraph; portions are
-    read from that paragraph object. Importer used to put AS_CHARACTER ▶ / code
-    ``TextField`` in the same paragraph as ``[In [n]]``. ``setString`` on
-    ``para.getStart()``–``getEnd()`` then deleted those ``ControlShape``s
-    (TextPortionType ``Frame``). ▶ now sits on the ``In [n]:`` gutter; rewrite
-    leading Text portions only, never the Frame.
+    read from that paragraph object. ▶ and code fields sit on the In [n]: gutter—rewrite Text portions only, not Frame controls.
     """
     # *para* is a text cursor. Its enumeration yields the paragraph;
     # portions are on that paragraph. Reading TextPortionType on the
     # cursor's elements raised UnknownPropertyException, the catch hid it,
     # and this always returned None.
     paras = para.createEnumeration()
-    if not form_lookup._enum_has_more(paras):
+    if not enum_has_more(paras):
         return None
     paragraph = paras.nextElement()
     enum = paragraph.createEnumeration()
     first = None
     last = None
-    while form_lookup._enum_has_more(enum):
+    while enum_has_more(enum):
         portion = enum.nextElement()
         ptype = str(portion.getPropertyValue("TextPortionType") or "")
         if ptype == "Frame":
@@ -833,7 +830,7 @@ def _gutter_text_cursor(text: Any, para: Any) -> Any | None:
 
 def update_in_prompt(doc: Any, cell: NotebookCodeCell, execution_count: int | None) -> None:
     """Update the ``In [n]:`` gutter. Never setString a range that contains ControlShapes."""
-    new_line = _format_in_prompt(execution_count)
+    new_line = format_in_prompt(execution_count)
     text = doc.getText()
 
     # Walk only the paragraph before this cell's code field. A document-wide
@@ -946,7 +943,7 @@ def run_cell(ctx: Any, doc: Any, cell_id: str) -> RunResult:
         # Shared kernel: one run per document. Without this, a second ▶ (or the
         # leftover double-wire we already hit on two PyUNO wrappers) interleaved
         # next_execution_count / clear_cell_output / apply_run_result.
-        busy_key = _doc_key(doc)
+        busy_key = doc_key(doc)
         if not _begin_run(busy_key):
             log.info("notebook run skipped: a cell is already running on this document")
             return RunResult("busy", None, "A cell is already running.")
@@ -1065,7 +1062,7 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
         if state is None:
             return RunResult("error", None, _("No notebook registry on document."))
 
-        busy_key = _doc_key(doc)
+        busy_key = doc_key(doc)
         if not _begin_run(busy_key):
             log.info("notebook run skipped: a cell is already running on this document")
             return RunResult("busy", None, "A cell is already running.")
@@ -1086,13 +1083,13 @@ def run_cells(ctx: Any, doc: Any, *, start_index: int = 0) -> RunResult:
                     # LayoutIdle livelock is during execute, not this between-cell pump.
                     # Stop clicks are delivered here; check the flag before the next cell.
                     _pump_between_notebook_cells(ctx)
-                if is_document_disposed(doc) or _is_stop_requested(busy_key):
+                if document_is_disposed(doc) or _is_stop_requested(busy_key):
                     return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
                 try:
                     one = _execute_and_apply(ctx, doc, state, cell, code)
                 except Exception as exc:
                     # Tip: stop quietly only when the document is gone; a live RuntimeException propagates.
-                    if is_document_disposed(doc) or is_real_disposal(exc):
+                    if document_is_disposed(doc) or is_disposal(exc):
                         return RunResult("stopped", last_count, "Stopped.", cells_run=executed)
                     raise
                 if one.status == "stopped":

@@ -19,17 +19,17 @@ from plugin.framework.errors import (
     ToolExecutionError,
     WriterAgentException,
     format_error_payload,
-    is_real_disposal,
-    is_tool_document_disposed,
+    is_disposal,
     resolve_exception_message,
 )
 from plugin.framework.tool import ToolBase
 from plugin.writer.specialized_base import ToolWriterSpecialBase
 
 if TYPE_CHECKING:
+    from plugin.chatbot.chat_sidebar_mode import SidebarMode
     from plugin.framework.tool import ToolContext
 
-log = logging.getLogger("writeragent.sub_agent_tools")
+log = logging.getLogger(__name__)
 
 HTML_CONTENT_TARGETS: tuple[str, ...] = ("beginning", "end", "full_document")
 
@@ -154,8 +154,7 @@ class SubAgentSessionToolBase(ToolBase):
             # This except is the boundary for subagent runners. log.exception
             # records the traceback; the payload keeps the exception text only.
             log.exception("%s execution failed", self.agent_label)
-            doc = ctx.doc
-            if is_real_disposal(e) or (doc is not None and is_tool_document_disposed(e, doc)):
+            if is_disposal(e):
                 raise
 
             msg = resolve_exception_message(e)
@@ -188,10 +187,10 @@ def _session_tool_parameters(  # pyright: ignore[reportUnusedFunction]
 
 def get_sub_agent_instructions(mode_instructions: str, *, tool_names: Sequence[str] = ()) -> str:
     """Full system instructions for a smol sub-agent."""
+    from plugin.chatbot.skills import format_humanizer_guidance_prompt_block
     from plugin.framework.prompts import (
         APPLY_DOCUMENT_TARGET_RULES,
         SUB_AGENT_HTML_CONTENT_RULES,
-        format_humanizer_guidance_prompt_block,
         get_chat_response_format_instructions,
     )
 
@@ -244,7 +243,7 @@ def run_domain_sub_agent(
     activity_label: str,
     domain: str,
     base_instructions: str,
-    reply_spec: Any,
+    mode: SidebarMode | None = None,
     topic_header: str,
     query: str = "",
     history_text: str | None = None,
@@ -264,7 +263,7 @@ def run_domain_sub_agent(
         collector=lambda c: tools,
         instructions=instructions,
         examples_key=domain,
-        reply_spec=reply_spec,
+        mode=mode,
         tool_call_handler=_document_open_tool_handler(ctx),
         status_message=f"{activity_label}...",
         stop_message=f"{activity_label} stopped by user.",

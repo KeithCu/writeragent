@@ -17,26 +17,33 @@
 """Page/slide management tools for Draw/Impress documents."""
 
 import logging
-from typing import Any
+from typing import Any, Literal
 
-from plugin.draw.bridge import resolve_page_and_bridge
-from plugin.draw.masters import _master_pages
-from plugin.framework.errors import is_real_disposal
+from plugin.framework.doc_type import is_impress
+from plugin.draw.bridge import DrawBridge, page_size
+from plugin.draw.base import DRAW_AND_IMPRESS
+from plugin.draw.masters import iter_masters
+from plugin.draw.tables import table_cells_for_shape, table_matrix_to_tsv
+from plugin.draw.tree import is_group, iter_shape_addresses
+from plugin.framework.errors import available_miss_details, is_disposal
 from plugin.framework.tool import ToolBase, ToolContext
 from plugin.framework.uno_context import uno_same
+from plugin.writer.search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    DEFAULT_SEARCH_RESULTS,
+    MAX_SEARCH_HITS,
+    invalid_regex_tool_message,
+    resolve_case_sensitive,
+    search_results_cap_hint,
+    shape_text_hits,
+    validate_regex_pattern,
+)
 
 log = logging.getLogger("writeragent.draw.pages")
 
 
 # Impress Title + Content (title + body). Not "title" (id 0 = title+subtitle).
 _DEFAULT_IMPRESS_LAYOUT = "text"
-
-_DRAW_UNO = ["com.sun.star.drawing.DrawingDocument", "com.sun.star.presentation.PresentationDocument"]
-
-
-def _is_impress_doc(doc: Any) -> bool:
-    """True for Impress. Draw shares add_slide; PyUNO hasattr is unreliable."""
-    return bool(doc.supportsService("com.sun.star.presentation.PresentationDocument"))
 
 
 def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> str:
@@ -73,11 +80,9 @@ def inherit_master_from_neighbor(pages: Any, new_page: Any, insert_at: int) -> s
             return master.Name if hasattr(master, "Name") else ""
         except Exception as exc:
             # Prefer the previous slide, then the following one. Returning
-            # here stopped on the first failure. is_real_disposal only:
-            # a live-doc RuntimeException must try the next neighbor.
-            # is_disposed_exception treats that name as disposal, and
-            # add_slide would then delete the new slide.
-            if is_real_disposal(exc):
+            # here stopped on the first failure. Only disposal escapes;
+            # a live-document RuntimeException tries the next neighbor.
+            if is_disposal(exc):
                 raise
             log.debug("inherit_master_from_neighbor failed insert_at=%s ref=%s", insert_at, ref_idx, exc_info=True)
     return ""
@@ -95,12 +100,12 @@ class AddSlide(ToolBase):
         },
         "required": [],
     }
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     is_mutation: bool | None = True
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-        from plugin.draw.transitions import apply_slide_layout, available_layout_names, layout_id
+        from plugin.draw.layouts import available_layout_names, layout_id
+        from plugin.draw.transitions import apply_slide_layout
 
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs.get("page")
@@ -108,20 +113,20 @@ class AddSlide(ToolBase):
         switch_view = bool(activate if activate is not None else True)
 
         layout_name: str | None = None
-        if _is_impress_doc(ctx.doc):
+        if is_impress(ctx.doc):
             raw = kwargs.get("layout")
             layout_name = _DEFAULT_IMPRESS_LAYOUT if raw is None or (isinstance(raw, str) and not raw.strip()) else str(raw).strip().lower()
             # Validate before insert so a bad name does not leave a stray page.
             if layout_id(layout_name) is None:
-                return self._tool_error("Unknown layout: %s" % layout_name, available=available_layout_names())
+                avail = available_layout_names()
+                return self._tool_error(
+                    "Unknown layout: %s" % layout_name,
+                    available=avail,
+                    **available_miss_details(str(layout_name), avail),
+                )
 
-        # Bugfix: create_slide(switch=True) moved the view onto the new page
-        # before master inheritance and layout. A failure then removed that page
-        # and left the controller on it. insert_slide_from_master already inserts
-        # with switch=False and switches only after MasterPage is assigned.
-        # Do not trust get_active_page_index after a requested switch — Impress
-        # DrawPage.getNumber() is missing/None, so the helper falls back to 0.
-        # The landed index is the slot the new page occupies.
+        # Master and layout run before switching the view; create_slide uses switch=False like
+        # insert_slide_from_master. Report the landed index, not get_active_page_index after switch.
         new_page, landed = bridge.create_slide(page_idx, switch=False)
 
         result: dict[str, Any] = {"status": "ok", "message": "Slide added"}
@@ -129,8 +134,7 @@ class AddSlide(ToolBase):
         try:
             # insertNewByIndex can attach factory Default even when the deck already
             # has a designed master (M1′). Copy the neighbor slide's MasterPage.
-            # Pass the landed index: page=0 used to claim insert_at=0 while the
-            # new page sat at 1, so the "neighbor" was the new page itself.
+            # inherit_master_from_neighbor needs the landed index, not the requested insert index.
             if layout_name is not None:
                 inherited = inherit_master_from_neighbor(bridge.get_pages(), new_page, landed)
                 if inherited:
@@ -138,20 +142,17 @@ class AddSlide(ToolBase):
                 result["placeholders_hint"] = "call list_placeholders on this page"
                 # blank/none are AUTOLAYOUT_NONE (20). insertNewByIndex already
                 # leaves that id with 0 shapes; assigning it keeps the page empty.
-                # Skipping used to be required because the PowerPoint blank id (11)
-                # is AUTOLAYOUT_OBJ and grew a title plus an OLE placeholder.
+                # blank/none still call apply_slide_layout; only PowerPoint blank id 11 is avoided elsewhere.
                 result["layout"] = apply_slide_layout(new_page, layout_name)
         except Exception as exc:
-            # What was wrong: is_disposed_exception matched bare RuntimeException by name, skipping cleanup on live documents.
-            # How it happened: is_disposed_exception checks _has_runtime_teardown_name which matches RuntimeException.
-            # Why this change: use is_real_disposal so only real disposal skips cleanup, while live RuntimeException removes new_page.
-            if is_real_disposal(exc):
+            # Only disposal escapes; a live-document RuntimeException removes the new page and reports the error.
+            if is_disposal(exc):
                 raise
             cleanup_failed = False
             try:
                 bridge.get_pages().remove(new_page)
             except Exception as rm_exc:
-                if is_real_disposal(rm_exc):
+                if is_disposal(rm_exc):
                     raise
                 cleanup_failed = True
                 log.debug("add_slide cleanup remove failed", exc_info=True)
@@ -160,9 +161,8 @@ class AddSlide(ToolBase):
                 cleanup_failed=cleanup_failed,
             )
 
-        # What was wrong: failed set_current_page_index return was ignored, reporting landed as active_page_index.
-        # How it happened: bridge.set_current_page_index return value was not checked.
-        # Why this change: report real active page when switch fails and set view_switch_failed flag.
+        # When switch_view is true, check set_current_page_index and set view_switch_failed on failure.
+        # active_page_index reflects the controller, not the assumed landed slot.
         switched = bridge.set_current_page_index(landed) if switch_view else False
         if switch_view and not switched:
             result["view_switch_failed"] = True
@@ -171,14 +171,8 @@ class AddSlide(ToolBase):
 
 
 class _SlideMutationTool(ToolBase):
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     is_mutation: bool | None = True
-
-
-def _check_page_range(tool: ToolBase, pages: Any, page_idx: int) -> dict[str, Any] | None:
-    if page_idx < 0 or page_idx >= pages.getCount():
-        return tool._tool_error("Page index %s out of range." % page_idx)
-    return None
 
 
 class DeleteSlide(_SlideMutationTool):
@@ -187,20 +181,18 @@ class DeleteSlide(_SlideMutationTool):
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of slide to delete"}}, "required": ["page"]}
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-
         bridge = DrawBridge(ctx.doc)
         page_idx = kwargs["page"]
         pages = bridge.get_pages()
-        err = _check_page_range(self, pages, page_idx)
-        if err is not None:
-            return err
+        count = pages.getCount()
+        # Range check only; reuse count for the one-slide guard below.
+        bridge.resolve_page(page_idx)
         # A one-page Draw or Impress document keeps its only slide. An
         # in-range index is not enough to call bridge.delete_slide.
         # SlideCommandEngine._delete_slide already refuses that case
         # before it touches the document. Return the same error and skip
         # the removal when one page remains.
-        if pages.getCount() <= 1:
+        if count <= 1:
             return self._tool_error("Cannot delete the only slide")
         bridge.delete_slide(page_idx)
 
@@ -211,12 +203,13 @@ class ListPages(ToolBase):
     name: str | None = "list_pages"
     description: str = "Lists all pages (slides). Each entry is that page's Name, or \"Page N\" when Name is missing or blank. The list position is the 0-based page index."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     doc_types: list[str] | None = ["draw", "impress"]
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        bridge, active_idx = resolve_page_and_bridge(ctx, {})
+        bridge = DrawBridge(ctx.doc)
+        active_idx = bridge.active_or_ctx_index(None, active_page_index=ctx.active_page_index)
         pages = bridge.get_pages()
         labels: list[str] = []
         count = pages.getCount()
@@ -226,39 +219,165 @@ class ListPages(ToolBase):
         return {"status": "ok", "pages": labels, "count": count, "active_page_index": active_idx}
 
 
+def _shape_tree_address(path: str) -> int | str:
+    return int(path) if "." not in path else path
+
+
+def iter_shape_text_units(page: Any, *, table_mode: Literal["per_cell", "tsv"] = "per_cell"):
+    """Yield (address, shape_name, text) for read/search over shape text.
+
+    Skips group containers. Tables use ``table_mode``: one TSV blob (read) or one
+    yield per non-empty cell (search). Disposal propagates; other failures skip
+    the shape and log at debug.
+    """
+    for path, shape, _parent in iter_shape_addresses(page):
+        if is_group(shape):
+            continue
+        addr = _shape_tree_address(path)
+        shape_name = str(getattr(shape, "Name", "") or "")
+        matrix = table_cells_for_shape(shape)
+        if matrix is not None:
+            if table_mode == "tsv":
+                tsv = table_matrix_to_tsv(matrix)
+                if tsv:
+                    yield addr, shape_name, tsv
+            else:
+                for row in matrix:
+                    for cell in row:
+                        text = cell.strip()
+                        if text:
+                            yield addr, shape_name, text
+            continue
+        try:
+            text = shape.getString()
+        except Exception as exc:
+            if is_disposal(exc):
+                raise
+            log.debug("iter_shape_text_units getString failed", exc_info=True)
+            continue
+        if text and str(text).strip():
+            yield addr, shape_name, str(text).strip()
+
+
 class ReadSlideText(ToolBase):
     """Read all text content from a slide plus speaker notes."""
 
     name: str | None = "read_slide_text"
-    description: str = "Read all text content from a slide (shapes text) and speaker notes. Returns structured text per shape."
+    description: str = (
+        "Read text from shapes on a slide (including grouped descendants and table cells as TSV) "
+        "and speaker notes. Returns structured text per shape or table."
+    )
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based slide index (default: active slide)."}}, "required": []}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge, find_notes_shape
-        from plugin.framework.errors import is_disposed_exception, uno_probe
+        from plugin.draw.bridge import notes_text
 
-        _bridge, actual_idx = resolve_page_and_bridge(ctx, kwargs)
-        page = DrawBridge.get_slide_for_tool(ctx.doc, actual_idx)
+        bridge = DrawBridge(ctx.doc)
+        page, actual_idx = bridge.resolve_page(kwargs.get("page"), active_page_index=ctx.active_page_index)
 
-        texts = []
-        for i in range(page.getCount()):
-            shape = page.getByIndex(i)
-            try:
-                txt = shape.getString()
-                if txt and txt.strip():
-                    texts.append({"index": i, "text": txt, "shape_name": shape.Name})
-            except Exception as exc:
-                if is_disposed_exception(exc):
-                    raise
+        texts: list[dict[str, Any]] = []
+        for addr, shape_name, text in iter_shape_text_units(page, table_mode="tsv"):
+            texts.append({"index": addr, "text": text, "shape_name": shape_name})
 
-        notes_shape = find_notes_shape(uno_probe(lambda: page.getNotesPage(), None))
-        notes_text = ""
-        if notes_shape is not None:
-            notes_text = uno_probe(lambda: notes_shape.getString() or "", "")
+        nt = notes_text(page)
+        notes_str = "" if nt is None else nt
 
-        return {"status": "ok", "page": actual_idx, "texts": texts, "notes": notes_text}
+        return {"status": "ok", "page": actual_idx, "texts": texts, "notes": notes_str}
+
+
+class SearchSlides(ToolBase):
+    """Search shape text and speaker notes across Draw/Impress slides."""
+
+    name: str | None = "search_slides"
+    description: str = (
+        "Search text in slide shapes (including grouped descendants and table cells) and speaker notes. "
+        "Each match reports the page, shape name, matched text, and shape index when available."
+    )
+    parameters: dict[str, Any] | None = {
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "description": "Search string or regex pattern."},
+            "regex": {"type": "boolean", "description": "Use regular expression (default: false)."},
+            "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
+            "max_results": {
+                "type": "integer",
+                "description": "Maximum results to return (default: %d). Must be a positive integer." % DEFAULT_SEARCH_RESULTS,
+            },
+        },
+        "required": ["pattern"],
+    }
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
+    doc_types: list[str] | None = ["draw", "impress"]
+    tier: str = "core"
+
+    def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
+        from plugin.draw.bridge import notes_text
+
+        raw_max = kwargs.get("max_results", DEFAULT_SEARCH_RESULTS)
+        if type(raw_max) is not int or raw_max < 1:
+            return self._tool_error("max_results must be a positive integer.", code="INVALID_PARAM")
+        max_results = raw_max
+
+        pattern = kwargs["pattern"]
+        assert isinstance(pattern, str)
+        if not pattern:
+            return self._tool_error("pattern is required.")
+
+        use_regex = kwargs.get("regex", False)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
+
+        if use_regex:
+            rex_err = validate_regex_pattern(pattern)
+            if rex_err:
+                return self._tool_error(invalid_regex_tool_message(rex_err), code="INVALID_REGEX", count=0)
+
+        bridge = DrawBridge(ctx.doc)
+        pages = bridge.get_pages()
+        matches: list[dict[str, Any]] = []
+        total_count = 0
+
+        def append_hit(page_idx: int, shape_name: str, hit_text: str, index: int | str | None) -> None:
+            nonlocal total_count
+            if total_count >= MAX_SEARCH_HITS:
+                return
+            total_count += 1
+            if len(matches) < max_results:
+                entry: dict[str, Any] = {"page": page_idx, "shape_name": shape_name, "text": hit_text}
+                if index is not None:
+                    entry["index"] = index
+                matches.append(entry)
+
+        page_count = pages.getCount()
+        for page_idx in range(page_count):
+            if total_count >= MAX_SEARCH_HITS:
+                break
+            page = pages.getByIndex(page_idx)
+            for addr, shape_name, unit_text in iter_shape_text_units(page, table_mode="per_cell"):
+                if total_count >= MAX_SEARCH_HITS:
+                    break
+                for hit in shape_text_hits(unit_text, pattern, use_regex, case_sensitive):
+                    append_hit(page_idx, shape_name, hit, addr)
+                    if total_count >= MAX_SEARCH_HITS or len(matches) >= max_results:
+                        break
+            notes = notes_text(page)
+            if notes and total_count < MAX_SEARCH_HITS:
+                for hit in shape_text_hits(notes, pattern, use_regex, case_sensitive):
+                    append_hit(page_idx, "Notes", hit, None)
+                    if total_count >= MAX_SEARCH_HITS or len(matches) >= max_results:
+                        break
+
+        result: dict[str, Any] = {
+            "status": "ok",
+            "matches": matches,
+            "count": total_count,
+            "returned": len(matches),
+            "matched_case_sensitive": case_sensitive,
+        }
+        if len(matches) < total_count:
+            result["hint"] = search_results_cap_hint(len(matches), total_count)
+        return result
 
 
 class GetPresentationInfo(ToolBase):
@@ -267,7 +386,7 @@ class GetPresentationInfo(ToolBase):
     name: str | None = "get_presentation_info"
     description: str = "Get presentation metadata: slide count, dimensions, master slide names, and whether it is an Impress document."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {}, "required": []}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
@@ -280,40 +399,35 @@ class GetPresentationInfo(ToolBase):
         height_mm = 0
         if count > 0:
             p = pages.getByIndex(0)
-            width_mm = p.Width // 100
-            height_mm = p.Height // 100
+            size = page_size(p)
+            if size:
+                width_mm, height_mm = size[0] // 100, size[1] // 100
 
         # Master pages
-        masters = [m.Name if hasattr(m, "Name") else "Master_%d" % i for i, m in enumerate(_master_pages(doc))]
+        masters = [name or ("Master_%d" % i) for i, _m, name in iter_masters(doc)]
 
-        _bridge, active_idx = resolve_page_and_bridge(ctx, {})
+        bridge = DrawBridge(doc)
+        active_idx = bridge.active_or_ctx_index(None, active_page_index=ctx.active_page_index)
 
-        return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": _is_impress_doc(doc), "active_page_index": active_idx}
+        return {"status": "ok", "slide_count": count, "width_mm": width_mm, "height_mm": height_mm, "master_slides": masters, "is_impress": is_impress(doc), "active_page_index": active_idx}
 
 
 class SetActivePage(ToolBase):
     name: str | None = "set_active_page"
     description: str = "Changes the currently active slide (page) in Draw/Impress."
     parameters: dict[str, Any] | None = {"type": "object", "properties": {"page": {"type": "integer", "description": "0-based index of page to activate"}}, "required": ["page"]}
-    uno_services: list[str] | None = _DRAW_UNO
+    uno_services: list[str] | None = DRAW_AND_IMPRESS
     # View change only. None would still detect a mutation: the name
     # set_active_page is not a read prefix. read_only_target and the MCP
     # document lock both follow detects_mutation.
     is_mutation: bool | None = False
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-
         bridge = DrawBridge(ctx.doc)
         idx = kwargs["page"]
-        err = _check_page_range(self, bridge.get_pages(), idx)
-        if err is not None:
-            return err
-
-        # Bugfix: this reimplemented setCurrentPage and caught every exception,
-        # so a disposed controller became a normal tool error instead of
-        # DOCUMENT_DISPOSED. set_current_page_index already re-raises disposal
-        # and returns False for a missing controller or a non-disposal failure.
+        # Range check only before switching the controller view.
+        bridge.resolve_page(idx)
+        # Route through set_current_page_index so disposal propagates as DOCUMENT_DISPOSED.
         if not bridge.set_current_page_index(idx):
             return self._tool_error("Failed to set active page.")
         return {"status": "ok", "message": "Active page changed to %d" % idx, "active_page_index": idx}
@@ -326,19 +440,14 @@ class DuplicateSlide(_SlideMutationTool):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-
         page_idx = kwargs["page"]
         bridge = DrawBridge(ctx.doc)
-        err = _check_page_range(self, bridge.get_pages(), page_idx)
-        if err is not None:
-            return err
+        bridge.resolve_page(page_idx)  # range check only
         activate = kwargs.get("activate", True)
         switch_view = bool(activate if activate is not None else True)
         bridge.duplicate_slide(page_idx, switch=switch_view)
         # The copy is inserted immediately after the source. Do not re-read
-        # getNumber() — Impress leaves it missing and the helper used to
-        # report 0 after a successful switch.
+        # After duplicate with switch, the active index is page_idx + 1, not getNumber().
         active_idx = page_idx + 1 if switch_view else bridge.get_active_page_index()
         return {"status": "ok", "message": "Slide duplicated", "source_page": page_idx, "active_page_index": active_idx}
 
@@ -350,7 +459,7 @@ class MoveSlide(_SlideMutationTool):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge, PageExchangeRollbackError
+        from plugin.draw.bridge import PageExchangeRollbackError
 
         from_page = kwargs["from_page"]
         to_page = kwargs["to_page"]
@@ -358,9 +467,7 @@ class MoveSlide(_SlideMutationTool):
         try:
             ok = bridge.move_slide(from_page, to_page)
         except PageExchangeRollbackError as exc:
-            # Bugfix: move_slide now raises when the temp page still holds shapes;
-            # execute_safe would prefix that with "Tool execution failed", and the old
-            # False path hid it as "Could not move slide". Return the rollback error directly.
+            # PageExchangeRollbackError carries the real failure; return it without execute_safe prefixing.
             return self._tool_error(str(exc))
         if not ok:
             return self._tool_error("Could not move slide from %s to %s." % (from_page, to_page))
@@ -374,16 +481,12 @@ class RenameSlide(_SlideMutationTool):
     tier: str = "core"
 
     def execute(self, ctx: ToolContext, **kwargs: Any) -> dict[str, Any]:
-        from plugin.draw.bridge import DrawBridge
-
         page_idx = kwargs["page"]
         name = kwargs["name"]
         if not name:
             return self._tool_error("name is required.")
         bridge = DrawBridge(ctx.doc)
-        err = _check_page_range(self, bridge.get_pages(), page_idx)
-        if err is not None:
-            return err
+        bridge.resolve_page(page_idx)
         ok = bridge.rename_slide(page_idx, str(name))
         if not ok:
             return self._tool_error("Slide does not support renaming.")

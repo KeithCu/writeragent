@@ -32,14 +32,13 @@ from __future__ import annotations
 
 from plugin.framework.constants import now_aware
 import logging
-import sys
 from typing import TYPE_CHECKING, Any
 
 from plugin.calc.address_utils import parse_address, split_sheet_prefix
 from plugin.calc.array_formula import returns_array
 from plugin.calc.calc_utils import cell_value_and_type, resolve_sheet
 from plugin.calc.error_detector import ERROR_TYPES
-from plugin.framework.errors import ToolExecutionError, is_disposed_exception, uno_probe
+from plugin.framework.errors import ToolExecutionError, is_disposal, uno_read
 from plugin.framework.tool import ToolBase
 
 if TYPE_CHECKING:
@@ -48,7 +47,7 @@ if TYPE_CHECKING:
 from plugin.calc.base import ToolCalcErrorBase
 from plugin.calc.manipulator import _quiet_probe_cleanup
 
-log = logging.getLogger("writeragent.calc")
+log = logging.getLogger(__name__)
 
 
 class _EvaluationUndoGuard:
@@ -64,17 +63,17 @@ class _EvaluationUndoGuard:
 
     def __enter__(self) -> _EvaluationUndoGuard:
         doc = self.doc
-        self.was_modified = uno_probe(lambda: bool(doc.isModified()), False)
+        self.was_modified = uno_read(lambda: bool(doc.isModified()), False)
         if hasattr(doc, "getUndoManager"):
             self.undo_mgr = doc.getUndoManager()
         if self.undo_mgr:
-            self.was_possible = uno_probe(lambda: bool(self.undo_mgr.isUndoPossible()), False)
+            self.was_possible = uno_read(lambda: bool(self.undo_mgr.isUndoPossible()), False)
             if self.was_possible:
                 try:
                     self.undo_mgr.enterHiddenUndoContext()
                     self.hidden_context_entered = True
                 except Exception as e:
-                    if is_disposed_exception(e):
+                    if is_disposal(e):
                         raise
                     if "EmptyUndoStackException" not in type(e).__name__:
                         raise
@@ -88,6 +87,18 @@ class _EvaluationUndoGuard:
 
         if self.sheet_removed and not self.was_modified:
             _quiet_probe_cleanup(lambda: self.doc.setModified(False), "setModified")
+
+
+def _drop_eval_sheet(sheets: Any, name: str, undo_guard: _EvaluationUndoGuard) -> bool:
+    """Remove the temporary evaluation sheet. False (logged) when that fails."""
+    try:
+        if sheets.hasByName(name):
+            sheets.removeByName(name)
+        undo_guard.sheet_removed = True
+        return True
+    except Exception:
+        log.exception("Failed to cleanup evaluation sheet")
+        return False
 
 
 class ListCalcFunctions(ToolBase):
@@ -220,23 +231,21 @@ class EvaluateFormula(ToolCalcErrorBase):
         with _EvaluationUndoGuard(doc) as undo_guard:
             # Copy active sheet with all its data
             sheets.copyByName(active_name, temp_sheet_name, sheets.getCount())
-            result = None
+            cleanup_msg = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
             try:
                 sheet = sheets.getByName(temp_sheet_name)
                 result = self._evaluate_on_copy(sheet, col, row, formula_string, cell_address)
-                return result
-            finally:
-                incoming = sys.exc_info()[1]
-                try:
-                    if sheets.hasByName(temp_sheet_name):
-                        sheets.removeByName(temp_sheet_name)
-                    undo_guard.sheet_removed = True
-                except Exception:
-                    log.exception("Failed to cleanup evaluation sheet")
-                    if result is not None:
-                        result["warning"] = f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'"
-                    elif isinstance(incoming, Exception):
-                        return self._tool_error(f"Failed to clean up temporary evaluation sheet '{temp_sheet_name}'")
+            except BaseException as exc:
+                cleaned = _drop_eval_sheet(sheets, temp_sheet_name, undo_guard)
+                # A failed cleanup turns an ordinary evaluation error into a
+                # tool error. A disposed document (or a BaseException such as
+                # KeyboardInterrupt) still propagates.
+                if not cleaned and isinstance(exc, Exception) and not is_disposal(exc):
+                    return self._tool_error(cleanup_msg)
+                raise
+            if not _drop_eval_sheet(sheets, temp_sheet_name, undo_guard):
+                result["warning"] = cleanup_msg
+            return result
 
     def _evaluate_on_copy(
         self,
@@ -256,7 +265,7 @@ class EvaluateFormula(ToolCalcErrorBase):
         try:
             cell.setFormula(formula_string)
         except Exception as e:
-            if is_disposed_exception(e):
+            if is_disposal(e):
                 raise
             return self._tool_error(f"Failed to set formula '{formula_string}' at cell '{cell_address}': {str(e)}")
 

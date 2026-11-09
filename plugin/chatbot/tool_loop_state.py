@@ -15,11 +15,20 @@ from __future__ import annotations
 
 import dataclasses
 from enum import Enum, StrEnum, auto
-from typing import Any, Dict, List, Optional, NamedTuple, TypeVar, assert_never, cast
+from typing import Any, Dict, List, Literal, Optional, NamedTuple, TypeVar, assert_never, cast
 
 from plugin.framework.client.stream_normalizer import reasoning_replay_from_assistant_response
 from plugin.framework.deal_shim import deal
+from plugin.framework.i18n import _
 from plugin.framework.service import BaseState, FsmTransition
+
+SendOutcome = Literal["ready", "error", "stopped"]
+
+OUTCOME_STATUS_TEXT: dict[SendOutcome, str] = {
+    "ready": "Ready",
+    "error": "Error",
+    "stopped": "Stopped",
+}
 
 
 def object_dict_or_empty(value: object) -> dict[str, Any]:
@@ -27,6 +36,20 @@ def object_dict_or_empty(value: object) -> dict[str, Any]:
     # crosshair: off
     # Plain dict only — CrossHair AttrDict is isinstance(dict) but .get/items can crash.
     return cast("dict[str, Any]", value) if type(value) is dict else {}
+
+
+def as_dict(value: object) -> dict[str, Any]:
+    """Return *value* if a dict, or parsed from a JSON string of a dict; otherwise ``{}``."""
+    # crosshair: off
+    if type(value) is dict:
+        return cast("dict[str, Any]", value)
+    if isinstance(value, (str, bytes)):
+        from plugin.framework.json_utils import safe_json_loads
+
+        parsed = safe_json_loads(value)
+        if type(parsed) is dict:
+            return cast("dict[str, Any]", parsed)
+    return {}
 
 
 def _non_blank_name(value: object) -> str:
@@ -155,6 +178,8 @@ class ToolLoopUIEffect:
     result_data: Optional[Dict[str, Any]] = None
     round_num: int = 0
     response: Optional[Dict[str, Any]] = None
+    # When set, the interpreter sets the status bar from OUTCOME_STATUS_TEXT; text is for progress-only STATUS.
+    outcome: SendOutcome | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -239,7 +264,7 @@ def _field(data: dict[str, Any], key: str, typ: type[_T], default: _T) -> _T:
 
 
 def _ready_transition(state: ToolLoopState, effects: List[Any]) -> FsmTransition[ToolLoopState]:
-    effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Ready"))
+    effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="ready"))
     effects.append(ExitLoopEffect())
     return FsmTransition(dataclasses.replace(state, status="Ready"), effects)
 
@@ -271,14 +296,26 @@ def next_state(state: ToolLoopState, event: ToolLoopEvent) -> FsmTransition[Tool
             # calls that have no result, and writes the stop line. This
             # transition only latches the loop. Partial tool_calls never
             # reach this event: the worker does not enqueue them.
-            effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, text="Stopped"))
+            effects.append(ToolLoopUIEffect(kind=UIEffectKind.STATUS, outcome="stopped"))
             effects.append(ExitLoopEffect())
             return FsmTransition(dataclasses.replace(state, is_stopped=True, status="Stopped"), effects)
 
         case EventKind.FINAL_DONE:
             content = event_data.get("content")
-            if content:
-                effects.extend(_assistant_text_effects(content, event_data))
+            if content and str(content).strip():
+                effects.extend(_assistant_text_effects(str(content), event_data))
+            else:
+                # Backends may finish with tool calls only and no text. Show a localized
+                # message instead of an empty assistant bubble.
+                msg = _("Reached the maximum number of tool rounds.")
+                effects.append(
+                    AddMessageEffect(
+                        role=MessageRole.ASSISTANT,
+                        content=msg,
+                        reasoning_replay=reasoning_replay_from_assistant_response(event_data),
+                    )
+                )
+                effects.append(ToolLoopUIEffect(kind=UIEffectKind.APPEND, text=msg + "\n"))
             return _ready_transition(state, effects)
 
         case EventKind.ERROR:

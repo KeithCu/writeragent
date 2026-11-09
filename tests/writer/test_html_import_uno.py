@@ -473,4 +473,161 @@ def test_html_import_live_roundtrip_uno(ctx: Any, doc: Any) -> None:
         assert count_after == count_before
 
 
+def _assert_hanging_paragraph(para: Any) -> None:
+    """The third paragraph of the round-trip test: space above, hanging indent, 1.5 lines.
 
+    Writer stores these lengths in twips, so 0.5cm (500 in 1/100 mm) can read back as 499.
+    """
+    assert para.getString() == "Hanging"
+    assert abs(para.getPropertyValue("ParaTopMargin") - 500) <= 1
+    assert abs(para.getPropertyValue("ParaFirstLineIndent") + 500) <= 1
+    spacing = para.getPropertyValue("ParaLineSpacing")
+    assert (spacing.Mode, spacing.Height) == (0, 150), (spacing.Mode, spacing.Height)
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: Any) -> None:
+    """Paragraph direct formatting (alignment, margins, background) survives named style application."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.writer.get_document_content import GetDocumentContent
+
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+    html = (
+        '<h1 data-lo-style="Heading1" data-lo-para="text-align:center; margin-left:2cm; background-color:#ffe4c4">Heading</h1>'
+        '<blockquote><p data-lo-para="margin-left:1cm">Quoted text</p></blockquote>'
+        '<p data-lo-para="margin-top:0.5cm; text-indent:-0.5cm; line-height:150%">Hanging</p>'
+    )
+    res = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=html)
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res, res
+
+    enum = doc.getText().createEnumeration()
+    p1 = enum.nextElement()
+    p2 = enum.nextElement()
+    p3 = enum.nextElement()
+
+    solid_fill = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    assert p1.getPropertyValue("ParaAdjust") == 3
+    assert p1.getPropertyValue("ParaLeftMargin") == 2000
+    assert p1.getPropertyValue("FillStyle") == solid_fill
+    assert p1.getPropertyValue("FillColor") == 0xFFE4C4
+    got_p1_color = int(p1.getPropertyValue("ParaBackColor"))
+    assert got_p1_color == 0xFFE4C4, (
+        f"expected 0xFFE4C4, got {hex(got_p1_color)} (res={res})"
+    )
+    assert p2.getPropertyValue("ParaLeftMargin") == 1000
+    _assert_hanging_paragraph(p3)
+
+    got = GetDocumentContent().execute(tool_ctx, scope="full")
+    assert got.get("status") == "ok", got
+    content = got.get("content") or ""
+    assert "data-lo-para" in content
+
+    res2 = ApplyDocumentContent().execute(tool_ctx, target="full_document", content=content)
+    assert res2.get("status") == "ok", res2
+    # Copying the document back may only warn about the read-only names. The read can report a
+    # paragraph-level font where the import set one directly (CI's fonts give the <h1> a
+    # font-family, local runs do not); every writable name must apply without a warning.
+    from plugin.writer.html_import_styles import _READ_ONLY_PARA_NAMES
+
+    # Match the property name explicitly so a changed warning format fails with a clear
+    # assertion instead of IndexError from split("'")[1].
+    warn_prop = re.compile(r"data-lo-para property '([^']+)' was not applied")
+    warned = set()
+    for w in res2.get("warnings", []):
+        m = warn_prop.fullmatch(w)
+        assert m is not None, f"unexpected warning format: {w!r}"
+        warned.add(m.group(1))
+    assert warned <= _READ_ONLY_PARA_NAMES, (res2, content)
+
+    enum2 = doc.getText().createEnumeration()
+    r1 = enum2.nextElement()
+    r2 = enum2.nextElement()
+    r3 = enum2.nextElement()
+
+    assert r1.getPropertyValue("ParaAdjust") == 3
+    assert r1.getPropertyValue("ParaLeftMargin") == 2000
+    assert r1.getPropertyValue("FillStyle") == solid_fill
+    assert r1.getPropertyValue("FillColor") == 0xFFE4C4
+    got_r1_color = int(r1.getPropertyValue("ParaBackColor"))
+    assert got_r1_color == 0xFFE4C4, (
+        f"expected 0xFFE4C4, got {hex(got_r1_color)} (res2={res2})"
+    )
+    assert r2.getPropertyValue("ParaLeftMargin") == 1000
+    _assert_hanging_paragraph(r3)
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, doc: Any) -> None:
+    """data-lo-para background-color is applied to the newly inserted paragraph at 'end' of non-empty doc."""
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    import uno
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc.getText().setString("Initial paragraph")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    html = '<p data-lo-para="background-color:#ffe4c4">Appended paragraph</p>'
+    res2 = ApplyDocumentContent().execute(tool_ctx, target="end", content=html)
+    assert res2.get("status") == "ok", res2
+    assert "warnings" not in res2, res2
+
+    paras = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if hasattr(el, "supportsService") and el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+
+    p_initial = next((p for p in paras if "Initial paragraph" in p.getString()), None)
+    assert p_initial is not None, [p.getString() for p in paras]
+    assert int(p_initial.getPropertyValue("ParaBackColor")) != 0xFFE4C4
+
+    p_appended = next((p for p in paras if "Appended paragraph" in p.getString()), None)
+    assert p_appended is not None, [p.getString() for p in paras]
+    solid_fill = uno.Enum("com.sun.star.drawing.FillStyle", "SOLID")
+    assert p_appended.getPropertyValue("FillStyle") == solid_fill
+    assert p_appended.getPropertyValue("FillColor") == 0xFFE4C4
+    assert int(p_appended.getPropertyValue("ParaBackColor")) == 0xFFE4C4
+
+
+@native_test
+@with_native_doc("writer")
+def test_apply_data_lo_para_insert_at_beginning_with_margin_uno(ctx: Any, doc: Any) -> None:
+    """data-lo-para on a 'beginning' insert formats only the new first paragraph.
+
+    The beginning target prepares an empty absorb paragraph before the import, so this is
+    the path where an off-by-one in the cursor walk would put the margin on the paragraph
+    that was already in the document.
+    """
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+
+    doc.getText().setString("Existing paragraph")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    html = '<p data-lo-para="margin-left:1cm">Prepended paragraph</p>'
+    res = ApplyDocumentContent().execute(tool_ctx, target="beginning", content=html)
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res, res
+
+    paras = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+
+    p_new = next((p for p in paras if "Prepended paragraph" in p.getString()), None)
+    assert p_new is not None, [p.getString() for p in paras]
+    assert p_new.getPropertyValue("ParaLeftMargin") == 1000
+
+    p_old = next((p for p in paras if "Existing paragraph" in p.getString()), None)
+    assert p_old is not None, [p.getString() for p in paras]
+    assert p_old.getPropertyValue("ParaLeftMargin") == 0

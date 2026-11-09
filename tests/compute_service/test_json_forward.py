@@ -19,6 +19,7 @@ from compute_service.json_forward import (
     ExecuteRequestParts,
     MAX_META_BYTES,
     _disposition_name,
+    derive_execute_mode,
     dumps_response,
     is_multipart_content_type,
     parse_execute_request,
@@ -651,7 +652,9 @@ class TestHttpBlobForward:
         app = create_wsgi_app(ComputeSettings(), execute_fn=execute_fn)
         status, out = _wsgi_post(app, b'{"id":[1],"code":"result = 1"}')
         assert status.startswith("400")
-        assert json.loads(out)["error"] == "id must be a scalar"
+        payload = json.loads(out)
+        assert payload["error"] == "id must be a scalar"
+        assert payload.get("code") == "INVALID_REQUEST"
         content_type, body = _manual_multipart([("meta", b'{"timeout_ms":"5"}'), ("code", b"result = 1")])
         status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("400")
@@ -659,7 +662,9 @@ class TestHttpBlobForward:
         # A malformed body keeps the generic message.
         status, out = _wsgi_post(app, b'{"code":')
         assert status.startswith("400")
-        assert json.loads(out)["error"] == "Invalid JSON"
+        malformed = json.loads(out)
+        assert malformed["error"] == "Invalid JSON"
+        assert malformed.get("code") == "BAD_REQUEST_BODY"
 
     def test_missing_meta_part_is_400(self) -> None:
         def execute_fn(**_kwargs):
@@ -669,7 +674,9 @@ class TestHttpBlobForward:
         content_type, body = _manual_multipart([("code", b"result = 1")])
         status, out = _wsgi_post(app, body, content_type=content_type)
         assert status.startswith("400")
-        assert json.loads(out)["error"] == "Invalid multipart execute body"
+        payload = json.loads(out)
+        assert payload["error"] == "Invalid multipart execute body"
+        assert payload.get("code") == "BAD_REQUEST_BODY"
 
     def test_source_byte_cap(self) -> None:
         def execute_fn(**_kwargs):
@@ -888,7 +895,7 @@ class TestPeelAndMultipartAgree:
         assert seen_p["data_json"] == data
         assert seen_p["mode"] == "isolated"
 
-    def test_over_cap_and_bad_mode_rejected_on_both(self) -> None:
+    def test_over_cap_rejected_on_both(self) -> None:
         limit = 64
         code = "α" * (limit + 1)
 
@@ -904,14 +911,16 @@ class TestPeelAndMultipartAgree:
         _assert_rejected(peel, "application/json")
         _assert_rejected(multipart, content_type)
 
-        for mode in (False, 0, "Shared"):
+    def test_leftover_client_mode_ignored_on_both(self) -> None:
+        """Malformed mode in peel or multipart meta does not affect routing (no query session_id)."""
+        for mode in (False, 0, "Shared", "bogus"):
             peel_mode = json.dumps({"id": "mode", "code": "result = 1", "mode": mode}).encode()
             mp_type, mp_body = encode_multipart_execute({"id": "mode", "mode": mode}, code="result = 1")
             for body, ctype in ((peel_mode, "application/json"), (mp_body, mp_type)):
-                status, seen, out = self._run(body, ctype, limit=64)
-                assert status.startswith("400"), (mode, ctype, out)
-                assert seen == {}
-                assert "mode" in json.loads(out).get("error", "")
+                status, seen, _out = self._run(body, ctype, limit=64)
+                assert status.startswith("200"), (mode, ctype)
+                assert seen.get("mode") == "isolated"
+                assert seen.get("session_id") is None
 
     def test_empty_init_script_is_absent_on_both(self) -> None:
         peel = json.dumps({"id": "e", "code": "result = 1", "init_script": ""}).encode()
@@ -1002,6 +1011,13 @@ class TestHttpLargeRoundTrip:
         assert parsed["result"][-1][-1] == float(rows * cols - 1)
 
 
+def test_derive_execute_mode_from_session_id() -> None:
+    assert derive_execute_mode(None) == "isolated"
+    assert derive_execute_mode("") == "isolated"
+    assert derive_execute_mode("   ") == "isolated"
+    assert derive_execute_mode("doc-7") == "shared"
+
+
 def test_validate_session_id() -> None:
     """validate_session_id accepts valid session IDs and rejects non-strings, blanks, and reserved namespaces."""
     assert validate_session_id("my_session") == "my_session"
@@ -1012,7 +1028,7 @@ def test_validate_session_id() -> None:
             validate_session_id(invalid_val)
         assert exc_info.value.code == "INVALID_SESSION_ID"
 
-    for reserved in ("sess:init", "isolated:abc", "foo:init", "isolated:"):
+    for reserved in ("sess:init", "isolated:abc", "foo:init", "isolated:", "calc", "rps"):
         with pytest.raises(ExecuteRequestError) as exc_info:
             validate_session_id(reserved)
         assert exc_info.value.code == "INVALID_SESSION_ID"

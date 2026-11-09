@@ -23,6 +23,9 @@ if str(REPO_ROOT) not in sys.path:
 
 # Setup environment to prevent popup windows or background processes if possible
 os.environ["WRITERAGENT_TESTING"] = "1"
+from plugin.framework.queue_executor import install_from_environ
+
+install_from_environ()
 
 try:
     import officehelper
@@ -188,7 +191,7 @@ def main() -> int:
         print("ERROR: officehelper.bootstrap() returned None.", file=sys.stderr)
         return 1
 
-    # Full plugin.main.bootstrap() is not invoked here: it can segfault in a
+    # Full plugin.app.bootstrap() is not invoked here: it can segfault in a
     # headless officehelper session. The PY Calc add-in registers via extension
     # XCU independently; preflight below verifies it is available.
     print("Checking PY add-in registration...")

@@ -23,15 +23,18 @@ def _impress_doc() -> MagicMock:
 
 _SLIDE_SPECIALIZED_NAMES = frozenset(
     {
-        "get_speaker_notes",
-        "set_speaker_notes",
-        "get_slide_transition",
-        "set_slide_transition",
-        "get_slide_layout",
-        "set_slide_layout",
-        "list_master_slides",
-        "get_slide_master",
-        "set_slide_master",
+        "speaker_notes_get",
+        "speaker_notes_set",
+        "slide_transition_get",
+        "slide_transition_set",
+        "slide_layout_get",
+        "slide_layout_set",
+        "slide_master_list",
+        "slide_master_get",
+        "slide_master_set",
+        "page_comment_list",
+        "page_comment_add",
+        "page_comment_delete",
     }
 )
 
@@ -40,7 +43,7 @@ _IMPRESS_DESIGN_CORE = frozenset({"list_designs", "apply_design"})
 
 
 def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     registry = get_tools()
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc())}
@@ -52,32 +55,40 @@ def test_impress_default_tool_schemas_exclude_slide_specialized_apis() -> None:
 @pytest.mark.parametrize(
     ("domain", "expected_subset"),
     [
-        ("speaker_notes", {"get_speaker_notes", "set_speaker_notes"}),
+        ("speaker_notes", {"speaker_notes_get", "speaker_notes_set"}),
         (
             "slide_transitions",
             {
-                "get_slide_transition",
-                "set_slide_transition",
+                "slide_transition_get",
+                "slide_transition_set",
             },
         ),
         (
             "slide_layouts",
             {
-                "get_slide_layout",
-                "set_slide_layout",
+                "slide_layout_get",
+                "slide_layout_set",
             },
         ),
-        ("slide_masters", {"list_master_slides", "get_slide_master", "set_slide_master"}),
-        ("tables", {"table_insert", "table_list", "table_get_cells", "table_set_cell", "manage_table_structure", "table_delete"}),
+        ("slide_masters", {"slide_master_list", "slide_master_get", "slide_master_set"}),
+        (
+            "page_comments",
+            {
+                "page_comment_list",
+                "page_comment_add",
+                "page_comment_delete",
+            },
+        ),
+        ("tables", {"table_insert", "table_list", "table_get_cells", "table_set_cell", "table_manage_structure", "table_delete"}),
         ("images", {"image_insert", "image_list", "image_delete", "image_generate"}),
         (
             "shapes",
-            {"align_shapes", "distribute_shapes", "create_diagram", "fill_draw_fields"},
+            {"shape_align", "shape_distribute", "shape_diagram", "shape_fill_fields"},
         ),
     ],
 )
 def test_impress_active_domain_includes_slide_specialized_tools(domain: str, expected_subset: set[str]) -> None:
-    from plugin.main import get_tools
+    from plugin.app import get_tools
 
     registry = get_tools()
     names = {s["function"]["name"] for s in registry.get_schemas("openai", doc=_impress_doc(), active_domain=domain)}
@@ -105,4 +116,4 @@ def test_draw_gateway_description_names_real_domains() -> None:
         "headers",
     ]:
         assert domain in desc
-
+    assert "page comments" in desc

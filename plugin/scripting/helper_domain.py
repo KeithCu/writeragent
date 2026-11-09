@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
-from plugin.framework.deal_shim import DEAL_MAX_SOURCE, DEAL_MAX_TOKEN, UNDER_CROSSHAIR, ascii_bounded, str_bounded, deal
+from plugin.framework.deal_shim import DEAL_MAX_TOKEN, ascii_bounded, str_bounded, deal
 
 
 def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
@@ -28,11 +28,7 @@ def _deal_user_code_ok_pytest(code: object, run_name: object = "") -> bool:
     return isinstance(code, str) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
 
 
-def _deal_user_code_ok_crosshair(code: object, run_name: object = "") -> bool:
-    return str_bounded(code, DEAL_MAX_SOURCE) and ascii_bounded(run_name, DEAL_MAX_TOKEN)
-
-
-_deal_user_code_ok = _deal_user_code_ok_crosshair if UNDER_CROSSHAIR else _deal_user_code_ok_pytest
+_deal_user_code_ok = _deal_user_code_ok_pytest
 from plugin.framework.i18n import _
 
 log = logging.getLogger("writeragent.scripting")
@@ -65,35 +61,6 @@ def _header_re(tag: str) -> re.Pattern[str]:
         rf"^\s*#\s*writeragent:{re.escape(tag)}\s+helper=(\w+)\s+params=(\{{.*\}})\s*$",
         re.MULTILINE,
     )
-
-
-@deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
-def parse_helper_script_header(
-    code: str,
-    *,
-    tag: str,
-    helper_names: Collection[str] | None = None,
-) -> HelperScriptMeta | None:
-    """Parse ``# writeragent:<tag> helper=NAME params={…}``.
-
-    *helper_names*: when set, unknown helpers return None.
-    """
-    # crosshair: off
-    prefix = header_prefix(tag)
-    if prefix not in code:
-        return None
-    match = _header_re(tag).search(code)
-    if not match:
-        return None
-    helper = match.group(1)
-    if helper_names is not None and helper not in helper_names:
-        return None
-    raw = match.group(2)
-    try:
-        params = json.loads(raw)
-    except Exception:
-        params = {}
-    return HelperScriptMeta(helper=helper, params=params if isinstance(params, dict) else {})
 
 
 _UNRESOLVED: Any = object()
@@ -143,23 +110,6 @@ def _bound_alias_names(aliases: list[ast.alias]) -> set[str]:
     return {alias.asname or alias.name for alias in aliases} - {"", "*"}
 
 
-def _writeragent_imported_names(tree: ast.AST) -> set[str]:
-    """Names brought in by ``from writeragent... import``.
-
-    Direct helper templates call those names (``convert_quantity(...)``). A bare
-    ``print(...)`` must not be treated as a helper spec.
-    """
-    names: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        module = node.module or ""
-        if module != "writeragent" and not module.startswith("writeragent."):
-            continue
-        names.update(_bound_alias_names(node.names))
-    return names
-
-
 # Dispatch keys for a direct units call. Same names as the template
 # positional_args and venv _dispatch_* lookups. ``from`` / ``to`` stay the
 # short keys because ``from`` is not a keyword argument and _dispatch_convert
@@ -204,48 +154,6 @@ def _spec_from_direct_helper_call(node: ast.Call, helper: str) -> dict[str, Any]
     return {"helper": helper, "params": params}
 
 
-@deal.pre(lambda code, run_name="": _deal_user_code_ok(code, run_name))
-@deal.post(lambda result: result is None or isinstance(result, dict))
-def parse_run_import_call_spec(code: str, *, run_name: str) -> dict[str, Any] | None:
-    """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""
-    if not code:
-        return None
-
-    # CrossHair timing/contract switch, not a test leak.
-    if UNDER_CROSSHAIR:
-        return None
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, TypeError, ValueError):
-        return None
-    imported = _writeragent_imported_names(tree)
-    direct_spec: dict[str, Any] | None = None
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        if not isinstance(func, ast.Name):
-            continue
-        if func.id == run_name:
-            if not node.args:
-                continue
-            spec = _literal_value(node.args[0])
-            if isinstance(spec, dict):
-                return spec
-            if isinstance(spec, str):
-                return {"helper": spec, "params": {}}
-        elif (
-            direct_spec is None
-            and func.id in imported
-            and not func.id.startswith("run_")
-        ):
-            # Prefer run_name when both exist. Only imported writeragent names
-            # count: print("hi") used to become helper="print" and prepend the
-            # whole Writer document on Run Python Script.
-            direct_spec = _spec_from_direct_helper_call(node, func.id)
-    return direct_spec
-
-
 _RUN_DATA_BINDING_CALLS: frozenset[str] = frozenset({
     "run_analysis",
     "run_viz",
@@ -268,72 +176,189 @@ _IMPORT_DATA_BINDING: frozenset[str] = frozenset({
 })
 
 
-def _ast_needs_data_binding(tree: ast.AST) -> bool:
-    imported_names: set[str] = set()
-    alias_modules: set[str] = set()
-    calls: list[ast.Call] = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom):
-            mod = node.module or ""
-            if mod in _IMPORT_DATA_BINDING:
-                imported_names.update(_bound_alias_names(node.names))
-            elif mod == "writeragent.scripting":
+class ScriptFacts:
+    """Parsed AST and metadata for user scripts, computed in a single pass."""
+
+    code: str
+    _tree: ast.AST | None
+    _parse_error: bool
+    _call_names: set[str]
+    _call_nodes: list[ast.Call]
+    _writeragent_imported: set[str]
+    _imports: list[tuple[str | None, str]]
+    _needs_data_binding: bool
+
+    def __init__(self, code: str, tree: ast.AST | None, parse_error: bool) -> None:
+        self.code = code
+        self._tree = tree
+        self._parse_error = parse_error
+        self._call_names = set()
+        self._call_nodes = []
+        self._writeragent_imported = set()
+        self._imports = []
+        self._needs_data_binding = False
+        if tree is not None:
+            self._analyze(tree)
+        elif parse_error and code:
+            self._analyze_fallback(code)
+
+    @classmethod
+    def from_source(cls, code: str) -> ScriptFacts:
+        if not code:
+            return cls(code="", tree=None, parse_error=False)
+        try:
+            tree = ast.parse(code)
+            return cls(code=code, tree=tree, parse_error=False)
+        except (SyntaxError, TypeError, ValueError):
+            return cls(code=code, tree=None, parse_error=True)
+
+    def _analyze(self, tree: ast.AST) -> None:
+        imported_data_binding_names: set[str] = set()
+        data_binding_alias_modules: set[str] = set()
+        data_binding_candidate_calls: list[ast.Call] = []
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if f"writeragent.scripting.{alias.name}" in _IMPORT_DATA_BINDING:
-                        alias_modules.add(alias.asname or alias.name)
-        elif isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name in _IMPORT_DATA_BINDING:
-                    alias_modules.add(alias.asname or alias.name)
-        elif isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Name):
-                name: str | None = func.id
-            elif isinstance(func, ast.Attribute):
-                name = func.attr
+                    self._imports.append((None, alias.name))
+                    if alias.name in _IMPORT_DATA_BINDING:
+                        data_binding_alias_modules.add(alias.asname or alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                for alias in node.names:
+                    self._imports.append((node.module, alias.name))
+                if mod == "writeragent" or mod.startswith("writeragent."):
+                    self._writeragent_imported.update(_bound_alias_names(node.names))
+                if mod in _IMPORT_DATA_BINDING:
+                    imported_data_binding_names.update(_bound_alias_names(node.names))
+                elif mod == "writeragent.scripting":
+                    for alias in node.names:
+                        if f"writeragent.scripting.{alias.name}" in _IMPORT_DATA_BINDING:
+                            data_binding_alias_modules.add(alias.asname or alias.name)
+            elif isinstance(node, ast.Call):
+                func = node.func
+                if isinstance(func, ast.Name):
+                    self._call_names.add(func.id)
+                    self._call_nodes.append(node)
+                    name: str | None = func.id
+                elif isinstance(func, ast.Attribute):
+                    name = func.attr
+                else:
+                    name = None
+                if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
+                    self._needs_data_binding = True
+                else:
+                    data_binding_candidate_calls.append(node)
+
+        if not self._needs_data_binding:
+            for node in data_binding_candidate_calls:
+                func = node.func
+                if isinstance(func, ast.Name) and func.id in imported_data_binding_names:
+                    self._needs_data_binding = True
+                    break
+                if isinstance(func, ast.Attribute):
+                    target = func.value
+                    if isinstance(target, ast.Name) and target.id in data_binding_alias_modules:
+                        self._needs_data_binding = True
+                        break
+
+    def _analyze_fallback(self, code: str) -> None:
+        for name in (*_RUN_DATA_BINDING_CALLS, _SHEET_SQL_CALL):
+            if re.search(rf"\b{re.escape(name)}\s*\(", code):
+                self._needs_data_binding = True
+                break
+        if not self._needs_data_binding:
+            self._needs_data_binding = any(module in code for module in _IMPORT_DATA_BINDING)
+
+    def imports_module(self, module_name: str) -> bool:
+        """True when the script imports *module_name* (import or from-import)."""
+        if not self.code or not module_name:
+            return False
+        if self._parse_error:
+            return module_name in self.code
+        for mod, name in self._imports:
+            if mod is None:
+                if name == module_name or name.startswith(module_name + "."):
+                    return True
             else:
-                name = None
-            if name in _RUN_DATA_BINDING_CALLS or name == _SHEET_SQL_CALL:
-                return True
-            calls.append(node)
-    for node in calls:
-        func = node.func
-        if isinstance(func, ast.Name) and func.id in imported_names:
-            return True
-        if isinstance(func, ast.Attribute):
-            target = func.value
-            if isinstance(target, ast.Name) and target.id in alias_modules:
-                return True
-    return False
+                if mod == module_name:
+                    return True
+                if module_name.startswith(mod + "."):
+                    sub = module_name[len(mod) + 1 :]
+                    if name == sub:
+                        return True
+        return False
+
+    def calls(self, name: str) -> bool:
+        """True when the script contains a call to *name*."""
+        if not self.code or not name:
+            return False
+        if self._parse_error:
+            return f"{name}(" in self.code
+        return name in self._call_names
+
+    @deal.post(lambda result: result is None or isinstance(result, dict))
+    def first_run_spec(self, run_name: str) -> dict[str, Any] | None:
+        """Return the first positional spec dict from ``run_name({...}, ...)`` or a writeragent helper call."""
+        if not self.code or self._parse_error:
+            return None
+        direct_spec: dict[str, Any] | None = None
+        for node in self._call_nodes:
+            func = node.func
+            assert isinstance(func, ast.Name)
+            if func.id == run_name:
+                if not node.args:
+                    continue
+                spec = _literal_value(node.args[0])
+                if isinstance(spec, dict):
+                    return spec
+                if isinstance(spec, str):
+                    return {"helper": spec, "params": {}}
+            elif (
+                direct_spec is None
+                and func.id in self._writeragent_imported
+                and not func.id.startswith("run_")
+            ):
+                direct_spec = _spec_from_direct_helper_call(node, func.id)
+        return direct_spec
+
+    def needs_data_binding(self, *, doc: Any = None) -> bool:
+        """True when code uses a trusted helper that may bind Calc sheet data."""
+        if doc is not None:
+            from plugin.framework.doc_type import is_calc
+
+            if not is_calc(doc):
+                return False
+        return self._needs_data_binding
+
+    @deal.post(lambda result: result is None or isinstance(result, HelperScriptMeta))
+    def header(
+        self,
+        tag: str,
+        *,
+        helper_names: Collection[str] | None = None,
+    ) -> HelperScriptMeta | None:
+        """Parse ``# writeragent:<tag> helper=NAME params={…}``."""
+        prefix = header_prefix(tag)
+        if prefix not in self.code:
+            return None
+        match = _header_re(tag).search(self.code)
+        if not match:
+            return None
+        helper = match.group(1)
+        if helper_names is not None and helper not in helper_names:
+            return None
+        raw = match.group(2)
+        try:
+            params = json.loads(raw)
+        except Exception:
+            params = {}
+        return HelperScriptMeta(helper=helper, params=params if isinstance(params, dict) else {})
 
 
 def script_header_needs_data_binding(code: str, *, doc: Any) -> bool:
-    """True when *code* uses a trusted helper that may bind Calc sheet data.
-
-    What was wrong: regex matched comments like ``# run_analysis(`` and string
-    literals like ``"run_analysis("``, and run_viz's old calc_only=False returned
-    true on Writer documents.
-    How: a raw-source pre-pass ran before the AST walk.
-    Why: AST call tails skip comments and strings; the toolbar binds a Calc sheet,
-    so a non-Calc doc returns false even though viz still inserts on Writer;
-    substring search runs only when ast.parse raises, same policy as
-    python_runner.script_uses_run_import.
-    """
-    # The data toolbar binds a Calc sheet range; run_viz is not post_venv_calc_only
-    # because plots insert on Writer, and that must not enable this toolbar.
-    from plugin.doc.doc_type import is_calc
-
-    if not code or not is_calc(doc):
-        return False
-    try:
-        tree = ast.parse(code)
-    except (SyntaxError, TypeError, ValueError):
-        for name in (*_RUN_DATA_BINDING_CALLS, _SHEET_SQL_CALL):
-            if re.search(rf"\b{re.escape(name)}\s*\(", code):
-                return True
-        return any(module in code for module in _IMPORT_DATA_BINDING)
-
-    return _ast_needs_data_binding(tree)
+    """True when *code* uses a trusted helper that may bind Calc sheet data."""
+    return ScriptFacts.from_source(code).needs_data_binding(doc=doc)
 
 
 
@@ -417,8 +442,6 @@ def format_elapsed_time(seconds: float) -> str:
 
 def _elapsed_since(t0: float) -> float:
     """Seconds since *t0*, or 0 while CrossHair is loaded."""
-    if UNDER_CROSSHAIR:
-        return 0.0
     return time.perf_counter() - t0
 
 
@@ -523,64 +546,75 @@ def plot_insert_ok_outcome(
     return rps_ok_outcome(status_ok, result=result, stdout=stdout)
 
 
-# --- Host Facade Factory ---
+def run_domain(
+    wiring_id: str,
+    uno_ctx: Any,
+    doc: Any,
+    *,
+    helper: str,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Execute trusted helper within *wiring_id* on the host."""
+    from plugin.scripting.domain_registry import get_domain_wiring
+    from plugin.scripting.helper_registry import names
 
+    row = get_domain_wiring(wiring_id)
+    if row.runner == "symbolic":
+        from plugin.framework.errors import ToolExecutionError
 
-@dataclass(frozen=True)
-class DomainFacadeConfig:
-    tag: str                          # "viz", "math", "units", "quant", "optimize", "forecast"
-    helper_names: frozenset[str]      # from domains_common
-    default_params: dict[str, dict[str, Any]]
-    descriptions: dict[str, str]
-    import_module: str                # e.g. "writeragent.scripting.viz"
-    run_name: str                     # e.g. "run_viz"
-    shipped_templates: frozenset[str] | None = None
-    data_expr: str = "data"
-    context_expr: str = "{}"
-    positional_args: dict[str, tuple[str, ...]] | None = None
-    extra_comment_lines: tuple[str, ...] = ("# Edit the run call below, then Run.",)
-    # Sheet helpers take the injected range as the first argument. Quant and
-    # text call ``run_*`` instead of the helper name (those callables do not
-    # match ``helper(**params)``).
-    leading_data: bool = False
-    invoke: str = "direct"
+        name = str(helper or "").strip()
+        if not name:
+            raise ToolExecutionError("helper is required", code="SYMBOLIC_ERROR")
+        h_names = names("symbolic")
+        if name not in h_names:
+            raise ToolExecutionError(f"Unknown helper {name!r}", code="SYMBOLIC_ERROR")
 
-    # crosshair: off
-    def _template_body(self, helper: str) -> str:
-        desc = self.descriptions.get(helper, helper.replace("_", " ").title() if "_" in helper else helper)
-        pos = self.positional_args.get(helper, ()) if self.positional_args else ()
-        return build_helper_script_template(
+        doc_type = kwargs.get("doc_type")
+        if doc_type is None and doc is not None:
+            from plugin.framework.doc_type import is_calc, is_writer
+
+            if is_calc(doc):
+                doc_type = "calc"
+            elif is_writer(doc):
+                doc_type = "writer"
+        if doc_type not in ("calc", "writer"):
+            raise ToolExecutionError("Symbolic helpers require a Writer or Calc document.", code="SYMBOLIC_ERROR")
+
+        spec: dict[str, Any] = {"helper": name}
+        params = kwargs.get("params")
+        if isinstance(params, dict) and params:
+            spec["params"] = params
+
+        task_hint = kwargs.get("task_hint")
+        from plugin.scripting.client import run_symbolic as client_run_symbolic
+
+        return client_run_symbolic(
+            uno_ctx,
+            spec,
+            None,
+            context={"task_hint": str(task_hint)} if task_hint else None,
+        )
+
+    if row.runner == "sheet":
+        import plugin.scripting.client as client
+
+        rpc = row.rpc_domain or row.helper_domain or wiring_id
+        client_run = getattr(client, f"run_{rpc}")
+        h_names = names(row.helper_domain or wiring_id)
+        return run_trusted_calc_data_helper(
+            uno_ctx,
+            doc,
             helper=helper,
-            params=self.default_params.get(helper, {}),
-            description=desc,
-            import_module=self.import_module,
-            run_name=self.run_name,
-            data_expr=self.data_expr,
-            context_expr=self.context_expr,
-            extra_comment_lines=self.extra_comment_lines,
-            positional_args=pos,
-            leading_data=self.leading_data,
-            invoke=self.invoke,
+            helper_names=h_names,
+            error_code=row.error_code or "",
+            empty_data_message=row.empty_data_message or "",
+            client_run=client_run,
+            require_calc_or_writer=row.require_calc_or_writer,
+            force_queue=row.force_queue,
+            **kwargs,
         )
 
-    # crosshair: off
-    def get_templates(self) -> dict[str, str]:
-        shipped = self.shipped_templates if self.shipped_templates is not None else self.helper_names
-        return {h: self._template_body(h) for h in sorted(shipped & self.helper_names)}
-
-    # crosshair: off
-    def parse_header(self, code: str) -> HelperScriptMeta | None:
-        return parse_helper_script_header(
-            code,
-            tag=self.tag,
-            helper_names=self.helper_names,
-        )
-
-    # crosshair: off
-    def template_for(self, helper: str) -> str | None:
-        if helper not in self.helper_names:
-            return None
-        return self._template_body(helper)
+    raise ValueError(f"No host runner configured for wiring id {wiring_id!r}")
 
 
 def is_status_helper_result(
@@ -590,8 +624,7 @@ def is_status_helper_result(
 ) -> bool:
     """True when *value* is a helper status dict for *names* or an exact error code.
 
-    Substring matches (``"FORECAST" in code``) and ``fetch_*`` prefixes used to
-    accept helpers that were not in the domain's name set.
+    Helper names must match the domain set exactly; substring or fetch_* prefix matches are not accepted.
     """
     if not isinstance(value, dict) or "status" not in value:
         return False
@@ -636,15 +669,10 @@ def run_trusted_calc_data_helper(
 
     def _read_sheet() -> tuple[Any, str | None, dict[str, Any]]:
         # UNO only. Callers are async workers; the venv IPC must not sit in this hop.
-        from plugin.doc.doc_type import is_calc, is_writer
+        from plugin.framework.doc_type import is_calc, is_writer
         from plugin.framework.errors import reraise_if_disposed
 
-        # What was wrong: require_calc_or_writer checked is_calc(doc) and is_writer(doc)
-        # on the calling worker thread before hopping to the main thread.
-        # How it happened: both helpers call get_document_type which calls supportsService,
-        # marked @main_thread_only, violating thread guard off the main thread.
-        # Why this change: move the doc type validation inside _read_sheet so it executes
-        # after the main-thread hop.
+        # Doc-type check lives inside _read_sheet after the main-thread hop because get_document_type must not run on worker threads.
         if require_calc_or_writer and not is_calc(doc) and not is_writer(doc):
             raise ToolExecutionError("Viz helpers require a Writer or Calc document.", code=error_code)
 
@@ -655,12 +683,7 @@ def run_trusted_calc_data_helper(
 
             context["sheet_name"] = CalcBridge(doc).get_active_sheet().getName()
         except Exception as e:
-            # What was wrong: DisposedException was logged and ignored, then client_run
-            # ran against a dead document.
-            # How it happened: the sheet name is best-effort context, so the probe
-            # catches Exception.
-            # Why this change: reraise_if_disposed propagates real disposal and still
-            # swallows a missing sheet. A bare RuntimeException is not disposal.
+            # reraise_if_disposed propagates closed documents while a missing sheet name remains a benign probe failure.
             reraise_if_disposed(e)
             log.debug("Failed to resolve active sheet name: %s", e)
         if task_hint:
@@ -669,22 +692,14 @@ def run_trusted_calc_data_helper(
             context["range_a1"] = dr
         return py_data, err, context
 
-    # forecast_data / optimize_data used to wrap this whole helper in
-    # execute_on_main_thread, so the venv IPC ran on the UI thread and froze
-    # Calc. Hop only the UNO read to the main thread; client_run stays on the caller.
-    from plugin.framework.queue_executor import execute_on_main_thread
-    from plugin.framework.thread_guard import on_main_thread
+    # Only the sheet read hops to the main thread; venv client_run stays on the worker so Calc does not freeze during IPC.
+    from plugin.framework.queue_executor import main
 
-    # What was wrong: untagged PyUNO Dummy-N threads ran the sheet read inline
-    # because on_main_thread() returned True.
-    # How it happened: analysis_runner was unified with run_trusted_calc_data_helper,
-    # which bypassed execute_on_main_thread when on_main_thread() was True.
-    # Why this change: force_queue forces the sheet read through execute_on_main_thread,
-    # enqueuing work on Dummy-N threads while still running inline on the true main thread.
-    if not force_queue and on_main_thread():
+    # force_queue marshals sheet reads through main.call on PyUNO Dummy-N threads that falsely report as main.
+    if not force_queue and main.is_current():
         py_data, err, context = _read_sheet()
     else:
-        py_data, err, context = execute_on_main_thread(_read_sheet)
+        py_data, err, context = main.call(_read_sheet)
     if err:
         raise ToolExecutionError(err, code=error_code)
     if py_data is None:
@@ -701,7 +716,7 @@ def supports_calc_or_writer_manual(doc: Any) -> bool:
     """True when Run Python Script should expose helpers for Calc or Writer *doc*."""
     if doc is None:
         return False
-    from plugin.doc.doc_type import is_calc, is_writer
+    from plugin.framework.doc_type import is_calc, is_writer
 
     return is_writer(doc) or is_calc(doc)
 

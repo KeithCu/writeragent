@@ -9,6 +9,8 @@ from __future__ import annotations
 from typing import ClassVar
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from plugin.calc.base import ToolCalcSheetBase, ToolCalcSpecialBase
 from plugin.calc.sheets import ListSheets
 from plugin.calc.specialized import DelegateToSpecializedCalc
@@ -17,16 +19,21 @@ from plugin.contrib.smolagents.memory import FinalAnswerStep
 from plugin.doc.peer_message import SendPeerResult, SendPeerWork
 from plugin.framework.errors import DocumentDisposedError
 from plugin.framework import thread_guard as tg
-from plugin.framework.prompts import (
-    get_document_research_workflow_hint,
-    get_peer_inner_choice_block,
-)
+from plugin.doc.peer_prompt import get_peer_inner_choice_block
+from plugin.framework.prompts import get_document_research_workflow_hint
 from plugin.framework.tool import ToolBase, ToolContext, ToolRegistry
 from plugin.framework.uno_context import get_runtime_uid
 from plugin.framework.worker_pool import run_in_background
 from plugin.writer.specialized.footnotes import FootnotesList
 from plugin.writer.specialized_base import DelegateToSpecializedWriter, ToolWriterFootnoteBase, ToolWriterShapeBase
 from tests.framework.thread_safety import start_uno_thread_safety_session
+
+
+@pytest.fixture(autouse=True)
+def _register_prompt_hooks_for_delegation_threading_tests():
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
 
 
 class _DummyAnalysisBase(ToolCalcSpecialBase):
@@ -81,14 +88,14 @@ class _DummyDocResearchTool(ToolBase):
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     mock_get_calc_context,
@@ -97,7 +104,7 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -133,14 +140,14 @@ def test_calc_delegate_marshals_spreadsheet_context_to_main_thread(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_delegate_disposed_context_reports_document_disposed(
     mock_get_calc_context,
@@ -149,7 +156,7 @@ def test_calc_delegate_disposed_context_reports_document_disposed(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_get_calc_context.side_effect = DocumentDisposedError("doc closed")
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -181,7 +188,7 @@ def test_calc_delegate_disposed_context_reports_document_disposed(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -195,7 +202,7 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     """Regression: truthiness on guard-proxied ctx.doc trips UNO bool on MCP/long-running worker."""
     mock_get_calc_context.return_value = "Sheets: Sheet1\nActive Sheet: Sheet1"
@@ -250,14 +257,14 @@ def test_calc_delegate_guard_proxied_doc_presence_is_identity_safe(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.specialized_base.format_shapes_canvas_context")
 def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     mock_format_canvas,
@@ -266,7 +273,7 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_format_canvas.return_value = " Document canvas (Writer): page style 'Standard'; paper 210.0 x 297.0 mm"
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -299,21 +306,21 @@ def test_writer_delegate_marshals_shapes_canvas_to_main_thread(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 def test_writer_delegate_marshals_get_tools_to_main_thread(
     mock_execute_on_main,
     _mock_llm,
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_agent_instance = MagicMock()
     mock_agent_instance.run.return_value = [FinalAnswerStep(output="done")]
@@ -342,14 +349,14 @@ def test_writer_delegate_marshals_get_tools_to_main_thread(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.document_research.get_open_documents")
 @patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index")
 def test_writer_delegate_marshals_document_research_scaffolding(
@@ -360,7 +367,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_get_open_docs.return_value = [{"path": "/tmp/a.odt", "url": "file:///tmp/a.odt", "doc_type": "writer", "is_active": True}]
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -387,7 +394,7 @@ def test_writer_delegate_marshals_document_research_scaffolding(
     result = gateway.execute_safe(ctx, domain="document_research", task="Find budget figures")
 
     assert result["status"] == "incomplete"
-    mock_enqueue_index.assert_called_once_with(ctx.ctx, ctx.services, mock_doc)
+    mock_enqueue_index.assert_called_once_with(ctx.ctx, mock_doc)
     # Open-docs context plus list_v1_peers (peer catalog / inner ASK vs REPLY hint),
     # both gathered on the main thread with get_tools.
     assert mock_get_open_docs.call_count >= 1
@@ -398,14 +405,14 @@ def test_writer_delegate_marshals_document_research_scaffolding(
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.doc.document_research.get_open_documents")
 @patch("plugin.embeddings.embeddings_indexer.enqueue_folder_index")
 def test_writer_delegate_disposed_open_documents_reports_document_disposed(
@@ -416,7 +423,7 @@ def test_writer_delegate_disposed_open_documents_reports_document_disposed(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     mock_get_open_docs.side_effect = DocumentDisposedError("doc closed")
     mock_execute_on_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
@@ -500,7 +507,7 @@ def test_document_research_hint_off_main_does_not_touch_runtime_uid():
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
@@ -516,7 +523,7 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
     """Regression: specialized execute built the #673 peer catalog on the async worker.
 
@@ -595,13 +602,13 @@ def test_document_research_delegate_off_main_does_not_touch_runtime_uid(
 
 
 def test_writer_smol_adapter_marshals_sync_footnotes_tool():
-    """Sync specialized tools must cross execute_on_main_thread via SmolToolAdapter."""
+    """Sync specialized tools must cross call via SmolToolAdapter."""
     tool = _DummyFootnotesList()
     tctx = MagicMock()
     tctx.doc_type = "writer"
     adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         result = adapter.forward(note="footnote")
 
@@ -609,7 +616,7 @@ def test_writer_smol_adapter_marshals_sync_footnotes_tool():
     mock_main.assert_called_once()
 
 
-def test_writer_footnotes_list_runs_uno_only_on_main_thread():
+def test_writer_footnotes_list_runs_uno_only_when_current():
     """Regression: footnotes_list touches doc UNO; sub-agent worker must marshal before execute."""
     session = start_uno_thread_safety_session()
     try:
@@ -647,13 +654,13 @@ def test_writer_specialized_domain_base_requires_core_read_tools():
 
 
 def test_calc_sync_tool_marshals_via_smol_adapter():
-    """Sync Calc specialized tools must cross execute_on_main_thread via SmolToolAdapter."""
+    """Sync Calc specialized tools must cross call via SmolToolAdapter."""
     tool = ListSheets()
     tctx = MagicMock()
     tctx.doc_type = "calc"
     adapter = SmolToolAdapter(tool, tctx, safe=True, inputs_style="specialized")
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread") as mock_main:
+    with patch("plugin.framework.queue_executor.main.call") as mock_main:
         mock_main.side_effect = lambda fn, *args, **kwargs: fn(*args, **kwargs)
         result = adapter.forward()
 
@@ -661,8 +668,8 @@ def test_calc_sync_tool_marshals_via_smol_adapter():
     mock_main.assert_called_once()
 
 
-def test_calc_list_sheets_runs_uno_only_on_main_thread():
-    """Regression: list_sheets touches doc UNO; sub-agent worker must marshal before execute."""
+def test_calc_list_sheets_runs_uno_only_when_current():
+    """Regression: sheet_list touches doc UNO; sub-agent worker must marshal before execute."""
     session = start_uno_thread_safety_session()
     try:
         raw_sheet = MagicMock()
@@ -671,6 +678,10 @@ def test_calc_list_sheets_runs_uno_only_on_main_thread():
         raw_sheets.getCount.return_value = 1
         raw_sheets.getByIndex.return_value = raw_sheet
         raw_sheets.getElementNames.return_value = ("Sheet1",)
+        list_sheet = MagicMock()
+        list_sheet.isProtected.return_value = False
+        list_sheet.getPropertyValue.return_value = True
+        raw_sheets.getByName.return_value = list_sheet
         raw_doc = MagicMock()
         raw_doc.supportsService.return_value = True
         raw_doc.getSheets.return_value = raw_sheets
@@ -693,7 +704,7 @@ def test_calc_list_sheets_runs_uno_only_on_main_thread():
         t.join(timeout=3.0)
         assert err is None, f"direct UNO from worker: {err}"
         assert result is not None and result.get("status") == "ok"
-        assert result.get("result") == ["Sheet1"]
+        assert result.get("result") == [{"name": "Sheet1", "protected": False, "visible": True}]
     finally:
         session.close()
 
@@ -705,14 +716,14 @@ def test_calc_specialized_domain_base_requires_core_read_tools():
 
 
 @patch(
-    "plugin.chatbot.smol_agent.get_config_int",
+    "plugin.chatbot.smol_agent.get_config",
     side_effect=lambda key: 25 if key == "chatbot.max_tool_rounds" else 1024,
 )
 @patch("plugin.chatbot.smol_agent.get_api_config", create=True, return_value={"model": "test/model"})
 @patch("plugin.chatbot.smol_agent.ToolCallingAgent")
 @patch("plugin.chatbot.smol_agent.WriterAgentSmolModel")
 @patch("plugin.chatbot.smol_agent.LlmClient")
-@patch("plugin.framework.queue_executor.execute_on_main_thread")
+@patch("plugin.framework.queue_executor.main.call")
 @patch("plugin.calc.analyzer.get_calc_context_for_chat")
 def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     mock_get_calc_context,
@@ -721,9 +732,9 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
     _mock_smol_model,
     mock_agent_class,
     _mock_get_config,
-    _mock_get_config_int,
+    _mock_get_config_val,
 ):
-    """Outer hop payload gets web-research-style `instruction` after create_sheet."""
+    """Outer hop payload gets web-research-style `instruction` after sheet_create."""
     from plugin.calc.sheets import CreateSheet
     from plugin.contrib.smolagents.memory import ToolCall
     from plugin.framework.prompts import SHEETS_CREATED_NOT_POPULATED_INSTRUCTION
@@ -748,7 +759,7 @@ def test_calc_sheets_delegate_forwards_create_instruction_to_outer(
 
     def fake_execute_safe(agent, task, tool_call_handler=None, **kwargs):
         if tool_call_handler:
-            tool_call_handler(ToolCall(name="create_sheet", arguments={"sheet": "Q1 Actuals"}, id="1"))
+            tool_call_handler(ToolCall(name="sheet_create", arguments={"sheet": "Q1 Actuals"}, id="1"))
         return {
             "status": "ok",
             "finished": True,
@@ -809,7 +820,7 @@ def test_outer_turn_is_peer_work_probe_logs_exception_repr(caplog):
         def __str__(self):
             return ""
 
-    with patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=EmptyMessageError):
+    with patch("plugin.framework.queue_executor.main.call", side_effect=EmptyMessageError):
         with caplog.at_level(logging.WARNING, logger="plugin.doc.specialized_base"):
             res = _outer_turn_is_peer_work(MagicMock())
 
@@ -833,7 +844,7 @@ def test_outer_turn_is_peer_work_active_query_text_returns_true():
 
     with patch("plugin.framework.uno_context.get_runtime_uid", return_value="doc_uid_123"), \
          patch("plugin.doc.live_panels.get_live_panel", return_value=panel), \
-         patch("plugin.framework.queue_executor.execute_on_main_thread", side_effect=lambda fn: fn()):
+         patch("plugin.framework.queue_executor.main.call", side_effect=lambda fn: fn()):
         res = _outer_turn_is_peer_work(ctx)
 
     assert res is True

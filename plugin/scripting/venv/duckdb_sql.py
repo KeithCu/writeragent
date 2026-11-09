@@ -26,11 +26,15 @@ from typing import Any
 from plugin.scripting.calc_functions_common import (
     ANALYSIS_DATA_TABLE_ROWS as MAX_TABLE_ROWS,
 )
+from plugin.scripting.session_key import (
+    PERSISTABLE_KINDS,
+    SessionKey,
+)
 from plugin.scripting.venv.coerce import (
     table_from_df as _table_from_df,
 )
+from plugin.scripting.venv.results import error_result
 from plugin.scripting.venv.trusted_dispatch import (
-    error_result as _error_result,
     ok_result as _ok_result,
 )
 
@@ -152,8 +156,7 @@ def resolve_flat_file_path(scoped_dir: str, spec: str) -> str:
 def _read_flat_relation(con: Any, path: str) -> Any:
     """Bind a scoped flat file with the DuckDB reader that matches its suffix.
 
-    Unknown suffixes used to fall through to ``read_csv``, so Parquet/JSON
-    mis-reads looked like CSV parse noise (or a later missing table).
+    Pick the reader by file suffix so Parquet/JSON paths are not misread as CSV.
     """
     ext = _flat_ext(path)
     if ext in FLAT_CSV_EXTS:
@@ -168,13 +171,8 @@ def _read_flat_relation(con: Any, path: str) -> Any:
     raise SqlError("UNSUPPORTED_FILE_TYPE", unsupported_flat_type_message(os.path.basename(path), ext))
 
 
-# Workbook-keyed sessions may keep one DuckDB. Domain prefixes used by
-# run_trusted_action (``writeragent:sql``) are routing ids, not kernels —
-# caching on those would leak one catalog across every document.
-_PERSISTABLE_PREFIXES = ("calc:", "rps:", "notebook:")
-
 _SESSION_CONNECTIONS: dict[str, Any] = {}
-_SESSION_LOCK = threading.Lock()
+_SESSION_LOCK = threading.Lock()  # Lock order: venv_sandbox.SESSIONS._lock before this lock.
 
 
 def persistable_duckdb_session_id(session_id: str | None) -> str | None:
@@ -186,10 +184,9 @@ def persistable_duckdb_session_id(session_id: str | None) -> str | None:
     sid = (session_id or "").strip()
     if not sid:
         return None
-    if sid.endswith(":init"):
-        sid = sid[: -len(":init")]
-    if any(sid.startswith(prefix) for prefix in _PERSISTABLE_PREFIXES):
-        return sid
+    parsed = SessionKey.parse(sid)
+    if parsed.kind in PERSISTABLE_KINDS and parsed.rest:
+        return parsed.without_init().wire()
     return None
 
 
@@ -211,7 +208,7 @@ def resolve_duckdb_session_id(session_id: str | None = None) -> str | None:
     """Explicit id, else the current shared-kernel sandbox session (if persistable).
 
     Host callers (trusted SQL, tests) may name a workbook. A sandboxed cell
-    must not: ``session_duckdb("calc:other")`` used to open that catalog.
+    A sandboxed cell must not open another workbook's catalog when an explicit session id is passed.
     """
     live_sid, _scoped, cell_active = _sandbox_context()
     current = persistable_duckdb_session_id(live_sid)
@@ -360,11 +357,8 @@ def invalidate_session_tables(
         if not name:
             continue
         try:
-            # Bugfix: unregister() is a silent no-op on CREATE TABLE / CREATE VIEW, and
-            # hasattr(raw, "unregister") made the old DROP VIEW branch dead. Flat files
-            # materialize via CREATE TABLE, so invalidate left those snapshots queryable.
-            # Look up catalog types in information_schema to drop the correct object type,
-            # and drop any stem view whose definition selects from the dropped table.
+            # Drop via information_schema because unregister() is a no-op for CREATE TABLE/VIEW materialized snapshots.
+            # Also drop stem views that select from the dropped table.
             stem = os.path.splitext(name)[0]
             stem_def: str | None = None
             if stem and stem != name:
@@ -470,7 +464,7 @@ _TOKEN_RE = re.compile(
 
 
 # Methods a script may call on session_duckdb() besides execute/sql/close.
-# __getattr__ used to forward every connection method, and ``_con`` was public,
+# __getattr__ must not forward every connection method, and ``_con`` was public,.
 # so read_csv / ``con._con.execute`` skipped the read-only firewall.
 _GUARDED_FORWARDED = frozenset({"register", "unregister", "df"})
 
@@ -694,7 +688,7 @@ def _validate_files(scoped_dir: str, files: list[str] | None) -> list[str]:
 def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
     if not preloaded:
         return
-    from plugin.scripting.venv.coerce import coerce_to_dataframe
+    from plugin.scripting.venv.coerce import resolve_df
 
     registered_stems: set[str] = set()
     for orig_name, data in preloaded.items():
@@ -708,9 +702,9 @@ def _register_preloaded(con: Any, preloaded: dict[str, Any] | None) -> None:
             if isinstance(data, dict) and "grid" in data:
                 g = data["grid"]
                 h = bool(data.get("headers", True))
-                coerced = coerce_to_dataframe(g, headers=h, sheet_hint=orig_name)
+                coerced = resolve_df(g, headers=h, sheet_hint=orig_name)
             else:
-                coerced = coerce_to_dataframe(data, headers=True, sheet_hint=orig_name)
+                coerced = resolve_df(data, headers=True, sheet_hint=orig_name)
             _register_relation(con, orig_name, coerced.df)
             stem = os.path.splitext(orig_name)[0]
             if stem and stem != orig_name:
@@ -906,64 +900,51 @@ def _execute(
 
 def _handle_sql_error(exc: Exception, helper: str) -> dict[str, Any]:
     if isinstance(exc, SqlError):
-        return _error_result(exc.code, str(exc), helper=helper)
+        return error_result(exc.code, str(exc), helper=helper)
     # A DuckDB error is a failed query. Anything else keeps the traceback.
     if _is_duckdb_error(exc):
         log.warning("%s failed: %s", helper, exc)
     else:
         log.exception("%s failed", helper)
-    return _error_result("DUCKDB_ERROR", str(exc), helper=helper)
+    return error_result("DUCKDB_ERROR", str(exc), helper=helper)
+
+
+def query_folder_df(
+    sql: str,
+    files: list[str] | dict[str, str] | None = None,
+    scoped_dir: str | None = None,
+    *,
+    preloaded: dict[str, Any] | None = None,
+    session_id: str | None = None,
+) -> Any:
+    """Run read-only SQL against folder files or preloaded tables, returning a DataFrame.
+
+    Raises SqlError on failure.
+    """
+    helper = "query_folder_df"
+    df, _used = _execute(
+        scoped_dir,
+        sql,
+        files=files,
+        preloaded=preloaded,
+        session_id=session_id,
+        helper=helper,
+    )
+    return df
 
 
 def run_sql(
     sql: str,
     con: Any | None = None,
-    files: list[str] | dict[str, str] | None = None,
-    scoped_dir: str | None = None,
     *,
     session_id: str | None = None,
-    preloaded: dict[str, Any] | None = None,
-) -> Any:
-    """Guarded SQL for ``=PY()`` — honesty dict, or a DataFrame for folder joins.
-
-    Prefer this from ``=PY()`` / shared-kernel cells instead of raw
-    ``import duckdb``.
-
-    * Execute: ``run_sql(sql)`` and ``run_sql(sql, con)`` return the honesty
-      dict (``truncated`` / ``warning`` / ``flags``, 200-row cap) and turn
-      ``SqlError`` into an error dict. No ``con`` uses ``_acquire_duckdb``.
-      A ``scoped_dir`` by itself does not change this, including the folder
-      ``=PY()`` always passes in.
-    * Folder join: folder mode is a dict second argument, or ``preloaded=``,
-      or ``files=`` (including an empty list). That path returns the full
-      DataFrame and raises ``SqlError``. It acquires the session connection
-      and does not use ``con``.
-    """
+) -> dict[str, Any]:
+    """Guarded SQL for ``=PY()`` — returns honesty dict (200-row cap); converts SqlError to error dict."""
     helper = "run_sql"
-    folder_preloaded = preloaded
-    if isinstance(con, dict):
-        folder_preloaded = con
-        con = None
-
-    if folder_preloaded is not None or files is not None:
-        # A saved-doc cell always has scoped_dir set by run_sql_bound, so keying
-        # off scoped_dir is not None returned a DataFrame and dropped con. Folder
-        # reads are files / preloaded. The host folder is only the directory
-        # those reads resolve under.
-        df, _used = _execute(
-            scoped_dir,
-            sql,
-            files=files,
-            preloaded=folder_preloaded,
-            session_id=session_id,
-            helper=helper,
-        )
-        return df
-
     _require_duckdb(helper)
 
     if not sql or not str(sql).strip():
-        return _error_result("INVALID_SQL", "sql is required", helper=helper)
+        return error_result("INVALID_SQL", "sql is required", helper=helper)
 
     persist = False
     acquired: Any = None

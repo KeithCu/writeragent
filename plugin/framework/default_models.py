@@ -85,12 +85,7 @@ def get_provider_defaults(provider: str | None) -> dict[str, str]:
             fallback["text_model"] = effective_id
         if image and "image_model" not in fallback:
             fallback["image_model"] = effective_id
-        # CHAT|AUDIO rows with neither stt nor tts flag (Gemini 3.1 Flash Lite
-        # Preview, writeragent-mock) used to become both speech defaults: any
-        # AUDIO row that was not explicitly TTS was treated as STT, and any
-        # that was not explicitly STT was treated as TTS. Skip CHAT rows in
-        # this fallback only. Explicit default_audio / default_tts flags above
-        # are unchanged.
+        # Fall back to audio-only rows for speech defaults when unflagged.
         if audio and not chat:
             if "stt_model" not in fallback and not _row_is_tts(model):
                 fallback["stt_model"] = effective_id

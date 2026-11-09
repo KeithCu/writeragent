@@ -39,6 +39,13 @@ def _stub_draw() -> Any:
     return _stub_doc("com.sun.star.drawing.DrawingDocument")
 
 
+def ensure_eval_prompt_hooks() -> None:
+    """Idempotent WriterAgent prompt catalog/blocks registration for eval harness entry points."""
+    from plugin.writeragent_hooks import register_writeragent_prompt_hooks
+
+    register_writeragent_prompt_hooks()
+
+
 def _prompt_for_kind(kind: str, note: str | None = None) -> str:
     """Same assembly as production chat, keyed by kind — no MagicMock / get_document_type.
 
@@ -46,6 +53,7 @@ def _prompt_for_kind(kind: str, note: str | None = None) -> str:
     entered ``@main_thread_only`` ``get_document_type`` (GUARD on → raise;
     GUARD off → warn while real UNO may be in flight on the shared bridge).
     """
+    ensure_eval_prompt_hooks()
     from plugin.framework.prompts import get_chat_system_prompt_for_kind
 
     return get_chat_system_prompt_for_kind(
@@ -78,7 +86,12 @@ def get_draw_eval_chat_system_prompt() -> str:
 
 
 def get_eval_system_prompt(task_id: str = "") -> str:
-    from dataset import task_kind
+    # Callers like tests/scripts/test_eval_prompts.py import this module as
+    # scripts.prompt_optimization.eval_prompts when scripts/prompt_optimization is not on sys.path.
+    try:
+        from dataset import task_kind
+    except ImportError:
+        from scripts.prompt_optimization.dataset import task_kind
 
     if task_id == "python_shapes_flag":
         return _prompt_for_kind("writer", FLAG_HARNESS_NOTE)
