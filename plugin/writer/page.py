@@ -35,7 +35,11 @@ from plugin.framework.uno_context import uno_same
 from .edit_review import flag_style_unreviewed
 from .html_export import PAGE_NUMBER_NUMBERING_TYPE_NAMES
 from .range_copy import _ANCHORED_GRAPHIC_PROPS
-from .search import parse_non_negative_int
+from .search import (
+    CASE_SENSITIVE_DESCRIPTION,
+    parse_non_negative_int,
+    resolve_case_sensitive,
+)
 from .specialized_base import ToolWriterPageBase, enum_param
 
 log = logging.getLogger("writeragent.writer")
@@ -1263,7 +1267,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             },
             "case_sensitive": {
                 "type": "boolean",
-                "description": "Case-sensitive match (default true).",
+                "description": CASE_SENSITIVE_DESCRIPTION,
             },
             "occurrence": {
                 "type": "integer",
@@ -1292,7 +1296,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             return self._tool_error("old_content must be a non-empty string.")
         if _FIELD_CURSOR_STEP in old_content:
             return self._tool_error("old_content cannot include a field.")
-        case_sensitive = kwargs.get("case_sensitive", True)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
         all_matches = kwargs.get("all_matches", False)
         raw_occurrence = kwargs.get("occurrence", None)
         if all_matches and raw_occurrence is not None:
@@ -1328,6 +1332,26 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             )
 
         hits, notes = _find_region_matches(text_obj, old_content, case_sensitive)
+        res = self._replace_in_region_text(
+            ctx.doc, style_name, region, text_obj, old_content, new_text, occurrence, all_matches, case_sensitive, hits, notes
+        )
+        res["matched_case_sensitive"] = case_sensitive
+        return res
+
+    def _replace_in_region_text(
+        self,
+        doc: Any,
+        style_name: str,
+        region: str,
+        text_obj: Any,
+        old_content: str,
+        new_text: str,
+        occurrence: int,
+        all_matches: bool,
+        case_sensitive: bool,
+        hits: list[tuple[Any, int]],
+        notes: list[str],
+    ) -> dict[str, Any]:
         if not hits:
             message = "'%s' was not found in the %s of page style '%s'." % (old_content, region, style_name)
             if notes:
@@ -1363,7 +1387,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
                 )
             cursors.append(cursor)
 
-        blocked = _character_anchor_in_matches(ctx.doc, text_obj, cursors)
+        blocked = _character_anchor_in_matches(doc, text_obj, cursors)
         if blocked:
             return self._tool_error(
                 "An image (%s) is anchored to a character inside '%s', so replacing it would drop "
@@ -1371,7 +1395,7 @@ class PageReplaceHeaderFooterText(ToolWriterPageBase):
             )
 
         error, fields_preserved, shapes_preserved = _apply_match_cursors(
-            ctx.doc, text_obj, cursors, new_text,
+            doc, text_obj, cursors, new_text,
         )
         if error:
             return self._tool_error(
@@ -1567,7 +1591,7 @@ class PageInsertBreak(ToolWriterPageBase):
         "before_text": {"type": "string", "description": "Break so this passage starts a new page (page break on the match's paragraph)."},
         "after_text": {"type": "string", "description": "Break the page right after this passage's paragraph."},
         "occurrence": {"type": "integer", "description": "0-based match to use when the anchor text repeats (default 0)."},
-        "case_sensitive": {"type": "boolean", "description": "Case-sensitive anchor match (default true)."},
+        "case_sensitive": {"type": "boolean", "description": CASE_SENSITIVE_DESCRIPTION},
         "page_style": {
             "type": "string",
             "description": (
@@ -1599,55 +1623,85 @@ class PageInsertBreak(ToolWriterPageBase):
         except ValueError as e:
             return self._tool_error(str(e))
 
-        if before_text or after_text:
-            anchor = str(before_text or after_text)
-            # coerce=True normalizes string and float occurrence values from the model.
-            occ_val, occ_err = parse_non_negative_int(kwargs.get("occurrence", 0), coerce=True)
-            if occ_err:
-                return self._tool_error(occ_err)
-            occurrence = 0 if occ_val is None else occ_val
-            sd = doc.createSearchDescriptor()
-            sd.SearchString = anchor
-            sd.SearchRegularExpression = False
-            sd.SearchCaseSensitive = bool(kwargs.get("case_sensitive", True))
-            found = doc.findFirst(sd)
-            for _unused in range(occurrence):
-                if found is None:
-                    break
-                found = doc.findNext(found.getEnd(), sd)
+        has_anchor = bool(before_text or after_text)
+        case_sensitive = resolve_case_sensitive(kwargs.get("case_sensitive"))
+
+        if has_anchor:
+            res = self._insert_anchored_break(
+                doc, before_text, after_text, page_style, restart, case_sensitive, kwargs.get("occurrence", 0)
+            )
+            res["matched_case_sensitive"] = case_sensitive
+            return res
+
+        return self._insert_view_cursor_break(doc, page_style, restart)
+
+    def _insert_anchored_break(
+        self,
+        doc: Any,
+        before_text: Any,
+        after_text: Any,
+        page_style: str | None,
+        restart: int | None,
+        case_sensitive: bool,
+        raw_occurrence: Any,
+    ) -> dict[str, Any]:
+        anchor = str(before_text or after_text)
+        occ_val, occ_err = parse_non_negative_int(raw_occurrence, coerce=True)
+        if occ_err:
+            return self._tool_error(occ_err)
+        occurrence = 0 if occ_val is None else occ_val
+        sd = doc.createSearchDescriptor()
+        sd.SearchString = anchor
+        sd.SearchRegularExpression = False
+        sd.SearchCaseSensitive = case_sensitive
+        found = doc.findFirst(sd)
+        for _unused in range(occurrence):
             if found is None:
-                return self._tool_error("Anchor text '%s' not found%s." % (anchor, (" at occurrence %d" % occurrence) if occurrence else ""))
-            text = found.getText()
-            # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
-            # after_text -> the paragraph that FOLLOWS the match.
-            cursor = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
-            if after_text and not cursor.gotoNextParagraph(False):
-                # At the LAST paragraph there is nothing after the anchor; silently breaking
-                # on the anchor's own paragraph would push the anchor itself to a new page
-                # (the opposite of what was asked) while reporting ok.
-                return self._tool_error(
-                    "The anchor is in the document's last paragraph; there is nothing after it "
-                    "to start a new page with. Use before_text, or append content first.")
-            success_text = "Page break inserted %s the anchor." % ("before" if before_text else "after")
-        else:
-            view_cursor = doc.getCurrentController().getViewCursor()
-            if not view_cursor:
-                return self._tool_error("Could not obtain view cursor.")
-
-            # BreakType is a paragraph property. A collapsed model cursor at the
-            # view start applies it to the paragraph that contains the selection.
-            # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
-            # and this path must not move that selection. insertControlCharacter
-            # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
-            # text; do not put that back.
-            text = view_cursor.getText()
-            cursor = text.createTextCursorByRange(view_cursor.getStart())
-            success_text = "Page break inserted."
-
-        # BreakType inside a table cell is ignored or harms layout, so the tool refuses
-        # and leaves the document unchanged.
+                break
+            found = doc.findNext(found.getEnd(), sd)
+        if found is None:
+            return self._tool_error(
+                "Anchor text '%s' not found%s."
+                % (anchor, (" at occurrence %d" % occurrence) if occurrence else "")
+            )
+        text = found.getText()
+        # BreakType is a PARAGRAPH property. before_text -> the match's own paragraph;
+        # after_text -> the paragraph that FOLLOWS the match.
+        cursor = text.createTextCursorByRange(found.getStart() if before_text else found.getEnd())
+        if after_text and not cursor.gotoNextParagraph(False):
+            # At the LAST paragraph there is nothing after the anchor; silently breaking
+            # on the anchor's own paragraph would push the anchor itself to a new page
+            # (the opposite of what was asked) while reporting ok.
+            return self._tool_error(
+                "The anchor is in the document's last paragraph; there is nothing after it "
+                "to start a new page with. Use before_text, or append content first."
+            )
         if _in_text_table(cursor):
             return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
         _apply_page_break(cursor, page_style, restart)
+        success_text = "Page break inserted %s the anchor." % ("before" if before_text else "after")
         return _page_break_ok(success_text, page_style, restart)
+
+    def _insert_view_cursor_break(
+        self,
+        doc: Any,
+        page_style: str | None,
+        restart: int | None,
+    ) -> dict[str, Any]:
+        view_cursor = doc.getCurrentController().getViewCursor()
+        if not view_cursor:
+            return self._tool_error("Could not obtain view cursor.")
+
+        # BreakType is a paragraph property. A collapsed model cursor at the
+        # view start applies it to the paragraph that contains the selection.
+        # SwXTextViewCursor is not an XParagraphCursor (no gotoEndOfParagraph)
+        # and this path must not move that selection. insertControlCharacter
+        # (PARAGRAPH_BREAK) split the paragraph and destroyed the selected
+        # text; do not put that back.
+        text = view_cursor.getText()
+        cursor = text.createTextCursorByRange(view_cursor.getStart())
+        if _in_text_table(cursor):
+            return self._tool_error("Page breaks are ignored inside a table cell. Nothing was changed.")
+        _apply_page_break(cursor, page_style, restart)
+        return _page_break_ok("Page break inserted.", page_style, restart)
 

@@ -101,7 +101,18 @@ class OpenAIShim(BaseProviderShim):
         return data
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None,
+        tools: list[dict[str, Any]] | None,
+        stream: bool,
+        model_name: str | None,
+        response_format: dict[str, Any] | None,
+        chat_extra: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if uses_responses_api(model_name, tools):
             level = self._requested_effort_level(chat_extra)
@@ -113,9 +124,19 @@ class OpenAIShim(BaseProviderShim):
                 tool_choice=tool_choice,
                 effort=mapped or level,
             )
-            return self._post(self._url("/responses"), data)
+            headers = self._apply_cache_route(data, cache_session_id)
+            return self._post(self._url("/responses"), data, headers=headers)
         return super().build_chat_request(
-            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice,
+            messages,
+            max_tokens,
+            temperature,
+            tools,
+            stream,
+            model_name,
+            response_format,
+            chat_extra,
+            tool_choice=tool_choice,
+            cache_session_id=cache_session_id,
         )
 
     def parse_response_chunk(
@@ -220,12 +241,32 @@ class OpenRouterShim(BaseProviderShim):
     """Shim for OpenRouter specifically (handles dedicated /images endpoint)."""
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None,
+        tools: list[dict[str, Any]] | None,
+        stream: bool,
+        model_name: str | None,
+        response_format: dict[str, Any] | None,
+        chat_extra: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
         if isinstance(model_name, str) and model_name.startswith("anthropic/"):
             messages = annotate_anthropic_cache(messages)
         return super().build_chat_request(
-            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice,
+            messages,
+            max_tokens,
+            temperature,
+            tools,
+            stream,
+            model_name,
+            response_format,
+            chat_extra,
+            tool_choice=tool_choice,
+            cache_session_id=cache_session_id,
         )
 
     def build_image_request(self, prompt: str, model: str | None, width: int, height: int, steps: int | None = None, source_image: str | None = None, image_url: str | None = None) -> tuple[str, str, bytes, dict[str, str]]:

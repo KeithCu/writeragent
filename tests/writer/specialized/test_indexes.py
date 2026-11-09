@@ -1332,3 +1332,34 @@ def test_single_toc_position_single_toc_returns_index():
     assert res["status"] == "ok"
     assert res["index"] == 1
 
+
+def test_toc_match_case_sensitive():
+    """toc_match threads case_sensitive to find_all_ranges."""
+    from plugin.writer.specialized.indexes import toc_match
+
+    doc = MagicMock()
+    anchor = MagicMock()
+    anchor.getText.return_value = MagicMock()
+
+    calls = []
+    r_insensitive = MagicMock()
+    r_exact = MagicMock()
+
+    def fake_find_all(d, s, *, case_sensitive=False):
+        calls.append((s, case_sensitive))
+        return [r_exact] if case_sensitive else [r_insensitive]
+
+    with patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+         patch("plugin.writer.specialized.indexes._contained", return_value=True), \
+         patch("plugin.writer.specialized.indexes._para_style_name", return_value="Contents 1"):
+        # Omitted / None
+        hit_default, _ = toc_match(doc, anchor, "board", 0)
+        assert calls[-1] == ("board", False)
+        assert hit_default is r_insensitive
+
+        # Explicit True
+        hit_exact, _ = toc_match(doc, anchor, "board", 0, case_sensitive=True)
+        assert calls[-1] == ("board", True)
+        assert hit_exact is r_exact
+
+

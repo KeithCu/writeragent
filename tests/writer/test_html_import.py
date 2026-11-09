@@ -1,5 +1,6 @@
 
 import html as html_mod
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -247,7 +248,7 @@ def test_ensure_html_linebreaks_escapes_prose_angle_brackets():
 
 
 def test_decode_complete_character_references_only_decodes_with_semicolon():
-    from plugin.writer.html_import import _decode_complete_character_references
+    from plugin.writer.html_import_styles import _decode_complete_character_references
 
     assert _decode_complete_character_references("&sect 2o &amp;lt;") == "&sect 2o &lt;"
     assert _decode_complete_character_references("&amp; &quot; &#36; &#x24;") == '& " $ $'
@@ -659,6 +660,29 @@ def test_apply_block_lo_styles_ambiguous_token_resolves_to_standard():
     assert apply.call_args.args[2] == "Standard"
 
 
+def test_apply_block_lo_styles_unknown_token_resolves_to_standard():
+    from unittest.mock import MagicMock, patch
+    from plugin.writer import html_import_styles
+
+    model = MagicMock()
+    fam = MagicMock()
+    fam.getElementNames.return_value = ["Standard"]
+    fam.hasByName.return_value = False
+    model.getStyleFamilies.return_value.getByName.return_value = fam
+
+    text = MagicMock()
+    walk_cur = MagicMock()
+    walk_cur.getPropertyValue.return_value = None
+    walk_cur.gotoNextParagraph.return_value = False
+    text.createTextCursorByRange.return_value = walk_cur
+
+    with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
+        html_import_styles._apply_block_lo_styles(
+            model, text, MagicMock(), ["Nope"],
+        )
+    assert apply.call_args.args[2] == "Standard"
+
+
 def test_apply_block_lo_styles_skips_when_style_already_matches():
     from unittest.mock import MagicMock, patch
     from plugin.writer import html_import_styles
@@ -676,10 +700,11 @@ def test_apply_block_lo_styles_skips_when_style_already_matches():
     text.createTextCursorByRange.return_value = walk_cur
 
     with patch("plugin.writer.styles.apply_paragraph_style_preserving_direct_char") as apply:
-        html_import_styles._apply_block_lo_styles(
+        res = html_import_styles._apply_block_lo_styles(
             model, text, MagicMock(), ["Heading1"],
         )
     apply.assert_not_called()
+    assert res == []
     walk_cur.gotoNextParagraph.assert_called_once_with(False)
 
 
@@ -697,7 +722,9 @@ def test_full_document_in_review_mode_imports_into_a_fresh_paragraph():
     leftover.getString.return_value = ""
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
          patch.object(html_import, "_deletion_author"):
-        html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+        imp.return_value = ["margin-left"]
+        dropped = html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+    assert dropped == ["margin-left"]
     cursor = text.createTextCursor.return_value
     text.insertControlCharacter.assert_called_once_with(cursor, 0, False)
     cursor.goLeft.assert_called_once_with(1, False)
@@ -715,7 +742,9 @@ def test_full_document_without_review_imports_in_place():
     model.getPropertyValue.return_value = False
     with patch.object(html_import, "_insert_mixed_or_plain_html") as imp, \
          patch.object(html_import, "_deletion_author"):
-        html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+        imp.return_value = ["margin-left"]
+        dropped = html_import.replace_full_document(model, MagicMock(), "<p>x</p>")
+    assert dropped == ["margin-left"]
     model.getText.return_value.insertControlCharacter.assert_not_called()
     imp.assert_called_once()
 
@@ -856,7 +885,7 @@ def test_parse_data_lo_para_line_height(monkeypatch, css, mode, height):
     assert (spacing.Mode, spacing.Height) == (mode, height)
 
 
-@pytest.mark.parametrize("value", ["tall", "0cm", "-1cm", "%"])
+@pytest.mark.parametrize("value", ["tall", "0cm", "-1cm", "%", "0%", "0.0%"])
 def test_parse_data_lo_para_bad_line_height_is_dropped(value):
     from plugin.writer.html_import_styles import parse_data_lo_para
 
@@ -1712,5 +1741,195 @@ def test_collect_range_portions_magic_mock_returns_immediately():
     has_special, portions = _collect_range_portions(mock_range)
     assert has_special is False
     assert portions == []
+
+
+def make_paragraph_edge_range(is_start: bool, is_end: bool) -> MagicMock:
+    """Mock an XTextRange whose start and end cursors report paragraph boundary status."""
+    start_cur = MagicMock()
+    start_cur.isStartOfParagraph.return_value = is_start
+    end_cur = MagicMock()
+    end_cur.isEndOfParagraph.return_value = is_end
+    text = MagicMock()
+    text.createTextCursorByRange.side_effect = lambda pos: start_cur if pos == "start" else end_cur
+    rng = MagicMock()
+    rng.getText.return_value = text
+    rng.getStart.return_value = "start"
+    rng.getEnd.return_value = "end"
+    rng.insertDocumentFromURL = MagicMock()
+    return rng
+
+
+def test_lo_style_for_replaced_range_predicates():
+    from plugin.writer.html_import import (
+        _lo_style_for_replaced_range,
+        _LO_STYLE_PARTIAL_MATCH_NOTE,
+    )
+
+    model = MagicMock()
+    content = '<p data-lo-style="Heading2">content</p>'
+
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=False):
+        # Both edges true -> apply True, note None
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
+        assert apply is True
+        assert note is None
+
+        # Start only -> apply False, note partial
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, False))
+        assert apply is False
+        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+
+        # End only -> apply False, note partial
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
+        assert apply is False
+        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+
+        # Neither -> apply False, note partial
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, False))
+        assert apply is False
+        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+
+
+def test_lo_style_for_replaced_range_recording():
+    from plugin.writer.html_import import (
+        _lo_style_for_replaced_range,
+        _LO_STYLE_PARTIAL_MATCH_NOTE,
+        _LO_STYLE_RECORDING_NOTE,
+    )
+
+    model = MagicMock()
+    content = '<p data-lo-style="Heading2">content</p>'
+
+    with patch("plugin.writer.record_changes.is_recording_changes", return_value=True):
+        # Edges true, recording true -> apply False, recording sentence
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(True, True))
+        assert apply is False
+        assert note == _LO_STYLE_RECORDING_NOTE
+
+        # Geometry checked first: partial match while recording returns partial note
+        apply, note = _lo_style_for_replaced_range(model, content, make_paragraph_edge_range(False, True))
+        assert apply is False
+        assert note == _LO_STYLE_PARTIAL_MATCH_NOTE
+
+
+def test_lo_style_for_replaced_range_non_block_tokens():
+    from plugin.writer.html_import import _lo_style_for_replaced_range
+
+    model = MagicMock()
+    rng = MagicMock()
+
+    # Span token -> (False, None), range cursor methods not probed
+    apply, note = _lo_style_for_replaced_range(model, '<span data-lo-style="Heading2">x</span>', rng)
+    assert apply is False
+    assert note is None
+    rng.getText.assert_not_called()
+
+    # Body-text mention -> (False, None)
+    apply, note = _lo_style_for_replaced_range(model, '<p>The attribute data-lo-style is cool</p>', rng)
+    assert apply is False
+    assert note is None
+    rng.getText.assert_not_called()
+
+    # Table-only token -> (False, None)
+    apply, note = _lo_style_for_replaced_range(
+        model, '<table><tr><td data-lo-style="Heading2">cell</td></tr></table>', rng
+    )
+    assert apply is False
+    assert note is None
+    rng.getText.assert_not_called()
+
+
+def test_styled_insert_epilogue_cursor_move():
+    from plugin.writer import html_import
+
+    model = MagicMock()
+    model_text = MagicMock()
+    model.getText.return_value = model_text
+
+    cursor = MagicMock()
+    cursor_text = MagicMock()
+    cursor.getText.return_value = cursor_text
+
+    parked = MagicMock()
+    cursor_text.createTextCursorByRange.return_value = parked
+
+    with patch.object(html_import, "_insert_starwriter_html_at_cursor"), \
+         patch("plugin.writer.html_import_styles._apply_block_lo_styles"), \
+         patch.object(html_import, "_apply_ruby_and_restore_fields"):
+        html_import._insert_mixed_or_plain_html(
+            model, MagicMock(), cursor,
+            '<p data-lo-style="Heading1">Heading</p>',
+            apply_styles=True,
+        )
+
+    # cursor.gotoRange received the parked cursor's start
+    cursor.gotoRange.assert_called_with(parked.getStart.return_value, False)
+    # model.getText().createTextCursor is not called
+    model_text.createTextCursor.assert_not_called()
+
+@pytest.mark.parametrize(
+    ("html", "expected_count", "expected_headings"),
+    [
+        # Unclosed tag closes when the next paragraph begins.
+        ("<h1>Title<p>Next", 2, [{"level": 1, "text": "Title"}]),
+        # data-lo-style to non-heading style overrides the heading tag.
+        ('<h1 data-lo-style="Quotations">Title</h1>', 1, []),
+        # Heading11 is beyond LibreOffice heading level 1-10 range.
+        ('<p data-lo-style="Heading11">Title</p>', 1, []),
+        # Shared first child slot: outer style token overrides inner tag level.
+        ('<blockquote data-lo-style="Heading2"><h1>Title</h1></blockquote>', 1, [{"level": 2, "text": "Title"}]),
+        ('<li data-lo-style="Heading3"><h1>Title</h1></li>', 1, [{"level": 3, "text": "Title"}]),
+        ('<blockquote data-lo-style="Quotations"><h1>Title</h1></blockquote>', 1, []),
+        # Entity references decoded and nested markup text combined.
+        ("<h1>Tom &amp; <b>Jerry</b></h1>", 1, [{"level": 1, "text": "Tom & Jerry"}]),
+        # Heading text longer than 120 chars is truncated with an ellipsis.
+        ("<h1>" + "A" * 130 + "</h1>", 1, [{"level": 1, "text": "A" * 120 + "…"}]),
+        # Styled div counts as a paragraph slot.
+        ('<div data-lo-style="Heading1">Hello</div>', 1, [{"level": 1, "text": "Hello"}]),
+        # <br> inside paragraph separates text with whitespace.
+        ('<p data-lo-style="Heading1">Hello<br>World</p>', 1, [{"level": 1, "text": "Hello World"}]),
+        # Plain text without HTML tags: blank lines delimit paragraphs.
+        ("Hello\n\nWorld", 2, []),
+        ("Hello\nWorld", 1, []),
+        # Ruby markup without math is stripped to base text.
+        ("<ruby>漢字<rt>かんじ</rt></ruby>", 1, []),
+        # Encoded HTML tags in prose are decoded before summarization.
+        ("<p>Intro</p>&lt;h2&gt;Sub&lt;/h2&gt;", 2, [{"level": 2, "text": "Sub"}]),
+    ],
+)
+def test_summarize_written_blocks_fixtures(html: str, expected_count: int, expected_headings: list[dict[str, Any]]) -> None:
+    from plugin.writer.html_import_styles import summarize_written_blocks
+
+    summary = summarize_written_blocks(html)
+    assert summary["paragraph_count"] == expected_count
+    assert summary["headings"] == expected_headings
+
+
+def test_summarize_written_blocks_drops_specified_heading_styles():
+    from plugin.writer.html_import_styles import summarize_written_blocks
+
+    html = '<p data-lo-style="Heading1">One</p><p data-lo-style="Heading2">Two</p>'
+    summary = summarize_written_blocks(html, drop_heading_styles={"Heading1"})
+    assert summary["paragraph_count"] == 2
+    assert summary["headings"] == [{"level": 2, "text": "Two"}]
+
+
+def test_summarize_written_blocks_matches_extractor_slot_counts():
+    """Verify summarize_written_blocks paragraph counts match _BlockLoStyleExtractor.styles."""
+    from plugin.writer.html_import_styles import _BlockLoStyleExtractor, summarize_written_blocks
+
+    fixtures = [
+        "<blockquote><p>Quote</p></blockquote>",
+        "<ul><li>Item 1</li><li>Item 2</li></ul>",
+        "<table><tr><td>Cell</td></tr></table><p>After</p>",
+        '<p data-lo-style="Heading 10">Ten</p>',
+    ]
+    for html in fixtures:
+        ex = _BlockLoStyleExtractor()
+        ex.feed(html)
+        ex.close()
+        summary = summarize_written_blocks(html)
+        assert summary["paragraph_count"] == len(ex.styles), f"Mismatch for {html}"
+
 
 

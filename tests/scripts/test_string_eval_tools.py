@@ -80,7 +80,9 @@ def test_apply_search_all_matches_no_match_errors():
 
 def test_apply_full_and_end():
     s = StringDocState("a")
-    s.apply_document_content(target="full_document", content="<h1>x</h1>")
+    r = s.apply_document_content(target="full_document", content="<h1>x</h1>")
+    assert r["paragraph_count"] == 1
+    assert r["headings"] == [{"level": 1, "text": "x"}]
     assert s.get_html() == "<h1>x</h1>"
     s.apply_document_content(target="end", content="y")
     assert s.get_html().endswith("y")

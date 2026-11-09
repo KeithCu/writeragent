@@ -48,6 +48,19 @@ def test_search_exotic_space_in_cell_uno(ctx, doc):
 
 @native_test
 @with_native_doc("writer")
+def test_search_quotes_and_dashes_uno(ctx, doc):
+    """Verify that lenient search equates straight and curly quotes and dash variants."""
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    text.insertString(cursor, "It’s a–b", False)
+
+    found = find_first_range(doc, "It's a-b")
+    assert found is not None
+    assert found.getString() == "It’s a–b"
+
+
+@native_test
+@with_native_doc("writer")
 def test_search_multi_paragraph_in_frame_uno(ctx, doc):
     """Verify that search finds multi-paragraph matches inside a text frame."""
     text = doc.getText()
@@ -168,3 +181,40 @@ def test_search_all_matches_multi_paragraph_chaining_uno(ctx, doc):
     for r in ranges:
         assert "Block start" in r.getString()
         assert "Block end" in r.getString()
+
+
+@native_test
+@with_native_doc("writer")
+def test_search_replace_long_needle_in_table_cell_uno(ctx, doc):
+    """A long needle inside a table cell must not be blocked by the body oversized check."""
+    from plugin.writer.apply_document_content import ApplyDocumentContent
+    from plugin.tests.testing_utils import native_writer_tool_context
+
+    text = doc.getText()
+    cursor = text.createTextCursor()
+    # A short body paragraph of ~90 chars above the table.
+    text.insertString(cursor, "Short document header paragraph describing the contents below for reference purposes only.\n", False)
+
+    tbl = doc.createInstance("com.sun.star.text.TextTable")
+    tbl.initialize(2, 2)
+    text.insertTextContent(text.createTextCursor(), tbl, False)
+
+    long_cell_text = (
+        "This is a relatively long sentence sitting inside a table cell that exceeds "
+        "one hundred characters in length and should be safely replaced."
+    )
+    assert len(long_cell_text) >= 120
+
+    cell = tbl.getCellByName("A1")
+    cell.setString(long_cell_text)
+
+    tool_ctx = native_writer_tool_context(doc, ctx)
+    res = ApplyDocumentContent().execute(
+        tool_ctx,
+        target="search",
+        old_content=long_cell_text,
+        content=["Replacement cell sentence."],
+    )
+    assert res.get("status") == "ok", res
+    assert res.get("replaced_count") == 1
+    assert "Replacement cell sentence." in cell.getString()

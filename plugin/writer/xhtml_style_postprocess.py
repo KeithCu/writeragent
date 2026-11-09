@@ -17,7 +17,8 @@
 #   - Whole-paragraph Para* overrides in data-lo-para: on write, the geometry properties
 #     (alignment, margins, indent, line-height) and background-color round-trip on
 #     full_document, beginning, and end; paragraph-level font properties and color are
-#     read-only and arrive in warnings (html_import_styles._READ_ONLY_PARA_NAMES says why). selection/search and table cells do not apply data-lo-para. Read reports
+#     read-only and arrive in warnings (html_import_styles._READ_ONLY_PARA_NAMES says why).
+#     selection/search and table cells do not apply data-lo-para. Read reports
 #     geometry, paragraph font, and fo:color in data-lo-para from the flat-ODF sidecar (see
 #     _parse_fodt_autostyles): the XHTML CSS is flattened and cannot tell an override from
 #     an inherited value.

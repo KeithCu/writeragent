@@ -533,7 +533,14 @@ def test_apply_data_lo_para_direct_formatting_and_round_trip_uno(ctx: Any, doc: 
     # font-family, local runs do not); every writable name must apply without a warning.
     from plugin.writer.html_import_styles import _READ_ONLY_PARA_NAMES
 
-    warned = {w.split("'")[1] for w in res2.get("warnings", [])}
+    # Match the property name explicitly so a changed warning format fails with a clear
+    # assertion instead of IndexError from split("'")[1].
+    warn_prop = re.compile(r"data-lo-para property '([^']+)' was not applied")
+    warned = set()
+    for w in res2.get("warnings", []):
+        m = warn_prop.fullmatch(w)
+        assert m is not None, f"unexpected warning format: {w!r}"
+        warned.add(m.group(1))
     assert warned <= _READ_ONLY_PARA_NAMES, (res2, content)
 
     enum2 = doc.getText().createEnumeration()

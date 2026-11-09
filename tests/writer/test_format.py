@@ -323,7 +323,7 @@ def test_insert_content_at_position_end_preps_then_applies_styles():
     assert mock_insert.call_args.kwargs.get("apply_styles") is True
 
 
-def test_insert_content_at_position_selection_still_skips_styles():
+def test_insert_content_at_position_empty_selection_skips_styles():
     from unittest.mock import MagicMock, patch
 
     from plugin.writer.html_import import insert_content_at_position
@@ -347,6 +347,33 @@ def test_insert_content_at_position_selection_still_skips_styles():
 
     mock_insert.assert_called_once()
     assert mock_insert.call_args.kwargs.get("apply_styles") is False
+
+
+def test_insert_content_at_position_whole_paragraph_selection_applies_styles():
+    from unittest.mock import MagicMock, patch
+
+    from plugin.writer.html_import import insert_content_at_position
+    from tests.writer.test_html_import import make_paragraph_edge_range
+
+    rng = make_paragraph_edge_range(True, True)
+
+    controller = MagicMock()
+    model = MagicMock()
+    model.getCurrentController.return_value = controller
+
+    with patch("plugin.doc.text_helpers.selected_text_range", return_value=rng), \
+         patch("plugin.writer.html_import._selection_is_draw_shape", return_value=False), \
+         patch("plugin.writer.table_nesting.raise_if_range_hosts_nested_table"), \
+         patch("plugin.writer.record_changes.is_recording_changes", return_value=False), \
+         patch("plugin.writer.html_import._insert_mixed_or_plain_html") as mock_insert:
+        note = insert_content_at_position(
+            model, MagicMock(), '<p data-lo-style="Heading1">x</p>', "selection"
+        )
+
+    rng.setString.assert_called_once_with("")
+    mock_insert.assert_called_once()
+    assert mock_insert.call_args.kwargs.get("apply_styles") is True
+    assert note is None
 
 
 def test_ensure_empty_absorb_inserts_break_when_end_para_has_text():

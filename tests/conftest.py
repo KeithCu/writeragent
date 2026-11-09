@@ -421,6 +421,19 @@ setattr(awt, "FontWeight", MockBase)
 setattr(awt, "FontSlant", MockBase)
 setattr(awt, "XMouseListener", MockBase)
 
+
+class MockAttributeData:
+    """com.sun.star.xml.AttributeData: one entry of a shape's UserDefinedAttributes."""
+
+    def __init__(self):
+        self.Namespace = ""
+        self.Type = ""
+        self.Value = ""
+
+
+xml_mod = _create_mock_module("com.sun.star.xml")
+setattr(xml_mod, "AttributeData", MockAttributeData)
+
 text = _create_mock_module("com.sun.star.text")
 sys.modules["com.sun.star.text"].__path__ = []
 sys.modules["com.sun.star.text.TextContentAnchorType"] = _create_mock_module("com.sun.star.text.TextContentAnchorType")

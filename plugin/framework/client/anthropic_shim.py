@@ -12,7 +12,7 @@ from typing import Any
 
 from plugin.framework.errors import NetworkError
 from plugin.framework.i18n import _
-from .shim_helpers import dict_parts, normalize_usage, system_text, annotate_anthropic_cache, fold_trailing_user_message
+from .shim_helpers import dict_parts, normalize_usage, system_text, annotate_anthropic_cache, fold_trailing_user_message, split_snapshot_text
 from .base_provider_shim import (
     BaseProviderShim,
     coerce_raw_b64,
@@ -194,8 +194,11 @@ def _convert_messages(messages: list[dict[str, Any]]) -> tuple[str, list[dict[st
                 continue
             if tool_use_id in dropped_tool_ids:
                 continue
-            result_block = {"type": "tool_result", "tool_use_id": tool_use_id, "content": _convert_parts(content, allow_images=True)}
+            body_content, snap = split_snapshot_text(content)
+            result_block = {"type": "tool_result", "tool_use_id": tool_use_id, "content": _convert_parts(body_content, allow_images=True)}
             _append_tool_result(converted, result_block)
+            if snap:
+                converted[-1]["content"].append({"type": "text", "text": snap})
             continue
 
         tool_calls = m.get("tool_calls")
@@ -323,8 +326,21 @@ class AnthropicShim(BaseProviderShim):
     """Shim for Anthropic native Messages API."""
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None,
+        tools: list[dict[str, Any]] | None,
+        stream: bool,
+        model_name: str | None,
+        response_format: dict[str, Any] | None,
+        chat_extra: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
+        # Anthropic Messages has no routing-key field; prompt caching there is the `cache_control` marker from `annotate_anthropic_cache`.
+        del cache_session_id
         endpoint = self.client._endpoint()
         url = f"{endpoint}/v1/messages"
         model = model_name.strip() if isinstance(model_name, str) else ""
