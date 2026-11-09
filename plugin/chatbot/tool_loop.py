@@ -755,12 +755,14 @@ class ToolCallingMixin:
 
         def stream_call(sess: Any, content_cb: Any, thinking_cb: Any, status_cb: Any, scope: Any) -> Any:
             payload = sess.messages_for_request()
+            raw_sid = getattr(sess, "session_id", None)
             return client.stream_request_with_tools(
                 payload, max_tokens, tools=tools,
                 append_callback=content_cb,
                 append_thinking_callback=thinking_cb,
                 cancel=scope,
                 status_callback=status_cb,
+                cache_session_id=raw_sid if isinstance(raw_sid, str) else None,
             )
 
         def run() -> None:
@@ -802,6 +804,7 @@ class ToolCallingMixin:
                 content_cb(c)
                 last_streamed.append(c)
 
+            raw_sid = getattr(sess, "session_id", None)
             client.stream_chat_response(
                 sess.messages_for_request(),
                 max_tokens,
@@ -811,6 +814,7 @@ class ToolCallingMixin:
                 tool_choice="none",
                 cancel=scope,
                 status_callback=status_cb,
+                cache_session_id=raw_sid if isinstance(raw_sid, str) else None,
             )
             return "".join(last_streamed)
 

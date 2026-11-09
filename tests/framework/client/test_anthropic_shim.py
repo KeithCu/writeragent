@@ -491,3 +491,26 @@ def test_anthropic_tool_choice():
     assert data2["tool_choice"] == {"type": "none"}
 
 
+def test_anthropic_omits_cache_session_id():
+    class DummyClient:
+        def _get_provider(self):
+            return "anthropic"
+
+        def _endpoint(self):
+            return "http://test"
+
+        def _headers(self):
+            return {}
+
+    shim = AnthropicShim(DummyClient())
+    messages = [{"role": "user", "content": "hi"}]
+    _method, _path, body, headers = shim.build_chat_request(
+        messages, 100, None, None, False, "claude-3-5-sonnet", None, cache_session_id="conv-1"
+    )
+    data = json.loads(body)
+    assert "session_id" not in data
+    assert "prompt_cache_key" not in data
+    assert "x-grok-conv-id" not in headers
+
+
+

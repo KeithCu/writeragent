@@ -619,7 +619,73 @@ def test_llm_worker_run_never_calls_set_status(test_instance):
     assert compact_inside_lane["value"] is True
     client.stream_request_with_tools.assert_called_once()
     assert client.stream_request_with_tools.call_args[0][0] is view
+    assert client.stream_request_with_tools.call_args.kwargs["cache_session_id"] is None
     q.put.assert_any_call((StreamQueueKind.STREAM_DONE, {"content": "ok"}))
+
+
+def test_llm_worker_passes_session_id_cache_routing_key(test_instance):
+    from plugin.chatbot.compaction import CompactResult
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    captured = {}
+
+    def capture_run(fn, name=None, dedicated=False):
+        captured["fn"] = fn
+
+    client = MagicMock()
+    client.stopped.return_value = False
+    client.stream_request_with_tools.return_value = {"content": "ok"}
+    view = [{"role": "system", "content": "view"}]
+    q = MagicMock()
+
+    turn = current_turn(test_instance)
+    turn.queue = q
+    turn.session.session_id = "doc-1"
+    turn.session.messages_for_request = MagicMock(return_value=view)
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
+        patch("plugin.chatbot.tool_loop.llm_request_lane"),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
+        patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 10, 10)),
+        patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
+    ):
+        test_instance._spawn_llm_worker(q, client, 128, [{"name": "t"}], 0)
+        captured["fn"]()
+
+    client.stream_request_with_tools.assert_called_once()
+    assert client.stream_request_with_tools.call_args.kwargs["cache_session_id"] == "doc-1"
+
+
+def test_final_stream_passes_session_id_cache_routing_key(test_instance):
+    from plugin.chatbot.compaction import CompactResult
+    from plugin.chatbot.tool_loop_actions import current_turn
+
+    captured = {}
+
+    def capture_run(fn, name=None, dedicated=False):
+        captured["fn"] = fn
+
+    client = MagicMock()
+    client.stopped.return_value = False
+    view = [{"role": "system", "content": "final-view"}]
+
+    turn = current_turn(test_instance)
+    turn.session.session_id = "doc-1"
+    turn.session.messages_for_request = MagicMock(return_value=view)
+
+    with (
+        patch("plugin.chatbot.tool_loop.run_in_background", side_effect=capture_run),
+        patch("plugin.chatbot.tool_loop.llm_request_lane"),
+        patch("plugin.chatbot.tool_loop.get_config", return_value=True),
+        patch("plugin.chatbot.tool_loop.compact_session", return_value=CompactResult(False, "below_threshold", 4, 4)),
+        patch("plugin.chatbot.tool_loop.resolve_context_window", return_value=8192),
+    ):
+        test_instance._spawn_final_stream(MagicMock(), client, 256)
+        captured["fn"]()
+
+    client.stream_chat_response.assert_called_once()
+    assert client.stream_chat_response.call_args.kwargs["cache_session_id"] == "doc-1"
 
 
 def test_llm_worker_run_force_compact_and_aborted_stops(test_instance):

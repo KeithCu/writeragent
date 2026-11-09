@@ -178,6 +178,37 @@ def merge_openrouter_chat_extra(base: dict[str, Any], extra: dict[str, Any] | No
             base[key] = val
 
 
+def cache_route(provider: str, session_id: str | None) -> tuple[dict[str, Any], dict[str, str]]:
+    """(body fields, extra headers) for sticky routing. ({}, {}) when unset or undocumented.
+
+    Docs:
+    - OpenRouter: https://openrouter.ai/docs/guides/best-practices/prompt-caching
+    - xAI: https://docs.x.ai/developers/advanced-api-usage/prompt-caching/maximizing-cache-hits
+    - OpenAI: https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create/
+    - Cerebras: https://inference-docs.cerebras.ai/api-reference/chat-completions
+
+    Unknown or unlisted providers return ({}, {}) because undocumented routing fields
+    can cause HTTP 400 rejection or are not supported for sticky cache routing.
+    """
+    if not isinstance(session_id, str):
+        return {}, {}
+    token = session_id.strip()
+    if not token:
+        return {}, {}
+    prov = str(provider or "").strip().lower()
+    if prov == "openrouter":
+        return {"session_id": token[:256]}, {}
+    if prov == "openai":
+        return {"prompt_cache_key": token}, {}
+    if prov == "cerebras":
+        return {"prompt_cache_key": token[:1024]}, {}
+    if prov == "xai":
+        if all(32 <= ord(c) <= 126 for c in token):
+            return {}, {"x-grok-conv-id": token}
+        return {}, {}
+    return {}, {}
+
+
 # Named UI / tool values → OpenRouter / Gemini aspect_ratio strings.
 _NAMED_ASPECT_RATIOS: dict[str, str] = {
     "square": "1:1",
@@ -420,10 +451,30 @@ class BaseProviderShim:
         return data
 
     def build_chat_request(
-        self, messages: list[dict[str, Any]], max_tokens: int, temperature: float | None, tools: list[dict[str, Any]] | None, stream: bool, model_name: str | None, response_format: dict[str, Any] | None, chat_extra: dict[str, Any] | None = None, tool_choice: str | None = None,
+        self,
+        messages: list[dict[str, Any]],
+        max_tokens: int,
+        temperature: float | None,
+        tools: list[dict[str, Any]] | None,
+        stream: bool,
+        model_name: str | None,
+        response_format: dict[str, Any] | None,
+        chat_extra: dict[str, Any] | None = None,
+        tool_choice: str | None = None,
+        *,
+        cache_session_id: str | None = None,
     ) -> tuple[str, str, bytes, dict[str, str]]:
         data = self._chat_payload(messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice)
-        return self._post(self._url("/chat/completions"), data)
+        headers: dict[str, str] | None = None
+        if isinstance(cache_session_id, str):
+            # The chat session id is the routing key for this request; message text is not rewritten.
+            body_fields, extra_headers = cache_route(self.client._get_provider(), cache_session_id)
+            if body_fields:
+                data.update(body_fields)
+            if extra_headers:
+                headers = dict(self.client._headers())
+                headers.update(extra_headers)
+        return self._post(self._url("/chat/completions"), data, headers=headers)
 
     def parse_response_chunk(self, chunk: dict[str, Any], stream_state: dict[str, Any] | None = None) -> tuple[str, str | None, str | None, dict[str, Any]]:
         from .response_normalizers import normalize_message_content
