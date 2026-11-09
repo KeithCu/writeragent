@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any, Iterator
 from plugin.doc.text_helpers import (
     FAILED,
     get_string_without_tracked_deletions,
+    go_right,
     iter_elements,
     normalize_linebreaks,
     with_view_cursor_left_body_locked,
@@ -87,6 +88,34 @@ _SPACE_CODEPOINTS = (
 SPACE_NORMALIZE_MAP = {cp: " " for cp in _SPACE_CODEPOINTS}
 HORIZONTAL_SPACE_CLASS = r"[ \t" + "".join("\\u%04x" % cp for cp in _SPACE_CODEPOINTS) + "]"
 
+# Quotes and dashes folding for lenient search. Straight or curly quotes and
+# hyphen/dash variants match across styles so subtle punctuation differences
+# between user prompts and document text do not break find-and-replace.
+_SINGLE_QUOTE_CODEPOINTS = (0x0027, 0x2018, 0x2019, 0x201A, 0x201B)
+_DOUBLE_QUOTE_CODEPOINTS = (0x0022, 0x201C, 0x201D, 0x201E, 0x201F)
+_DASH_CODEPOINTS = (0x002D, 0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)
+
+SINGLE_QUOTE_CLASS = r"[" + "".join("\\u%04x" % cp for cp in _SINGLE_QUOTE_CODEPOINTS) + "]"
+DOUBLE_QUOTE_CLASS = r"[" + "".join("\\u%04x" % cp for cp in _DOUBLE_QUOTE_CODEPOINTS) + "]"
+DASH_CLASS = r"[" + "".join("\\u%04x" % cp for cp in _DASH_CODEPOINTS) + "]"
+
+_SINGLE_QUOTE_RE = re_mod.compile("[" + "'\u2018\u2019\u201a\u201b" + "]")
+_DOUBLE_QUOTE_RE = re_mod.compile("[" + '"\u201c\u201d\u201e\u201f' + "]")
+_DASH_RE = re_mod.compile("[" + "-\u2010\u2011\u2012\u2013\u2014\u2015\u2212" + "]")
+
+_FOLD_NORMALIZE_MAP = {
+    **SPACE_NORMALIZE_MAP,
+    **{cp: "'" for cp in (0x2018, 0x2019, 0x201A, 0x201B)},
+    **{cp: '"' for cp in (0x201C, 0x201D, 0x201E, 0x201F)},
+    **{cp: "-" for cp in (0x2010, 0x2011, 0x2012, 0x2013, 0x2014, 0x2015, 0x2212)},
+}
+
+MIN_OVERSIZED_CHARS = 100
+OVERSIZED_OLD_CONTENT_MESSAGE = (
+    "old_content covers most of the document. Use target='full_document' with "
+    "content only — do not pass the whole document as old_content."
+)
+
 
 def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
     """Resume LO search after *found* — use getEnd() so the next hit starts after the match.
@@ -126,6 +155,19 @@ def search_results_cap_hint(returned: int, total_count: int) -> str:
 def normalize_search_string_for_find(s: str) -> str:
     """Collapse horizontal whitespace (incl. NBSP); preserve newlines for literal find."""
     return re_mod.sub(HORIZONTAL_SPACE_CLASS + "+", " ", s).strip()
+
+
+def prepare_old_content(raw: Any) -> str:
+    """Normalize old_content needle: strip tags, collapse horizontal whitespace, preserve newlines."""
+    if raw is None:
+        return ""
+    text = str(raw).strip()
+    if not text:
+        return ""
+    from plugin.writer.html_import import plain_text_if_markup
+
+    plain = plain_text_if_markup(text)
+    return normalize_search_string_for_find(plain)
 
 
 # LibreOffice search also sees text a pending tracked change deleted, so visible text that runs
@@ -168,9 +210,15 @@ def shape_only_search_message(subject: str, shape_name: str, *, review: bool = F
 
 
 def build_search_not_found_response(
+    doc: Any = None,
+    needle: str = "",
+    *,
     all_matches: bool = False,
     shape_name: str | None = None,
+    lenient: bool = True,
+    use_regex: bool = False,
     tracked_deletions: bool = False,
+    closest: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Standardized search not-found response dictionary."""
     if shape_name:
@@ -179,18 +227,63 @@ def build_search_not_found_response(
             "message": shape_only_search_message("old_content", shape_name),
             "replaced_count": 0,
         }
-    hint = _TRACKED_DELETION_HINT if tracked_deletions else ""
-    if all_matches:
+
+    # Near-miss mismatch detection: check if there is a close match in the document.
+    # We compute closest first so that a typo in a needle covering >50% of the body
+    # still receives the helpful near-miss hint rather than an oversized refusal.
+    if closest is None and doc is not None and needle and not use_regex:
+        closest = search_closest_mismatch(doc, needle, lenient=lenient)
+
+    if closest is None and doc is not None and needle and not use_regex and old_content_covers_most(doc, len(needle)):
         return {
             "status": "error",
-            "message": "Replaced 0 occurrence(s). No matches found. Try a shorter substring." + hint,
+            "message": OVERSIZED_OLD_CONTENT_MESSAGE,
             "replaced_count": 0,
+            "oversized": True,
         }
-    return {
+
+    from plugin.writer.review_scan import document_has_tracked_deletions
+
+    has_tracked = tracked_deletions or (doc is not None and document_has_tracked_deletions(doc))
+    hint = _TRACKED_DELETION_HINT if has_tracked else ""
+    if all_matches:
+        base_msg = "Replaced 0 occurrence(s). No matches found. Try a shorter substring." + hint
+    else:
+        base_msg = "old_content not found in document. Try a shorter, unique substring." + hint
+
+    if closest:
+        base_msg = f"{base_msg} {closest['message']}"
+
+    resp: dict[str, Any] = {
         "status": "error",
-        "message": "old_content not found in document. Try a shorter, unique substring." + hint,
+        "message": base_msg,
         "replaced_count": 0,
     }
+    if closest:
+        resp["closest_match"] = closest["closest_match"]
+        resp["diff_at"] = closest["diff_at"]
+    return resp
+
+
+def search_miss_message(
+    doc: Any,
+    needle: str,
+    *,
+    shape_name: str | None = None,
+    lenient: bool = True,
+    all_matches: bool = False,
+    use_regex: bool = False,
+) -> str:
+    """Format the error message for a failed search (for target_resolver and diagnostics)."""
+    resp = build_search_not_found_response(
+        doc,
+        needle,
+        shape_name=shape_name,
+        lenient=lenient,
+        all_matches=all_matches,
+        use_regex=use_regex,
+    )
+    return str(resp.get("message", ""))
 
 
 def find_text_ranges(
@@ -247,14 +340,22 @@ def _search_try_strings(search_string: str) -> Iterator[str]:
 
 
 def escape_for_lo_regex(s: str) -> str:
-    """Escape regular expression characters and match any horizontal space sequence."""
+    """Escape regex characters and fold spaces, quotes, and dashes into pattern classes.
+
+    Typographic single and double quotes (from autocorrect or word processors) match
+    straight ASCII quotes in search needles, and various hyphen/dash codepoints
+    match interchangeably while keeping match length 1:1 with the needle.
+    """
     s = s.translate(SPACE_NORMALIZE_MAP)
     escaped = re_mod.sub(r'([\\^$.|?*+()\[\]{}])', r'\\\1', s)
-    return re_mod.sub(r' +', lambda m: HORIZONTAL_SPACE_CLASS + '+', escaped)
+    escaped = _SINGLE_QUOTE_RE.sub(lambda match: SINGLE_QUOTE_CLASS, escaped)
+    escaped = _DOUBLE_QUOTE_RE.sub(lambda match: DOUBLE_QUOTE_CLASS, escaped)
+    escaped = _DASH_RE.sub(lambda match: DASH_CLASS, escaped)
+    return re_mod.sub(r' +', lambda match: HORIZONTAL_SPACE_CLASS + '+', escaped)
 
 
 def _compare_normalize(s: str) -> str:
-    return normalize_linebreaks(s).translate(SPACE_NORMALIZE_MAP).strip().lower()
+    return normalize_linebreaks(s).translate(_FOLD_NORMALIZE_MAP).strip().lower()
 
 
 def _paragraph_matches_part(para_text: str, part: str, *, head: bool = False, tail: bool = False) -> tuple[bool, int | None]:
@@ -851,6 +952,194 @@ def find_ranges_regex_case(doc: Any, pattern: str, use_regex: bool, case_sensiti
     if not all_matches:
         return doc.findFirst(sd)
     return _collect_capped(doc, sd)
+
+
+def old_content_covers_most(doc: Any, needle_len: int) -> bool:
+    """Check whether a search needle spans more than half the document body.
+
+    Probe the body using cursor character steps. If the needle length exceeds half
+    the body character count, caller directs the user to target='full_document'.
+    Short needles (under 100 characters) are never oversized: local edits on small
+    documents or headings must not be forced to whole-document replacements.
+    An empty body or non-positive needle length returns False.
+    """
+    if needle_len < MIN_OVERSIZED_CHARS:
+        return False
+    try:
+        text = doc.getText()
+        cursor = text.createTextCursor()
+        cursor.gotoStart(False)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        return False
+
+    if not go_right(cursor, 1, False):
+        return False
+    cursor.gotoStart(False)
+    if not go_right(cursor, needle_len, False):
+        return True
+    if not go_right(cursor, needle_len, False):
+        return True
+    return False
+
+
+def closest_mismatch(
+    needle: str,
+    hay: str,
+    *,
+    lenient: bool,
+) -> dict[str, Any] | None:
+    """Find the best-matching window in *hay* for *needle* and report its first mismatch.
+
+    Windows are scored by folded common-prefix length, with ties broken by earlier
+    start. If the folded needle appears as a prefix of any window (an exact match),
+    None is returned. Candidate starts are accelerated via str.find on the prefix.
+    """
+    if not needle or not hay:
+        return None
+
+    def _fold_with_map(s: str) -> tuple[str, list[int]]:
+        if not lenient:
+            return s, list(range(len(s)))
+        translated = s.translate(_FOLD_NORMALIZE_MAP)
+        chars: list[str] = []
+        idx_map: list[int] = []
+        in_space = False
+        for i, c in enumerate(translated):
+            c_folded = c.lower() if len(c.lower()) == 1 else c
+            if c_folded == " ":
+                if not in_space:
+                    chars.append(" ")
+                    idx_map.append(i)
+                    in_space = True
+            else:
+                in_space = False
+                chars.append(c_folded)
+                idx_map.append(i)
+        return "".join(chars), idx_map
+
+    folded_needle, needle_map = _fold_with_map(needle)
+    folded_hay, hay_map = _fold_with_map(hay)
+
+    needle_len = len(folded_needle)
+    hay_len = len(folded_hay)
+    if needle_len == 0 or hay_len == 0:
+        return None
+
+    min_score = max(1, min(8, needle_len // 2))
+    k = min_score
+    candidate = folded_needle[:k]
+
+    best_score = -1
+    best_i = -1
+    best_diff = -1
+    comparisons = 0
+    max_comparisons = 2_000_000
+
+    start_pos = 0
+    while True:
+        if comparisons >= max_comparisons:
+            break
+        i = folded_hay.find(candidate, start_pos)
+        if i == -1:
+            break
+        start_pos = i + 1
+
+        window_len = min(needle_len, hay_len - i)
+        mismatch_found = False
+        diff_idx = -1
+        score = k
+        comparisons += k
+        for j in range(k, window_len):
+            comparisons += 1
+            if folded_needle[j] == folded_hay[i + j]:
+                score += 1
+            else:
+                mismatch_found = True
+                diff_idx = j
+                break
+            if comparisons >= max_comparisons:
+                break
+
+        if not mismatch_found and score == needle_len:
+            return None
+
+        if mismatch_found and score > best_score:
+            best_score = score
+            best_i = i
+            best_diff = diff_idx
+
+    if best_score < min_score:
+        return None
+
+    diff_at = needle_map[best_diff]
+    raw_needle_char = needle[diff_at]
+    raw_hay_pos = hay_map[best_i + best_diff]
+    raw_hay_char = hay[raw_hay_pos]
+
+    raw_start = hay_map[best_i]
+    raw_end = hay_map[min(best_i + needle_len - 1, hay_len - 1)] + 1
+    window = hay[raw_start:raw_end]
+    preview = window[:16] + ("\u2026" if len(window) > 16 else "")
+
+    msg = (
+        f"closest match starts {preview!r}, differs at character {diff_at}: "
+        f"{raw_needle_char} vs {raw_hay_char}"
+    )
+    return {
+        "closest_match": preview,
+        "diff_at": diff_at,
+        "message": msg,
+    }
+
+
+MAX_MISS_HAYSTACK_CHARS = 2_000_000
+
+
+def get_search_miss_haystack(doc: Any) -> str:
+    """Read document body and text frames (without tracked deletions) for near-miss search."""
+    try:
+        body_text = get_string_without_tracked_deletions(doc.getText())
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.warning("Failed to read document body for search miss: %s", exc)
+        return ""
+
+    parts = [body_text]
+    try:
+        frames = doc.getTextFrames()
+        for name in frames.getElementNames():
+            try:
+                frame = frames.getByName(name)
+                frame_text = get_string_without_tracked_deletions(frame.getText())
+                if frame_text:
+                    parts.append(frame_text)
+            except Exception as exc:
+                reraise_if_disposed(exc)
+                log.warning("Failed to read text frame %r for search miss: %s", name, exc)
+    except Exception as exc:
+        reraise_if_disposed(exc)
+        log.warning("Failed to enumerate text frames for search miss: %s", exc)
+
+    hay = "\n".join(parts)
+    if len(hay) > MAX_MISS_HAYSTACK_CHARS:
+        return hay[:MAX_MISS_HAYSTACK_CHARS]
+    return hay
+
+
+def search_closest_mismatch(
+    doc: Any,
+    needle: str,
+    *,
+    lenient: bool = True,
+) -> dict[str, Any] | None:
+    """Find the closest matching passage in the document for a failed search needle."""
+    if not needle:
+        return None
+    hay = get_search_miss_haystack(doc)
+    if not hay:
+        return None
+    return closest_mismatch(needle, hay, lenient=lenient)
 
 
 def drawing_shape_object_containing(

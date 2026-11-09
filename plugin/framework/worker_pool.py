@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import codecs
 import contextvars
+import io
 import logging
 import os
 import queue
@@ -369,66 +370,24 @@ def _iter_decoded_chunks(stream: IO[Any]) -> Iterator[str]:
         yield tail
 
 
-def _split_on_newlines(pending: str) -> tuple[list[str], str]:
-    """Split on ``\\n``, ``\\r\\n``, and a lone ``\\r``. Hold a trailing ``\\r``.
+def _feed_line_buffer(parts: list[str], length: int, text: str) -> tuple[list[str], list[str], int]:
+    """Split *text* on ``\\n`` and join the first line onto the held pieces.
 
-    ``str.splitlines`` also breaks on vertical tab, form feed, and the
-    Unicode line separators. The callback then sees a new line with that
-    separator still in the text, because ``rstrip`` only removes ``\\n``
-    and ``\\r``. A trailing ``\\r`` stays in the remainder so the next
-    chunk can finish a CRLF instead of emitting a line early.
+    *text* comes from ``io.IncrementalNewlineDecoder(translate=True)``, so
+    ``\\r\\n`` and a lone ``\\r`` are already ``\\n``. A ``\\r`` at the end of
+    a read stays inside that decoder until the next ``decode`` (or
+    ``final=True``), so it is not one of *parts* and does not add to
+    *length*. Splitting only on ``\\n`` keeps vertical tab, form feed, and
+    U+2028 in the line. ``str.splitlines`` would break on those.
     """
-    lines: list[str] = []
-    start = 0
-    index = 0
-    limit = len(pending)
-    while index < limit:
-        char = pending[index]
-        if char == "\n":
-            lines.append(pending[start : index + 1])
-            index += 1
-            start = index
-            continue
-        if char == "\r":
-            if index + 1 == limit:
-                break
-            end = index + 2 if pending[index + 1] == "\n" else index + 1
-            lines.append(pending[start:end])
-            index = end
-            start = index
-            continue
-        index += 1
-    return lines, pending[start:]
-
-
-def _feed_line_buffer(parts: list[str], length: int, chunk: str) -> tuple[list[str], list[str], int]:
-    """Feed one new chunk into line-buffered pieces without rescanning the remainder.
-
-    Pieces stay unjoined until a line is emitted or the cap is hit.
-    """
-    if not chunk:
-        return [], parts, length
-
-    if parts and parts[-1].endswith("\r"):
-        last = parts[-1]
-        if last == "\r":
-            parts.pop()
-        else:
-            parts[-1] = last[:-1]
-        length -= 1
-        chunk = "\r" + chunk
-
-    lines, rest = _split_on_newlines(chunk)
+    *lines, rest = text.split("\n")
     if lines:
         lines[0] = "".join(parts) + lines[0]
-        if rest:
-            return lines, [rest], len(rest)
-        return lines, [], 0
-
+        parts, length = [], 0
     if rest:
         parts.append(rest)
         length += len(rest)
-    return [], parts, length
+    return lines, parts, length
 
 
 def _split_overflow(parts: list[str], length: int, limit: int) -> tuple[list[str], list[str], int]:
@@ -651,9 +610,13 @@ class AsyncProcess:
         parts: list[str] = []
         length = 0
         warned = False
+        # One newline decoder per stream normalizes CRLF and lone CR to LF.
+        # Any trailing CR at the end of a read stays inside the decoder
+        # until the next read confirms whether an LF follows.
+        newlines = io.IncrementalNewlineDecoder(None, translate=True)
         try:
             for chunk in _iter_decoded_chunks(stream):
-                lines, parts, length = _feed_line_buffer(parts, length, chunk)
+                lines, parts, length = _feed_line_buffer(parts, length, newlines.decode(chunk))
                 for line in lines:
                     emit(line)
                 while length > _MAX_STREAM_LINE_CHARS:
@@ -667,6 +630,11 @@ class AsyncProcess:
                     for slice_line in overflow_lines:
                         emit(slice_line)
         finally:
+            # Calling decode with final=True flushes any pending CR held at
+            # EOF as a newline before the remaining unjoined pieces are emitted.
+            lines, parts, length = _feed_line_buffer(parts, length, newlines.decode("", final=True))
+            for line in lines:
+                emit(line)
             if parts:
                 emit("".join(parts))
             _quiet_close(stream)

@@ -393,6 +393,7 @@ class LlmClient:
         chat_extra: Any = None,
         tool_choice: str | None = None,
         *,
+        cache_session_id: str | None = None,
         prepend_dev_build_system_prefix: bool = True,
     ) -> tuple[str, str, Any, dict[str, str]]:
         """Build a chat completions request from a full messages array (provider-aware)."""
@@ -418,7 +419,7 @@ class LlmClient:
 
         shim = self._get_shim()
         method, path, body, headers = shim.build_chat_request(
-            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice
+            messages, max_tokens, temperature, tools, stream, model_name, response_format, chat_extra, tool_choice=tool_choice, cache_session_id=cache_session_id,
         )
 
         log.debug("=== Chat Request (provider=%s, tools=%s, stream=%s) ===" % (self._get_provider(), bool(tools), stream))
@@ -968,6 +969,7 @@ class LlmClient:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: str | None = None,
         prepend_dev_build_system_prefix: bool = True,
+        cache_session_id: str | None = None,
     ) -> str | None:
         """Stream a chat response using the messages array; returns finish_reason."""
         method, path, body, headers = self.make_chat_request(
@@ -977,6 +979,7 @@ class LlmClient:
             tool_choice=tool_choice,
             stream=True,
             prepend_dev_build_system_prefix=prepend_dev_build_system_prefix,
+            cache_session_id=cache_session_id,
         )
         return self._run_streaming_loop(method, path, body, headers, on_content=append_callback, on_thinking=append_thinking_callback, cancel=cancel, status_callback=status_callback)
 
@@ -995,6 +998,8 @@ class LlmClient:
         response_format: Any = None,
         chat_extra: Any = None,
         prepend_dev_build_system_prefix: bool = True,
+        *,
+        cache_session_id: str | None = None,
     ) -> dict[str, Any]:
         """Chat request with support for tools and streaming.
 
@@ -1006,7 +1011,7 @@ class LlmClient:
         requested_model = model or self.config.get("model") or "default"
         n_tool_defs = len(tools) if isinstance(tools, list) else 0
         log.info("Sending LLM chat request: provider=%s requested_model=%r stream=%s n_messages=%d n_tool_defs=%d", self._get_provider(), requested_model, stream, len(messages), n_tool_defs)
-        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix)
+        method, path, body, headers = self.make_chat_request(messages, max_tokens, tools=tools, stream=stream, model=model, response_format=response_format, chat_extra=chat_extra, prepend_dev_build_system_prefix=prepend_dev_build_system_prefix, cache_session_id=cache_session_id)
         if body_override is not None:
             body = body_override.encode("utf-8") if isinstance(body_override, str) else body_override
 

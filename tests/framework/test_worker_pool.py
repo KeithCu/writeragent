@@ -676,26 +676,58 @@ class TestReadStreamStripsNewlines:
         assert received == ["hel", "lo"]
 
     def test_feed_line_buffer_holds_crlf_and_does_not_join_until_a_line(self):
+        import io
         from plugin.framework.worker_pool import _feed_line_buffer
 
-        lines, parts, length = _feed_line_buffer([], 0, "hi\r")
+        decoder = io.IncrementalNewlineDecoder(None, translate=True)
+        lines, parts, length = _feed_line_buffer([], 0, decoder.decode("hi\r"))
         assert lines == []
-        assert length == 3
-        assert len(parts) >= 1
-        assert parts[-1].endswith("\r")
+        assert "".join(parts) == "hi"
+        assert length == 2
 
-        lines, parts, length = _feed_line_buffer(parts, length, "\nrest\n")
-        assert lines == ["hi\r\n", "rest\n"]
+        lines, parts, length = _feed_line_buffer(parts, length, decoder.decode("\nrest\n"))
+        assert lines == ["hi", "rest"]
+        assert parts == []
+        assert length == 0
+
+        lines, parts, length = _feed_line_buffer(parts, length, decoder.decode("", final=True))
+        assert lines == []
         assert parts == []
         assert length == 0
 
     def test_feed_line_buffer_held_cr_then_non_lf(self):
-        from plugin.framework.worker_pool import _feed_line_buffer
+        ap = AsyncProcess(["dummy"])
+        received: list[str] = []
+        ap._read_stream(_ChunkStream([b"hi\r", b"Z"]), received.append)
+        assert received == ["hi", "Z"]
 
-        lines, parts, length = _feed_line_buffer(["\r"], 1, "Z")
-        assert lines == ["\r"]
-        assert parts == ["Z"]
-        assert length == 1
+        received.clear()
+        ap._read_stream(_ChunkStream([b"hello\n\r"]), received.append)
+        assert received == ["hello", ""]
+
+    def test_read_stream_exact_cap_trailing_cr_is_not_an_extra_line(self, caplog):
+        from plugin.framework.worker_pool import _MAX_STREAM_LINE_CHARS
+
+        ap = AsyncProcess(["dummy"])
+        received: list[str] = []
+
+        with caplog.at_level("WARNING"):
+            ap._read_stream(
+                _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r", b"\nnext\n"]),
+                received.append,
+            )
+        assert received == ["y" * _MAX_STREAM_LINE_CHARS, "next"]
+
+        received.clear()
+        with caplog.at_level("WARNING"):
+            ap._read_stream(
+                _ChunkStream([b"y" * _MAX_STREAM_LINE_CHARS + b"\r"]),
+                received.append,
+            )
+        assert received == ["y" * _MAX_STREAM_LINE_CHARS]
+
+        warning_records = [r for r in caplog.records if "delivering a partial line" in r.message]
+        assert len(warning_records) == 0
 
     def test_read_stream_flushes_partial_line_at_cap(self, caplog):
         from plugin.framework.worker_pool import _MAX_STREAM_LINE_CHARS

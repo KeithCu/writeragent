@@ -187,9 +187,18 @@ Intended caller is **coolwsd on DocumentBroker destroy / last view leave**. This
 
 ### 4. Vision & OCR Endpoint (`POST /v1/vision`)
 
-Evaluates heavy document/image OCR and layout structure extraction in a dedicated, isolated worker subprocess pool. Requests use `multipart/form-data`. `meta` is a JSON part (`id`, `helper`, `timeout_ms`, `params`, `file_path`). `image` is an optional raw binary part (`Content-Type: application/octet-stream`). A JSON body is `400` with `Invalid vision body`. Including `image` or `image_b64` inside `meta` is `400`. Sending both `image` and `file_path` is `400` with `INVALID_REQUEST`.
+Evaluates heavy document/image OCR and layout structure extraction in a dedicated, isolated worker subprocess pool. Requests use `multipart/form-data`. `meta` is a JSON part (`id`, `helper`, `timeout_ms`, `params`). A JSON body is `400` with `Invalid vision body`. Including `image` or `image_b64` inside `meta` is `400`.
 
-- **Request Schema (Option A: Raw Binary Image Part)**:
+**Image source (exactly one):**
+
+| Send the image as | How | Notes |
+| :--- | :--- | :--- |
+| Uploaded bytes | `image` part, `Content-Type: application/octet-stream` | An empty part counts as not sent |
+| Server file path | `"file_path"` in `meta` | Must be under `ocr.allow_paths` (default deny). A blank or whitespace-only path counts as not sent |
+
+Neither is `400` `MISSING_IMAGE_SOURCE` (not sent to the worker). Both is `400` `INVALID_REQUEST`.
+
+- **Example: uploaded image**:
   - `meta` part (`application/json`):
     ```json
     {
@@ -204,7 +213,7 @@ Evaluates heavy document/image OCR and layout structure extraction in a dedicate
     ```
   - `image` part (`application/octet-stream`): `{raw binary image bytes}`
 
-- **Request Schema (Option B: Server Filesystem Path)** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return HTTP 413 with `FILE_TOO_LARGE`. A missing, blank, or whitespace-only `file_path` with no `image` part is HTTP 400 `MISSING_IMAGE_SOURCE` and is not sent to the worker. A missing file, a directory, or a read error on a path that was sent returns HTTP 400 (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`). `INVALID_FILE_PATH` is the worker's rejection of a non-string or empty path if one reaches `read_allowlisted_file`:
+- **Example: server file path** — denied unless the resolved path is under `ocr.allow_paths` (default deny). The worker opens the file and checks the opened path against the same prefix list. On Linux that is `/proc/self/fd` for the descriptor, so a symlink swapped in after the name check cannot leave the allowlist. macOS and Windows have no `/proc`; realpath of that string used to deny every file, so those platforms realpath the path that was opened (a swap that landed before `open` returns is still rejected). An authenticated client cannot read an arbitrary file. Files larger than 32 MiB return HTTP 413 with `FILE_TOO_LARGE`. A missing file, a directory, or a read error on a path that was sent returns HTTP 400 (`FILE_NOT_FOUND`, `NOT_A_FILE`, `FILE_READ_ERROR`). `INVALID_FILE_PATH` is the worker's rejection of a non-string or empty path if one reaches `read_allowlisted_file`:
   - `meta` part (`application/json`):
     ```json
     {

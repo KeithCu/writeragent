@@ -20,7 +20,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any, Callable, Protocol
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +34,8 @@ from plugin.framework.client.llm_client import LlmClient
 
 from plugin.framework.send_cancellation import SendCancellation
 from plugin.framework.uno_listeners import BaseDocumentEventListener
-from plugin.chatbot.send_state import spawn_scope
+from plugin.chatbot.send_state import HasSendCancellation, SendEvent, SendEventKind, spawn_scope
+from plugin.chatbot.tool_loop_actions import assign_send_outcome
 from plugin.framework.config import get_api_config, save, validate_api_config
 from plugin.framework.i18n import _
 from plugin.framework.uno_context import get_ctx, get_document_from_frame
@@ -42,10 +43,20 @@ from .dialogs import msgbox
 from .dialog_views import input_box
 
 
+class _SelectionHost(HasSendCancellation, Protocol):
+    _send_cancellation: SendCancellation | None
+    _stop_requested_fallback: bool
+    _panel_teardown: bool
+    sidebar_state: Any
+
+    def dispatch(self, event: SendEvent) -> None: ...
+    def close_selection_run(self) -> None: ...
+
+
 @dataclass
 class _SelectionArm:
     scope: SendCancellation
-    host: Any | None
+    host: _SelectionHost | None
     armed: bool
     listener: _SelectionDocListener | None = None
     model: Any | None = None
@@ -68,31 +79,26 @@ class _SelectionDocListener(BaseDocumentEventListener):
         self._scope.cancel()
 
 
-def bind_selection_cancel(host: Any | None, model: Any) -> _SelectionArm:
-    scope = spawn_scope(host) if host else None
+def bind_selection_cancel(host: _SelectionHost | None, model: Any) -> _SelectionArm:
+    scope = spawn_scope(host) if host is not None else None
     armed = False
-
     if scope is None:
-        send_state = getattr(getattr(host, "sidebar_state", None), "send", None) if host else None
-        # If host is idle (not busy and not recording), arm it with a new scope
-        if host is not None and send_state is not None and not send_state.is_busy and not send_state.is_recording:
-            from plugin.chatbot.send_state import SendEvent, SendEventKind
-            from plugin.chatbot.tool_loop_actions import assign_send_outcome
-
-            scope = SendCancellation()
+        # Calls from menubar/accelerator without a host, or during voice recording,
+        # get a private scope so recording is not interrupted.
+        scope = SendCancellation()
+        if (
+            host is not None
+            and not host.sidebar_state.send.is_busy
+            and not host.sidebar_state.send.is_recording
+        ):
             host._send_cancellation = scope
-            if hasattr(host, "_stop_requested_fallback"):
-                host._stop_requested_fallback = False
+            host._stop_requested_fallback = False
             # Prevent stale outcome from a previous turn showing at completion
             assign_send_outcome(host, "ready")
             # Reuse EXTRACTED_SEND: peer inject sets busy without StartSendEffect
             # (a new event would fight the stop-iff-busy @deal.ensure rule).
             host.dispatch(SendEvent(SendEventKind.EXTRACTED_SEND))
             armed = True
-        else:
-            # Calls from menubar/accelerator without a host, or during voice recording,
-            # get a private scope so recording is not interrupted.
-            scope = SendCancellation()
     # An already-busy host shares its cancellation scope with the selection action
     # and is not disarmed on exit.
 
@@ -118,31 +124,9 @@ def end_selection_cancel(arm: _SelectionArm) -> None:
     if not arm.armed:
         return
     host = arm.host
-    if host is None or getattr(host, "_panel_teardown", False):
+    if host is None or host._panel_teardown:
         return
-
-    close_fn = getattr(host, "close_selection_run", None)
-    if callable(close_fn):
-        close_fn()
-        return
-
-    if getattr(host, "_send_cancellation", None) is arm.scope:
-        host._send_cancellation = None
-    if hasattr(host, "_stop_requested_fallback"):
-        host._stop_requested_fallback = False
-
-    send_state = getattr(getattr(host, "sidebar_state", None), "send", None)
-    if send_state is not None and getattr(send_state, "is_busy", False):
-        from plugin.chatbot.send_state import SendEvent, SendEventKind
-
-        host.dispatch(SendEvent(SendEventKind.SEND_COMPLETED))
-        # SEND_COMPLETED forces has_text False; sync_has_text_from_query restores typed Ask text.
-        sync_fn = getattr(host, "sync_has_text_from_query", None)
-        if callable(sync_fn):
-            sync_fn()
-    from plugin.doc.peer_message import kick_pending_peer_starts
-
-    kick_pending_peer_starts()
+    host.close_selection_run()
 
 
 @dataclass
