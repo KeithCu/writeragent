@@ -519,8 +519,9 @@ def _without_tracked_deletions(model: Any, ctx: Any) -> Generator[Any, None, Non
     if not document_has_tracked_deletions(model):
         yield model
         return
-    from . import format as format_mod
-    with format_mod._with_temp_buffer(ext=".odt") as (_unused, url):
+    from plugin.doc.temp_files import with_temp_buffer
+
+    with with_temp_buffer(ext=".odt") as (_unused, url):
         model.storeToURL(url, (create_property_value("FilterName", "writer8"),))
         copy = get_desktop(ctx).loadComponentFromURL(url, "_blank", 0, (create_property_value("Hidden", True),))
         try:

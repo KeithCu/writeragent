@@ -1301,37 +1301,6 @@ def test_search_selection_apply_shared_case_default_on_sample_text():
         assert doc_replace.text == "cherry pie and cherry tart"
 
 
-# ---- #1318: typographic quotes and pending tracked deletions ------------------
-
-def test_escape_for_lo_regex_matches_straight_and_typographic_quotes():
-    import re
-
-    from plugin.writer.search import escape_for_lo_regex
-
-    pattern = re.compile(escape_for_lo_regex('"Hi," she said. Don\'t'))
-    assert pattern.fullmatch('\u201cHi,\u201d she said. Don\u2019t')
-    assert pattern.fullmatch('"Hi," she said. Don\'t')
-    assert pattern.fullmatch('\u201eHi,\u201c she said. Don\u2018t')
-    # Model typed curly, document has straight.
-    assert re.compile(escape_for_lo_regex('\u201cHi,\u201d')).fullmatch('"Hi,"')
-    assert not pattern.fullmatch('Hi, she said. Dont')
-
-
-def test_chained_paragraph_compare_folds_quotes():
-    from plugin.writer.search import _paragraph_matches_part
-
-    assert _paragraph_matches_part('\u201cHi,\u201d she said.', '"Hi," she said.') == (True, None)
-    ok, _n = _paragraph_matches_part('\u201cHi,\u201d she said. More', '"Hi," she said.', head=True)
-    assert ok
-
-
-def test_shape_text_hits_folds_quotes_and_returns_document_text():
-    from plugin.writer.search import shape_text_hits
-
-    assert shape_text_hits('He said \u201cHi,\u201d', '"hi,"', False, False) == ['\u201cHi,\u201d']
-    assert shape_text_hits('He said \u201cHi,\u201d', '"Hi,"', False, True) == ['\u201cHi,\u201d']
-
-
 class _Pos:
     """A text range at character positions [start, end] in *text*."""
 

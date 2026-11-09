@@ -116,8 +116,6 @@ OVERSIZED_OLD_CONTENT_MESSAGE = (
     "old_content covers most of the document. Use target='full_document' with "
     "content only — do not pass the whole document as old_content."
 )
-QUOTE_NORMALIZE_MAP = str.maketrans("\u201c\u201d\u201e\u201f\u2018\u2019\u201a\u201b", "\"\"\"\"''''")
-_QUOTE_CLASS = {'"': r'["\u201c\u201d\u201e\u201f]', "'": r"['\u2018\u2019\u201a\u201b]"}
 
 
 def find_next_after_match(doc: Any, found: Any, sd: Any) -> Any:
@@ -1012,17 +1010,15 @@ def shape_text_hits(shape_text: str, pattern: str, use_regex: bool, case_sensiti
     if use_regex:
         flags = 0 if case_sensitive else re_mod.IGNORECASE
         return _regex_find_hits(pattern, shape_text, flags)
-    # Fold quotes like LibreOffice's plain search of the body text does.
     if case_sensitive:
-        hay = shape_text.translate(QUOTE_NORMALIZE_MAP)
-        needle = pattern.translate(QUOTE_NORMALIZE_MAP)
+        hay = shape_text
+        needle = pattern
 
         def slice_hit(idx: int) -> str:
             return shape_text[idx:idx + len(pattern)]
     else:
         hay, origins = _lower_with_origins(shape_text)
-        hay = hay.translate(QUOTE_NORMALIZE_MAP)
-        needle = pattern.lower().translate(QUOTE_NORMALIZE_MAP)
+        needle = pattern.lower()
 
         def slice_hit(idx: int) -> str:
             return shape_text[origins[idx]:origins[idx + len(needle) - 1] + 1]
