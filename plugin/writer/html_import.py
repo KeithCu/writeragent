@@ -322,7 +322,6 @@ def _insert_mixed_or_plain_html(
         single = _ensure_html_linebreaks(clean)
         _insert_starwriter_html_at_cursor(None if styled else model, cursor, single)
 
-    failures: list[str] = []
     if styled:
         # Per-paragraph failures are already logged inside _apply_block_lo_styles.
         # This wrapper swallowed compareRegionStarts, so a closed document
@@ -334,17 +333,14 @@ def _insert_mixed_or_plain_html(
         failures = html_import_styles._apply_block_lo_styles(
             model, text_obj, start, block_styles, end=imported_end, paras=block_paras,
         )
-        for skipped_css in skipped_paras:
-            failures.extend(html_import_styles._declaration_names(skipped_css))
         end_c = model.getText().createTextCursor()
         end_c.gotoEnd(False)
         cursor.gotoRange(end_c.getStart(), False)
     else:
-        for block_css in block_paras:
-            if block_css:
-                failures.extend(html_import_styles._declaration_names(block_css))
-        for skipped_css in skipped_paras:
-            failures.extend(html_import_styles._declaration_names(skipped_css))
+        # This target does not apply paragraph formatting, so every declaration is unapplied.
+        failures = html_import_styles.declared_para_names(block_paras)
+    # data-lo-para on inline tags and on blocks inside tables is stripped, never applied.
+    failures.extend(html_import_styles.declared_para_names(skipped_paras))
     _apply_ruby_and_restore_fields(model, text_obj, ruby_spans, nonce, skip_chars=ruby_skip)
     return failures
 

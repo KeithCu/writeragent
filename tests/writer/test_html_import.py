@@ -730,8 +730,10 @@ def test_apply_block_lo_styles_returns_failures():
     walk_cur.gotoNextParagraph.return_value = False
 
     para_cur = MagicMock()
+    para_el = MagicMock()
     # Raises on setPropertyValue so the applied property fails
-    para_cur.setPropertyValue.side_effect = RuntimeError("locked")
+    para_el.setPropertyValue.side_effect = RuntimeError("locked")
+    para_cur.createEnumeration.return_value.nextElement.return_value = para_el
     text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
 
     failed = html_import_styles._apply_block_lo_styles(
@@ -811,7 +813,8 @@ def test_round_trip_read_fodt_autostyle_value():
         model, text, MagicMock(), styles, paras=paras
     )
     assert failed == ["text-indent"]
-    para_cur.setPropertyValue.assert_has_calls([
+    para_el = para_cur.createEnumeration.return_value.nextElement.return_value
+    para_el.setPropertyValue.assert_has_calls([
         call("ParaLeftMargin", 3250),
         call("ParaAdjust", 0),
     ], any_order=True)
@@ -906,8 +909,8 @@ def test_apply_block_lo_styles_background_color_missing_para_obj_fails():
 
     para_cur = MagicMock()
     text.createTextCursorByRange.side_effect = [walk_cur, para_cur]
-    # No enumeration available on cursor so para_obj cannot be resolved
-    para_cur.createEnumeration.return_value = None
+    # The paragraph cursor enumerates nothing, so there is no paragraph to format.
+    para_cur.createEnumeration.return_value.hasMoreElements.return_value = False
 
     failed = html_import_styles._apply_block_lo_styles(
         model, text, MagicMock(), [None], paras=["background-color:#ffe4c4"]
@@ -920,21 +923,31 @@ def test_apply_para_props_split_helper():
     from plugin.writer.html_import_styles import _apply_para_props, _get_fill_style_enums
 
     solid_style, _none_style = _get_fill_style_enums()
-    para_cur = MagicMock()
     para_obj = MagicMock()
 
     mapped = {
         "text-align": ("ParaAdjust", 3),
         "background-color": ("ParaBackColor", 0xFFE4C4),
     }
-    failed = _apply_para_props(para_cur, para_obj, mapped)
+    failed = _apply_para_props(para_obj, mapped)
     assert failed == []
-    para_cur.setPropertyValue.assert_called_once_with("ParaAdjust", 3)
     para_obj.setPropertyValue.assert_has_calls([
         call("ParaAdjust", 3),
         call("FillColor", 0xFFE4C4),
         call("FillStyle", solid_style),
     ], any_order=True)
+
+
+def test_declared_para_names_flattens_lists_in_order_and_skips_none():
+    """Unapplied declarations are reported in document order across all lists; blocks
+    without data-lo-para (None) and empty strings contribute nothing."""
+    from plugin.writer.html_import_styles import declared_para_names
+
+    assert declared_para_names(
+        ["margin-left:1cm; text-align:center", None, ""],
+        ["color:#ff0000"],
+    ) == ["margin-left", "text-align", "color"]
+    assert declared_para_names([]) == []
 
 
 def test_parse_data_lo_para_duplicate_properties_keeps_first():

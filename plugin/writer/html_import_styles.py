@@ -15,11 +15,14 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, ClassVar, final
+from typing import TYPE_CHECKING, Any, ClassVar, final
 
 from plugin.framework.errors import reraise_if_disposed, uno_read
 
 from . import xhtml_style_postprocess as xhtml_post
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
 
 log = logging.getLogger("writeragent.writer")
 
@@ -83,6 +86,9 @@ def parse_data_lo_para(css: str) -> tuple[dict[str, tuple[str, Any]], list[str]]
     mapped, unrecognised property names, or mapped properties with invalid values are
     returned in dropped_css_names in the order they were declared.
     """
+    # Guarded because LibrePy ships this module without styles.py. In practice the guard
+    # only satisfies test_librepy_shipped_function_level_imports_are_safe: the one caller,
+    # _apply_block_lo_styles, already returns before parsing when styles.py is missing.
     try:
         from .styles import _para_adjust_to_uno, _style_color_to_uno
     except ImportError:
@@ -300,14 +306,17 @@ def unapplied_para_names_for_content(content: str) -> list[str]:
     if "data-lo-para" not in content:
         return []
     _clean, _styles, paras, skipped = _extract_block_lo_styles(content)
-    unapplied: list[str] = []
-    for p in paras:
-        if p:
-            unapplied.extend(_declaration_names(p))
-    for s in skipped:
-        if s:
-            unapplied.extend(_declaration_names(s))
-    return unapplied
+    return declared_para_names(paras, skipped)
+
+
+def declared_para_names(*css_lists: Iterable[str | None]) -> list[str]:
+    """Return every property name declared across lists of data-lo-para strings, in order.
+
+    Used whenever a whole set of declarations is reported as not applied: blocks the
+    cursor walk never reached, targets that do not apply paragraph formatting, or a build
+    without the styles module. ``None`` entries (blocks without the attribute) are skipped.
+    """
+    return [name for css_list in css_lists for css in css_list if css for name in _declaration_names(css)]
 
 
 def _get_fill_style_enums() -> tuple[Any, Any]:
@@ -319,22 +328,18 @@ def _get_fill_style_enums() -> tuple[Any, Any]:
     )
 
 
-def _apply_para_props(
-    para_cur: Any,
-    para_obj: Any,
-    mapped: dict[str, tuple[str, Any]],
-) -> list[str]:
-    """Apply parsed UNO paragraph properties to *para_cur* and background fill to *para_obj*.
+def _apply_para_props(para_obj: Any, mapped: dict[str, tuple[str, Any]]) -> list[str]:
+    """Apply parsed UNO paragraph properties to one Writer paragraph (``SwXParagraph``).
 
-    Returns a list of CSS property names that failed to apply.
+    Everything is set on the paragraph element, not on a text cursor: the paragraph is the
+    only object that exposes the drawing-fill properties a background needs (see below), and
+    it accepts ParaAdjust and the margins just as well. Returns the CSS property names that
+    failed to apply.
     """
     failed: list[str] = []
     for css_name, (uno_prop, val) in mapped.items():
         try:
             if css_name == "background-color":
-                if para_obj is None:
-                    failed.append(css_name)
-                    continue
                 # Setting ParaBackColor on a cursor only writes RES_BACKGROUND without
                 # converting to fill attributes (only SwXStyle::SetPropertyValue in
                 # sw/source/core/unocore/unostyle.cxx converts RES_BACKGROUND to drawing fill).
@@ -352,9 +357,7 @@ def _apply_para_props(
                     para_obj.setPropertyValue("FillColor", val)
                     para_obj.setPropertyValue("FillStyle", solid_style)
             else:
-                para_cur.setPropertyValue(uno_prop, val)
-                if para_obj is not None:
-                    para_obj.setPropertyValue(uno_prop, val)
+                para_obj.setPropertyValue(uno_prop, val)
         except Exception as exc:
             reraise_if_disposed(exc)
             log.debug("data-lo-para: failed to set %s (%s)", uno_prop, css_name, exc_info=True)
@@ -378,15 +381,14 @@ def _apply_block_lo_styles(
     style so style application does not overwrite them. Returns CSS property names that
     could not be applied.
     """
+    # LibrePy ships this module without styles.py (scripts/librepy_bundle_paths.py), so the
+    # import fails there and no paragraph formatting is applied; every declaration is then
+    # reported as not applied. test_librepy_shipped_function_level_imports_are_safe checks
+    # that this import stays guarded.
     try:
         from .styles import apply_paragraph_style_preserving_direct_char
     except ImportError:
-        failed_import: list[str] = []
-        if paras:
-            for p in paras:
-                if p:
-                    failed_import.extend(_declaration_names(p))
-        return failed_import
+        return declared_para_names(paras or [])
 
     fam = uno_read(lambda: model.getStyleFamilies().getByName("ParagraphStyles"), None)
     element_names: list[str] = uno_read(lambda: list(fam.getElementNames()), []) if fam is not None else []
@@ -399,10 +401,7 @@ def _apply_block_lo_styles(
         walk_cur.gotoStartOfParagraph(False)
     except Exception as exc:
         reraise_if_disposed(exc)
-        for p in para_list:
-            if p:
-                failed.extend(_declaration_names(p))
-        return failed
+        return declared_para_names(para_list)
 
     style_cache: dict[Any, Any] = {}
     reached_count = 0
@@ -437,27 +436,21 @@ def _apply_block_lo_styles(
             mapped, dropped = parse_data_lo_para(para_css)
             failed.extend(dropped)
             if mapped:
+                # A cursor spanning just this paragraph enumerates exactly one element: the
+                # SwXParagraph at the walk position, never a paragraph elsewhere in the document.
                 try:
                     para_cur = text_obj.createTextCursorByRange(walk_cur.getStart())
                     para_cur.gotoEndOfParagraph(True)
-                    para_obj = None
-                    try:
-                        enum = para_cur.createEnumeration()
-                        if enum is not None and getattr(enum, "hasMoreElements", lambda: False)():
-                            el = enum.nextElement()
-                            if getattr(el, "supportsService", lambda _: False)("com.sun.star.text.Paragraph") is True:
-                                para_obj = el
-                            elif el is not None:
-                                para_obj = el
-                    except Exception as exc:
-                        reraise_if_disposed(exc)
-                        log.debug("data-lo-para: could not enumerate paragraph object: %s", exc)
-
-                    failed.extend(_apply_para_props(para_cur, para_obj, mapped))
+                    enum = para_cur.createEnumeration()
+                    para_obj = enum.nextElement() if enum.hasMoreElements() else None
                 except Exception as exc:
                     reraise_if_disposed(exc)
-                    log.debug("data-lo-para: cursor creation failed", exc_info=True)
+                    log.debug("data-lo-para: could not resolve the paragraph", exc_info=True)
+                    para_obj = None
+                if para_obj is None:
                     failed.extend(mapped.keys())
+                else:
+                    failed.extend(_apply_para_props(para_obj, mapped))
 
         try:
             if not walk_cur.gotoNextParagraph(False):
@@ -466,8 +459,5 @@ def _apply_block_lo_styles(
             reraise_if_disposed(exc)
             break
 
-    for p in para_list[reached_count:]:
-        if p:
-            failed.extend(_declaration_names(p))
-
+    failed.extend(declared_para_names(para_list[reached_count:]))
     return failed

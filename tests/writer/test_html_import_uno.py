@@ -565,5 +565,38 @@ def test_apply_data_lo_para_insert_at_end_with_background_color_uno(ctx: Any, do
     assert int(p_appended.getPropertyValue("ParaBackColor")) == 0xFFE4C4
 
 
+@native_test
+@with_native_doc("writer")
+def test_apply_data_lo_para_insert_at_beginning_with_margin_uno(ctx: Any, doc: Any) -> None:
+    """data-lo-para on a 'beginning' insert formats only the new first paragraph.
 
+    The beginning target prepares an empty absorb paragraph before the import, so this is
+    the path where an off-by-one in the cursor walk would put the margin on the paragraph
+    that was already in the document.
+    """
+    skip_windows_leftover_hidden_load("apply_document_content Hidden _default swriter")
+    from plugin.tests.testing_utils import TestingFactory
+    from plugin.writer.apply_document_content import ApplyDocumentContent
 
+    doc.getText().setString("Existing paragraph")
+    tool_ctx = TestingFactory.create_context(doc=doc, ctx=ctx, env="native")
+
+    html = '<p data-lo-para="margin-left:1cm">Prepended paragraph</p>'
+    res = ApplyDocumentContent().execute(tool_ctx, target="beginning", content=html)
+    assert res.get("status") == "ok", res
+    assert "warnings" not in res, res
+
+    paras = []
+    enum = doc.getText().createEnumeration()
+    while enum.hasMoreElements():
+        el = enum.nextElement()
+        if el.supportsService("com.sun.star.text.Paragraph"):
+            paras.append(el)
+
+    p_new = next((p for p in paras if "Prepended paragraph" in p.getString()), None)
+    assert p_new is not None, [p.getString() for p in paras]
+    assert p_new.getPropertyValue("ParaLeftMargin") == 1000
+
+    p_old = next((p for p in paras if "Existing paragraph" in p.getString()), None)
+    assert p_old is not None, [p.getString() for p in paras]
+    assert p_old.getPropertyValue("ParaLeftMargin") == 0
