@@ -208,7 +208,7 @@ def test_writer_apply_document_math_latex_rules_document_only():
     assert "Math (CRITICAL)" not in HTML_FRAGMENT_RULES
     assert "HTML in old_content is matched as plain text" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "target='search' also edits headers and footers" in WRITER_APPLY_DOCUMENT_HTML_RULES
-    assert "honored on target='full_document', 'beginning', and 'end'" in WRITER_APPLY_DOCUMENT_HTML_RULES
+    assert "honored on target='full_document', 'beginning', and 'end'; also on 'selection'/'search'" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "middle line must equal a whole paragraph" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "Landmark-to-landmark replace: pass start_anchor and end_anchor" in WRITER_APPLY_DOCUMENT_HTML_RULES
     assert "interior line" not in WRITER_APPLY_DOCUMENT_HTML_RULES

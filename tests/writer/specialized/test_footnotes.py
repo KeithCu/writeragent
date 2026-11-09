@@ -94,10 +94,11 @@ def test_footnotes_insert_with_insert_after_text():
     )
 
     assert res["status"] == "ok"
+    assert res["matched_case_sensitive"] is False
     doc.createSearchDescriptor.assert_called_once()
     assert sd.SearchRegularExpression is True
     assert sd.SearchString == escape_for_lo_regex("This is a test.")
-    assert sd.SearchCaseSensitive is True
+    assert sd.SearchCaseSensitive is False
     doc.findFirst.assert_called_once_with(sd)
     text_mock.createTextCursorByRange.assert_called_once_with(found_range)
     t_cursor.collapseToEnd.assert_called_once()
@@ -178,6 +179,7 @@ def test_footnotes_insert_anchor_no_match():
         insert_after="not in document",
     )
     assert res["status"] == "error"
+    assert res["matched_case_sensitive"] is False
     assert "No match" in res["message"]
 
 
@@ -197,6 +199,7 @@ def test_footnotes_insert_anchor_occurrence_too_high():
         occurrence=1,
     )
     assert res["status"] == "error"
+    assert res["matched_case_sensitive"] is False
     assert "not enough occurrences" in res["message"]
 
 

@@ -55,6 +55,7 @@ def test_target_params() -> None:
     props = target_params("the table")
     assert "target" in props
     assert "old_content" in props
+    assert "case_sensitive" in props
     assert props["target"] == {
         "type": "string",
         "enum": INSERT_TARGETS,
@@ -64,6 +65,7 @@ def test_target_params() -> None:
         "type": "string",
         "description": "Text to find and replace if target = 'search'.",
     }
+    assert props["case_sensitive"]["type"] == "boolean"
 
 
 def test_target_params_extra_kwargs() -> None:

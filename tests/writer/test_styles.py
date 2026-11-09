@@ -898,6 +898,7 @@ def test_apply_style_all_matches_applies_to_each():
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", all_matches=True)
     assert res["status"] == "ok" and res["applied_count"] == 3
+    assert res["normalized_old_content"] == "Title"
     assert ap.call_count == 3
 
 def test_apply_style_all_matches_does_not_abort_on_stop_checker():
@@ -929,6 +930,37 @@ def test_apply_style_occurrence_out_of_range():
         res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
                                    old_content="Title", occurrence=5)
     assert res["status"] == "error" and "out of range" in res["message"]
+    assert res["normalized_old_content"] == "Title"
+
+
+def test_apply_style_search_miss_reports_normalized_and_closest():
+    from plugin.writer.styles import ApplyStyle
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.search.search_closest_mismatch", return_value={"message": "closest match starts 'Title…', differs at character 4: e vs x", "closest_match": "Title…", "diff_at": 4}), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "error"
+    assert res["normalized_old_content"] == "Title"
+    assert "closest match starts 'Title…', differs at character 4: e vs x" in res["message"]
+    assert res["closest_match"] == "Title…"
+    assert res["diff_at"] == 4
+
+
+def test_apply_style_search_oversized_refused():
+    from plugin.writer.styles import ApplyStyle
+
+    with patch("plugin.writer.search.find_all_ranges", return_value=[]), \
+         patch("plugin.writer.search.old_content_covers_most", return_value=True), \
+         patch("plugin.writer.search.normalize_search_string_for_find", side_effect=lambda s: s), \
+         patch("plugin.writer.html_import.content_has_markup", return_value=False):
+        res = ApplyStyle().execute(_style_ctx(), style="Heading 1", target="search",
+                                   old_content="Title", all_matches=True)
+    assert res["status"] == "error"
+    assert res["normalized_old_content"] == "Title"
+    assert "target='full_document'" in res["message"]
 
 # ---- 8) recoverable error messages ----------------------------------------------
 
@@ -1555,4 +1587,51 @@ def test_style_list_calc_cell_styles_returns_entries():
     assert res["status"] == "ok"
     assert res["count"] == 1
     assert res["styles"][0]["name"] == "Good"
+
+
+def test_apply_style_case_sensitive_target_search():
+    """ApplyStyle target='search' threads case_sensitive to resolve_target_cursor."""
+    from plugin.writer.styles import ApplyStyle
+
+    ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
+    cursor = MagicMock()
+
+    with patch("plugin.writer.styles.resolve_target_cursor", return_value=cursor) as mock_resolve, \
+         patch.object(ApplyStyle, "_apply_one", return_value=None):
+        # Default omitted case_sensitive
+        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple")
+        assert res_default["status"] == "ok"
+        mock_resolve.assert_called_with(ctx, "search", "apple", case_sensitive=None)
+
+        # Explicit case_sensitive=True
+        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", case_sensitive=True)
+        assert res_cs["status"] == "ok"
+        mock_resolve.assert_called_with(ctx, "search", "apple", case_sensitive=True)
+
+
+def test_apply_style_case_sensitive_occurrence():
+    """ApplyStyle target='search' with occurrence threads case_sensitive to find_all_ranges."""
+    from plugin.writer.styles import ApplyStyle
+
+    ctx = _ctx_with_families(ParagraphStyles=_style_family({"Heading 1": create_mock_style("Heading 1")}))
+    r1 = MagicMock()
+    r2 = MagicMock()
+
+    calls = []
+
+    def fake_find_all(doc, s, *, case_sensitive=False):
+        calls.append((s, case_sensitive))
+        return [r1, r2]
+
+    with patch("plugin.writer.search.find_all_ranges", side_effect=fake_find_all), \
+         patch("plugin.writer.styles.cursor_spanning_range", return_value=MagicMock()), \
+         patch.object(ApplyStyle, "_apply_one", return_value=None):
+        res_default = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", occurrence=0)
+        assert res_default["status"] == "ok"
+        assert calls[-1] == ("apple", False)
+
+        res_cs = ApplyStyle().execute(ctx, style="Heading 1", target="search", old_content="apple", occurrence=0, case_sensitive=True)
+        assert res_cs["status"] == "ok"
+        assert calls[-1] == ("apple", True)
+
 

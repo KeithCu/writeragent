@@ -337,7 +337,7 @@ class InsertField(ToolWriterMailMergeBase):
             return self._tool_error("Document does not support creating UNO instances.")
 
         try:
-            cursor = resolve_target_cursor(ctx, target, old_content)
+            cursor = resolve_target_cursor(ctx, target, old_content, case_sensitive=kwargs.get("case_sensitive"))
         except ValueError as ve:
             return self._tool_error(str(ve))
 

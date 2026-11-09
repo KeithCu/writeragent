@@ -887,6 +887,8 @@ def test_page_break_before_text_sets_break_on_match_paragraph():
     doc, para = _pagebreak_doc()
     res = PageInsertBreak().execute(SimpleNamespace(doc=doc), before_text="Assinaturas")
     assert res["status"] == "ok" and "before" in res["message"]
+    assert doc.createSearchDescriptor.return_value.SearchCaseSensitive is False
+    assert res["matched_case_sensitive"] is False
     para.setPropertyValue.assert_called_once_with("BreakType", "PAGE_BEFORE")
     para.gotoNextParagraph.assert_not_called()
 
@@ -904,8 +906,9 @@ def test_page_break_page_style_sets_page_desc_name_on_match_paragraph():
     )
     assert res["status"] == "ok"
     assert "before" in res["message"]
-    assert set(res) == {"status", "message", "page_style"}
+    assert set(res) == {"status", "message", "page_style", "matched_case_sensitive"}
     assert res["page_style"] == "Annex"
+    assert res["matched_case_sensitive"] is False
     para.setPropertyValue.assert_has_calls([call("BreakType", "PAGE_BEFORE"), call("PageDescName", "Annex")])
     assert para.setPropertyValue.call_count == 2
     para.gotoNextParagraph.assert_not_called()
@@ -936,9 +939,10 @@ def test_page_break_restart_sets_page_number_offset():
     )
     assert res["status"] == "ok"
     assert "after" in res["message"]
-    assert set(res) == {"status", "message", "page_style", "restart_page_number"}
+    assert set(res) == {"status", "message", "page_style", "restart_page_number", "matched_case_sensitive"}
     assert res["page_style"] == "Annex"
     assert res["restart_page_number"] == 1
+    assert res["matched_case_sensitive"] is False
     para.gotoNextParagraph.assert_called_once()
     para.setPropertyValue.assert_has_calls([
         call("BreakType", "PAGE_BEFORE"),
@@ -1346,6 +1350,31 @@ def test_replace_header_footer_occurrence_and_all_matches():
     doc_past, _text_past = _replace_doc(portions, hay=hay)
     past = _replace(doc_past, old_content="Annex", content="Appendix", occurrence=5)
     assert past["status"] == "error" and "past the end" in past["message"]
+
+
+def test_fold_case_sensitivity():
+    from plugin.writer.page import _fold
+
+    # Default / insensitive: lowercases matching length
+    assert _fold("Hello World", "hello", case_sensitive=False) == ("hello world", "hello")
+    # Case-sensitive: keeps exact casing
+    assert _fold("Hello World", "hello", case_sensitive=True) == ("Hello World", "hello")
+    # Length-changing lower (Turkish İ lowers to i + combining dot, changing length)
+    # stays exact compare to keep character offset alignments accurate
+    turkish_i = "\u0130"
+    assert _fold(turkish_i, turkish_i, case_sensitive=False) == (turkish_i, turkish_i)
+
+
+def test_replace_header_footer_default_case_insensitive():
+    portions = [_text_portion("Hello World")]
+    hay = "Hello World"
+    doc, text_obj = _replace_doc(portions, hay=hay)
+    seen = _cursors_for(text_obj, hay)
+    res = _replace(doc, old_content="hello", content="Hi")
+    assert res["status"] == "ok"
+    assert res["replaced_count"] == 1
+    assert res["matched_case_sensitive"] is False
+    assert len(seen) == 1 and seen[0].written == "Hi"
 
 
 def test_replace_header_footer_counts_a_field_as_one_cursor_step():

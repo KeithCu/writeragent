@@ -36,7 +36,7 @@ from plugin.calc.python.addin_values import (
     is_scalar_index_arg,
     py_addin_cell_value,
 )
-from plugin.calc.python.image_egress import insert_image_result_on_sheet
+from plugin.calc.python.image_egress import ImageEgressError, insert_image_result_on_sheet
 from plugin.calc.python.spill import (
     PreparedSpill,
     _cell_is_matrix,
@@ -508,8 +508,17 @@ def _execute_python_addin_impl(ctx: Any, code: str, data: Any = None, *, doc: An
             _record_py_diagnostic(ctx, code, res, status="ok", doc=target_doc, workbook_key=cell_ctx.diag_workbook_key)
             images = find_image_payloads(result)
             if images:
+                # Every slot is processed even when one fails, so later plots still refresh
+                # instead of keeping the previous run's pictures. The first failure is then
+                # raised and becomes the cell's error text.
+                first_error: ImageEgressError | None = None
                 for i, img in enumerate(images):
-                    insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
+                    try:
+                        insert_image_result_on_sheet(ctx, img, code=code, doc=target_doc, image_index=i, image_count=len(images), notify_cell=True)
+                    except ImageEgressError as err:
+                        first_error = first_error or err
+                if first_error is not None:
+                    raise first_error
                 return _("Image inserted") if len(images) == 1 else _("Images inserted")
             return finalize_python_return(cell_ctx, result, index_arg=index_arg, worker_data=worker_data, data_token=data_token)
 

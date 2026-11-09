@@ -64,14 +64,20 @@ def test_apply_document_content_anchor_range_replace_uno(ctx, doc):
 @native_test
 @with_native_doc("writer")
 def test_apply_document_content_anchor_range_plain_text_uno(ctx, doc):
-    """Plain-text content across paragraphs uses the format-preserving path."""
+    """Plain-text content across an anchor range is imported as new paragraphs without format preservation."""
     text = doc.getText()
     cursor = text.createTextCursor()
     cursor.gotoEnd(False)
 
     text.insertString(cursor, "Start Landmark", False)
     text.insertControlCharacter(cursor, 0, False)
+    cursor.setPropertyValue("CharWeight", 150.0)
     text.insertString(cursor, "Old intermediate content", False)
+    cursor.setPropertyValue("CharWeight", 100.0)
+    text.insertControlCharacter(cursor, 0, False)
+    cursor.setPropertyValue("ParaStyleName", "Heading 2")
+    text.insertString(cursor, "Heading Slice", False)
+    cursor.setPropertyValue("ParaStyleName", "Standard")
     text.insertControlCharacter(cursor, 0, False)
     text.insertString(cursor, "End Landmark", False)
     text.insertControlCharacter(cursor, 0, False)
@@ -86,14 +92,36 @@ def test_apply_document_content_anchor_range_plain_text_uno(ctx, doc):
 
     assert res.get("status") == "ok", res
     assert res.get("replaced_count") == 1, res
-    assert "formatting preserved" in res.get("message", "")
+    assert res.get("message") == "Replaced the range from start_anchor through end_anchor."
+    assert "formatting preserved" not in res.get("message", "")
     body = doc.getText().getString()
     assert "New paragraph one" in body
     assert "New paragraph two" in body
     assert "Keep text after" in body
     assert "Old intermediate content" not in body
+    assert "Heading Slice" not in body
     assert "Start Landmark" not in body
     assert "End Landmark" not in body
+
+    enum = doc.getText().createEnumeration()
+    non_empty_before_keeper = []
+    while enum.hasMoreElements():
+        para = enum.nextElement()
+        if not para.supportsService("com.sun.star.text.Paragraph"):
+            continue
+        para_str = para.getString().strip()
+        if "Keep text after" in para_str:
+            break
+        if para_str:
+            non_empty_before_keeper.append(para)
+
+    assert len(non_empty_before_keeper) == 2
+    for p in non_empty_before_keeper:
+        assert p.getPropertyValue("ParaStyleName") == "Text body"
+        portion_enum = p.createEnumeration()
+        while portion_enum.hasMoreElements():
+            portion = portion_enum.nextElement()
+            assert portion.getPropertyValue("CharWeight") < 150.0
 
 
 @native_test

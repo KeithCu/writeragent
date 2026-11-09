@@ -183,7 +183,7 @@ def test_extract_autostyle_overrides_reads_only_the_direct_values():
 
 
 def test_whole_paragraph_override_is_reported_from_the_fodt_map():
-    """The paragraph geometry AND its hand-set font reach the agent as read-only data-lo-para --
+    """The paragraph geometry AND its hand-set font reach the agent via data-lo-para --
     without it an indented block quote is indistinguishable from body text."""
     out = xhtml_to_semantic_html(REFERENCE_XHTML, None, _parse_fodt_autostyles(_FODT_OVERRIDES)[1])
     line = next(ln for ln in out.splitlines() if "centered red whole paragraph" in ln)
